@@ -36,6 +36,14 @@ trait TimedActionContext extends ComponentContext:
   /** How many times this timer has already been attempted and failed. */
   def previousAttempts: Int
 
+  /**
+   * The due time this run is for. A retry is told the due time of the attempt that failed, so it is
+   * the same on every run for one due, and a key to make a repeated run safe with. For a recurring
+   * timer, successive values are its first due plus a whole number of periods. It is not when the
+   * handler was called: the sweeper polls, so a run starts up to a poll interval later.
+   */
+  def dueTime: java.time.Instant
+
   /** The service's secret store. */
   def secrets: SecretStore
 
@@ -47,6 +55,7 @@ private[ankka] final case class SimpleTimedActionContext(
     componentClient: ComponentClient,
     timerName: String,
     previousAttempts: Int,
+    dueTime: java.time.Instant,
     secrets: SecretStore,
     services: ServiceClients
 ) extends TimedActionContext
@@ -107,10 +116,31 @@ trait TimerScheduler:
       call: DeferredCall
   ): Unit
 
-  /** Cancels a timer. Cancelling one that does not exist is not an error. */
+  /**
+   * Schedules `call` to run first after `delay` and then once every `period`, until it is deleted
+   * or replaced. Each next due is the previous due plus the period, never the time the handler
+   * finished; when that has already passed — the service was down, the handler kept failing, or a
+   * run outlasted a period — the next due is the first cadence point still to come, and the periods
+   * between are not fired. A delay of zero or less is due at once.
+   *
+   * Scheduling again under a name that already holds a recurring timer for the same handler with
+   * the same period keeps its next due and takes the new payload, so this is safe to call every
+   * time a service starts. Anything else under an existing name replaces it.
+   *
+   * A period is from one millisecond to 36,500 days; anything else is refused before anything is
+   * stored.
+   */
+  def createRecurringTimer(
+      name: String,
+      delay: scala.concurrent.duration.FiniteDuration,
+      period: scala.concurrent.duration.FiniteDuration,
+      call: DeferredCall
+  ): Unit
+
+  /** Cancels a timer, of either kind. Cancelling one that does not exist is not an error. */
   def delete(name: String): Unit
 
-  /** Whether a timer with this name is still scheduled. */
+  /** Whether a timer with this name is still scheduled, of either kind. */
   def exists(name: String): Boolean
 
 object TimedAction:

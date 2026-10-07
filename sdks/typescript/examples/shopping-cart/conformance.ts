@@ -248,6 +248,11 @@ export class Reminder extends TimedAction {
       await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke("reminded")
       return r.effects.done()
     }),
+    // Records the due time it was run for, as the runtime told it.
+    tick: action("tick", s.string, async (r: Reminder, id) => {
+      await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke(`due:${r.dueTime?.getTime()}`)
+      return r.effects.done()
+    }),
   }
 }
 
@@ -452,6 +457,25 @@ export class ConformanceEndpoint extends Endpoint {
     checkoutStatus: get("/checkout/{id}", s.string, async (ep: ConformanceEndpoint, req) => (await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.status).invoke()).status),
     remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
+      return done
+    }),
+    // A recurring timer: due at once, then every second.
+    recur: post("/recur/{id}", Done, async (ep: ConformanceEndpoint, req) => {
+      await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
+      return done
+    }),
+    // The same timer set again, with a delay a replacement would be first due after.
+    recurAgain: post("/recur/{id}/again", Done, async (ep: ConformanceEndpoint, req) => {
+      await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ofSeconds(60), Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
+      return done
+    }),
+    recurCancel: post("/recur/{id}/cancel", Done, async (ep: ConformanceEndpoint, req) => {
+      await ep.client.timers.cancel(`recur-${req.params.id}`)
+      return done
+    }),
+    // A period of zero: the SDK's CommandError(BAD_REQUEST) becomes a 400 carrying its message.
+    recurRefused: post("/recur-refused/{id}", Done, async (ep: ConformanceEndpoint, req) => {
+      await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ZERO, { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
       return done
     }),
     ask: post("/ask/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.ask).invoke(question)),

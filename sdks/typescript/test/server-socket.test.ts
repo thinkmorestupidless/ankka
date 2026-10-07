@@ -5,6 +5,7 @@ import assert from "node:assert/strict"
 import { create } from "@bufbuild/protobuf"
 import { ConnectError, Code } from "@connectrpc/connect"
 import { Ankka } from "../src/service.ts"
+import { PROTOCOL_VERSION } from "../src/spec.ts"
 import { noClient } from "../src/client.ts"
 import { Endpoint } from "../src/endpoint.ts"
 import { Acl, get, socket } from "../src/routes.ts"
@@ -52,7 +53,8 @@ describe("HandleSocket", () => {
     const chat = spec.endpoints.find((e) => e.id === "Rooms")!.routes.find((r) => r.id === "chat")!
     assert.equal(chat.socket, true)
     assert.equal(chat.method, "GET")
-    assert.equal(spec.protocolVersion, "1.11")
+    // What the SDK declares, which is its own version, whatever the runtime asked with.
+    assert.equal(spec.protocolVersion, PROTOCOL_VERSION)
     await assert.rejects(started.discovery.discover({ protocolVersion: "1.8" }), (e: unknown) =>
       e instanceof ConnectError && e.code === Code.FailedPrecondition && e.message.includes("1.9"),
     )

@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.10`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.12`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -29,7 +29,9 @@ no message: `request`, which carries `ServiceRequest` and `ServiceReply` across 
 guardrails to an agent: a tool's `approval` and an agent's `mcp_servers` and `result_guardrails` in
 discovery, the `RESULT` stage of `CheckGuardrail`, the `approval` case of `InvokeReply` and
 `StreamToken`, `Decide` on `Client`, and the `event` frame of a stream route, a
-server-sent event of its own name.
+server-sent event of its own name. `1.12` added recurring
+timers: `ScheduleRecurring` on `Client` and the `schedule_recurring` import for a module,
+and `ankka.due` on every timed action request.
 
 `MAJOR.MINOR`. Within a major:
 
@@ -85,9 +87,15 @@ loopback at `ANKKA_SIDECAR_PORT` (9011). Neither ever binds another interface.
   not know as no effect and drops the messages. It fails the request instead, saying which
   version it was given and which it needs. A reply is at most 4 MiB.
 - **A timed action's payload is what the process scheduled**, the `Payload` it put in
-  `Client.Schedule`, carried through the timer table unread; the timer's name and the attempt
-  count arrive as metadata `ankka.timer` and `ankka.attempts`. A `fail`, an exception or an
-  unreachable process is retried on the sweeper's schedule with the count incremented.
+  `Client.Schedule` or `Client.ScheduleRecurring`, carried through the timer table unread; the
+  timer's name, the attempt count and the due time the run is for arrive as metadata
+  `ankka.timer`, `ankka.attempts` and `ankka.due` (epoch milliseconds, as `ankka.now`). A `fail`, an
+  exception or an unreachable process is retried on the sweeper's schedule with the count
+  incremented and the same `ankka.due`.
+- **A recurring timer is a new call, not a field**: `ScheduleRecurring` carries the period. A
+  runtime older than 1.12 answers it `UNIMPLEMENTED`, and an SDK reports that as the runtime being
+  too old for recurring timers; a period added to `ScheduleRequest` would have been read by such a
+  runtime as absent, and the timer scheduled to fire once.
 - **A plan names, it does not carry**: `AgentPlan.model`, `tools` and `guardrails` are names the
   sidecar resolves against its configuration and against what discovery declared. The process is
   called back for a tool with the model's arguments as JSON text, and for a guardrail with the

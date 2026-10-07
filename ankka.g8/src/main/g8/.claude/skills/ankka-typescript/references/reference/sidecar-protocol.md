@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.11"`;
+- its protocol version, `"1.12"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -70,6 +70,7 @@ The table is generated from the `.proto` files.
 | `Client` | `DeleteSecret` | `DeleteSecretRequest` | `DeleteSecretReply` | `client.proto` |
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
 | `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
+| `Client` | `ScheduleRecurring` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -187,7 +188,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.11`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.12`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -211,7 +212,12 @@ the `RESULT` stage of `CheckGuardrail` with the MCP tool it checks, the `approva
 decision, and the `event` case of `StreamFrame`, which sends a server-sent event under a name of its own — an
 approval request, say — from a stream route. The sidecar connects to the MCP servers and enforces approval itself: a process is never asked to
 run an MCP server's tool, nor a tool that awaits a decision. A process built for `1.11` that decides on an
-earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too old.
+earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too old. `1.12` added recurring timers:
+`ScheduleRecurring` on `Client`, with a delay and a period and a refusal in its reply, and `ankka.due` on every
+timed action's request. A recurring timer is a call of its own rather than a field on `ScheduleRequest`
+because an earlier runtime reads a field it does not know as absent, and would schedule a timer meant to
+recur to fire once; it answers the call `UNIMPLEMENTED` instead, which each SDK reports as the runtime being
+too old for recurring timers.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.
@@ -257,8 +263,10 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   version it was given and which it needs. A handler that returns one message with no key is answered as
   `produce`, and one that returns none as `done`, on a runtime of any version.
 - **A timed action's payload is what the process scheduled**, carried through the timer table unread. The
-  timer's name and the attempt count arrive as metadata `ankka.timer` and `ankka.attempts`. A `fail`, an
-  exception or an unreachable process is retried on the sweeper's schedule with the count incremented.
+  timer's name, the attempt count and the due time the run is for arrive as metadata `ankka.timer`,
+  `ankka.attempts` and `ankka.due`, the last in milliseconds since the epoch. A `fail`, an exception or an
+  unreachable process is retried on the sweeper's schedule with the count incremented and the same
+  `ankka.due`.
 - **An agent plan names; it does not carry.** `AgentPlan.model`, `tools` and `guardrails` are names the
   sidecar resolves against its configuration and against discovery. The process is called back for a tool
   with the model's arguments as JSON text, and for a guardrail with the stage and the text. The loop, the

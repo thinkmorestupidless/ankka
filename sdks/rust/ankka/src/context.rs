@@ -204,6 +204,16 @@ impl Context {
         crate::abi::imports::random(buf)
     }
 
+    /// The due time this timer is run for (`ankka.due`): the same on every retry of one due time,
+    /// and for a recurring timer a whole number of periods from the last. `None` outside a timed
+    /// action, and on a runtime older than protocol 1.12.
+    pub fn due(&self) -> Option<Instant> {
+        self.metadata
+            .get("ankka.due")
+            .and_then(|m| m.parse::<i64>().ok())
+            .map(Instant::from_epoch_millis)
+    }
+
     /// A client for calling other components, carrying this call's metadata on, so a nested call
     /// joins the same trace.
     pub fn client(&self) -> Client {

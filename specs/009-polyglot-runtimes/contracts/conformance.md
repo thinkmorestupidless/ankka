@@ -22,13 +22,13 @@ Every SDK ships one, with these components, wire names and routes. The Scala one
 | `checkout` | workflow | `start` (input `ok`, `fail` or `pause`), `status` (query); steps `reserve` (calls `shopping-cart/total-quantity`), `wait` (a 1.5s pause, then `charge`), `charge` (declined when the input said `fail`), `compensate` |
 | `cart-rows` | view over `shopping-cart` | query `by-id` |
 | `checkout-recorder` | consumer over `shopping-cart` | records checkouts to `conformance` via the client |
-| `reminder` | timed action | `remind` (invokes `conformance/record`) |
+| `reminder` | timed action | `remind` (invokes `conformance/record`); `tick` (records `due:<ankka.due>` on `conformance/record`) — since protocol 1.11 |
 | `assistant` | agent | `ask`, `stream` (streaming); tool `lookup` (calls `conformance/count`); guardrail `no-secrets` |
 
 | endpoint | prefix | routes |
 |---|---|---|
 | `carts` | `/carts` | `POST /{cartId}/items`, `DELETE /{cartId}/items/{productId}`, `POST /{cartId}/checkout`, `GET /{cartId}`, `GET /{cartId}/rows` (the view), `GET /awkward` (a literal beside a parameter) |
-| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws), `POST /secrets?name=` (keeps the text body as a service secret; 204), `GET /secrets?name=` (the value, or 404), `DELETE /secrets?name=` (204) — since protocol 1.4; `POST /service-call?service=&method=&path=&mode=raw\|typed` (calls another service through the SDK's client, sending the body, every `X-Conformance-*` header, and an `X-Ankka-Caller` and a `Host` no handler may send; answers the record `{outcome, status, contentType, body, answer, message}`, where `outcome` is `response`, `failed`, `unresolvable`, `mismatch`, `unanswered` or `refused` and `answer` is the `X-Answer` header the other service set) — since protocol 1.8 |
+| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws), `POST /secrets?name=` (keeps the text body as a service secret; 204), `GET /secrets?name=` (the value, or 404), `DELETE /secrets?name=` (204) — since protocol 1.4; `POST /service-call?service=&method=&path=&mode=raw\|typed` (calls another service through the SDK's client, sending the body, every `X-Conformance-*` header, and an `X-Ankka-Caller` and a `Host` no handler may send; answers the record `{outcome, status, contentType, body, answer, message}`, where `outcome` is `response`, `failed`, `unresolvable`, `mismatch`, `unanswered` or `refused` and `answer` is the `X-Answer` header the other service set) — since protocol 1.8; `POST /recur/{id}` (sets `recur-{id}` to recur every 1,000 ms from now, for `reminder/tick`), `POST /recur/{id}/again` (the same, with a delay of 60 s), `POST /recur/{id}/cancel`, `POST /recur-refused/{id}` (the same with a period of 0; 400 with the refusal's message) — since protocol 1.11 |
 | `private` | `/private` | `GET /` with `acl = AUTHENTICATED` |
 
 ## Targets
@@ -110,6 +110,11 @@ Each is one munit case whose name is the identifier below, so a failure names th
 **Timed action**
 - `timer.fires` — `remind` scheduled for 1s; `count` increments within 5s.
 - `timer.fires-after-process-restart` (process targets) — scheduled, process restarted, still fires.
+- `timer.recurring.cadence` — three `due:` records, each 1,000 after the one before.
+- `timer.recurring.due-time` — the `due:` records are on the grid of the timer table's next due, which is after them all.
+- `timer.recurring.set-again` — after `/again`, two more `due:` records arrive within seconds, on the same grid: a replacement would not run for a minute.
+- `timer.recurring.cancel` — after `/cancel` the timer is gone, and no run starts after it.
+- `timer.recurring.refused` — 400, the body names `recur-{id}`, and there is no timer.
 
 **HTTP endpoints**
 - `http.path-params-bind` — `GET /carts/c1` reaches the handler with `c1`.

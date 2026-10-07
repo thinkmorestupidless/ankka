@@ -36,6 +36,9 @@ private[ankka] object TimerSweeper:
   val TimerNameKey: String = "ankka.timer"
   val AttemptsKey: String  = "ankka.attempts"
 
+  /** The due time the run is for, in milliseconds since the epoch, as `ankka.now` is written. */
+  val DueKey: String = "ankka.due"
+
   def apply(
       database: Database,
       actions: Map[ComponentId, ComponentDescriptor],
@@ -43,7 +46,8 @@ private[ankka] object TimerSweeper:
       secrets: SecretStore,
       services: ServiceClients,
       conversation: Option[Conversation],
-      pollInterval: FiniteDuration
+      pollInterval: FiniteDuration,
+      observer: TimerObserver = TimerObserver.none
   ): Behavior[Nothing] =
     Behaviors
       .setup[Command] { ctx =>
@@ -60,7 +64,8 @@ private[ankka] object TimerSweeper:
           services,
           conversation,
           ctx.system.executionContext,
-          Observability(ctx.system)
+          Observability(ctx.system),
+          observer
         )
 
         Behaviors.withTimers { timers =>
@@ -104,7 +109,8 @@ private[ankka] final class Sweep(
     services: ServiceClients,
     conversation: Option[Conversation],
     ec: ExecutionContext,
-    observability: Observability
+    observability: Observability,
+    observer: TimerObserver = TimerObserver.none
 ):
   private given ExecutionContext = ec
 
@@ -112,71 +118,116 @@ private[ankka] final class Sweep(
 
   private val BatchSize = 100
 
-  /** Fires everything due, returning how many completed. */
+  /**
+   * Fires everything due, returning how many completed.
+   *
+   * On a table from before recurring timers — a local database whose volume predates them — the due
+   * query names columns the table lacks. Such a table can hold only timers that fire once, so they
+   * are read and run as the previous release ran them, and the remedy is said once.
+   */
   def runBatch(): Future[Int] =
+    val now = Instant.now()
     database
-      .query(TimerStore.due(Instant.now(), BatchSize)) { row =>
+      .query(TimerStore.due(now, BatchSize)) { row =>
         DueTimer(
           row.get("timer_name", classOf[String]),
           ComponentId(row.get("component_id", classOf[String])),
           MethodName(row.get("method", classOf[String])),
           row.get("payload", classOf[Array[Byte]]),
-          row.get("attempts", classOf[Integer]).intValue
+          row.get("attempts", classOf[Integer]).intValue,
+          Option(row.get("due_at", classOf[Instant])),
+          Option(row.get("period_millis", classOf[java.lang.Long])).map(_.longValue),
+          Option(row.get("due_for", classOf[Instant]))
         )
+      }
+      .recoverWith {
+        case e: io.r2dbc.spi.R2dbcException if e.getSqlState == "42703" =>
+          TimerRuntime.warnOldTable(TimerRuntime.schemaTooOld(e).message)
+          database.query(TimerStore.legacyDue(now, BatchSize)) { row =>
+            DueTimer(
+              row.get("timer_name", classOf[String]),
+              ComponentId(row.get("component_id", classOf[String])),
+              MethodName(row.get("method", classOf[String])),
+              row.get("payload", classOf[Array[Byte]]),
+              row.get("attempts", classOf[Integer]).intValue,
+              Some(row.get("due_at", classOf[Instant])),
+              None,
+              None,
+              oldTable = true
+            )
+          }
       }
       .flatMap(due => Future.sequence(due.map(fire)).map(_.count(identity)))
 
   private def fire(timer: DueTimer): Future[Boolean] =
     actions.get(timer.componentId) match
       case None =>
-        // The action was removed while a timer for it was still scheduled. Retrying can
-        // never succeed, so drop it rather than spin forever.
-        log.error(
-          "timer '{}' targets timed action '{}', which is not registered; dropping it",
-          timer.name,
-          timer.componentId
-        )
-        drop(timer)
+        // The action was removed while a timer for it was still scheduled — or, for a recurring
+        // timer, this instance is older than the one that set it.
+        notHere(timer, s"timed action '${timer.componentId}', which is not registered")
 
       case Some(descriptor: TimedActionDescriptor[?]) =>
         val typed = descriptor.asInstanceOf[TimedActionDescriptor[TimedAction]]
         typed.handler(timer.method) match
-          case None          => unknownHandler(timer)
+          case None =>
+            notHere(timer, s"'${timer.componentId}#${timer.method}', which does not exist")
           case Some(handler) => run(typed, handler, timer)
 
       case Some(descriptor: RemoteTimedActionDescriptor) =>
         (descriptor.handler(timer.method), conversation) match
-          case (None, _)       => unknownHandler(timer)
+          case (None, _) =>
+            notHere(timer, s"'${timer.componentId}#${timer.method}', which does not exist")
           case (Some(_), None) =>
             // `validate` refused a remote descriptor without a conversation; this is unreachable
             // by construction, and retrying is still right if it ever is reached.
             log.error("timer '{}' targets a remote action but no conversation exists", timer.name)
-            reschedule(timer)
+            failed(timer)
           case (Some(_), Some(conversation)) => runRemote(descriptor, conversation, timer)
 
       case Some(other) =>
-        log.error(
-          "timer '{}' targets '{}', which is a {}, not a timed action; dropping it",
-          timer.name,
-          timer.componentId,
-          other.kind
-        )
-        drop(timer)
+        notHere(timer, s"'${timer.componentId}', which is a ${other.kind}, not a timed action")
 
-  private def unknownHandler(timer: DueTimer): Future[Boolean] =
-    log.error(
-      "timer '{}' targets '{}#{}', which no longer exists; dropping it",
-      timer.name,
-      timer.componentId,
-      timer.method
-    )
-    drop(timer)
+  /**
+   * A timer whose target this instance does not have.
+   *
+   * One that fires once is dropped: retrying can never succeed, and it is far more often a leftover
+   * than a timer ahead of its deploy. A recurring timer is kept and looked at again: a new version
+   * of a service that adds a handler sets its timer at start, while the sweeper may still be on an
+   * instance of the old version, whose registry has no such handler — and a drop there would lose a
+   * timer set seconds earlier. Nothing failed, so its attempt count is not raised.
+   */
+  private def notHere(timer: DueTimer, what: String): Future[Boolean] =
+    timer.recurring match
+      case None =>
+        log.error("timer '{}' targets {}; dropping it", timer.name, what)
+        val dueAt = timer.dueAt.get
+        database
+          .execute(TimerStore.deleteRan(timer.name, dueAt))
+          .map { _ =>
+            observe(timer, FiredTimer.Outcome.Dropped, None)
+            false
+          }
+      case Some((dueFor, period)) =>
+        log.warn(
+          "recurring timer '{}' targets {} on this instance; keeping it and looking again in {}s. " +
+            "If its handler is gone for good, delete the timer",
+          timer.name,
+          what,
+          TimerStore.DeferSeconds
+        )
+        val at = Instant.now().plusSeconds(TimerStore.DeferSeconds)
+        database
+          .execute(TimerStore.defer(timer.name, dueFor, period, at))
+          .map { changed =>
+            observe(timer, FiredTimer.Outcome.Deferred, Option.when(changed > 0)(at))
+            false
+          }
 
   /**
    * A remote action runs in the process: the same span, the same retry and attempt counting as a
-   * Scala one. The payload is what the process scheduled, opaque to the runtime; the timer's name
-   * and attempt count travel as metadata since there is no context object to hand over. A failed
-   * call — the process down, the RPC refused — counts as a handler that threw.
+   * Scala one. The payload is what the process scheduled, opaque to the runtime; the timer's name,
+   * attempt count and due time travel as metadata since there is no context object to hand over. A
+   * failed call — the process down, the RPC refused — counts as a handler that threw.
    */
   private def runRemote(
       descriptor: RemoteTimedActionDescriptor,
@@ -191,7 +242,8 @@ private[ankka] final class Sweep(
       Trace.into(
         Metadata.empty
           .set(TimerSweeper.TimerNameKey, timer.name)
-          .set(TimerSweeper.AttemptsKey, timer.attempts.toString),
+          .set(TimerSweeper.AttemptsKey, timer.attempts.toString)
+          .set(TimerSweeper.DueKey, timer.told.toEpochMilli.toString),
         span.context
       ),
       CallOrigin(descriptor.componentId.toString, timer.method.toString)
@@ -206,8 +258,7 @@ private[ankka] final class Sweep(
         result
       }
       .transformWith {
-        case Success(Right(())) =>
-          database.execute(TimerStore.delete(timer.name)).map(_ => true)
+        case Success(Right(())) => succeeded(timer)
 
         case Success(Left(error)) =>
           log.warn(
@@ -216,14 +267,14 @@ private[ankka] final class Sweep(
             error.message,
             timer.attempts
           )
-          reschedule(timer)
+          failed(timer)
 
         case Failure(NonFatal(failure)) =>
           log.warn(
             s"timer '${timer.name}' could not reach the process; rescheduling with backoff",
             failure
           )
-          reschedule(timer)
+          failed(timer)
 
         case Failure(fatal) => Future.failed(fatal)
       }
@@ -238,6 +289,7 @@ private[ankka] final class Sweep(
       componentClient,
       timer.name,
       timer.attempts,
+      timer.told,
       secrets,
       services
     )
@@ -265,8 +317,7 @@ private[ankka] final class Sweep(
     }(using AnkkaExecutors.virtual)
 
     execution.transformWith {
-      case Success(TimedActionEffect.Done) =>
-        database.execute(TimerStore.delete(timer.name)).map(_ => true)
+      case Success(TimedActionEffect.Done) => succeeded(timer)
 
       case Success(TimedActionEffect.Fail(error)) =>
         log.warn(
@@ -275,25 +326,116 @@ private[ankka] final class Sweep(
           error.message,
           timer.attempts
         )
-        reschedule(timer)
+        failed(timer)
 
       case Failure(NonFatal(failure)) =>
         log.warn(s"timer '${timer.name}' threw; rescheduling with backoff", failure)
-        reschedule(timer)
+        failed(timer)
 
       case Failure(fatal) => Future.failed(fatal)
     }
 
-  private def drop(timer: DueTimer): Future[Boolean] =
-    database.execute(TimerStore.delete(timer.name)).map(_ => false)
+  // Every statement after a run is matched on what was read, never on the name alone: the handler
+  // may have set its own timer again, replaced it or cancelled it, and what it did must stand.
 
-  private def reschedule(timer: DueTimer): Future[Boolean] =
-    database.execute(TimerStore.reschedule(timer.name, timer.attempts)).map(_ => false)
+  /**
+   * The handler succeeded. A timer that fires once is removed; a recurring one is given its next
+   * due, worked out from the due it ran for with the clock read now, after the handler, so a run
+   * that outlasted a period skips ahead as an outage does.
+   */
+  private def succeeded(timer: DueTimer): Future[Boolean] =
+    timer.recurring match
+      case None =>
+        database
+          .execute(TimerStore.deleteRan(timer.name, timer.dueAt.get))
+          .map { _ =>
+            observe(timer, FiredTimer.Outcome.Done, None)
+            true
+          }
+      case Some((dueFor, period)) =>
+        val now     = Instant.now()
+        val next    = Cadence.next(dueFor, period, now)
+        val skipped = Cadence.skipped(dueFor, period, now)
+        if skipped > 0 then
+          log.info(
+            "recurring timer '{}' ran for {}; {} due time(s) since have passed and are skipped, " +
+              "the next is {}",
+            timer.name,
+            dueFor,
+            skipped,
+            next
+          )
+        database
+          .execute(TimerStore.advance(timer.name, dueFor, period, next))
+          .map { changed =>
+            observe(timer, FiredTimer.Outcome.Done, Option.when(changed > 0)(next))
+            true
+          }
 
+  /** The handler failed: run again after the backoff, for the same due. */
+  private def failed(timer: DueTimer): Future[Boolean] =
+    val at = TimerStore.retryAt(timer.attempts)
+    val statement = timer.recurring match
+      case None if timer.oldTable =>
+        TimerStore.legacyReschedule(timer.name, timer.attempts, timer.dueAt.get, at)
+      case None =>
+        TimerStore.reschedule(timer.name, timer.attempts, timer.dueAt.get, timer.told, at)
+      case Some((dueFor, period)) =>
+        TimerStore.rescheduleRecurring(timer.name, timer.attempts, dueFor, period, at)
+    database.execute(statement).map { changed =>
+      observe(timer, FiredTimer.Outcome.Failed, Option.when(changed > 0)(at))
+      false
+    }
+
+  private def observe(timer: DueTimer, outcome: FiredTimer.Outcome, next: Option[Instant]): Unit =
+    try
+      observer.fired(
+        FiredTimer(timer.name, timer.told, timer.attempts, outcome, next, timer.recurring.map(_._2))
+      )
+    catch case NonFatal(e) => log.warn(s"a timer observer threw on '${timer.name}'", e)
+
+/**
+ * A timer the sweeper read.
+ *
+ * @param dueAt
+ *   for a timer that fires once, `due_at` as the table holds it, so a statement matched on it
+ *   matches exactly; `None` for a recurring timer, whose `due_at` is never read
+ * @param periodMillis
+ *   a recurring timer's period
+ * @param dueFor
+ *   the due the run is for, as the table holds it; `None` only for a timer written by a runtime
+ *   from before recurring timers
+ */
 private[ankka] final case class DueTimer(
     name: String,
     componentId: ComponentId,
     method: MethodName,
     payload: Array[Byte],
-    attempts: Int
-)
+    attempts: Int,
+    dueAt: Option[Instant],
+    periodMillis: Option[Long],
+    dueFor: Option[Instant],
+    /** Read from a table from before recurring timers, which has no `due_for` to write. */
+    oldTable: Boolean = false
+):
+  /** The due and the period of a recurring timer. */
+  def recurring: Option[(Instant, Long)] =
+    for
+      period <- periodMillis
+      due    <- dueFor
+      if dueAt.isEmpty
+    yield due -> period
+
+  /**
+   * The due time this run is for, which the handler is told.
+   *
+   * A recurring timer's `due_for`. A timer that fires once is told its `due_at` on its first
+   * attempt, and on a retry the `due_for` its backoff kept; a retry of one that failed under a
+   * runtime from before recurring timers has none, and is told the `due_at` read, which is when its
+   * backoff ended — the best there is.
+   */
+  def told: Instant =
+    recurring.map(_._1).getOrElse {
+      val at = dueAt.get
+      if attempts == 0 then at else dueFor.getOrElse(at)
+    }

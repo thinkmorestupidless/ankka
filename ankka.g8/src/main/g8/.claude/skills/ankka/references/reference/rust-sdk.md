@@ -201,10 +201,12 @@ of its own, so a step waiting on another component holds nothing a command needs
 | Associated items | `COMPONENT_ID` |
 | Must define | `actions() -> Actions<Self>` |
 | Declarations | `Actions::new().action(name, f)`, `f: fn(Input, &Context) -> Result<(), CommandError>` |
-| In a handler | `ctx.metadata()` carries `ankka.timer` and `ankka.attempts` |
-| Scheduling | `ctx.client().schedule(timer_id, Duration::of_seconds(30), Reminder, None, "remind", input)`, or `schedule_by_name(...)`; `ctx.client().cancel(timer_id)` |
+| In a handler | `ctx.metadata()` carries `ankka.timer`, `ankka.attempts` and `ankka.due`; `ctx.due()` is the due time the run is for |
+| Scheduling | `ctx.client().schedule(timer_id, Duration::of_seconds(30), Reminder, None, "remind", input)`, or `schedule_by_name(...)`; `ctx.client().schedule_recurring(timer_id, delay, period, Cleanup, "sweep", input)`, or `schedule_recurring_by_name(...)`; `ctx.client().cancel(timer_id)` |
 
-Scheduling twice under one id replaces the earlier timer, and an `Err` is retried on the runtime's schedule.
+Scheduling twice under one id replaces the earlier timer, except that a recurring timer set again for
+the same handler with the same period keeps its next due time; a handler's `Err` is retried on the
+runtime's schedule. A refused period is an `Err` from `schedule_recurring`, not a trap.
 See [Timers](../build/timers.md).
 
 ## Agent
@@ -397,7 +399,7 @@ let answer: String = ctx.client().invoke_by_name(Kind::Agent, "assistant", sessi
 | `invoke_by_name(kind, component_id, entity_id, name, input)` | the same, for a component this service does not declare |
 | `invoke_stream(...)` | a streaming handler's tokens, delivered whole once the stream ends |
 | `query(View, name, key)`, `query_by_name(...)` | a view's rows |
-| `schedule(...)`, `cancel(timer_id)` | timers |
+| `schedule(...)`, `schedule_recurring(...)`, `cancel(timer_id)` | timers; `schedule_recurring` since protocol 1.12 |
 
 A call blocks the handler until the runtime answers; a refusal is an `Err(CommandError)` whose `code` is the
 refusal's. Inside a handler `ctx.client()` carries the request's trace, so the call is a child span. See

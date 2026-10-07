@@ -151,7 +151,7 @@ behaviour.
 | `ViewTestKit.of(View)` | `on_change(key, event)`, `on_delete(key)`, then `get(key)` for the row |
 | `ConsumerTestKit.of(Consumer)` | `on_message(message, subject, sequence=…)`, `on_delete(subject)`; `messages` holds what it published, each with the key it named |
 | `GraphConsumerTestKit.of(GraphConsumer, client)` | `on_message(message, subject, sequence=…)`, `on_delete(subject, sequence=…)`, each returning the elements published |
-| `TimedActionTestKit.of(Action)` | `call(name, input)` |
+| `TimedActionTestKit.of(Action)` | `call(name, input, metadata={...})`, the metadata being what the handler reads, such as `ankka.due` |
 | `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
 | `EndpointTestKit.of(Endpoint, *args)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
 
@@ -204,7 +204,7 @@ def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
 | `ViewTestKit.of(View)` | `onChange(key, event)`, `onDelete(key)`, then `get(key)` for the row |
 | `ConsumerTestKit.of(Consumer)` | `onMessage(message, subject, metadata)`, `onDelete(subject)`; `produced` holds what it published, each with the key it named |
 | `GraphConsumerTestKit.of(GraphConsumer, client)` | `onMessage(message, { subject, sequence })`, `onDelete({ subject, sequence })`, each returning the deltas published |
-| `TimedActionTestKit.of(Action)` | `invoke(action, input)` |
+| `TimedActionTestKit.of(Action)` | `invoke(action, input, metadata)`, the metadata being what the handler reads, such as `ankka.due` |
 | `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
 | `EndpointTestKit.of(Endpoint)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
 
@@ -547,7 +547,8 @@ a named caller, for an ACL that names callers. See [gRPC endpoints](grpc-endpoin
 
 Register the extension the component needs, as the service itself would: `TimerRuntime` for timed
 actions, `ProjectionRuntime()` for views and consumers. A shorter timer poll interval keeps a timer test
-fast, as in [Timers](timers.md#testing-timers). Views and consumers see changes after the write returns,
+fast, as in [Timers](timers.md#testing-timers), and a `TimerProbe` given to the `TimerRuntime` records the due
+time each run was for, which is what a test of a recurring timer asserts. Views and consumers see changes after the write returns,
 so assert on them by retrying until the expected value appears, and retry on the value that changes
 rather than on the mere presence of a row.
 

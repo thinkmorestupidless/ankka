@@ -10,6 +10,7 @@ import pytest
 from ankka import Acl, Ankka, Endpoint, RegistrationError, Socket, socket
 from ankka._proto.ankka.protocol.v1 import discovery_pb2, discovery_pb2_grpc, endpoint_pb2, endpoint_pb2_grpc
 from ankka.server import Server
+from ankka.service import PROTOCOL_VERSION
 from ankka.testkit import EndpointTestKit
 from ankka.testkit.unit import _NoClient
 from tests.counter import CounterEndpoint, CounterEntity
@@ -42,7 +43,8 @@ async def test_discovery_marks_a_socket_route() -> None:
         spec = await discovery_pb2_grpc.DiscoveryStub(channel).Discover(discovery_pb2.SidecarInfo(protocol_version="1.9"))
         routes = {r.id: r for e in spec.endpoints if e.id == "RoomsEndpoint" for r in e.routes}
         assert routes["chat"].socket and routes["chat"].method == "GET" and not routes["chat"].has_body
-        assert spec.protocol_version == "1.11"
+        # What the SDK declares, which is its own version, whatever the runtime asked with.
+        assert spec.protocol_version == PROTOCOL_VERSION
     await server.stop()
 
 

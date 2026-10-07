@@ -6,7 +6,8 @@ import { createServer, type Http2Server, type ServerHttp2Session } from "node:ht
 import type { AddressInfo } from "node:net"
 import { create } from "@bufbuild/protobuf"
 import { connectNodeAdapter } from "@connectrpc/connect-node"
-import { Client, InvokeReplySchema, QueryReplySchema, StreamTokenSchema, type InvokeRequest, type ScheduleRequest } from "../src/_proto/ankka/protocol/v1/client_pb.ts"
+import { Code, ConnectError } from "@connectrpc/connect"
+import { Client, InvokeReplySchema, QueryReplySchema, ScheduleRecurringReplySchema, StreamTokenSchema, type InvokeRequest, type ScheduleRecurringRequest, type ScheduleRequest } from "../src/_proto/ankka/protocol/v1/client_pb.ts"
 import { EmptySchema, ErrorCode as ProtoErrorCode, PayloadSchema } from "../src/_proto/ankka/protocol/v1/payload_pb.ts"
 import { Kind } from "../src/_proto/ankka/protocol/v1/discovery_pb.ts"
 import { ComponentClient } from "../src/client.ts"
@@ -14,6 +15,7 @@ import { CommandError } from "../src/effects/common.ts"
 import { Done, s } from "../src/schema.ts"
 import { Duration } from "../src/time.ts"
 import { Counter } from "./fixtures/counter.ts"
+import { Reminder } from "./fixtures/kinds.ts"
 
 const utf8 = new TextEncoder()
 const text = (b: Uint8Array | undefined) => new TextDecoder().decode(b ?? new Uint8Array())
@@ -27,6 +29,7 @@ describe("the component client", () => {
   const invokes: InvokeRequest[] = []
   const schedules: ScheduleRequest[] = []
   const cancels: string[] = []
+  const recurring: ScheduleRecurringRequest[] = []
 
   before(async () => {
     server = createServer(
@@ -60,6 +63,12 @@ describe("the component client", () => {
             async cancel(req) {
               cancels.push(req.timerId)
               return create(EmptySchema)
+            },
+            async scheduleRecurring(req) {
+              if (req.timerId === "old") throw new ConnectError("Method not found: ankka.protocol.v1.Client/ScheduleRecurring", Code.Unimplemented)
+              recurring.push(req)
+              if (req.timerId === "refused") return create(ScheduleRecurringReplySchema, { error: { message: "timers are not running in this service", code: ProtoErrorCode.UNAVAILABLE } })
+              return create(ScheduleRecurringReplySchema)
             },
           }),
       }),
@@ -143,6 +152,51 @@ describe("the component client", () => {
     assert.deepEqual({ kind: last.kind, name: last.name, payload: text(last.payload?.data), entity: last.entityId }, { kind: Kind.TIMED_ACTION, name: "remind", payload: "c1", entity: undefined })
     await client.timers.cancel("t1")
     assert.deepEqual(cancels, ["t1"])
+  })
+
+  test("recurring timers schedule by class and handler, or by name", async () => {
+    await client.timers.scheduleRecurring("r1", Duration.ZERO, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, "c1")
+    let last = recurring.at(-1)!
+    assert.deepEqual(
+      { id: last.timerId, delay: last.delayMillis, period: last.periodMillis, component: last.componentId, name: last.name, payload: text(last.payload?.data) },
+      { id: "r1", delay: 0n, period: 1000n, component: "reminder", name: "remind", payload: "c1" },
+    )
+    await client.timers.scheduleRecurring("r2", Duration.ofMinutes(1), Duration.ofHours(24), { componentId: "reminder", name: "remind", input: s.string }, "c2")
+    last = recurring.at(-1)!
+    assert.deepEqual(
+      { id: last.timerId, delay: last.delayMillis, period: last.periodMillis, component: last.componentId, name: last.name, payload: text(last.payload?.data) },
+      { id: "r2", delay: 60000n, period: 86400000n, component: "reminder", name: "remind", payload: "c2" },
+    )
+    await client.timers.scheduleRecurring("r3", Duration.ofSeconds(5), Duration.ofMillis(1), { component: Reminder, handler: Reminder.actions.ping })
+    assert.equal(recurring.at(-1)!.payload?.data.length ?? 0, 0)
+  })
+
+  test("a period out of bounds is refused naming the timer, and nothing is sent", async () => {
+    const before = recurring.length
+    for (const period of [Duration.ZERO, Duration.ofMillis(-5), Duration.ofNanos(500_000), Duration.ofSeconds(36500 * 86400 + 1)]) {
+      await assert.rejects(
+        client.timers.scheduleRecurring("bad-period", Duration.ZERO, period, { component: Reminder, handler: Reminder.actions.remind }, "c1"),
+        (e: unknown) => e instanceof CommandError && e.code === "BAD_REQUEST" && e.message.includes("'bad-period'") && e.message.includes("1 millisecond to 36500 days"),
+      )
+    }
+    assert.equal(recurring.length, before)
+    // The bounds themselves are allowed.
+    await client.timers.scheduleRecurring("at-bound", Duration.ZERO, Duration.ofSeconds(36500 * 86400), { componentId: "reminder", name: "ping" })
+    assert.equal(recurring.at(-1)!.periodMillis, 36500n * 86400000n)
+  })
+
+  test("a recurring timer's Error reply rejects with its code and message", async () => {
+    await assert.rejects(
+      client.timers.scheduleRecurring("refused", Duration.ZERO, Duration.ofSeconds(1), { componentId: "reminder", name: "ping" }),
+      (e: unknown) => e instanceof CommandError && e.code === "UNAVAILABLE" && e.message === "timers are not running in this service",
+    )
+  })
+
+  test("a runtime too old for recurring timers is reported as that", async () => {
+    await assert.rejects(
+      client.timers.scheduleRecurring("old", Duration.ZERO, Duration.ofSeconds(1), { componentId: "reminder", name: "ping" }),
+      (e: unknown) => e instanceof CommandError && /recurring timers/.test(e.message) && e.message.includes("1.12"),
+    )
   })
 
   test("reconnect repoints every client sharing the connection", async () => {

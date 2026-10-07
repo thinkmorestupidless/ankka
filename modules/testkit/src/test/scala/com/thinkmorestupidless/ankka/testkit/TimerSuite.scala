@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.thinkmorestupidless.ankka.core.{Done, EntityId}
 import com.thinkmorestupidless.ankka.runtime.TimerRuntime
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
 /** Scheduled calls: durable, at-least-once, cancellable. */
@@ -12,7 +12,10 @@ class TimerSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 4.minutes
 
   private var testKit: AnkkaTestKit = null
-  private val timers                = TimerRuntime(pollInterval = 200.millis)
+  // docs:start probe
+  private val probe  = TimerProbe()
+  private val timers = TimerRuntime(pollInterval = 200.millis, observer = probe)
+  // docs:end probe
 
   override def beforeAll(): Unit =
     OrderTimers.observed.clear()
@@ -22,6 +25,7 @@ class TimerSuite extends munit.FunSuite with LogCapturing:
       Seq(timers)
     )
     // docs:end register
+    probe.bind(testKit): Unit
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
@@ -134,4 +138,25 @@ class TimerSuite extends munit.FunSuite with LogCapturing:
     // The timer is in Postgres, not in the memory of the node that scheduled it.
     assert(timers.timerScheduler.exists("expire-o-6"))
     timers.timerScheduler.delete("expire-o-6")
+  }
+
+  test(
+    "a recurring timer fires for one due time after another, each the one before plus the period"
+  ) {
+    assertEquals(order("o-7").call(OrderEntity.place).invoke("book"), Done)
+    // docs:start recurring
+    scheduler.createRecurringTimer(
+      "expire-o-7",
+      Duration.Zero,
+      1.second,
+      OrderTimers.expireOrder.deferred("o-7")
+    )
+    // docs:end recurring
+    // docs:start due-times
+    val due = eventually("three runs")(Option(probe.dueTimes("expire-o-7")).filter(_.size >= 3))
+    assertEquals(due(1), due(0).plusSeconds(1))
+    assertEquals(due(2), due(1).plusSeconds(1))
+    // docs:end due-times
+    scheduler.delete("expire-o-7")
+    assert(!scheduler.exists("expire-o-7"))
   }

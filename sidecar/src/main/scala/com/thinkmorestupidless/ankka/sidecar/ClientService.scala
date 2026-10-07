@@ -52,6 +52,10 @@ final class ClientService(
 
   def cancel(request: CancelRequest): Future[pb.Empty] = logic.cancel(request).recoverWith(status)
 
+  // A refusal travels in the reply, as for the secret store; this never fails the gRPC call.
+  def scheduleRecurring(request: ScheduleRecurringRequest): Future[ScheduleRecurringReply] =
+    logic.scheduleRecurring(request)
+
   // Refusals travel in the reply, as for `invoke`; these never fail the gRPC call.
   def getSecret(request: GetSecretRequest): Future[GetSecretReply] = logic.getSecret(request)
   def putSecret(request: PutSecretRequest): Future[PutSecretReply] = logic.putSecret(request)

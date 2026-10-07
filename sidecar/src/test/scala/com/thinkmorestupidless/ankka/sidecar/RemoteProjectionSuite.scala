@@ -508,6 +508,20 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     eventually()(if timers.timerScheduler.exists("t3") then None else Some(()))
   }
 
+  test("P7b a remote timed action is told its due time, and a retry is told the same one") {
+    def dueOf(request: PbTimedActionRequest): Option[Long] =
+      request.metadata.flatMap(_.entries.find(_.key == TimerSweeper.DueKey)).map(_.value.toLong)
+    val before = java.time.Instant.now().toEpochMilli
+    schedule("t3b", "flaky", "x", delay = 300.millis)
+    val after    = java.time.Instant.now().toEpochMilli
+    val attempts = eventually(20.seconds)(Some(fired("t3b")).filter(_.sizeIs >= 2))
+    val due      = dueOf(attempts.head).getOrElse(fail(s"no ${TimerSweeper.DueKey}"))
+    assert(due >= before + 300 && due <= after + 300, s"due $due is not 300 ms after it was set")
+    assertEquals(attempts.take(2).map(dueOf), Vector(Some(due), Some(due)))
+    assertEquals(attempts.take(2).map(r => attemptsOf(r.metadata.get)), Vector(0, 1))
+    eventually()(if timers.timerScheduler.exists("t3b") then None else Some(()))
+  }
+
   test("P8 a remote key value entity is set, read, recovered after a restart, and deleted") {
     assertEquals(invoke("profile", "p1", "set", "Ada"), Right("done"))
     assertEquals(invoke("profile", "p1", "get"), Right("Ada"))

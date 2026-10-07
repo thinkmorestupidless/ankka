@@ -240,7 +240,7 @@ controlplane-api + proxy-core → cli
 | View | Pekko Projection → Postgres row table, or a Kafka consumer group |
 | Consumer | Pekko Projection, or a Kafka consumer group |
 | Workflow | `EventSourcedBehavior` whose events *are* step transitions |
-| Timer | Postgres table + cluster-singleton sweeper |
+| Timer | Postgres table + cluster-singleton sweeper; a recurring one is the same row with `due_at = 'infinity'` (`.claude/rules/runtime.md`) |
 | Agent | Sharded per **session id**, serialized per conversation via a stash |
 | Autonomous agent | Sharded per **instance id**, `remember-entities`; its state an `ankka-agent-instance` entity, its tasks `ankka-task` entities |
 | HTTP Endpoint | pekko-http route tree: request routes, SSE routes, and socket routes (a WebSocket per socket, its handler on one virtual thread for its life) |

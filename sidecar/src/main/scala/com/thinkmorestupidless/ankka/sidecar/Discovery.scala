@@ -47,7 +47,8 @@ object Discovery:
    * socket routes, `Route.socket` and `Http.HandleSocket` (feature 028). 1.10: three imports for a
    * module, `request`, `now` and `random`, and no message changed (feature 030). 1.11: a tool's
    * approval, an agent's MCP servers and result guardrails, the RESULT guardrail stage, the
-   * approval-request reply and token, and `Decide` (feature 029).
+   * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
+   * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    */
   val ProtocolVersion: String = WireProtocol.Version
 

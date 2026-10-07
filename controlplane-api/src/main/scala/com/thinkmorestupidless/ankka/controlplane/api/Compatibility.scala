@@ -60,9 +60,11 @@ object Protocol:
    * `request`, `now` and `random`, and changed no message (feature 030). 1.11 added approvals, MCP
    * servers and result guardrails to an agent: a tool's approval and an agent's servers and result
    * guardrails in discovery, the RESULT stage of a guardrail check, the approval-request reply and
-   * stream token, and `Decide` on `Client` (feature 029).
+   * stream token, and `Decide` on `Client` (feature 029). 1.12 added recurring timers:
+   * `ScheduleRecurring` on `Client`, the `schedule_recurring` module import, and `ankka.due` on a
+   * timed action's request (feature 032).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 11)
+  val version: ProtocolVersion = ProtocolVersion(1, 12)
 
 object Compatibility:
 

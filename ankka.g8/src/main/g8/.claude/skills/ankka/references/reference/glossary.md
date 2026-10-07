@@ -147,6 +147,11 @@ Applied with `ankka services apply -f service.json`.
 What a service should be: its latest descriptor, whether it is paused, whether it is exposed. Recorded by the
 control plane when you change it, and reconciled towards by the operator.
 
+### Due time
+
+When a timer is to fire. The runtime fires a timer at its due time or up to a poll interval after, never
+before, and tells the handler the due time it is run for; a retry after a failure is told the same one.
+
 ### Effect
 
 The value a handler returns: a description of what should happen, such as "persist this event, then reply
@@ -296,6 +301,11 @@ a topic's partitions between them. A topic may be given more partitions and neve
 Unloading an idle entity from memory. The next command rebuilds it from its journal. The default idle time is
 two minutes.
 
+### Period
+
+How long after one due time a recurring timer's next due time is. A period is a length of time, from one
+millisecond to 36,500 days; it says nothing of a time of day or a day of the week.
+
 ### Platform-admin
 
 A role held in the identity provider, not in an organization. Its holders can see every organization, disable
@@ -365,6 +375,12 @@ names none. Separate from the subject, which says which entity a message is abou
 A service's answer to a tool that asks which service definitions it serves and what their methods and
 messages look like. A service answers it only when it opts in, and then only to the callers its own ACL for
 reflection admits.
+
+### Recurring timer
+
+A timer with a period. It fires for one due time after another, each the previous due time plus the period,
+until it is cancelled or replaced. A due time that passed while it could not run is not caught up: it fires
+once and goes on. Set again for the same handler with the same period, it keeps its next due time.
 
 ### Refusal
 
@@ -468,7 +484,7 @@ they outlive the process that set them, and a failed call is retried with backof
 ### Timer
 
 A scheduled future call to a timed action, identified by a name. Scheduling again under the same name replaces
-it.
+it, except that a recurring timer set again for the same handler with the same period is kept as it is.
 
 ### Tombstone
 

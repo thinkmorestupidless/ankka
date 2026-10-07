@@ -16,7 +16,8 @@ import { errorCodeFromProto, kindToProto, type ComponentKind } from "./kinds.ts"
 import { metadataToProto } from "./context.ts"
 import { encodePayload, decodePayload, EMPTY_PAYLOAD } from "./server/payloads.ts"
 import type { Schema } from "./schema.ts"
-import type { Duration } from "./time.ts"
+import { Duration } from "./time.ts"
+import { PROTOCOL_VERSION } from "./spec.ts"
 import { AutonomousAgentCalls, TaskCalls, Tasks } from "./autonomous.ts"
 import { APPROVALS_SINCE, ApprovalAwaited, awaitingOf, type AgentOutcome, type DecisionInput } from "./approvals.ts"
 import type { InvokeReply } from "./_proto/ankka/protocol/v1/client_pb.ts"
@@ -272,6 +273,22 @@ export type TimerTarget =
   | { readonly component: ComponentRef; readonly handler: HandlerRef<any, any, any, any>; readonly entityId?: string }
   | { readonly kind: ComponentKind; readonly componentId: string; readonly name: string; readonly input?: Shape<any>; readonly entityId?: string }
 
+/** What a recurring timer fires: a timed action's class and one of its handlers, or the same by name. */
+export type TimedActionTarget =
+  | { readonly component: ComponentRef; readonly handler: HandlerRef<any, any, any, any> }
+  | { readonly componentId: string; readonly name: string; readonly input?: Shape<any> }
+
+const RECURRING_SINCE = "1.12"
+const MAX_PERIOD_DAYS = 36500
+const MIN_PERIOD = Duration.ofMillis(1)
+const MAX_PERIOD = Duration.ofSeconds(MAX_PERIOD_DAYS * 86400)
+
+/** What is wrong with a recurring timer's period, if anything: the runtime's own rule. */
+function periodProblem(timerId: string, period: Duration): string | undefined {
+  if (Duration.compare(period, MIN_PERIOD) >= 0 && Duration.compare(period, MAX_PERIOD) <= 0) return undefined
+  return `timer '${timerId}' has a period of ${period.toString()}; a period is from 1 millisecond to ${MAX_PERIOD_DAYS} days`
+}
+
 export class Timers {
   readonly #connection: Connection
 
@@ -296,6 +313,30 @@ export class Timers {
     })
   }
 
+  /**
+   * Schedules `target`, a timed action's handler, first after `delay` (zero or less is due at once) and
+   * then every `period` until it is cancelled or replaced. Setting it again with the same handler and
+   * period keeps its next due time, so a service may set its recurring timers every time it starts.
+   * A period outside 1 millisecond to 36,500 days is refused with `BAD_REQUEST` before anything is sent.
+   */
+  async scheduleRecurring(timerId: string, delay: Duration, period: Duration, target: TimedActionTarget, input?: unknown): Promise<void> {
+    const problem = periodProblem(timerId, period)
+    if (problem !== undefined) throw new CommandError({ message: problem, code: "BAD_REQUEST" })
+    const t = "component" in target ? { componentId: target.component.componentId, name: target.handler.name, input: target.handler.input as Shape<unknown> | undefined } : target
+    const reply = await stubOf(this.#connection)
+      .scheduleRecurring({
+        timerId,
+        delayMillis: BigInt(delay.toMillis()),
+        periodMillis: BigInt(period.toMillis()),
+        componentId: t.componentId,
+        name: t.name,
+        payload: inputPayload(t.input, input),
+      })
+      .catch(tooOld("recurring timers", RECURRING_SINCE))
+    if (reply.error) throw new CommandError(errorOf(reply.error))
+  }
+
+  /** Cancels the timer under `timerId`, whether it fires once or recurs. */
   async cancel(timerId: string): Promise<void> {
     await stubOf(this.#connection).cancel({ timerId })
   }
@@ -323,15 +364,19 @@ export function secretValueProblem(value: string): string | undefined {
   return size > MAX_SECRET_VALUE_BYTES ? `a secret's value is at most ${MAX_SECRET_VALUE_BYTES} bytes as UTF-8; this one is ${size}` : undefined
 }
 
-function tooOld(failure: unknown): never {
-  if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
-    throw new CommandError({
-      message: `the runtime beside this process does not offer the secret store, which needs protocol ${SECRETS_SINCE}: ${failure.rawMessage}`,
-      code: "INTERNAL",
-    })
+/** Turns `UNIMPLEMENTED` from a runtime older than protocol `since` into an error naming both versions. */
+function tooOld(what: string, since: string): (failure: unknown) => never {
+  return (failure) => {
+    if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+      throw new CommandError({
+        message: `the runtime beside this process is too old for ${what}, which needs protocol ${since}; this process speaks ${PROTOCOL_VERSION}: ${failure.rawMessage}`,
+        code: "INTERNAL",
+      })
+    }
+    throw failure
   }
-  throw failure
 }
+const secretsTooOld = tooOld("the secret store", SECRETS_SINCE)
 
 /**
  * The service's secret store: named text values the runtime keeps in the service's own database,
@@ -358,13 +403,13 @@ export class Secrets {
 
   /** Keeps `value` under `name`, replacing what was there. */
   async put(name: string, value: string): Promise<void> {
-    const reply = await this.#stub().putSecret({ name, value }).catch(tooOld)
+    const reply = await this.#stub().putSecret({ name, value }).catch(secretsTooOld)
     if (reply.error) throw new CommandError(errorOf(reply.error))
   }
 
   /** The value kept under `name`, or `undefined` when there is none. Never an empty string. */
   async get(name: string): Promise<string | undefined> {
-    const reply = await this.#stub().getSecret({ name }).catch(tooOld)
+    const reply = await this.#stub().getSecret({ name }).catch(secretsTooOld)
     switch (reply.result.case) {
       case "value":
         return reply.result.value
@@ -379,7 +424,7 @@ export class Secrets {
 
   /** Removes what is kept under `name`. Removing nothing is not an error. */
   async delete(name: string): Promise<void> {
-    const reply = await this.#stub().deleteSecret({ name }).catch(tooOld)
+    const reply = await this.#stub().deleteSecret({ name }).catch(secretsTooOld)
     if (reply.error) throw new CommandError(errorOf(reply.error))
   }
 }

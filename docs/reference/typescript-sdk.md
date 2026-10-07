@@ -209,11 +209,12 @@ name, and its input is encoded with that step's declared shape. See [Workflows](
 | Base class | `TimedAction` |
 | Statics | `componentId`, `actions` |
 | Declarations | `action(name, input?, run)` |
-| In a handler | `this.metadata` (`ankka.timer`, `ankka.attempts`), `this.client`, `this.effects` |
+| In a handler | `this.metadata` (`ankka.timer`, `ankka.attempts`, `ankka.due`), `this.dueTime` (a `Date`), `this.client`, `this.effects` |
 | Effects | `done()`, `fail(msg, code)` |
-| Scheduling | `await client.timers.schedule(timerId, Duration, { component: Cls, handler: Cls.actions.name }, input)`, or by name `{ kind: "timed-action", componentId, name, input: Shape }`; `await client.timers.cancel(timerId)` |
+| Scheduling | `await client.timers.schedule(timerId, Duration, { component: Cls, handler: Cls.actions.name }, input)`, or by name `{ kind: "timed-action", componentId, name, input: Shape }`; `await client.timers.scheduleRecurring(timerId, delay, period, { component: Cls, handler: Cls.actions.name }, input)`, or by name `{ componentId, name, input: Shape }`; `await client.timers.cancel(timerId)` |
 
-Scheduling twice under one id replaces the earlier timer. See [Timers](../build/timers.md).
+Scheduling twice under one id replaces the earlier timer, except that a recurring timer set again for
+the same handler with the same period keeps its next due time. See [Timers](../build/timers.md).
 
 ## Agent
 

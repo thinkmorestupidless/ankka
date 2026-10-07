@@ -343,12 +343,26 @@ impl TimedAction for Reminder {
     const COMPONENT_ID: &'static str = "reminder";
 
     fn actions() -> Actions<Reminder> {
-        Actions::new().action("remind", |id: String, ctx: &Context| {
-            let _: String =
-                ctx.client()
-                    .invoke(Conformance, &id, "record", "reminded".to_string())?;
-            Ok(())
-        })
+        Actions::new()
+            .action("remind", |id: String, ctx: &Context| {
+                let _: String =
+                    ctx.client()
+                        .invoke(Conformance, &id, "record", "reminded".to_string())?;
+                Ok(())
+            })
+            // Records the due time it was run for, as the runtime told it.
+            .action("tick", |id: String, ctx: &Context| {
+                let due = ctx.due().ok_or_else(|| {
+                    CommandError::new(ErrorCode::Internal, "the runtime set no ankka.due")
+                })?;
+                let _: String = ctx.client().invoke(
+                    Conformance,
+                    &id,
+                    "record",
+                    format!("due:{}", due.epoch_millis()),
+                )?;
+                Ok(())
+            })
     }
 }
 
@@ -722,6 +736,44 @@ impl ConformanceEndpoint {
         Ok(Done)
     }
 
+    fn set_recurring(
+        request: &Request,
+        delay: Duration,
+        period: Duration,
+    ) -> Result<Done, HttpProblem> {
+        let id = request.path("id");
+        request.client().schedule_recurring(
+            &format!("recur-{id}"),
+            delay,
+            period,
+            Reminder,
+            "tick",
+            id.to_string(),
+        )?;
+        Ok(Done)
+    }
+
+    /// A recurring timer: due at once, then every second.
+    fn recur(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        Self::set_recurring(request, Duration::ZERO, Duration::of_seconds(1))
+    }
+
+    /// The same timer set again, with a delay a replacement would be first due after.
+    fn recur_again(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        Self::set_recurring(request, Duration::of_seconds(60), Duration::of_seconds(1))
+    }
+
+    fn recur_cancel(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        let id = request.path("id");
+        request.client().cancel(&format!("recur-{id}"))?;
+        Ok(Done)
+    }
+
+    /// A period of zero: refused before anything is sent, a 400 naming the timer.
+    fn recur_refused(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        Self::set_recurring(request, Duration::ZERO, Duration::ZERO)
+    }
+
     fn ask(request: &Request, question: String) -> Result<String, HttpProblem> {
         Ok(request.client().invoke(
             ConformanceAssistant,
@@ -788,6 +840,10 @@ impl Endpoint for ConformanceEndpoint {
             .post("/checkout/{id}", ConformanceEndpoint::start_checkout)
             .get("/checkout/{id}", ConformanceEndpoint::checkout_status)
             .post("/remind/{id}", ConformanceEndpoint::remind)
+            .post("/recur/{id}", ConformanceEndpoint::recur)
+            .post("/recur/{id}/again", ConformanceEndpoint::recur_again)
+            .post("/recur/{id}/cancel", ConformanceEndpoint::recur_cancel)
+            .post("/recur-refused/{id}", ConformanceEndpoint::recur_refused)
             .post("/ask/{session}", ConformanceEndpoint::ask)
             .get("/config/{name}", ConformanceEndpoint::config)
             .get("/{id}/count", ConformanceEndpoint::count)

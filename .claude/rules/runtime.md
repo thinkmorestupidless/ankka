@@ -48,7 +48,34 @@ platform setting), the header rule (`OutboundHeaders`, held to the proxy's list 
 loopback) and `ScriptedServices` (a unit double) are the test kit's; `AnkkaTestKit.start(…,
 localServices = …)` sets `ankka.local-services` for one service rather than the whole JVM.
 
+## Timers: one row each, and the sweeper changes only the row it read
+
+A timer is a row of `ankka_timers` (feature 032). One that fires once has a finite `due_at`; a recurring
+one has `due_at = 'infinity'`, its next run in `fire_at`, its period in `period_millis`, and the due a run
+is for in `due_for`, which a handler is told (`TimedActionContext.dueTime`, `ankka.due`). `Cadence.next`
+is the one place a next due is worked out — the due just run plus a period, or the first cadence point
+still to come when that has passed — and `TimerStore` holds every statement. A recurring timer set again
+for the same handler and period keeps its next due, in one upsert, so a service sets its timers at start.
+A recurring timer whose handler this instance lacks is deferred, not dropped: an older version of the
+service may hold the sweeper during a deploy that adds the handler. `TimerProbe` (testkit) is what a test
+reads due times from.
+
 ## Traps
+
+- **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers
+  selects `due_at <= now` and deletes by name after a run, so a finite `due_at` is fired once and deleted
+  by the old sweeper — which during a rolling update is the one running, on the oldest pod. Never "tidy" it
+  into a nullable column. One row per name is also what keeps a name to one timer while old and new
+  instances both write it. `LegacyTimers` (testkit tests) is `v0.10.0`'s statements verbatim and
+  `TimerUpgradeFeatures` holds the table to them; never update it to match `TimerStore`.
+- **The sweeper changes only the row it read.** Every statement after a handler returns is matched on the
+  due time it read, not the name alone: a handler that set its own timer again, cancelled it or replaced
+  it rewrote that row first, and a delete by name deleted what the handler had just set — the only way to
+  recur, before feature 032, removed its own next run, and no test had a handler that set its own timer.
+- **A local database keeps the timers table its volume was created with.** On one from before recurring
+  timers the new due query fails with SQLSTATE `42703`; the sweeper and the scheduler fall back to the
+  previous release's statements (`TimerStore.legacy*`), so timers that fire once keep working and only a
+  recurring timer is refused. Found by a run by hand: as first built, every timer stopped there.
 
 - **The JDK's HTTP client sends a `GET` or a `HEAD` twice when its connection closes before any answer.**
   It reads the closed connection as an expired pooled one and retries an idempotent-by-name method once;

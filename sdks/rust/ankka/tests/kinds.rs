@@ -449,6 +449,211 @@ fn a_timed_action_succeeds_or_fails_and_is_tried_again() {
     );
 }
 
+// ── a recurring timer ──
+
+struct Clock;
+
+impl TimedAction for Clock {
+    const COMPONENT_ID: &'static str = "clock";
+
+    fn actions() -> Actions<Clock> {
+        // Answers what it was told by failing with it, so a test can read it.
+        Actions::new().action("tick", |_: String, ctx: &Context| {
+            Err(CommandError::new(
+                ErrorCode::Conflict,
+                match ctx.due() {
+                    Some(due) => format!("due:{}", due.epoch_millis()),
+                    None => "no due".to_string(),
+                },
+            ))
+        })
+    }
+}
+
+#[test]
+fn a_timed_action_is_told_the_due_time_it_runs_for() {
+    let told = TimedActionTestKit::<Clock>::new()
+        .with_metadata("ankka.due", "1767225600000")
+        .fire("tick", "c")
+        .unwrap_err();
+    assert_eq!(told.message, "due:1767225600000");
+    let untold = TimedActionTestKit::<Clock>::new()
+        .fire("tick", "c")
+        .unwrap_err();
+    assert_eq!(untold.message, "no due");
+}
+
+#[test]
+fn due_reads_ankka_due_and_is_none_without_it() {
+    let with = Context::new(
+        "clock",
+        "",
+        0,
+        Metadata::new().set("ankka.due", "1767225600000"),
+    );
+    assert_eq!(
+        with.due(),
+        Some(ankka::Instant::from_epoch_millis(1767225600000))
+    );
+    assert_eq!(Context::new("clock", "", 0, Metadata::new()).due(), None);
+}
+
+mod recurring {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use ankka::Client;
+    use ankka::Duration;
+    use ankka::abi::imports::{Import, NativeHost, with_native_host};
+    use ankka::effects::{CommandError, ErrorCode};
+    use ankka::proto;
+    use prost::Message;
+
+    use super::Clock;
+
+    #[derive(Clone, Default)]
+    struct Host {
+        seen: Rc<RefCell<Vec<(Import, proto::ScheduleRecurringRequest)>>>,
+        error: Option<proto::Error>,
+    }
+
+    impl NativeHost for Host {
+        fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+            let request = proto::ScheduleRecurringRequest::decode(request).unwrap();
+            self.seen.borrow_mut().push((import, request));
+            proto::ScheduleRecurringReply {
+                error: self.error.clone(),
+            }
+            .encode_to_vec()
+        }
+    }
+
+    fn payload(text: &str) -> proto::Payload {
+        ankka::codec::encode_payload(&text.to_string()).unwrap()
+    }
+
+    fn recur(host: &Host, timer: &str, period: Duration) -> Result<(), CommandError> {
+        with_native_host(host.clone(), || {
+            Client::default().schedule_recurring(
+                timer,
+                Duration::ZERO,
+                period,
+                Clock,
+                "tick",
+                "x".to_string(),
+            )
+        })
+    }
+
+    #[test]
+    fn a_recurring_timer_hands_the_host_its_schedule() {
+        let host = Host::default();
+        with_native_host(host.clone(), || {
+            Client::default().schedule_recurring(
+                "recur-a",
+                Duration::ZERO,
+                Duration::of_seconds(1),
+                Clock,
+                "tick",
+                "a".to_string(),
+            )
+        })
+        .unwrap();
+        with_native_host(host.clone(), || {
+            Client::default().schedule_recurring_by_name(
+                "recur-b",
+                Duration::of_seconds(60),
+                Duration::of_hours(24),
+                "clock",
+                "tick",
+                "b".to_string(),
+            )
+        })
+        .unwrap();
+        let seen = host.seen.borrow();
+        assert_eq!(
+            *seen,
+            vec![
+                (
+                    Import::ScheduleRecurring,
+                    proto::ScheduleRecurringRequest {
+                        timer_id: "recur-a".into(),
+                        delay_millis: 0,
+                        period_millis: 1_000,
+                        component_id: "clock".into(),
+                        name: "tick".into(),
+                        payload: Some(payload("a")),
+                    }
+                ),
+                (
+                    Import::ScheduleRecurring,
+                    proto::ScheduleRecurringRequest {
+                        timer_id: "recur-b".into(),
+                        delay_millis: 60_000,
+                        period_millis: 86_400_000,
+                        component_id: "clock".into(),
+                        name: "tick".into(),
+                        payload: Some(payload("b")),
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_period_out_of_bounds_is_refused_before_anything_is_sent() {
+        let host = Host::default();
+        for period in [
+            Duration::ZERO,
+            Duration::of_millis(-5),
+            Duration::of_nanos(999_999),
+            Duration::of_millis(36_500 * 86_400_000 + 1),
+        ] {
+            let refused = recur(&host, "recur-x", period).unwrap_err();
+            assert_eq!(refused.code, ErrorCode::BadRequest, "{period}");
+            assert!(
+                refused.message.contains("'recur-x'")
+                    && refused.message.contains("1 millisecond")
+                    && refused.message.contains("36500 days"),
+                "{}",
+                refused.message
+            );
+        }
+        assert!(host.seen.borrow().is_empty());
+        // The bounds themselves are accepted.
+        recur(&host, "recur-y", Duration::of_millis(1)).unwrap();
+        recur(&host, "recur-y", Duration::of_millis(36_500 * 86_400_000)).unwrap();
+        assert_eq!(host.seen.borrow().len(), 2);
+    }
+
+    #[test]
+    fn a_refusal_in_the_reply_is_an_error() {
+        let host = Host {
+            error: Some(proto::Error {
+                message: "the runtime is not bound".into(),
+                code: proto::ErrorCode::Unavailable as i32,
+            }),
+            ..Host::default()
+        };
+        let refused = recur(&host, "recur-z", Duration::of_seconds(1)).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Unavailable);
+        assert_eq!(refused.message, "the runtime is not bound");
+    }
+
+    #[test]
+    #[should_panic(expected = "there is no ankka runtime outside a module")]
+    fn with_no_host_a_recurring_timer_panics_as_schedule_does() {
+        let _ = Client::default().schedule_recurring(
+            "recur-n",
+            Duration::ZERO,
+            Duration::of_seconds(1),
+            Clock,
+            "tick",
+            "n".to_string(),
+        );
+    }
+}
+
 // ── an agent ──
 
 #[derive(Debug, Deserialize)]

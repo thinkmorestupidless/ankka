@@ -899,6 +899,17 @@ lazy val multiAgentPlanner = project
   .settings(name := "sample-multi-agent-planner", publish / skip := true)
 
 /**
+ * The research digest: two scheduled blueprints, a daily watch and a weekly digest, composing
+ * through the service's own records. Offline in its tests; live, it needs a model key, a judgment
+ * provider and the literature sources.
+ */
+lazy val researchDigest = project
+  .in(file("samples/research-digest"))
+  .dependsOn(sdk, runtime, http, agent, testkit % Test)
+  .settings(commonSettings)
+  .settings(name := "sample-research-digest", publish / skip := true)
+
+/**
  * The whole build, one command: `sbt buildAll`.
  *
  * Format check first because it is nearly free and should fail before anything slower runs;
@@ -938,7 +949,8 @@ lazy val root = project
     proxy,
     shoppingCart,
     shoppingCartApi,
-    multiAgentPlanner
+    multiAgentPlanner,
+    researchDigest
   )
   .settings(
     name           := "ankka",

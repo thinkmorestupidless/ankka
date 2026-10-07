@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.agent.blueprint
 import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, Json, ModelProvider}
 import com.thinkmorestupidless.ankka.agent.judgment.Question
 import com.thinkmorestupidless.ankka.agent.mcp.McpServer
+import com.thinkmorestupidless.ankka.runtime.ViewClient
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients}
 
 /**
@@ -12,6 +13,9 @@ import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceC
  */
 trait BlueprintContext:
   def componentClient: ComponentClient
+
+  /** The service's views, for a tool that reads one. */
+  def viewClient: ViewClient
   def services: ServiceClients
   def secrets: SecretStore
 

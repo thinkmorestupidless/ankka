@@ -25,7 +25,8 @@ import planner.application.*
     .register(BudgetAgent.descriptor)
     .registerAll(AgentRuntime.descriptors)
     .register(SummaryAgent.descriptor)
-    .withExtension(AgentRuntime.withDefaultModel(model))
+    // The same three steps as a blueprint too, run by the platform rather than the workflow.
+    .withExtension(AgentRuntime.withDefaultModel(model).withBlueprints(PlannerBlueprint.registry))
     .withExtension(HttpServer.of(clients => PlannerEndpoint(clients.componentClient)))
     .start()
   // docs:end registration

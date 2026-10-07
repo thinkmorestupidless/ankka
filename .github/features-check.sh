@@ -34,6 +34,9 @@ args=(check --root . --glossary "$glossary" --features "$features" --specs "$spe
 # The findings, each with its file and line; the exit status is the checker's.
 "$@" "${args[@]}"
 
+# The research digest sample's own features and glossary, beside its code. A sample has no specs.
+"$@" check --root samples/research-digest --glossary GLOSSARY.md --features features
+
 # Nothing found is only good news if something was read. `specs-from` naming a spec later than every
 # spec there is reads none, and features that were moved read as no scenarios; both exit 0.
 report="$("$@" "${args[@]}" --format json)"

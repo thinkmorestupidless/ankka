@@ -1,0 +1,132 @@
+{
+  "name": "digest",
+  "input": {
+    "type": "object",
+    "properties": {
+      "from": {"type": "string"},
+      "to": {"type": "string"},
+      "dueTimes": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["from", "to", "dueTimes"]
+  },
+  "workers": [
+    {
+      "name": "librarian",
+      "instructions": "You find the week's papers. Call papers_found_between with the period's from and to, then answer with the papers it gives, exactly as given.",
+      "model": "default",
+      "tools": ["papers_found_between"],
+      "guardrails": [],
+      "budget": 3
+    },
+    {
+      "name": "reader",
+      "instructions": "You read one paper and state in one sentence what it reports, naming it by its identifier.",
+      "model": "default",
+      "tools": [],
+      "guardrails": [],
+      "budget": 2
+    },
+    {
+      "name": "editor",
+      "instructions": "You relate the week's papers: group the statements into themes, each theme naming the papers it draws on by identifier.",
+      "model": "default",
+      "tools": [],
+      "guardrails": [],
+      "budget": 2
+    },
+    {
+      "name": "writer",
+      "instructions": "You write the week's script for someone to listen to: a statement for each paper, naming the paper by its identifier, ordered by theme. When no papers were found in the period, one statement saying so.",
+      "model": "default",
+      "tools": [],
+      "guardrails": [],
+      "budget": 3
+    }
+  ],
+  "steps": [
+    {
+      "name": "papers",
+      "does": {"type": "Ask", "worker": "librarian"},
+      "over": {"type": "Once"},
+      "until": null,
+      "reads": ["input"],
+      "result": {
+        "type": "object",
+        "properties": {
+          "papers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {"identifier": {"type": "string"}, "title": {"type": "string"}},
+              "required": ["identifier", "title"]
+            }
+          }
+        },
+        "required": ["papers"]
+      }
+    },
+    {
+      "name": "read",
+      "does": {"type": "Ask", "worker": "reader"},
+      "over": {"type": "Each", "read": "papers.papers", "limit": 4, "keepGoing": false},
+      "until": null,
+      "reads": [],
+      "result": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {"identifier": {"type": "string"}, "statement": {"type": "string"}},
+          "required": ["identifier", "statement"]
+        }
+      }
+    },
+    {
+      "name": "relate",
+      "does": {"type": "Ask", "worker": "editor"},
+      "over": {"type": "Once"},
+      "until": null,
+      "reads": ["read"],
+      "result": {
+        "type": "object",
+        "properties": {
+          "themes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {"theme": {"type": "string"}, "papers": {"type": "array", "items": {"type": "string"}}},
+              "required": ["theme", "papers"]
+            }
+          }
+        },
+        "required": ["themes"]
+      }
+    },
+    {
+      "name": "script",
+      "does": {"type": "Ask", "worker": "writer"},
+      "over": {"type": "Once"},
+      "until": {"verdict": {"type": "Judgment", "question": "names-a-paper"}, "rounds": 2, "keepLast": false},
+      "reads": ["input", "read", "relate"],
+      "result": {
+        "type": "object",
+        "properties": {
+          "statements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {"type": "string"},
+                "paper": {"type": "string", "description": "The identifier of the paper the statement is about."}
+              },
+              "required": ["text"]
+            }
+          }
+        },
+        "required": ["statements"]
+      }
+    }
+  ],
+  "schedule": {"cadence": {"type": "Weekly", "day": "SUNDAY", "time": "20:00"}, "zone": "Europe/London", "catchUp": "each"},
+  "runBudget": null,
+  "timeLimit": null
+}

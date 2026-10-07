@@ -257,6 +257,7 @@ final class AgentRuntime private (
     blueprintsBuilder.foreach { build =>
       val context = new blueprint.BlueprintContext:
         def componentClient = service.componentClient
+        def viewClient      = service.viewClient
         def services        = service.services
         def secrets         = service.secrets
         def hasTimers       = timers.isDefined

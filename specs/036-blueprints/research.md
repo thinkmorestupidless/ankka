@@ -481,6 +481,20 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   and one over `eventsOf(BlueprintEntity)` is given a version's canonical text, which reads back to
   the blueprint registered. A tool in a run reads `RunContext.current` as the run, step and version;
   the same tool on a request agent of the service's own reads `None`.
+- Phase 8 (T050–T056): the research digest's six scenarios pass offline, and
+  `SampleFeaturesPassSuite` holds the root scenario by running the sample's suite scenario by
+  scenario through munit's own `munitTests()` and counting. R19 changed in one respect: the scripted
+  sources are functions behind the same tool names the blueprints use, not `TestMcpServer`s, since
+  an MCP server's tools are named `mcp__<server>__<tool>` and a blueprint naming `search_biorxiv`
+  could not be the same blueprint in the test and the service. `BlueprintContext` gained
+  `viewClient`: a tool that reads a view (`papers_found_between`) needs it, as one that writes an
+  entity needs the component client. `Scripted`, the helper the blueprint suites script a
+  `TestModelProvider` with, moved into the testkit's published sources for the samples' suites. The
+  digest scenarios each cover a week of their own, since the digest reads by time and every
+  scenario's entries share one journal. The planner as a blueprint (SC-001): select's result shape
+  lists the specialists as an `enum`, consult is a gather chosen by `select.specialists`, and the
+  selector's budget is two model calls so a refused choice can be corrected; the fallback case of
+  `PlannerSuite` is the one case that differs, as R22 said.
 - Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
   patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
   shows a handler given what the step reads and told its run, and a failing handler failing the

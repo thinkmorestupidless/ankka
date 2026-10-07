@@ -2,7 +2,11 @@ package com.thinkmorestupidless.ankka.testkit.blueprint
 
 import com.thinkmorestupidless.ankka.agent.*
 
-/** Reading and answering a scripted model's requests, as the blueprint suites do. */
+/**
+ * Reading and answering a scripted model's requests in a blueprint's run, for a suite that scripts
+ * a `TestModelProvider` by step: which step a request is for, whether it follows a tool result, the
+ * item a for-each step gave it, and the answers and tool calls to reply with.
+ */
 object Scripted:
 
   /** The latest user message's text, which for a step names the step. */

@@ -39,6 +39,15 @@ final class WeatherAgent(context: AgentContext) extends Agent:
         .tools(WeatherAgent.getWeather, WeatherAgent.currentDate)
         .thenReply()
 
+  /** As `ask`, bounded to two tool-call steps for this turn alone. */
+  def askBounded(question: String): Effect[String] =
+    effects
+      .systemMessage(WeatherAgent.SystemMessage)
+      .userMessage(question)
+      .tools(WeatherAgent.getWeather, WeatherAgent.currentDate)
+      .maxToolCallSteps(2)
+      .thenReply()
+
   // docs:start structured
   /** Same interaction, but the reply is parsed into a `Forecast`. */
   def askStructured(question: String): Effect[Forecast] =
@@ -127,6 +136,7 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
 
   val whoAmI             = command("who-am-i")(_.whoAmI)
   val ask                = command("ask")(_.ask)
+  val askBounded         = command("ask-bounded")(_.askBounded)
   val chat               = stream("chat")(_.chat)
   val chatGuarded        = stream("chat-guarded")(_.chatGuarded)
   val askStructured      = command("ask-structured")(_.askStructured)

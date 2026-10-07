@@ -52,7 +52,8 @@ final class AgentEffect[R] private[agent] (
     private[agent] val responseShape: ResponseShape[R],
     private[agent] val guards: Vector[Guardrail],
     private[agent] val failure: Option[CommandError],
-    private[agent] val judgmentPlan: Option[JudgmentPlan[R]] = None
+    private[agent] val judgmentPlan: Option[JudgmentPlan[R]] = None,
+    private[agent] val toolStepBound: Option[Int] = None
 ):
 
   private def with_[R2](
@@ -64,7 +65,8 @@ final class AgentEffect[R] private[agent] (
       functionTools: Vector[FunctionTool] = functionTools,
       responseShape: ResponseShape[R2] = responseShape.asInstanceOf[ResponseShape[R2]],
       guards: Vector[Guardrail] = guards,
-      failure: Option[CommandError] = failure
+      failure: Option[CommandError] = failure,
+      toolStepBound: Option[Int] = toolStepBound
   ): AgentEffect[R2] =
     new AgentEffect[R2](
       chosenModel,
@@ -75,7 +77,9 @@ final class AgentEffect[R] private[agent] (
       functionTools,
       responseShape,
       guards,
-      failure
+      failure,
+      None,
+      toolStepBound
     )
 
   /** Overrides the model for this interaction. */
@@ -100,6 +104,16 @@ final class AgentEffect[R] private[agent] (
     with_[R](functionTools = functionTools ++ tools)
 
   def guardrails(guardrails: Guardrail*): AgentEffect[R] = with_[R](guards = guards ++ guardrails)
+
+  /**
+   * Bounds this turn's tool-call steps, in place of the companion's `maxToolCallSteps`. For an
+   * agent whose turns differ in how much they may spend — a platform agent serving many callers'
+   * definitions, say — the bound belongs to the turn, not the component.
+   */
+  def maxToolCallSteps(steps: Int): AgentEffect[R] =
+    if steps <= 0 then
+      throw IllegalArgumentException(s"maxToolCallSteps must be positive, not $steps")
+    else with_[R](toolStepBound = Some(steps))
 
   /** Replies with the model's text. */
   def thenReply(): AgentEffect[String] = with_[String](responseShape = ResponseShape.AsText)

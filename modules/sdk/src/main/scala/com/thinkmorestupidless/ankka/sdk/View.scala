@@ -122,7 +122,8 @@ final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
     create: ViewComponentContext => V,
     parallelism: Int,
     version: Option[Int] = None,
-    queries: Vector[DeclaredQuery] = Vector.empty
+    queries: Vector[DeclaredQuery] = Vector.empty,
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 

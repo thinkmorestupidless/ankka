@@ -12,7 +12,7 @@ import org.apache.pekko.actor.typed.Behavior
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.slf4j.{Logger, LoggerFactory}
 
-import java.time.Instant
+import java.time.{Clock, Instant}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -47,7 +47,8 @@ private[ankka] object TimerSweeper:
       services: ServiceClients,
       conversation: Option[Conversation],
       pollInterval: FiniteDuration,
-      observer: TimerObserver = TimerObserver.none
+      observer: TimerObserver = TimerObserver.none,
+      clock: Clock = Clock.systemUTC()
   ): Behavior[Nothing] =
     Behaviors
       .setup[Command] { ctx =>
@@ -65,7 +66,8 @@ private[ankka] object TimerSweeper:
           conversation,
           ctx.system.executionContext,
           Observability(ctx.system),
-          observer
+          observer,
+          clock
         )
 
         Behaviors.withTimers { timers =>
@@ -110,7 +112,8 @@ private[ankka] final class Sweep(
     conversation: Option[Conversation],
     ec: ExecutionContext,
     observability: Observability,
-    observer: TimerObserver = TimerObserver.none
+    observer: TimerObserver = TimerObserver.none,
+    clock: Clock = Clock.systemUTC()
 ):
   private given ExecutionContext = ec
 
@@ -126,7 +129,7 @@ private[ankka] final class Sweep(
    * are read and run as the previous release ran them, and the remedy is said once.
    */
   def runBatch(): Future[Int] =
-    val now = Instant.now()
+    val now = Instant.now(clock)
     database
       .query(TimerStore.due(now, BatchSize)) { row =>
         DueTimer(
@@ -215,7 +218,7 @@ private[ankka] final class Sweep(
           what,
           TimerStore.DeferSeconds
         )
-        val at = Instant.now().plusSeconds(TimerStore.DeferSeconds)
+        val at = Instant.now(clock).plusSeconds(TimerStore.DeferSeconds)
         database
           .execute(TimerStore.defer(timer.name, dueFor, period, at))
           .map { changed =>
@@ -353,7 +356,7 @@ private[ankka] final class Sweep(
             true
           }
       case Some((dueFor, period)) =>
-        val now     = Instant.now()
+        val now     = Instant.now(clock)
         val next    = Cadence.next(dueFor, period, now)
         val skipped = Cadence.skipped(dueFor, period, now)
         if skipped > 0 then
@@ -374,7 +377,7 @@ private[ankka] final class Sweep(
 
   /** The handler failed: run again after the backoff, for the same due. */
   private def failed(timer: DueTimer): Future[Boolean] =
-    val at = TimerStore.retryAt(timer.attempts)
+    val at = Instant.now(clock).plusSeconds(TimerStore.backoff(timer.attempts))
     val statement = timer.recurring match
       case None if timer.oldTable =>
         TimerStore.legacyReschedule(timer.name, timer.attempts, timer.dueAt.get, at)

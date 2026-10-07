@@ -267,7 +267,7 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   1000 when absent. The statement is the runtime's to check when the process is discovered: a process sends
   it as the developer wrote it and parses nothing.
 - **An SDK refuses a runtime older than what it declares.** One that declares a keyed view, a declared query
-  or a version on a view that reads entities refuses discovery from a runtime below 1.11, as one that
+  or a version on a view that reads entities refuses discovery from a runtime below 1.13, as one that
   declares a start position refuses a runtime below 1.7: an older runtime would ignore the declaration.
 - **An SDK answers `produce_all` only to a runtime that says it accepts it.** A consumer's request carries
   the metadata entry `ankka.protocol`, the protocol version the runtime speaks. A runtime that does not know

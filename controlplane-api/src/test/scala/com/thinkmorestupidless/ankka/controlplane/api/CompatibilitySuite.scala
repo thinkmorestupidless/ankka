@@ -67,5 +67,7 @@ class CompatibilitySuite extends munit.FunSuite:
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 8)))
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 10)))
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 11)))
-    assert(!Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 13)))
+    assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 12)))
+    assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 13)))
+    assert(!Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 14)))
   }

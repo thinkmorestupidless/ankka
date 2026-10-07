@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata, Serializer}
+import com.thinkmorestupidless.ankka.core.{ComponentId, Contract, Metadata, Serializer}
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
 import com.thinkmorestupidless.ankka.sdk.*
 import org.apache.pekko.Done
@@ -149,6 +149,16 @@ private[ankka] object ProjectionSupport:
   final case class Encoded(payload: Array[Byte], metadata: Metadata, key: Option[String])
 
   /**
+   * A message's `ce-type` is the contract its publication states (feature 037), unless the message
+   * already names one, as a graph delta does; a publication without a contract leaves it to the
+   * broker's default, `message`.
+   */
+  def typed(metadata: Metadata, contract: Option[Contract]): Metadata =
+    contract match
+      case Some(c) if metadata.eventType.isEmpty => metadata.set(Metadata.CeType, c.name)
+      case _                                     => metadata
+
+  /**
    * Publishes the several messages a consumer produced for one change.
    *
    * The one place this is done, for a consumer in process, behind a sidecar or in a module. Each
@@ -232,13 +242,18 @@ private[ankka] object ProjectionSupport:
       case ConsumerEffect.ProduceAll(messages) =>
         (descriptor.produceTo, publisher, descriptor.outputSerializer) match
           case (Some(topic), Some(target), Some(serializer)) =>
+            val contract = descriptor.produces.flatMap(_.contract)
             publishAll(
               descriptor.componentId,
               subject,
               topic,
               target,
               messages.map(m =>
-                Encoded(serializer.toBytes(m.payload), stamped(m.metadata, context), m.key)
+                Encoded(
+                  serializer.toBytes(m.payload),
+                  stamped(typed(m.metadata, contract), context),
+                  m.key
+                )
               )
             )
 
@@ -255,7 +270,12 @@ private[ankka] object ProjectionSupport:
           case (Some(topic), Some(target), Some(serializer)) =>
             val withSubject =
               if metadata.subject.isDefined then metadata else metadata.withSubject(subject)
-            target.publish(topic, serializer.toBytes(payload), stamped(withSubject, context))
+            val contract = descriptor.produces.flatMap(_.contract)
+            target.publish(
+              topic,
+              serializer.toBytes(payload),
+              stamped(typed(withSubject, contract), context)
+            )
 
           case _ =>
             // Startup validation rules this out; reaching it means a producing consumer

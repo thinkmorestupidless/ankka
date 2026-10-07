@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
-import com.thinkmorestupidless.ankka.core.{ComponentId, ComponentKind}
+import com.thinkmorestupidless.ankka.core.{
+  ComponentDescriptor,
+  ComponentId,
+  ComponentKind,
+  Contract
+}
 import com.thinkmorestupidless.ankka.runtime.remote.{
   Conversation,
   RemoteConsumer,
@@ -56,8 +61,74 @@ final class ProjectionRuntime private (
     subscriberFactory: Option[ActorSystem[?] => MessageSubscriber],
     // Whether the factory makes a publisher this runtime owns (Kafka's, a producer it opened) and so
     // must close on stop; one handed in, such as a test's broker, is its giver's to close.
-    ownsPublisher: Boolean = false
+    ownsPublisher: Boolean = false,
+    // What the project declares about its topics and brokers (feature 037): `Right(None)` declares
+    // nothing and checks nothing; a `Left` is a file that could not be read, which refuses the start.
+    declarations: Either[String, Option[ProjectDeclarations]] = Right(None),
+    // The declared brokers (feature 037), by name: a connection each, beside the installation's.
+    declaredBrokers: Map[String, ActorSystem[?] => (MessagePublisher, MessageSubscriber)] =
+      Map.empty
 ) extends RuntimeExtension:
+
+  /** The same runtime with a declared broker a component may name for a topic. */
+  def withDeclaredBroker(
+      name: String,
+      publisher: MessagePublisher,
+      subscriber: MessageSubscriber
+  ): ProjectionRuntime =
+    new ProjectionRuntime(
+      publisherFactory,
+      subscriberFactory,
+      ownsPublisher,
+      declarations,
+      declaredBrokers.updated(name, _ => (publisher, subscriber))
+    )
+
+  private def withDeclaredKafka(name: String, connection: KafkaConnection): ProjectionRuntime =
+    new ProjectionRuntime(
+      publisherFactory,
+      subscriberFactory,
+      ownsPublisher,
+      declarations,
+      declaredBrokers.updated(
+        name,
+        system =>
+          (
+            KafkaPublisher(connection)(using system),
+            KafkaSubscriber(connection, 1.second, 30.seconds)(using system)
+          )
+      )
+    )
+
+  @volatile private var brokers: Map[String, (MessagePublisher, MessageSubscriber)] = Map.empty
+
+  /** The publisher for a publication: the named declared broker's, else the installation's. */
+  private def publisherFor(broker: Option[String]): Option[MessagePublisher] =
+    broker.fold(publisher)(name => brokers.get(name).map(_._1))
+
+  /** The subscriber for a topic source: the named declared broker's, else the installation's. */
+  private def subscriberFor(broker: Option[String]): Option[MessageSubscriber] =
+    broker.fold(subscriber)(name => brokers.get(name).map(_._2))
+
+  /** The same runtime, checking components against these declarations at start. */
+  def withDeclarations(declared: ProjectDeclarations): ProjectionRuntime =
+    new ProjectionRuntime(
+      publisherFactory,
+      subscriberFactory,
+      ownsPublisher,
+      Right(Some(declared)),
+      declaredBrokers
+    )
+
+  /** The same runtime, refusing to start because the declarations file could not be read. */
+  private[runtime] def withUnreadableDeclarations(why: String): ProjectionRuntime =
+    new ProjectionRuntime(
+      publisherFactory,
+      subscriberFactory,
+      ownsPublisher,
+      Left(why),
+      declaredBrokers
+    )
 
   // Factories rather than instances: a Kafka client needs an ActorSystem, which does not
   // exist until the service starts. Resolved once, in `start`.
@@ -73,6 +144,7 @@ final class ProjectionRuntime private (
     val client                   = service.componentClient
 
     publisher = publisherFactory.map(_(system))
+    brokers = declaredBrokers.map((name, make) => name -> make(system))
     subscriber = subscriberFactory.map(_(system))
     identity = service.identity
 
@@ -90,10 +162,15 @@ final class ProjectionRuntime private (
       remoteKeyed.isEmpty && remoteConsumers.isEmpty
     then system.log.debug("no views or consumers registered")
     else
+      // The project's word first: a broker the project does not declare is named as such, not as
+      // a publisher nobody configured.
+      rejectUndeclared(service.registry.components.toVector)
       rejectUnsupported(views, consumers)
       rejectUnsupportedRemote(remoteViews, remoteConsumers)
 
-      val database = Database()
+      // Opened only by a view's tables below: a service of consumers alone, with no database
+      // (feature 037), never reaches it.
+      lazy val database = Database()
 
       // Tables must exist before any projection writes to them.
       val tables = views.map(_.tableName) ++ keyed.map(_.tableName) ++
@@ -159,11 +236,11 @@ final class ProjectionRuntime private (
     // this refuses to start and what a console draws are the same reading of the same descriptor.
     (views ++ consumers).foreach { component =>
       DeclaredConnections.sourceOf(component) match
-        case Some(DeclaredSource.Topic(topic)) if subscriber.isEmpty =>
+        case Some(DeclaredSource.Topic(topic, _, b)) if subscriberFor(b).isEmpty =>
           problems += s"'${component.componentId}' consumes topic '$topic' but no " +
             "MessageSubscriber was configured; pass one to ProjectionRuntime.withBroker, or set " +
             s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
-        case Some(DeclaredSource.Topic(topic)) =>
+        case Some(DeclaredSource.Topic(topic, _, _)) =>
           identity.left.foreach(why =>
             problems += unnamedTopicSource(component.componentId, topic, why)
           )
@@ -171,10 +248,10 @@ final class ProjectionRuntime private (
     }
 
     consumers.foreach { consumer =>
-      DeclaredConnections.destinationOf(consumer).foreach { topic =>
-        if publisher.isEmpty then
+      DeclaredConnections.publicationOf(consumer).foreach { p =>
+        if publisherFor(p.broker).isEmpty then
           problems += s"consumer '${consumer.componentId}' publishes to " +
-            s"'$topic' but no MessagePublisher was configured; " +
+            s"'${p.topic}' but no MessagePublisher was configured; " +
             "pass one to ProjectionRuntime.withPublisher, or set " +
             s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
       }
@@ -182,9 +259,73 @@ final class ProjectionRuntime private (
 
     val found = problems.result()
     if found.nonEmpty then
-      throw IllegalArgumentException(
-        found.mkString("cannot start ankka projections:\n  - ", "\n  - ", "")
+      StartRefusal.refuse(
+        found.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
+        IllegalArgumentException(_)
       )
+
+  /**
+   * The project's declarations against what every component states (feature 037): a topic source or
+   * publication whose contract is not the declared one, in name or fingerprint, or states none
+   * where the project declares one, and a broker the project does not declare. Nothing is checked
+   * for a topic the project does not list, or without declarations at all. One refusal names every
+   * problem, where `ankka services get` shows it.
+   */
+  private def rejectUndeclared(components: Vector[ComponentDescriptor]): Unit =
+    declarations match
+      case Left(why) =>
+        StartRefusal.refuse(
+          s"cannot read the project's declarations: $why",
+          IllegalArgumentException(_)
+        )
+      case Right(None) => ()
+      case Right(Some(declared)) =>
+        val problems = Vector.newBuilder[String]
+        def side(
+            id: ComponentId,
+            kind: String,
+            verb: String,
+            topic: String,
+            stated: Option[Contract],
+            broker: Option[String]
+        ): Unit =
+          broker.foreach { b =>
+            if !declared.brokers.contains(b) then
+              problems += s"$kind '$id' $verb '$topic' on broker '$b', which project " +
+                s"'${declared.project}' does not declare"
+          }
+          // A topic on a declared broker is that broker's; the project's contracts are on its own.
+          if broker.isEmpty then
+            declared.topics.get(topic).flatMap(_.contract).foreach { expected =>
+              stated match
+                case None =>
+                  problems += s"$kind '$id' $verb '$topic' with no contract; project " +
+                    s"'${declared.project}' declares '${expected.name}' (${expected.fingerprint})"
+                case Some(c) if c != expected =>
+                  problems += s"$kind '$id' $verb '$topic' as '${c.name}' (${c.fingerprint}); " +
+                    s"project '${declared.project}' declares '${expected.name}' (${expected.fingerprint})"
+                case _ => ()
+            }
+        components.foreach { component =>
+          val kind = component.kind match
+            case ComponentKind.View     => "view"
+            case ComponentKind.Consumer => "consumer"
+            case other                  => other.toString.toLowerCase
+          DeclaredConnections.sourcesOf(component).foreach {
+            case DeclaredSource.Topic(topic, contract, broker) =>
+              side(component.componentId, kind, "reads", topic, contract, broker)
+            case _ => ()
+          }
+          DeclaredConnections.publicationOf(component).foreach { p =>
+            side(component.componentId, kind, "publishes to", p.topic, p.contract, p.broker)
+          }
+        }
+        val found = problems.result()
+        if found.nonEmpty then
+          StartRefusal.refuse(
+            found.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
+            IllegalArgumentException(_)
+          )
 
   /**
    * The same checks for remote components, plus one of their own: discovery lets a source name any
@@ -200,10 +341,10 @@ final class ProjectionRuntime private (
       (component, source) =>
         val id = component.componentId
         (DeclaredConnections.sourceOf(component), source) match
-          case (Some(DeclaredSource.Topic(topic)), _) if subscriber.isEmpty =>
+          case (Some(DeclaredSource.Topic(topic, _, b)), _) if subscriberFor(b).isEmpty =>
             problems += s"'$id' consumes topic '$topic' but no MessageSubscriber " +
               "was configured; pass one to ProjectionRuntime.withBroker"
-          case (Some(DeclaredSource.Topic(topic)), _) =>
+          case (Some(DeclaredSource.Topic(topic, _, _)), _) =>
             identity.left.foreach(why => problems += unnamedTopicSource(id, topic, why))
           // A source `DeclaredConnections` does not read as one: a component with no change stream.
           case (None, RemoteSource.Component(kind, sourceId)) =>
@@ -213,18 +354,19 @@ final class ProjectionRuntime private (
     }
 
     consumers.foreach { consumer =>
-      DeclaredConnections.destinationOf(consumer).foreach { topic =>
-        if publisher.isEmpty then
+      DeclaredConnections.publicationOf(consumer).foreach { p =>
+        if publisherFor(p.broker).isEmpty then
           problems += s"consumer '${consumer.componentId}' publishes to " +
-            s"'$topic' but no MessagePublisher was configured; " +
+            s"'${p.topic}' but no MessagePublisher was configured; " +
             "pass one to ProjectionRuntime.withPublisher"
       }
     }
 
     val found = problems.result()
     if found.nonEmpty then
-      throw IllegalArgumentException(
-        found.mkString("cannot start ankka projections:\n  - ", "\n  - ", "")
+      StartRefusal.refuse(
+        found.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
+        IllegalArgumentException(_)
       )
 
   /**
@@ -253,12 +395,43 @@ final class ProjectionRuntime private (
       topic: String,
       startFrom: StartFrom,
       version: Int,
-      handle: IncomingMessage => Future[Done]
+      handler: () => IncomingMessage => Future[Done],
+      parallel: Boolean
   )(using system: ActorSystem[?]): Subscribed =
-    val group      = groupFor(kind, componentId, version)
-    val subscribed = broker.subscribe(TopicSubscription(topic, group, startFrom), handle)
+    val group = groupFor(kind, componentId, version)
+    // A handler holds one component instance and sets its context per message, so a parallel
+    // subscription (feature 037) gets a handler per partition: lanes never share an instance.
+    val lanes: IncomingMessage => Future[Done] =
+      if parallel then
+        val perPartition =
+          scala.collection.concurrent.TrieMap.empty[Int, IncomingMessage => Future[Done]]
+        message => perPartition.getOrElseUpdate(message.partition, handler())(message)
+      else handler()
+    // What the service says about the source (feature 037): the change it is failing on, cleared
+    // when one succeeds, and how far behind it is, asked of the broker every thirty seconds.
+    val sources = TopicSources(system)
+    val handle: IncomingMessage => Future[Done] = message =>
+      given ExecutionContext = ExecutionContext.parasitic
+      lanes(message).transform { outcome =>
+        val reason = outcome.failed.toOption.map(f => Option(f.getMessage).getOrElse(f.toString))
+        sources.update(componentId)(_.copy(failing = reason))
+        outcome
+      }
+    val subscription = TopicSubscription(topic, group, startFrom, parallel)
+    val subscribed   = broker.subscribe(subscription, handle)
     subscriptions.add(subscribed): Unit
-    TopicSources(system).update(componentId)(_.copy(group = group))
+    val poll = system.scheduler.scheduleWithFixedDelay(
+      ProjectionRuntime.LagInterval,
+      ProjectionRuntime.LagInterval
+    )(() =>
+      broker
+        .lag(subscription)
+        .foreach(lag => sources.update(componentId)(_.copy(lag = lag)))(using
+          system.executionContext
+        )
+    )(using system.executionContext)
+    subscriptions.add(() => poll.cancel(): Unit): Unit
+    sources.update(componentId)(_.copy(group = group))
     system.log.info(
       "topic source subscribed: kind={} component={} topic={} group={} start={} version={}",
       kindWord(kind),
@@ -277,7 +450,8 @@ final class ProjectionRuntime private (
       topic: String,
       startFrom: StartFrom,
       version: Int,
-      recorded: Option[Int]
+      recorded: Option[Int],
+      options: TopicOptions = TopicOptions()
   )(using system: ActorSystem[?]): Unit =
     TopicSources(system).put(
       TopicSourceStatus(
@@ -288,7 +462,9 @@ final class ProjectionRuntime private (
         startFrom,
         version,
         recorded,
-        behind = false
+        behind = false,
+        broker = options.broker,
+        contract = options.contract.map(_.name)
       )
     )
 
@@ -306,7 +482,8 @@ final class ProjectionRuntime private (
       topic: String,
       startFrom: StartFrom,
       declared: Int,
-      handler: ViewGuard => IncomingMessage => Future[Done]
+      handler: ViewGuard => IncomingMessage => Future[Done],
+      parallel: Boolean
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
     val database           = Database()
@@ -338,7 +515,8 @@ final class ProjectionRuntime private (
             topic,
             startFrom,
             declared,
-            handler(guard)
+            () => handler(guard),
+            parallel
           )
         )
       )
@@ -535,8 +713,8 @@ final class ProjectionRuntime private (
           }
         }
 
-      case ChangeSource.Topic(topic, _, startFrom) =>
-        subscriber.foreach { broker =>
+      case ChangeSource.Topic(topic, _, startFrom, options) =>
+        subscriberFor(options.broker).foreach { broker =>
           // A view that declares nowhere starts at the earliest message the broker holds.
           startTopicView(
             broker,
@@ -544,7 +722,8 @@ final class ProjectionRuntime private (
             topic,
             startFrom.getOrElse(StartFrom.Earliest),
             typed.version.getOrElse(1),
-            guard => ViewTopicHandler(typed, Database(), client, guard).process
+            guard => ViewTopicHandler(typed, Database(), client, guard).process,
+            options.parallel
           )
         }
 
@@ -596,7 +775,7 @@ final class ProjectionRuntime private (
                 () => KeyedViewStateHandler(host.core, guard(projection), handle)
               )
             }
-          case ChangeSource.Topic(_, _, _) => () // refused by KeyedViewRules
+          case ChangeSource.Topic(_, _, _, _) => () // refused by KeyedViewRules
       }
     }
 
@@ -611,6 +790,8 @@ final class ProjectionRuntime private (
     type AnyConsumer = Consumer[Any, Any]
     val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
     val processName = s"ankka-consumer-${typed.componentId}"
+    // Where this consumer publishes: the declared broker it names, else the installation's.
+    val target = publisherFor(typed.produces.flatMap(_.broker))
 
     typed.source match
       case ChangeSource.EventSourced(sourceId, _) =>
@@ -623,7 +804,7 @@ final class ProjectionRuntime private (
             () =>
               ConsumerEventHandler(
                 typed,
-                publisher,
+                target,
                 client,
                 Observability(system),
                 secrets,
@@ -642,7 +823,7 @@ final class ProjectionRuntime private (
             () =>
               ConsumerStateHandler(
                 typed,
-                publisher,
+                target,
                 client,
                 Observability(system),
                 secrets,
@@ -651,14 +832,14 @@ final class ProjectionRuntime private (
           )
         }
 
-      case ChangeSource.Topic(topic, _, startFrom) =>
-        subscriber.foreach { broker =>
-          val handler =
-            ConsumerTopicHandler(typed, publisher, client, Observability(system), secrets, services)
+      case ChangeSource.Topic(topic, _, startFrom, options) =>
+        subscriberFor(options.broker).foreach { broker =>
+          def handler =
+            ConsumerTopicHandler(typed, target, client, Observability(system), secrets, services)
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
           val version = typed.version.getOrElse(1)
-          declare(ComponentKind.Consumer, typed.componentId, topic, start, version, None)
+          declare(ComponentKind.Consumer, typed.componentId, topic, start, version, None, options)
           subscribeTopic(
             broker,
             ComponentKind.Consumer,
@@ -666,7 +847,8 @@ final class ProjectionRuntime private (
             topic,
             start,
             version,
-            handler.process
+            () => handler.process,
+            options.parallel
           ): Unit
         }
 
@@ -716,15 +898,16 @@ final class ProjectionRuntime private (
           }
         }
 
-      case RemoteSource.Topic(topic, startFrom) =>
-        subscriber.foreach { broker =>
+      case RemoteSource.Topic(topic, startFrom, options) =>
+        subscriberFor(options.broker).foreach { broker =>
           startTopicView(
             broker,
             descriptor.componentId,
             topic,
             startFrom.getOrElse(StartFrom.Earliest),
             descriptor.version.getOrElse(1),
-            guard => RemoteViewTopicHandler(view(), Database(), guard).process
+            guard => RemoteViewTopicHandler(view(), Database(), guard).process,
+            options.parallel
           )
         }
 
@@ -772,7 +955,7 @@ final class ProjectionRuntime private (
                 () => KeyedViewStateHandler(core, guard(projection), handle)
               )
             }
-        case RemoteSource.Topic(_, _) => () // refused by KeyedViewRules
+        case RemoteSource.Topic(_, _, _) => () // refused by KeyedViewRules
       }
     }
 
@@ -783,7 +966,12 @@ final class ProjectionRuntime private (
     given ExecutionContext = system.executionContext
     val processName        = s"ankka-consumer-${descriptor.componentId}"
     val parallelism        = RemoteProjection.Parallelism
-    def consumer() = RemoteConsumer(descriptor, conversation, publisher, Observability(system))
+    def consumer() = RemoteConsumer(
+      descriptor,
+      conversation,
+      publisherFor(descriptor.publication.flatMap(_.broker)),
+      Observability(system)
+    )
 
     descriptor.source match
       case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
@@ -808,9 +996,9 @@ final class ProjectionRuntime private (
           )
         }
 
-      case RemoteSource.Topic(topic, startFrom) =>
-        subscriber.foreach { broker =>
-          val handler = RemoteConsumerTopicHandler(consumer())
+      case RemoteSource.Topic(topic, startFrom, options) =>
+        subscriberFor(options.broker).foreach { broker =>
+          def handler = RemoteConsumerTopicHandler(consumer())
           if startFrom.isEmpty then
             // Only an SDK that could not declare one gets here: `validate` refused any other.
             system.log.warn(
@@ -823,7 +1011,15 @@ final class ProjectionRuntime private (
             )
           val start   = startFrom.getOrElse(StartFrom.Earliest)
           val version = descriptor.version.getOrElse(1)
-          declare(ComponentKind.Consumer, descriptor.componentId, topic, start, version, None)
+          declare(
+            ComponentKind.Consumer,
+            descriptor.componentId,
+            topic,
+            start,
+            version,
+            None,
+            options
+          )
           subscribeTopic(
             broker,
             ComponentKind.Consumer,
@@ -831,7 +1027,8 @@ final class ProjectionRuntime private (
             topic,
             start,
             version,
-            handler.process
+            () => handler.process,
+            options.parallel
           ): Unit
         }
 
@@ -896,6 +1093,13 @@ final class ProjectionRuntime private (
     subscriptions.forEach(_.stop())
     subscriptions.clear()
     subscriber.foreach(_.stop())
+    brokers.values.foreach { (p, s) =>
+      s.stop()
+      p match
+        case owned: AutoCloseable => owned.close()
+        case _                    => ()
+    }
+    brokers = Map.empty
     // A producer left open keeps its network thread, retrying a broker that may be gone, for the
     // life of the JVM: one more on every restart of a service in a test.
     if ownsPublisher then
@@ -949,6 +1153,9 @@ object ProjectionRuntime:
   /** The first protocol in which a process can declare where a topic source starts. */
   val StartPositionProtocol: String = "1.7"
 
+  /** How often a topic source asks its broker how far behind it is (feature 037). */
+  val LagInterval: FiniteDuration = 30.seconds
+
   /**
    * Kafka when the environment names a broker, entity sources only when it does not.
    *
@@ -958,7 +1165,15 @@ object ProjectionRuntime:
    * Without a broker, a producing consumer or a topic-sourced view is still refused at startup.
    */
   def fromEnv(env: Map[String, String] = sys.env): ProjectionRuntime =
-    KafkaConnection.fromEnv(env).fold(apply())(withKafka)
+    val installation = KafkaConnection.fromEnv(env).fold(apply())(withKafka)
+    val declared = ProjectDeclarations.fromEnv(env) match
+      case Right(None)    => installation
+      case Right(Some(d)) => installation.withDeclarations(d)
+      case Left(why)      => installation.withUnreadableDeclarations(why)
+    KafkaConnection.declaredFromEnv(env) match
+      case Right(connections) =>
+        connections.foldLeft(declared)((r, named) => r.withDeclaredKafka(named._1, named._2))
+      case Left(why) => declared.withUnreadableDeclarations(why)
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 

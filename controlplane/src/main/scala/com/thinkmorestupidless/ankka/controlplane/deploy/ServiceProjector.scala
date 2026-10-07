@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.Attribution
-import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.domain.{DeclaredBroker, RegistryRef, ServiceKey}
 import com.thinkmorestupidless.ankka.core.{EntityId, Metadata}
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 import com.thinkmorestupidless.ankka.runtime.{
@@ -44,7 +44,8 @@ final class ServiceProjector private (
 ) extends RuntimeExtension
     with RegistryWriter
     with ProjectSecretWriter
-    with ProjectTopicsReader:
+    with ProjectTopicsReader
+    with ProjectSchemaStore:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
 
@@ -113,9 +114,20 @@ final class ServiceProjector private (
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(projectId, work.topicsOf(projectId))
+          ProjectProjection.spec(projectId, work.topicsOf(projectId), work.brokersOf(projectId))
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
+
+  def putSchema(projectId: String, fingerprint: String, document: String): Unit =
+    client match
+      case Some(resources) =>
+        resources.putSchema(config.namespaceFor(projectId), fingerprint, document)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  def schema(projectId: String, fingerprint: String): Option[String] =
+    client match
+      case Some(resources) => resources.schema(config.namespaceFor(projectId), fingerprint)
+      case None            => throw new IllegalStateException("the cluster client is not started")
 
   def topicStatus(projectId: String): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus] =
     client match
@@ -203,6 +215,12 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.topics)
+      .invoke()
+
+  def brokersOf(projectId: String): Map[String, DeclaredBroker] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.brokers)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =

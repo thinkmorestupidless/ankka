@@ -6,10 +6,11 @@ import typing
 from collections.abc import Awaitable
 from typing import Any, ClassVar, Generic, TypeVar
 
-from ankka import start_from
+from ankka import contract, start_from
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import Codec
 from ankka.context import Metadata
+from ankka.contract import Contract, Publication
 from ankka.effects.consumer import ConsumerEffect, ConsumerEffects, Done, Ignore, Produce, ProduceAll
 from ankka.event_sourced_entity import RegistrationError
 from ankka.start_from import StartFrom
@@ -28,11 +29,19 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None
-    produces_to: ClassVar[str | None] = None
+    # The topic this consumer publishes to: its name, or a Publication with the contract it states
+    # and the declared broker it is on.
+    produces_to: ClassVar[str | Publication | None] = None
     # Where a topic source starts. A consumer over a topic must say: there is no default.
     start_from: ClassVar[StartFrom | None] = None
     # A new one reads its topic again from start_from, under a group of its own. Absent is 1.
     version: ClassVar[int | None] = None
+    # What the project must know about a topic source (1.14): the contract this consumer expects
+    # the topic to carry, the declared broker it is on, and whether its partitions are handled at
+    # once, each in order.
+    contract: ClassVar[Contract | None] = None
+    broker: ClassVar[str | None] = None
+    parallel: ClassVar[bool] = False
     message_codec: ClassVar[Codec[Any]]
     out_codec: ClassVar[Codec[Any] | None] = None
 
@@ -42,11 +51,12 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
             if not hasattr(cls, required):
                 raise RegistrationError(f"{cls.__name__} must declare {required}")
         _source_pb(cls)
-        found = start_from.problems(cls, consumer=True)
+        found = start_from.problems(cls, consumer=True) + contract.problems(cls)
         if found:
             raise RegistrationError("; ".join(found))
-        if cls.produces_to is not None and cls.out_codec is None:
-            raise RegistrationError(f"{cls.__name__} produces to '{cls.produces_to}' and needs an out_codec")
+        publication = contract.publication_of(cls)
+        if publication is not None and cls.out_codec is None:
+            raise RegistrationError(f"{cls.__name__} produces to '{publication.topic}' and needs an out_codec")
 
     def __init__(self, client: ComponentClient | None = None) -> None:
         self.effects: ConsumerEffects[Out] = ConsumerEffects()
@@ -67,8 +77,11 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
         detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), version=cls.version)
-        if cls.produces_to is not None:
-            detail.produces_to = cls.produces_to
+        publication = contract.publication_of(cls)
+        if publication is not None:
+            # The topic alone for a sidecar before 1.14; the publication for one that reads it.
+            detail.produces_to = publication.topic
+            detail.produces.CopyFrom(publication.to_pb())
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)
 
     async def _handle(self, message_bytes: bytes | None, metadata: Metadata) -> ConsumerEffect:

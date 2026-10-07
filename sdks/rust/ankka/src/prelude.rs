@@ -9,9 +9,10 @@ pub use crate::components::{
     Stage, Steps, TaskAcceptance, TaskType, TimedAction, Tools, Verdict, View, Workflow,
     WorkflowHandlers, WorkflowSettings,
 };
-pub use crate::components::{Sources, query, table_of};
+pub use crate::components::{Publication, Sources, TopicSource, query, table_of};
 pub use crate::config::config;
 pub use crate::context::{Context, Metadata};
+pub use crate::contract::Contract;
 pub use crate::effects::agent::AgentEffect;
 pub use crate::effects::consumer::{ConsumerEffect, Outgoing};
 pub use crate::effects::keyed_view::KeyedViewEffect;

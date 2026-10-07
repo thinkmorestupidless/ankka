@@ -30,6 +30,31 @@ class TopicProvisioningSuite extends munit.FunSuite:
   private def decide(entry: ProjectTopicEntry, observed: Option[TopicState]) =
     TopicProvisioning.decide("money", entry, broker, observed)
 
+  // features/broker/compaction.feature
+  test(
+    "a topic made without compaction whose declaration says compacted is not ready until it is"
+  ) {
+    val compacted = ProjectTopicEntry("cart-deltas", 3, declared.toString, compacted = true)
+    val plain     = Some(TopicState(ready(), Some(3), Some(false)))
+    val applied   = Some(TopicState(ready(), Some(3), Some(true)))
+    assert(
+      decide(compacted, plain).isInstanceOf[TopicPlan.Waiting],
+      decide(compacted, plain).toString
+    )
+    assertEquals(decide(compacted, applied), TopicPlan.Ready(recovered = false))
+    // The reverse: a declaration that stops asking for compaction waits for the broker to drop it.
+    assert(decide(compacted.copy(compacted = false), applied).isInstanceOf[TopicPlan.Waiting])
+    // And it is rendered again either way, since nothing shrinks.
+    val spec = AnkkaProjectSpec("money", List(compacted))
+    assertEquals(
+      TopicProvisioning.topicsToRender(spec, broker, Map("money.cart-deltas" -> plain.get)),
+      Vector(compacted)
+    )
+    // The status says whether the broker's resource is compacted.
+    val status = TopicProvisioning.status(spec, broker, Map("money.cart-deltas" -> applied.get))
+    assertEquals(status.topics.map(_.compacted), List(Some(true)))
+  }
+
   // features/broker/declaring.feature: the outline, row by row
   test("a project's topics say how far the platform has got with them") {
     // Not yet made.

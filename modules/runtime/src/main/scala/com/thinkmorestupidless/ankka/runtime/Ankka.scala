@@ -201,11 +201,20 @@ final class ServiceBuilder private[ankka] (
     TraceLogging.install()
     val registry = validate.fold(
       problems =>
-        throw IllegalArgumentException(
-          problems.mkString("invalid ankka service:\n  - ", "\n  - ", "")
+        StartRefusal.refuse(
+          problems.mkString("invalid ankka service:\n  - ", "\n  - ", ""),
+          IllegalArgumentException(_)
         ),
       identity
     )
+    // Feature 037: a component that needs the database this service says it has not.
+    if NoDatabase.declared(system.settings.config) then
+      val needing = NoDatabase.problems(registry.components)
+      if needing.nonEmpty then
+        StartRefusal.refuse(
+          needing.mkString("this service declares no database:\n  - ", "\n  - ", ""),
+          IllegalArgumentException(_)
+        )
     val sharding = ClusterSharding(system)
 
     // What the service declared, before anything can call anything: a name in a call's metadata is
@@ -242,7 +251,11 @@ final class ServiceBuilder private[ankka] (
         Some(
           SecretKey.parse(text).fold(problem => throw IllegalArgumentException(problem), identity)
         )
-    val secrets: SecretStore = DatabaseSecretStore(Database()(using system), secretKey)
+    // A service with no database (feature 037) keeps no secrets and opens no connection for them.
+    val noDatabase = NoDatabase.declared(system.settings.config)
+    val secrets: SecretStore =
+      if noDatabase then SecretStore.unavailable
+      else DatabaseSecretStore(Database()(using system), secretKey)
 
     // And the one client for other services that every component which may call one is given.
     val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))

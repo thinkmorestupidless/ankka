@@ -1,6 +1,6 @@
 # Broker topics
 
-> Read views and consumers from a Kafka topic and publish to one — where a source starts, the group it reads under, rebuilding by version as far back as the broker retains, headers, ordering, and an in-memory broker for tests.
+> Read views and consumers from a Kafka topic and publish to one — start positions, groups, contracts, a topic on another broker, parallel partitions, rebuilding by version, headers, ordering, and testing without a broker.
 
 Source: https://docs.ankka.cloud/build/topics/
 A view or a consumer can read from a broker topic instead of an entity, and a consumer can publish to one.
@@ -344,16 +344,31 @@ states its name with `ANKKA_SERVICE_NAME`, or `ankka.service.name` in its config
 
 ## What a service says about its topic sources
 
-When a topic source subscribes, the service logs a line beginning `topic source subscribed:` naming its
-kind, component, topic, group, start position and version. A view at a lower version than the one recorded
-logs `view behind its recorded version:` as a warning. These lines are the way to read a deployed
-service's topic sources today, with `ankka services logs`.
+`ankka services get` lists each topic source of a deployed service, with how far behind it is:
 
-The service's metrics carry the same facts, in two series: `ankka_topic_source_info`, one for each topic
-source with its group, start position and version as labels, and `ankka_topic_source_behind`, 1 for a view
-that is behind and 0 otherwise. A deployed service serves them on its management port, which only the
-service's own instances can reach. A service run locally answers the same facts, as `topicSources`, from
-the endpoint the local console reads.
+```text
+topic sources   relay: events  group ankka.shop.intake.consumer.relay  v1  lag 60
+                orders-by-day: orders as order.v1  group ankka.shop.intake.view.orders-by-day  v2  lag 0  failing: cannot decode offset 4711: …
+topic checks    orders: relay publishes order.v1 — checked
+```
+
+Each line is one component: the topic it reads, with the declared broker after `@` and the contract it
+states after `as`; its consumer group; its version; `lag`, how many messages the topic holds past the last
+one this source handled, which every instance asks its broker every thirty seconds; and `failing`, the
+reason of the change the source is being handed again, which is cleared when one succeeds. The lag is
+summed over the service's instances, since each reads its own partitions. The console's service page
+shows the same table, and the `get_service` tool of `ankka mcp` answers it as `topicSources`. The
+`topic checks` lines say what each component states for a declared topic's contract; see
+[Contracts](#contracts).
+
+When a topic source subscribes, the service also logs a line beginning `topic source subscribed:` naming
+its kind, component, topic, group, start position and version, and a view at a lower version than the one
+recorded logs `view behind its recorded version:` as a warning. The metrics carry the same facts in three
+series: `ankka_topic_source_info`, one for each topic source with its group, start position and version as
+labels; `ankka_topic_source_behind`, 1 for a view that is behind and 0 otherwise; and
+`ankka_topic_source_lag`, the lag as of the last poll. A deployed service serves them on its management
+port, which only the service's own instances can reach. A service run locally answers the same facts, as
+`topicSources`, from the endpoint the local console reads.
 
 ## Connecting to Kafka
 
@@ -401,10 +416,13 @@ A web-hosted service has no components and is given nothing of the broker.
 ### Declaring a topic
 
 A topic on the installation's broker exists because its project declares it, once, with the number of
-partitions it has. A member declares it on the project, not in any service's descriptor:
+partitions it has, whether the broker keeps only the last message under each key, and the contract it
+carries. A member declares it on the project, not in any service's descriptor:
 
 ```bash
 ankka projects topics set transactions --partitions 12 -p money
+ankka projects topics set cart-deltas --partitions 3 --compacted -p money
+ankka projects topics set orders --partitions 3 --contract order.v1 --schema schemas/order.v1.json -p money
 ankka projects topics list -p money
 ```
 
@@ -412,19 +430,22 @@ The platform makes the topic as soon as it is declared, whether or not the proje
 Every service of the project publishes to it and reads it by its name, and none of them declares it, so
 there is one partition count and one place to change it. Declaring the topic again with more partitions
 grows it; with fewer, is refused, since a topic is never made smaller. A name the broker cannot hold, or
-partitions outside 1 to 1000, are refused too, naming the topic.
+partitions outside 1 to 1000, are refused too, naming the topic. `--compacted` is applied to a topic
+already made as well as to a new one, and a declaration without it makes the topic keep every message
+again; `--contract` and `--schema` go together, and declaring the topic without them removes its contract.
 
 A component names a topic as the project declared it, `transactions`. The broker holds it under a name
 that carries the project, `money.transactions`, which is what the broker's own tools list. The platform
 adds the project where a topic is handed to the broker and nowhere else, so a component's code, its
 declared connections and the service's logs all use the declared name.
 
-`ankka projects topics list` shows how far the platform has got with each topic:
+`ankka projects topics list` shows each topic's partitions, whether it is compacted, its contract, how
+far the platform has got with it, and the sides every running service takes on its contract:
 
 | Phase | Meaning |
 |---|---|
-| `waiting for broker` | The broker has not yet made the topic, or not yet grown it to the partitions declared. |
-| `provisioned` | The topic is ready with its declared partitions. |
+| `waiting for broker` | The broker has not yet made the topic, or not yet grown it to the partitions declared, or not yet applied its compaction. |
+| `provisioned` | The topic is ready with its declared partitions and compaction. |
 | `recovered` | The same, and the topic was on the broker before it was declared: declared again after its declaration was removed. |
 | `failed` | Something waiting will not clear, such as a topic that already has more partitions than declared, or an installation with no broker. The detail says which. |
 
@@ -458,16 +479,275 @@ tools; see [The installation's broker](../platform/broker.md).
 ### A broker of the service's own
 
 A descriptor may name a broker of its own by setting `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its `env`. The
-service then uses that broker, connecting with no certificate, and the platform makes nothing for it on
-the installation's: no credential, and its project's declared topics are not made on the broker it
-names. An installation with no broker works this way for every service, and a topic declared there is
-reported as failed, since there is nowhere to make it.
+service then uses that broker for every topic, connecting with no certificate, and the platform makes
+nothing for it on the installation's: no credential, and its project's declared topics are not made on
+the broker it names. An installation with no broker works this way for every service, and a topic
+declared there is reported as failed, since there is nowhere to make it. A service that keeps the
+installation's broker and reads one topic from elsewhere names a declared broker for that topic
+instead; see [A topic on another broker](#a-topic-on-another-broker).
 
 A service behind a sidecar reaches the broker through its sidecar. The platform gives
 `ANKKA_KAFKA_BOOTSTRAP_SERVERS` to the sidecar and to the process as well, whichever broker it names, so
 a service can register a component that publishes only where there is a broker to publish to. Without it
 the sidecar refuses to start a service that has such a component, naming it. A service hosted as a
 WebAssembly module reads the same variable through its configuration.
+
+## Contracts
+
+A declared topic may carry a **contract**: a name, such as `order.v1`, and the schema of what the topic
+carries, which the project holds. A component that reads the topic or publishes to it states the contract
+it expects — by name, and by the schema document it was built against — and a service whose component
+states another name, another schema, or none where the topic has a contract, is refused when it starts,
+before the component reads or publishes a message. Two services that disagree about a topic therefore
+cannot both be running, which is what a contract is for. A topic declared without one checks nothing.
+
+A member declares the contract with the topic, and anyone building against it fetches the document from
+the project:
+
+```bash
+ankka projects topics set orders --partitions 3 --contract order.v1 --schema schemas/order.v1.json -p shop
+ankka projects topics schema get orders -p shop > schemas/order.v1.json
+```
+
+`--schema -` reads the document from standard input. The document is JSON, a
+[JSON Schema](https://json-schema.org/) by convention, at most 64 KiB; the platform holds it and gives it
+back exactly as declared. The contract's name follows a topic's letters, with `_` allowed, 2 to 100
+characters. Nothing checks a message against the schema as it flows: the schema is what the sides agree
+on, and the check is that every side states the same one.
+
+### The fingerprint
+
+A side states the schema it was built against by its **fingerprint**: `sha256:` and the SHA-256 of the
+document serialised under the JSON Canonicalization Scheme (RFC 8785), so key order and whitespace in a
+saved copy do not change it and a changed field does. Every SDK computes it the same way from the same
+bytes, and the control plane computes the declared one from the document it was given. A `Contract` in
+each SDK is made from a document file and a name, and the fingerprint is its second field.
+
+### Stating a contract
+
+In Scala a topic source states its contract with `TopicOptions` on `ChangeSource.fromTopic`, and a
+consumer's publication is a `Publication`, which replaces `produceTo` when it carries more than a topic
+name:
+
+```scala
+/** Reads "events" and publishes to "transactions", stating the contract the topic carries. */
+object WalletRelay
+    extends Consumer.Companion[Relay, StockEvent, FanLine](
+      ComponentId("wallet"),
+      ChangeSource.fromTopic("events", Codecs.serializer[StockEvent]("stock-event"), StartFrom.Earliest)
+    ):
+  // The schema document fetched from the project with `ankka projects topics schema get`.
+  private val transactions = Contract
+    .fromSchema(
+      "transaction.v1",
+      getClass.getResourceAsStream("/schemas/transaction.v1.json").readAllBytes()
+    )
+    .fold(why => throw IllegalArgumentException(why), identity)
+
+  def create(ctx: ConsumerContext)                           = new Relay
+  override val outputSerializer: Option[Serializer[FanLine]] = Some(Codecs.serializer[FanLine]("fan-line"))
+  override def produces: Option[Publication] = Some(Publication("transactions", Some(transactions)))
+```
+
+A source that reads a topic with a contract states it the same way:
+`ChangeSource.fromTopic("orders", serializer, StartFrom.Earliest, TopicOptions(contract = Some(orders)))`.
+
+In the other languages the declaration is the same two values. Each example is an excerpt: the consumer's
+handler and its codecs are as on [Consumers](consumers.md).
+
+**Python**
+
+```python
+from ankka import Consumer, Contract, Publication, StartFrom
+
+EVENTS = Contract.from_file("schemas/events.v1.json", name="events.v1")
+ORDERS = Contract.from_file("schemas/order.v1.json", name="order.v1")
+
+class Relay(Consumer[Event, Order]):
+    component_id = "relay"
+    topic = "events"
+    start_from = StartFrom.EARLIEST
+    contract = EVENTS                      # what "events" is expected to carry
+    produces_to = Publication("orders", contract=ORDERS)
+```
+
+**TypeScript**
+
+```ts
+import { Consumer, Contract, StartFrom, type Publication } from "ankka"
+
+const events = Contract.fromFile("schemas/events.v1.json", "events.v1")
+const orders = Contract.fromFile("schemas/order.v1.json", "order.v1")
+
+class Relay extends Consumer<Event, Order> {
+  static readonly componentId = "relay"
+  static readonly topic = "events"
+  static readonly startFrom = StartFrom.earliest
+  static readonly contract = events          // what "events" is expected to carry
+  static readonly producesTo: Publication = { topic: "orders", contract: orders }
+}
+```
+
+**Rust**
+
+```rust
+use ankka::{Contract, Publication, Source, StartFrom};
+
+fn events() -> Contract {
+    Contract::from_file("schemas/events.v1.json", "events.v1").unwrap()
+}
+
+fn source() -> Source {
+    Source::topic("events").start_from(StartFrom::Earliest).contract(events())
+}
+
+fn produces() -> Option<Publication> {
+    Some(Publication::to("orders").contract(Contract::from_file("schemas/order.v1.json", "order.v1").unwrap()))
+}
+```
+
+### What a refusal says
+
+The platform hands every service its project's declarations, and the runtime compares them with what
+each component states before any topic source subscribes or publishes. A service with a disagreeing
+component does not start; the reason is the service's `detail` in `ankka services get`, with lifecycle
+`Failed`:
+
+```text
+cannot start ankka projections:
+  - consumer 'relay' publishes to 'orders' as 'order.v2' (sha256:9c…); project 'shop' declares 'order.v1' (sha256:3f…)
+  - view 'orders-by-day' reads 'orders' with no contract; project 'shop' declares 'order.v1' (sha256:3f…)
+```
+
+A contract declared on a topic that services already use, or changed, takes effect at each service's
+next start: nothing running is stopped. Meanwhile `ankka projects topics list` names, in its `CHECKS`
+column, each side a running service takes on the topic — `checked` when it states the declared contract,
+`mismatch` when it states another or none, and `unchecked` for an instance that started before the
+declaration — and `ankka services get` shows the same for one service as `topic checks`.
+
+### The type on the wire
+
+A message published to a topic whose publication states a contract carries the contract's name as its
+`ce-type` header, so a reader outside ankka can tell what a topic carries; a publication without one keeps
+`message`, and a message that names its own type, as a graph delta does, keeps it.
+
+## A topic on another broker
+
+A project may declare a broker beside the installation's, and a component may name it for one topic,
+while the service keeps the installation's broker for every other. This is how messages from a Kafka
+outside the installation reach a project's topics through one consumer, with nothing else about the
+service changed:
+
+```bash
+ankka projects secrets set legacy-credential username=ingest ca.crt=- -p shop < ca.crt
+printf '%s' "$PASSWORD" | ankka projects secrets set legacy-credential password=- -p shop
+ankka projects brokers set legacy --bootstrap kafka.legacy:9094 --shape sasl --secret legacy-credential -p shop
+ankka projects brokers list -p shop
+```
+
+A declared broker is named, with its address and the project secret holding its credential. Every shape
+is over TLS, and the secret's entries are the credential:
+
+| Shape | Entries the project secret holds | Optional |
+|---|---|---|
+| `certificate` | `ca.crt`, `tls.crt`, `tls.key` (PEM) | |
+| `sasl` | `ca.crt`, `username`, `password` | `mechanism`: `SCRAM-SHA-512` (the default), `SCRAM-SHA-256` or `PLAIN` |
+
+A declaration whose secret lacks an entry its shape needs is refused, naming the entry; and an entry a
+broker needs cannot be removed from the secret while the broker names it. The broker's name follows a
+topic's rule. A broker declared or removed reaches every service of the project, and each rolls once, as
+a changed descriptor rolls it.
+
+A component names the broker for a topic it reads or publishes to:
+
+**Scala**
+
+```scala
+ChangeSource.fromTopic("events", serializer, StartFrom.Earliest, TopicOptions(broker = Some("legacy")))
+override def produces = Some(Publication("archive", broker = Some("legacy")))
+```
+
+**Python**
+
+```python
+class Intake(Consumer[Event, Order]):
+    topic = "events"
+    start_from = StartFrom.EARLIEST
+    broker = "legacy"
+    produces_to = "orders"           # on the installation's broker, as before
+```
+
+**TypeScript**
+
+```ts
+static readonly topic = "events"
+static readonly broker = "legacy"
+static readonly producesTo = "orders"
+```
+
+**Rust**
+
+```rust
+fn source() -> Source {
+    Source::topic("events").start_from(StartFrom::Earliest).broker("legacy")
+}
+```
+
+On a declared broker a topic is named exactly as the component names it, with no project prefix, and
+nothing is made there: its topics are the broker owner's. The consumer group is the service's usual one.
+A component naming a broker the project has not declared is refused when the service starts, naming the
+broker and the project.
+
+The platform's program alone holds the credential. Every service of the project has each declared
+broker's secret mounted read-only at `/var/run/secrets/ankka/brokers/<name>` on its platform container,
+with `ANKKA_TOPIC_BROKER_<NAME>_BOOTSTRAP_SERVERS`, `ANKKA_TOPIC_BROKER_<NAME>_SHAPE`,
+`ANKKA_TOPIC_BROKER_<NAME>_SECRET_DIRECTORY` and `ANKKA_TOPIC_BROKER_<NAME>_NAME` (the name upper-cased,
+`-` as `_`); a process-hosted service's own container is given none of them and no mount. A service run
+locally sets the same variables to reach a declared broker from a developer's machine.
+
+## Reading partitions in parallel
+
+A topic source that asks for it handles the partitions its instance holds at once, each partition in
+order, so throughput grows with partitions; one that does not reads one message at a time across every
+partition, as it always has. Order within a partition — and so within a key — is kept either way; order
+across partitions was never promised, which is why reading them at once changes nothing a correct
+handler relies on.
+
+**Scala**
+
+```scala
+ChangeSource.fromTopic("events", serializer, StartFrom.Earliest, TopicOptions(parallel = true))
+```
+
+**Python**
+
+```python
+class Intake(Consumer[Event, None]):
+    topic = "events"
+    start_from = StartFrom.EARLIEST
+    parallel = True
+```
+
+**TypeScript**
+
+```ts
+static readonly topic = "events"
+static readonly parallel = true
+```
+
+**Rust**
+
+```rust
+fn source() -> Source {
+    Source::topic("events").start_from(StartFrom::Earliest).parallel()
+}
+```
+
+Each partition is a lane of its own: a message that cannot be handled is handed to the handler again,
+with backoff, inside its lane, so it holds its own partition and no other, and its offset is never
+committed before it is handled. A partition's offset is committed only once the message's publications
+have been accepted by the broker, as for every topic source. A view reading in parallel takes the same
+option.
 
 ## Message format
 
@@ -520,9 +800,11 @@ them, so those that share a key keep that order.
 
 ## Delivery and offsets
 
-Reading a topic is at least once. Offsets are committed to Kafka after the handler has returned, so a
-restart or a failure redelivers what was not yet committed, and a topic-sourced component must tolerate
-seeing a message twice.
+Reading a topic is at least once. Offsets are committed to Kafka after the handler has returned and the
+broker has accepted what it published, so a restart or a failure redelivers what was not yet committed,
+and a topic-sourced component must tolerate seeing a message twice. A source that reads its partitions
+in parallel commits each partition's offsets in the same way; see
+[Reading partitions in parallel](#reading-partitions-in-parallel).
 
 Partitions are assigned by Kafka consumer groups, one group per component, named as
 [Consumer groups](#consumer-groups) says. Two components reading one topic each see every message; the

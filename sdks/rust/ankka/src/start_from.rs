@@ -64,6 +64,34 @@ pub(crate) fn older_than_declared_queries(protocol_version: &str) -> bool {
     older_than(protocol_version, DECLARED_QUERY_PROTOCOL)
 }
 
+/// The first protocol in which a module can state a topic's contract, broker or parallel reading,
+/// or a publication with a contract and a broker.
+pub(crate) const CONTRACT_PROTOCOL: (u32, u32) = (1, 14);
+
+/// Whether a host speaking `protocol_version` would ignore a contract, a broker, parallel
+/// reading or a publication's contract.
+pub(crate) fn older_than_contracts(protocol_version: &str) -> bool {
+    older_than(protocol_version, CONTRACT_PROTOCOL)
+}
+
+/// Whether a discovered component states what a host older than 1.14 would not know.
+pub(crate) fn declares_contracts(component: &proto::Component) -> bool {
+    let states =
+        |s: &proto::Source| s.contract.is_some() || s.broker.is_some() || s.parallel.is_some();
+    match &component.detail {
+        Some(proto::component::Detail::View(d)) => {
+            d.source.as_ref().is_some_and(states) || d.sources.iter().any(states)
+        }
+        Some(proto::component::Detail::Consumer(d)) => {
+            d.source.as_ref().is_some_and(states)
+                || d.produces
+                    .as_ref()
+                    .is_some_and(|p| p.contract.is_some() || p.broker.is_some())
+        }
+        _ => false,
+    }
+}
+
 fn older_than(protocol_version: &str, first: (u32, u32)) -> bool {
     let mut parts = protocol_version.split('.').map(str::parse::<u32>);
     match (parts.next(), parts.next()) {
@@ -102,7 +130,7 @@ pub(crate) fn problems(
 ) -> Vec<String> {
     let mut found = Vec::new();
     let topic = match source {
-        Source::Topic(topic) => Some(topic.as_str()),
+        Source::Topic(t) => Some(t.topic.as_str()),
         Source::Component(..) => None,
     };
     if start.is_some() && topic.is_none() {

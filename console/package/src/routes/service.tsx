@@ -165,6 +165,63 @@ export default function Service() {
               </dd>
             </>
           ) : null}
+          {s.topicSources && s.topicSources.length > 0 ? (
+            <>
+              <dt>Topic sources</dt>
+              <dd>
+                <div className="ac-table-wrap">
+                  <table className="ac-table" data-topic-sources>
+                    <thead>
+                      <tr>
+                        <th scope="col">Component</th>
+                        <th scope="col">Topic</th>
+                        <th scope="col">Group</th>
+                        <th scope="col" className="ac-num">
+                          Version
+                        </th>
+                        <th scope="col" className="ac-num">
+                          Lag
+                        </th>
+                        <th scope="col">Failing</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.topicSources.map((t) => (
+                        <tr key={t.component} data-topic-source={t.component} data-failing={t.failing ? "yes" : "no"}>
+                          <td>{t.component}</td>
+                          <td>
+                            <code>{t.broker ? `${t.topic}@${t.broker}` : t.topic}</code>
+                            {t.contract ? ` as ${t.contract}` : ""}
+                          </td>
+                          <td>
+                            <code>{t.group}</code>
+                          </td>
+                          <td className="ac-num">{t.version}</td>
+                          <td className="ac-num">{t.lag ?? "—"}</td>
+                          <td>{t.failing ? <span className="ac-notice">{t.failing}</span> : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </dd>
+            </>
+          ) : null}
+          {s.topicChecks && s.topicChecks.length > 0 ? (
+            <>
+              <dt>Topic checks</dt>
+              <dd>
+                <ul className="ac-topics">
+                  {s.topicChecks.map((c) => (
+                    <li key={`${c.component}/${c.direction}`} data-check={c.state}>
+                      {c.component} {c.direction}: {c.state}
+                      {c.state === "mismatch" ? ` (${c.stated ?? "none"})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           <dt>Runs as</dt>
           <dd>{runsAs(s)}</dd>
           {s.hosting === "web" ? (

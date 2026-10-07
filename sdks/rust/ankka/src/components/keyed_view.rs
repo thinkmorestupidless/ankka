@@ -156,7 +156,7 @@ impl<C: KeyedView> ComponentOf<kinds::KeyedView> for C {
 fn component_of(source: &Source) -> Option<&'static str> {
     match source {
         Source::Component(_, id) => Some(id),
-        Source::Topic(_) => None,
+        Source::Topic(..) => None,
     }
 }
 

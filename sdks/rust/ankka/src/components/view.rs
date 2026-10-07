@@ -22,6 +22,7 @@ use serde::de::DeserializeOwned;
 use super::{ComponentOf, Registered, Shape, kinds};
 use crate::codec::Auto;
 use crate::context::{Context, Metadata};
+use crate::contract::Contract;
 use crate::effects::view::ViewEffect;
 use crate::proto::{self, Kind};
 
@@ -30,8 +31,24 @@ use crate::proto::{self, Kind};
 pub enum Source {
     /// A component's events or state changes.
     Component(Kind, &'static str),
-    /// A topic, from the runtime's broker.
-    Topic(String),
+    /// A topic, from the runtime's broker, with what the project must know about reading it.
+    Topic(TopicSource),
+}
+
+/// A topic a view or consumer reads, and what the project must know about it: the contract the
+/// component expects the topic to carry (checked at start against the project's declaration),
+/// the declared broker the topic is on (the installation's when `None`), and whether the
+/// partitions an instance holds are handled at once, each in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicSource {
+    /// The topic, by its declared name.
+    pub topic: String,
+    /// The contract the component expects the topic to carry.
+    pub contract: Option<Contract>,
+    /// The declared broker the topic is on.
+    pub broker: Option<String>,
+    /// Whether the partitions an instance holds are handled at once.
+    pub parallel: bool,
 }
 
 impl Source {
@@ -43,22 +60,63 @@ impl Source {
 
     /// The messages on `topic`.
     pub fn topic(topic: impl Into<String>) -> Source {
-        Source::Topic(topic.into())
+        Source::Topic(TopicSource {
+            topic: topic.into(),
+            contract: None,
+            broker: None,
+            parallel: false,
+        })
+    }
+
+    /// The contract the component expects the topic to carry. Applies to a topic; a component
+    /// source is left as it is.
+    pub fn contract(self, contract: Contract) -> Source {
+        self.with_topic(|t| t.contract = Some(contract))
+    }
+
+    /// The declared broker the topic is on. Applies to a topic; a component source is left as it is.
+    pub fn broker(self, broker: impl Into<String>) -> Source {
+        let broker = broker.into();
+        self.with_topic(|t| t.broker = Some(broker))
+    }
+
+    /// Handle the partitions an instance holds at once, each in order. Applies to a topic; a
+    /// component source is left as it is.
+    pub fn parallel(self) -> Source {
+        self.with_topic(|t| t.parallel = true)
+    }
+
+    fn with_topic(self, change: impl FnOnce(&mut TopicSource)) -> Source {
+        match self {
+            Source::Topic(mut t) => {
+                change(&mut t);
+                Source::Topic(t)
+            }
+            other => other,
+        }
     }
 
     pub(crate) fn to_proto(&self) -> proto::Source {
-        let source = match self {
-            Source::Component(kind, id) => {
-                proto::source::Source::Component(proto::source::ComponentRef {
-                    kind: *kind as i32,
-                    id: id.to_string(),
-                })
-            }
-            Source::Topic(topic) => proto::source::Source::Topic(topic.clone()),
-        };
-        proto::Source {
-            source: Some(source),
-            start_from: None,
+        match self {
+            Source::Component(kind, id) => proto::Source {
+                source: Some(proto::source::Source::Component(
+                    proto::source::ComponentRef {
+                        kind: *kind as i32,
+                        id: id.to_string(),
+                    },
+                )),
+                start_from: None,
+                contract: None,
+                broker: None,
+                parallel: None,
+            },
+            Source::Topic(t) => proto::Source {
+                source: Some(proto::source::Source::Topic(t.topic.clone())),
+                start_from: None,
+                contract: t.contract.as_ref().map(Contract::to_proto),
+                broker: t.broker.clone(),
+                parallel: t.parallel.then_some(true),
+            },
         }
     }
 }

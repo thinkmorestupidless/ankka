@@ -434,6 +434,59 @@ object ConformanceReference:
     override val produceTo: Option[String] = Some(Relayed)
   // docs:end topic-sources
 
+  // ── contract-relay: a consumer that states a contract, a declared broker and parallel reading ──
+
+  /**
+   * The contract every reference states, from the same schema document: the fixtures' `order.v1`.
+   */
+  val OrderSchema: String =
+    """{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",""" +
+      """"required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}"""
+
+  val OrderContract: Contract = Contract
+    .fromSchema("order.v1", OrderSchema.getBytes(StandardCharsets.UTF_8))
+    .fold(why => throw IllegalStateException(why), identity)
+
+  /** The declared broker the reference names; every conformance target declares it. */
+  val DeclaredBroker: String = "legacy"
+
+  /**
+   * What `contract-relay` reads, and where it publishes, both as the contract and on the broker.
+   */
+  val Contracts: String  = "conformance-contracts"
+  val Contracted: String = "conformance-contracted"
+
+  // docs:start contract-relay
+  /**
+   * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+   * publishes one more.
+   */
+  final class ContractRelay extends Consumer[Fanned, Fanned]:
+    def onMessage(message: Fanned): Effect = effects.produce(Fanned(message.n + 1))
+
+  object ContractRelay
+      extends Consumer.Companion[ContractRelay, Fanned, Fanned](
+        componentId = ComponentId("contract-relay"),
+        source = ChangeSource.fromTopic(
+          Contracts,
+          Codecs.serializer[Fanned]("fanned"),
+          StartFrom.Earliest,
+          TopicOptions(
+            contract = Some(OrderContract),
+            broker = Some(DeclaredBroker),
+            parallel = true
+          )
+        )
+      ):
+    def create(ctx: ConsumerContext) = new ContractRelay
+
+    override val outputSerializer: Option[Serializer[Fanned]] =
+      Some(Codecs.serializer[Fanned]("fanned"))
+
+    override def produces: Option[Publication] =
+      Some(Publication(Contracted, Some(OrderContract), Some(DeclaredBroker)))
+  // docs:end contract-relay
+
   /**
    * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
    * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
@@ -1098,6 +1151,7 @@ object ConformanceReference:
     CheckoutFanout.descriptor,
     TopicRows.descriptor,
     TopicRelay.descriptor,
+    ContractRelay.descriptor,
     TreeNode.descriptor,
     TreeRows.descriptor,
     JoinedLeft.descriptor,

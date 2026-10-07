@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.core.{
   ComponentId,
   ComponentKind,
   ComponentRegistry,
+  Contract,
   DeclaredHandler
 }
 
@@ -54,7 +55,8 @@ object TopologyJson:
       service.registry,
       service.routes,
       observability.calls.snapshot(System.currentTimeMillis()),
-      observability.names.nameOf
+      observability.names.nameOf,
+      TopicSources(service.system).all
     )
 
   /** Who a call is from when nobody can say. A node of its own, and never a guess at one. */
@@ -75,7 +77,8 @@ object TopologyJson:
       registry: ComponentRegistry,
       routes: Vector[ServedRoute],
       calls: CallCounts.Snapshot,
-      nameOf: Int => Option[String]
+      nameOf: Int => Option[String],
+      topicSources: Vector[TopicSourceStatus] = Vector.empty
   ): String =
     // An endpoint is drawn from the routes it serves. A remote one is also in the registry, by the
     // id it was declared with; listing it from there as well would draw it twice.
@@ -98,9 +101,15 @@ object TopologyJson:
       (declaredNodes ++ observed.nodes).distinctBy(_.id).sortBy(n => (n.layer, n.id)).map(_.json)
     val edges = connections
       .sortBy(c => (c.from, c.to, c.kind))
-      .map(c =>
-        s"""{"from":${Json.str(c.from)},"to":${Json.str(c.to)},"kind":${Json.str(c.kind)}}"""
-      )
+      .map { c =>
+        val contract = c.contract.fold("")(k =>
+          s""","contract":{"name":${Json.str(k.name)},"fingerprint":${Json.str(k.fingerprint)}}"""
+        )
+        val broker = c.broker.fold("")(b => s""","broker":${Json.str(b)}""")
+        s"""{"from":${Json.str(c.from)},"to":${Json.str(c.to)},"kind":${Json.str(
+            c.kind
+          )}$contract$broker}"""
+      }
 
     s"""{"service":{"name":${Json.str(serviceName)},"runtime":${Json.str(BuildInfo.version)},""" +
       s""""instance":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}},""" +
@@ -110,7 +119,20 @@ object TopologyJson:
       s""""calls":${calls.handled},"unanswered":${calls.unanswered}},""" +
       s""""nodes":${nodes.mkString("[", ",", "]")},""" +
       s""""declared":${edges.mkString("[", ",", "]")},""" +
-      s""""calls":${observed.edges.mkString("[", ",", "]")}}"""
+      s""""calls":${observed.edges.mkString("[", ",", "]")},""" +
+      // Feature 037: each topic source with how far behind it is, read by the control plane with
+      // the rest of the document.
+      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}}"""
+
+  private def topicSource(s: TopicSourceStatus): String =
+    s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +
+      s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
+      s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
+      s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},"behind":${s.behind},""" +
+      s""""broker":${s.broker.fold("null")(Json.str)},"contract":${s.contract.fold("null")(
+          Json.str
+        )},""" +
+      s""""lag":${s.lag.fold("null")(_.toString)},"failing":${s.failing.fold("null")(Json.str)}}"""
 
   private final case class Observed(nodes: Vector[Node], edges: Vector[String])
 
@@ -228,7 +250,11 @@ object TopologyJson:
       to: String,
       kind: String,
       fromNode: Option[Node] = None,
-      toNode: Option[Node] = None
+      toNode: Option[Node] = None,
+      // Feature 037: what the component states for the topic, so the control plane can compare it
+      // with the project's declaration without the service restarting.
+      contract: Option[Contract] = None,
+      broker: Option[String] = None
   )
 
   /**
@@ -286,8 +312,11 @@ object TopologyJson:
       handlers
     )
 
-  private def topic(name: String): Node =
-    node(s"topic:$name", "Topic", TopicLayer, platform = false, handlers = "[]")
+  // A topic on a declared broker (feature 037) is named with it, so one name on two brokers is two
+  // nodes, and the control plane leaves it out of the project's undeclared topics.
+  private def topic(name: String, broker: Option[String]): Node =
+    val id = broker.fold(s"topic:$name")(b => s"topic:$b/$name")
+    node(id, "Topic", TopicLayer, platform = false, handlers = "[]")
 
   /**
    * The connections one component declared: what it reads, and what it publishes to.
@@ -323,12 +352,26 @@ object TopologyJson:
         entity(component, ComponentKind.EventSourcedEntity, "events")
       case DeclaredSource.State(component) =>
         entity(component, ComponentKind.KeyValueEntity, "state")
-      case DeclaredSource.Topic(name) =>
-        val from = topic(name)
-        Connection(from.id, id, "topic-subscription", fromNode = Some(from))
+      case DeclaredSource.Topic(name, contract, broker) =>
+        val from = topic(name, broker)
+        Connection(
+          from.id,
+          id,
+          "topic-subscription",
+          fromNode = Some(from),
+          contract = contract,
+          broker = broker
+        )
     }
-    val destination = DeclaredConnections.destinationOf(descriptor).map { name =>
-      val to = topic(name)
-      Connection(id, to.id, "topic-publication", toNode = Some(to))
+    val destination = DeclaredConnections.publicationOf(descriptor).map { p =>
+      val to = topic(p.topic, p.broker)
+      Connection(
+        id,
+        to.id,
+        "topic-publication",
+        toNode = Some(to),
+        contract = p.contract,
+        broker = p.broker
+      )
     }
     sources ++ destination

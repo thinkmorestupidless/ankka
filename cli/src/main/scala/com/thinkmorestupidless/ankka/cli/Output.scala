@@ -85,14 +85,37 @@ object Output:
       case Format.Json => writeToString(rows)
       case Format.Table =>
         table(
-          Vector("TOPIC", "PARTITIONS", "PHASE", "DETAIL"),
+          Vector("TOPIC", "PARTITIONS", "COMPACTED", "CONTRACT", "PHASE", "DETAIL", "CHECKS"),
           rows.map(row =>
             Vector(
               row.name,
               row.partitions.toString,
+              if row.compacted then "yes" else "no",
+              row.contract.fold("-")(c => s"${c.name} ${c.fingerprint.take(15)}"),
               row.phase.getOrElse("-"),
-              row.detail.getOrElse("-")
+              row.detail.getOrElse("-"),
+              if row.checks.isEmpty then "-"
+              else
+                row.checks
+                  .map(c =>
+                    s"${c.service} ${c.direction}: ${c.state}" +
+                      (if c.state == "mismatch" then c.stated.fold(" (none)")(s => s" ($s)")
+                       else "")
+                  )
+                  .mkString("; ")
             )
+          )
+        )
+
+  /** A project's declared brokers (feature 037). */
+  def projectBrokers(rows: Vector[ProjectBroker], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("BROKER", "BOOTSTRAP", "SHAPE", "SECRET", "DECLARED"),
+          rows.map(row =>
+            Vector(row.name, row.bootstrap, row.shape, row.secret, row.declaredAt.getOrElse("-"))
           )
         )
 
@@ -171,6 +194,17 @@ object Output:
       case (true, None)   => "exposed, but the control plane has no base domain (ANKKA_BASE_DOMAIN)"
       case (false, None)  => "not exposed"
 
+  private def topicSourceLine(s: TopicSourceReport): String =
+    val where = s.broker.fold(s.topic)(b => s"${s.topic}@$b")
+    val as    = s.contract.fold("")(c => s" as $c")
+    val lag   = s.lag.fold("")(l => s"  lag $l")
+    val fail  = s.failing.fold("")(f => s"  failing: $f")
+    s"${s.component}: $where$as  group ${s.group}  v${s.version}$lag$fail"
+
+  private def topicCheckLine(c: TopicCheck): String =
+    val stated = c.stated.fold("none")(identity)
+    s"${c.topic}: ${c.component} ${c.direction} $stated — ${c.state}"
+
   def service(row: ServiceStatus, format: Format): String =
     format match
       case Format.Json  => writeToString(row)
@@ -191,6 +225,13 @@ object Output:
           row.undeclaredTopics
             .filter(_.nonEmpty)
             .map("undeclared topics" -> _.mkString("\n")) ++
+          // Feature 037: each topic source with how far behind it is, and the sides it takes.
+          row.topicSources
+            .filter(_.nonEmpty)
+            .map("topic sources" -> _.map(topicSourceLine).mkString("\n")) ++
+          row.topicChecks
+            .filter(_.nonEmpty)
+            .map("topic checks" -> _.map(topicCheckLine).mkString("\n")) ++
           // Feature 034: each only when present, so a service with no bucket reads as before.
           row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
           row.bucketAddress.map("bucket address" -> _) ++

@@ -5,6 +5,8 @@ where the two disagree."""
 
 from __future__ import annotations
 
+from ankka.contract import Contract, Publication
+
 import asyncio
 import json
 from collections.abc import AsyncIterator
@@ -211,6 +213,35 @@ class TopicRelay(Consumer[Fanned, Fanned]):
     def on_message(self, message: Fanned) -> ConsumerEffect:
         return self.effects.produce(message)
 # docs:end topic-sources
+
+
+# ── contract-relay: a consumer that states a contract, a declared broker and parallel reading ──
+
+# The contract every reference states, from the same schema document: the fixtures' `order.v1`.
+ORDER_SCHEMA = (
+    b'{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",'
+    b'"required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}'
+)
+ORDER_CONTRACT = Contract.from_bytes(ORDER_SCHEMA, name="order.v1")
+
+
+# docs:start contract-relay
+class ContractRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more."""
+
+    component_id = "contract-relay"
+    topic = "conformance-contracts"
+    start_from = StartFrom.EARLIEST
+    contract = ORDER_CONTRACT
+    broker = "legacy"
+    parallel = True
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-contracted", contract=ORDER_CONTRACT, broker="legacy")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(Fanned(n=message.n + 1))
+# docs:end contract-relay
 
 
 # ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──
@@ -966,6 +997,7 @@ def reference_service() -> ServiceBuilder:
         .register(CheckoutFanout)
         .register(TopicRows)
         .register(TopicRelay)
+        .register(ContractRelay)
         .register(TreeNode)
         .register(TreeRows)
         .register(JoinedLeft)

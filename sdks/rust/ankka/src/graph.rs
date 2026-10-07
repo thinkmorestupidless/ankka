@@ -894,6 +894,13 @@ impl<G: GraphConsumer> Registered for Registration<G> {
                 source: Some(start_from::source_proto(&G::source(), G::start_from())),
                 produces_to: Some(G::TOPIC.to_string()),
                 version: G::version(),
+                // The topic alone: a delta topic's contract is the graph delta format, not a
+                // schema a project declares.
+                produces: Some(proto::Publication {
+                    topic: G::TOPIC.to_string(),
+                    contract: None,
+                    broker: None,
+                }),
             })),
         }
     }

@@ -4,6 +4,7 @@
 //! A consumer may be sent the same message again, and must tolerate that; a consumer that panics
 //! is sent it again.
 
+use crate::contract::Contract;
 use crate::start_from::{self, StartFrom};
 use std::marker::PhantomData;
 
@@ -47,6 +48,13 @@ pub trait Consumer: Sized + 'static {
         None
     }
 
+    /// The publication, with the contract the consumer states for the topic and the declared
+    /// broker it is on. By default the topic `produces_to` names, alone; a consumer that states a
+    /// contract or a broker overrides this and leaves `produces_to` alone.
+    fn produces() -> Option<Publication> {
+        Self::produces_to().map(Publication::to)
+    }
+
     /// One message. The source entity's id is `ctx.metadata().subject()`.
     fn on_message(message: Self::Message, ctx: &Context) -> ConsumerEffect;
 
@@ -54,6 +62,49 @@ pub trait Consumer: Sized + 'static {
     fn on_deleted(ctx: &Context) -> ConsumerEffect {
         let _ = ctx;
         ConsumerEffect::Ignore
+    }
+}
+
+/// A topic a consumer publishes to, with the contract it states for it and the declared broker
+/// the topic is on: `Publication::to("orders").contract(orders).broker("legacy")`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Publication {
+    /// The topic, by its declared name.
+    pub topic: String,
+    /// The contract the consumer states for the topic.
+    pub contract: Option<Contract>,
+    /// The declared broker the topic is on.
+    pub broker: Option<String>,
+}
+
+impl Publication {
+    /// To `topic`, with no contract, on the installation's broker.
+    pub fn to(topic: impl Into<String>) -> Publication {
+        Publication {
+            topic: topic.into(),
+            contract: None,
+            broker: None,
+        }
+    }
+
+    /// The contract the consumer states for the topic.
+    pub fn contract(mut self, contract: Contract) -> Publication {
+        self.contract = Some(contract);
+        self
+    }
+
+    /// The declared broker the topic is on.
+    pub fn broker(mut self, broker: impl Into<String>) -> Publication {
+        self.broker = Some(broker.into());
+        self
+    }
+
+    pub(crate) fn to_proto(&self) -> proto::Publication {
+        proto::Publication {
+            topic: self.topic.clone(),
+            contract: self.contract.as_ref().map(Contract::to_proto),
+            broker: self.broker.clone(),
+        }
     }
 }
 
@@ -97,8 +148,10 @@ impl<C: Consumer> Registered for Registration<C> {
             handlers: Vec::new(),
             detail: Some(proto::component::Detail::Consumer(proto::ConsumerDetail {
                 source: Some(start_from::source_proto(&C::source(), C::start_from())),
-                produces_to: C::produces_to().map(str::to_string),
+                // The topic in both, for a runtime before 1.14, which reads `produces_to` alone.
+                produces_to: C::produces().map(|p| p.topic),
                 version: C::version(),
+                produces: C::produces().map(|p| p.to_proto()),
             })),
         }
     }
@@ -115,6 +168,16 @@ impl<C: Consumer> Registered for Registration<C> {
             C::version(),
             true,
         ));
+        if let (Some(to), Some(publication)) = (C::produces_to(), C::produces())
+            && to != publication.topic
+        {
+            problems.push(format!(
+                "consumer '{}' names '{to}' in produces_to and '{}' in produces; a consumer \
+                 publishes to one topic",
+                C::COMPONENT_ID,
+                publication.topic
+            ));
+        }
         problems
     }
 

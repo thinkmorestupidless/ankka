@@ -581,3 +581,48 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(readFromString[RollbackRequest]("{}"), RollbackRequest(None))
     assertEquals(readFromString[RollbackRequest]("""{"generation":4}"""), RollbackRequest(Some(4)))
   }
+
+  // features/deploying/process-resources.feature (feature 037)
+  test("a descriptor sizes the process container with Kubernetes quantities, bounded") {
+    def problems(cpu: String, memory: String) =
+      ServiceDescriptor(
+        "cart",
+        ServiceSpec(
+          "i:1",
+          resources = ServiceResources(process = Some(ProcessResources(cpu, memory)))
+        )
+      ).problems
+    assertEquals(problems("1000m", "1Gi"), Vector.empty)
+    assertEquals(problems("0.5", "512Mi"), Vector.empty)
+    assertEquals(ProcessResources.cpuMillis("0.5"), Right(500))
+    assertEquals(ProcessResources.memoryMiB("1Gi"), Right(1024))
+    assert(problems("9", "1Gi").exists(_.contains("more than 8")))
+    assert(problems("1", "17Gi").exists(_.contains("more than 16Gi")))
+    assert(problems("lots", "1Gi").exists(_.contains("process cpu 'lots'")))
+    assert(problems("1", "1GB").exists(_.contains("binary unit")))
+  }
+
+  test("a service may declare no database, and nothing else about it") {
+    assertEquals(
+      ServiceDescriptor("cart", ServiceSpec("i:1", database = Some("none"))).problems,
+      Vector.empty
+    )
+    assert(
+      ServiceDescriptor("cart", ServiceSpec("i:1", database = Some("mine"))).problems
+        .exists(_.contains("not a choice"))
+    )
+    val supplied = ServiceSpec(
+      "i:1",
+      database = Some("none"),
+      env = Vector(EnvVar("ANKKA_DB_HOST", value = Some("db")))
+    )
+    assert(ServiceDescriptor("cart", supplied).problems.exists(_.contains("supplies none")))
+    // On the wire, absent is absent.
+    assert(!writeToString(ServiceDescriptor("cart", ServiceSpec("i:1"))).contains("database"))
+    assertEquals(
+      readFromString[ServiceDescriptor](
+        """{"name":"cart","service":{"image":"i:1","database":"none"}}"""
+      ).service.database,
+      Some("none")
+    )
+  }

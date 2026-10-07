@@ -42,6 +42,7 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
+| `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
@@ -163,6 +164,12 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
   instead of a password. The key is read when a connection is opened, so a renewed certificate reaches the
   next connection without a restart.
 
+- `ANKKA_DATABASE` is `none` for a service that has no database at all: one made of consumers, endpoints
+  and agents. The platform sets it for a descriptor that says `"database": "none"`. With it the runtime
+  opens no connection — the secret store is unavailable and the timer scheduler refuses every timer — and
+  an entity, a view, a workflow or a timed action registered in the service refuses the start, naming
+  itself. Empty, the default, the service has a database, the platform's or its own.
+
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.
 
@@ -269,6 +276,19 @@ the installation's broker, the service's own certificate and `<project>.`; for a
 sets them on the sidecar and on the process. A descriptor that sets any variable beginning
 `ANKKA_KAFKA_` names a broker of its own instead: the platform sets none of them, and the service connects
 as the descriptor says. See [The installation's broker](../platform/broker.md).
+
+- `ANKKA_PROJECT_DECLARATIONS` names the file of the project's declarations — its topics with their
+  partitions, compaction and contract, and its declared brokers — which the platform mounts at
+  `/var/run/ankka/project/topics.json`. The runtime reads it once when the service starts and refuses a
+  component whose stated contract is not the declared one, or that names a broker the project does not
+  declare. Unset, nothing is checked. See [Contracts](../build/topics.md#contracts).
+- `ANKKA_TOPIC_BROKER_<NAME>_BOOTSTRAP_SERVERS`, `ANKKA_TOPIC_BROKER_<NAME>_SHAPE`,
+  `ANKKA_TOPIC_BROKER_<NAME>_SECRET_DIRECTORY` and `ANKKA_TOPIC_BROKER_<NAME>_NAME` are a broker the
+  project declares, one set per broker with its name upper-cased and `-` as `_`: its address, the shape
+  of its credential (`certificate` or `sasl`), the directory the project secret holding the credential
+  is mounted at, and its declared name. The platform sets them on the platform's container of every
+  service in the project, and never on a process. A component names the broker for one topic; see
+  [A topic on another broker](../build/topics.md#a-topic-on-another-broker).
 - `ANKKA_SERVICE_NAME`, or `ankka.service.name`, is a service's name when it runs on a developer's
   machine. Each view or consumer that reads a topic reads under a consumer group named for it, so two
   services on one broker never share one; with no name stated, a group is named for its component alone.

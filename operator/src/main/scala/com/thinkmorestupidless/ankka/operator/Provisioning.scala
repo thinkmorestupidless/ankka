@@ -53,7 +53,7 @@ enum ProvisioningPlan:
   /** The phase the status reports; `NotNeeded` reports no database and so has none. */
   def reportedPhase: String = this match
     case ProvisioningPlan.NotNeeded =>
-      throw IllegalStateException("a web-hosted service has no database and reports no phase")
+      throw IllegalStateException("a service with no database reports no phase")
     case ProvisioningPlan.Supplied            => "Supplied"
     case ProvisioningPlan.Waiting(_, _, _, _) => "Waiting"
     case ProvisioningPlan.Ready(true, _)      => "Recovered"
@@ -89,6 +89,8 @@ object Provisioning:
     // about provisioning one, and the plan says so by its hosting, not by a flag another writer
     // of the resource might set.
     if spec.hosting == Rendering.WebHosting then ProvisioningPlan.NotNeeded
+    // Feature 037: a service that declares no database at all; nothing is made, nothing reported.
+    else if spec.database == "none" then ProvisioningPlan.NotNeeded
     else if !spec.provisionDatabase then ProvisioningPlan.Supplied
     else if observed.clusterReadyInstances < 1 then
       // Rules 3 and 4: no cluster yet, or one still starting. Nothing downstream of it can be

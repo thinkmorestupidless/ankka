@@ -577,6 +577,52 @@ impl Consumer for TopicRelay {
 }
 // docs:end topic-sources
 
+// ── contract-relay: a consumer that states a contract, a declared broker and parallel reading ──
+
+/// The contract every reference states, from the same schema document: the fixtures' `order.v1`.
+const ORDER_SCHEMA: &str = concat!(
+    r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","#,
+    r#""required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}"#
+);
+
+fn order_contract() -> Contract {
+    Contract::from_bytes(ORDER_SCHEMA.as_bytes(), "order.v1").expect("the order schema is JSON")
+}
+
+// docs:start contract-relay
+/// Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more.
+pub struct ContractRelay;
+
+impl Consumer for ContractRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "contract-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-contracts")
+            .contract(order_contract())
+            .broker("legacy")
+            .parallel()
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(
+            Publication::to("conformance-contracted")
+                .contract(order_contract())
+                .broker("legacy"),
+        )
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n + 1).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
+}
+// docs:end contract-relay
+
 // ── cart-graph and profile-graph: graph consumers over each kind of entity ──
 
 /// The example's cart graph, published to the topic the suite reads.
@@ -1382,6 +1428,7 @@ pub fn build() -> Service {
             .register(CheckoutFanout)
             .register(TopicRows)
             .register(TopicRelay)
+            .register(ContractRelay)
             .register(ConformanceCartGraph)
             .register(ProfileGraph),
         None => service,

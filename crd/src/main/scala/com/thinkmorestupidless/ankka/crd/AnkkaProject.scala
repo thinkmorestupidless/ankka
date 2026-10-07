@@ -13,7 +13,9 @@ import io.fabric8.kubernetes.model.annotation.{Group, Kind, Plural, ShortNames, 
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class AnkkaProjectSpec(
     projectId: String = "",
-    topics: List[ProjectTopicEntry] = Nil
+    topics: List[ProjectTopicEntry] = Nil,
+    /** Brokers the project declares beside the installation's (feature 037). */
+    brokers: List[ProjectBrokerEntry] = Nil
 )
 
 /**
@@ -21,7 +23,33 @@ final case class AnkkaProjectSpec(
  * project declared it (RFC 3339), so a topic the broker held from before can be told apart.
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
-final case class ProjectTopicEntry(name: String = "", partitions: Int = 1, declaredAt: String = "")
+final case class ProjectTopicEntry(
+    name: String = "",
+    partitions: Int = 1,
+    declaredAt: String = "",
+    /** Feature 037: the broker keeps the last message under each key. */
+    compacted: Boolean = false,
+    /**
+     * Feature 037: the contract every side must state, and the fingerprint of its schema. Flat: the
+     * schema suite checks one level.
+     */
+    contractName: Option[String] = None,
+    contractFingerprint: Option[String] = None
+)
+
+/**
+ * A broker a project declares by name (feature 037): where it is, the shape of its credential
+ * (`certificate` or `sasl`), and the project secret holding it, which every service's platform
+ * container mounts.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ProjectBrokerEntry(
+    name: String = "",
+    bootstrap: String = "",
+    shape: String = "",
+    secretName: String = "",
+    declaredAt: String = ""
+)
 
 /** How far the operator has got with one declared topic. */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -32,7 +60,9 @@ final case class ProjectTopicStatus(
     /** The partitions the topic's resource asks for, when it exists. */
     @JsonDeserialize(contentAs = classOf[java.lang.Integer])
     partitions: Option[Int] = None,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Boolean])
+    compacted: Option[Boolean] = None
 )
 
 /** What the operator observed of the project's topics. Written to the status subresource only. */

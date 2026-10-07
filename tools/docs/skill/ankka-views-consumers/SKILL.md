@@ -6,6 +6,7 @@ pages:
   - build/consumers.md
   - build/topics.md
   - build/graph.md
+  - deploy/graph-sink.md
   - concepts/consistency.md
   - build/serialization.md
   - build/testing.md

@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{
+  ProjectBrokerEntry,
   AnkkaProjectSpec,
   AnkkaProjectStatus,
   AnkkaServiceSpec,
@@ -109,6 +110,10 @@ class CrdSchemaSuite extends munit.FunSuite:
     assertEquals(
       declaredIn(projectCrd, "status", "topics", "items"),
       fieldsOf(classOf[ProjectTopicStatus])
+    )
+    assertEquals(
+      declaredIn(projectCrd, "spec", "brokers", "items"),
+      fieldsOf(classOf[ProjectBrokerEntry])
     )
   }
 

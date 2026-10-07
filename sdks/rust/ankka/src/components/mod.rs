@@ -26,13 +26,13 @@ pub use agent::{Agent, AgentHandlers, Guardrails, Schema, Stage, Tools};
 pub use autonomous::{
     AutonomousAgent, AutonomousSettings, ResultCheck, TaskAcceptance, TaskType, Verdict,
 };
-pub use consumer::Consumer;
+pub use consumer::{Consumer, Publication};
 pub use endpoint::{Acl, Caller, CallerMatcher, Endpoint, Principal, Request, Routes};
 pub use event_sourced::{EventSourcedEntity, Handlers};
 pub use key_value::{KeyValueEntity, KeyValueHandlers};
 pub use keyed_view::{KeyedView, Sources};
 pub use timed_action::{Actions, TimedAction};
-pub use view::{DeclaredQuery, Source, View, query, table_of};
+pub use view::{DeclaredQuery, Source, TopicSource, View, query, table_of};
 pub use workflow::{Recovery, Steps, Workflow, WorkflowHandlers, WorkflowSettings};
 
 /// Whether a component's module instance keeps its state between calls.

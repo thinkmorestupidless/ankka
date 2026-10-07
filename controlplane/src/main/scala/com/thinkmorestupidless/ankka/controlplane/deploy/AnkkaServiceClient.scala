@@ -84,6 +84,15 @@ trait AnkkaServiceClient extends AutoCloseable:
    */
   def putProject(namespace: String, name: String, spec: AnkkaProjectSpec): Unit
 
+  /**
+   * A contract's schema document into the project's schema `ConfigMap`, under its fingerprint
+   * (feature 037).
+   */
+  def putSchema(namespace: String, fingerprint: String, document: String): Unit
+
+  /** The document declared under a fingerprint, if the project's schema `ConfigMap` holds it. */
+  def schema(namespace: String, fingerprint: String): Option[String]
+
   /** What the operator last reported of a project's topics, or nothing yet. */
   def projectStatus(namespace: String, name: String): Option[AnkkaProjectStatus]
 
@@ -147,3 +156,15 @@ trait ProjectSecretWriter:
 
   /** Throws if the cluster refused or is unreachable; the caller records nothing. */
   def removeEntry(projectId: String, name: String, entry: String): Unit
+
+/**
+ * Where a declared contract's schema document goes and comes from (feature 037): the project's
+ * `ankka-project-schemas` ConfigMap, one key per fingerprint. Written before the declaration is
+ * recorded, as a secret is, so the journal never holds a document.
+ */
+trait ProjectSchemaStore:
+
+  /** Throws if the cluster refused or is unreachable; the caller records nothing. */
+  def putSchema(projectId: String, fingerprint: String, document: String): Unit
+
+  def schema(projectId: String, fingerprint: String): Option[String]

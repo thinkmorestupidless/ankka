@@ -1,0 +1,1 @@
+{"type":"BrokerDeclarationRequest","json":{"bootstrap":"kafka.legacy:9094","shape":"sasl","secret":"legacy-credential"}}

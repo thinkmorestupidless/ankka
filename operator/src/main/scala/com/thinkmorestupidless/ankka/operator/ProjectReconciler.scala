@@ -50,8 +50,11 @@ object ProjectReconciler:
         .map(t => Action.EnsureKafkaTopic(StrimziRendering.topic(spec.projectId, t, b)))
     )
     val next = TopicProvisioning.status(spec, broker, observed)
-    topics ++ Option.unless(current.contains(next))(
-      Action.SetProjectStatus(ref.namespace, ref.name, next)
-    )
+    // The declarations every service of the project reads at start (feature 037), with or without
+    // a broker: a contract is checked wherever the topic lives.
+    (Action.EnsureProjectConfig(ProjectConfig.configMap(ref.namespace, spec)) +: topics) ++
+      Option.unless(current.contains(next))(
+        Action.SetProjectStatus(ref.namespace, ref.name, next)
+      )
   def apply(client: KubernetesClient, settings: Settings): ProjectReconciler =
     new ProjectReconciler(client, settings, new Fabric8Executor(client))

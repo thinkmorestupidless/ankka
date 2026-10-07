@@ -23,7 +23,8 @@ import org.apache.pekko.kafka.{
   Subscriptions
 }
 import org.apache.pekko.stream.{KillSwitches, Materializer, RestartSettings, SharedKillSwitch}
-import org.apache.pekko.stream.scaladsl.{RestartSource, Sink}
+import org.apache.pekko.kafka.ConsumerMessage.CommittableMessage
+import org.apache.pekko.stream.scaladsl.{RestartSource, Sink, Source}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.{Duration as JDuration, Instant}
@@ -78,12 +79,55 @@ private[ankka] object CloudEvents:
 final case class KafkaConnection(
     bootstrapServers: String,
     tlsDirectory: Option[String] = None,
-    topicPrefix: String = ""
+    topicPrefix: String = "",
+    /**
+     * Feature 037: a declared broker's credential, where it is not the service's own certificate.
+     */
+    credential: Option[KafkaCredential] = None
 ):
   def qualified(topic: String): String = topicPrefix + topic
 
   /** What a Kafka client is configured with beyond the bootstrap address. */
-  def properties: Map[String, String] = tlsDirectory.fold(Map.empty)(KafkaTls.clientProperties)
+  def properties: Map[String, String] =
+    credential.fold(tlsDirectory.fold(Map.empty)(KafkaTls.clientProperties))(_.properties)
+
+/**
+ * How a declared broker is reached (feature 037), from the project secret the operator mounts as a
+ * directory: a client certificate (`ca.crt`, `tls.crt`, `tls.key`), through the same rotating
+ * engine as the installation's broker; or SASL over TLS (`ca.crt`, `username`, `password`, and
+ * `mechanism`, SCRAM-SHA-512 by default), with the authority given to Kafka as PEM. There is no
+ * plaintext shape.
+ */
+enum KafkaCredential:
+  case Certificate(directory: String)
+  case Sasl(directory: String)
+
+  def properties: Map[String, String] = this match
+    case Certificate(directory) => KafkaTls.clientProperties(directory)
+    case Sasl(directory) =>
+      val dir                = java.nio.file.Paths.get(directory)
+      def read(name: String) = java.nio.file.Files.readString(dir.resolve(name)).trim
+      val mechanism          = scala.util.Try(read("mechanism")).getOrElse("SCRAM-SHA-512")
+      val module =
+        if mechanism == "PLAIN" then "org.apache.kafka.common.security.plain.PlainLoginModule"
+        else "org.apache.kafka.common.security.scram.ScramLoginModule"
+      def quoted(text: String) =
+        "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+      Map(
+        "security.protocol" -> "SASL_SSL",
+        "sasl.mechanism"    -> mechanism,
+        "sasl.jaas.config" ->
+          s"$module required username=${quoted(read("username"))} password=${quoted(read("password"))};",
+        "ssl.truststore.type"         -> "PEM",
+        "ssl.truststore.certificates" -> read("ca.crt")
+      )
+
+object KafkaCredential:
+  /** The shape the declaration named, as the operator writes it. */
+  def of(shape: String, directory: String): Either[String, KafkaCredential] = shape match
+    case "certificate" => Right(Certificate(directory))
+    case "sasl"        => Right(Sasl(directory))
+    case other         => Left(s"broker credential shape '$other' is not certificate or sasl")
 
 object KafkaConnection:
 
@@ -106,6 +150,43 @@ object KafkaConnection:
         value(TopicPrefixVariable).getOrElse("")
       )
     )
+
+  /**
+   * The declared brokers' variables (feature 037): `ANKKA_TOPIC_BROKER_<NAME>_BOOTSTRAP_SERVERS`,
+   * `_SHAPE`, `_SECRET_DIRECTORY` and `_NAME`, the name upper-cased with `-` as `_`.
+   */
+  val DeclaredPrefix: String = "ANKKA_TOPIC_BROKER_"
+
+  def variableName(broker: String): String = broker.toUpperCase.replace('-', '_')
+
+  /**
+   * Every declared broker the environment names, by its declared name, with no topic prefix. One
+   * whose shape or directory is wrong is a `Left`, so the service refuses to start rather than
+   * reading from the wrong place.
+   */
+  def declaredFromEnv(env: Map[String, String]): Either[String, Map[String, KafkaConnection]] =
+    val suffix = "_BOOTSTRAP_SERVERS"
+    val uppers = env.keys.toVector.collect {
+      case key if key.startsWith(DeclaredPrefix) && key.endsWith(suffix) =>
+        key.stripPrefix(DeclaredPrefix).stripSuffix(suffix)
+    }
+    uppers.sorted.foldLeft[Either[String, Map[String, KafkaConnection]]](Right(Map.empty)) {
+      (acc, upper) =>
+        acc.flatMap { found =>
+          val name = env.getOrElse(
+            s"$DeclaredPrefix${upper}_NAME",
+            upper.toLowerCase.replace('_', '-')
+          )
+          val bootstrap = env(s"$DeclaredPrefix$upper$suffix").trim
+          val shape     = env.getOrElse(s"$DeclaredPrefix${upper}_SHAPE", "").trim
+          val directory = env.getOrElse(s"$DeclaredPrefix${upper}_SECRET_DIRECTORY", "").trim
+          if directory.isEmpty then Left(s"declared broker '$name' names no secret directory")
+          else
+            KafkaCredential
+              .of(shape, directory)
+              .map(c => found.updated(name, KafkaConnection(bootstrap, None, "", Some(c))))
+        }
+    }
 
 /**
  * Publishes to Kafka.
@@ -262,38 +343,62 @@ final class KafkaSubscriber private (
 
     // Restarting on failure is what makes this at-least-once: the stream resumes from
     // the last committed offset, so the failed message is delivered again.
+    def handled(committable: CommittableMessage[String, Array[Byte]]) =
+      val record = committable.record
+      val headers = record
+        .headers()
+        .asScala
+        .map(header => header.key -> String(header.value, UTF_8))
+        .toVector
+      handle(
+        IncomingMessage(
+          Option(record.key),
+          record.value,
+          CloudEvents.metadataFrom(headers),
+          record.partition
+        )
+      ).map(_ => committable.committableOffset)
+
+    // A topic that is not there, or not this project's, fails the stream; the restart asks
+    // again with its backoff, and the log names the topic each time.
+    def warned[A, M](source: Source[A, M]): Source[A, M] =
+      source.mapError { case failure =>
+        system.log.warn(
+          "could not read topic '{}' ({} on the broker): {}",
+          subscription.topic,
+          qualified,
+          failure.getMessage
+        )
+        failure
+      }
+
     RestartSource
       .onFailuresWithBackoff(restart) { () =>
-        Consumer
-          .committableSource(settings, topics)
-          // A topic that is not there, or not this project's, fails the stream; the restart asks
-          // again with its backoff, and the log names the topic each time.
-          .mapError { case failure =>
-            system.log.warn(
-              "could not read topic '{}' ({} on the broker): {}",
-              subscription.topic,
-              qualified,
-              failure.getMessage
-            )
-            failure
-          }
-          .via(killSwitch.flow)
-          .mapAsync(1) { committable =>
-            val record = committable.record
-            val headers = record
-              .headers()
-              .asScala
-              .map(header => header.key -> String(header.value, UTF_8))
-              .toVector
-
-            handle(
-              IncomingMessage(
-                Option(record.key),
-                record.value,
-                CloudEvents.metadataFrom(headers)
+        val offsets =
+          if subscription.parallel then
+            // Feature 037: one lane per partition this instance holds, each one message at a time
+            // and each in an actor of its own (`async`), so a partition's order is kept and a slow
+            // handler holds only its lane. A message that fails is handed to the handler again
+            // with backoff inside its lane, so it holds its partition and no other; its offset is
+            // never committed before it is handled. Every lane's offsets reach the one committer.
+            warned(Consumer.committablePartitionedSource(settings, topics))
+              .flatMapMerge(
+                Int.MaxValue,
+                (_, partition) =>
+                  partition
+                    .flatMapConcat(message =>
+                      RestartSource.onFailuresWithBackoff(restart)(() =>
+                        Source.lazyFuture(() => handled(message))
+                      )
+                    )
+                    .async
               )
-            ).map(_ => committable.committableOffset)
-          }
+          else warned(Consumer.committableSource(settings, topics)).mapAsync(1)(handled)
+        offsets
+          // The committer in an actor of its own, so a handler that blocks does not hold the
+          // commit of what was handled before it.
+          .async
+          .via(killSwitch.flow)
           .via(Committer.flow(CommitterSettings(system)))
       }
       .runWith(Sink.ignore)(using Materializer(system)): Unit
@@ -309,6 +414,45 @@ final class KafkaSubscriber private (
     () =>
       killSwitch.shutdown()
       running.remove(killSwitch): Unit
+
+  /**
+   * The group's lag (feature 037): a consumer with the subscription's group, which joins nothing,
+   * assigned every partition and asked for the end offsets and what the group has committed. A
+   * partition the group has never committed counts from its beginning.
+   */
+  override def lag(subscription: TopicSubscription): Future[Option[Long]] =
+    val topic = connection.qualified(subscription.topic)
+    Future {
+      blocking {
+        val properties = Properties()
+        connection.properties.foreach((key, value) => properties.put(key, value))
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, connection.bootstrapServers)
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, subscription.group)
+        properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
+        val consumer =
+          KafkaConsumer[Array[Byte], Array[Byte]](
+            properties,
+            ByteArrayDeserializer(),
+            ByteArrayDeserializer()
+          )
+        try
+          val partitions = consumer
+            .partitionsFor(topic, JDuration.ofSeconds(10))
+            .asScala
+            .toVector
+            .map(info => TopicPartition(topic, info.partition))
+          val ends       = consumer.endOffsets(partitions.asJava).asScala
+          val beginnings = consumer.beginningOffsets(partitions.asJava).asScala
+          val committed  = consumer.committed(partitions.toSet.asJava).asScala
+          Some(partitions.map { p =>
+            val from =
+              Option(committed.getOrElse(p, null)).map(_.offset).getOrElse(beginnings(p).longValue)
+            (ends(p).longValue - from).max(0L)
+          }.sum)
+        finally consumer.close()
+      }
+    }(using system.executionContext)
+      .recover { case NonFatal(_) => None }(using system.executionContext)
 
   /**
    * A consumer with no group, assigned every partition and moved to the beginning: the first record

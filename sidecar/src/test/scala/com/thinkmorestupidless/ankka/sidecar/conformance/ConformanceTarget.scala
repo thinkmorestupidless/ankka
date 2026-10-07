@@ -45,7 +45,7 @@ import org.apache.pekko.actor.typed.ActorSystem
 import java.net.URI
 import java.nio.file.Path
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration.*
 import scala.util.Try
 
@@ -149,6 +149,21 @@ trait ConformanceTarget:
    * problems that stop it starting, through the same check the target's start went through.
    */
   def problemsWithStatement(view: String, query: String, statement: String): Vector[String]
+
+  /**
+   * What `contract-relay` declares, as this target's runtime sees it (feature 037): the topic
+   * source's options and the publication. In process, from the Scala descriptor; for a process or a
+   * module, from discovery.
+   */
+  def contractRelay: Option[
+    (com.thinkmorestupidless.ankka.sdk.TopicOptions, com.thinkmorestupidless.ankka.sdk.Publication)
+  ]
+
+  /**
+   * Two `Consumer.Handle` calls to `contract-relay` at once, neither awaited before the other is
+   * sent, with the numbers given; the numbers each answer produced, in the order given.
+   */
+  def handleBoth(first: Int, second: Int): Vector[Option[Int]]
 
   def stop(): Unit
 
@@ -269,7 +284,9 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       reference.descriptors ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime.withBroker(broker, broker),
+        ProjectionRuntime
+          .withBroker(broker, broker)
+          .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
         HttpServer.at("127.0.0.1", 0)(
@@ -312,6 +329,27 @@ object ConformanceTarget:
           )
         case _ => Vector.empty
       }
+    def contractRelay =
+      reference.descriptors.collectFirst {
+        case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?]
+            if c.componentId.toString == "contract-relay" =>
+          c.source match
+            case t: com.thinkmorestupidless.ankka.sdk.ChangeSource.Topic[?] =>
+              (t.options, c.produces.get)
+            case other => throw IllegalStateException(s"contract-relay reads $other")
+      }
+    def handleBoth(first: Int, second: Int): Vector[Option[Int]] =
+      // In process the handler is the SDK's own class: two instances, two threads, both answered.
+      given ExecutionContext = system.executionContext
+      val answers = Vector(first, second).map(n =>
+        scala.concurrent.Future {
+          new reference.ContractRelay().onMessage(reference.Fanned(n)) match
+            case com.thinkmorestupidless.ankka.core.effect.ConsumerEffect.Produce(payload, _) =>
+              Some(payload.asInstanceOf[reference.Fanned].n)
+            case _ => None
+        }
+      )
+      Await.result(scala.concurrent.Future.sequence(answers), 30.seconds)
     def stop(): Unit =
       try kit.stop()
       finally stopShared()
@@ -369,7 +407,9 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime.withBroker(broker, broker),
+        ProjectionRuntime
+          .withBroker(broker, broker)
+          .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
         HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
@@ -409,6 +449,39 @@ object ConformanceTarget:
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
       ConformanceTarget.validateWith(discovered.spec, view, query, statement)
+    def contractRelay =
+      discovered.descriptors.collectFirst {
+        case c: com.thinkmorestupidless.ankka.runtime.remote.RemoteConsumerDescriptor
+            if c.componentId.toString == "contract-relay" =>
+          c.source match
+            case com.thinkmorestupidless.ankka.runtime.remote.RemoteSource.Topic(_, _, options) =>
+              (options, c.publication.get)
+            case other => throw IllegalStateException(s"contract-relay reads $other")
+      }
+    def handleBoth(first: Int, second: Int): Vector[Option[Int]] =
+      given ExecutionContext = system.executionContext
+      import com.thinkmorestupidless.ankka.runtime.remote.{
+        ConsumerOutcome,
+        ConsumerRequest,
+        Payload
+      }
+      def request(n: Int) = ConsumerRequest(
+        com.thinkmorestupidless.ankka.core.ComponentId("contract-relay"),
+        Some(Payload(Payload.Json, "fanned", s"""{"n":$n}""".getBytes("UTF-8"))),
+        com.thinkmorestupidless.ankka.core.Metadata.empty.withSubject(s"c-$n")
+      )
+      // Both sent before either is awaited.
+      val sent = Vector(first, second).map(n => conversation.handleConsumer(request(n)))
+      Await.result(scala.concurrent.Future.sequence(sent), 30.seconds).map {
+        case ConsumerOutcome.Produce(payload, _) =>
+          Json
+            .parse(String(payload.data, "UTF-8"))
+            .toOption
+            .flatMap(_("n"))
+            .flatMap(_.asDouble)
+            .map(_.toInt)
+        case _ => None
+      }
     def stop(): Unit =
       Try(kit.stop())
       channel.shutdownNow()
@@ -505,7 +578,9 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime.withBroker(broker, broker),
+        ProjectionRuntime
+          .withBroker(broker, broker)
+          .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
         HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
@@ -535,6 +610,39 @@ object ConformanceTarget:
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
       ConformanceTarget.validateWith(discovered.spec, view, query, statement)
+    def contractRelay =
+      discovered.descriptors.collectFirst {
+        case c: com.thinkmorestupidless.ankka.runtime.remote.RemoteConsumerDescriptor
+            if c.componentId.toString == "contract-relay" =>
+          c.source match
+            case com.thinkmorestupidless.ankka.runtime.remote.RemoteSource.Topic(_, _, options) =>
+              (options, c.publication.get)
+            case other => throw IllegalStateException(s"contract-relay reads $other")
+      }
+    def handleBoth(first: Int, second: Int): Vector[Option[Int]] =
+      given ExecutionContext = system.executionContext
+      import com.thinkmorestupidless.ankka.runtime.remote.{
+        ConsumerOutcome,
+        ConsumerRequest,
+        Payload
+      }
+      def request(n: Int) = ConsumerRequest(
+        com.thinkmorestupidless.ankka.core.ComponentId("contract-relay"),
+        Some(Payload(Payload.Json, "fanned", s"""{"n":$n}""".getBytes("UTF-8"))),
+        com.thinkmorestupidless.ankka.core.Metadata.empty.withSubject(s"c-$n")
+      )
+      // Both sent before either is awaited.
+      val sent = Vector(first, second).map(n => conversation.handleConsumer(request(n)))
+      Await.result(scala.concurrent.Future.sequence(sent), 30.seconds).map {
+        case ConsumerOutcome.Produce(payload, _) =>
+          Json
+            .parse(String(payload.data, "UTF-8"))
+            .toOption
+            .flatMap(_("n"))
+            .flatMap(_.asDouble)
+            .map(_.toInt)
+        case _ => None
+      }
     def stop(): Unit =
       Try(kit.stop()): Unit
       stopShared()

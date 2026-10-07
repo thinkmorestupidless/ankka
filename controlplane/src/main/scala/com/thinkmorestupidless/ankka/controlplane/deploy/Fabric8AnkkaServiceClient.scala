@@ -207,6 +207,66 @@ final class Fabric8AnkkaServiceClient(
         .serverSideApply()
       log.debug("projected project {}/{}: {} topics", namespace, name, spec.topics.size)
 
+  def putSchema(namespace: String, fingerprint: String, document: String): Unit =
+    ensureNamespace(namespace)
+    val name                 = Fabric8AnkkaServiceClient.SchemasConfigMap
+    def quoted(text: String) = writeToString(text)(using Fabric8AnkkaServiceClient.stringCodec)
+    // One key added or replaced, the others kept: a merge patch, as a project secret's entries are
+    // written, and a create when the map is not there yet.
+    val body = s"""{"data":{${quoted(fingerprint)}:${quoted(document)}}}"""
+    mergePatchConfigMap(namespace, name, body) match
+      case 404 =>
+        val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
+          .withMetadata(
+            new ObjectMetaBuilder()
+              .withName(name)
+              .withNamespace(namespace)
+              .withLabels(java.util.Map.of("app.kubernetes.io/managed-by", "ankka"))
+              .build()
+          )
+          .withData(java.util.Map.of(fingerprint, document))
+          .build()
+        try
+          val _ = client.configMaps().inNamespace(namespace).resource(configMap).create()
+        catch
+          case conflict: KubernetesClientException if conflict.getCode == 409 =>
+            refuseUnlessSchema(fingerprint, mergePatchConfigMap(namespace, name, body))
+      case status => refuseUnlessSchema(fingerprint, status)
+    log.debug("held schema {} for {}", fingerprint, namespace)
+
+  def schema(namespace: String, fingerprint: String): Option[String] =
+    Option(
+      client
+        .configMaps()
+        .inNamespace(namespace)
+        .withName(Fabric8AnkkaServiceClient.SchemasConfigMap)
+        .get()
+    ).flatMap(cm => Option(cm.getData)).flatMap(data => Option(data.get(fingerprint)))
+
+  private def mergePatchConfigMap(namespace: String, name: String, body: String): Int =
+    val base = client.getMasterUrl.toString.stripSuffix("/")
+    val request = client.getHttpClient
+      .newHttpRequestBuilder()
+      .uri(s"$base/api/v1/namespaces/$namespace/configmaps/$name")
+      .patch("application/merge-patch+json", body)
+      .build()
+    client.getHttpClient
+      .sendAsync(request, classOf[String])
+      .get(30, java.util.concurrent.TimeUnit.SECONDS)
+      .code()
+
+  private def refuseUnlessSchema(fingerprint: String, status: Int): Unit =
+    if status >= 200 && status < 300 then ()
+    else if status == 400 || status == 413 || status == 422 then
+      throw CommandError(
+        s"the cluster refused the schema $fingerprint ($status)",
+        ErrorCode.BadRequest
+      )
+    else
+      throw new IllegalStateException(
+        s"the cluster answered $status to a write of schema $fingerprint"
+      )
+
   def projectStatus(
       namespace: String,
       name: String
@@ -280,6 +340,9 @@ final class Fabric8AnkkaServiceClient(
     )
 
 object Fabric8AnkkaServiceClient:
+
+  /** The project's schema documents, one key per fingerprint (feature 037). */
+  val SchemasConfigMap: String = "ankka-project-schemas"
 
   /** The body of a project secret's merge patch: `{"stringData": {entry: value, ...}}`. */
   private[deploy] val stringDataCodec: JsonValueCodec[Map[String, Map[String, String]]] =

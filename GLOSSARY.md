@@ -1508,7 +1508,7 @@ Of a topic: kept by the broker as the last message under each key, so that it ho
 What reads a topic outside the service and writes what it reads somewhere else, such as into a store: a service with consumers, or several. Its topics are declared on its project.
 
 ### ankka-flow
-*Proposed.* The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
+The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
 
 ### sink
 The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it as a component a developer registers in a service, and as a service image built from that component, which a member deploys into a project.
@@ -1536,27 +1536,27 @@ topic may be given more and never fewer.
 Avoid: shard
 
 ### contract
-*Proposed.* A name and the schema of what a topic carries, declared on the topic and held by the
+A name and the schema of what a topic carries, declared on the topic and held by the
 project, stated by each component that reads the topic or publishes to it with the schema it was
 built against, and whose name is carried as the type of every message published to it. Two sides
 of a topic must state the declared one.
 
 ### schema
-*Proposed.* The document that says the shape of what a topic carries, held by the project with the
+The document that says the shape of what a topic carries, held by the project with the
 topic's contract, which a member fetches to build against. A message is not checked against it as
 it flows.
 
 Avoid: format
 
 ### declared broker
-*Proposed.* A broker a member declares on a project by name, with its address, the shape of its
+A broker a member declares on a project by name, with its address, the shape of its
 credential (a certificate, or SASL over TLS) and the project secret holding it, which a component may
 name for one topic it reads or publishes to.
 
 Avoid: external broker
 
 ### lag
-*Proposed.* How far behind a topic source is: how many messages the topic holds past the last one
+How far behind a topic source is: how many messages the topic holds past the last one
 it has handled.
 
 Avoid: backlog, offset lag

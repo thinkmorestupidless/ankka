@@ -1,6 +1,11 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentId, ComponentKind}
+import com.thinkmorestupidless.ankka.core.{
+  ComponentDescriptor,
+  ComponentId,
+  ComponentKind,
+  Contract
+}
 import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteConsumerDescriptor,
   RemoteKeyedViewDescriptor,
@@ -11,6 +16,7 @@ import com.thinkmorestupidless.ankka.sdk.{
   ChangeSource,
   ConsumerDescriptor,
   KeyedViewDescriptor,
+  Publication,
   ViewDescriptor
 }
 
@@ -23,7 +29,8 @@ private[runtime] enum DeclaredSource:
   case State(component: ComponentId)
 
   /** A topic on the broker. */
-  case Topic(name: String)
+  /** A topic, with the contract the component states for it and the declared broker it names. */
+  case Topic(name: String, contract: Option[Contract] = None, broker: Option[String] = None)
 
 /**
  * What a component declared it is connected to, when it was registered.
@@ -53,15 +60,21 @@ private[runtime] object DeclaredConnections:
     sourcesOf(descriptor).headOption
 
   /** The topic `descriptor` publishes to, when it is a consumer that publishes. */
-  def destinationOf(descriptor: ComponentDescriptor): Option[String] = descriptor match
-    case consumer: ConsumerDescriptor[?, ?, ?] => consumer.produceTo
-    case consumer: RemoteConsumerDescriptor    => consumer.producesTo
-    case _                                     => None
+  def destinationOf(descriptor: ComponentDescriptor): Option[String] =
+    publicationOf(descriptor).map(_.topic)
+
+  /** What a consumer publishes to, with its contract and broker. */
+  def publicationOf(descriptor: ComponentDescriptor): Option[Publication] = descriptor match
+    case consumer: ConsumerDescriptor[?, ?, ?] =>
+      consumer.produces.orElse(consumer.produceTo.map(Publication(_)))
+    case consumer: RemoteConsumerDescriptor => consumer.publication
+    case _                                  => None
 
   private def of(source: ChangeSource[?]): DeclaredSource = source match
     case ChangeSource.EventSourced(component, _) => DeclaredSource.Events(component)
     case ChangeSource.KeyValue(component, _)     => DeclaredSource.State(component)
-    case ChangeSource.Topic(topic, _, _)         => DeclaredSource.Topic(topic)
+    case ChangeSource.Topic(topic, _, _, options) =>
+      DeclaredSource.Topic(topic, options.contract, options.broker)
 
   /**
    * Discovery lets a source name a component of any kind, and only an entity has a change stream.
@@ -73,4 +86,5 @@ private[runtime] object DeclaredConnections:
     case RemoteSource.Component(ComponentKind.KeyValueEntity, component) =>
       Some(DeclaredSource.State(component))
     case RemoteSource.Component(_, _) => None
-    case RemoteSource.Topic(name, _)  => Some(DeclaredSource.Topic(name))
+    case RemoteSource.Topic(name, _, options) =>
+      Some(DeclaredSource.Topic(name, options.contract, options.broker))

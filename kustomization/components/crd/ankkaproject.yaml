@@ -59,6 +59,47 @@ spec:
                         description: >-
                           When the project declared it, RFC 3339. A topic the broker held before
                           this is reported recovered.
+                      compacted:
+                        type: boolean
+                        description: >-
+                          The broker keeps the last message under each key. Applied to a topic
+                          already made as well as a new one.
+                      contractName:
+                        type: string
+                        description: The contract the topic carries, which every side must state.
+                      contractFingerprint:
+                        type: string
+                        description: >-
+                          sha256 of the contract's schema document under RFC 8785, as every
+                          component states the schema it was built against.
+                brokers:
+                  type: array
+                  description: >-
+                    Brokers the project declares beside the installation's, which a component may
+                    name for one topic. Every service of the project is given each one's address
+                    and credential, on its platform container only.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - bootstrap
+                      - shape
+                      - secretName
+                    properties:
+                      name:
+                        type: string
+                      bootstrap:
+                        type: string
+                      shape:
+                        type: string
+                        enum:
+                          - certificate
+                          - sasl
+                      secretName:
+                        type: string
+                        description: The project secret holding the credential, mounted as a directory.
+                      declaredAt:
+                        type: string
             status:
               type: object
               properties:
@@ -80,3 +121,5 @@ spec:
                         type: integer
                       detail:
                         type: string
+                      compacted:
+                        type: boolean

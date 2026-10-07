@@ -187,6 +187,12 @@ enum Action:
   case EnsureSchemaConfig(configMap: ConfigMap)
 
   /**
+   * The project's declarations `ConfigMap` (feature 037), one per project namespace, mounted by
+   * every platform container and read at start. Re-applied on every project reconcile.
+   */
+  case EnsureProjectConfig(configMap: ConfigMap)
+
+  /**
    * Desired and observed agree.
    *
    * Distinct from an empty list so that "decided nothing needs doing" is a stated outcome rather
@@ -261,6 +267,8 @@ enum Action:
       s"ensure kafka topic ${t.getMetadata.getNamespace}/${t.getMetadata.getName}"
     case EnsureSchemaConfig(cm) =>
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
+    case EnsureProjectConfig(cm) =>
+      s"ensure project config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case NoAction => "nothing to do"
     case EnsureCertificate(c) =>
       s"ensure certificate ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"

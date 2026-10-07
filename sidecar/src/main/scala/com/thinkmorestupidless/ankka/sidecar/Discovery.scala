@@ -7,14 +7,17 @@ import com.thinkmorestupidless.ankka.core.{
   ComponentId,
   ComponentKind,
   ComponentRegistry,
+  Contract as CoreContract,
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import com.thinkmorestupidless.ankka.runtime.{KeyedViewRules, QueryCheck, TopicSourceRules}
 import com.thinkmorestupidless.ankka.sdk.{
   DeclaredQuery,
+  Publication,
   RecoverStrategy,
   StartFrom,
+  TopicOptions,
   WorkflowSettings
 }
 import io.grpc.ManagedChannel
@@ -230,12 +233,19 @@ object Discovery:
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>
               source(s"consumer '${c.id}'", c.id, d.source, problems).foreach { s =>
+                val produces = d.produces.map(p =>
+                  Publication(p.topic, p.contract.map(contract), p.broker.filter(_.nonEmpty))
+                )
+                if produces.exists(p => d.producesTo.exists(_ != p.topic)) then
+                  problems += s"consumer '${c.id}' names '${d.producesTo.get}' in produces_to and " +
+                    s"'${produces.get.topic}' in produces; a consumer publishes to one topic"
                 descriptors += RemoteConsumerDescriptor(
                   id,
                   s,
                   d.producesTo,
                   startDeclarable = declaresStartPositions(spec.protocolVersion),
-                  version = d.version
+                  version = d.version,
+                  produces = produces
                 )
               }
             case (Kind.TIMED_ACTION, Component.Detail.TimedAction(_)) =>
@@ -420,6 +430,14 @@ object Discovery:
       problems: scala.collection.mutable.Builder[String, Vector[String]]
   ): Option[RemoteSource] =
     val declaredStart = s.flatMap(_.startFrom)
+    // 1.14: what a project must know about a topic source; nothing on an earlier Spec.
+    val options = s.fold(TopicOptions())(src =>
+      TopicOptions(
+        src.contract.map(contract),
+        src.broker.filter(_.nonEmpty),
+        src.parallel.getOrElse(false)
+      )
+    )
     s.map(_.source) match
       case Some(Source.Source.Component(ref)) =>
         ComponentId.parse(ref.id) match
@@ -431,14 +449,19 @@ object Discovery:
             if declaredStart.isDefined then
               problems += s"$named declares a start position, which applies to a topic; it " +
                 s"reads ${describe(kind)} '$id'"
+            if options != TopicOptions() then
+              problems += s"$named declares a contract, a broker or parallel, which apply to a " +
+                s"topic; it reads ${describe(kind)} '$id'"
             Some(RemoteSource.Component(kind, id))
       case Some(Source.Source.Topic(name)) if name.nonEmpty =>
         declaredStart match
-          case None => Some(RemoteSource.Topic(name, None))
+          case None => Some(RemoteSource.Topic(name, None, options))
           // A start position that names nothing is refused once, here, and the source is not
           // built: read as "none declared" it would be refused a second time for that.
           case Some(declared) =>
-            startFrom(named, declared, problems).map(start => RemoteSource.Topic(name, Some(start)))
+            startFrom(named, declared, problems).map(start =>
+              RemoteSource.Topic(name, Some(start), options)
+            )
       case _ =>
         problems += s"component '$owner' declares no source"
         None
@@ -458,6 +481,9 @@ object Discovery:
         None
 
   /** A word for a kind, as a person would say it. */
+  /** 1.14: a contract as the process stated it. */
+  private def contract(c: Contract): CoreContract = CoreContract(c.name, c.fingerprint)
+
   private def describe(kind: ComponentKind): String = kind match
     case ComponentKind.EventSourcedEntity => "event sourced entity"
     case ComponentKind.KeyValueEntity     => "key value entity"

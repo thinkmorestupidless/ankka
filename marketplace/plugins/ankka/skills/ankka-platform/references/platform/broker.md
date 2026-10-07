@@ -65,14 +65,37 @@ does, and its consumer groups are its own.
 A service whose descriptor names a broker of its own is given nothing here: no user and no certificate
 name. A web-hosted service has no components and is given nothing either.
 
+### Declared brokers
+
+A project may declare brokers beside the installation's, each with its address, the shape of its
+credential and the project secret holding it, and a component names one for a single topic. The
+declarations reach the cluster on the project's `AnkkaProject` resource, and for each the operator gives
+every service of the project the secret, mounted read-only at `/var/run/secrets/ankka/brokers/<name>` on
+the platform's container, with the variables that name the broker's address, shape and directory. A
+process-hosted service's own container gets neither. A broker declared or removed changes each service's
+pod template once, so each is rolled once. The platform makes nothing on a declared broker: its topics
+are its owner's, and a service reaches them with the credential the project gave it. How a component
+names one is on [Broker topics](../build/topics.md#a-topic-on-another-broker).
+
 ## Topics
 
-A member declares a project's topics on the project, once each, with their partitions. The declarations
-reach the cluster as an `AnkkaProject` resource in the project's namespace, written by the control plane.
-For each, the operator writes a `KafkaTopic` named `<project>.<name>` with the declared partitions, never
-fewer than the topic already has, and reports how far the broker has got with it. Replication is the
-broker's default, so it follows the installation's size. The name the broker holds is what the broker's
-own tools list; a service's code uses the declared name.
+A member declares a project's topics on the project, once each, with their partitions, whether the
+broker keeps only the last message under each key, and the contract they carry. The declarations reach
+the cluster as an `AnkkaProject` resource in the project's namespace, written by the control plane. For
+each, the operator writes a `KafkaTopic` named `<project>.<name>` with the declared partitions, never
+fewer than the topic already has, and `cleanup.policy: compact` when the topic is declared compacted —
+applied to a topic already made as well as to a new one, and removed again when the declaration stops
+asking for it — and reports how far the broker has got with it. Replication is the broker's default, so
+it follows the installation's size. The name the broker holds is what the broker's own tools list; a
+service's code uses the declared name.
+
+A contract is not the broker's business: the operator writes the project's declarations, each topic's
+contract name and the fingerprint of its schema among them, into a `ConfigMap` named `ankka-project` in
+the project's namespace, which every service's platform container mounts at `/var/run/ankka/project`,
+and the runtime checks what its components state against it when the service starts. The schema
+documents themselves are held in the `ankka-project-schemas` `ConfigMap` beside it, written by the
+control plane, one entry per fingerprint. How a contract is declared and checked is on
+[Broker topics](../build/topics.md#contracts).
 
 Installing the broker on an installation that already runs services gives every one of them the broker
 on the operator's next pass: each is told where the broker is, and its certificate is reissued with its
@@ -113,7 +136,8 @@ cache to mirror quay.io/strimzi too.
 An installation may leave the component out, for instance to keep a Kafka it already runs. Then:
 
 - a service is told of no broker, and one that needs a broker names it in its descriptor's `env` with
-  `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, as [Broker topics](../build/topics.md) describes;
+  `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, as [Broker topics](../build/topics.md) describes, or a project declares
+  one and its components name it per topic;
 - a topic a project declares is reported failed, because the installation has no broker to make it
   on;
 - everything else is deployed exactly as it would be with no broker feature at all.

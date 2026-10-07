@@ -61,6 +61,23 @@ contract. A cluster without the `AnkkaProject` type still runs the operator, whi
 project's topics are made, so a k3s suite that declares topics must apply `ankkaproject.yaml` beside
 `ankkaservice.yaml`, or every declaration simply never becomes a `KafkaTopic`.
 
+A declaration also carries `compacted` (rendered as the `KafkaTopic`'s `config.cleanup.policy`, observed
+back from `spec.config`, and `None` rather than an empty map so an uncompacted topic's applied object does
+not change) and a contract's name and fingerprint; the schema document goes to the `ankka-project-schemas`
+ConfigMap, written by the control plane (merge patch, one key per fingerprint; it has `configmaps`
+get/create/patch) before the entity records the declaration, as a secret is written first. `ProjectReconciler`
+renders the whole declaration — topics and declared brokers — as the `ankka-project` ConfigMap
+(`ProjectConfig`, `Action.EnsureProjectConfig`), which every platform container mounts `optional: true`
+at `/var/run/ankka/project` with `ANKKA_PROJECT_DECLARATIONS`; a changed declaration updates in place and
+is checked at the service's next start. A project's declared brokers (`AnkkaProject.spec.brokers`) are an
+input to `Rendering.render` (`declaredBrokers`, read by `ServiceReconciler` through
+`Executor.projectBrokers`), attached by `BrokerMounts` as a Secret volume per broker on the platform
+container only; the project informer requeues every service of a changed project, so a broker declared
+rolls them once. `database: "none"` on the resource makes `Provisioning.decide` answer `NotNeeded` (as
+web hosting does) and sets `ANKKA_DATABASE=none`; the process container is sized by `processCpuMillis`
+and `processMemoryMiB`. Every platform container carries `terminationMessagePolicy: FallbackToLogsOnError`,
+so a start refusal written by `StartRefusal` reaches `services get` as the detail.
+
 ## A service can ask for a bucket, provisioned like a database
 
 `provisionObjectStorage` (feature 034) gives a service one bucket in the installation's object store,

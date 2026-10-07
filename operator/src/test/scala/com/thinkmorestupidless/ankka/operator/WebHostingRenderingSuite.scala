@@ -465,7 +465,11 @@ class WebHostingRenderingSuite extends munit.FunSuite:
     assertEquals(cs.size, 1)
     assertEquals(
       cs.head.getVolumeMounts.asScala.map(_.getMountPath).toSet,
-      Set("/var/run/secrets/ankka/cluster", "/var/run/secrets/ankka/service")
+      Set(
+        "/var/run/secrets/ankka/cluster",
+        "/var/run/secrets/ankka/service",
+        "/var/run/ankka/project"
+      )
     )
     val labels = deployment(embedded).getSpec.getTemplate.getMetadata.getLabels.asScala.toMap
     assertEquals(labels.get(Labels.FormationKey), Some(Labels.FormationBootstrap))

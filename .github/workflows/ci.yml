@@ -66,6 +66,7 @@ jobs:
               - 'sidecar/**'
               - 'proxy/**'
               - 'proxy-core/**'
+              - 'graph-sink/**'
               - 'samples/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:

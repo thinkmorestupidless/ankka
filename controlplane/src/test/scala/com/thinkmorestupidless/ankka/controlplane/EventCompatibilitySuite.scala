@@ -208,6 +208,67 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       assert(!json.contains("sk_live"), s"a value reached the journal: $json")
   }
 
+  test("a topic's declaration pins its wire form, with and without a contract (feature 037)") {
+    val at   = java.time.Instant.parse("2026-10-07T10:00:00Z")
+    val bare = ProjectEvent.ProjectTopicDeclared("orders", 3, None, Some(at))
+    val full = ProjectEvent.ProjectTopicDeclared(
+      "orders",
+      3,
+      Some(Actor("alice", Some("alice@example.test"))),
+      Some(at),
+      compacted = true,
+      contract = Some(com.thinkmorestupidless.ankka.core.Contract("order.v1", "sha256:ab"))
+    )
+    def fields(json: String): Set[String] =
+      com.fasterxml.jackson.databind.ObjectMapper().readTree(json).fieldNames().asScala.toSet
+    for (event, expected) <- Vector(
+        // A field at its default is left out, so an event from before feature 037 and one written
+        // now without a contract are the same bytes.
+        bare -> Set("type", "name", "partitions", "at"),
+        full -> Set("type", "name", "partitions", "actor", "at", "compacted", "contract")
+      )
+    do
+      val bytes = ProjectEntity.eventSerializer.toBytes(event)
+      val json  = new String(bytes, "UTF-8")
+      assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), event)
+      assertEquals(fields(json), expected, json)
+    // The journal never holds a schema document: a contract is its name and fingerprint.
+    val json = new String(ProjectEntity.eventSerializer.toBytes(full), "UTF-8")
+    assert(
+      json.contains("\"contract\":{\"name\":\"order.v1\",\"fingerprint\":\"sha256:ab\"}"),
+      json
+    )
+    // An event from before feature 037 decodes as neither compacted nor under a contract.
+    val old =
+      """{"type":"ProjectTopicDeclared","name":"orders","partitions":3,"at":"2026-10-07T10:00:00Z"}"""
+    assertEquals(ProjectEntity.eventSerializer.fromBytes(old.getBytes("UTF-8")), bare)
+  }
+
+  test("a broker's declaration pins its wire form, and never a credential (feature 037)") {
+    val at = java.time.Instant.parse("2026-10-07T10:00:00Z")
+    val declared = ProjectEvent.ProjectBrokerDeclared(
+      "legacy",
+      "kafka.legacy:9094",
+      "sasl",
+      "legacy-credential",
+      None,
+      Some(at)
+    )
+    val removed = ProjectEvent.ProjectBrokerRemoved("legacy", None, None)
+    def fields(json: String): Set[String] =
+      com.fasterxml.jackson.databind.ObjectMapper().readTree(json).fieldNames().asScala.toSet
+    for (event, expected) <- Vector(
+        declared -> Set("type", "name", "bootstrap", "shape", "secretName", "at"),
+        removed  -> Set("type", "name")
+      )
+    do
+      val bytes = ProjectEntity.eventSerializer.toBytes(event)
+      val json  = new String(bytes, "UTF-8")
+      assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), event)
+      assertEquals(fields(json), expected, json)
+      assert(!json.contains("password"), json)
+  }
+
   test("a project's state from before project secrets decodes with none") {
     val old   = """{"id":"checkout","name":"Checkout","organizationId":"acme","deleted":false}"""
     val state = ProjectEntity.stateSerializer.fromBytes(old.getBytes("UTF-8"))

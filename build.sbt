@@ -163,7 +163,13 @@ lazy val commonSettings = Seq(
     "ankka.golden.update",
     // The operator's rendering as it was before web hosting (feature 021): with `true`,
     // `RenderingUnchangedSuite` rewrites its fixtures. Its own switch, so that nothing else repins it.
-    "ankka.rendering.pin"
+    "ankka.rendering.pin",
+    // The Neo4j the graph sink's suites start (feature 037); the build sets it from V.neo4jImage on
+    // graphNeo4j, and a run may override it.
+    "ankka.neo4j.image",
+    // The fixture suites (contract fingerprints, graph deltas) rewrite their files instead of
+    // refusing a difference, which is only ever right for a change meant to alter them.
+    "ankka.fixtures.regenerate"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
@@ -353,6 +359,22 @@ lazy val telemetryOtlp = project
     libraryDependencies ++= Seq(otelExporterOtlp, otelSenderJdk, testcontainersPg % Test)
   )
 
+/**
+ * The graph merge sink (feature 037): a consumer that fills a Neo4j store from a delta topic. A
+ * published library, so a service can register the sink beside its other components; the
+ * `graphSink` image below is a service built from it and nothing else.
+ */
+lazy val graphNeo4j = project
+  .in(file("modules/graph-neo4j"))
+  .dependsOn(sdk, runtime, testkit % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "ankka-graph-neo4j",
+    libraryDependencies ++= Seq(neo4jDriver, testcontainersNeo4j % Test, testcontainersPg % Test),
+    // The image its suites start, set once here from the one place the version is written.
+    Test / javaOptions += s"-Dankka.neo4j.image=${V.neo4jImage}"
+  )
+
 /** Unit and integration test support, plus TestModelProvider. */
 lazy val testkit = project
   .in(file("modules/testkit"))
@@ -415,6 +437,23 @@ lazy val crd = project
  * whose whole job is to keep working while other things are broken should depend on as little as
  * possible. Its only ankka dependency is the resource contract.
  */
+/**
+ * The platform's graph sink image (feature 037): `ankka-graph-sink`, a service registering one
+ * `Neo4jSink` from its environment, which a member deploys into a project like any service.
+ */
+lazy val graphSink = project
+  .in(file("graph-sink"))
+  .dependsOn(graphNeo4j)
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                := "ankka-graph-sink",
+    publish / skip      := true,
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.graphsink.Main"),
+    libraryDependencies ++= Seq(logback)
+  )
+
 lazy val operator = project
   .in(file("operator"))
   .dependsOn(crd, testPki % Test)
@@ -912,6 +951,8 @@ lazy val root = project
     agent,
     testkit,
     telemetryOtlp,
+    graphNeo4j,
+    graphSink,
     controlPlaneApi,
     crd,
     operator,

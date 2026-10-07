@@ -8,19 +8,27 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  ProjectSchemaStore,
   ProjectSecretWriter,
   ProjectTopicsReader,
-  RegistryWriter
+  RegistryWriter,
+  TopologyReader
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   ConfigureRegistry,
+  DeclareBroker,
   DeclareTopic,
+  RemoveBroker,
   RemoveSecretEntry,
   RemoveTopic,
   SetSecretEntries
 }
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
-import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{CommandError, Contract, Done, EntityId, ErrorCode}
+import com.thinkmorestupidless.ankka.core.graph.GraphJson
+import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
+
+import java.nio.charset.StandardCharsets.UTF_8
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
@@ -47,7 +55,11 @@ final class ProjectEndpoint(
      * cannot be read, lists the topics with no phase: the declarations are the project's record,
      * and are answered whatever the cluster says.
      */
-    topicsReader: Option[ProjectTopicsReader] = None
+    topicsReader: Option[ProjectTopicsReader] = None,
+    /** Where a contract's schema is held (feature 037); `None` refuses a declaration with one. */
+    schemaStore: Option[ProjectSchemaStore] = None,
+    /** Where each service's instances report what they state about a topic (feature 037). */
+    topology: Option[TopologyReader] = None
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -235,12 +247,58 @@ final class ProjectEndpoint(
   putBody("/{projectId}/topics/{name}") {
     (projectId: String, name: String, request: TopicDeclarationRequest) =>
       val access   = authz.project(principal, projectId, write = true)
-      val problems = ProjectTopics.problems(name, request.partitions)
+      val problems = ProjectTopics.problems(name, request)
       if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      // The schema first, into the project's store, then the record (feature 037): a failure after
+      // the write leaves an unused document, never a declaration without its schema.
+      val contract = request.contract.map { declared =>
+        val document = writeToArray(declared.schema)
+        val contract = Contract
+          .fromSchema(declared.name, document)
+          .fold(why => throw CommandError(s"topic '$name': $why", ErrorCode.BadRequest), identity)
+        val store = schemaStore.getOrElse(
+          throw CommandError(
+            "the cluster is not configured; a contract cannot be held",
+            ErrorCode.Unavailable
+          )
+        )
+        store.putSchema(projectId, contract.fingerprint, new String(document, UTF_8))
+        contract
+      }
       entity(projectId)
         .call(ProjectEntity.declareTopic)
         .withMetadata(authz.metadata(access))
-        .invoke(DeclareTopic(name, request.partitions)): Done
+        .invoke(DeclareTopic(name, request.partitions, request.compacted, contract)): Done
+  }
+
+  /** The schema a topic's contract was declared with, as a member fetches it to build against. */
+  get("/{projectId}/topics/{name}/schema") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    val declared = entity(projectId).call(ProjectEntity.topics).invoke()
+    val contract = declared
+      .get(name)
+      .flatMap(_.contract)
+      .getOrElse(
+        throw CommandError(
+          s"project '$projectId' declares no contract on topic '$name'",
+          ErrorCode.NotFound
+        )
+      )
+    val document = schemaStore
+      .flatMap(store => store.schema(projectId, contract.fingerprint))
+      .getOrElse(
+        throw CommandError(
+          s"the schema of '${contract.name}' (${contract.fingerprint}) is not held for project '$projectId'",
+          ErrorCode.NotFound
+        )
+      )
+    val schema: GraphJson = GraphJson
+      .parse(document.getBytes(UTF_8))
+      .fold(
+        why => throw CommandError(s"the held schema is not JSON: $why", ErrorCode.Internal),
+        identity
+      )
+    schema
   }
 
   /** Stops declaring a topic. The topic and what was published to it stay on the broker. */
@@ -267,15 +325,71 @@ final class ProjectEndpoint(
         )
         .map(_.topics.map(t => t.name -> t).toMap)
         .getOrElse(Map.empty)
+    // The sides every running service takes on the topics with a contract (feature 037): read
+    // from each service's instances, and nothing when the cluster cannot be read.
+    val checks: Map[String, Vector[TopicCheck]] =
+      if declared.values.forall(_.contract.isEmpty) then Map.empty
+      else
+        topology.fold(Map.empty[String, Vector[TopicCheck]]) { reader =>
+          try
+            val names = services
+              .ordered(jsonText("projectId") ++ sql" = $projectId", order = jsonText("name"))
+              .map(_.name)
+            TopicChecks.of(
+              declared,
+              names.flatMap(name => reader.read(projectId, name).flatMap(_._2).map(name -> _))
+            )
+          catch case NonFatal(_) => Map.empty
+        }
     declared.toVector.sortBy(_._1).map { (name, topic) =>
       val status = reported.get(name)
       ProjectTopic(
         name,
         topic.partitions,
         status.map(s => ProjectEndpoint.topicPhrase(s.phase)),
-        status.flatMap(_.detail)
+        status.flatMap(_.detail),
+        topic.compacted,
+        topic.contract,
+        checks.getOrElse(name, Vector.empty)
       )
     }
+  }
+
+  /**
+   * Declares a broker on the project (feature 037), or changes where it is. The record alone: the
+   * operator mounts its secret.
+   */
+  putBody("/{projectId}/brokers/{name}") {
+    (projectId: String, name: String, request: BrokerDeclarationRequest) =>
+      val access   = authz.project(principal, projectId, write = true)
+      val problems = ProjectBrokers.problems(name, request)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      entity(projectId)
+        .call(ProjectEntity.declareBroker)
+        .withMetadata(authz.metadata(access))
+        .invoke(DeclareBroker(name, request.bootstrap.trim, request.shape, request.secret)): Done
+  }
+
+  /** Stops declaring a broker. A service naming it is refused at its next start. */
+  delete("/{projectId}/brokers/{name}") { (projectId: String, name: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    entity(projectId)
+      .call(ProjectEntity.removeBroker)
+      .withMetadata(authz.metadata(access))
+      .invoke(RemoveBroker(name)): Done
+  }
+
+  /** The project's declared brokers. */
+  get("/{projectId}/brokers") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    entity(projectId)
+      .call(ProjectEntity.brokers)
+      .invoke()
+      .toVector
+      .sortBy(_._1)
+      .map { (name, b) =>
+        ProjectBroker(name, b.bootstrap, b.shape, b.secretName, b.declaredAt.map(_.toString))
+      }
   }
 
   /**

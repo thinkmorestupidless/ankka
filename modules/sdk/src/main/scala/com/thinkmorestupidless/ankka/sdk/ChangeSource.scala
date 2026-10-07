@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.sdk
 
-import com.thinkmorestupidless.ankka.core.{ComponentId, Serializer}
+import com.thinkmorestupidless.ankka.core.{ComponentId, Contract, Serializer}
 
 import java.time.Instant
 
@@ -41,12 +41,22 @@ object ChangeSource:
    * the broker holds; a consumer must declare, and one that does not is refused when the service
    * starts, because either default would be wrong for something that acts on each message.
    */
+  /**
+   * `options` is what the project must know about the subscription: the contract the component
+   * expects the topic to carry, the declared broker the topic is on, and whether the partitions an
+   * instance holds are read in parallel (feature 037).
+   */
   final case class Topic[Src](
       topic: String,
       decoder: Serializer[Src],
-      startFrom: Option[StartFrom] = None
+      startFrom: Option[StartFrom] = None,
+      options: TopicOptions = TopicOptions()
   ) extends ChangeSource[Src]:
-    def describe = startFrom.fold(s"topic($topic)")(start => s"topic($topic, from $start)")
+    def describe =
+      val from   = startFrom.fold("")(start => s", from $start")
+      val onto   = options.broker.fold("")(b => s", on $b")
+      val stated = options.contract.fold("")(c => s", as ${c.name}")
+      s"topic($topic$from$onto$stated)"
 
   def eventsOf[C <: EventSourcedEntity[S, E], S, E](
       companion: EventSourcedEntity.Companion[C, S, E]
@@ -69,6 +79,36 @@ object ChangeSource:
       startFrom: StartFrom
   ): ChangeSource[Src] =
     Topic(name, decoder, Some(startFrom))
+
+  def fromTopic[Src](
+      name: String,
+      decoder: Serializer[Src],
+      startFrom: StartFrom,
+      options: TopicOptions
+  ): ChangeSource[Src] =
+    Topic(name, decoder, Some(startFrom), options)
+
+/**
+ * What a component says about a topic it reads, beyond its name: the contract it expects the topic
+ * to carry (checked at start against the project's declaration), the declared broker the topic is
+ * on (the installation's when `None`), and whether the partitions an instance holds are handled at
+ * once, each in order. A view's topic source takes the same options.
+ */
+final case class TopicOptions(
+    contract: Option[Contract] = None,
+    broker: Option[String] = None,
+    parallel: Boolean = false
+)
+
+/**
+ * A topic a consumer publishes to, with the contract it states for it and the declared broker it is
+ * on. `produceTo` is the short form: the topic alone.
+ */
+final case class Publication(
+    topic: String,
+    contract: Option[Contract] = None,
+    broker: Option[String] = None
+)
 
 /**
  * Where a topic source begins, the first time its consumer group reads a partition.

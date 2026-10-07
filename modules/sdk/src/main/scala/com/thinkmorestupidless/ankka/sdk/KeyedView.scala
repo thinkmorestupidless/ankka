@@ -64,9 +64,9 @@ final class KeyedSource[V, Row] private[ankka] (
 
   /** The component the source reads; for a topic, its name. */
   def componentId: ComponentId = source match
-    case ChangeSource.EventSourced(id, _) => id
-    case ChangeSource.KeyValue(id, _)     => id
-    case ChangeSource.Topic(topic, _, _)  => ComponentId(topic)
+    case ChangeSource.EventSourced(id, _)   => id
+    case ChangeSource.KeyValue(id, _)       => id
+    case ChangeSource.Topic(topic, _, _, _) => ComponentId(topic)
 
   /** Decodes one change of this source. */
   private[ankka] def decode(bytes: Array[Byte]): Any = source.decoder.fromBytes(bytes)

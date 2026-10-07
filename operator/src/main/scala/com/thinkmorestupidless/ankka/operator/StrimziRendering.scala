@@ -24,6 +24,15 @@ import com.thinkmorestupidless.ankka.operator.strimzi.{
  */
 object StrimziRendering:
 
+  /** What a compacted topic's `KafkaTopic` carries (feature 037). */
+  val CompactedConfig: Map[String, Object] = Map("cleanup.policy" -> "compact")
+
+  /** Whether a topic's config says the broker keeps the last message under each key. */
+  def compacted(config: Option[Map[String, Object]]): Boolean =
+    config.exists(
+      _.get("cleanup.policy").exists(_.toString.split(",").map(_.trim).contains("compact"))
+    )
+
   /** The operations a service has on its project's topics: read, write, and see that they exist. */
   val TopicOperations: Vector[String] = Vector("Read", "Write", "Describe")
 
@@ -78,7 +87,10 @@ object StrimziRendering:
         Labels.ProjectKey               -> projectId,
         StrimziDefinitions.ClusterLabel -> broker.cluster
       ),
-      KafkaTopicSpec(partitions = entry.partitions)
+      KafkaTopicSpec(
+        partitions = entry.partitions,
+        config = Option.when(entry.compacted)(StrimziRendering.CompactedConfig)
+      )
     )
 
   /**

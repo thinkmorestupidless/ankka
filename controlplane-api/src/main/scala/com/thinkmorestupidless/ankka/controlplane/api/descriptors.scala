@@ -1,7 +1,9 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
+import com.thinkmorestupidless.ankka.core.graph.GraphJson
+
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, JsonWriter}
-import com.thinkmorestupidless.ankka.core.{Codecs, PlatformVariables}
+import com.thinkmorestupidless.ankka.core.{Codecs, Contract, PlatformVariables}
 
 /**
  * A service's desired state.
@@ -151,6 +153,12 @@ final case class ServiceSpec(
     annotations: Map[String, String] = Map.empty,
     resources: ServiceResources = ServiceResources(),
     /**
+     * Feature 037: `"none"` for a service with no database at all, such as one made of consumers
+     * alone; nothing is provisioned, and the runtime refuses an entity, a view, a workflow or a
+     * timed action in it. Absent means the platform's, or a supplied one through `ANKKA_DB_*`.
+     */
+    database: Option[String] = None,
+    /**
      * Whether this service serves HTTP at all.
      *
      * A boolean rather than an optional `port`, and not for taste: under ankka's shared codec
@@ -260,6 +268,20 @@ final case class ServiceSpec(
    * secret counts.
    */
   def suppliesBroker: Boolean = env.exists(_.name.startsWith(ServiceSpec.BrokerVariablePrefix))
+
+  /** Feature 037: the service declares it has no database at all. */
+  def hasNoDatabase: Boolean = database.contains(ServiceSpec.NoDatabase)
+
+  private def databaseProblems: Vector[String] =
+    database.toVector.flatMap { value =>
+      val unknown = Option.when(value != ServiceSpec.NoDatabase)(
+        s"database '$value' is not a choice; leave it out, or say \"none\" for a service with no database"
+      )
+      val supplied = Option.when(
+        value == ServiceSpec.NoDatabase && env.exists(_.name.startsWith("ANKKA_DB_"))
+      )("database \"none\" and an ANKKA_DB_ variable: a service with no database supplies none")
+      unknown.toVector ++ supplied.toVector
+    }
 
   /** The port a web-hosted service's program is told to listen on; `None` for any other hosting. */
   def resolvedProcessPort: Option[Int] =
@@ -393,7 +415,7 @@ final case class ServiceSpec(
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
       serviceNameEnvProblems ++ secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++
       protocolProblems ++
-      grpcProblems ++ objectStorageProblems ++ resources.problems
+      grpcProblems ++ objectStorageProblems ++ resources.problems ++ databaseProblems
 
   /**
    * Asking the platform for a bucket, and having a store of one's own, are two different services
@@ -498,6 +520,9 @@ object ServiceSpec:
    * a broker of its own, and the platform makes nothing for it on the installation's.
    */
   val BrokerVariablePrefix: String = "ANKKA_KAFKA_"
+
+  /** Feature 037: the one value `database` takes. */
+  val NoDatabase: String = "none"
 
   /**
    * The ports the platform uses inside a pod, which a web-hosted service's program may not take:
@@ -634,14 +659,77 @@ object AdmittedCaller:
 
 final case class ServiceResources(
     instanceType: String = "small",
-    autoscaling: Autoscaling = Autoscaling()
+    autoscaling: Autoscaling = Autoscaling(),
+    /**
+     * Feature 037: what the developer's process container gets, for a process-hosted service.
+     * Absent, the platform's minimum, as before.
+     */
+    process: Option[ProcessResources] = None
 ):
   def problems: Vector[String] =
-    if InstanceType.byName(instanceType).isEmpty then
-      Vector(
-        s"unknown instanceType '$instanceType'; one of ${InstanceType.names.mkString(", ")}"
+    (if InstanceType.byName(instanceType).isEmpty then
+       Vector(
+         s"unknown instanceType '$instanceType'; one of ${InstanceType.names.mkString(", ")}"
+       )
+     else autoscaling.problems) ++ process.toVector.flatMap(_.problems)
+
+/**
+ * The process container's size (feature 037), as Kubernetes quantities: `cpu` such as `500m` or
+ * `1`, at most 8; `memory` such as `512Mi` or `1Gi`, at most 16Gi. Requests equal limits.
+ */
+final case class ProcessResources(cpu: String, memory: String):
+  def problems: Vector[String] =
+    ProcessResources
+      .cpuMillis(cpu)
+      .fold(
+        why => Vector(s"process cpu '$cpu': $why"),
+        millis =>
+          Option
+            .when(millis > ProcessResources.MaxCpuMillis)(s"process cpu '$cpu' is more than 8")
+            .toVector
+      ) ++ ProcessResources
+      .memoryMiB(memory)
+      .fold(
+        why => Vector(s"process memory '$memory': $why"),
+        mib =>
+          Option
+            .when(mib > ProcessResources.MaxMemoryMiB)(
+              s"process memory '$memory' is more than 16Gi"
+            )
+            .toVector
       )
-    else autoscaling.problems
+
+object ProcessResources:
+  val MaxCpuMillis: Int = 8000
+  val MaxMemoryMiB: Int = 16 * 1024
+  val DefaultCpuMillis  = 100
+  val DefaultMemoryMiB  = 128
+
+  /** `500m` or a whole or decimal number of CPUs. */
+  def cpuMillis(cpu: String): Either[String, Int] =
+    val text = cpu.trim
+    if text.isEmpty then Left("empty")
+    else if text.endsWith("m") then
+      text.dropRight(1).toIntOption.filter(_ > 0).toRight("not a positive number of millicores")
+    else
+      text.toDoubleOption
+        .filter(_ > 0)
+        .map(d => math.round(d * 1000).toInt)
+        .toRight("not a positive number of CPUs")
+
+  /** `512Mi`, `1Gi`, or bytes with a binary suffix. */
+  def memoryMiB(memory: String): Either[String, Int] =
+    val text  = memory.trim
+    val units = Map("Ki" -> 1.0 / 1024, "Mi" -> 1.0, "Gi" -> 1024.0, "Ti" -> 1024.0 * 1024)
+    units.keys.find(text.endsWith) match
+      case Some(unit) =>
+        text
+          .dropRight(unit.length)
+          .toDoubleOption
+          .filter(_ > 0)
+          .map(n => math.ceil(n * units(unit)).toInt)
+          .toRight(s"not a positive number of $unit")
+      case None => Left("needs a binary unit: Ki, Mi, Gi or Ti")
 
 final case class Autoscaling(
     /**
@@ -806,6 +894,19 @@ final case class ServiceStatus(
      * none answered, and on a listing row; empty when they answered and every topic is declared.
      */
     undeclaredTopics: Option[Vector[String]] = None,
+    /**
+     * Each side this service's components take on a declared topic with a contract (feature 037):
+     * whether what the component states is the declared contract. From the running instances, as
+     * `undeclaredTopics` is: `None` when none answered, and on a listing row.
+     */
+    topicChecks: Option[Vector[TopicCheck]] = None,
+    /**
+     * Each topic source of the service with how far behind it is (feature 037), from the running
+     * instances: each instance reads its own partitions, so lags are summed over them, and the
+     * first reason any instance is failing on is named. `None` when none answered, and on a listing
+     * row.
+     */
+    topicSources: Option[Vector[TopicSourceReport]] = None,
     /**
      * What the platform did about the service's bucket (feature 034), as a phrase — `provisioned`,
      * `recovered existing bucket`, `supplied`, `waiting for object storage`, `object storage
@@ -1114,7 +1215,14 @@ final case class TopologyNode(
 )
 
 /** A connection the service declares: a subscription or a publication. */
-final case class DeclaredEdge(from: String, to: String, kind: String)
+final case class DeclaredEdge(
+    from: String,
+    to: String,
+    kind: String,
+    /** Feature 037: what the component states for the topic, on a topic edge. */
+    contract: Option[Contract] = None,
+    broker: Option[String] = None
+)
 
 /** The calls a handler ran for, by how each ended. */
 final case class HandledCounts(ok: Long, refused: Long, failed: Long)
@@ -1158,7 +1266,30 @@ final case class InstanceTopologyDocument(
     window: TopologyWindow,
     nodes: Vector[TopologyNode],
     declared: Vector[DeclaredEdge],
-    calls: Vector[CallEdge]
+    calls: Vector[CallEdge],
+    /** Feature 037: each topic source of the instance, with how far behind it is. */
+    topicSources: Vector[TopicSourceReport] = Vector.empty
+)
+
+/**
+ * A topic source as an instance reports it (feature 037): what reads which topic under which group,
+ * from where, at which version; the declared broker and the contract it states; `lag`, the messages
+ * the topic holds past the last one handled, as of the instance's last poll; `failing`, the reason
+ * of the change being delivered again, until one succeeds.
+ */
+final case class TopicSourceReport(
+    kind: String,
+    component: String,
+    topic: String,
+    group: String,
+    start: String,
+    version: Int,
+    recordedVersion: Option[Int] = None,
+    behind: Boolean = false,
+    broker: Option[String] = None,
+    contract: Option[String] = None,
+    lag: Option[Long] = None,
+    failing: Option[String] = None
 )
 
 /** Whether an instance's topology was read, and if not, why not. */
@@ -1292,20 +1423,102 @@ object Registries:
 
 // ── Project topics (feature 027) ─────────────────────────────────────────────
 
-/** `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has. */
-final case class TopicDeclarationRequest(partitions: Int)
+/**
+ * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
+ * only the last message under each key, and the contract it carries (feature 037): a name and the
+ * schema document, which the control plane fingerprints and holds for the project.
+ */
+final case class TopicDeclarationRequest(
+    partitions: Int,
+    compacted: Boolean = false,
+    contract: Option[ContractDeclaration] = None
+)
+
+/** A contract as declared: its name and its schema document, a JSON Schema. */
+final case class ContractDeclaration(name: String, schema: GraphJson)
+
+/**
+ * One side of a declared topic as the platform last saw it (feature 037): a component of a service
+ * that reads or publishes the topic, what it states, and whether that is the declared contract.
+ * `state` is `checked`, `mismatch`, or `unchecked` for an instance started before the declaration.
+ */
+final case class TopicCheck(
+    topic: String,
+    service: String,
+    component: String,
+    direction: String,
+    stated: Option[String] = None,
+    state: String
+)
 
 /**
  * A topic a project declares, and how far the platform has got with it: `phase` is a phrase, as a
  * database's is — `"waiting for broker"`, `"provisioned"`, `"recovered"`, `"failed"` — absent
- * before the operator has reported on it.
+ * before the operator has reported on it. `contract` is the declared name and fingerprint; `checks`
+ * the sides the platform has seen.
  */
 final case class ProjectTopic(
     name: String,
     partitions: Int,
     phase: Option[String] = None,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    compacted: Boolean = false,
+    contract: Option[Contract] = None,
+    checks: Vector[TopicCheck] = Vector.empty
 )
+
+/**
+ * `PUT /projects/{id}/brokers/{name}` (feature 037): a broker the project declares beside the
+ * installation's, which a component may name for one topic: its address, the shape of its
+ * credential and the project secret holding it.
+ */
+final case class BrokerDeclarationRequest(bootstrap: String, shape: String, secret: String)
+
+/** A broker a project declares, as listed. */
+final case class ProjectBroker(
+    name: String,
+    bootstrap: String,
+    shape: String,
+    secret: String,
+    declaredAt: Option[String] = None
+)
+
+/** The rules of a broker's declaration, the same in the CLI and the control plane. */
+object ProjectBrokers:
+
+  val Shapes: Vector[String] = Vector("certificate", "sasl")
+
+  /** The entries a project secret must hold for each shape. */
+  def needs(shape: String): Vector[String] = shape match
+    case "certificate" => Vector("ca.crt", "tls.crt", "tls.key")
+    case "sasl"        => Vector("ca.crt", "username", "password")
+    case _             => Vector.empty
+
+  /**
+   * Everything wrong with the declaration itself; the secret's entries are the entity's to check.
+   */
+  def problems(name: String, request: BrokerDeclarationRequest): Vector[String] =
+    Option
+      .when(!ProjectTopics.validName(name))(s"broker '$name': ${ProjectTopics.NameRule}")
+      .toVector ++
+      Option
+        .when(
+          request.bootstrap.trim.isEmpty || !request.bootstrap.trim
+            .matches("[A-Za-z0-9._-]+:[0-9]+(,[A-Za-z0-9._-]+:[0-9]+)*")
+        )(
+          s"broker '$name': bootstrap '${request.bootstrap}' is not host:port[,host:port]"
+        )
+        .toVector ++
+      Option
+        .when(!Shapes.contains(request.shape))(
+          s"broker '$name': shape '${request.shape}' is not one of ${Shapes.mkString(", ")}"
+        )
+        .toVector ++
+      ProjectSecrets.nameProblems(request.secret).map(p => s"broker '$name': secret $p")
+
+  /** The refusal of a secret that lacks what the shape needs, worded once. */
+  def lacking(secret: String, shape: String, missing: Vector[String]): String =
+    s"project secret '$secret' lacks ${missing.map(m => s"'$m'").mkString(", ")}, which shape '$shape' needs"
 
 /** What is wrong with a topic's declaration, checked identically by the CLI and the server. */
 object ProjectTopics:
@@ -1325,6 +1538,9 @@ object ProjectTopics:
 
   def validName(name: String): Boolean = Name.matches(name)
 
+  /** The largest schema document a contract may be declared with. */
+  val MaxSchemaBytes: Int = 65536
+
   /** Everything wrong with declaring `name` with `partitions`, all at once. */
   def problems(name: String, partitions: Int): Vector[String] =
     Option.when(!validName(name))(s"topic '$name': $NameRule").toVector ++
@@ -1333,6 +1549,21 @@ object ProjectTopics:
           s"topic '$name': partitions $partitions is outside the range 1-$MaxPartitions"
         )
         .toVector
+
+  /**
+   * The same, with the contract's own rules: its name, and a schema that is JSON and not too big.
+   */
+  def problems(name: String, request: TopicDeclarationRequest): Vector[String] =
+    problems(name, request.partitions) ++ request.contract.toVector.flatMap { c =>
+      val nameProblem = Option.when(!Contract.validName(c.name))(
+        s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
+      )
+      val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
+      val sizeProblem = Option.when(size > MaxSchemaBytes)(
+        s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
+      )
+      nameProblem.toVector ++ sizeProblem.toVector
+    }
 
   /** The refusal of fewer partitions than the project declares: the entity's rule, worded here. */
   def fewer(name: String, has: Int, asked: Int): String =
@@ -1489,6 +1720,12 @@ object Wire:
   given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
     Codecs.make[Vector[DeployTokenSummary]]
   given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]
+  given contractCodec: JsonValueCodec[Contract]       = Codecs.make[Contract]
+  given brokerDeclarationCodec: JsonValueCodec[BrokerDeclarationRequest] =
+    Codecs.make[BrokerDeclarationRequest]
+  given projectBrokerCodec: JsonValueCodec[ProjectBroker] = Codecs.make[ProjectBroker]
+  given projectBrokersCodec: JsonValueCodec[Vector[ProjectBroker]] =
+    Codecs.make[Vector[ProjectBroker]]
   given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
     Codecs.make[TopicDeclarationRequest]
   given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]

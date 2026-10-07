@@ -706,6 +706,9 @@ cart-grpc
           }, {
             "name" : "ANKKA_DB_SSL_KEY",
             "value" : "/var/run/secrets/ankka/database/tls.key"
+          }, {
+            "name" : "ANKKA_PROJECT_DECLARATIONS",
+            "value" : "/var/run/ankka/project/topics.json"
           } ],
           "envFrom" : [ {
             "secretRef" : {
@@ -760,6 +763,7 @@ cart-grpc
               "memory" : "512Mi"
             }
           },
+          "terminationMessagePolicy" : "FallbackToLogsOnError",
           "volumeMounts" : [ {
             "mountPath" : "/var/run/secrets/ankka/cluster",
             "name" : "ankka-cluster-tls",
@@ -775,6 +779,10 @@ cart-grpc
           }, {
             "mountPath" : "/var/run/secrets/ankka/database-ca",
             "name" : "ankka-database-ca",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/ankka/project",
+            "name" : "ankka-project",
             "readOnly" : true
           } ]
         }, {
@@ -882,6 +890,12 @@ cart-grpc
             } ],
             "secretName" : "ankka-db-ca"
           }
+        }, {
+          "configMap" : {
+            "name" : "ankka-project",
+            "optional" : true
+          },
+          "name" : "ankka-project"
         } ]
       }
     }

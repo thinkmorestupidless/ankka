@@ -74,6 +74,14 @@ trait Executor:
    */
   def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState]
 
+  /** The brokers a project declares (feature 037), from its `AnkkaProject`; none without one. */
+  def projectBrokers(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] =
+    val _ = (namespace, projectId)
+    Vector.empty
+
   /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
@@ -520,6 +528,15 @@ final class Fabric8Executor(
         configMap.getMetadata.getName
       )
 
+    case Action.EnsureProjectConfig(configMap) =>
+      val _ =
+        client.resource(configMap).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured project config {}/{}",
+        configMap.getMetadata.getNamespace,
+        configMap.getMetadata.getName
+      )
+
   /**
    * Reads what the cluster currently has for one service.
    *
@@ -734,15 +751,29 @@ final class Fabric8Executor(
     )
     BrokerObservation(user = strimziState(found, found.flatMap(u => Option(u.getStatus))))
 
+  override def projectBrokers(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec)).map(_.brokers.toVector).getOrElse(Vector.empty)
+
   override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
     val topicClient = client
       .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaTopicResource])
       .inNamespace(namespace)
     topics.map { name =>
       val found = ifTypeExists(topicClient.withName(name).get())
+      val spec  = found.flatMap(t => Option(t.getSpec))
       name -> TopicState(
         strimziState(found, found.flatMap(t => Option(t.getStatus))),
-        found.flatMap(t => Option(t.getSpec)).map(_.partitions)
+        spec.map(_.partitions),
+        spec.map(s => StrimziRendering.compacted(s.config))
       )
     }.toMap
 

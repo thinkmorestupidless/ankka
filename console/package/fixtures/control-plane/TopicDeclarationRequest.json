@@ -1,1 +1,1 @@
-{"type":"TopicDeclarationRequest","json":{"partitions":12}}
+{"type":"TopicDeclarationRequest","json":{"partitions":12,"compacted":true,"contract":{"name":"transaction.v1","schema":{"type":"object","required":["id"]}}}}

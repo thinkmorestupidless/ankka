@@ -41,9 +41,13 @@ final class TimerRuntime private (pollInterval: FiniteDuration, observer: TimerO
       case a: TimedActionDescriptor[?]           => a
       case r: remote.RemoteTimedActionDescriptor => r
     }
-    val database = Database()
+    // A service with no database (feature 037) schedules nothing; its scheduler says so.
+    val noDatabase    = NoDatabase.declared(system.settings.config)
+    lazy val database = Database()
 
-    scheduler = Some(new DatabaseTimerScheduler(database))
+    scheduler = Some(
+      if noDatabase then NoDatabase.UnavailableScheduler else new DatabaseTimerScheduler(database)
+    )
 
     if actions.isEmpty then
       system.log.debug("no timed actions registered; timers can still be scheduled and cancelled")

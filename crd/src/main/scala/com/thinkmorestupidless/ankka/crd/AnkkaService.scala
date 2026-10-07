@@ -55,6 +55,12 @@ final case class AnkkaServiceSpec(
      */
     autoscaling: AutoscalingSpec = AutoscalingSpec(),
     /**
+     * The process container's size for a process-hosted service (feature 037), in millicores and
+     * MiB, requests equal to limits; the platform's minimum unless the descriptor says.
+     */
+    processCpuMillis: Int = 100,
+    processMemoryMiB: Int = 128,
+    /**
      * Handed to the Deployment, so Kubernetes owns the not-progressing clock.
      *
      * The operator does not run a timer of its own, which is what stops two clocks disagreeing
@@ -74,6 +80,12 @@ final case class AnkkaServiceSpec(
      * is or is not present.
      */
     provisionDatabase: Boolean = true,
+    /**
+     * Whose database the service has (feature 037): `platform`, `supplied`, or `none` for a service
+     * with no database at all, for which nothing is provisioned and whose runtime refuses a
+     * component that needs one. Set by the control plane, as `provisionDatabase` is.
+     */
+    database: String = "platform",
     /**
      * The port the workload serves HTTP on — or absent, when it serves none.
      *

@@ -127,8 +127,24 @@ spec:
                       type: integer
                     targetCpuPercent:
                       type: integer
+                processCpuMillis:
+                  type: integer
+                  description: The process container's CPU, in millicores, for a process-hosted service.
+                processMemoryMiB:
+                  type: integer
+                  description: The process container's memory, in MiB, for a process-hosted service.
                 progressDeadlineSeconds:
                   type: integer
+                database:
+                  type: string
+                  enum:
+                    - platform
+                    - supplied
+                    - none
+                  description: >-
+                    Whose database the service has: the platform's, one its descriptor supplies,
+                    or none at all, for a service of consumers alone; nothing is provisioned for
+                    none, and its runtime refuses a stateful component.
                 provisionDatabase:
                   type: boolean
                   description: >-

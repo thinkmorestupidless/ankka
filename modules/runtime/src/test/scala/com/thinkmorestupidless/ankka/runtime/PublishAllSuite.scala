@@ -185,3 +185,13 @@ class PublishAllSuite extends munit.FunSuite:
     // A reader in an ankka service still sees the entity's id as the subject.
     assertEquals(received.map(_.subject).toSeq, Seq(Some("cart-1")))
   }
+
+  // features/topics/contracts.feature: a published message carries the contract as its type
+  test("a publication's contract is the message's type, unless the message names one") {
+    val contract = Some(com.thinkmorestupidless.ankka.core.Contract("order.v1", "sha256:ab"))
+    assertEquals(ProjectionSupport.typed(Metadata.empty, contract).eventType, Some("order.v1"))
+    assertEquals(ProjectionSupport.typed(Metadata.empty, None).eventType, None)
+    // A graph delta names its own type and keeps it.
+    val delta = Metadata.empty.set(Metadata.CeType, "ankka.graph-delta.v1")
+    assertEquals(ProjectionSupport.typed(delta, contract).eventType, Some("ankka.graph-delta.v1"))
+  }

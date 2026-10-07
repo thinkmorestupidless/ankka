@@ -474,6 +474,13 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   the check now says (rule `period`). A pending occurrence that has passed is left to fire when a
   version is registered: its handler reads the version current then, which is what the catch-up
   version scenario asks.
+- Phase 7 (T048–T049): `following.feature` passes, 5 scenarios; nothing in the platform had to
+  change. `RunEvent` and `BlueprintEvent` were public already; their scaladoc now says what a
+  follower sees and in what order. A consumer declared beside the test over
+  `ChangeSource.eventsOf(RunEntity)` sees a run's `Started`, both `StepEnded`s and `Ended` in order,
+  and one over `eventsOf(BlueprintEntity)` is given a version's canonical text, which reads back to
+  the blueprint registered. A tool in a run reads `RunContext.current` as the run, step and version;
+  the same tool on a request agent of the service's own reads `None`.
 - Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
   patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
   shows a handler given what the step reads and told its run, and a failing handler failing the

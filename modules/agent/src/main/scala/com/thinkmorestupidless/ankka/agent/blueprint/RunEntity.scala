@@ -95,6 +95,14 @@ final case class RunRecord(
       copy(steps = steps.map(s => if s.name == name then f(s) else s))
     else copy(steps = steps :+ f(StepRecord(name)))
 
+/**
+ * What a run's record is made of, and what a follower of `ankka-run` sees, in this order:
+ * `Started`; for each step `StepStarted`, any `ItemEnded` and `RoundEnded` of its repetitions and
+ * rounds, `WaitingForDecision` and `DecisionReceived` around an approval, then `StepEnded` with its
+ * result and the sessions it used; `CancelRequested` when a caller cancels; and `Ended` once, with
+ * the status. Steps that run at once interleave their events. A service subscribes with
+ * `ChangeSource.eventsOf(RunEntity)`, and the event's subject is the run id (FR-026).
+ */
 enum RunEvent:
   case Started(
       blueprint: String,

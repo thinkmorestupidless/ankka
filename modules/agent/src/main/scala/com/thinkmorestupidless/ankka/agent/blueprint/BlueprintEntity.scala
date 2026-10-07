@@ -24,6 +24,13 @@ final case class BlueprintRecord(
 object BlueprintRecord:
   val empty: BlueprintRecord = BlueprintRecord("")
 
+/**
+ * What a blueprint's record is made of, and what a follower of `ankka-blueprint` sees: a
+ * `VersionRegistered` per version, in order, each carrying the version's canonical text, which
+ * `Blueprint.fromJson` reads back; then the schedule's progress. A service subscribes with
+ * `ChangeSource.eventsOf(BlueprintEntity)`, and the event's subject is the blueprint's name
+ * (FR-026).
+ */
 enum BlueprintEvent:
   case VersionRegistered(number: Int, canonical: String, digest: String, registeredAt: Long)
 

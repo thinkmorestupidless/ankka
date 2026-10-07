@@ -174,10 +174,10 @@ existing suite can see.
 
 **Independent test**: `FollowingFeatures` passes (spec, US5).
 
-- [ ] T048 [P] [US5] `BPT/FollowingFeatures.scala`: `GherkinSuite` over `features/blueprints/following.feature`; the tool records `RunContext.current`; the consumers are declared in the test's own package over `ChangeSource.eventsOf(RunEntity)` and `eventsOf(BlueprintEntity)` with `ProjectionRuntime()`.
-- [ ] T049 [US5] Make `RunEvent` and `BlueprintEvent` and their companions public API in `BP/RunEntity.scala` and `BP/BlueprintEntity.scala` (scaladoc saying which events a follower sees and in what order); check `RunContext` is set for work-step tools (T037) and outside any run is `None`. Make T048 pass.
+- [X] T048 [P] [US5] `BPT/FollowingFeatures.scala`: `GherkinSuite` over `features/blueprints/following.feature`; the tool records `RunContext.current`; the consumers are declared in the test's own package over `ChangeSource.eventsOf(RunEntity)` and `eventsOf(BlueprintEntity)` with `ProjectionRuntime()`.
+- [X] T049 [US5] Make `RunEvent` and `BlueprintEvent` and their companions public API in `BP/RunEntity.scala` and `BP/BlueprintEntity.scala` (scaladoc saying which events a follower sees and in what order); check `RunContext` is set for work-step tools (T037) and outside any run is `None`. Make T048 pass.
 
-**Checkpoint**: quickstart §4. ankka-reasoning's projection can be built on this.
+**Checkpoint**: quickstart §4. ankka-reasoning's projection can be built on this. ✅ 2026-10-07: `FollowingFeatures` passes, 5 scenarios.
 
 ---
 

@@ -1122,6 +1122,7 @@ Usage:
     ankka services pause
     ankka services resume
     ankka services restart
+    ankka services rollback
     ankka services logs
     ankka services topology
     ankka services history
@@ -1150,6 +1151,8 @@ Subcommands:
         Start a paused service again.
     restart
         Replace a service's instances.
+    rollback
+        Apply the descriptor of an earlier generation again, as a new generation.
     logs
         Print a deployed service's recent output.
     topology
@@ -1308,6 +1311,28 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka services rollback`
+
+```text
+Usage: ankka services rollback [--to-generation <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Apply the descriptor of an earlier generation again, as a new generation.
+
+Options and flags:
+    --help
+        Display this help text.
+    --to-generation <integer>
+        The generation to roll back to; otherwise the most recent with a different descriptor.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka services logs`
 
 ```text
@@ -1361,13 +1386,15 @@ Options and flags:
 ### `ankka services history`
 
 ```text
-Usage: ankka services history [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+Usage: ankka services history [--generation <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Who did what to a service, newest first.
 
 Options and flags:
     --help
         Display this help text.
+    --generation <integer>
+        Print the descriptor applied at this generation instead, as JSON to apply.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

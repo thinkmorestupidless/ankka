@@ -134,10 +134,22 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
           "applied",
           3,
           Some(HistoryActor("sub-1", Some("Olive Owner"), administrative = true)),
-          Some(at)
+          Some(at),
+          image = Some("cart:1"),
+          digest = Some("3f9a1c0be2d4" + "0" * 52),
+          rolledBackTo = Some(1)
         )
       ),
       Vector(HistoryEntry("restarted", 1))
+    ),
+    fixture("RollbackRequest", RollbackRequest(Some(1)), RollbackRequest()),
+    fixture(
+      "RolledBack",
+      RolledBack(
+        1,
+        ServiceStatus("cart", "shop", ServiceLifecycle.UpdateInProgress, 3, "cart:1", 0, 1)
+      ),
+      RolledBack(1, ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0))
     ),
     fixture(
       "InstanceLogs",

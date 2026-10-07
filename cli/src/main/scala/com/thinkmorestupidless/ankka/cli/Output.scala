@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, WriterConfig, writeToString}
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
@@ -247,18 +247,37 @@ object Output:
       case Format.Json => writeToString(entries)
       case Format.Table =>
         table(
-          Vector("WHEN", "KIND", "GEN", "BY"),
+          Vector("WHEN", "KIND", "GEN", "IMAGE", "DIGEST", "BY"),
           entries.map(e =>
             Vector(
               e.at.fold("-")(_.toString),
-              e.kind,
+              e.rolledBackTo.fold(e.kind)(n => s"${e.kind} to $n"),
               e.generation.toString,
+              e.image.getOrElse("-"),
+              e.digest.fold("-")(_.take(DigestShown)),
               e.actor.fold("-")(a =>
                 a.display.getOrElse(a.subject) + (if a.administrative then " (admin)" else "")
               )
             )
           )
         )
+
+  /** How much of a digest the table shows: enough to tell generations apart by eye. */
+  val DigestShown = 12
+
+  /** A rollback: which generation it chose, then the status as `services get` prints it. */
+  def rolledBack(result: RolledBack, format: Format): String =
+    format match
+      case Format.Json => writeToString(result)
+      case Format.Table =>
+        s"rolled back to generation ${result.rolledBackTo}\n" + service(result.status, format)
+
+  /**
+   * A past descriptor, indented, in either format: it is a document to redirect into a file and
+   * apply, not a table.
+   */
+  def descriptor(value: ServiceDescriptor): String =
+    writeToString(value, WriterConfig.withIndentionStep(2))
 
   def members(response: MembersResponse, format: Format): String =
     format match

@@ -26,6 +26,13 @@ class RequestContextSuite extends munit.FunSuite:
     assert(failure.message.contains("'q'"), failure.message)
   }
 
+  test("a whole number too large for an Int reads as a Long, and a word does not") {
+    val numbers = QueryParams(Vector("generation" -> "4294967296", "word" -> "x"))
+    assertEquals(numbers.required[Long]("generation"), 4294967296L)
+    assertEquals(intercept[HttpProblem](numbers.required[Long]("word")).status, 400)
+    assertEquals(intercept[HttpProblem](numbers.required[Long]("absent")).status, 400)
+  }
+
   test("repeated parameters keep their order") {
     assertEquals(context.query.all[String]("tag"), Vector("red", "large"))
     assertEquals(context.query.rawAll("tag"), Vector("red", "large"))

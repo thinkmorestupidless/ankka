@@ -122,6 +122,8 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
+| `POST` | `/services/{projectId}/{name}/rollback` | |
+| `GET` | `/services/{projectId}/{name}/descriptor` | |
 | `POST` | `/services/{projectId}/{name}/pause` | |
 | `POST` | `/services/{projectId}/{name}/resume` | |
 | `POST` | `/services/{projectId}/{name}/restart` | |
@@ -497,6 +499,37 @@ Starts a paused service again. Answers with the status.
 Replaces every instance by a rolling update, and increments the generation. Refused with `409` while the
 service is paused. Answers with the status.
 
+### `POST /services/{projectId}/{name}/rollback`
+
+Rolls the service back: applies the descriptor it recorded at an earlier generation again, as a new
+generation. Nothing is rewound; the generation keeps counting and the history shows the rollback. The
+body names the generation, `{ "generation": 1 }`; `{}` asks for the most recent generation whose
+descriptor differs from the one the service has, passing over restarts and applies of the same
+descriptor. Answers `{ "rolledBackTo": 1, "status": { … } }`, the generation it rolled back to and the
+status it produced.
+
+A rollback is checked as an apply is: the descriptor against the platform's rules as they are now
+(`400 invalid descriptor at generation 1: …`), the organization's quota, and whether the organization
+is disabled. Whether the service is paused or exposed, and its restart count, are unchanged. The service
+keeps the descriptors of its last fifty applies, and refuses with:
+
+- `404 service 'cart' has no generation 9` for a generation it never had;
+- `409 the descriptor of generation 3 is no longer kept; the oldest kept is generation 11`;
+- `409 generation 3 was a restart and ran the descriptor of generation 2`;
+- `409 service 'cart' already has the descriptor of generation 2`, the generation it is at included;
+- `409 service 'cart' has no earlier generation with a different descriptor`, with no generation named.
+
+A refused rollback writes nothing.
+
+### `GET /services/{projectId}/{name}/descriptor`
+
+The descriptor the service applied at the generation named by the required `generation` query
+parameter, exactly as `PUT /services/{projectId}/{name}` accepts one, so it can be compared with the
+current one or applied again. Members only. Answers for a deleted service, as its history does. It
+refuses as a rollback does for a generation never had, no longer kept, or that recorded none. A
+variable's literal value is in the reply as it was applied; one taken from a project secret is the
+reference to it, never the value.
+
 ### `POST /services/{projectId}/{name}/expose`
 
 Makes the service reachable from outside the cluster at `https://<service>-<project>.<base domain>`, and
@@ -557,9 +590,15 @@ for example a paused one, answers `404`.
 
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
-`kind` is one of `applied`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`, `deleted`,
-`suspended` or `reinstated`. `administrative` is `true` when the platform administrator role is what
-allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
+`kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
+`deleted`, `suspended` or `reinstated`. `administrative` is `true` when the platform administrator role
+is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
+
+An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and
+`digest`, 64 hexadecimal characters that two entries share exactly when their descriptors state the same
+things: reordered labels or annotations are the same descriptor, and reordered variables are not. A
+`rolled-back` entry carries `rolledBackTo`, the generation whose descriptor it applied again. An entry
+the control plane held from before it recorded images may have neither `image` nor `digest`.
 
 ### `DELETE /services/{projectId}/{name}`
 

@@ -80,9 +80,11 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     val decoded = samples("service-event").map(ServiceEntity.eventSerializer.fromBytes)
     assertEquals(decoded.size, 8)
     decoded.foreach {
-      case ServiceEvent.ServiceApplied(projectId, descriptor, generation, actor, at) =>
+      case ServiceEvent.ServiceApplied(projectId, descriptor, generation, actor, at, rolledBack) =>
         assertEquals((projectId, descriptor.name, generation), ("checkout", "cart", 1L))
         assertEquals((actor, at), (None, None))
+        // An apply from before rollbacks rolled back to nothing (feature 033).
+        assertEquals(rolledBack, None)
         // A descriptor stored before gRPC endpoints existed declares none (feature 020).
         assertEquals((descriptor.service.grpc, descriptor.service.resolvedGrpcPort), (false, None))
       case ServiceEvent.ServiceRestarted(generation, actor, at) =>
@@ -241,3 +243,106 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(written, """{"type":"ProjectReserved","projectId":"checkout"}""")
   }
+
+  // ── rollbacks (feature 033) ────────────────────────────────────────────────
+
+  /**
+   * A `Service` exactly as the code before feature 033 wrote it: applied at 1, restarted at 2,
+   * paused and resumed — no `kept`, and history entries with no image, digest or `rolledBackTo`.
+   * Captured from that code's own serializer, not written by hand.
+   */
+  private val OldService =
+    """{"key":{"projectId":"acme","name":"cart"},"descriptor":{"name":"cart","service":{"image":"cart:1.0"}},"generation":2,"paused":false,"lifecycle":"UpdateInProgress","readyInstances":0,"desiredInstances":0,"detail":null,"confirmed":true,"deleted":false,"restarts":1,"history":[{"kind":"resumed","generation":2,"actor":{"subject":"alice","display":"alice@example.test"},"at":"2026-09-22T10:00:00Z"},{"kind":"paused","generation":2,"actor":{"subject":"alice","display":"alice@example.test"},"at":"2026-09-22T10:00:00Z"},{"kind":"restarted","generation":2,"actor":{"subject":"alice","display":"alice@example.test"},"at":"2026-09-22T10:00:00Z"},{"kind":"applied","generation":1,"actor":{"subject":"alice","display":"alice@example.test"},"at":"2026-09-22T10:00:00Z"}]}"""
+
+  private def oldService = ServiceEntity.stateSerializer.fromBytes(OldService.getBytes("UTF-8"))
+
+  private def applied(state: Service, image: String, rolledBackTo: Option[Long] = None) =
+    Service.fold(
+      state,
+      ServiceEvent.ServiceApplied(
+        "acme",
+        ServiceDescriptor("cart", ServiceSpec(image)),
+        state.generation + 1,
+        rolledBackTo = rolledBackTo
+      )
+    )
+
+  test("history an older platform kept is still read, and shows no image and no digest") {
+    val state = oldService
+    assertEquals(state.kept, Vector.empty)
+    assertEquals(state.history.map(_.kind), Vector("resumed", "paused", "restarted", "applied"))
+    assertEquals(state.history.flatMap(e => e.image ++ e.digest ++ e.rolledBackTo), Vector.empty)
+    assertEquals((state.generation, state.restarts, state.image), (2L, 1, "cart:1.0"))
+  }
+
+  test(
+    "an older state's descriptor stands as kept, at the generation its history says it applied"
+  ) {
+    val seeded = oldService.keptDescriptors
+    assertEquals(
+      seeded.map(k => (k.generation, k.descriptor.service.image)),
+      Vector(1L -> "cart:1.0")
+    )
+    val next = applied(oldService, "cart:2.0")
+    assertEquals(
+      next.keptDescriptors.map(k => (k.generation, k.descriptor.service.image)),
+      Vector(3L -> "cart:2.0", 1L -> "cart:1.0")
+    )
+  }
+
+  test(
+    "a service applied before the platform kept descriptors is rolled back to the descriptor it had"
+  ) {
+    val next   = applied(oldService, "cart:2.0")
+    val target = next.rollbackTarget(None).fold(r => fail(r.message("cart")), identity)
+    assertEquals((target.generation, target.descriptor.service.image), (1L, "cart:1.0"))
+    val back = applied(next, target.descriptor.service.image, rolledBackTo = Some(1L))
+    assertEquals((back.generation, back.image), (4L, "cart:1.0"))
+    assertEquals(back.history.head.kind, "rolled-back")
+  }
+
+  test("a rollback's event has a pinned shape, and an apply's still has no such field") {
+    val descriptor = ServiceDescriptor("cart", ServiceSpec("cart:1.0"))
+    val rollback: ServiceEvent =
+      ServiceEvent.ServiceApplied("acme", descriptor, 3L, rolledBackTo = Some(1L))
+    val written = String(ServiceEntity.eventSerializer.toBytes(rollback), "UTF-8")
+    assertEquals(
+      written,
+      """{"type":"ServiceApplied","projectId":"acme","descriptor":{"name":"cart","service":{"image":"cart:1.0"}},"generation":3,"rolledBackTo":1}"""
+    )
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(written.getBytes("UTF-8")), rollback)
+    val apply: ServiceEvent = ServiceEvent.ServiceApplied("acme", descriptor, 3L)
+    assert(!String(ServiceEntity.eventSerializer.toBytes(apply), "UTF-8").contains("rolledBackTo"))
+  }
+
+  test("a build from before rollbacks reads a rollback's event as an apply") {
+    // The shared codec skips a field it does not know, which is what lets a node still on the
+    // previous version follow a rolling update.
+    import PreRollback.OldEvent
+    val old = PreRollback.serializer
+    val rollback: ServiceEvent = ServiceEvent.ServiceApplied(
+      "acme",
+      ServiceDescriptor("cart", ServiceSpec("cart:1.0")),
+      3L,
+      rolledBackTo = Some(1L)
+    )
+    assertEquals(
+      old.fromBytes(ServiceEntity.eventSerializer.toBytes(rollback)),
+      OldEvent.ServiceApplied("acme", ServiceDescriptor("cart", ServiceSpec("cart:1.0")), 3L)
+    )
+  }
+
+/** `ServiceApplied` as the build before feature 033 declared it: five fields. */
+private object PreRollback:
+  import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
+
+  enum OldEvent:
+    case ServiceApplied(
+        projectId: String,
+        descriptor: ServiceDescriptor,
+        generation: Long,
+        actor: Option[Actor] = None,
+        at: Option[java.time.Instant] = None
+    )
+
+  val serializer = com.thinkmorestupidless.ankka.core.Codecs.serializer[OldEvent]("service-event")

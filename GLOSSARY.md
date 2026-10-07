@@ -634,6 +634,19 @@ task.
 ### scale
 Change how many instances a deployed service has.
 
+### roll back
+Of a deployed service: apply again the descriptor of an earlier generation, as a new
+generation. The generation goes on counting and nothing recorded is undone; it changes only what
+a descriptor states, and brings back nothing the service's database held.
+
+Avoid: revert, rewind, undo
+
+### digest
+Of a descriptor: a short value that two descriptors share exactly when they state the
+same things.
+
+Avoid: hash, checksum
+
 ### sample
 A service the platform publishes as an example, such as the shopping cart.
 
@@ -915,8 +928,12 @@ person: a person who operates a service is a member.
 Avoid: controller, reconciler
 
 ### generation
-How many times a deployed service's descriptor has been applied and the service
-restarted, counted by the control plane. A report names the generation it describes.
+How many times a deployed service's descriptor has been applied, the service restarted and the
+service rolled back, counted by the control plane from 1. A service is at one generation, the
+latest. An apply and a roll back each record the descriptor of their generation; a restart records
+none. A report names the generation it describes.
+
+Avoid: revision
 
 ### report
 What the platform reports of a deployed service, as the operator last saw it: its lifecycle, how
@@ -1022,7 +1039,11 @@ Of a cluster: fetch a service's image from its registry before an instance can s
 Of time in a trace: spent inside a part of the trace that none of the parts nested under it account for, such as waiting on a model or on the database.
 
 ### history
-Who did what to a service, and when, as the control plane recorded it.
+Who did what to a service, and when, as the control plane recorded it: what was done, at which
+generation, by whom and when, newest first. It keeps the most recent and forgets the rest. It is
+not what a service's instances printed, and not what its entities recorded.
+
+Avoid: audit log
 
 ## Organizations
 

@@ -189,3 +189,83 @@ test("US3-8 a suspended service reads Suspended and its operations are refused, 
   await ops(page).getByRole("button", { name: "Restart" }).click();
   await expect(page.getByRole("alert")).toContainText("is disabled");
 });
+
+// ── Rollbacks (feature 033) ───────────────────────────────────────────────────
+
+/** Opens a service's history section from its overview. */
+async function openHistory(page: Page, target: Target, project: string) {
+  await sections(page).getByRole("link", { name: "History" }).click();
+  await page.waitForURL(`${target.url}/projects/${project}/services/cart/history`);
+}
+
+/** A service applied twice, `cart:1` then `cart:2`, with its history open. */
+async function twoGenerations(page: Page, target: Target, signIn: (p: Page, u: string, path?: string) => Promise<void>, unique: (p: string) => string, history = true) {
+  const { project } = await tenancy(page, target, signIn, unique);
+  for (const image of ["cart:1", "cart:2"]) {
+    await apply(page, target, project, { name: "cart", service: { image } });
+    await page.waitForURL(`${target.url}/projects/${project}/services/cart`);
+  }
+  if (history) await openHistory(page, target, project);
+  return project;
+}
+
+/** The history's row for a generation. */
+function generationRow(page: Page, generation: number) {
+  return page.getByRole("table").getByRole("row").filter({ has: page.getByRole("cell", { name: String(generation), exact: true }) });
+}
+
+/** Opens the row's rollback control and submits it, waiting for the submission to land. */
+async function rollBackTo(page: Page, generation: number) {
+  const row = generationRow(page, generation);
+  await row.getByText("Roll back", { exact: true }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST"),
+    row.getByRole("button", { name: `Roll back to generation ${generation}` }).click(),
+  ]);
+}
+
+test("RB-1 a member rolls a service back from the console", async ({ page, target, signIn, unique, audit }) => {
+  await twoGenerations(page, target, signIn, unique);
+  const row = generationRow(page, 1);
+  await row.getByText("Roll back", { exact: true }).click();
+  // The confirmation names the generation and its image before anything is sent.
+  await expect(row).toContainText("Apply generation 1's descriptor again (image cart:1) as a new generation.");
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), row.getByRole("button", { name: "Roll back to generation 1" }).click()]);
+  await expect(generationRow(page, 3)).toContainText("Rolled back to generation 1");
+  await expect(generationRow(page, 3)).toContainText("cart:1");
+  await audit(page);
+});
+
+test("RB-2 the console offers a roll back only to a generation that can be rolled back to", async ({ page, target, signIn, unique }) => {
+  const project = await twoGenerations(page, target, signIn, unique, false);
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), ops(page).getByRole("button", { name: "Restart" }).click()]);
+  await openHistory(page, target, project);
+  await expect(page.getByRole("table")).toContainText("Restarted");
+  await expect(generationRow(page, 1).getByText("Roll back", { exact: true })).toHaveCount(1);
+  // Generation 2 is the descriptor the service has; generation 3 was a restart and recorded none.
+  await expect(generationRow(page, 2).getByText("Roll back", { exact: true })).toHaveCount(0);
+  await expect(generationRow(page, 3).getByText("Roll back", { exact: true })).toHaveCount(0);
+});
+
+test("RB-3 the console shows a refused roll back as the control plane refused it", async ({ page, target, signIn, unique }) => {
+  const project = await twoGenerations(page, target, signIn, unique);
+  // Another tab gives the service generation 1's descriptor again, so this page's offer is stale.
+  const other = await page.context().newPage();
+  await apply(other, target, project, { name: "cart", service: { image: "cart:1" } });
+  await other.waitForURL(`${target.url}/projects/${project}/services/cart`);
+  await other.close();
+  await rollBackTo(page, 1);
+  await expect(page.getByText("service 'cart' already has the descriptor of generation 1")).toBeVisible();
+});
+
+test("RB-4 the console shows the image of each generation that was applied", async ({ page, target, signIn, unique }) => {
+  await twoGenerations(page, target, signIn, unique);
+  await expect(generationRow(page, 1)).toContainText("cart:1");
+  await expect(generationRow(page, 2)).toContainText("cart:2");
+  await expect(generationRow(page, 1).locator("code")).toHaveText(/^[0-9a-f]{12}$/);
+  // The digest opens the apply page with that generation's descriptor, to read, change and apply.
+  await generationRow(page, 1).getByRole("link", { name: "Generation 1's descriptor" }).click();
+  await page.waitForURL(/\/services\/apply\?name=cart&generation=1$/);
+  await expect(page.getByLabel("Descriptor", { exact: true })).toHaveValue(/"image": "cart:1"/);
+});
+

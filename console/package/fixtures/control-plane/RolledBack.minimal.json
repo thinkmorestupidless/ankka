@@ -1,0 +1,1 @@
+{"type":"RolledBack","json":{"rolledBackTo":1,"status":{"name":"cart","projectId":"shop","lifecycle":"NotDeployed","generation":0,"image":"cart:1","readyInstances":0,"desiredInstances":0}}}

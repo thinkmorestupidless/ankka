@@ -1,17 +1,19 @@
-# Pause, resume, restart and delete
+# Pause, resume, restart, roll back and delete
 
-> What pausing, resuming, restarting and deleting a deployed service do to its instances, its data, its hostname and its generation, and how a suspended service differs from a paused one.
+> What pausing, resuming, restarting, rolling back and deleting a deployed service do to its instances, its data, its hostname and its generation, and how a suspended service differs from a paused one.
 
 Source: https://docs.ankka.cloud/operate/service-lifecycle/
-Four commands change whether a deployed service runs without changing its descriptor. None of them ever
-removes the service's data: entities, workflows, sessions, view rows and timers live in the service's
-database, and the database outlives all four.
+Four commands change whether a deployed service runs without changing its descriptor, and a fifth, roll
+back, applies a descriptor the service ran before. None of them ever removes the service's data: entities,
+workflows, sessions, view rows and timers live in the service's database, and the database outlives all
+five.
 
 | Command | Instances | Generation | Hostname | Data |
 |---|---|---|---|---|
 | `ankka services pause <name>` | stopped | unchanged | kept | kept |
 | `ankka services resume <name>` | started again | unchanged | kept | kept |
 | `ankka services restart <name>` | replaced one at a time | incremented | kept | kept |
+| `ankka services rollback <name>` | replaced one at a time, from the earlier descriptor | incremented | kept | kept |
 | `ankka services delete <name>` | removed | unchanged | removed | kept |
 
 Each is recorded in the service's history with who asked; see
@@ -51,6 +53,43 @@ Restart is for picking up something outside the descriptor that the instances re
 as a changed secret, or for clearing a problem in a running process. An apply that changes the image or
 the environment rolls the instances by itself; an apply that changes only the instance count adds or
 removes instances without replacing the others. See [Scale and roll out](../deploy/scaling-and-rollouts.md).
+
+## Roll back
+
+```bash
+ankka services rollback cart                     # the most recent generation with a different descriptor
+ankka services rollback cart --to-generation 4   # a named one
+```
+
+Rolling back applies the descriptor the service recorded at an earlier generation again, as a new
+generation. It is an apply in every respect: the instances roll to the earlier image and environment one
+at a time, the generation increments, and the history records it as `rolled-back to 4`. Nothing is
+rewound, and the generation that went wrong stays in the history beside the one that put it right.
+
+With no generation named, the platform takes the most recent generation whose descriptor differs from
+the one the service has now. Restarts recorded no descriptor and applies of the same descriptor change
+nothing, so both are passed over, and rolling back twice returns to where you started. To choose a
+generation, read the history first: each apply shows its image and a digest of its descriptor, and
+`ankka services history cart --generation 4` prints the whole descriptor. See
+[Status and history](status-and-history.md#see-who-changed-a-service).
+
+A rollback changes only what a descriptor states. A paused service stays paused, an exposed one stays
+exposed, and the database keeps everything written since; a rollback is not a way to undo data. The
+earlier descriptor is checked against the platform's rules as they are now and against the organization's
+quota, exactly as an apply is, and a rollback in a disabled organization is refused like any change.
+
+A service keeps the descriptors of its last 50 applies. A rollback is refused, and changes nothing, when
+the generation named:
+
+| Refusal | Why |
+|---|---|
+| `service 'cart' has no generation 9` | the service never had it |
+| `the descriptor of generation 3 is no longer kept; the oldest kept is generation 11` | it is older than the last 50 applies |
+| `generation 3 was a restart and ran the descriptor of generation 2` | a restart recorded no descriptor; name the one it ran |
+| `service 'cart' already has the descriptor of generation 2` | rolling back to it would change nothing; use `restart` to replace the instances |
+
+A deploy token can roll back, as it can apply. The console offers a rollback on each row of a service's
+history that can be rolled back to; see [The console](console.md#services).
 
 ## Delete
 

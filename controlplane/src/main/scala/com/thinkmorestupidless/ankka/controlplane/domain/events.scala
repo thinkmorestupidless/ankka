@@ -241,7 +241,13 @@ enum ServiceEvent:
       descriptor: ServiceDescriptor,
       generation: Long,
       actor: Option[Actor] = None,
-      at: Option[Instant] = None
+      at: Option[Instant] = None,
+      /**
+       * On a rollback, the generation whose descriptor this is (feature 033). A rollback is an
+       * apply in every other respect, so everything that reacts to one reacts to the other, and a
+       * build that predates the field skips it and reads an apply.
+       */
+      rolledBackTo: Option[Long] = None
   )
 
   /** An operator asked for the running instances to be replaced. */
@@ -298,6 +304,13 @@ enum ServiceEvent:
 
 /** What an operator submits to change a service. */
 final case class ApplyService(projectId: String, descriptor: ServiceDescriptor)
+
+/**
+ * A rollback to a named generation. The endpoint resolves a request that names none before sending
+ * this, so that two people asking at once make one rollback and one refusal, not a rollback and its
+ * undoing.
+ */
+final case class RollbackService(generation: Long)
 
 /** What the reconciler reports back. */
 final case class ServiceObservation(

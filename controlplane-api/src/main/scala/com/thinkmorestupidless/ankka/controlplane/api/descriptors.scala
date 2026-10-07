@@ -41,6 +41,27 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
 
   def isValid: Boolean = problems.isEmpty
 
+  /**
+   * Lowercase hex SHA-256 of the descriptor's wire form: two descriptors share one exactly when
+   * they state the same things (feature 033).
+   *
+   * The codec writes fields in declaration order and omits defaults, so the one thing left to
+   * settle is the maps, which iterate in insertion order: labels or annotations reordered in a file
+   * are the same service. Variables keep their order, because Kubernetes expands `$(VAR)` in order.
+   */
+  def digest: String =
+    def sorted(map: Map[String, String]) = scala.collection.immutable.ListMap.from(map.toSeq.sorted)
+    val canonical = copy(service =
+      service.copy(labels = sorted(service.labels), annotations = sorted(service.annotations))
+    )
+    val bytes = com.github.plokhotnyuk.jsoniter_scala.core
+      .writeToArray(canonical)(using Wire.descriptorCodec)
+    java.security.MessageDigest
+      .getInstance("SHA-256")
+      .digest(bytes)
+      .map(b => f"${b & 0xff}%02x")
+      .mkString
+
 object ServiceDescriptor:
 
   /** 63, less `-grpc-peers`: the longest name whose headless gRPC address is still a DNS label. */
@@ -761,8 +782,25 @@ final case class HistoryEntry(
     kind: String,
     generation: Long,
     actor: Option[HistoryActor] = None,
-    at: Option[java.time.Instant] = None
+    at: Option[java.time.Instant] = None,
+    /**
+     * The image of the descriptor this entry recorded: an apply's or a rollback's (feature 033).
+     */
+    image: Option[String] = None,
+    /** `ServiceDescriptor.digest` of the descriptor this entry recorded, all 64 characters. */
+    digest: Option[String] = None,
+    /** On a `rolled-back` entry: the generation whose descriptor was applied again. */
+    rolledBackTo: Option[Long] = None
 )
+
+/**
+ * The body of `POST /services/{project}/{name}/rollback` (feature 033). No generation asks for the
+ * most recent one whose descriptor differs from the service's.
+ */
+final case class RollbackRequest(generation: Option[Long] = None)
+
+/** A rollback's reply: the generation it rolled back to, which the caller may not have named. */
+final case class RolledBack(rolledBackTo: Long, status: ServiceStatus)
 
 // ── Identity (feature 008) ─────────────────────────────────────────────────
 
@@ -1378,13 +1416,15 @@ object Wire:
   given instanceTopologyCodec: JsonValueCodec[InstanceTopology] = Codecs.make[InstanceTopology]
   given serviceTopologyCodec: JsonValueCodec[ServiceTopology]   = Codecs.make[ServiceTopology]
 
-  given authDiscoveryCodec: JsonValueCodec[AuthDiscovery]  = Codecs.make[AuthDiscovery]
-  given whoamiCodec: JsonValueCodec[Whoami]                = Codecs.make[Whoami]
-  given inviteCodec: JsonValueCodec[Invite]                = Codecs.make[Invite]
-  given roleChangeCodec: JsonValueCodec[RoleChange]        = Codecs.make[RoleChange]
-  given repairCodec: JsonValueCodec[Repair]                = Codecs.make[Repair]
-  given membersCodec: JsonValueCodec[MembersResponse]      = Codecs.make[MembersResponse]
-  given historyCodec: JsonValueCodec[Vector[HistoryEntry]] = Codecs.make[Vector[HistoryEntry]]
+  given authDiscoveryCodec: JsonValueCodec[AuthDiscovery]     = Codecs.make[AuthDiscovery]
+  given whoamiCodec: JsonValueCodec[Whoami]                   = Codecs.make[Whoami]
+  given inviteCodec: JsonValueCodec[Invite]                   = Codecs.make[Invite]
+  given roleChangeCodec: JsonValueCodec[RoleChange]           = Codecs.make[RoleChange]
+  given repairCodec: JsonValueCodec[Repair]                   = Codecs.make[Repair]
+  given membersCodec: JsonValueCodec[MembersResponse]         = Codecs.make[MembersResponse]
+  given historyCodec: JsonValueCodec[Vector[HistoryEntry]]    = Codecs.make[Vector[HistoryEntry]]
+  given rollbackRequestCodec: JsonValueCodec[RollbackRequest] = Codecs.make[RollbackRequest]
+  given rolledBackCodec: JsonValueCodec[RolledBack]           = Codecs.make[RolledBack]
 
   given createTokenCodec: JsonValueCodec[CreateDeployToken]   = Codecs.make[CreateDeployToken]
   given tokenCreatedCodec: JsonValueCodec[DeployTokenCreated] = Codecs.make[DeployTokenCreated]

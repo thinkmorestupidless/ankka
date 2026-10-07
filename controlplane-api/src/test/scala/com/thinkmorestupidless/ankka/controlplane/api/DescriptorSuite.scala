@@ -539,3 +539,45 @@ class DescriptorSuite extends munit.FunSuite:
       s"GrpcSince $since is beyond the next minor after $platform"
     )
   }
+
+  // ── the digest (feature 033) ───────────────────────────────────────────────
+
+  private def withEnv(env: (String, String)*) =
+    valid.copy(service = valid.service.copy(env = env.toVector.map((k, v) => EnvVar(k, Some(v)))))
+
+  test("two generations applied with the same descriptor have the same digest") {
+    assertEquals(valid.digest, ServiceDescriptor("cart", ServiceSpec(image = "cart:1.0")).digest)
+    assertEquals(valid.digest.length, 64)
+    assert(valid.digest.forall(c => c.isDigit || ('a' to 'f').contains(c)), valid.digest)
+  }
+
+  test("two generations with the same image and a different environment have different digests") {
+    assertNotEquals(withEnv("MODE" -> "test").digest, withEnv("MODE" -> "live").digest)
+    assertNotEquals(withEnv("MODE" -> "test").digest, valid.digest)
+  }
+
+  test("labels and annotations in another order are the same descriptor; variables are not") {
+    def labelled(pairs: (String, String)*) =
+      valid.copy(service =
+        valid.service.copy(
+          labels = scala.collection.immutable.ListMap(pairs*),
+          annotations = scala.collection.immutable.ListMap(pairs.reverse*)
+        )
+      )
+    val many = (1 to 6).map(i => s"k$i" -> s"v$i")
+    assertEquals(labelled(many*).digest, labelled(many.reverse*).digest)
+    // Order matters for variables: a later one may refer to an earlier one.
+    assertNotEquals(withEnv("A" -> "1", "B" -> "2").digest, withEnv("B" -> "2", "A" -> "1").digest)
+  }
+
+  test("a field stated at its default is the same descriptor as one that leaves it out") {
+    val stated = readFromString[ServiceDescriptor](
+      """{"name":"cart","service":{"image":"cart:1.0","http":true,"port":9000}}"""
+    )
+    assertEquals(stated.digest, valid.digest)
+  }
+
+  test("an empty rollback request asks for no generation") {
+    assertEquals(readFromString[RollbackRequest]("{}"), RollbackRequest(None))
+    assertEquals(readFromString[RollbackRequest]("""{"generation":4}"""), RollbackRequest(Some(4)))
+  }

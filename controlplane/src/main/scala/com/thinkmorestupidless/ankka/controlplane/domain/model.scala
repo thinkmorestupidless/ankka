@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.domain
 
 import com.thinkmorestupidless.ankka.controlplane.api.*
-import com.thinkmorestupidless.ankka.core.Metadata
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata}
 
 import java.time.Instant
 
@@ -424,7 +424,16 @@ final case class Service(
      */
     suspended: Boolean = false,
     /** The last `Service.HistoryLimit` command-produced changes, newest first (FR-025). */
-    history: Vector[HistoryEntry] = Vector.empty
+    history: Vector[HistoryEntry] = Vector.empty,
+    /**
+     * The last `Service.KeptDescriptors` applied descriptors, newest first (feature 033): what a
+     * rollback reads, so it never replays the journal. Read through `keptDescriptors`, never
+     * directly — a state written before the feature has none, and that accessor seeds it.
+     *
+     * Never part of a reply but the two that return one descriptor: `desiredState` crosses nodes
+     * for every service on every sweep, inside a frame that fifty large descriptors would overflow.
+     */
+    kept: Vector[KeptDescriptor] = Vector.empty
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -440,18 +449,110 @@ final case class Service(
     if isPaused || suspended then 0
     else descriptor.fold(0)(_.service.resources.autoscaling.minInstances)
 
-  private def remembering(kind: String, actor: Option[Actor], at: Option[Instant]): Service =
+  /** Every command-produced fold remembers who asked; an observation is not a command. */
+  def remember(
+      kind: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      recorded: Option[ServiceDescriptor] = None,
+      rolledBackTo: Option[Long] = None
+  ): Service =
     val entry = HistoryEntry(
       kind,
       generation,
       actor.map(a => HistoryActor(a.subject, a.display, a.administrative)),
-      at
+      at,
+      image = recorded.map(_.service.image),
+      digest = recorded.map(_.digest),
+      rolledBackTo = rolledBackTo
     )
     copy(history = (entry +: history).take(Service.HistoryLimit))
 
-  /** Every command-produced fold remembers who asked; an observation is not a command. */
-  def remember(kind: String, actor: Option[Actor], at: Option[Instant]): Service =
-    remembering(kind, actor, at)
+  /**
+   * The kept descriptors, newest first. A state written before they were kept has none, which would
+   * leave the first bad apply after an upgrade with nothing to roll back to; so its current
+   * descriptor stands as kept, at the generation of its newest recorded apply. A function of the
+   * state alone, so replay reproduces it.
+   */
+  def keptDescriptors: Vector[KeptDescriptor] =
+    if kept.nonEmpty then kept
+    else
+      descriptor.toVector.map { current =>
+        val appliedAt = history.find(_.kind == "applied").fold(generation)(_.generation)
+        KeptDescriptor(appliedAt, current)
+      }
+
+  /**
+   * The descriptor recorded at generation `n`, or why there is none to give. Only an apply and a
+   * restart move the generation, so a generation inside the kept range with no descriptor of its
+   * own is a restart's, and it ran the newest kept one below it.
+   */
+  def descriptorAt(n: Long): Either[RollbackRefusal, KeptDescriptor] =
+    val held = keptDescriptors
+    if n < 1 || n > generation then Left(RollbackRefusal.NoSuchGeneration(n))
+    else
+      held.find(_.generation == n) match
+        case Some(found) => Right(found)
+        case None =>
+          held.find(_.generation < n) match
+            case Some(ran) if held.lastOption.exists(_.generation < n) =>
+              Left(RollbackRefusal.NoDescriptor(n, ran.generation))
+            case _ =>
+              Left(RollbackRefusal.NotKept(n, held.lastOption.fold(generation)(_.generation)))
+
+  /**
+   * What a rollback would apply. Named, the generation's descriptor unless the service already has
+   * it; unnamed, the newest kept descriptor that differs from the service's. "Differs" is by
+   * digest, computed now from the descriptors themselves, never from a digest a history entry
+   * stored.
+   */
+  def rollbackTarget(requested: Option[Long]): Either[RollbackRefusal, KeptDescriptor] =
+    val current = descriptor.map(_.digest)
+    requested match
+      case Some(n) =>
+        descriptorAt(n).flatMap { found =>
+          if current.contains(found.descriptor.digest) then Left(RollbackRefusal.SameDescriptor(n))
+          else Right(found)
+        }
+      case None =>
+        keptDescriptors
+          .find(k => !current.contains(k.descriptor.digest))
+          .toRight(RollbackRefusal.NothingToRollBackTo)
+
+  /**
+   * The event a rollback to generation `n` persists, or why it may not: the whole decision, as a
+   * function of the state, so the entity and a test that builds a state by folding share it. The
+   * descriptor's validation runs again because the platform's rules may have changed since it ran.
+   */
+  def rollingBack(
+      n: Long,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Either[CommandError, ServiceEvent.ServiceApplied] =
+    rollbackTarget(Some(n)).left
+      .map(refusal => CommandError(refusal.message(name), refusal.code))
+      .flatMap { target =>
+        val problems = target.descriptor.problems
+        if problems.nonEmpty then
+          Left(
+            CommandError(
+              problems
+                .mkString(s"invalid descriptor at generation ${target.generation}: ", "; ", ""),
+              ErrorCode.BadRequest
+            )
+          )
+        else
+          Right(
+            ServiceEvent.ServiceApplied(
+              projectId,
+              target.descriptor,
+              generation + 1,
+              actor,
+              at,
+              rolledBackTo = Some(target.generation)
+            )
+          )
+      }
 
   /**
    * Applies a descriptor, which also un-deletes the service.
@@ -465,6 +566,8 @@ final case class Service(
     copy(
       descriptor = Some(descriptor),
       generation = generation,
+      kept =
+        (KeptDescriptor(generation, descriptor) +: keptDescriptors).take(Service.KeptDescriptors),
       // An apply supersedes whatever was observed, so the service is in flight again
       // until the reconciler says otherwise — but a paused service stays paused, since
       // changing the descriptor is not the same as asking for it to run.
@@ -593,6 +696,31 @@ final case class Service(
       broker = broker.map(Service.brokerPhrase)
     )
 
+/** An applied descriptor and the generation that applied it (feature 033). */
+final case class KeptDescriptor(generation: Long, descriptor: ServiceDescriptor)
+
+/** Why a rollback, or a read of a past descriptor, has nothing to give (feature 033). */
+enum RollbackRefusal:
+  case NoSuchGeneration(generation: Long)
+  case NotKept(generation: Long, oldest: Long)
+  case NoDescriptor(generation: Long, ran: Long)
+  case SameDescriptor(generation: Long)
+  case NothingToRollBackTo
+
+  def message(service: String): String = this match
+    case NoSuchGeneration(n) => s"service '$service' has no generation $n"
+    case NotKept(n, oldest) =>
+      s"the descriptor of generation $n is no longer kept; the oldest kept is generation $oldest"
+    case NoDescriptor(n, ran) =>
+      s"generation $n was a restart and ran the descriptor of generation $ran"
+    case SameDescriptor(n) => s"service '$service' already has the descriptor of generation $n"
+    case NothingToRollBackTo =>
+      s"service '$service' has no earlier generation with a different descriptor"
+
+  def code: ErrorCode = this match
+    case NoSuchGeneration(_) => ErrorCode.NotFound
+    case _                   => ErrorCode.Conflict
+
 object Service:
 
   /**
@@ -602,14 +730,23 @@ object Service:
   val HistoryLimit = 50
 
   /**
+   * How many applied descriptors a service keeps to roll back to: as many as its history shows, so
+   * every history entry that recorded a descriptor can still be rolled back to.
+   */
+  val KeptDescriptors = 50
+
+  /**
    * The fold, as a pure function: the entity applies it, and a test that wants to prove replay
    * reproduces the state applies the same one rather than a second copy of it.
    */
   def fold(current: Service, event: ServiceEvent): Service =
     import ServiceEvent.*
     event match
-      case ServiceApplied(_, descriptor, generation, actor, at) =>
-        current.onApplied(descriptor, generation).remember("applied", actor, at)
+      case ServiceApplied(_, descriptor, generation, actor, at, rolledBackTo) =>
+        val kind = if rolledBackTo.isDefined then "rolled-back" else "applied"
+        current
+          .onApplied(descriptor, generation)
+          .remember(kind, actor, at, Some(descriptor), rolledBackTo)
       case ServiceRestarted(generation, actor, at) =>
         current.onRestarted(generation).remember("restarted", actor, at)
       case ServicePaused(actor, at)     => current.onPaused.remember("paused", actor, at)

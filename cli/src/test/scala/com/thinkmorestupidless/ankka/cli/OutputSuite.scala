@@ -370,3 +370,40 @@ class OutputSuite extends munit.FunSuite:
     val printed = Output.topology(topology, Format.Table)
     assert(printed.contains("GET /notices, SOCKET /notices/stream"), printed)
   }
+
+  // ── rollbacks (feature 033) ────────────────────────────────────────────────
+
+  private val digest = "3f9a1c0be2d4" + "0" * 52
+
+  test("a rollback prints the generation it chose, then the status as services get prints it") {
+    val result = RolledBack(1, status("cart", generation = 3, image = "cart:1"))
+    assertEquals(
+      Output.rolledBack(result, Format.Table),
+      "rolled back to generation 1\n" + Output.service(result.status, Format.Table)
+    )
+    assert(Output.rolledBack(result, Format.Json).startsWith("{\"rolledBackTo\":1,"))
+  }
+
+  test(
+    "the history shows an image and a short digest where one was recorded, and a dash where not"
+  ) {
+    val entries = Vector(
+      HistoryEntry(
+        "rolled-back",
+        3,
+        image = Some("cart:1"),
+        digest = Some(digest),
+        rolledBackTo = Some(1)
+      ),
+      HistoryEntry("restarted", 2),
+      HistoryEntry("applied", 1, image = Some("cart:1"), digest = Some(digest))
+    )
+    val lines = Output.history(entries, Format.Table).linesIterator.toVector
+    assert(lines.head.matches("WHEN +KIND +GEN +IMAGE +DIGEST +BY"), lines.head)
+    assert(lines(1).matches("- +rolled-back to 1 +3 +cart:1 +3f9a1c0be2d4 +-"), lines(1))
+    assert(lines(2).matches("- +restarted +2 +- +- +-"), lines(2))
+    assert(!lines.mkString.contains(digest), "the table shows twelve characters, not all 64")
+    val json = Output.history(entries, Format.Json)
+    assert(json.contains(digest) && json.contains("\"rolledBackTo\":1"), json)
+    assert(json.contains("\"kind\":\"rolled-back\""), json)
+  }

@@ -1153,3 +1153,224 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
       Map("cart" -> "ok", "quiet" -> "serves no HTTP", "held" -> "paused", "ledger" -> "no service")
     )
   }
+
+  // ── rollbacks (feature 033) ────────────────────────────────────────────────
+
+  private def rollback(
+      project: String,
+      name: String,
+      body: String = "{}",
+      token: Option[String] = Some(Token)
+  ) =
+    send("POST", s"/services/$project/$name/rollback", Some(body), token)
+
+  private def applyImages(project: String, name: String, images: String*): Unit =
+    images.foreach { image =>
+      val (status, body) = send("PUT", s"/services/$project/$name", Some(descriptor(name, image)))
+      assertEquals(status, 200, body)
+    }
+
+  private def generationOf(project: String, name: String): Long =
+    readFromString[com.thinkmorestupidless.ankka.controlplane.api.ServiceStatus](
+      send("GET", s"/services/$project/$name")._2
+    ).generation
+
+  test("rolling back through the route applies the descriptor of the generation before") {
+    projectFor("rb-a", "rb-a-app")
+    applyImages("rb-a-app", "cart", "cart:1", "cart:2")
+    val (status, body) = rollback("rb-a-app", "cart")
+    assertEquals(status, 200, body)
+    val rolled = readFromString[com.thinkmorestupidless.ankka.controlplane.api.RolledBack](body)
+    assertEquals(
+      (rolled.rolledBackTo, rolled.status.generation, rolled.status.image),
+      (1L, 3L, "cart:1")
+    )
+    val (_, current) = send("GET", "/services/rb-a-app/cart")
+    assert(
+      current.contains("\"image\":\"cart:1\"") && current.contains("\"generation\":3"),
+      current
+    )
+  }
+
+  test(
+    "rolling back to a named generation through the route applies that generation's descriptor"
+  ) {
+    projectFor("rb-b", "rb-b-app")
+    applyImages("rb-b-app", "cart", "cart:1", "cart:2", "cart:3")
+    val (status, body) = rollback("rb-b-app", "cart", """{"generation":1}""")
+    assertEquals(status, 200, body)
+    assert(body.contains("\"rolledBackTo\":1") && body.contains("\"image\":\"cart:1\""), body)
+  }
+
+  test("the refusals a rollback alone can meet each answer with their status and their words") {
+    projectFor("rb-c", "rb-c-app")
+    applyImages("rb-c-app", "solo", "solo:1")
+    val (nothing, nothingBody) = rollback("rb-c-app", "solo")
+    assertEquals(nothing, 409, nothingBody)
+    assert(
+      nothingBody.contains("has no earlier generation with a different descriptor"),
+      nothingBody
+    )
+
+    applyImages("rb-c-app", "solo", "solo:2")
+    val (same, sameBody) = rollback("rb-c-app", "solo", """{"generation":2}""")
+    assertEquals(same, 409, sameBody)
+    assert(sameBody.contains("service 'solo' already has the descriptor of generation 2"), sameBody)
+
+    val (missing, missingBody) = rollback("rb-c-app", "ghost")
+    assertEquals(missing, 404, missingBody)
+    assertEquals(generationOf("rb-c-app", "solo"), 2L)
+  }
+
+  test("a person who is not a member cannot roll a service back") {
+    projectFor("rb-d", "rb-d-app")
+    applyImages("rb-d-app", "cart", "cart:1", "cart:2")
+    val stranger = identity.token("stranger", Some("stranger@example.test"), expiresIn = 1.hour)
+    val (status, body) = rollback("rb-d-app", "cart", token = Some(stranger))
+    assertEquals(status, 404, body)
+    assert(body.contains("no such project 'rb-d-app'"), body)
+    assertEquals(generationOf("rb-d-app", "cart"), 2L)
+  }
+
+  test("of two roll backs to one generation made at once, one is made and the other is refused") {
+    projectFor("rb-e", "rb-e-app")
+    applyImages("rb-e-app", "cart", "cart:1", "cart:2")
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+    try
+      val start = new java.util.concurrent.CountDownLatch(1)
+      val calls = Vector.fill(2)(pool.submit { () =>
+        start.await()
+        rollback("rb-e-app", "cart", """{"generation":1}""")
+      })
+      start.countDown()
+      val answers = calls.map(_.get(60, java.util.concurrent.TimeUnit.SECONDS))
+      assertEquals(answers.map(_._1).sorted, Vector(200, 409), answers.toString)
+      val refused = answers.find(_._1 == 409).get._2
+      assert(refused.contains("already has the descriptor of generation 1"), refused)
+    finally pool.shutdown()
+    assertEquals(generationOf("rb-e-app", "cart"), 3L)
+  }
+
+  // ── what each generation ran ───────────────────────────────────────────────
+
+  test("the history route carries the image, the digest and what a rollback rolled back to") {
+    projectFor("rb-f", "rb-f-app")
+    applyImages("rb-f-app", "cart", "cart:1", "cart:2")
+    assertEquals(rollback("rb-f-app", "cart")._1, 200)
+    val (status, body) = send("GET", "/services/rb-f-app/cart/history")
+    assertEquals(status, 200, body)
+    val entries =
+      readFromString[Vector[com.thinkmorestupidless.ankka.controlplane.api.HistoryEntry]](body)
+    assertEquals(
+      entries.map(e => (e.kind, e.generation, e.image, e.rolledBackTo)),
+      Vector(
+        ("rolled-back", 3L, Some("cart:1"), Some(1L)),
+        ("applied", 2L, Some("cart:2"), None),
+        ("applied", 1L, Some("cart:1"), None)
+      )
+    )
+    assertEquals(entries.head.digest, entries.last.digest)
+    assert(entries.forall(_.digest.exists(_.length == 64)), body)
+  }
+
+  test(
+    "a member reads the descriptor that was applied at a generation, and can apply it as it is"
+  ) {
+    projectFor("rb-g", "rb-g-app")
+    val first =
+      """{"name":"cart","service":{"image":"cart:1","env":[{"name":"MODE","value":"test"}]}}"""
+    assertEquals(send("PUT", "/services/rb-g-app/cart", Some(first))._1, 200)
+    applyImages("rb-g-app", "cart", "cart:2")
+    val (status, body) = send("GET", "/services/rb-g-app/cart/descriptor?generation=1")
+    assertEquals(status, 200, body)
+    assertEquals(body, first)
+    assertEquals(send("PUT", "/services/rb-g-app/cart", Some(body))._1, 200)
+    assertEquals(send("GET", "/services/rb-g-app/cart/descriptor")._1, 400)
+  }
+
+  test("a person who is not a member cannot read the history of a service") {
+    projectFor("rb-h", "rb-h-app")
+    applyImages("rb-h-app", "cart", "cart:1")
+    val stranger =
+      Some(identity.token("stranger", Some("stranger@example.test"), expiresIn = 1.hour))
+    for path <- Vector(
+        "/services/rb-h-app/cart/history",
+        "/services/rb-h-app/cart/descriptor?generation=1"
+      )
+    do
+      val (status, body) = send("GET", path, token = stranger)
+      assertEquals(status, 404, s"$path: $body")
+      assert(body.contains("no such project 'rb-h-app'"), body)
+  }
+
+  // ── beyond the kept descriptors ────────────────────────────────────────────
+
+  test("the descriptor of a generation that is no longer kept cannot be read") {
+    projectFor("rb-i", "rb-i-app")
+    applyImages("rb-i-app", "orders", (1 to 60).map(i => s"orders:$i")*)
+    for path <- Vector("/services/rb-i-app/orders/descriptor?generation=3") do
+      val (status, body) = send("GET", path)
+      assertEquals(status, 409, body)
+      assert(
+        body.contains(
+          "the descriptor of generation 3 is no longer kept; the oldest kept is generation 11"
+        ),
+        body
+      )
+    val (status, body) = rollback("rb-i-app", "orders", """{"generation":3}""")
+    assertEquals(status, 409, body)
+    assert(body.contains("no longer kept"), body)
+  }
+
+  test("the descriptor of a generation the service never had cannot be read") {
+    projectFor("rb-j", "rb-j-app")
+    applyImages("rb-j-app", "cart", "cart:1", "cart:2")
+    val (status, body) = send("GET", "/services/rb-j-app/cart/descriptor?generation=9")
+    assertEquals(status, 404, body)
+    assert(body.contains("service 'cart' has no generation 9"), body)
+    assertEquals(rollback("rb-j-app", "cart", """{"generation":9}""")._1, 404)
+  }
+
+  test("the descriptor of a generation that recorded none cannot be read") {
+    projectFor("rb-k", "rb-k-app")
+    applyImages("rb-k-app", "cart", "cart:1")
+    assertEquals(send("POST", "/services/rb-k-app/cart/restart")._1, 200)
+    val (status, body) = send("GET", "/services/rb-k-app/cart/descriptor?generation=2")
+    assertEquals(status, 409, body)
+    assert(body.contains("generation 2 was a restart and ran the descriptor of generation 1"), body)
+    applyImages("rb-k-app", "cart", "cart:3")
+    assertEquals(rollback("rb-k-app", "cart", """{"generation":2}""")._1, 409)
+  }
+
+  test("a machine holding a deploy token rolls a service back") {
+    createOrganizationFor("rb-tokens")
+    val secret = Some(
+      secretOf(send("POST", "/organizations/rb-tokens/tokens", Some("""{"label":"ci"}"""))._2)
+    )
+    assertEquals(
+      send(
+        "POST",
+        "/projects/rb-tokens-app",
+        Some("""{"name":"App","organizationId":"rb-tokens"}""")
+      )._1,
+      204
+    )
+    for image <- Vector("cart:1", "cart:2") do
+      assertEquals(
+        send(
+          "PUT",
+          "/services/rb-tokens-app/cart",
+          Some(descriptor("cart", image)),
+          token = secret
+        )._1,
+        200
+      )
+    val (status, body) = rollback("rb-tokens-app", "cart", token = secret)
+    assertEquals(status, 200, body)
+    val entries =
+      readFromString[Vector[com.thinkmorestupidless.ankka.controlplane.api.HistoryEntry]](
+        send("GET", "/services/rb-tokens-app/cart/history", token = secret)._2
+      )
+    assertEquals((entries.head.kind, entries.head.generation), ("rolled-back", 3L))
+    assert(entries.head.actor.exists(_.subject.startsWith("token:")), entries.head.toString)
+  }

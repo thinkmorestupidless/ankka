@@ -619,3 +619,343 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(kit.call(ServiceEntity.history).replyValue.head.kind, "deleted")
     assertEquals(newKit.call(ServiceEntity.history).error.code, ErrorCode.NotFound)
   }
+
+  // ── rollbacks (feature 033) ────────────────────────────────────────────────
+
+  /** A descriptor for `cart` with this image and these variables, applied as alice. */
+  private def apply(
+      kit: EventSourcedTestKit[ServiceEntity, Service, ServiceEvent],
+      image: String,
+      env: (String, String)*
+  ) =
+    kit.call(ServiceEntity.applyDescriptor, alice.metadata)(
+      ApplyService(
+        "acme",
+        ServiceDescriptor(
+          "cart",
+          ServiceSpec(image, env = env.toVector.map((k, v) => EnvVar(k, Some(v))))
+        )
+      )
+    )
+
+  private def kitWith(images: String*) =
+    val kit = newKit
+    images.foreach(image => apply(kit, image))
+    kit
+
+  private def target(kit: EventSourcedTestKit[ServiceEntity, Service, ServiceEvent]) =
+    kit.call(ServiceEntity.rollbackTarget)(RollbackRequest())
+
+  private def rollBack(kit: EventSourcedTestKit[ServiceEntity, Service, ServiceEvent], n: Long) =
+    kit.call(ServiceEntity.rollback, alice.metadata)(RollbackService(n))
+
+  /** Roll back as the endpoint does: ask for the target, then name it. */
+  private def rollBackUnnamed(kit: EventSourcedTestKit[ServiceEntity, Service, ServiceEvent]) =
+    rollBack(kit, target(kit).replyValue.generation)
+
+  test("the kept descriptors are the applied ones, newest first, and nothing else adds to them") {
+    val kit = kitWith("cart:1", "cart:2", "cart:3")
+    val _   = kit.call(ServiceEntity.restart, alice.metadata)
+    val _   = kit.call(ServiceEntity.pause, alice.metadata)
+    val _   = kit.call(ServiceEntity.expose, alice.metadata)
+    assertEquals(
+      kit.currentState.kept.map(k => (k.generation, k.descriptor.service.image)),
+      Vector(3L -> "cart:3", 2L -> "cart:2", 1L -> "cart:1")
+    )
+  }
+
+  test("fifty descriptors are kept and the oldest are forgotten") {
+    val kit = kitWith((1 to 60).map(i => s"cart:$i")*)
+    assertEquals(kit.currentState.kept.map(_.generation), (60L to 11L by -1).toVector)
+  }
+
+  test("deleting keeps the kept descriptors, and applying again adds to them") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.delete, alice.metadata)
+    assertEquals(kit.currentState.kept.map(_.generation), Vector(2L, 1L))
+    val _ = apply(kit, "cart:3")
+    assertEquals(kit.currentState.kept.map(_.generation), Vector(3L, 2L, 1L))
+  }
+
+  test("state with kept descriptors and rollbacks is rebuilt purely by folding events") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val _      = kit.call(ServiceEntity.restart, alice.metadata)
+    val _      = rollBackUnnamed(kit)
+    val folded = kit.allEvents.foldLeft(Service.empty(ServiceKey("acme", "cart")))(Service.fold)
+    assertEquals(folded, kit.currentState)
+  }
+
+  test(
+    "the desired state carries no kept descriptor and no history, and stays small with fifty kept"
+  ) {
+    // Twelve variables of forty characters: a typical descriptor, about 1.4 KiB on the wire.
+    val env = (1 to 12).map(i => f"SETTING_NUMBER_$i%02d" -> ("x" * 40))
+    val kit = newKit
+    (1 to 50).foreach(i => apply(kit, s"ghcr.io/acme-shop/cart-service:2026.10.04-$i", env*))
+    assertEquals(kit.currentState.kept.size, 50)
+    val desired = kit.call(ServiceEntity.desiredState).replyValue
+    assertEquals(desired.map(_.kept), Some(Vector.empty))
+    assertEquals(desired.map(_.history), Some(Vector.empty))
+
+    val state = ServiceEntity.stateSerializer.toBytes(kit.currentState).length
+    val reply =
+      ServiceEntity.desiredState.outputSerializer.toBytes(desired).length
+    assert(state < 128 * 1024, s"the state is $state bytes")
+    assert(reply < 4 * 1024, s"the desired state's reply is $reply bytes")
+  }
+
+  test("rolling back with no generation named applies the descriptor of the generation before") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val status = rollBackUnnamed(kit).replyValue
+    assertEquals((status.generation, status.image), (3L, "cart:1"))
+  }
+
+  test("rolling back with no generation named passes over a restart") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.restart, alice.metadata)
+    assertEquals(target(kit).replyValue.generation, 1L)
+    assertEquals(rollBackUnnamed(kit).replyValue.image, "cart:1")
+    assertEquals(kit.currentState.generation, 4L)
+  }
+
+  test(
+    "rolling back with no generation named passes over a generation applied with the same descriptor"
+  ) {
+    val kit = kitWith("cart:1", "cart:2", "cart:2")
+    assertEquals(target(kit).replyValue.generation, 1L)
+    assertEquals(rollBackUnnamed(kit).replyValue.image, "cart:1")
+  }
+
+  test("rolling back twice with no generation named brings back the descriptor it started with") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val _      = rollBackUnnamed(kit)
+    val second = rollBackUnnamed(kit).replyValue
+    assertEquals((second.generation, second.image), (4L, "cart:2"))
+  }
+
+  test("rolling back to a named generation applies the descriptor of that generation") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val result = rollBack(kit, 1)
+    assertEquals(result.replyValue.generation, 3L)
+    assertEquals(
+      kit.currentState.descriptor,
+      Some(ServiceDescriptor("cart", ServiceSpec("cart:1")))
+    )
+    assertEquals(
+      result.events,
+      Vector(
+        ServiceApplied(
+          "acme",
+          ServiceDescriptor("cart", ServiceSpec("cart:1")),
+          3L,
+          Some(alice.actor),
+          Some(now),
+          rolledBackTo = Some(1L)
+        )
+      )
+    )
+  }
+
+  test("the history shows a roll back, who made it and the generation it was rolled back to") {
+    val kit   = kitWith("cart:1", "cart:2")
+    val _     = rollBack(kit, 1)
+    val entry = kit.call(ServiceEntity.history).replyValue.head
+    assertEquals((entry.kind, entry.generation, entry.rolledBackTo), ("rolled-back", 3L, Some(1L)))
+    assertEquals(entry.actor.map(_.subject), Some("alice"))
+  }
+
+  test("a paused service that is rolled back stays paused") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val _      = kit.call(ServiceEntity.pause, alice.metadata)
+    val status = rollBack(kit, 1).replyValue
+    assertEquals(
+      (status.generation, status.lifecycle, status.paused),
+      (3L, ServiceLifecycle.Paused, true)
+    )
+    assertEquals(kit.call(ServiceEntity.desiredState).replyValue.map(_.targetInstances), Some(0))
+  }
+
+  test("an exposed service that is rolled back stays exposed, and its restart count is unchanged") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.expose, alice.metadata)
+    val _   = kit.call(ServiceEntity.restart, alice.metadata)
+    val _   = rollBack(kit, 1)
+    assertEquals((kit.currentState.exposed, kit.currentState.restarts), (true, 1))
+  }
+
+  test("a roll back to a descriptor the platform no longer accepts is refused") {
+    // A descriptor today's rules refuse cannot be applied, so the state is built by folding, as a
+    // journal written under older rules would build it.
+    val key = ServiceKey("acme", "cart")
+    val events = Vector(
+      ServiceApplied("acme", ServiceDescriptor("cart", ServiceSpec("")), 1L),
+      ServiceApplied("acme", ServiceDescriptor("cart", ServiceSpec("cart:2")), 2L)
+    )
+    val state   = events.foldLeft(Service.empty(key))(Service.fold)
+    val refusal = state.rollingBack(1, None, None).swap.getOrElse(fail("the rollback was allowed"))
+    assertEquals(refusal.code, ErrorCode.BadRequest)
+    assert(refusal.message.startsWith("invalid descriptor at generation 1: "), refusal.message)
+    assert(refusal.message.contains("image"), refusal.message)
+  }
+
+  test("a refused roll back persists nothing") {
+    val kit    = kitWith("cart:1", "cart:2")
+    val before = kit.allEvents
+    assert(rollBack(kit, 2).isError)
+    assert(rollBack(kit, 9).isError)
+    assertEquals(kit.allEvents, before)
+  }
+
+  test("a service never applied, or deleted, cannot be rolled back") {
+    assertEquals(rollBack(newKit, 1).error.code, ErrorCode.NotFound)
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.delete, alice.metadata)
+    assertEquals(rollBack(kit, 1).error.code, ErrorCode.NotFound)
+  }
+
+  test(
+    "a service deleted and applied again is rolled back to a generation from before it was deleted"
+  ) {
+    val kit    = kitWith("cart:1", "cart:2")
+    val _      = kit.call(ServiceEntity.delete, alice.metadata)
+    val _      = apply(kit, "cart:3")
+    val status = rollBack(kit, 1).replyValue
+    assertEquals((status.generation, status.image), (4L, "cart:1"))
+  }
+
+  test("a service applied only once cannot be rolled back") {
+    val refusal = target(kitWith("search:1")).error
+    assertEquals(refusal.code, ErrorCode.Conflict)
+    assertEquals(
+      refusal.message,
+      "service 'cart' has no earlier generation with a different descriptor"
+    )
+  }
+
+  test("a roll back to the generation a service is at is refused") {
+    val refusal = rollBack(kitWith("cart:1", "cart:2"), 2).error
+    assertEquals(refusal.code, ErrorCode.Conflict)
+    assertEquals(refusal.message, "service 'cart' already has the descriptor of generation 2")
+  }
+
+  test("a roll back to a generation with the descriptor the service already has is refused") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.restart, alice.metadata)
+    assertEquals(
+      rollBack(kit, 2).errorMessage,
+      "service 'cart' already has the descriptor of generation 2"
+    )
+    assertEquals(kit.currentState.generation, 3L)
+  }
+
+  // ── what each generation ran ───────────────────────────────────────────────
+
+  test("the history shows the image and a digest at every generation that was applied") {
+    val kit     = kitWith("cart:1", "cart:2", "cart:3")
+    val entries = kit.call(ServiceEntity.history).replyValue
+    assertEquals(
+      entries.map(e => (e.generation, e.image)),
+      Vector(3L -> Some("cart:3"), 2L -> Some("cart:2"), 1L -> Some("cart:1"))
+    )
+    assertEquals(entries.map(_.digest), kit.currentState.kept.map(k => Some(k.descriptor.digest)))
+  }
+
+  test("a roll back shows the image and the digest of the generation it was rolled back to") {
+    val kit     = kitWith("cart:1", "cart:2")
+    val _       = rollBackUnnamed(kit)
+    val entries = kit.call(ServiceEntity.history).replyValue
+    assertEquals(entries.head.image, Some("cart:1"))
+    assertEquals(entries.head.digest, entries.last.digest)
+  }
+
+  test("two generations with the same image and a different environment have different digests") {
+    val kit                = newKit
+    val _                  = apply(kit, "cart:1", "MODE" -> "test")
+    val _                  = apply(kit, "cart:1", "MODE" -> "live")
+    val Vector(live, test) = kit.call(ServiceEntity.history).replyValue.map(_.digest)
+    assertNotEquals(live, test)
+  }
+
+  test("two generations applied with the same descriptor have the same digest") {
+    val Vector(second, first) =
+      kitWith("cart:1", "cart:1").call(ServiceEntity.history).replyValue.map(_.digest)
+    assertEquals(second, first)
+  }
+
+  test("what applied no descriptor shows no image and no digest in the history") {
+    val kit = kitWith("cart:1")
+    Vector(
+      ServiceEntity.pause,
+      ServiceEntity.resume,
+      ServiceEntity.restart,
+      ServiceEntity.expose
+    ).foreach(handle => kit.call(handle, alice.metadata))
+    val entries = kit.call(ServiceEntity.history).replyValue
+    assertEquals(
+      entries.map(_.kind),
+      Vector("exposed", "restarted", "resumed", "paused", "applied")
+    )
+    entries.init.foreach { e =>
+      assertEquals((e.image, e.digest, e.rolledBackTo), (None, None, None), e.kind)
+    }
+  }
+
+  test("a member reads the descriptor that was applied at a generation") {
+    val kit = kitWith("cart:1", "cart:2")
+    assertEquals(
+      kit.call(ServiceEntity.descriptorAt)(1L).replyValue,
+      ServiceDescriptor("cart", ServiceSpec("cart:1"))
+    )
+  }
+
+  test("a deleted service still answers with a past descriptor") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.delete, alice.metadata)
+    assertEquals(kit.call(ServiceEntity.descriptorAt)(1L).replyValue.service.image, "cart:1")
+    assertEquals(newKit.call(ServiceEntity.descriptorAt)(1L).error.code, ErrorCode.NotFound)
+  }
+
+  // ── beyond the kept descriptors ────────────────────────────────────────────
+
+  test("a roll back to a generation whose descriptor is no longer kept is refused") {
+    val kit     = kitWith((1 to 60).map(i => s"cart:$i")*)
+    val before  = kit.allEvents.size
+    val refusal = rollBack(kit, 3).error
+    assertEquals(refusal.code, ErrorCode.Conflict)
+    assertEquals(
+      refusal.message,
+      "the descriptor of generation 3 is no longer kept; the oldest kept is generation 11"
+    )
+    assertEquals(kit.allEvents.size, before)
+  }
+
+  test("a roll back to the oldest generation whose descriptor is kept is made") {
+    val kit    = kitWith((1 to 60).map(i => s"cart:$i")*)
+    val status = rollBack(kit, 11).replyValue
+    assertEquals((status.generation, status.image), (61L, "cart:11"))
+  }
+
+  test("a roll back to a generation the service never had is told there is no such generation") {
+    val kit = kitWith("cart:1", "cart:2")
+    Vector(0L, 9L).foreach { n =>
+      val refusal = rollBack(kit, n).error
+      assertEquals(
+        (refusal.code, refusal.message),
+        (ErrorCode.NotFound, s"service 'cart' has no generation $n")
+      )
+    }
+  }
+
+  test("a roll back to a generation that recorded no descriptor is refused") {
+    val kit = kitWith("cart:1", "cart:2")
+    val _   = kit.call(ServiceEntity.restart, alice.metadata)
+    val _   = apply(kit, "cart:4")
+    assertEquals(
+      rollBack(kit, 3).errorMessage,
+      "generation 3 was a restart and ran the descriptor of generation 2"
+    )
+    assertEquals(
+      kit.call(ServiceEntity.descriptorAt)(3L).errorMessage,
+      "generation 3 was a restart and ran the descriptor of generation 2"
+    )
+  }

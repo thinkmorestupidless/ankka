@@ -436,6 +436,23 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
     waitFor(180.seconds)(listed.contains("Ready"))
   }
 
+  test("5a. a service rolled back runs the image of the generation it was rolled back to") {
+    // Feature 033. The image is read from the cluster, not from the status: a rollback the control
+    // plane recorded and the operator never rendered would pass a status check.
+    def image       = deployment.map(_.getSpec.getTemplate.getSpec.getContainers.get(0).getImage)
+    val (code, out) = ankka("services", "rollback", Service, "-p", Project)
+    assertEquals(code, 0, out)
+    assert(out.startsWith("rolled back to generation"), out)
+    waitFor(180.seconds)(image.contains(FirstImage))
+    waitFor(180.seconds)(listed.contains("Ready"))
+
+    // Rolling back again returns to where it started, which leaves the service as the cases after
+    // this one expect it.
+    assertEquals(ankka("services", "rollback", Service, "-p", Project)._1, 0)
+    waitFor(180.seconds)(image.contains(SecondImage))
+    waitFor(180.seconds)(listed.contains("Ready"))
+  }
+
   test("6. pausing stops the workload and resuming brings it back") {
     assertEquals(ankka("services", "pause", Service, "-p", Project)._1, 0)
     waitFor(120.seconds)(deployment.exists(_.getSpec.getReplicas.intValue == 0))

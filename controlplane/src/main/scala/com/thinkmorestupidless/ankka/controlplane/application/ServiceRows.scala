@@ -35,7 +35,7 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
           )
         )
         event match
-          case ServiceApplied(_, descriptor, generation, _, _) =>
+          case ServiceApplied(_, descriptor, generation, _, _, _) =>
             effects.updateRow(
               row.copy(
                 image = descriptor.service.image,

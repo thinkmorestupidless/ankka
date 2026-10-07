@@ -30,6 +30,7 @@ export const operations = [
   "service.pause",
   "service.resume",
   "service.restart",
+  "service.rollback",
   "service.expose",
   "service.unexpose",
   "service.delete",

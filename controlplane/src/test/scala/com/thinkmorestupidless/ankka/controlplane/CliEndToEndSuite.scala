@@ -332,6 +332,57 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
     assertEquals(cli("services", "restart", "cart")._1, 0)
   }
 
+  // --- Rollbacks (feature 033), through the real CLI.
+
+  private def applyLedger(image: String): Unit =
+    val (code, _, err) = cli(
+      Some(s"""{"name":"ledger","service":{"image":"$image"}}"""),
+      "services",
+      "apply",
+      "-f",
+      "-"
+    )
+    assertEquals(code, 0, err)
+
+  test(
+    "services rollback applies the descriptor before, and a second one to it is refused verbatim"
+  ) {
+    applyLedger("ledger:1")
+    applyLedger("ledger:2")
+    val (code, out, err) = cli("services", "rollback", "ledger")
+    assertEquals(code, 0, err)
+    assert(out.startsWith("rolled back to generation 1\n"), out)
+    assert(out.contains("ledger:1"), out)
+
+    val (again, _, againErr) = cli("services", "rollback", "ledger", "--to-generation", "1")
+    assertEquals(again, 1)
+    assert(
+      againErr.contains("service 'ledger' already has the descriptor of generation 1"),
+      againErr
+    )
+  }
+
+  test("services history shows each image, and --generation prints a descriptor apply accepts") {
+    val (code, out, err) = cli("services", "history", "ledger")
+    assertEquals(code, 0, err)
+    assert(out.linesIterator.next().matches("WHEN +KIND +GEN +IMAGE +DIGEST +BY"), out)
+    assert(out.contains("rolled-back to 1") && out.contains("ledger:2"), out)
+
+    val (descriptorCode, descriptor, descriptorErr) =
+      cli("services", "history", "ledger", "--generation", "2")
+    assertEquals(descriptorCode, 0, descriptorErr)
+    assert(descriptor.contains("\"ledger:2\""), descriptor)
+    val file = descriptorFile(descriptor)
+    try
+      val (applied, appliedOut, appliedErr) = cli("services", "apply", "-f", file.toString)
+      assertEquals(applied, 0, appliedErr)
+      assert(appliedOut.contains("ledger:2"), appliedOut)
+    finally
+      Files.deleteIfExists(file): Unit
+      // The cases after these count the project's services.
+      assertEquals(cli("services", "delete", "ledger")._1, 0)
+  }
+
   // --- Exposure (feature 005): contracts/expose-api.md, through the real CLI.
 
   test("expose prints the URL; get and list show it; apply leaves it; unexpose clears it") {

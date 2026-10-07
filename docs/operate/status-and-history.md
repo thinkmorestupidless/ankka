@@ -112,19 +112,43 @@ ankka services history cart
 ```
 
 ```text
-WHEN                      KIND       GEN  BY
-2026-09-24T10:12:03.114Z  restarted  2    alice@example.com
-2026-09-24T09:58:41.902Z  exposed    1    alice@example.com
-2026-09-24T09:57:10.337Z  applied    1    bob@example.com (admin)
+WHEN                      KIND              GEN  IMAGE   DIGEST        BY
+2026-09-24T10:20:44.018Z  rolled-back to 1  3    cart:1  3f9a1c0be2d4  alice@example.com
+2026-09-24T10:12:03.114Z  applied           2    cart:2  a41d77c09e15  alice@example.com
+2026-09-24T09:58:41.902Z  exposed           1    -       -             alice@example.com
+2026-09-24T09:57:10.337Z  applied           1    cart:1  3f9a1c0be2d4  bob@example.com (admin)
 ```
 
-Each row is one change, newest first: `applied`, `restarted`, `paused`, `resumed`, `exposed`,
-`unexposed`, `deleted`, `suspended` or `reinstated`. `GEN` is the generation the service had after the
+Each row is one change, newest first: `applied`, `rolled-back`, `restarted`, `paused`, `resumed`,
+`exposed`, `unexposed`, `deleted`, `suspended` or `reinstated`. `GEN` is the generation the service had after the
 change, and `BY` is who asked, by display name or subject. `(admin)` marks a change that was allowed by
 the platform-admin role rather than by membership of the organization. A service keeps its last 50
 changes. Reports from the cluster are not changes and do not appear.
 
 Changes recorded before the platform began attributing them show `-` for who and when.
+
+An apply and a rollback also show what they ran: `IMAGE` is the descriptor's image, and `DIGEST` the first
+twelve characters of a digest of the whole descriptor. Two rows share a digest exactly when their
+descriptors state the same things, so two generations with one image and a different environment are
+told apart; reordering labels or annotations is not a change, and reordering variables is. Every other
+row shows `-` in both. A rollback's row says which generation it rolled back to. An entry the control plane
+kept from before it recorded images may show `-` too. `-o json` prints the whole digest.
+
+### Read the descriptor of a generation
+
+```bash
+ankka services history cart --generation 1 > service.json
+ankka services apply -f service.json
+```
+
+`--generation` prints the descriptor the service applied at that generation, as JSON that `apply`
+accepts, so you can compare it with your own file before rolling back, or change it and apply it. A
+service keeps the descriptors of its last 50 applies; for an older generation, or a restart's, it says
+which it has instead.
+
+A past descriptor shows its variables' values as they were applied, to every member of the project's
+organization and to every platform administrator. A value that should not be read back belongs in a
+[project secret](../platform/secrets.md), which a descriptor refers to by name and never holds.
 
 ## See what a service is made of
 

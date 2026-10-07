@@ -46,27 +46,37 @@ val digest =
 The same value is read from JSON (`Blueprint.fromJson`, `Blueprint.fromResource`) and written as
 canonical JSON (`blueprint.canonical`).
 
-## Calls (on `ComponentClient`)
+## Calls (on the `AgentRuntime`, once the service has started)
+
+The check needs what blueprints may name, which only the runtime that built the registry holds, so
+the calls hang off it, as a `TimerRuntime`'s scheduler does: inject `agents.blueprints` into
+endpoints and workflows.
 
 ```scala
-client.blueprints.register(blueprint): Registered      // Registered(name, version, notes)
-                                                        // throws CommandError(BadRequest) carrying every problem
-client.blueprints.versions(name): Vector[VersionInfo]
-client.blueprints.version(name, number): Blueprint
+val agents = AgentRuntime.withDefaultModel(model).withBlueprints(registry)
 
-client.runs.start(name, input: Json, runId: String): RunSnapshot   // Conflict when the id is held with another blueprint or input
-client.runs.get(runId): RunSnapshot
-client.runs.await(runId, timeout = 30.minutes): RunSnapshot
-client.runs.cancel(runId): RunSnapshot
-client.runs.list(name): Vector[RunSummary]             // needs ProjectionRuntime
+agents.blueprints.register(blueprint): Registered      // Registered(name, version, isNew, notes)
+                                                        // throws CommandError(BadRequest) carrying every problem
+agents.blueprints.register(json: String): Registered   // a pattern the platform lacks is named by its step
+agents.blueprints.versions(name): Vector[VersionInfo]  // VersionInfo(number, digest, registeredAt); none when never registered
+agents.blueprints.version(name, number): Blueprint
+BlueprintRefusal.problemsOf(error): Option[Vector[Problem]]
+
+agents.runs.start(name, input: Json, runId: String): RunSnapshot   // Conflict when the id is held with another blueprint or input
+agents.runs.get(runId): RunSnapshot
+agents.runs.await(runId, timeout = 30.minutes): RunSnapshot
+agents.runs.cancel(runId): RunSnapshot
+agents.runs.list(name): Vector[RunSummary]             // needs ProjectionRuntime
 ```
 
 `RunSnapshot`: `runId`, `blueprint`, `version`, `input`, `status: RunStatus`, `step: Option[String]`,
 `steps: Vector[StepSnapshot]` (`name`, `status`, `result: Option[Json]`, `sessions`, `usage`,
 `judgmentUsage`, `waiting: Vector[ApprovalRef]`), `usage`, `startedBy`, `startedAt`, `endedAt`, `reason`.
 
-`Problem`: `path` (such as `workers[1].tools[0]`), `rule`, `message`. `Registered.notes` holds
-the non-refusing notes (a worker no step uses).
+`Problem`: `path` (such as `workers[1].tools[0]`), `rule`, `message`. The refusal's message is the
+problems as JSON, `{"blueprint": …, "problems": [...]}`, which `BlueprintRefusal.problemsOf` reads
+back and `BlueprintRefusal.describe` lists one per line. `Registered.notes` holds the non-refusing
+notes (a worker no step uses).
 
 ## In a tool
 

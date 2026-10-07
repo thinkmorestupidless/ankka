@@ -47,10 +47,31 @@ final class AgentRuntime private (
     modelTimeout: FiniteDuration,
     compaction: Option[(CompactionSettings, Summariser)],
     judgments: Judgments,
-    variables: String => Option[String] = sys.env.get
+    variables: String => Option[String] = sys.env.get,
+    blueprintsBuilder: Option[blueprint.BlueprintContext => blueprint.BlueprintRegistry] = None
 ) extends RuntimeExtension:
 
+  @volatile private var blueprintCalls: Option[blueprint.BlueprintCalls] = None
+
   def name: String = "agents"
+
+  /**
+   * What this service's blueprints may name, built once from a context when the service starts: a
+   * tool that writes an entity needs the component client when it is built. Registers the
+   * blueprints the registry carries, and refuses to start when one has problems.
+   */
+  def withBlueprints(
+      build: blueprint.BlueprintContext => blueprint.BlueprintRegistry
+  ): AgentRuntime =
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, variables, Some(build))
+
+  /** Calls about blueprints and runs. Available once the service has started. */
+  def blueprints: blueprint.BlueprintCalls =
+    blueprintCalls.getOrElse(
+      throw IllegalStateException(
+        "blueprints are not available: the service has not started, or withBlueprints(...) was not called"
+      )
+    )
 
   /**
    * Where the runtime reads the variables an agent's MCP servers name — their addresses and their
@@ -58,7 +79,7 @@ final class AgentRuntime private (
    * touching the environment of the JVM it runs in.
    */
   def withVariables(read: String => Option[String]): AgentRuntime =
-    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read)
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read, blueprintsBuilder)
 
   /**
    * Enables compaction: long sessions get their oldest messages replaced by a summary.
@@ -84,7 +105,8 @@ final class AgentRuntime private (
           modelTimeout,
           Some(settings -> summary),
           judgments,
-          variables
+          variables,
+          blueprintsBuilder
         )
 
   /**
@@ -105,7 +127,8 @@ final class AgentRuntime private (
       modelTimeout,
       compaction,
       Judgments(Some(provider), timeout),
-      variables
+      variables,
+      blueprintsBuilder
     )
 
   /**
@@ -139,6 +162,7 @@ final class AgentRuntime private (
       )
 
     startAutonomous(service, timers)
+    startBlueprints(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
@@ -196,6 +220,50 @@ final class AgentRuntime private (
             settings.keepRecentMessages
           )
       }
+
+  /**
+   * Builds the registry of what blueprints may name, connects its MCP servers, and registers the
+   * blueprints the service carries. A carried blueprint with problems fails the start, naming them,
+   * by the same rule an unregistered component does.
+   */
+  private def startBlueprints(
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+  )(using system: ActorSystem[?]): Unit =
+    blueprintsBuilder.foreach { build =>
+      val context = new blueprint.BlueprintContext:
+        def componentClient = service.componentClient
+        def services        = service.services
+        def secrets         = service.secrets
+        def hasTimers       = timers.isDefined
+      val declared = build(context).withTimers(timers.isDefined)
+      val mcpTools = connectMcp(ComponentId("ankka-blueprints"), declared.servers, service, timers)
+      val registry = declared.withMcpTools(mcpTools)
+      val calls    = blueprint.BlueprintCalls(service.componentClient, registry)
+      declared.carried.foreach { carried =>
+        val registered =
+          try calls.register(carried)
+          catch
+            case e: CommandError =>
+              throw IllegalArgumentException(
+                s"the blueprint '${carried.name}' this service carries has problems:\n" +
+                  blueprint.BlueprintRefusal.describe(e)
+              )
+        system.log.info(
+          "blueprint '{}' is at version {}{}",
+          registered.name,
+          registered.version,
+          if registered.isNew then " (registered now)" else ""
+        )
+      }
+      blueprintCalls = Some(calls)
+      if !service.registry.components.exists(_.componentId == blueprint.BlueprintEntity.componentId)
+      then
+        system.log.warn(
+          "blueprints are configured but '{}' is not registered; use registerAll(AgentRuntime.descriptors)",
+          blueprint.BlueprintEntity.componentId
+        )
+    }
 
   /**
    * An agent's MCP servers, connected, as tools. Done once per agent when the service starts; a
@@ -393,7 +461,8 @@ object AgentRuntime:
       autonomous.TaskEntity.descriptor,
       autonomous.InstanceEntity.descriptor,
       autonomous.TaskCascade.descriptor,
-      ApprovalExpiry.platformDescriptor
+      ApprovalExpiry.platformDescriptor,
+      blueprint.BlueprintEntity.descriptor
     )
 
 /**

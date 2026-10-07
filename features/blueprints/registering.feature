@@ -4,7 +4,7 @@ Feature: Registering a blueprint
   version, and every earlier version is kept.
 
   Background:
-    Given a service with the tools "search" and "keep entry" and the model "default"
+    Given a service with the tools "search" and "keep_entry" and the model "default"
 
   Scenario: a blueprint is registered and read back as it was registered
     When the service registers the blueprint "watch"

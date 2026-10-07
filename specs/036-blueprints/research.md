@@ -305,6 +305,20 @@ The planner's fallback to a default specialist is a condition, and is not expres
 shape the docs teach, and nothing else would exercise it); a condition on the step (rejected: the
 rule that a blueprint has none).
 
+## R23. The calls hang off the `AgentRuntime`, not the `ComponentClient`
+
+**Decision**: `agents.blueprints` and `agents.runs`, where `agents` is the service's `AgentRuntime`,
+available once the service has started; the contract is amended from `client.blueprints`.
+
+**Rationale**: registering checks the blueprint against the registry (R6), and the registry is
+built by the runtime at start from a context; a `ComponentClient` is the SDK's and knows nothing of
+it, and a process-wide holder would be wrong with two services in one JVM, as the testkit runs them.
+`TimerRuntime.timerScheduler` is the precedent: "available once the service has started; inject
+into endpoints and workflows".
+
+**Alternatives considered**: `client.blueprints(registry)` (rejected: a component rarely holds the
+registry); checking inside the entity (rejected in R2).
+
 ## R19. The research digest sample
 
 **Decision**: `samples/research-digest`, an sbt project like `multiAgentPlanner` (`build.sbt:880-884`)
@@ -369,6 +383,10 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
 - V2 (T003, `TimerStoreClockSuite`): `TimerStore.due(now, limit)` returns a timer due at `t` for
   `now = t` and not for `now = t - 1s`, a year ahead of the wall clock; the query reads only its
   parameter (R14 holds).
+- Phase 3 (T014–T020): `registering.feature` and `checking.feature` pass against a real journal; a
+  blueprint registered by two services at once would serialise on the entity, and the restart case
+  showed a carried blueprint re-registered at start adds no version. The calls moved to the
+  `AgentRuntime` (R23).
 - V3 (T004, `PlatformEntityConsumerSuite`): a consumer declared in a package outside `ankka`
   subscribes to `ankka-task`'s events with `ChangeSource.eventsOf(TaskEntity)` and receives
   `Created` first and `Completed` last for a task, in order (R2, R11 and FR-026 hold).

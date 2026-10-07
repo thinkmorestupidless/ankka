@@ -3,7 +3,7 @@ Feature: Checking a blueprint before it is held
   with problems is refused with every problem named in one answer, and nothing is held.
 
   Background:
-    Given a service with the tools "search" and "keep entry", the model "default" and the judgment question "names a paper"
+    Given a service with the tools "search" and "keep_entry", the model "default" and the judgment question "names-a-paper"
 
   Scenario: a blueprint is refused with every problem named in one answer
     When the service registers a blueprint with four problems

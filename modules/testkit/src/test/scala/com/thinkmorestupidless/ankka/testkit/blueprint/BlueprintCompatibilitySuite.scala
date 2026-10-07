@@ -1,0 +1,67 @@
+package com.thinkmorestupidless.ankka.testkit.blueprint
+
+import com.thinkmorestupidless.ankka.agent.blueprint.*
+import com.thinkmorestupidless.ankka.core.Serializer
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
+import com.thinkmorestupidless.ankka.testkit.autonomous.Fixtures
+
+/**
+ * Pins the journal form of every blueprint event and of the record a reader gets.
+ *
+ * `blueprint-events.json` holds one line per case. A field renamed, reordered or given no default
+ * changes a line, and the change is then a decision rather than an accident: a journal written by
+ * one release has to replay under the next.
+ */
+class BlueprintCompatibilitySuite extends munit.FunSuite with LogCapturing:
+
+  private val blueprint =
+    Blueprint("digest")
+      .worker(Worker("reader").instructions("Say what this paper finds.").budget(3))
+      .step(Step("findings").ask("reader").reads("input"))
+
+  private val events: Vector[BlueprintEvent] =
+    import BlueprintEvent.*
+    Vector(
+      VersionRegistered(1, blueprint.canonical, blueprint.digest, 1L),
+      ScheduleAdvanced(2L, Some(3L)),
+      ScheduleStopped(4L)
+    )
+
+  private def lines[A](label: String, values: Vector[A], s: Serializer[A]): Vector[String] =
+    values.map(v => s"$label ${String(s.toBytes(v), "UTF-8")}")
+
+  private val path =
+    Fixtures.repositoryRoot.resolve(
+      "modules/testkit/src/test/resources/journal/blueprint-events.json"
+    )
+
+  test("every blueprint event decodes from its pinned form and back") {
+    val generated =
+      lines("blueprint-event", events, BlueprintEntity.eventSerializer).mkString("", "\n", "\n")
+    events.foreach(e =>
+      assertEquals(
+        BlueprintEntity.eventSerializer.fromBytes(BlueprintEntity.eventSerializer.toBytes(e)),
+        e
+      )
+    )
+    val problems = Fixtures.check(Map(path -> generated))
+    assert(problems.isEmpty, problems.mkString("\n"))
+  }
+
+  test("every event case is pinned") {
+    assertEquals(events.map(_.ordinal).distinct.sorted, events.indices.toVector)
+    assertEquals(BlueprintEvent.ScheduleStopped(0L).ordinal, events.map(_.ordinal).max)
+  }
+
+  test("a record round-trips with every version it holds") {
+    val record = BlueprintRecord(
+      "digest",
+      Vector(VersionRecord(1, blueprint.canonical, blueprint.digest, 1L)),
+      Some(2L),
+      Some(3L)
+    )
+    assertEquals(
+      BlueprintEntity.stateSerializer.fromBytes(BlueprintEntity.stateSerializer.toBytes(record)),
+      record
+    )
+  }

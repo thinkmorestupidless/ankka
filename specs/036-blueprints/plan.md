@@ -147,7 +147,7 @@ modules/agent/…/agent/blueprint/
 ├── RunsView.scala            # new: ankka-blueprint-runs (R11)
 ├── ScheduleTimer.scala       # new: ankka-blueprint-schedule, due times, catch-up (R12, R13)
 ├── RunContext.scala          # new: RunRef and the thread-local (R15)
-└── Calls.scala               # new: client.blueprints, client.runs
+└── Calls.scala               # new: agents.blueprints, agents.runs (R23)
 modules/agent/…/agent/AgentRuntime.scala          # withBlueprints; descriptors; hosts the run host
 modules/agent/…/agent/AgentEffect.scala           # maxToolCallSteps per effect (R7)
 modules/agent/…/agent/AgentLoop.scala             # the effect's bound; RunContext around tools
@@ -184,9 +184,9 @@ Cut by user story, tests before the code they hold. Each slice stands on its own
    `ScheduleSuite`'s pure due times; `platform` flags; `AgentEffect.maxToolCallSteps`;
    `TimerRuntime`'s clock and `MovableClock`.
 2. **Story 1, registering and checking**: `BlueprintRegistry`, `BlueprintEntity`,
-   `client.blueprints`, carried blueprints at start; `BlueprintFeatures`, `BlueprintCheckFeatures`.
+   `agents.blueprints`, carried blueprints at start; `BlueprintFeatures`, `BlueprintCheckFeatures`.
 3. **Story 2 and the ask pattern, runs**: `RunEntity`, `RunHost`, `RunWorker`, `AskAgent`,
-   `client.runs`, `RunsView`; `RunFeatures`, `BlueprintRestartSuite`.
+   `agents.runs`, `RunsView`; `RunFeatures`, `BlueprintRestartSuite`.
 4. **Story 3, the other patterns**: for-each and gather on the ask agent; judge through `Judgments`;
    critique; work through the task definition (`TaskEntity`, `AutonomousAgentHost`, `IterationLoop`,
    `WorkerAgent`); `PatternFeatures`, the compatibility files.

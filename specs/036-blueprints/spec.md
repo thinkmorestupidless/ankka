@@ -76,6 +76,10 @@ or forking a run, a console view of runs, or speech from a script.
 - Q: Where do the research digest sample's words and scenarios live? → A: In the sample's own features and glossary, as the shopping cart's are; the root features keep one scenario saying the sample's features pass offline.
 - Q: How are the proposed glossary terms settled? → A: All accepted as written except for-each step, work step and input shape, which stay proposed until planning has used them.
 
+### Implementation 2026-10-07
+
+- Q: Are the three proposed terms kept? → A: Yes, as written. The patterns (`patterns.feature`) and the research digest use **work step** and **for-each step**, and every blueprint declares an **input shape** its runs are checked against; the glossary no longer marks them proposed.
+
 ### Planning 2026-10-07
 
 Found while planning, with the reason in [research.md](research.md):

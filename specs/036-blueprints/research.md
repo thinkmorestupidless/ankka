@@ -495,6 +495,24 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   lists the specialists as an `enum`, consult is a gather chosen by `select.specialists`, and the
   selector's budget is two model calls so a refused choice can be corrected; the fallback case of
   `PlannerSuite` is the one case that differs, as R22 said.
+- Phase 9 (T057–T061, T063): `docs/build/blueprints.md` is the guide, its blueprints included from
+  `GuideSamples` (one blueprint with an ask, a work, a judge, a critique and a call step, which
+  `GuideSamplesSuite` runs), the planner's blueprint and the research digest's `digest.json`;
+  `BlueprintsDocumentationSuite` holds `documentation/blueprints.feature`. The three proposed glossary
+  terms are settled as written. Found by the features check: the spec's glossary had refused
+  `pipeline`, `graph` and `role` as synonyms, and all three are terms of their own elsewhere in the
+  glossary (a deployment pipeline, a graph, an identity's role), so only `flow` stays refused for a
+  blueprint. The agents skill's description had grown past the 1024 characters a skill allows and
+  took a colon YAML read as a mapping; it is rewritten shorter. The timers page documents the
+  context's `timers` and `clock` and the testing page the kit's outage, as T063 asked.
+- T062, 2026-10-07: `just docs-sync && just docs` (89 pages, no problems), `just features` (the same 62
+  findings as `main`: duplicated scenarios in specs 031–034 and `queue` in `mcp-servers.feature`, none
+  of them this feature's), and `buildAll` with cluster tests off: every suite green but three.
+  `ComponentDescriptorsSuite` and the cart's `CartTopologySuite` pinned the agent runtime's components
+  and connections and now name the six blueprint components and the runs view's edge; both pass.
+  `PythonTemplateSuite` fails with `InvokeReply has no "approval" field` from the Python SDK's
+  generated protocol, which predates spec 029's approvals and is not this feature's; it is left for
+  the Python SDK.
 - Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
   patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
   shows a handler given what the step reads and told its run, and a failing handler failing the

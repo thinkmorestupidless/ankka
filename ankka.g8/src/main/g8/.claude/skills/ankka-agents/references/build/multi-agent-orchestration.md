@@ -17,6 +17,15 @@ takes, and the result is read later rather than awaited, an [autonomous agent](a
 shape instead: it records every iteration, resumes after a crash and stops at its budget, with no workflow
 to write.
 
+## Or a blueprint
+
+When the steps are a known pattern — ask, consult several, summarise; search sources, keep what they found;
+draft until a critic passes it — they can be written as data rather than code: a [blueprint](blueprints.md)
+names the workers and the steps between them, and the platform runs it, keeps each step's result, and
+resumes after a crash. The planner's three steps are [a blueprint too](blueprints.md#a-choice-read-from-data),
+beside the workflow on this page; a selection read from one step chooses which workers the next consults.
+A workflow is still the shape for coordination with conditions in it.
+
 ## Why a workflow, not a chain of calls
 
 An agent can call another agent through the component client; that is just a method call, and it is fine

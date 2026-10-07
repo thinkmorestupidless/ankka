@@ -12,8 +12,10 @@ class MovableClockTimerSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 2.minutes
 
   private var testKit: AnkkaTestKit = null
-  private val clock                 = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
-  private val timers                = TimerRuntime(pollInterval = 200.millis, clock = clock)
+  // docs:start clock
+  private val clock  = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
+  private val timers = TimerRuntime(pollInterval = 200.millis, clock = clock)
+  // docs:end clock
 
   override def beforeAll(): Unit =
     testKit = AnkkaTestKit.start(Seq(OrderEntity.descriptor, OrderTimers.descriptor), Seq(timers))

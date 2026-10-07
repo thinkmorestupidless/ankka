@@ -27,6 +27,7 @@ object PlannerBlueprint:
         client.forKeyValueEntity(EntityId(userId)).call(PreferencesEntity.get).invoke().summary
       }
 
+  // docs:start blueprint
   val blueprint: Blueprint =
     Blueprint("planner")
       .input(Shape.obj("userId" -> Shape.string, "destination" -> Shape.string))
@@ -85,6 +86,7 @@ object PlannerBlueprint:
           .result(Shape.arr(Shape.obj("worker" -> Shape.string, "result" -> Shape.string)))
       )
       .step(Step("summarise").ask("summary").reads("input", "consult").result(Shape.string))
+  // docs:end blueprint
 
   /** What the blueprint names: the two tools, and the blueprint itself. */
   def registry(context: BlueprintContext): BlueprintRegistry =

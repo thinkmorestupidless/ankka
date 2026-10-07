@@ -36,6 +36,7 @@ object Blueprints:
       .fromJson(text)
       .fold(e => throw IllegalStateException(s"blueprints/$name.json does not read: $e"), identity)
 
+  // docs:start registry
   /**
    * What the service's blueprints may name: the tools over its records, the question, and the two.
    */
@@ -46,3 +47,4 @@ object Blueprints:
   ): BlueprintRegistry =
     val tools = Tools(context.componentClient, context.viewClient, clock)
     BlueprintRegistry.empty.tools(tools.all(sources)*).questions(namesPaper).carrying(watch, digest)
+  // docs:end registry

@@ -80,8 +80,9 @@ class CartTopologySuite extends munit.FunSuite:
         ("cart-graph", "topic:cart-graph", "topic-publication"),
         ("shopping-cart", "cart-contents-graph", "events"),
         ("cart-contents-graph", "topic:cart-graph", "topic-publication"),
-        // The agent runtime's own: its cascade follows its tasks.
-        ("ankka-task", "ankka-task-cascade", "events")
+        // The agent runtime's own: its cascade follows its tasks, and its runs view its runs.
+        ("ankka-task", "ankka-task-cascade", "events"),
+        ("ankka-run", "ankka-blueprint-runs", "events")
       )
     )
   }

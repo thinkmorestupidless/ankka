@@ -246,16 +246,28 @@ feature also says what that feature does not do.
   the image as a volume, which would need a container runtime newer than every cluster it targets.
 - **Autonomous agents do not coordinate yet.** There is no delegating a subtask to another agent, handing a
   task on, leading a team over a shared backlog, or moderating a conversation between agents; coordinate
-  several from a workflow instead. There are no per-instance overrides of a definition.
+  several from a workflow, or write the steps as a [blueprint](../build/blueprints.md). A blueprint's work
+  step gives its task a definition of its own — instructions, tools, model, budget — which the platform's
+  worker agent carries out; outside blueprints there are still no per-instance overrides of a definition.
 - **An autonomous agent's tools run at least once.** A tool whose result had not been recorded when a task's
   process stopped runs again when the task resumes. Write tools with side effects to tolerate a repeat.
+- **Blueprints are Scala only, and say nothing a step cannot.** Only a Scala service registers blueprints;
+  Python and TypeScript services, through the sidecar, are a later feature. A blueprint has no conditions,
+  branches or loops of its own, and no branching search (several drafts scored and the weaker pruned):
+  every repetition is inside a step and bounded by it, and a choice is a step's shape or a gather chosen
+  by an earlier step's result. No step waits for a person as a pattern of its own; a person is reached
+  through a tool that requires approval, and the run waits. A blueprint does not start, wait on or read
+  another's run; blueprints compose through a service's records. An ask turn cut off part way, by a
+  restart, runs again from its start: a model call recorded before the restart is not made again, but
+  one inside the turn that was cut off is. No console shows blueprints or runs; read a run's record, or
+  follow its events.
 - **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
 - **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
   notifications.
 - **Judgments are for Scala services' agents only.** Python, TypeScript and Rust services cannot declare a
   question, ask for a judgment or use a judged guardrail. A workflow step, an endpoint or a consumer reaches
-  one by calling an agent's judgment handler, and a handler cannot judge and then call the text model in one
-  reply; make two calls. Guardrails, judged or not, see a message and a reply, never the tool calls a model
+  one by calling an agent's judgment handler, or a blueprint's judge or critique step asks one; a handler
+  cannot judge and then call the text model in one reply; make two calls. Guardrails, judged or not, see a message and a reply, never the tool calls a model
   asks for. No console shows a judgment's answers or probabilities, and a task's and an instance's own usage
   do not include judgment tokens, which are on the task's session. TypeSafe AI's Jev is the only provider
   that ships, and it is in early access.

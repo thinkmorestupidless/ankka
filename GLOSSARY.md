@@ -1636,7 +1636,7 @@ cannot be, so the platform stops waiting for one and never stops the module itse
 A named description of workers and the steps between them, which a service registers
 and the platform runs: the input shape of its runs, its workers, its steps, and optionally a
 schedule and a run budget. It is held, never deployed, and has no conditions or loops of its own.
-Avoid: pipeline, graph, flow
+Avoid: flow
 
 ### blueprint version
 One registration of a blueprint, numbered from 1, never changed. A changed blueprint is
@@ -1645,7 +1645,6 @@ a new blueprint version.
 ### worker
 An agent a blueprint defines by data: instructions, a model, tools, guardrails and a
 budget. It is not a component, and not an agent instance.
-Avoid: role
 
 ### action
 What a step does once: ask, work, judge or call.
@@ -1670,11 +1669,11 @@ A step in which one worker answers the step's input once, running the tools its 
 asks for.
 
 ### work step
-*Proposed.* A step in which one worker iterates on the step's input until its model completes it,
+A step in which one worker iterates on the step's input until its model completes it,
 gives up, or spends the budget, as an autonomous agent does.
 
 ### for-each step
-*Proposed.* A step whose action is done once per item of a list, at most the step's limit at once,
+A step whose action is done once per item of a list, at most the step's limit at once,
 and whose result is the items' results in the list's order.
 
 ### gather step
@@ -1715,7 +1714,7 @@ or "cancelled".
 How many model calls a whole run may make.
 
 ### input shape
-*Proposed.* The shape an input must have: of a run, as a blueprint declares it; a step declares the
+The shape an input must have: of a run, as a blueprint declares it; a step declares the
 shape of its result the same way.
 
 ### schedule

@@ -12,6 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
+// docs:start run-context
 /** A tool that records which run it was told it serves: `None` outside any run. */
 object Told:
   val seen = CopyOnWriteArrayList[Option[RunRef]]()
@@ -22,6 +23,7 @@ object Told:
       seen.add(RunContext.current): Unit
       "told"
     }
+// docs:end run-context
 
 /** A request agent of the service's own, with the same tool, to call it in no run. */
 final class Teller(context: AgentContext) extends Agent:
@@ -36,6 +38,7 @@ object Teller extends Agent.Companion[Teller](ComponentId("teller-agent")):
   def create(context: AgentContext) = new Teller(context)
   val ask                           = command("ask")(_.ask)
 
+// docs:start follow
 /** A service's consumer of the platform's runs: every event of every run, by run id. */
 final class RunFollower extends Consumer[RunEvent, Nothing]:
   def onMessage(event: RunEvent): Effect =
@@ -53,6 +56,7 @@ object RunFollower:
       create = _ => new RunFollower,
       parallelism = 1
     )
+// docs:end follow
 
 /** A service's consumer of the platform's blueprints: every version registered, by name. */
 final class VersionWatcher extends Consumer[BlueprintEvent, Nothing]:

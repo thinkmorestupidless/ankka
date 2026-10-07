@@ -1,7 +1,7 @@
 Feature: A bucket outlives its service
   The platform never deletes a bucket or an object. Deleting a service leaves its bucket as it
-  was, and a service applied again under the same name is given the same bucket, which its status
-  reports as recovered.
+  was, and a service applied again under the same name is given the same bucket, and its status
+  says so.
 
   Scenario: deleting a service keeps its bucket and its objects
     Given a deployed service "reports" that has kept the object "march.pdf" in its bucket
@@ -13,4 +13,4 @@ Feature: A bucket outlives its service
     And "reports" has since been deleted
     When a member applies the descriptor for "reports" again
     Then "reports" reads the object "march.pdf" back from its bucket
-    And the status says that the bucket of "reports" was recovered
+    And the status says that "reports" was given the bucket it had before

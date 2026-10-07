@@ -938,7 +938,7 @@ class ObjectStorageClusterFeatures
       assertEquals(objectInStore("shop", logical, obj), Some(s"contents of $obj"))
   }
 
-  Then("the status says that the bucket of {string} was recovered") { (logical: String) =>
+  Then("the status says that {string} was given the bucket it had before") { (logical: String) =>
     val status = statusOf(real(logical)).getOrElse(fail("no status"))
     assertEquals(status.objectStorage, Some("recovered existing bucket"))
   }

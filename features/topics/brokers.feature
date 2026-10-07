@@ -9,10 +9,20 @@ Feature: A topic on a declared broker
     And a project "shop"
     And a broker outside the installation holding the topic "events"
 
-  Scenario: a broker is declared on a project with its credential in a project secret
-    Given the project secret "legacy-credential" on "shop" holds the credential of the outside broker
-    When a member declares the broker "legacy" on "shop" with the address of the outside broker and the project secret "legacy-credential"
-    Then the brokers of "shop" show "legacy"
+  Scenario Outline: a broker is declared on a project with its credential in a project secret
+    Given the project secret "legacy-credential" on "shop" holds <credential> for the outside broker
+    When a member declares the broker "legacy" on "shop" with the address of the outside broker, the shape <shape> and the project secret "legacy-credential"
+    Then the brokers of "shop" show "legacy" with the shape <shape>
+
+    Examples:
+      | shape          | credential                                     |
+      | "certificate"  | a client certificate, its key and the authority |
+      | "SASL"         | a username, a password and the authority       |
+
+  Scenario: a declaration whose secret lacks what its shape needs is refused
+    Given the project secret "legacy-credential" on "shop" holds a username and a password and no authority
+    When a member declares the broker "legacy" on "shop" with the address of the outside broker, the shape "SASL" and the project secret "legacy-credential"
+    Then the declaration is refused, naming what the secret lacks
 
   Scenario: a topic source names a declared broker and reads from it
     Given the broker "legacy" is declared on "shop"

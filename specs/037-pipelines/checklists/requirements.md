@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,5 +31,6 @@
 
 ## Notes
 
-- Three clarifications are open: what a contract is, how the sink is delivered, and whether
-  partition parallelism is the default. `/speckit-clarify` settles them.
+- Six clarifications were settled on 2026-10-07: what a contract is, how the sink is delivered,
+  whether partition parallelism is the default, how a component states its schema, what a
+  declared broker's secret holds, and where the contract is checked.

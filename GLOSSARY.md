@@ -1549,8 +1549,9 @@ it flows.
 Avoid: format
 
 ### declared broker
-*Proposed.* A broker a member declares on a project by name, with its address and the project
-secret holding its credential, which a component may name for one topic it reads or publishes to.
+*Proposed.* A broker a member declares on a project by name, with its address, the shape of its
+credential (a certificate, or SASL over TLS) and the project secret holding it, which a component may
+name for one topic it reads or publishes to.
 
 Avoid: external broker
 
@@ -1800,4 +1801,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment, breaks, fetches, fetched, built, parallel, after, another, registers, beside
+comment, breaks, fetches, fetched, built, parallel, after, another, registers, beside, shape, SASL, authority, lacks, username, password, certificate

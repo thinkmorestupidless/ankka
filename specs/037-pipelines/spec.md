@@ -79,6 +79,20 @@ specified here. This specification says what ankka must have before that can hap
   platform publishes a service image built from that component, which a member deploys into a
   project with the topic, the store's address, a project secret for its credential and a version.
   A sink inside a process-hosted service's own process is not provided.
+- Q: How does a component state the schema it was built against? → A: It names the schema
+  document kept in the project, fetched from the project's declaration; the SDK fingerprints that
+  document after normalising it, and discovery carries the contract's name and the fingerprint.
+  No SDK derives a schema from a type.
+- Q: What credential does a declared broker's project secret hold? → A: One of two shapes, named
+  by the declaration: a certificate (a client certificate, its key and the authority), or SASL
+  (PLAIN or SCRAM) over TLS (a user, a password and the authority). A declaration whose secret
+  lacks what its shape needs is refused. Arbitrary client properties are not passed through.
+- Q: Where is a contract checked? → A: At the service's start. The platform hands a service its
+  project's topic declarations (name, contract, schema fingerprint); the runtime compares each
+  component's statement when the component is registered or discovered, refuses a disagreeing
+  one there, and the service reports it in its status and never becomes Ready. A declaration
+  changed after a service started is checked at its next start; the project's topic listing names
+  the services not yet checked against it.
 - Q: Is reading partitions in parallel the default, or asked for? → A: Asked for. A topic
   source that says nothing reads one message at a time as today; one that asks for it reads the
   partitions its instance holds at once.
@@ -193,6 +207,7 @@ needs a service that lives wholly on the outside broker.
 **Acceptance Scenarios**:
 
 - added `features/topics/brokers.feature`: a broker is declared on a project with its credential in a project secret
+- added `features/topics/brokers.feature`: a declaration whose secret lacks what its shape needs is refused
 - added `features/topics/brokers.feature`: a topic source names a declared broker and reads from it
 - added `features/topics/brokers.feature`: a consumer reads from a declared broker and publishes to the installation's
 - added `features/topics/brokers.feature`: a component naming a broker the project has not declared is refused
@@ -280,11 +295,13 @@ learn whether a pipeline keeps up.
 - **FR-001**: A declared topic MAY carry a contract, a name with a schema, set and shown with the
   topic; a member MUST be able to fetch the schema from the project.
 - **FR-002**: A component MUST be able to state the contract of each topic it reads or publishes
-  to, by name and by the schema it was built against, in every SDK and through the sidecar's
-  discovery.
+  to, by name and by the schema document it was built against, kept in the project and
+  fingerprinted by the SDK after normalising it, in every SDK and through the sidecar's
+  discovery; the fingerprint of one document MUST be the same in every SDK.
 - **FR-003**: A service with a component whose stated contract differs from the project's in name
-  or schema, or states none where the project declares one, MUST be refused before the component
-  reads or publishes, with both sides named in the service's status.
+  or schema, or states none where the project declares one, MUST be refused at the service's
+  start, before the component reads or publishes, with both sides named in the service's status;
+  the platform MUST hand a service its project's topic declarations for that check.
 - **FR-004**: A message published to a topic with a contract MUST carry the contract's name as
   its type; no message is checked against the schema as it flows.
 - **FR-005**: A declared topic MAY be compacted; the platform MUST make it so, for a new topic and
@@ -292,9 +309,10 @@ learn whether a pipeline keeps up.
 - **FR-006**: ankka MUST provide the graph merge sink as a component in a module of its own and
   as a service image built from it: a Neo4j store filled from a delta topic under the delta
   rules, rebuilt at a higher version, with its fixtures held here.
-- **FR-007**: A project MAY declare a broker by name, with its address and a project secret; a
-  component MAY name a declared broker for a topic; the credential MUST reach only the platform's
-  container.
+- **FR-007**: A project MAY declare a broker by name, with its address, the credential's shape
+  (a certificate, or SASL PLAIN or SCRAM over TLS) and the project secret holding it, refused when
+  the secret lacks what the shape needs; a component MAY name a declared broker for a topic; the
+  credential MUST reach only the platform's container.
 - **FR-008**: A topic source that asks for it MUST handle the partitions an instance holds in
   parallel and each partition in order, committing a partition only after its message's
   publications are accepted; one that does not ask MUST read as today.
@@ -312,8 +330,8 @@ learn whether a pipeline keeps up.
 - **contract**: a name and the schema of what a topic carries, declared on the topic and held by
   the project, stated by each side with the schema it was built against, its name carried as a
   message's type.
-- **declared broker**: a broker a project names, with an address and a project secret, which a
-  component may name for a topic.
+- **declared broker**: a broker a project names, with an address, a credential shape (a
+  certificate, or SASL over TLS) and a project secret, which a component may name for a topic.
 - **sink**: as already defined: the part of a pipeline that applies deltas to a store; now a
   component ankka provides, and a service image built from it.
 - **topic settings**: a declared topic's partitions and whether it is compacted.
@@ -335,8 +353,9 @@ learn whether a pipeline keeps up.
 
 ## Assumptions
 
-- **A schema is a JSON Schema document**, the format ankka's messages already have; how an SDK
-  tells which schema a component was built against is a planning decision.
+- **A schema is a JSON Schema document**, the format ankka's messages already have; the
+  normalisation before fingerprinting is a planning decision, and the fixtures prove every SDK
+  fingerprints one document the same way.
 - **The stage-without-a-database case may already work**; if `provisionDatabase: false` with no
   supplied database already runs a consumer-only service, its scenario is the proof and no change
   is needed.

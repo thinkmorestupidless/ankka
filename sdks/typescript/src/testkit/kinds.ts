@@ -13,6 +13,9 @@ import type { AgentEffect } from "../effects/agent.ts"
 import type { KeyValueEntity, KeyValueEntityClass } from "../keyValueEntity.ts"
 import type { Workflow, WorkflowClass } from "../workflow.ts"
 import type { View, ViewClass } from "../view.ts"
+import type { KeyedView, KeyedViewClass, ViewRows } from "../keyedView.ts"
+import { reduceRowChanges, type KeyedViewEffect } from "../effects/keyed.ts"
+import type { ComponentRef } from "../client.ts"
 import { PROTOCOL_KEY, requireSeveralMessages, type Consumer, type ConsumerClass } from "../consumer.ts"
 import { deltaRecords, readDelta, type Delta, type GraphConsumer, type GraphConsumerClass, type GraphEffect } from "../graph.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
@@ -20,7 +23,7 @@ import type { TimedAction, TimedActionClass } from "../timedAction.ts"
 import type { Agent, AgentClass } from "../agent.ts"
 import type { HandlerRef } from "../handlers.ts"
 import { materialiseKeyValue, materialiseStep, materialiseWorkflowCommand, type MaterialisedKeyValue, type MaterialisedStep, type MaterialisedWorkflowCommand } from "../materialise.ts"
-import { Ankka, type RegisteredAgent, type RegisteredConsumer, type RegisteredKeyValue, type RegisteredTimedAction, type RegisteredView, type RegisteredWorkflow } from "../service.ts"
+import { Ankka, type RegisteredAgent, type RegisteredConsumer, type RegisteredKeyedView, type RegisteredKeyValue, type RegisteredTimedAction, type RegisteredView, type RegisteredWorkflow } from "../service.ts"
 import { checkPlan, runTool } from "../server/agent.ts"
 import { ApprovalAwaited, type AgentOutcome, type ApprovalRequest, type DecisionInput } from "../approvals.ts"
 import { TOOL_PREFIX, toolName } from "../mcp.ts"
@@ -255,6 +258,90 @@ export class ViewTestKit<E, Row, C extends View<E, Row>> {
   /** The source instance `key` was deleted. */
   onDelete(key: string, metadata: Metadata = {}): Promise<ViewEffect<Row>> {
     return this.#apply(key, (v) => v.onDelete(), metadata)
+  }
+
+  get(key: string): Row | null {
+    return this.rows.get(key) ?? null
+  }
+}
+
+/**
+ * Drives one keyed view with no sidecar: a change of one of its sources goes to that source's handler,
+ * and the rows it names are written to `rows`, a later change to a key winning, as the runtime writes
+ * them. Rows round-trip through the view's row codec and events through the source's.
+ *
+ * A declared query is SQL and there is no database to run it, so the test says what each query
+ * answers. A handler that asks a query the test has not answered throws, naming it: a kit that answered
+ * no rows would pass a handler that updated nothing.
+ */
+export class KeyedViewTestKit<Row, C extends KeyedView<Row>> {
+  readonly #registered: RegisteredKeyedView
+  readonly #cls: KeyedViewClass<Row, C>
+  readonly #client: ComponentClient
+  readonly #answers = new Map<string, (values: Readonly<Record<string, string>>) => Row[]>()
+  #sequence = 0
+  readonly rows = new Map<string, Row>()
+
+  private constructor(cls: KeyedViewClass<Row, C>, client: ComponentClient) {
+    this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredKeyedView
+    this.#cls = cls
+    this.#client = client
+  }
+
+  static of<Row, C extends KeyedView<Row>>(cls: KeyedViewClass<Row, C>, client: ComponentClient = noClient()): KeyedViewTestKit<Row, C> {
+    return new KeyedViewTestKit(cls, client)
+  }
+
+  /** What the declared query `name` answers, given the values it is asked with. */
+  answering(name: string, answer: (values: Readonly<Record<string, string>>) => Row[]): this {
+    this.#answers.set(name, answer)
+    return this
+  }
+
+  #source(entity: ComponentRef) {
+    const source = this.#registered.sources.get(entity.componentId)
+    if (!source) throw new Error(`${this.#registered.id} reads no ${JSON.stringify(entity.componentId)}`)
+    return source
+  }
+
+  async #apply(key: string, run: (view: C) => unknown): Promise<KeyedViewEffect<Row>> {
+    const view = new this.#cls()
+    const rowCodec = this.#registered.rowCodec as Codec<Row>
+    const id = this.#registered.id
+    const rows: ViewRows<Row> = {
+      get: async (k) => {
+        const row = this.rows.get(k)
+        return row === undefined ? null : roundTrip(rowCodec, row)
+      },
+      ask: async (name, values = {}) => {
+        const answer = this.#answers.get(name)
+        if (!answer) throw new Error(`${id} asked the query ${JSON.stringify(name)}, and the test has not said what it answers; say so with answering(${JSON.stringify(name)}, ...)`)
+        return answer(values).map((r) => roundTrip(rowCodec, r))
+      },
+    }
+    this.#sequence += 1
+    const metadata: Metadata = { "ce-subject": key, "ankka.sequence": String(this.#sequence) }
+    view._bind(metadata, this.#client.withMetadata(metadata), rows)
+    const effect = ((await run(view)) ?? { kind: "rows", changes: [] }) as KeyedViewEffect<Row>
+    if (effect.kind !== "rows") throw new TypeError(`${id}'s handler returned something that is not a keyed view effect`)
+    for (const [k, row] of reduceRowChanges(effect.changes)) {
+      if (row === undefined) this.rows.delete(k)
+      else this.rows.set(k, roundTrip(rowCodec, row))
+    }
+    return effect
+  }
+
+  /** A change of the entity `key` of `entity`, round-tripped through that source's codec. */
+  change<E>(entity: ComponentRef, key: string, event: E): Promise<KeyedViewEffect<Row>> {
+    const source = this.#source(entity)
+    const wire = roundTrip(source.eventCodec as Codec<E>, event)
+    return this.#apply(key, (v) => source.onChange(v, wire))
+  }
+
+  /** The entity `key` of `entity` was deleted. */
+  deleted(entity: ComponentRef, key: string): Promise<KeyedViewEffect<Row>> {
+    const source = this.#source(entity)
+    return this.#apply(key, (v) => (source.deleted ? source.deleted(v) : undefined))
   }
 
   get(key: string): Row | null {

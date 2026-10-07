@@ -63,6 +63,36 @@ impl Source {
     }
 }
 
+/// A question a view can be asked by name: one SQL statement over the view's own table, whose
+/// values are the `:name`s it holds. The runtime checks the statement when the service starts, and a
+/// statement that is not one read of the view's own table stops the service, naming the view and the
+/// query. A value is bound and never becomes part of the statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredQuery {
+    /// The query's wire name, `[a-z0-9-]+`.
+    pub name: String,
+    /// The statement, naming the view's table as [`table_of`] gives it.
+    pub statement: String,
+}
+
+/// Declares query `name` as `statement`, for a view's [`View::declared`].
+pub fn query(name: impl Into<String>, statement: impl Into<String>) -> DeclaredQuery {
+    DeclaredQuery {
+        name: name.into(),
+        statement: statement.into(),
+    }
+}
+
+/// The table holding view `component_id`'s rows, for a declared query's statement to name: `ankka_view_`
+/// and the id with every character that is not a letter or digit as `_`.
+pub fn table_of(component_id: &str) -> String {
+    let folded: String = component_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    format!("ankka_view_{folded}")
+}
+
 /// A view. Implement it on a unit struct and register the struct's value.
 pub trait View: Sized + 'static {
     /// One row, per source entity.
@@ -86,9 +116,9 @@ pub trait View: Sized + 'static {
         None
     }
 
-    /// Raised to read the topic again from the start position, under a group of its own. A higher
-    /// one has the view emptied and built again.
-    /// `None` is version 1. Only for a topic source.
+    /// Raised to have the view emptied and built again: a topic read again from the start
+    /// position, under a group of its own; an entity read again from its first event or state.
+    /// `None` is version 1.
     fn version() -> Option<u32> {
         None
     }
@@ -106,6 +136,12 @@ pub trait View: Sized + 'static {
 
     /// The queries the view answers, by name.
     fn queries() -> Vec<&'static str> {
+        Vec::new()
+    }
+
+    /// The queries the view can be asked by name, each a statement over its own table: see
+    /// [`DeclaredQuery`]. None unless declared.
+    fn declared() -> Vec<DeclaredQuery> {
         Vec::new()
     }
 
@@ -166,6 +202,14 @@ impl<C: View> Registered for Registration<C> {
                 row_manifest: C::row_codec().form().manifest(),
                 queries: C::queries().into_iter().map(str::to_string).collect(),
                 version: C::version(),
+                sources: Vec::new(),
+                declared_queries: C::declared()
+                    .into_iter()
+                    .map(|q| proto::DeclaredQuery {
+                        name: q.name,
+                        statement: q.statement,
+                    })
+                    .collect(),
             })),
         }
     }

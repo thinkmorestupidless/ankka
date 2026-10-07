@@ -192,6 +192,12 @@ a process declares them and are held to the same rules. A host older than 1.7 wo
 guest that declares either reads `SidecarInfo.protocol_version` and refuses to answer discovery with
 them when the host's is earlier.
 
+A keyed view (protocol 1.13) needs no export of its own: its changes arrive at `ankka1_view` carrying
+`source_id` and no `row`, and it answers with `rows`. It reads its own rows, by key or by one of the
+view's declared queries, through the `query` import. A guest that declares a keyed view, a declared
+query or a version on a view that reads entities refuses to answer discovery when the host's
+protocol is earlier than 1.13, as it does for a start position below 1.7.
+
 ## The envelopes (`wasm.proto`)
 
 | message | carries |

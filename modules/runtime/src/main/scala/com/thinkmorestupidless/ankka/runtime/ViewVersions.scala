@@ -1,12 +1,18 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.sql
+import org.apache.pekko.Done
+import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.projection.ProjectionId
+import org.apache.pekko.projection.r2dbc.scaladsl.R2dbcSession
+import org.apache.pekko.projection.scaladsl.ProjectionManagement
 
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
- * The version each topic-sourced view's rows were built at, and the two locks that keep a rebuild
- * and a write from overlapping.
+ * The version each view's rows were built at, and the two locks that keep a rebuild and a write
+ * from overlapping.
  *
  * A view declared at a higher version than the one recorded is **rebuilt**: emptied, and read again
  * from its topic. Every instance of a service starts its views at once, and during a rolling update
@@ -21,8 +27,10 @@ import scala.concurrent.{ExecutionContext, Future}
  * it recorded; a conditional write alone would not do, because under `READ COMMITTED` a write that
  * decided the version matched and then waited for the truncation would land after it.
  *
- * Created by the runtime beside the view tables, only by a service with a topic-sourced view, and
- * never dropped: a view removed and added back later finds the version it was last built at.
+ * Created by the runtime beside the view tables, by a service with any view, and never dropped: a
+ * view removed and added back later finds the version it was last built at. A view that reads
+ * entities is rebuilt by its projections reading every source again under names carrying the new
+ * version (`ViewProjections`); a view that reads a topic, under a new group.
  */
 private[ankka] object ViewVersions:
 
@@ -46,12 +54,18 @@ private[ankka] object ViewVersions:
     SqlFragment.raw("INSERT INTO ankka_view_versions (component_id, version) VALUES (") ++
       sql"$componentId" ++ SqlFragment.raw(", 1) ON CONFLICT (component_id) DO NOTHING")
 
+  /**
+   * The view's lock, as a statement any transaction can take it with: shared by a plain view's
+   * write, exclusive by a rebuild and by every change a keyed view handles.
+   */
+  def lockFragment(componentId: String, shared: Boolean): SqlFragment = lock(componentId, shared)
+
   private def lock(componentId: String, shared: Boolean): SqlFragment =
     val function = if shared then "pg_advisory_xact_lock_shared" else "pg_advisory_xact_lock"
     SqlFragment.raw(s"SELECT $function($LockClass, hashtext(") ++ sql"$componentId" ++
       SqlFragment.raw("))")
 
-  private def selectVersion(componentId: String): SqlFragment =
+  def selectVersion(componentId: String): SqlFragment =
     SqlFragment.raw("SELECT version FROM ankka_view_versions WHERE component_id = ") ++
       sql"$componentId"
 
@@ -149,3 +163,61 @@ private[ankka] object ViewGuard:
         s"view '$componentId' is declared at version $declared and its rows are recorded at " +
           s"$recorded; this instance writes nothing to them"
       )
+
+/**
+ * Every write a view that reads entities makes, made in the change's own transaction only while the
+ * view's rows are recorded at the version this instance declares (`contracts/rebuild.md`, "The
+ * guarded write").
+ *
+ * The view's lock is taken first — shared by a plain view, so its slices do not queue behind each
+ * other, and exclusive by a keyed view, which is also what makes it handle one change at a time —
+ * then the recorded version is read. A rebuild holds the lock exclusively, so a write either
+ * commits before the emptying or starts after it and finds the new version: 024's argument, for
+ * entities. A write that finds another version writes nothing, fails so the change is not recorded
+ * as handled, pauses its projection, and the instance says once that it is behind.
+ */
+private[ankka] final class EntityViewGuard(
+    componentId: String,
+    declared: Int,
+    shared: Boolean,
+    projection: ProjectionId,
+    said: AtomicBoolean
+)(using system: ActorSystem[?]):
+
+  private given ExecutionContext = system.executionContext
+
+  private val lock    = ViewVersions.lockFragment(componentId, shared)
+  private val version = ViewVersions.selectVersion(componentId)
+
+  private def compare(recorded: Option[Int]): Future[Done] =
+    val at = recorded.getOrElse(1)
+    if at == declared then Future.successful(Done)
+    else
+      if said.compareAndSet(false, true) then
+        system.log.warn(
+          "view behind its recorded version: component={} declared={} recorded={}; this instance " +
+            "reads nothing from its sources and writes nothing to its table",
+          componentId,
+          declared,
+          at
+        )
+      ProjectionManagement(system).pause(projection): Unit
+      Future.failed(ViewGuard.Behind(componentId, declared, at))
+
+  /** Through a projection's own session, as an exactly-once handler writes. */
+  def inSession(session: R2dbcSession): Future[Done] =
+    def select[A](fragment: SqlFragment)(read: io.r2dbc.spi.Row => A) =
+      session.selectOne(Database.bind(session.createStatement(fragment.render), fragment))(read)
+    for
+      _        <- select(lock)(_ => ())
+      recorded <- select(version)(_.get("version", classOf[Integer]).intValue)
+      done     <- compare(recorded)
+    yield done
+
+  /** In a transaction of the view's own, as an at-least-once handler writes. */
+  def inTransaction(tx: Database.Transaction): Future[Done] =
+    for
+      _        <- tx.query(lock)(_ => ())
+      recorded <- tx.query(version)(_.get("version", classOf[Integer]).intValue)
+      done     <- compare(recorded.headOption)
+    yield done

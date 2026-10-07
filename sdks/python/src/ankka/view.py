@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typing
 from collections.abc import Awaitable
+from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
 from ankka import start_from
@@ -17,6 +18,34 @@ from ankka.event_sourced_entity import RegistrationError
 
 Src = TypeVar("Src")
 Row = TypeVar("Row")
+
+# The first protocol in which a view can declare queries; an older sidecar would not know them.
+DECLARED_QUERY_PROTOCOL = (1, 13)
+
+
+@dataclass(frozen=True)
+class DeclaredQuery:
+    """A question a view can be asked by name: one SQL statement over the view's own table, whose
+    values are the ``:name``s it holds. Kept as a class attribute of the view; the platform checks
+    the statement when the service starts, and a value is bound, never part of the text."""
+
+    name: str
+    statement: str
+
+
+def query(name: str, statement: str) -> DeclaredQuery:
+    """Declares a query a view can be asked by ``name``; keep it as a class attribute of the view."""
+    return DeclaredQuery(name, statement)
+
+
+def table_of(component_id: str) -> str:
+    """The table holding a view's rows, for a declared query's statement to name."""
+    return "ankka_view_" + "".join(c if c.isalnum() else "_" for c in component_id)
+
+
+def declares_queries(cls: type) -> bool:
+    """Whether ``cls`` declares a query, which a sidecar older than 1.13 would not know."""
+    return bool(getattr(cls, "_declared_queries", ()))
 
 
 def _source_pb(cls: type) -> discovery_pb2.Source:
@@ -42,14 +71,22 @@ class View(Generic[Src, Row]):
     topic: ClassVar[str | None] = None
     # Where a topic source starts; a view that says nothing starts at the earliest message.
     start_from: ClassVar[StartFrom | None] = None
-    # Raised to have the view emptied and read again from its topic. Absent is 1.
+    # Raised to have the view emptied and read again: its topic from its start position, or its
+    # entity from the first thing it recorded. Absent is 1.
     version: ClassVar[int | None] = None
     event_codec: ClassVar[Codec[Any]]
     row_codec: ClassVar[Codec[Any]]
     queries: ClassVar[tuple[str, ...]] = ("get", "all")
+    _declared_queries: ClassVar[tuple[DeclaredQuery, ...]] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._declared_queries = tuple(
+            value
+            for klass in reversed(cls.__mro__)
+            for value in vars(klass).values()
+            if isinstance(value, DeclaredQuery)
+        )
         for required in ("component_id", "event_codec", "row_codec"):
             if not hasattr(cls, required):
                 raise RegistrationError(f"{cls.__name__} must declare {required}")
@@ -86,7 +123,13 @@ class View(Generic[Src, Row]):
             id=cls.component_id,
             handlers=[],
             view=discovery_pb2.ViewDetail(
-                source=_source_pb(cls), row_manifest=cls.row_codec.manifest, queries=list(cls.queries), version=cls.version
+                source=_source_pb(cls),
+                row_manifest=cls.row_codec.manifest,
+                queries=list(cls.queries),
+                version=cls.version,
+                declared_queries=[
+                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement) for q in cls._declared_queries
+                ],
             ),
         )
 

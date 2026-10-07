@@ -9,6 +9,8 @@ import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteConsumerEventHandler,
   RemoteConsumerStateHandler,
   RemoteConsumerTopicHandler,
+  RemoteKeyedView,
+  RemoteKeyedViewDescriptor,
   RemoteProjection,
   RemoteSource,
   RemoteView,
@@ -75,14 +77,18 @@ final class ProjectionRuntime private (
     identity = service.identity
 
     val views     = service.registry.components.collect { case v: ViewDescriptor[?, ?, ?] => v }
+    val keyed     = service.registry.components.collect { case v: KeyedViewDescriptor[?, ?] => v }
     val consumers = service.registry.components.collect { case c: ConsumerDescriptor[?, ?, ?] => c }
     val remoteViews = service.registry.components.collect { case v: RemoteViewDescriptor => v }
+    val remoteKeyed =
+      service.registry.components.collect { case v: RemoteKeyedViewDescriptor => v }
     val remoteConsumers = service.registry.components.collect { case c: RemoteConsumerDescriptor =>
       c
     }
 
-    if views.isEmpty && consumers.isEmpty && remoteViews.isEmpty && remoteConsumers.isEmpty then
-      system.log.debug("no views or consumers registered")
+    if views.isEmpty && keyed.isEmpty && consumers.isEmpty && remoteViews.isEmpty &&
+      remoteKeyed.isEmpty && remoteConsumers.isEmpty
+    then system.log.debug("no views or consumers registered")
     else
       rejectUnsupported(views, consumers)
       rejectUnsupportedRemote(remoteViews, remoteConsumers)
@@ -90,18 +96,17 @@ final class ProjectionRuntime private (
       val database = Database()
 
       // Tables must exist before any projection writes to them.
-      val tables = views.map(_.tableName) ++
-        remoteViews.map(v => ViewDescriptor.tableFor(v.componentId))
-      // The recorded versions belong with the tables they describe, and only a service that has a
-      // view over a topic needs them.
-      val topicViews =
-        views.collect { case v if v.source.isInstanceOf[ChangeSource.Topic[?]] => v.componentId } ++
-          remoteViews.collect {
-            case v if v.source.isInstanceOf[RemoteSource.Topic] => v.componentId
-          }
+      val tables = views.map(_.tableName) ++ keyed.map(_.tableName) ++
+        remoteViews.map(v => ViewDescriptor.tableFor(v.componentId)) ++
+        remoteKeyed.map(v => ViewDescriptor.tableFor(v.componentId))
+      // The recorded versions belong with the tables they describe: every view has one, since
+      // a view of entities or of a topic is rebuilt by raising it, and one that declares none is
+      // at version 1 and stops writing when another instance declares a higher one.
+      val viewIds = views.map(_.componentId) ++ keyed.map(_.componentId) ++
+        remoteViews.map(_.componentId) ++ remoteKeyed.map(_.componentId)
       val versions =
-        if topicViews.isEmpty then Vector.empty
-        else ViewVersions.createTable +: topicViews.map(id => ViewVersions.ensure(id))
+        if viewIds.isEmpty then Vector.empty
+        else ViewVersions.createTable +: viewIds.map(id => ViewVersions.ensure(id))
       if tables.nonEmpty then
         // Under an advisory lock, in one transaction: several nodes of one service cold-start at
         // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
@@ -121,14 +126,20 @@ final class ProjectionRuntime private (
         )
 
       views.foreach(startView(_, client))
+      val askTimeout = FiniteDuration(
+        system.settings.config.getDuration("ankka.ask-timeout").toMillis,
+        java.util.concurrent.TimeUnit.MILLISECONDS
+      )
+      keyed.foreach(startKeyedView(_, client, askTimeout))
       consumers.foreach(startConsumer(_, client, service.secrets, service.services))
 
-      if remoteViews.nonEmpty || remoteConsumers.nonEmpty then
+      if remoteViews.nonEmpty || remoteKeyed.nonEmpty || remoteConsumers.nonEmpty then
         // `validate` refused a registry holding remote descriptors without a conversation.
         val conversation = service.conversation.getOrElse(
           throw IllegalStateException("remote views or consumers registered without a conversation")
         )
         remoteViews.foreach(startRemoteView(_, conversation))
+        remoteKeyed.foreach(startRemoteKeyedView(_, conversation, askTimeout))
         remoteConsumers.foreach(startRemoteConsumer(_, conversation))
 
   /**
@@ -406,6 +417,61 @@ final class ProjectionRuntime private (
       ViewVersions.rebuild(database, table, componentId, declared)
     }
 
+  /**
+   * A view that reads entities, at the version it declares: started if its rows were built at that
+   * version; rebuilt first — emptied once, however many instances start — if at a lower one. At a
+   * higher one the instance says it is behind and still starts its projections: the daemon process
+   * they run in is the same on every instance, and its coordinator lives on the oldest, which may
+   * be this one; every write they try is refused by the guard, which pauses them. `start` starts
+   * the view's projections under the ids its declared version gives them, which have read nothing
+   * after a rebuild, so every source is read again from its first event or state.
+   *
+   * Off the start thread, as a topic view's is: it waits on the database.
+   */
+  private def startEntityView(componentId: ComponentId, declared: Int)(start: => Unit)(using
+      system: ActorSystem[?]
+  ): Unit =
+    given ExecutionContext = system.executionContext
+    val database           = Database()
+    val table              = ViewDescriptor.tableFor(componentId)
+    val log                = system.log
+    val started =
+      ViewVersions.recorded(database, componentId).flatMap { recorded =>
+        if recorded == declared then Future.successful(start)
+        else if recorded > declared then
+          Future.successful { entityBehind(componentId, declared, recorded); start }
+        else
+          ViewVersions.rebuild(database, table, componentId, declared).map {
+            case ViewVersions.Rebuilt.Emptied(from) =>
+              log.info(
+                "view emptied for rebuild: component={} from version={} to version={}; every " +
+                  "source is read again from its beginning",
+                componentId,
+                from,
+                declared
+              )
+              start
+            case ViewVersions.Rebuilt.AlreadyBuilt =>
+              log.info("view rebuild already done: component={} version={}", componentId, declared)
+              start
+            case ViewVersions.Rebuilt.Behind(higher) =>
+              entityBehind(componentId, declared, higher)
+              start
+          }
+      }
+    started.failed.foreach(failure => log.error(s"view '$componentId' could not start", failure))
+
+  private def entityBehind(componentId: ComponentId, declared: Int, recorded: Int)(using
+      system: ActorSystem[?]
+  ): Unit =
+    system.log.warn(
+      "view behind its recorded version: component={} declared={} recorded={}; this instance " +
+        "reads nothing from its sources and writes nothing to its table",
+      componentId,
+      declared,
+      recorded
+    )
+
   /** A view declared below its recorded version: it is left as it is, and says so. */
   private def behind(componentId: ComponentId, declared: Int, recorded: Int)(using
       system: ActorSystem[?]
@@ -431,30 +497,42 @@ final class ProjectionRuntime private (
       client: ComponentClient
   )(using system: ActorSystem[?]): Unit =
     type AnyView = View[Any, Any]
-    val typed       = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
-    val processName = s"ankka-view-${typed.componentId}"
+    val typed    = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
+    val declared = typed.version.getOrElse(1)
+    val id       = typed.componentId
+    val said     = java.util.concurrent.atomic.AtomicBoolean(false)
+    def guard(projection: ProjectionId) =
+      EntityViewGuard(id, declared, shared = true, projection, said)
 
     typed.source match
       case ChangeSource.EventSourced(sourceId, _) =>
-        daemon(processName, typed.parallelism) { index =>
-          val range = eventSliceRanges(typed.parallelism)(index)
-          exactlyOnceEventProjection(
-            ProjectionId(processName, s"${range.min}-${range.max}"),
-            sourceId,
-            range,
-            () => ViewEventHandler(typed, client)
-          )
+        startEntityView(id, declared) {
+          daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
+            val range = eventSliceRanges(typed.parallelism)(index)
+            val projection =
+              ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
+            exactlyOnceEventProjection(
+              projection,
+              sourceId,
+              range,
+              () => ViewEventHandler(typed, client, guard(projection))
+            )
+          }
         }
 
       case ChangeSource.KeyValue(sourceId, _) =>
-        daemon(processName, typed.parallelism) { index =>
-          val range = DurableStateSourceProvider.sliceRanges(typed.parallelism)(index)
-          atLeastOnceStateProjection(
-            ProjectionId(processName, s"${range.min}-${range.max}"),
-            sourceId,
-            range,
-            () => ViewStateHandler(typed, client)
-          )
+        startEntityView(id, declared) {
+          daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
+            val range = DurableStateSourceProvider.sliceRanges(typed.parallelism)(index)
+            val projection =
+              ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
+            atLeastOnceStateProjection(
+              projection,
+              sourceId,
+              range,
+              () => ViewStateHandler(typed, client, guard(projection))
+            )
+          }
         }
 
       case ChangeSource.Topic(topic, _, startFrom) =>
@@ -469,6 +547,58 @@ final class ProjectionRuntime private (
             guard => ViewTopicHandler(typed, Database(), client, guard).process
           )
         }
+
+  // ── Keyed views ───────────────────────────────────────────────────────────
+
+  /**
+   * A keyed view: one projection per source, each one instance over every slice, since the view
+   * handles one change at a time and slicing a source would only queue behind its lock.
+   */
+  private def startKeyedView(
+      descriptor: KeyedViewDescriptor[?, ?],
+      client: ComponentClient,
+      askTimeout: FiniteDuration
+  )(using system: ActorSystem[?]): Unit =
+    type AnyKeyed = KeyedView[Any]
+    val typed    = descriptor.asInstanceOf[KeyedViewDescriptor[AnyKeyed, Any]]
+    val host     = KeyedViewHost(typed, client, askTimeout)
+    val declared = typed.version.getOrElse(1)
+    val id       = typed.componentId
+    val said     = java.util.concurrent.atomic.AtomicBoolean(false)
+    def guard(projection: ProjectionId) =
+      EntityViewGuard(id, declared, shared = false, projection, said)
+    startEntityView(id, declared) {
+      typed.sources.foreach { source =>
+        val daemonName     = ViewProjections.daemon(id, Some(source.componentId))
+        val projectionName = ViewProjections.name(id, Some(source.componentId), declared)
+        def handle(subject: String, sequence: Long, payload: Option[(Array[Byte], String)]) =
+          host.handle(source, subject, sequence, payload)
+        source.source match
+          case ChangeSource.EventSourced(sourceId, _) =>
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceEventProjection(
+                projection,
+                sourceId,
+                range,
+                () => KeyedViewEventHandler(host.core, guard(projection), handle)
+              )
+            }
+          case ChangeSource.KeyValue(sourceId, _) =>
+            daemon(daemonName, 1) { _ =>
+              val range      = DurableStateSourceProvider.sliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              atLeastOnceStateProjection(
+                projection,
+                sourceId,
+                range,
+                () => KeyedViewStateHandler(host.core, guard(projection), handle)
+              )
+            }
+          case ChangeSource.Topic(_, _, _) => () // refused by KeyedViewRules
+      }
+    }
 
   // ── Consumers ─────────────────────────────────────────────────────────────
 
@@ -547,31 +677,43 @@ final class ProjectionRuntime private (
       conversation: Conversation
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
-    val processName        = s"ankka-view-${descriptor.componentId}"
     val parallelism        = RemoteProjection.Parallelism
     def view()             = RemoteView(descriptor, conversation, Observability(system))
+    val declared           = descriptor.version.getOrElse(1)
+    val id                 = descriptor.componentId
+    val daemonName         = ViewProjections.daemon(id, None)
+    val projectionName     = ViewProjections.name(id, None, declared)
+    val said               = java.util.concurrent.atomic.AtomicBoolean(false)
+    def guard(projection: ProjectionId) =
+      EntityViewGuard(id, declared, shared = true, projection, said)
 
     descriptor.source match
       case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
-        daemon(processName, parallelism) { index =>
-          val range = eventSliceRanges(parallelism)(index)
-          exactlyOnceEventProjection(
-            ProjectionId(processName, s"${range.min}-${range.max}"),
-            sourceId,
-            range,
-            () => RemoteViewEventHandler(view())
-          )
+        startEntityView(id, declared) {
+          daemon(daemonName, parallelism) { index =>
+            val range      = eventSliceRanges(parallelism)(index)
+            val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+            exactlyOnceEventProjection(
+              projection,
+              sourceId,
+              range,
+              () => RemoteViewEventHandler(view(), guard(projection))
+            )
+          }
         }
 
       case RemoteSource.Component(ComponentKind.KeyValueEntity, sourceId) =>
-        daemon(processName, parallelism) { index =>
-          val range = DurableStateSourceProvider.sliceRanges(parallelism)(index)
-          atLeastOnceStateProjection(
-            ProjectionId(processName, s"${range.min}-${range.max}"),
-            sourceId,
-            range,
-            () => RemoteViewStateHandler(view(), Database())
-          )
+        startEntityView(id, declared) {
+          daemon(daemonName, parallelism) { index =>
+            val range      = DurableStateSourceProvider.sliceRanges(parallelism)(index)
+            val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+            atLeastOnceStateProjection(
+              projection,
+              sourceId,
+              range,
+              () => RemoteViewStateHandler(view(), Database(), guard(projection))
+            )
+          }
         }
 
       case RemoteSource.Topic(topic, startFrom) =>
@@ -587,6 +729,52 @@ final class ProjectionRuntime private (
         }
 
       case RemoteSource.Component(_, _) => () // refused by rejectUnsupportedRemote
+
+  /** A keyed view in another process: the Scala keyed view's hosts, with the process answering. */
+  private def startRemoteKeyedView(
+      descriptor: RemoteKeyedViewDescriptor,
+      conversation: Conversation,
+      askTimeout: FiniteDuration
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val core               = KeyedViewCore(descriptor.componentId, askTimeout)
+    val view               = RemoteKeyedView(descriptor, conversation, Observability(system))
+    val declared           = descriptor.version.getOrElse(1)
+    val id                 = descriptor.componentId
+    val said               = java.util.concurrent.atomic.AtomicBoolean(false)
+    def guard(projection: ProjectionId) =
+      EntityViewGuard(id, declared, shared = false, projection, said)
+    startEntityView(id, declared) {
+      descriptor.sources.foreach {
+        case RemoteSource.Component(kind, sourceId) =>
+          val daemonName     = ViewProjections.daemon(id, Some(sourceId))
+          val projectionName = ViewProjections.name(id, Some(sourceId), declared)
+          val handle         = view.handle(sourceId)
+          if kind == ComponentKind.EventSourcedEntity then
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceEventProjection(
+                projection,
+                sourceId,
+                range,
+                () => KeyedViewEventHandler(core, guard(projection), handle)
+              )
+            }
+          else if kind == ComponentKind.KeyValueEntity then
+            daemon(daemonName, 1) { _ =>
+              val range      = DurableStateSourceProvider.sliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              atLeastOnceStateProjection(
+                projection,
+                sourceId,
+                range,
+                () => KeyedViewStateHandler(core, guard(projection), handle)
+              )
+            }
+        case RemoteSource.Topic(_, _) => () // refused by KeyedViewRules
+      }
+    }
 
   private def startRemoteConsumer(
       descriptor: RemoteConsumerDescriptor,
@@ -777,7 +965,8 @@ object ProjectionRuntime:
 /** Applies a view's effect and the projection offset in one transaction. */
 private final class ViewEventHandler(
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
-    client: ComponentClient
+    client: ComponentClient,
+    guard: EntityViewGuard
 )(using system: ActorSystem[?])
     extends R2dbcHandler[EventEnvelope[JournalRecord]]:
 
@@ -793,17 +982,21 @@ private final class ViewEventHandler(
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val record  = envelope.event
 
-    ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer).flatMap { row =>
-      val effect =
-        ProjectionSupport
-          .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
-      ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
-    }
+    guard
+      .inSession(session)
+      .flatMap(_ => ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer))
+      .flatMap { row =>
+        val effect =
+          ProjectionSupport
+            .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
+        ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
+      }
 
 /** As `ViewEventHandler`, but for key value state changes. */
 private final class ViewStateHandler(
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
-    client: ComponentClient
+    client: ComponentClient,
+    guard: EntityViewGuard
 )(using system: ActorSystem[?])
     extends Handler[DurableStateChange[StateRecord]]:
 
@@ -842,12 +1035,15 @@ private final class ViewStateHandler(
             }
           finally view._setContext(None)
 
+        def write(fragment: SqlFragment): Future[Done] =
+          database.inTransaction(tx =>
+            guard.inTransaction(tx).flatMap(_ => tx.execute(fragment)).map(_ => Done)
+          )
         effect match
           case ViewEffect.UpdateRow(row) =>
             val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-            database.execute(ViewStore.upsert(table, subject, json)).map(_ => Done)
-          case ViewEffect.DeleteRow =>
-            database.execute(ViewStore.delete(table, subject)).map(_ => Done)
+            write(ViewStore.upsert(table, subject, json))
+          case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
           case ViewEffect.Ignore =>
             Future.successful(Done)
       }

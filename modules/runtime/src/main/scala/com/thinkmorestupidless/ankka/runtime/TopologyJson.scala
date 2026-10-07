@@ -292,9 +292,10 @@ object TopologyJson:
   /**
    * The connections one component declared: what it reads, and what it publishes to.
    *
-   * Exactly one for a source and one for a destination, so a reader may say nothing else feeds a
-   * view. Read from the descriptor and from nothing else: not from what has been delivered, and not
-   * from what a component is called.
+   * Exactly the sources the component declared — one for a plain view or a consumer, one per source
+   * for a keyed view — and one destination, so a reader may say nothing else feeds a view. Read
+   * from the descriptor and from nothing else: not from what has been delivered, and not from what
+   * a component is called.
    */
   private def declared(
       descriptor: ComponentDescriptor,
@@ -317,7 +318,7 @@ object TopologyJson:
           )
           Connection(outside.id, id, connection, fromNode = Some(outside))
 
-    val source = DeclaredConnections.sourceOf(descriptor).map {
+    val sources = DeclaredConnections.sourcesOf(descriptor).map {
       case DeclaredSource.Events(component) =>
         entity(component, ComponentKind.EventSourcedEntity, "events")
       case DeclaredSource.State(component) =>
@@ -330,4 +331,4 @@ object TopologyJson:
       val to = topic(name)
       Connection(id, to.id, "topic-publication", toNode = Some(to))
     }
-    source.toVector ++ destination
+    sources ++ destination

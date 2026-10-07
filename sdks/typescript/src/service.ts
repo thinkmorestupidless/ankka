@@ -9,7 +9,8 @@ import { codecFor, isCodec, type Codec, type Shape } from "./codec.ts"
 import { EventSourcedEntity, type EventSourcedEntityClass } from "./eventSourcedEntity.ts"
 import { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
 import { Workflow, type WorkflowClass } from "./workflow.ts"
-import { View, type ViewClass } from "./view.ts"
+import { View, type DeclaredQuery, type ViewClass } from "./view.ts"
+import { KeyedView, type KeyedViewClass } from "./keyedView.ts"
 import { Consumer, type ConsumerClass } from "./consumer.ts"
 import { GraphConsumer, graphDeltaCodec, type GraphConsumerClass } from "./graph.ts"
 import { TimedAction, type TimedActionClass } from "./timedAction.ts"
@@ -69,6 +70,26 @@ export interface RegisteredView {
   readonly rowCodec: Codec<any>
   readonly queries: readonly string[]
   readonly version: number | undefined
+  readonly declared: readonly DeclaredQuery[]
+}
+
+/** One source of a keyed view: the entity it reads, how its changes decode, and its handlers. */
+export interface RegisteredKeyedSource {
+  readonly id: string
+  readonly kind: ComponentKind
+  readonly eventCodec: Codec<any>
+  readonly onChange: (view: any, event: any) => unknown
+  readonly deleted: ((view: any) => unknown) | undefined
+}
+
+export interface RegisteredKeyedView {
+  readonly kind: "keyed-view"
+  readonly id: string
+  readonly cls: KeyedViewClass<any, any>
+  readonly sources: ReadonlyMap<string, RegisteredKeyedSource>
+  readonly rowCodec: Codec<any>
+  readonly version: number | undefined
+  readonly declared: readonly DeclaredQuery[]
 }
 
 export interface RegisteredConsumer {
@@ -120,6 +141,7 @@ export type RegisteredComponent =
   | RegisteredKeyValue
   | RegisteredWorkflow
   | RegisteredView
+  | RegisteredKeyedView
   | RegisteredConsumer
   | RegisteredTimedAction
   | RegisteredAgent
@@ -211,6 +233,7 @@ export class ServiceBuilder {
   register<S, C extends KeyValueEntity<S>>(cls: KeyValueEntityClass<S, C>): this
   register<S, C extends Workflow<S>>(cls: WorkflowClass<S, C>): this
   register<E, Row, C extends View<E, Row>>(cls: ViewClass<E, Row, C>): this
+  register<Row, C extends KeyedView<Row>>(cls: KeyedViewClass<Row, C>): this
   register<M, Out, C extends Consumer<M, Out>>(cls: ConsumerClass<M, Out, C>): this
   register<M, C extends GraphConsumer<M>>(cls: GraphConsumerClass<M, C>): this
   register<C extends TimedAction>(cls: TimedActionClass<C>): this
@@ -240,6 +263,7 @@ export class ServiceBuilder {
       else if (extendsBase(cls, KeyValueEntity)) add(registerKeyValue(cls as KeyValueEntityClass<any, any>, problems), cls)
       else if (extendsBase(cls, Workflow)) add(registerWorkflow(cls as WorkflowClass<any, any>, problems), cls)
       else if (extendsBase(cls, View)) add(registerView(cls as ViewClass<any, any, any>, problems), cls)
+      else if (extendsBase(cls, KeyedView)) add(registerKeyedView(cls as KeyedViewClass<any, any>, problems), cls)
       else if (extendsBase(cls, Consumer)) add(registerConsumer(cls as ConsumerClass<any, any, any>, problems), cls)
       else if (extendsBase(cls, GraphConsumer)) add(registerGraphConsumer(cls as GraphConsumerClass<any, any>, problems), cls)
       else if (extendsBase(cls, TimedAction)) add(registerTimedAction(cls as TimedActionClass<any>, problems), cls)
@@ -258,7 +282,7 @@ export class ServiceBuilder {
           else endpoints.set(r.id, r)
         }
       } else {
-        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, Consumer, GraphConsumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
+        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, KeyedView, Consumer, GraphConsumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
       }
     }
 
@@ -364,8 +388,10 @@ type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; ve
 
 /**
  * What a view or consumer says about the topic it reads, checked where its other declarations are:
- * a consumer must say where it starts, and a start position or a version means something only for a
- * topic.
+ * a consumer must say where it starts, and a start position means something only for a topic. A
+ * version means something for a view whatever it reads — raising it rebuilds the view, from a topic
+ * as far back as the broker retains and from an entity from its first event — and for a consumer only
+ * over a topic, whose group it renames.
  */
 function topicProblems(cls: Declares, consumer: boolean, fail: Fail): void {
   const readsTopic = cls.source === undefined && cls.topic !== undefined
@@ -377,7 +403,7 @@ function topicProblems(cls: Declares, consumer: boolean, fail: Fail): void {
   if (cls.version !== undefined) {
     if (typeof cls.version !== "number" || !Number.isSafeInteger(cls.version) || cls.version < 1) {
       fail(`declares version ${String(cls.version)}; a version is a whole number of 1 or more`)
-    } else if (!readsTopic) fail("declares a version, which applies to a topic; it reads a component")
+    } else if (consumer && !readsTopic) fail("declares a version, which applies to a topic; it reads a component")
   }
 }
 
@@ -413,6 +439,14 @@ function registerView(cls: ViewClass<any, any, any>, problems: string[]): Regist
   requireShape(cls.row, "row: a schema or codec for its rows", fail)
   const queries = cls.queries ?? ["get", "all"]
   if (!Array.isArray(queries) || queries.some((q) => typeof q !== "string" || q.trim() === "")) fail("queries must be a list of names")
+  const declared = cls.declared ?? []
+  if (!Array.isArray(declared) || declared.some((q) => typeof q?.name !== "string" || q.name.trim() === "" || typeof q?.statement !== "string" || q.statement.trim() === "")) {
+    fail("declared must be a list of declaredQuery(name, statement)")
+  } else {
+    const names = declared.map((q) => q.name)
+    const twice = names.filter((n, i) => names.indexOf(n) !== i)
+    if (twice.length > 0) fail(`declares the query '${twice[0]}' twice; each query has a name of its own`)
+  }
   if (!ok() || !source) return undefined
   return Object.freeze({
     kind: "view",
@@ -423,6 +457,74 @@ function registerView(cls: ViewClass<any, any, any>, problems: string[]): Regist
     rowCodec: codecFor(cls.row),
     queries: Object.freeze([...queries]),
     version: cls.version,
+    declared: Object.freeze([...declared]),
+  })
+}
+
+function checkVersion(version: unknown, fail: Fail): void {
+  if (version !== undefined && (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)) {
+    fail(`declares version ${String(version)}; a version is a whole number of 1 or more`)
+  }
+}
+
+function checkDeclared(declared: unknown, fail: Fail): readonly DeclaredQuery[] {
+  if (declared === undefined) return []
+  if (!Array.isArray(declared) || declared.some((q) => typeof q?.name !== "string" || q.name.trim() === "" || typeof q?.statement !== "string" || q.statement.trim() === "")) {
+    fail("declared must be a list of declaredQuery(name, statement)")
+    return []
+  }
+  const names = declared.map((q: DeclaredQuery) => q.name)
+  const twice = names.filter((n, i) => names.indexOf(n) !== i)
+  if (twice.length > 0) fail(`declares the query '${twice[0]}' twice; each query has a name of its own`)
+  return declared as readonly DeclaredQuery[]
+}
+
+/**
+ * A keyed view: one or more entities, each through a handler of its own. A topic is not a keyed view's
+ * source, and one entity is read once.
+ */
+function registerKeyedView(cls: KeyedViewClass<any, any>, problems: string[]): RegisteredKeyedView | undefined {
+  const { fail, ok } = checker(cls, problems)
+  requireId(cls, fail)
+  requireShape(cls.row, "row: a schema or codec for its rows", fail)
+  checkVersion(cls.version, fail)
+  const declared = checkDeclared(cls.declared, fail)
+  const sources = new Map<string, RegisteredKeyedSource>()
+  const declaredSources = cls.sources
+  if (!Array.isArray(declaredSources) || declaredSources.length === 0) {
+    fail("declares no source; a keyed view reads one or more entities, each declared with on(...)")
+  } else {
+    for (const [i, s] of declaredSources.entries()) {
+      const ref = s?.source as ComponentRef | undefined
+      const kind = ref?.prototype?._kind
+      if (typeof s?.onChange !== "function" || typeof ref?.componentId !== "string" || typeof kind !== "string") {
+        fail(`sources[${i}] is not a source: declare it with on(EntityClass, events, handler)`)
+        continue
+      }
+      if (kind !== "event-sourced" && kind !== "key-value") {
+        fail(`reads ${kind} ${JSON.stringify(ref.componentId)}; a keyed view reads event sourced and key value entities`)
+        continue
+      }
+      if (!isShape(s.events)) {
+        fail(`sources[${i}] needs a schema or codec for ${ref.componentId}'s changes`)
+        continue
+      }
+      if (sources.has(ref.componentId)) {
+        fail(`reads ${JSON.stringify(ref.componentId)} twice; each source is read once`)
+        continue
+      }
+      sources.set(ref.componentId, Object.freeze({ id: ref.componentId, kind, eventCodec: codecFor(s.events), onChange: s.onChange, deleted: s.deleted }))
+    }
+  }
+  if (!ok()) return undefined
+  return Object.freeze({
+    kind: "keyed-view",
+    id: cls.componentId,
+    cls,
+    sources,
+    rowCodec: codecFor(cls.row),
+    version: cls.version,
+    declared: Object.freeze([...declared]),
   })
 }
 

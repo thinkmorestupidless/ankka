@@ -4,14 +4,17 @@ pub use crate::codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use crate::codec::{Bytes, Done};
 pub use crate::components::{
     Acl, Actions, Agent, AgentHandlers, AutonomousAgent, AutonomousSettings, Caller, CallerMatcher,
-    Consumer, Endpoint, EventSourcedEntity, Guardrails, Handlers, KeyValueEntity, KeyValueHandlers,
-    Principal, Recovery, Request, Routes, Schema, Shape, Source, Stage, Steps, TaskAcceptance,
-    TaskType, TimedAction, Tools, Verdict, View, Workflow, WorkflowHandlers, WorkflowSettings,
+    Consumer, DeclaredQuery, Endpoint, EventSourcedEntity, Guardrails, Handlers, KeyValueEntity,
+    KeyValueHandlers, KeyedView, Principal, Recovery, Request, Routes, Schema, Shape, Source,
+    Stage, Steps, TaskAcceptance, TaskType, TimedAction, Tools, Verdict, View, Workflow,
+    WorkflowHandlers, WorkflowSettings,
 };
+pub use crate::components::{Sources, query, table_of};
 pub use crate::config::config;
 pub use crate::context::{Context, Metadata};
 pub use crate::effects::agent::AgentEffect;
 pub use crate::effects::consumer::{ConsumerEffect, Outgoing};
+pub use crate::effects::keyed_view::KeyedViewEffect;
 pub use crate::effects::view::ViewEffect;
 pub use crate::effects::workflow::step as step_effects;
 pub use crate::effects::{

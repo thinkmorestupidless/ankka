@@ -20,11 +20,12 @@ from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
 from ankka.graph import GraphConsumer
 from ankka.key_value_entity import KeyValueEntity
+from ankka.keyed_view import KeyedView
 from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
 
-PROTOCOL_VERSION = "1.12"
+PROTOCOL_VERSION = "1.13"
 DEFAULT_PROCESS_PORT = 9010
 
 
@@ -36,6 +37,7 @@ class Registry:
     key_values: dict[str, type[KeyValueEntity[Any]]] = field(default_factory=dict)
     workflows: dict[str, type[Workflow[Any]]] = field(default_factory=dict)
     views: dict[str, type[View[Any, Any]]] = field(default_factory=dict)
+    keyed_views: dict[str, type[KeyedView[Any]]] = field(default_factory=dict)
     # A graph consumer is a consumer to the runtime: one registry, one id space, one servicer.
     consumers: dict[str, type[Consumer[Any, Any]] | type[GraphConsumer[Any]]] = field(default_factory=dict)
     timed_actions: dict[str, type[TimedAction]] = field(default_factory=dict)
@@ -46,7 +48,16 @@ class Registry:
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
-        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions, self.agents, self.autonomous):
+        for registry in (
+            self.key_values,
+            self.workflows,
+            self.views,
+            self.keyed_views,
+            self.consumers,
+            self.timed_actions,
+            self.agents,
+            self.autonomous,
+        ):
             components.extend(cls.to_component() for cls in registry.values())
         for other in self.others:
             components.append(other.to_component())
@@ -78,7 +89,13 @@ class ServiceBuilder:
         elif isinstance(component, type) and issubclass(component, Workflow):
             self._add(self._registry.workflows, "workflow", component)
         elif isinstance(component, type) and issubclass(component, View):
+            if component.component_id in self._registry.keyed_views:
+                self._problems.append(f"view '{component.component_id}' is registered twice")
             self._add(self._registry.views, "view", component)
+        elif isinstance(component, type) and issubclass(component, KeyedView):
+            if component.component_id in self._registry.views:
+                self._problems.append(f"view '{component.component_id}' is registered twice")
+            self._add(self._registry.keyed_views, "view", component)
         elif isinstance(component, type) and issubclass(component, (Consumer, GraphConsumer)):
             self._add(self._registry.consumers, "consumer", component)
         elif isinstance(component, type) and issubclass(component, TimedAction):

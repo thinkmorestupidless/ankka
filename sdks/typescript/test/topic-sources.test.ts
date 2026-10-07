@@ -94,8 +94,18 @@ test("a version that is not a positive whole number is refused", () => {
   }
 })
 
-test("a version or a start position on a component that reads an entity is refused", () => {
-  assert.match(problemsOf(view({ topic: undefined, source: Counter, version: 2 }))[0], /declares a version, which applies to a topic/)
+test("a version on a view that reads an entity is accepted and sent: raising it rebuilds the view from the journal", () => {
+  assert.deepEqual(problemsOf(view({ topic: undefined, source: Counter, version: 2 })), [])
+  const d = specOf(view({ topic: undefined, source: Counter, version: 2 })).components[0].detail
+  assert.equal(d.case === "view" && d.value.version, 2)
+  assert.equal(d.case === "view" && d.value.source?.source.case, "component")
+})
+
+test("a version on a consumer that reads an entity is refused", () => {
+  assert.match(problemsOf(consumer({ topic: undefined, source: Counter, startFrom: undefined, version: 2 }))[0], /declares a version, which applies to a topic/)
+})
+
+test("a start position on a component that reads an entity is refused", () => {
   assert.match(
     problemsOf(consumer({ topic: undefined, source: Counter, startFrom: StartFrom.latest }))[0],
     /declares a start position, which applies to a topic/,

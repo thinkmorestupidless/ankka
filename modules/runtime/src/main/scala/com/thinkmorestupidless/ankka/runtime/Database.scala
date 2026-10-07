@@ -8,6 +8,7 @@ import org.apache.pekko.persistence.r2dbc.ConnectionFactoryProvider
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
 
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -89,6 +90,20 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
       }
     }
 
+  /**
+   * `work`, inside a transaction the database holds to reading, whose every statement it ends once
+   * `timeout` has passed. What a view's declared query runs in: the check at startup decides what a
+   * statement says, and only the database can promise what it does and that it stops.
+   */
+  def readOnly[A](timeout: FiniteDuration)(work: Database.Transaction => Future[A]): Future[A] =
+    inTransaction { tx =>
+      tx.execute(SqlFragment.raw("SET TRANSACTION READ ONLY"))
+        .flatMap(_ =>
+          tx.execute(SqlFragment.raw(s"SET LOCAL statement_timeout = ${timeout.toMillis.max(1L)}"))
+        )
+        .flatMap(_ => work(tx))
+    }
+
   /** Executes a statement, returning the number of rows affected. */
   def execute(fragment: SqlFragment): Future[Long] =
     withConnection { connection =>
@@ -154,6 +169,25 @@ private[ankka] object Database:
       Source
         .fromPublisher(bind(connection.createStatement(fragment.render), fragment).execute())
         .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))
+        .runWith(Sink.seq)
+        .map(_.toVector)(using ExecutionContext.parasitic)
+
+    /**
+     * Runs `sql`, which holds `$1`, `$2`, … for `binds` in order, and decodes at most `limit` rows.
+     * The statement is sent as written; the rows past the limit are not read.
+     */
+    def queryUpTo[A](sql: String, binds: Vector[String], limit: Int)(
+        decode: (Row, RowMetadata) => A
+    ): Future[Vector[A]] =
+      // The fetch size makes the database stop at the limit, rather than the driver reading and
+      // discarding what it went on producing: a result that never ends is not read at all.
+      val statement = connection.createStatement(sql).fetchSize(limit)
+      binds.zipWithIndex.foreach((value, index) => statement.bind(index, value): Unit)
+      val mapper: BiFunction[Row, RowMetadata, A] = (row, metadata) => decode(row, metadata)
+      Source
+        .fromPublisher(statement.execute())
+        .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))
+        .take(limit.toLong)
         .runWith(Sink.seq)
         .map(_.toVector)(using ExecutionContext.parasitic)
 

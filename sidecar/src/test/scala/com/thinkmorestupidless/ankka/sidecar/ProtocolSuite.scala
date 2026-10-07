@@ -154,7 +154,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.12")
+    assertEquals(Discovery.ProtocolVersion, "1.13")
   }
 
   test(
@@ -363,6 +363,91 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("discovery: a keyed view's sources build a keyed view, and D1–D3 are refused") {
+    def keyed(id: String, plain: Option[Source], sources: Source*) = Component(
+      Kind.VIEW,
+      id,
+      Vector.empty,
+      Component.Detail.View(ViewDetail(plain, "row", Vector.empty, None, sources.toVector))
+    )
+    def entity(id: String) =
+      Component(
+        Kind.EVENT_SOURCED_ENTITY,
+        id,
+        Vector.empty,
+        Component.Detail.EventSourced(EventSourcedDetail(0))
+      )
+    def of(id: String) =
+      Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, id)))
+    val built = validateSpec(
+      topicSpec(
+        "1.8",
+        entity("shipment"),
+        entity("customer"),
+        keyed("joined", None, of("shipment"), of("customer"))
+      )
+    ).fold(p => fail(p.mkString("; ")), _.descriptors)
+    assertEquals(
+      built.collect { case v: RemoteKeyedViewDescriptor => v.sources.size },
+      Vector(2)
+    )
+    // D1: a source and sources.
+    val both = validateSpec(
+      topicSpec("1.8", entity("shipment"), keyed("joined", Some(of("shipment")), of("shipment")))
+    ).left.toOption.get
+    assert(both.exists(_.contains("declares a source and sources")), both.toString)
+    // D3: a topic among a keyed view's sources.
+    val topical = validateSpec(
+      topicSpec(
+        "1.8",
+        entity("shipment"),
+        keyed("joined", None, of("shipment"), Source(Source.Source.Topic("orders")))
+      )
+    ).left.toOption.get
+    assert(
+      topical.exists(_.contains("a topic and an entity may not be sources of one view")),
+      topical.toString
+    )
+  }
+
+  test(
+    "discovery: a view's declared queries reach its descriptor, and a refused one is a problem"
+  ) {
+    val table = "ankka_view_summary"
+    def summary(declared: (String, String)*) = Component(
+      Kind.VIEW,
+      "summary",
+      Vector.empty,
+      Component.Detail.View(
+        ViewDetail(
+          overTopic(None),
+          "row",
+          Vector.empty,
+          None,
+          Vector.empty,
+          declared.map((name, statement) => DeclaredQuery(name, statement)).toVector
+        )
+      )
+    )
+    val accepted = validateSpec(
+      topicSpec("1.8", summary("by-kind" -> s"SELECT payload FROM $table WHERE payload = :kind"))
+    ).fold(p => fail(p.mkString("; ")), _.descriptors)
+    assertEquals(
+      accepted.collect { case v: RemoteViewDescriptor => v.declaredQueries.map(_.name) },
+      Vector(Vector("by-kind"))
+    )
+
+    val refused = validateSpec(
+      topicSpec("1.8", summary("broken" -> "SELECT payload FROM ankka_view_accounts"))
+    ).left.toOption.getOrElse(fail("a view reading another table was accepted"))
+    assert(
+      refused.exists(p =>
+        p.contains("'summary'") && p.contains("'broken'") && p.contains("ankka_view_accounts")
+      ),
+      refused.mkString("; ")
+    )
+  }
+
   test("discovery: a declared version reaches the remote view and consumer, and is checked") {
     import ankka.protocol.v1.discovery.StartFrom as P
     val latest = Some(P(P.Position.Named(P.Named.LATEST)))
@@ -426,13 +511,11 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         )
       )
     ).left.toOption.get
+    // A view that reads an entity may declare a version (its rebuild reads the journal again);
+    // only one below 1 is refused.
     assertEquals(
       refused.toSet,
-      Set(
-        "view 'zero' declares version 0; a version is a whole number of 1 or more",
-        "view 'over-entity' declares a version, which applies to a topic; it reads " +
-          "EventSourcedEntity(order)"
-      )
+      Set("view 'zero' declares version 0; a version is a whole number of 1 or more")
     )
   }
 

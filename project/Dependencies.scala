@@ -34,6 +34,13 @@ object Dependencies {
     val decline             = "2.6.2"
     val nimbusJoseJwt       = "10.9.1"
 
+    /**
+     * Reads a view's declared statements, so the runtime can refuse one that writes or reads
+     * another table before the database is sent it (feature 031, R7). Dual-licensed Apache 2.0 or
+     * LGPL 2.1; in `runtime` only.
+     */
+    val jsqlparser = "5.4"
+
     /** Test scope only: mints certificates in-process for the TLS suites (feature 014, R13). */
     val bouncyCastle = "1.86"
 
@@ -177,6 +184,9 @@ object Dependencies {
 
   /** JOSE/JWT verification; a dependency of `ankka-auth-oidc` and of nothing else (feature 022). */
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
+
+  /** A view's declared statements are parsed with it; a direct dependency of `ankka-runtime`. */
+  val jsqlparser = "com.github.jsqlparser" % "jsqlparser" % V.jsqlparser
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle
 

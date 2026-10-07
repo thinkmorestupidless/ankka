@@ -238,6 +238,104 @@ object ConformanceReference:
       ):
     def create(ctx: ViewComponentContext) = new CartRowsView
 
+  // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
+
+  enum TreeEvent:
+    case Placed(under: Option[String])
+
+  final class TreeNode extends EventSourcedEntity[Option[String], TreeEvent]:
+    def emptyState: Option[String] = None
+    def applyEvent(event: TreeEvent): Option[String] = event match
+      case TreeEvent.Placed(under) => under
+    def place(under: String): Effect[String] =
+      effects.persist(TreeEvent.Placed(Option(under).filter(_.nonEmpty))).thenReply(_ => "placed")
+
+  object TreeNode
+      extends EventSourcedEntity.Companion[TreeNode, Option[String], TreeEvent](
+        componentId = ComponentId("tree-node"),
+        stateSerializer = Codecs.serializer[Option[String]]("tree-node"),
+        eventSerializer = Codecs.serializer[TreeEvent]("tree-event")
+      ):
+    def create(context: EventSourcedEntityContext) = new TreeNode
+    val place                                      = command("place")(_.place)
+
+  final case class TreeRow(key: String, under: Option[String])
+
+  final class TreeRowsView extends View[TreeEvent, TreeRow]:
+    def onChange(event: TreeEvent): Effect = event match
+      case TreeEvent.Placed(under) => effects.updateRow(TreeRow(updateContext.subject, under))
+
+  object TreeRows
+      extends View.Companion[TreeRowsView, TreeEvent, TreeRow](
+        componentId = ComponentId("tree-rows"),
+        source = ChangeSource.eventsOf(TreeNode),
+        rowSerializer = Codecs.serializer[TreeRow]("tree-row")
+      ):
+    /**
+     * Every row under the row `row`, to any depth, by key: the same statement in every language.
+     */
+    val under = query("under")(s"""WITH RECURSIVE below AS (
+      |  SELECT row_key, payload FROM $table WHERE payload::jsonb->>'under' = :row
+      |  UNION
+      |  SELECT n.row_key, n.payload FROM $table n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+      |)
+      |SELECT payload FROM below ORDER BY row_key""".stripMargin)
+    def create(ctx: ViewComponentContext) = new TreeRowsView
+
+  // ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
+
+  final case class Noted(text: String)
+
+  final class Joining extends EventSourcedEntity[Int, Noted]:
+    def emptyState: Int               = 0
+    def applyEvent(event: Noted): Int = currentState + 1
+    def record(text: String): Effect[String] =
+      effects.persist(Noted(text)).thenReply(_ => "recorded")
+
+  abstract class JoiningCompanion(id: String)
+      extends EventSourcedEntity.Companion[Joining, Int, Noted](
+        componentId = ComponentId(id),
+        stateSerializer = Codecs.serializer[Int]("joining"),
+        eventSerializer = Codecs.serializer[Noted]("noted")
+      ):
+    def create(context: EventSourcedEntityContext) = new Joining
+    val record                                     = command("record")(_.record)
+
+  object JoinedLeft  extends JoiningCompanion("joined-left")
+  object JoinedRight extends JoiningCompanion("joined-right")
+
+  // docs:start keyed-view
+  /** A row the left writes under the key it names, holding a right entity's id. */
+  final case class JoinedRow(key: String, holding: String, notes: Vector[String])
+
+  final class JoinedRowsView extends KeyedView[JoinedRow]:
+
+    /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+    def onLeft(event: Noted, change: Change): Effect =
+      val Array(key, holding) = event.text.split('|')
+      val held                = change.rows.get(key).fold(Vector.empty[String])(_.notes)
+      effects.updateRow(key, JoinedRow(key, holding, held :+ "left"))
+
+    /** The right finds every row holding it by asking the view's own query, and notes itself. */
+    def onRight(@scala.annotation.unused event: Noted, change: Change): Effect =
+      val theirs = change.rows.ask(JoinedRows.ofRight, "holding" -> change.subject)
+      effects.updateRows(theirs.map(row => row.key -> row.copy(notes = row.notes :+ "right")))
+
+  object JoinedRows
+      extends KeyedView.Companion[JoinedRowsView, JoinedRow](
+        ComponentId("joined-rows"),
+        Codecs.serializer[JoinedRow]("joined-row")
+      ):
+    val lefts  = source(ChangeSource.eventsOf(JoinedLeft))(_.onLeft)
+    val rights = source(ChangeSource.eventsOf(JoinedRight))(_.onRight)
+
+    /** The rows holding one right entity, by key: the same statement in every language. */
+    val ofRight = query("of-right")(
+      s"SELECT payload FROM $table WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key"
+    )
+    def create(ctx: ViewComponentContext) = new JoinedRowsView
+  // docs:end keyed-view
+
   final class CheckoutRecorder(context: ConsumerContext)
       extends Consumer[ShoppingCartEvent, Nothing]:
     def onMessage(event: ShoppingCartEvent): Effect = event match
@@ -595,6 +693,39 @@ object ConformanceReference:
         .getOrElse(throw HttpProblem.notFound(s"no row for '$cartId'"))
     }
 
+  given JsonValueCodec[TreeRow]   = Codecs.make[TreeRow]
+  given JsonValueCodec[JoinedRow] = Codecs.make[JoinedRow]
+
+  /** Records on either side of the keyed view, and reads its rows. */
+  final class JoinedEndpoint(clients: EndpointClients) extends HttpEndpoint("/joined"):
+    val acl: Acl                   = Acl.AllowAll
+    private def entity(id: String) = clients.componentClient.forEventSourcedEntity(EntityId(id))
+    // The left entity is the row's own key: one left per row.
+    post("/left/{key}/{holding}") { (key: String, holding: String) =>
+      entity(key).call(JoinedLeft.record).invoke(s"$key|$holding")
+    }
+    post("/right/{rightId}")((rightId: String) =>
+      entity(rightId).call(JoinedRight.record).invoke("")
+    )
+    get("/rows/{key}") { (key: String) =>
+      clients.viewClient
+        .forView(JoinedRows)
+        .get(key)
+        .getOrElse(throw HttpProblem.notFound(s"no row '$key'"))
+    }
+
+  /** Places nodes of a tree and asks what is under one. */
+  final class TreeEndpoint(clients: EndpointClients) extends HttpEndpoint("/tree"):
+    val acl: Acl                 = Acl.AllowAll
+    private def node(id: String) = clients.componentClient.forEventSourcedEntity(EntityId(id))
+    post("/{nodeId}")((nodeId: String) => node(nodeId).call(TreeNode.place).invoke(""))
+    post("/{nodeId}/under/{parentId}") { (nodeId: String, parentId: String) =>
+      node(nodeId).call(TreeNode.place).invoke(parentId)
+    }
+    get("/{nodeId}/below") { (nodeId: String) =>
+      clients.viewClient.forView(TreeRows).ask(TreeRows.under, "row" -> nodeId).map(_.key)
+    }
+
   final case class Echo(a: Vector[String], b: Option[String], headers: Map[String, String])
   given JsonValueCodec[Echo]           = Codecs.make[Echo]
   given JsonValueCodec[Vector[String]] = Codecs.make[Vector[String]]
@@ -944,6 +1075,11 @@ object ConformanceReference:
     "checkout-fanout",
     "topic-rows",
     "topic-relay",
+    "tree-node",
+    "tree-rows",
+    "joined-left",
+    "joined-right",
+    "joined-rows",
     "cart-graph",
     "profile-graph",
     "reminder",
@@ -962,6 +1098,11 @@ object ConformanceReference:
     CheckoutFanout.descriptor,
     TopicRows.descriptor,
     TopicRelay.descriptor,
+    TreeNode.descriptor,
+    TreeRows.descriptor,
+    JoinedLeft.descriptor,
+    JoinedRight.descriptor,
+    JoinedRows.descriptor,
     CartGraph.descriptor,
     ProfileGraph.descriptor,
     Reminder.descriptor,
@@ -975,6 +1116,8 @@ object ConformanceReference:
       problems: () => Vector[String]
   ): Seq[EndpointClients => HttpEndpoint] = Seq(
     clients => CartsEndpoint(clients),
+    clients => TreeEndpoint(clients),
+    clients => JoinedEndpoint(clients),
     clients => ConformanceEndpoint(clients, timers, problems),
     _ => PrivateEndpoint(),
     _ => CallersEndpoint(),

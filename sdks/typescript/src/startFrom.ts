@@ -33,9 +33,21 @@ export function isStartFrom(value: unknown): value is StartFrom {
   return kind === "at" && Number.isFinite((value as { atMillis?: unknown }).atMillis)
 }
 
-/** Whether a sidecar speaking `protocolVersion` would ignore a start position and a version. */
-export function olderThanStartPositions(protocolVersion: string): boolean {
+/** The first protocol in which a process can declare a view's queries. */
+export const DECLARED_QUERY_PROTOCOL: readonly [number, number] = [1, 13]
+
+function olderThan(protocolVersion: string, [wantMajor, wantMinor]: readonly [number, number]): boolean {
   const [major, minor] = protocolVersion.split(".").map((part) => Number.parseInt(part, 10))
   if (!Number.isFinite(major) || !Number.isFinite(minor)) return false
-  return major < START_POSITION_PROTOCOL[0] || (major === START_POSITION_PROTOCOL[0] && minor < START_POSITION_PROTOCOL[1])
+  return major < wantMajor || (major === wantMajor && minor < wantMinor)
+}
+
+/** Whether a sidecar speaking `protocolVersion` would ignore a start position and a version. */
+export function olderThanStartPositions(protocolVersion: string): boolean {
+  return olderThan(protocolVersion, START_POSITION_PROTOCOL)
+}
+
+/** Whether a sidecar speaking `protocolVersion` would ignore a view's declared queries. */
+export function olderThanDeclaredQueries(protocolVersion: string): boolean {
+  return olderThan(protocolVersion, DECLARED_QUERY_PROTOCOL)
 }

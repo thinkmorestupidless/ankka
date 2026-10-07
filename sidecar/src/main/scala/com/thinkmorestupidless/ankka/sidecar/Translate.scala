@@ -15,7 +15,7 @@ import ankka.protocol.v1.timed_action.{
   TimedActionEffect,
   TimedActionRequest as PbTimedActionRequest
 }
-import ankka.protocol.v1.view.{ViewEffect, ViewRequest as PbViewRequest}
+import ankka.protocol.v1.view.{RowChange, ViewEffect, ViewRequest as PbViewRequest}
 import ankka.protocol.v1.event_sourced.EventSourcedOut
 import ankka.protocol.v1.key_value.KeyValueOut
 import ankka.protocol.v1.payload as pb
@@ -167,14 +167,21 @@ private[sidecar] object Translate:
       event = request.event.map(toPayload),
       metadata = Some(toMetadata(request.metadata)),
       row = request.row.map(toPayload),
-      deleted = request.event.isEmpty
+      deleted = request.event.isEmpty,
+      sourceId = request.sourceId.map(_.toString)
     )
 
   def fromViewEffect(effect: ViewEffect): ViewOutcome = effect.effect match
     case ViewEffect.Effect.UpdateRow(row) => ViewOutcome.UpdateRow(fromPayload(row))
     case ViewEffect.Effect.DeleteRow(_)   => ViewOutcome.DeleteRow
     case ViewEffect.Effect.Ignore(_)      => ViewOutcome.Ignore
-    case ViewEffect.Effect.Empty          => ViewOutcome.Ignore
+    case ViewEffect.Effect.Rows(rows) =>
+      ViewOutcome.Rows(rows.changes.toVector.map { change =>
+        change.key -> (change.change match
+          case RowChange.Change.Upsert(row) => Some(fromPayload(row))
+          case _                            => None)
+      })
+    case ViewEffect.Effect.Empty => ViewOutcome.Ignore
 
   def toConsumerRequest(request: ConsumerRequest): PbConsumerRequest =
     PbConsumerRequest(

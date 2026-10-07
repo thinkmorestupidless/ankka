@@ -116,6 +116,17 @@ assert(result.changed)
 assertEquals(kit.currentState, Profile("Ada", "ada@example.com", 1))
 ```
 
+`KeyedViewTestKit(companion)` hands a keyed view's source handler one change and writes the rows it
+names to a map the test reads, through the view's own serializer. A declared query is SQL, so the test says
+what each answers with `answering(query)`, and a handler that asks one the test has not answered fails the
+test, naming it:
+
+```scala
+val kit = KeyedViewTestKit(Shipments)
+kit.answering(Shipments.ofCustomer)(values => kit.rows.values.filter(_.customer.contains(values("customer"))).toVector)
+kit.change(Shipments.customers, "c1", CustomerRenamed("Ada"))
+```
+
 `ConsumerTestKit.of(companion)` hands a consumer one change and returns what it would publish, and
 `ConsumerTestKit.graph(companion)` does the same for a [graph consumer](graph.md), returning its deltas;
 see [Testing a consumer](#testing-a-consumer).
@@ -133,6 +144,7 @@ behaviour.
 | `KeyValueTestKit.of(Entity, id)` | commands on a key value entity |
 | `WorkflowTestKit.of(Workflow, id)` | `call` a command, `run_step` a step, `run_until_end` to follow transitions |
 | `ViewTestKit.of(View)` | `on_change(key, event)`, `on_delete(key)`, then `get(key)` for the row |
+| `KeyedViewTestKit.of(KeyedView)` | `change(Entity, key, event)`, `deleted(Entity, key)`, `answering(name, fn)`, then `get(key)` or `rows` |
 | `ConsumerTestKit.of(Consumer)` | `on_message(message, subject, sequence=…)`, `on_delete(subject)`; `messages` holds what it published, each with the key it named |
 | `GraphConsumerTestKit.of(GraphConsumer, client)` | `on_message(message, subject, sequence=…)`, `on_delete(subject, sequence=…)`, each returning the elements published |
 | `TimedActionTestKit.of(Action)` | `call(name, input, metadata={...})`, the metadata being what the handler reads, such as `ankka.due` |
@@ -184,6 +196,7 @@ def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
 | `KeyValueTestKit.of(Entity, id)` | the same, with `changed` in place of `events` |
 | `WorkflowTestKit.of(Workflow, id)` | `call` a command, `runStep` a step, `runUntilEnd` and `resume` to follow transitions |
 | `ViewTestKit.of(View)` | `onChange(key, event)`, `onDelete(key)`, then `get(key)` for the row |
+| `KeyedViewTestKit.of(KeyedView)` | `change(Entity, key, event)`, `deleted(Entity, key)`, `answering(name, fn)`, then `get(key)` or `rows` |
 | `ConsumerTestKit.of(Consumer)` | `onMessage(message, subject, metadata)`, `onDelete(subject)`; `produced` holds what it published, each with the key it named |
 | `GraphConsumerTestKit.of(GraphConsumer, client)` | `onMessage(message, { subject, sequence })`, `onDelete({ subject, sequence })`, each returning the deltas published |
 | `TimedActionTestKit.of(Action)` | `invoke(action, input, metadata)`, the metadata being what the handler reads, such as `ankka.due` |
@@ -204,6 +217,7 @@ dispatch the module's exports use:
 | `KeyValueEntityTestKit::<C>::new(id)` | commands on a key value entity |
 | `WorkflowTestKit::<C>::new(id)` | `command`, `run_step`, `run_to_end`, `resume`, `state` |
 | `ViewTestKit::<C>::new()` | `on_event(key, event)`, `on_deleted(key)`, then `row(key)` |
+| `KeyedViewTestKit::<C>::new()` | `change::<E>(source, key, event)`, `deleted(source, key)`, `answering(name, fn)`, then `row(key)` |
 | `ConsumerTestKit::<C>::new()` | `on_message(subject, message)`, `on_deleted(subject)`; `.at(sequence)` sets the sequence number, and `ConsumerTestKit::<C>::messages(&effect)` reads what an effect publishes, each message with its record key |
 | `GraphConsumerTestKit::<G>::new()` | `on_message(subject, sequence, message)`, `on_deleted(subject, sequence)`, each returning the elements published |
 | `EndpointTestKit::<E>::new()` | an endpoint's routes by method and path |

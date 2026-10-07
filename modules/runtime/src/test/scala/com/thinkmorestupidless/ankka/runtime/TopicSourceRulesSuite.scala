@@ -70,7 +70,7 @@ class TopicSourceRulesSuite extends munit.FunSuite:
     assertEquals(problems(remoteView, overEntity), Vector.empty)
   }
 
-  test("a version on a view or consumer that reads an entity is refused") {
+  test("a version on a consumer that reads an entity is refused") {
     val overEntity = ChangeSource.EventSourced(ComponentId("order"), serializer)
     for declared <- Seq(1, 2) do
       val viewed = new View.Companion[Summary, String, String](
@@ -86,23 +86,30 @@ class TopicSourceRulesSuite extends munit.FunSuite:
       ):
         override def version             = Some(declared)
         def create(ctx: ConsumerContext) = new Notifier
+      // A view that reads an entity may: raising its version rebuilds it from the journal.
       assertEquals(
         problems(viewed.descriptor, consumed.descriptor),
         Vector(
-          "view 'summary' declares a version, which applies to a topic; it reads " +
-            "event-sourced-entity(order)",
           "consumer 'notifier' declares a version, which applies to a topic; it reads " +
             "event-sourced-entity(order)"
         )
       )
-    val remote = RemoteViewDescriptor(
+    val remoteView = RemoteViewDescriptor(
       ComponentId("summary"),
       RemoteSource.Component(ComponentKind.EventSourcedEntity, ComponentId("order")),
       "row",
       Set.empty,
       version = Some(2)
     )
-    assertEquals(problems(remote).size, 1)
+    assertEquals(problems(remoteView), Vector.empty)
+    val remoteConsumer = RemoteConsumerDescriptor(
+      ComponentId("notifier"),
+      RemoteSource.Component(ComponentKind.EventSourcedEntity, ComponentId("order")),
+      None,
+      startDeclarable = true,
+      version = Some(2)
+    )
+    assertEquals(problems(remoteConsumer).size, 1)
   }
 
   test("a version that is not a positive whole number is refused") {

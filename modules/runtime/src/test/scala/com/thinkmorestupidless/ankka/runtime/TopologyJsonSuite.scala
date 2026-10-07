@@ -12,8 +12,10 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   Serializers
 }
+import com.thinkmorestupidless.ankka.core.effect.KeyedViewEffect
 import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteConsumerDescriptor,
+  RemoteKeyedViewDescriptor,
   RemoteSource,
   RemoteViewDescriptor
 }
@@ -21,6 +23,7 @@ import com.thinkmorestupidless.ankka.sdk.{
   ChangeSource,
   Consumer,
   ConsumerDescriptor,
+  KeyedView,
   View,
   ViewDescriptor
 }
@@ -272,6 +275,31 @@ final class TopologyJsonSuite extends FunSuite:
     )
     for (reader, edge) <- readers do
       assertEquals(read(render(Seq(cart, profile, reader))).declared, Vector(edge), reader.toString)
+  }
+
+  test("a keyed view is connected to each of its sources, in either language") {
+    final class Joined extends KeyedView[String]
+    val scalaKeyed =
+      new KeyedView.Companion[Joined, String](ComponentId("joined"), Serializers.string):
+        @annotation.nowarn("msg=unused")
+        val carts = source(events("cart"))((_: Joined) => (_, _) => KeyedViewEffect.Nothing)
+        @annotation.nowarn("msg=unused")
+        val profiles = source(state("profile"))((_: Joined) => (_, _) => KeyedViewEffect.Nothing)
+        def create(ctx: com.thinkmorestupidless.ankka.sdk.ViewComponentContext) = new Joined
+    val remoteKeyed = RemoteKeyedViewDescriptor(
+      ComponentId("joined"),
+      Vector(
+        remoteEntity(ComponentKind.EventSourcedEntity, "cart"),
+        remoteEntity(ComponentKind.KeyValueEntity, "profile")
+      ),
+      "row"
+    )
+    for keyed <- Seq[ComponentDescriptor](scalaKeyed.descriptor, remoteKeyed) do
+      assertEquals(
+        read(render(Seq(cart, profile, keyed))).declared.toSet,
+        Set(Edge("cart", "joined", "events"), Edge("profile", "joined", "state")),
+        keyed.toString
+      )
   }
 
   test("a consumer that publishes is connected to both topics, and each topic is a node") {

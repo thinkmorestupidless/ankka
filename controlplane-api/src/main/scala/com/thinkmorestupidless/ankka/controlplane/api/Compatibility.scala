@@ -62,9 +62,11 @@ object Protocol:
    * guardrails in discovery, the RESULT stage of a guardrail check, the approval-request reply and
    * stream token, and `Decide` on `Client` (feature 029). 1.12 added recurring timers:
    * `ScheduleRecurring` on `Client`, the `schedule_recurring` module import, and `ankka.due` on a
-   * timed action's request (feature 032).
+   * timed action's request (feature 032). 1.13 added a view's declared queries, the keyed view with
+   * several entity sources and row changes by key, and a version on a view that reads entities
+   * (feature 031).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 12)
+  val version: ProtocolVersion = ProtocolVersion(1, 13)
 
 object Compatibility:
 

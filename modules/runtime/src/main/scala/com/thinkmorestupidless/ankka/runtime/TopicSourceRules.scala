@@ -3,10 +3,16 @@ package com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteConsumerDescriptor,
+  RemoteKeyedViewDescriptor,
   RemoteSource,
   RemoteViewDescriptor
 }
-import com.thinkmorestupidless.ankka.sdk.{ChangeSource, ConsumerDescriptor, ViewDescriptor}
+import com.thinkmorestupidless.ankka.sdk.{
+  ChangeSource,
+  ConsumerDescriptor,
+  KeyedViewDescriptor,
+  ViewDescriptor
+}
 
 /**
  * What a view or consumer may declare about a topic it reads, checked once for every component
@@ -33,10 +39,14 @@ private[ankka] object TopicSourceRules:
             Vector(noStartPosition(c.componentId, topic))
           case _ => Vector.empty
         start ++ versionProblems("consumer", c.componentId, c.version, readsOf(c.source))
-      case v: ViewDescriptor[?, ?, ?] =>
-        versionProblems("view", v.componentId, v.version, readsOf(v.source))
-      case v: RemoteViewDescriptor =>
-        versionProblems("view", v.componentId, v.version, readsOf(v.source))
+      // A view of any source may declare a version: one that reads entities is rebuilt from their
+      // journals when it is raised, as one that reads a topic is from the broker.
+      case v: ViewDescriptor[?, ?, ?] => versionProblems("view", v.componentId, v.version, None)
+      case v: RemoteViewDescriptor    => versionProblems("view", v.componentId, v.version, None)
+      case v: KeyedViewDescriptor[?, ?] =>
+        versionProblems("view", v.componentId, v.version, None)
+      case v: RemoteKeyedViewDescriptor =>
+        versionProblems("view", v.componentId, v.version, None)
       case _ => Vector.empty
     }
 
@@ -50,9 +60,10 @@ private[ankka] object TopicSourceRules:
     case RemoteSource.Component(kind, id) => Some(s"$kind($id)")
 
   /**
-   * A version says which generation of a handler built what a topic source holds. A source that
-   * reads an entity has no topic to read again, and would accept a version and do nothing with it,
-   * which is the silence this rule refuses.
+   * A version says which generation of a handler built what a source holds. A consumer that reads
+   * an entity has no group to change and nothing to rebuild, and would accept a version and do
+   * nothing with it, which is the silence this rule refuses. A view's version is checked only to be
+   * a whole number of 1 or more.
    */
   private def versionProblems(
       kind: String,

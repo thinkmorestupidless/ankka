@@ -71,3 +71,34 @@ class TranslateSuite extends munit.FunSuite:
     // SDK's: it answers `produce_all` only to a request that carried `ankka.protocol` >= 1.3.
     assertEquals(Translate.fromConsumerEffect(ConsumerEffect()), ConsumerOutcome.Ignore)
   }
+
+  test("a keyed view's change carries its source and no row, and its rows are read in order") {
+    import ankka.protocol.v1.view.{RowChange, RowChanges, ViewEffect}
+    import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata}
+    import com.thinkmorestupidless.ankka.runtime.remote.{ViewOutcome, ViewRequest}
+    val sent = Translate.toViewRequest(
+      ViewRequest(ComponentId("joined"), None, Metadata.empty, None, Some(ComponentId("customer")))
+    )
+    assertEquals(sent.sourceId, Some("customer"))
+    assertEquals(sent.row, None)
+    assert(sent.deleted)
+    val rows = Translate.fromViewEffect(
+      ViewEffect(
+        ViewEffect.Effect.Rows(
+          RowChanges(
+            Vector(
+              RowChange("b", RowChange.Change.Upsert(payload("{}"))),
+              RowChange("a", RowChange.Change.Delete(pb.Empty()))
+            )
+          )
+        )
+      )
+    )
+    rows match
+      case ViewOutcome.Rows(changes) =>
+        assertEquals(
+          changes.map((key, row) => key -> row.isDefined),
+          Vector("b" -> true, "a" -> false)
+        )
+      case other => fail(s"expected rows, got $other")
+  }

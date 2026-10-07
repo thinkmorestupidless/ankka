@@ -65,6 +65,22 @@ final class AnkkaTestKit private (
   def jdbcUrl: String = database.jdbcUrl
 
   /**
+   * Has the database log every statement it is sent from now on, and restarts the service so that
+   * every connection it holds is one that logs. How a suite shows that something never reached the
+   * database, by a counter at the database rather than an argument about the code; read it with
+   * `databaseLog`. The setting is this kit's database's alone.
+   */
+  private[testkit] def logStatements(): Unit =
+    SharedPostgres.logStatements(database)
+    restartService()
+
+  /** What the shared database server has printed: every statement a logging kit sent it. */
+  private[testkit] def databaseLog: String = SharedPostgres.logs
+
+  /** The configuration the service runs with, for a suite that starts a second one beside it. */
+  private[testkit] def serviceConfig: Config = AnkkaTestKit.withSecretKey(config, currentKey)
+
+  /**
    * Opens a socket to `path` on the service's HTTP server, which must be one of its extensions. A
    * `Left` is the opening request's answer when it was not an upgrade.
    */

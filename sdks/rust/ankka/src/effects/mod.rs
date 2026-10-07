@@ -13,6 +13,7 @@ pub mod consumer;
 pub mod event_sourced;
 pub mod http;
 pub mod key_value;
+pub mod keyed_view;
 pub mod materialise;
 pub mod view;
 pub mod workflow;

@@ -1,0 +1,71 @@
+package com.thinkmorestupidless.ankka.testkit.views
+
+import com.thinkmorestupidless.ankka.core.ComponentId
+import com.thinkmorestupidless.ankka.sdk.*
+import com.thinkmorestupidless.ankka.testkit.KeyedViewTestKit
+
+/** A keyed view's handlers, tested with no runtime: what `KeyedViewTestKit` promises. */
+class KeyedViewTestKitSuite extends munit.FunSuite:
+
+  private def script(ops: Scripts.Op*): Recorded.Ran =
+    Recorded.Ran(Scripts.add(Scripts.Script("noted", ops.toVector)))
+
+  test("a change of either source writes the rows its handler names") {
+    val kit = KeyedViewTestKit(Shipments)
+    kit.change(Shipments.shipments, "s1", script(Scripts.Op.Touch(Vector("s1"), Some("c1"))))
+    kit.change(Shipments.shipments, "s2", script(Scripts.Op.Touch(Vector("s2"), Some("c1"))))
+    kit.answering(Shipments.ofCustomer)(values =>
+      kit.rows.values.filter(_.customer.contains(values("customer"))).toVector
+    )
+    kit.change(Shipments.customers, "c1", script(Scripts.Op.TouchHolding("c1")))
+    assertEquals(kit.row("s1").map(_.notes), Some(Vector("noted", "noted")))
+    assertEquals(kit.row("s2").map(_.notes), Some(Vector("noted", "noted")))
+  }
+
+  test(
+    "a row is moved by deleting its old key and writing its new one, and nothing else is deleted"
+  ) {
+    val kit = KeyedViewTestKit(Shipments)
+    kit.change(Shipments.shipments, "s1", script(Scripts.Op.Touch(Vector("s1", "s2"))))
+    kit.change(
+      Shipments.shipments,
+      "s1",
+      script(Scripts.Op.Delete(Vector("s1")), Scripts.Op.Touch(Vector("s9")))
+    )
+    assertEquals(kit.rows.keySet, Set("s2", "s9"))
+  }
+
+  test("rows round-trip through the view's serializer, which refuses an unwritable row") {
+    val kit = KeyedViewTestKit(Shipments)
+    intercept[IllegalArgumentException](
+      kit.change(Shipments.shipments, "s1", script(Scripts.Op.Unwritable("s1")))
+    )
+    assertEquals(kit.rows, Map.empty)
+  }
+
+  test("a query the test has not answered fails, naming it") {
+    val kit = KeyedViewTestKit(Shipments)
+    val thrown = intercept[IllegalStateException](
+      kit.change(Shipments.customers, "c1", script(Scripts.Op.TouchHolding("c1")))
+    )
+    assert(thrown.getMessage.contains("'of-customer'"), thrown.getMessage)
+  }
+
+  test("a view declaring a refused statement fails the test that builds its kit") {
+    object Broken
+        extends KeyedView.Companion[ShipmentsView, ShipmentRow](
+          ComponentId("broken"),
+          ShipmentRow.serializer
+        ):
+      val shipments = source(ChangeSource.eventsOf(Shipment))(_.run)
+      val other     = query("other")("SELECT payload FROM ankka_view_accounts")
+      def create(ctx: ViewComponentContext) = new ShipmentsView(ctx.componentId.toString)
+    val thrown = intercept[IllegalArgumentException](KeyedViewTestKit(Broken))
+    assert(thrown.getMessage.contains("ankka_view_accounts"), thrown.getMessage)
+  }
+
+  test("a source that is not the view's is refused") {
+    val kit   = KeyedViewTestKit(Shipments)
+    val other = ThreeSourced.suppliers.asInstanceOf[KeyedSource[ShipmentsView, ShipmentRow]]
+    intercept[IllegalArgumentException](kit.change(other, "x", script()))
+  }

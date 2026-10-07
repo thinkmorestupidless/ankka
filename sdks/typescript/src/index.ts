@@ -28,7 +28,9 @@ export {
 } from "./effects/workflow.ts"
 export { Workflow, type WorkflowClass } from "./workflow.ts"
 export { ViewEffects, ConsumerEffects, TimedActionEffects, type ViewEffect, type ConsumerEffect, type OutgoingMessage, type TimedActionEffect } from "./effects/stateless.ts"
-export { View, type ViewClass } from "./view.ts"
+export { View, declaredQuery, tableOf, type DeclaredQuery, type ViewClass } from "./view.ts"
+export { KeyedView, on, type KeyedSource, type KeyedViewClass, type ViewRows } from "./keyedView.ts"
+export { KeyedViewEffects, type KeyedViewEffect, type RowChange } from "./effects/keyed.ts"
 export { Consumer, ProtocolVersionError, type ConsumerClass } from "./consumer.ts"
 export {
   GRAPH_DELTA_SCHEMA, Graph, GraphConsumer, GraphEffects, GraphError, edgeKey, elementKey, graphDeltaCodec, nodeKey, readDelta,
@@ -74,7 +76,7 @@ export {
 export {
   Ankka, ServiceBuilder, Registry, RegistrationError,
   type ServiceOptions, type RegisteredComponent, type RegisteredEndpoint, type Source,
-  type RegisteredEventSourced, type RegisteredKeyValue, type RegisteredWorkflow, type RegisteredView, type RegisteredConsumer, type RegisteredTimedAction, type RegisteredAgent,
+  type RegisteredEventSourced, type RegisteredKeyValue, type RegisteredWorkflow, type RegisteredView, type RegisteredKeyedView, type RegisteredKeyedSource, type RegisteredConsumer, type RegisteredTimedAction, type RegisteredAgent,
 } from "./service.ts"
 export { Server, type ServerOptions } from "./server/server.ts"
 export { problems as sidecarProblems } from "./server/discovery.ts"

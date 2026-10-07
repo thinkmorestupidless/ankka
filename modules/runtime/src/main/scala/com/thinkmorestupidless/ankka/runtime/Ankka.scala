@@ -161,7 +161,8 @@ final class ServiceBuilder private[ankka] (
           s"remote ${d.kind} '${d.componentId}' is registered but no conversation was supplied"
         }
       else Vector.empty
-    val more = remoteWithoutConversation ++ TopicSourceRules.problems(descriptors)
+    val more = remoteWithoutConversation ++ TopicSourceRules.problems(descriptors) ++
+      KeyedViewRules.problems(descriptors) ++ QueryCheck.problems(descriptors)
     ComponentRegistry.from(descriptors) match
       case Left(problems)  => Left(problems ++ more)
       case Right(registry) => if more.isEmpty then Right(registry) else Left(more)

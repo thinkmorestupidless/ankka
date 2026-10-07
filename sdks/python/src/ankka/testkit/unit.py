@@ -299,6 +299,9 @@ from ankka.effects.view import ViewEffect  # noqa: E402
 from ankka.effects.workflow import StepOutcome, StepRef, TransitionTo, WorkflowStepEffect  # noqa: E402
 from ankka.key_value_entity import KeyValueEntity  # noqa: E402
 from ankka.timed_action import TimedAction  # noqa: E402
+from ankka.effects.keyed_view import KeyedViewEffect  # noqa: E402
+from ankka.effects.keyed_view import reduce as reduce_row_changes  # noqa: E402
+from ankka.keyed_view import KeyedView  # noqa: E402
 from ankka.view import View  # noqa: E402
 from ankka.workflow import Workflow  # noqa: E402
 
@@ -465,6 +468,78 @@ class ViewTestKit(Generic[Row]):
 
     def get(self, key: str) -> Row | None:
         return self.rows.get(key)
+
+
+class KeyedViewTestKit(Generic[Row]):
+    """Drives one keyed view with no sidecar: a change of one of its sources goes to that source's
+    handler, and the rows it names are kept in ``rows``, each round-tripped through the row codec.
+    The later change to a key wins, as the platform applies an effect.
+
+    A declared query is SQL, and there is no database here, so the test says what each query
+    answers with ``answering``. A handler that asks a query the test has not answered raises,
+    naming it: a kit that answered no rows would pass a handler that updated nothing."""
+
+    def __init__(self, view_cls: type[KeyedView[Row]]) -> None:
+        self.view_cls = view_cls
+        self.rows: dict[str, Row] = {}
+        self._answers: dict[str, Callable[[Mapping[str, str]], list[Row]]] = {}
+
+    @classmethod
+    def of(cls, view_cls: type[KeyedView[Row]]) -> KeyedViewTestKit[Row]:
+        return cls(view_cls)
+
+    def answering(self, name: str, answer: Callable[[Mapping[str, str]], list[Row]]) -> KeyedViewTestKit[Row]:
+        """What the view's declared query ``name`` answers, given the values it is asked with."""
+        self._answers[name] = answer
+        return self
+
+    def change(self, source: Any, key: str, event: Any) -> KeyedViewEffect:
+        """Hands ``event``, a change of the entity ``key`` of ``source``, to that source's handler."""
+        found = self.view_cls._sources.get(source.component_id)
+        if found is None:
+            raise LookupError(f"{self.view_cls.__name__} reads no source '{source.component_id}'")
+        return self._apply(source.component_id, found.codec.encode(event), key)
+
+    def deleted(self, source: Any, key: str) -> KeyedViewEffect:
+        """Tells the view that the entity ``key`` of ``source`` was deleted."""
+        return self._apply(source.component_id, None, key)
+
+    def get(self, key: str) -> Row | None:
+        return self.rows.get(key)
+
+    def _apply(self, source_id: str, event: bytes | None, key: str) -> KeyedViewEffect:
+        rc = self.view_cls.row_codec
+        effect = typing.cast(
+            KeyedViewEffect,
+            _run(self.view_cls()._handle(source_id, event, Metadata().set("ce-subject", key), _KitRows(self))),
+        )
+        for row_key, row in reduce_row_changes(effect.changes):
+            if not row_key:
+                raise ValueError(f"{self.view_cls.__name__} named an empty row key")
+            if row is None:
+                self.rows.pop(row_key, None)
+            else:
+                self.rows[row_key] = rc.decode(rc.encode(row))
+        return effect
+
+
+class _KitRows:
+    """A keyed view's own rows in the kit: the kit's map, and the test's answers."""
+
+    def __init__(self, kit: KeyedViewTestKit[Any]) -> None:
+        self.kit = kit
+
+    async def get(self, view_id: str, key: str, codec: Any) -> Any | None:
+        return self.kit.rows.get(key)
+
+    async def ask(self, view_id: str, name: str, codec: Any, values: Mapping[str, str]) -> list[Any]:
+        answer = self.kit._answers.get(name)
+        if answer is None:
+            raise LookupError(
+                f"{self.kit.view_cls.__name__} asked the query '{name}', and the test has not said what it "
+                f"answers; say so with answering('{name}', ...)"
+            )
+        return answer(values)
 
 
 @dataclass(frozen=True)

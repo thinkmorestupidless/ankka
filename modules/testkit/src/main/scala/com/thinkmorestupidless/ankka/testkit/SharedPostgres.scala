@@ -84,6 +84,14 @@ private[testkit] object SharedPostgres:
         Some(scheduler.schedule((() => stopIfIdle()): Runnable, Linger, TimeUnit.SECONDS))
   }
 
+  /** Has the server log every statement sent to `database`, by connections opened from now on. */
+  def logStatements(database: TestDatabase): Unit = synchronized {
+    psql(s"ALTER DATABASE ${database.name} SET log_statement = 'all'")
+  }
+
+  /** What the server has printed, every logging database's statements among it. */
+  def logs: String = synchronized(if container == null then "" else container.getLogs)
+
   private def stopIfIdle(): Unit = synchronized {
     if leases == 0 && container != null then
       container.stop()

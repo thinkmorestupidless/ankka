@@ -10,8 +10,13 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.*
-import com.thinkmorestupidless.ankka.runtime.TopicSourceRules
-import com.thinkmorestupidless.ankka.sdk.{RecoverStrategy, StartFrom, WorkflowSettings}
+import com.thinkmorestupidless.ankka.runtime.{KeyedViewRules, QueryCheck, TopicSourceRules}
+import com.thinkmorestupidless.ankka.sdk.{
+  DeclaredQuery,
+  RecoverStrategy,
+  StartFrom,
+  WorkflowSettings
+}
 import io.grpc.ManagedChannel
 import org.slf4j.LoggerFactory
 
@@ -49,6 +54,8 @@ object Discovery:
    * approval, an agent's MCP servers and result guardrails, the RESULT guardrail stage, the
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
+   * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
+   * (feature 031).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -194,6 +201,22 @@ object Discovery:
                 d.steps.toSet,
                 workflowSettings(c.id, d, problems)
               )
+            case (Kind.VIEW, Component.Detail.View(d)) if d.sources.nonEmpty =>
+              // A keyed view (1.13): its sources, each a component, and never a single source.
+              if d.source.isDefined then
+                problems += s"view '${c.id}' declares a source and sources; a plain view declares " +
+                  "one source, a keyed view its sources"
+              else
+                val read =
+                  d.sources.flatMap(s => source(s"view '${c.id}'", c.id, Some(s), problems))
+                if read.size == d.sources.size then
+                  descriptors += RemoteKeyedViewDescriptor(
+                    id,
+                    read.toVector,
+                    d.rowManifest,
+                    d.version,
+                    d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                  )
             case (Kind.VIEW, Component.Detail.View(d)) =>
               source(s"view '${c.id}'", c.id, d.source, problems).foreach { s =>
                 descriptors += RemoteViewDescriptor(
@@ -201,7 +224,8 @@ object Discovery:
                   s,
                   d.rowManifest,
                   d.queries.map(MethodName(_)).toSet,
-                  d.version
+                  d.version,
+                  d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
                 )
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>
@@ -277,6 +301,10 @@ object Discovery:
 
     // The rules a Scala service is held to, for what a process declared about the topics it reads.
     problems ++= TopicSourceRules.problems(built)
+
+    // What a keyed view may read, and a view's declared statements, checked as a Scala view's are.
+    problems ++= KeyedViewRules.problems(built)
+    problems ++= QueryCheck.problems(built)
 
     // Endpoints: the same rules HttpServer.validate applies to a Scala endpoint, at the boundary.
     spec.endpoints.groupBy(_.prefix).foreach { (prefix, sharing) =>

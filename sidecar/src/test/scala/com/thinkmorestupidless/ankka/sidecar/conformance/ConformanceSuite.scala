@@ -396,6 +396,88 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(get("/carts/v4").json("items").flatMap(_.asArray).map(_.size), Some(0))
   }
 
+  // ── Declared and recursive queries (features/views/languages.feature) ──────
+
+  test("a recursive query answers with the same rows in every language") {
+    // Under-a, three deep, beside an unrelated root: only a's tree comes back, in key order.
+    assertEquals(post("/tree/q-a").status, 200)
+    assertEquals(post("/tree/q-b/under/q-a").status, 200)
+    assertEquals(post("/tree/q-c/under/q-b").status, 200)
+    assertEquals(post("/tree/q-z").status, 200)
+    assertEquals(post("/tree/q-y/under/q-z").status, 200)
+    val below = eventually()(
+      Some(get("/tree/q-a/below"))
+        .filter(_.status == 200)
+        .flatMap(_.json.asArray)
+        .map(_.flatMap(_.asString))
+        .filter(_.size == 2)
+    )
+    assertEquals(below, Vector("q-b", "q-c"))
+  }
+
+  test(
+    "a service whose view declares a statement that reads another table does not start in every language"
+  ) {
+    // The language's own declaration reached the check: the statement it sent is the one asked.
+    val sent = target.declaredStatement("tree-rows", "under")
+    assert(sent.exists(_.contains("WITH RECURSIVE")), s"tree-rows declares under as $sent")
+    assertEquals(target.problemsWithStatement("tree-rows", "under", sent.get), Vector.empty)
+    // The same declaration reading another view's table is refused, naming all three.
+    val problems = target.problemsWithStatement(
+      "tree-rows",
+      "under",
+      "SELECT payload FROM ankka_view_cart_rows WHERE row_key = :row"
+    )
+    assert(
+      problems.exists(p =>
+        p.contains("'tree-rows'") && p.contains("'under'") && p.contains("ankka_view_cart_rows")
+      ),
+      problems.mkString("; ")
+    )
+  }
+
+  private def joinedRow(key: String): Option[Json] =
+    Some(get(s"/joined/rows/$key")).filter(_.status == 200).map(_.json)
+
+  private def notesOf(row: Json): Vector[String] =
+    row("notes").flatMap(_.asArray).map(_.flatMap(_.asString)).getOrElse(Vector.empty)
+
+  test("a view of several sources reads every one of them in every language") {
+    assertEquals(post("/joined/left/j1-s1/j1-r1").status, 200)
+    eventually()(joinedRow("j1-s1"))
+    assertEquals(post("/joined/right/j1-r1").status, 200)
+    val row = eventually()(joinedRow("j1-s1").filter(notesOf(_) == Vector("left", "right")))
+    assertEquals(row("holding").flatMap(_.asString), Some("j1-r1"))
+  }
+
+  test("a view finds the rows an event is about by asking a query of its own in every language") {
+    assertEquals(post("/joined/left/j2-s1/j2-r1").status, 200)
+    assertEquals(post("/joined/left/j2-s2/j2-r1").status, 200)
+    assertEquals(post("/joined/left/j2-s3/j2-r2").status, 200)
+    Seq("j2-s1", "j2-s2", "j2-s3").foreach(key => eventually()(joinedRow(key)))
+    assertEquals(post("/joined/right/j2-r1").status, 200)
+    eventually()(joinedRow("j2-s1").filter(notesOf(_) == Vector("left", "right")))
+    eventually()(joinedRow("j2-s2").filter(notesOf(_) == Vector("left", "right")))
+    // The row holding another right entity is as it was.
+    assertEquals(joinedRow("j2-s3").map(notesOf), Some(Vector("left")))
+  }
+
+  test("the topology shows a view connected to each of its sources in every language") {
+    val declared =
+      Json.parse(target.topology).toOption.flatMap(_("declared")).flatMap(_.asArray).get
+    val into = declared
+      .filter(e => e("to").flatMap(_.asString).contains("joined-rows"))
+      .flatMap(e => e("from").flatMap(_.asString).map(_ -> e("kind").flatMap(_.asString)))
+      .toSet
+    assertEquals(
+      into,
+      Set[(String, Option[String])](
+        "joined-left"  -> Some("events"),
+        "joined-right" -> Some("events")
+      )
+    )
+  }
+
   // ── Topic sources: where each starts ──
 
   private def topicRows(): Long =
@@ -1867,6 +1949,9 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       declared.toSet,
       Set(
         ("shopping-cart", "cart-rows", "events"),
+        ("tree-node", "tree-rows", "events"),
+        ("joined-left", "joined-rows", "events"),
+        ("joined-right", "joined-rows", "events"),
         ("shopping-cart", "checkout-recorder", "events"),
         ("shopping-cart", "checkout-fanout", "events"),
         ("checkout-fanout", "topic:conformance-fanout", "topic-publication"),

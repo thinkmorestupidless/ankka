@@ -69,7 +69,21 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       if event.contains("\"silent\":true") then ViewAnswer.DeleteRow
       else ViewAnswer.UpdateRow(s"""{"count":${countOf(row) + 1}}"""),
     // A deleted source leaves a tombstone: the row stays, marked, as an order history wants.
-    onDelete = row => ViewAnswer.UpdateRow(s"""{"count":${countOf(row)},"deleted":true}""")
+    onDelete = row => ViewAnswer.UpdateRow(s"""{"count":${countOf(row)},"deleted":true}"""),
+    declared = Vector(
+      "at-least" ->
+        (s"SELECT payload FROM ${ViewDescriptor.tableFor(ComponentId("recorder-rows"))} " +
+          "WHERE (payload::jsonb->>'count')::int >= (:count)::int ORDER BY row_key")
+    )
+  )
+
+  /** Keyed over the recorder's events and the profile's state: one row per source and subject. */
+  private val keyedRows = KeyedViewOf(
+    "keyed-rows",
+    Vector((Kind.EVENT_SOURCED_ENTITY, "conformance"), (Kind.KEY_VALUE_ENTITY, "profile")),
+    (source, event, metadata) =>
+      val subject = subjectOf(metadata)
+      Vector(s"$source:$subject" -> Some(s"""{"source":"$source","seen":${event.isDefined}}"""))
   )
   private val notifier = ConsumerOf(
     "notifier",
@@ -172,6 +186,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
         entities = Vector(recorder),
         keyValues = Vector(profile()),
         views = Vector(rows, notifiedRows, profileRows),
+        keyedViews = Vector(keyedRows),
         consumers = Vector(notifier, profileWatcher, fanout, oversize, legacyReader),
         actions = Vector(ticker)
       )
@@ -292,6 +307,52 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     val found = eventually()(row("recorder-rows", "v1").filter(_.contains("\"count\":2")))
     assertEquals(found, """{"count":2}""")
     assertEquals(row("recorder-rows", "missing"), None)
+  }
+
+  private def query(view: String, name: String, values: Map[String, String] = Map.empty) =
+    given ActorSystem[?] = kit.service.system
+    val settings =
+      Settings("127.0.0.1:0", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
+    Await.result(
+      ClientLogic(kit.service, settings, () => None)
+        .query(ankka.protocol.v1.client.QueryRequest(view, name, values = values)),
+      30.seconds
+    )
+
+  test("P1b a process asks a view's declared query by name, with its values") {
+    record("q1", "one")
+    record("q1", "two")
+    record("q1", "three")
+    eventually()(row("recorder-rows", "q1").filter(_.contains("\"count\":3")))
+    val rows = query("recorder-rows", "at-least", Map("count" -> "3")).result.rows
+      .map(_.data.toStringUtf8)
+      .getOrElse(fail("no rows"))
+    assert(rows.contains("\"count\":3"), rows)
+    assert(!rows.contains("\"count\":2"), rows)
+  }
+
+  test("P1c a query the view does not declare, or one not given its value, is refused") {
+    val undeclared = query("recorder-rows", "at-most").result.error.get
+    assertEquals(undeclared.code, pb.ErrorCode.NOT_FOUND)
+    assert(
+      undeclared.message.contains("'at-most'") && undeclared.message.contains("'recorder-rows'"),
+      undeclared.message
+    )
+    val missing = query("recorder-rows", "at-least").result.error.get
+    assertEquals(missing.code, pb.ErrorCode.BAD_REQUEST)
+    assert(missing.message.contains("'count'"), missing.message)
+  }
+
+  test("P1d a keyed view in a process is sent each source's changes, and its rows are written") {
+    record("k1", "one")
+    eventually()(row("keyed-rows", "conformance:k1"))
+    val sent = double
+      .messagesOf {
+        case r: ankka.protocol.v1.view.ViewRequest if r.componentId == "keyed-rows" => r
+      }
+    assert(sent.nonEmpty)
+    assert(sent.forall(r => r.sourceId.isDefined && r.row.isEmpty), sent.toString)
+    assert(sent.exists(_.sourceId.contains("conformance")))
   }
 
   test("P2 the process deletes a row") {

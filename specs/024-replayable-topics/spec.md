@@ -204,7 +204,7 @@ second group for the view with the first group's offsets untouched.
 - added `features/topics/versions.feature`: a view rebuilt from the latest message is empty until a message is published
 - added `features/topics/versions.feature`: a view with no recorded version is taken to be at version 1
 - added `features/topics/versions.feature`: a consumer at a higher version is delivered every retained message again
-- added `features/topics/versions.feature`: a version on a view or consumer that reads an entity is refused
+- added `features/topics/versions.feature`: a version on a consumer that reads an entity is refused
 - added `features/topics/versions.feature`: a version that is not a positive whole number is refused
 - added `features/topics/versions.feature`: during a rolling update the higher version rebuilds the view once and the lower stops writing
 - added `features/topics/versions.feature`: instances starting together at a higher version rebuild the view once

@@ -202,8 +202,55 @@ impl Client {
             name: name.to_string(),
             payload: Some(encode_payload(&payload).map_err(encoding)?),
             metadata: Some(self.metadata.to_proto()),
+            values: Default::default(),
+            limit: None,
         };
-        let reply: proto::QueryReply = answer(Import::Query, request);
+        Self::rows(answer(Import::Query, request))
+    }
+
+    /// Asks view `view` its declared query `name` with `values`, by name, answering the rows as `R`:
+    /// at most the runtime's default number of them.
+    pub fn ask<V, M, R>(
+        &self,
+        view: V,
+        name: &str,
+        values: &[(&str, &str)],
+    ) -> Result<R, CommandError>
+    where
+        V: ComponentOf<M>,
+        R: DeserializeOwned + 'static,
+    {
+        let _ = view;
+        self.ask_by_name(V::component_id(), name, values, None)
+    }
+
+    /// Asks a view named by its id its declared query `name`, reading at most `limit` rows when one
+    /// is given.
+    pub fn ask_by_name<R>(
+        &self,
+        view_id: &str,
+        name: &str,
+        values: &[(&str, &str)],
+        limit: Option<u32>,
+    ) -> Result<R, CommandError>
+    where
+        R: DeserializeOwned + 'static,
+    {
+        let request = proto::QueryRequest {
+            view_id: view_id.to_string(),
+            name: name.to_string(),
+            payload: None,
+            metadata: Some(self.metadata.to_proto()),
+            values: values
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            limit,
+        };
+        Self::rows(answer(Import::Query, request))
+    }
+
+    fn rows<R: DeserializeOwned + 'static>(reply: proto::QueryReply) -> Result<R, CommandError> {
         match reply.result {
             Some(proto::query_reply::Result::Rows(rows)) => {
                 decode_payload(&rows).map_err(|e| CommandError::new(ErrorCode::Internal, e.0))

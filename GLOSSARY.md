@@ -839,7 +839,8 @@ name only when it states one.
 *Proposed.* The name a project, a service, a view or a consumer is declared with.
 
 ### row
-*Proposed.* One entry a view holds, written by the view from a message it read.
+One entry a view holds, kept under its row key and written by the view from a message,
+an event or a state it read.
 
 ### topic source
 *Proposed.* A view's or a consumer's declaration that it reads a topic, with the start position
@@ -875,9 +876,10 @@ and then drops them, so a topic is not a complete record.
 *Proposed.* The version a view's rows were last built at, as the service has stored it.
 
 ### rebuild
-*Proposed.* Emptying a view and reading its topic again from its start position under a new
-group, when the view is declared at a higher version than its recorded version. A rebuild reaches
-back only as far as the broker retains.
+Emptying a view and reading every one of its sources again, when the view is declared
+at a higher version than its recorded version: a topic from its start position under a new group,
+an entity from the first thing it recorded. A rebuild of a view that reads a topic reaches back
+only as far as the broker retains; an entity keeps everything it recorded.
 
 Avoid: replay, rewind
 
@@ -1160,7 +1162,8 @@ Of an entity: given back its state, from its snapshot and the events after it, b
 next command runs.
 
 ### query
-A handler that reads an entity's state and may not change it.
+Something that only reads: a handler that reads an entity's state and may not change it, or a
+view's declared query, which reads the view's table.
 
 ### component test kit
 What a developer's test runs one component with, with no platform, no database and no
@@ -1629,10 +1632,46 @@ How long the platform waits before it fires again a timer whose handler failed:
 
 Avoid: retry delay
 
+## Views
+
+### source
+What a view or a consumer reads: the events of an event sourced entity, the state of a
+key value entity, or a topic. A view may read several, each in order and on its own.
+
+### table
+What a view keeps its rows in. Each view has exactly one, its own. It is not any other
+table of the service's database.
+
+### row key
+What a row is kept under. A view's table holds at most one row for a row key. Unless
+the view names another, it is the entity id of the entity the event or the state came from.
+
+Avoid: primary key
+
+### declared query
+A query a view declares under a name: a statement, and the names of the values it
+takes. A handler asks it by name and gives the values, which are never read as part of the
+statement.
+
+Avoid: named query
+
+### recursive query
+A declared query that follows from row to row to any depth in one asking, such as from
+a row to every row under it. It is still a query of one view's table.
+
+Avoid: recursive read, tree query
+
+### statement
+What a declared query says to the database, written by the developer where the view is
+declared. The platform checks a statement by the tables it reads when the service starts, and a
+service does not start with one that is not a single query of the view's own table.
+
+Avoid: SQL
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
-since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
+since, started, nothing, handle, handles, serve, serves, publish, publishes, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,
 focuses, focusing, what, else, make, makes, made, through, time, times, attributed, counted, count,
 counts, apart, together, added, wait, waits, waiting, stopped, longer, takes, finishes, run, runs,
@@ -1654,47 +1693,48 @@ value, expired, valid, fetched, fetch, unreachable, been, has, had, having, rath
 problems, twice, attached, ignored, settings, its, their, this, these, those, it, them, they, of,
 and, or, a, an, the, to, in, on, by, as, at, up, down, so, if, everyone, while, when, again, go,
 going, do, done, fails, failed, failure, be, being, was, were, now, also, later, over, other's,
-issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less,
-first, installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove,
-removes, removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule,
-break, breaks, slash, holding, newly, exists, try, tries, there, such, present, record, recorded,
-delete, deleted, back, distinct, between, naming, starting, longest, permitted, accepts, declaring,
-already, delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during,
-beside, far, looks, default, bounded, upgrading, empty, nobody, created, creation, because,
-reserved, sees, lost, cart, item, moment, find, form, place, warning, active, replacement, join,
-joins, joined, cut, side, went, held, unchanged, need, someone, anything, copy, everything, always,
-hour, grow, connection, connections, connect, credential's, refuses, exchanged, password, timers,
-due, rows, wrote, socks, redirected, predicted, seconds, checks, checking, checked, check, verify,
-verifies, unchecked, risks, moved, installs, installed, installing, enforce, network, talk, talks,
-showing, cluster's, gateway's, issuer's, control, plane's, member's, developer's, machine's, ports,
-needs, adds, create, act, issued, issue, trust, trusts, against, security, protect, way, builds,
-depend, depending, prepared, prepares, prepare, program, programs, edited, order, writes, carry,
-creates, labelled, today, today's, attributes, invites, renames, deletes, lifetime, stating, stated,
-ninety, expires, expire, expiring, succeeds, released, pushes, pushed, push, tags, tagged, commit,
-hand, declines, username, public, private, plainly, wraps, sign, line, lines, recent, paused, cost,
-unknown, prices, duration, oldest, outcome, body, client, monitoring, collects, draws, provided,
-follows, refers, copied, belongs, days, accounts, ever, took, among, forms, knows, confirms, acting,
-anyone, get, revoked, across, fourth, replied, deletion, nested, stays, speaks, speak, drives, kit,
-JVM, Docker, Rust, toolchain, Scala, Python, TypeScript, items, carts, profile, workflow's, refuse,
-recovery, recovers, recover, failing, passing, behaviour, mid-command, exercised, byte, bytes,
-compatible, install, imported, package, lacks, function, broken, fixed, error, handed, steps,
-moving, moves, see, seen, retried, memory, samples, tested, contents, differs, rules, languages,
-whichever, loads, load, replace, schema, spent, work, approve, begins, warned, happens, happened,
-cites, cite, nearing, words, text, team, teams, ticket, shape, included, include, chosen,
-characters, Akka's, above, whatever, total, therefore, talking, stood, stay, replies, remains,
-remain, rejected, rate, overrides, override, overloaded, navigation, moderate, lie, lead, invented,
-highest, guides, guide, forwards, figure, explains, differences, difference, deliberate, delegate,
-defeat, deactivated, activated, copies, configure, condition, computed, author, agree, renewing,
-renewed, browser's, administrator, timed, elsewhere, following, drawn, look, addition, hides,
-rename, renamed, invited, enables, disables, confirmed, detail, milliseconds, assistant, absence,
-setting, absent, something, anyway, identity, proves, known, belong, someone's, themselves,
-membership, wherever, loading, begin, begun, returning, receives, example, cloud, everywhere,
-people, development, return, turned, JavaScript, alters, choice, several, hands, reference,
-shopping, three, perhaps, single, current, plain, describe, describing, checkout, checkouts,
-applied, caught, uninterrupted, computes, outranks, rise, greater, neither, replaces, documented,
-documentation's, needed, writer, closes, offers, offered, signing, applying, foot, hidden, scroll,
-scrolls, sideways, pauses, saying, overview, open, reloaded, audited, visible, keyboard, brightest,
-point, least, brighter, shipped, colour, accord, blur, opaque, readable, border, outline, forces,
-edge, clipped, below, facts, controls, prefers, preference, dark, light, fetches, mounts, mounted,
-small, brightness, ratio, centre, screen, bright, enough, front, width, would, choose, whoever,
-clear, declaration, large, unread, crosses, older, quiet, requires, requiring, working, day, week, length
+issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less, first,
+installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove, removes,
+removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule, break, breaks,
+slash, holding, newly, exists, try, tries, there, such, present, record, recorded, delete, deleted,
+back, distinct, between, naming, starting, longest, permitted, accepts, declaring, already,
+delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during, beside, far,
+looks, default, bounded, upgrading, empty, nobody, created, creation, because, reserved, sees, lost,
+cart, item, moment, find, form, place, warning, active, replacement, join, joins, joined, cut, side,
+went, held, unchanged, need, someone, anything, copy, everything, always, hour, grow, connection,
+connections, connect, credential's, refuses, exchanged, password, timers, due, rows, wrote, socks,
+redirected, predicted, seconds, checks, checking, checked, check, verify, verifies, unchecked, risks,
+moved, installs, installed, installing, enforce, network, talk, talks, showing, cluster's, gateway's,
+issuer's, control, plane's, member's, developer's, machine's, ports, needs, adds, create, act,
+issued, issue, trust, trusts, against, security, protect, way, builds, depend, depending, prepared,
+prepares, prepare, program, programs, edited, order, writes, carry, creates, labelled, today,
+today's, attributes, invites, renames, deletes, lifetime, stating, stated, ninety, expires, expire,
+expiring, succeeds, released, pushes, pushed, push, tags, tagged, commit, hand, declines, username,
+public, private, plainly, wraps, sign, line, lines, recent, paused, cost, unknown, prices, duration,
+oldest, outcome, body, client, monitoring, collects, draws, provided, follows, refers, copied,
+belongs, days, accounts, ever, took, among, forms, knows, confirms, acting, anyone, get, revoked,
+across, fourth, replied, deletion, nested, stays, speaks, speak, drives, kit, JVM, Docker, Rust,
+toolchain, Scala, Python, TypeScript, items, carts, profile, workflow's, refuse, recovery, recovers,
+recover, failing, passing, behaviour, mid-command, exercised, byte, bytes, compatible, install,
+imported, package, lacks, function, broken, fixed, error, handed, steps, moving, moves, see, seen,
+retried, memory, samples, tested, contents, differs, rules, languages, whichever, loads, load,
+replace, schema, spent, work, approve, begins, warned, happens, happened, cites, cite, nearing,
+words, text, team, teams, ticket, shape, included, include, chosen, characters, Akka's, above,
+whatever, total, therefore, talking, stood, stay, replies, remains, remain, rejected, rate,
+overrides, override, overloaded, navigation, moderate, lie, lead, invented, highest, guides, guide,
+forwards, figure, explains, differences, difference, deliberate, delegate, defeat, deactivated,
+activated, copies, configure, condition, computed, author, agree, renewing, renewed, browser's,
+administrator, timed, elsewhere, following, drawn, look, addition, hides, rename, renamed, invited,
+enables, disables, confirmed, detail, milliseconds, assistant, absence, setting, absent, something,
+anyway, identity, proves, known, belong, someone's, themselves, membership, wherever, loading, begin,
+begun, returning, receives, example, cloud, everywhere, people, development, return, turned,
+JavaScript, alters, choice, several, hands, reference, shopping, three, perhaps, single, current,
+plain, describe, describing, checkout, checkouts, applied, caught, uninterrupted, computes, outranks,
+rise, greater, neither, replaces, documented, documentation's, needed, writer, closes, offers,
+offered, signing, applying, foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open,
+reloaded, audited, visible, keyboard, brightest, point, least, brighter, shipped, colour, accord,
+blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, controls, prefers,
+preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
+enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
+quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
+comment

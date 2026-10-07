@@ -155,11 +155,22 @@ feature also says what that feature does not do.
 
 ## Components
 
-- **Views read one source into one table.** Multi-table views and Akka's snapshot-handler projection
-  optimisation are not built.
-- **A view over an entity is not rebuilt when its code changes.** A changed handler applies to changes
-  from then on. A view over a topic is, by raising its version.
-- **A topic source's rebuild is bounded by what the broker retains.** Raising a topic-sourced view's
+- **A view writes one table, and a query reads that table alone.** A keyed view reads several entities
+  into one table, but there is no query across two views' tables, and Akka's snapshot-handler
+  projection optimisation is not built.
+- **A topic and an entity may not be sources of one view.** Only the entity's half could be rebuilt, so
+  a view reading both is refused when the service starts. A keyed view reads entities only; a view of a
+  topic is a plain view.
+- **A keyed view has one writer.** It handles one change at a time, across every source and every
+  instance, so its throughput does not grow with the service's instances.
+- **Reads other than declared queries have no timeout in the database.** A declared query is ended by the
+  database when the service's ask timeout runs out; `get`, `all` and, in Scala, `where`, `ordered` and
+  `count` stop the caller waiting and leave the statement to finish.
+- **A view's version may be raised only once every instance knows versions of views that read
+  entities.** An instance from before cannot be told to stop writing during the rebuild. See
+  [Upgrading](../deploy/upgrading.md).
+- **A topic source's rebuild is bounded by what the broker retains.** A rebuild of a view reading an
+  entity is not: an entity keeps every change it recorded, and the view reads all of them again. Raising a topic-sourced view's
   version empties it and reads its topic again, but a topic's retention is a window, not a record: what
   the broker has dropped is not read, and the rebuilt view holds only what the window still holds. While
   it runs the view serves an empty or partial table. See

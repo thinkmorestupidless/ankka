@@ -18,14 +18,21 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   Serializer
 }
-import com.thinkmorestupidless.ankka.runtime.remote.{PayloadKeys, RemoteDescriptor}
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  PayloadKeys,
+  RemoteDescriptor,
+  RemoteKeyedViewDescriptor,
+  RemoteViewDescriptor
+}
 import com.thinkmorestupidless.ankka.runtime.{
   AnkkaExecutors,
   AnkkaService,
+  CheckedQuery,
   Database,
   EntityProtocol,
   MetaEntry,
   Observability,
+  QueryCheck,
   Trace,
   ViewQueries
 }
@@ -105,6 +112,17 @@ final class ClientLogic(
       case Some(origin) => Trace.asOrigin(origin)(call)
       case None         => call
   private val database = Database()
+
+  // Each discovered view's declared queries, checked once: discovery has already refused a service
+  // whose statements the check would not pass.
+  private lazy val declared: Map[ComponentId, Vector[CheckedQuery]] =
+    service.registry.components
+      .collect {
+        case view: RemoteViewDescriptor      => view.componentId -> view.declaredQueries
+        case view: RemoteKeyedViewDescriptor => view.componentId -> view.declaredQueries
+      }
+      .map((id, queries) => id -> QueryCheck.checkedAll(id, ViewDescriptor.tableFor(id), queries))
+      .toMap
 
   private def payload(p: Option[pb.Payload]): Array[Byte] =
     p.map(_.data.toByteArray).getOrElse(Array.emptyByteArray)
@@ -338,14 +356,16 @@ final class ClientLogic(
         )
       case Right(viewId) =>
         // Rows are the process's own JSON under its row manifest; the sidecar hands them back as
-        // they are stored. Query names: `get` (payload: the key as text), `all` (no payload).
+        // they are stored. Query names: `get` (payload: the key as text), `all` (no payload), and
+        // any query the view declared, asked with its values.
         val queries =
           ViewQueries(
             viewId.toString,
             ViewDescriptor.tableFor(viewId),
             Serializer.bytes,
             database,
-            settings.commandTimeout
+            settings.commandTimeout,
+            declared.getOrElse(viewId, Vector.empty)
           )
         // Asked as the handler the process was running, as a call is: the query is counted when it
         // is made, on this thread.
@@ -353,13 +373,12 @@ final class ClientLogic(
           request.name match
             case "get" | "by-id" | "by-key" =>
               queries.getAsync(String(payload(request.payload), "UTF-8")).map(_.toVector)
-            case "all" => queries.allAsync(1000)
+            case "all" => queries.allAsync(ViewQueries.DefaultLimit)
             case other =>
-              Future.failed(
-                CommandError(
-                  s"unknown view query '$other'; a remote view answers 'get' and 'all'",
-                  ErrorCode.NotFound
-                )
+              queries.askNamed(
+                other,
+                request.values,
+                request.limit.fold(ViewQueries.DefaultLimit)(_.toInt)
               )
         }
         rows

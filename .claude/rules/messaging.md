@@ -36,7 +36,46 @@ own (`ViewGuard`). That pair is the whole of "no row an older handler writes sur
 `view rebuild:`, `view behind its recorded version:`), in two metric series and in the local console's
 `topicSources`; not yet in `services get`, which a later change can carry over the observe port.
 
+## Views come in two shapes, and both declare their queries
+
+Feature 031. A **plain view** (`View`) reads one source and keeps one row per source id, sliced across
+instances. A **keyed view** (`KeyedView`) reads one or more entities, each through a handler of its own,
+names every row it writes by key, and reads its own rows (`change.rows.get` / `.ask`); it is a separate
+shape because it must handle one change at a time, and the runtime has to know that before it starts.
+"One at a time" is the view's advisory lock (`ViewVersions.lockFragment`, the lock a rebuild takes)
+taken exclusively in the change's own transaction by every source's handler on every instance; a plain
+view takes it shared. Effects are `KeyedViewEffect` in `core`, reduced by `RowChanges.reduce` for the
+hosts and every test kit.
+
+A **declared query** is a named SQL statement over the view's own table, checked once at startup by
+`QueryCheck` (JSqlParser, in `runtime` only) for Scala and discovered views alike, and run by
+`ViewQueries.ask` in a read-only transaction with a statement timeout: the check decides what a statement
+says, the database what it does and that it stops. A view that reads entities may declare a version (024
+gave topic views theirs): its projections' ids carry the version (`ViewProjections.name`, the one place a
+view's projection is named), and every write of such a view is guarded by the recorded version
+(`EntityViewGuard`), which pauses a projection that finds the view behind.
+
 ## Traps
+
+- **A projection's `R2dbcSession` reads a row count from every statement, and a `SET` reports none.**
+  `SET LOCAL statement_timeout` through `session.updateOne` failed every keyed view change with a
+  `NullPointerException` deep in pekko-persistence-r2dbc's `updateOneInTx`. Set a transaction-local setting
+  as a query, `SELECT set_config('statement_timeout', '…', true)`, through `selectOne`.
+- **Every instance must start the same sharded daemon processes.** A sharded daemon process's
+  coordinator is a cluster singleton on the oldest node, and runs only if that node started the same
+  name. A daemon named for a view's version was one the oldest instance never knew, and the newer
+  instances' regions logged "Trying to register to coordinator" forever with nothing running. A version
+  goes in the projection id (what offsets are stored under), never in the daemon's name
+  (`ViewProjections.daemon`), and an instance behind the recorded version starts the daemon all the same.
+- **A view's projection id must not be spellable by another view's id.** Component ids may contain
+  `.`, `-` and `_`, so `summary` at version 2 and `summary-v2` at version 1 would share offsets if the
+  version were appended to the id. `ViewProjections.name` puts it before the id, as `ConsumerGroups` does
+  for groups, and `ViewProjectionsSuite` pins today's version-1 name as a literal: a name that moved would
+  make every existing view re-read its source on upgrade, which no suite on an empty database can see.
+- **A test fixture shared by several views shares their counters.** Three keyed views reading one entity
+  through one handler class made a per-script retry counter reach 2 on the first delivery, and their begin
+  and end lines interleave legitimately — each view has its own lock. Key fixture state by the view
+  (`ctx.componentId`), and log "end" in a `finally`, or a handler that throws looks like one that overlaps.
 
 - **The Kafka producer's `send` blocks its caller while it waits for a topic's metadata**, a minute by
   default, and a consumer's publish runs on the projection's dispatcher thread. A topic nobody declared held

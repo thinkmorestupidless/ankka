@@ -204,7 +204,7 @@ fn a_consumer_reading_a_topic_must_declare_its_start_position() {
 }
 
 #[test]
-fn a_version_of_zero_or_on_a_component_that_reads_an_entity_is_refused() {
+fn a_version_of_zero_is_refused_and_one_on_a_view_that_reads_an_entity_is_accepted() {
     let found = messages(
         Service::new("test")
             .register(VersionZero)
@@ -216,11 +216,62 @@ fn a_version_of_zero_or_on_a_component_that_reads_an_entity_is_refused() {
             .any(|m| m.contains("view 'version-zero' declares version 0")),
         "{found:?}"
     );
+    // A view that reads an entity is rebuilt from its journal when its version is raised.
     assert!(
-        found.iter().any(|m| m
-            .contains("view 'versioned-over-entity' declares a version, which applies to a topic")),
+        !found.iter().any(|m| m.contains("versioned-over-entity")),
         "{found:?}"
     );
+}
+
+struct VersionedConsumerOverEntity;
+impl Consumer for VersionedConsumerOverEntity {
+    type Message = Message;
+    const COMPONENT_ID: &'static str = "versioned-consumer";
+    fn source() -> Source {
+        Source::Component(ankka::proto::Kind::EventSourcedEntity, "twice")
+    }
+    fn version() -> Option<u32> {
+        Some(2)
+    }
+    fn on_message(_: Message, _: &Context) -> ConsumerEffect {
+        effects::consumer::done()
+    }
+}
+
+#[test]
+fn a_version_on_a_consumer_that_reads_an_entity_is_still_refused() {
+    let found = messages(Service::new("test").register(VersionedConsumerOverEntity));
+    assert!(
+        found.iter().any(|m| m.contains(
+            "consumer 'versioned-consumer' declares a version, which applies to a topic"
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_version_on_a_view_that_reads_an_entity_is_sent_and_needs_protocol_1_8() {
+    let spec = Service::new("test")
+        .register(VersionedOverEntity)
+        .discover(&ankka::proto::SidecarInfo {
+            protocol_version: "1.13".to_string(),
+            runtime_version: String::new(),
+        })
+        .spec
+        .expect("a spec");
+    let Some(ankka::proto::component::Detail::View(detail)) = &spec.components[0].detail else {
+        panic!("a view");
+    };
+    assert_eq!(detail.version, Some(2));
+    let refused = std::panic::catch_unwind(|| {
+        Service::new("test")
+            .register(VersionedOverEntity)
+            .discover(&ankka::proto::SidecarInfo {
+                protocol_version: "1.7".to_string(),
+                runtime_version: String::new(),
+            })
+    });
+    assert!(refused.is_err(), "a 1.7 runtime would ignore the version");
 }
 
 #[test]

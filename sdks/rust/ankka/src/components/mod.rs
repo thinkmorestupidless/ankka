@@ -9,6 +9,7 @@ pub mod consumer;
 pub mod endpoint;
 pub mod event_sourced;
 pub mod key_value;
+pub mod keyed_view;
 pub mod timed_action;
 pub mod view;
 pub mod workflow;
@@ -29,8 +30,9 @@ pub use consumer::Consumer;
 pub use endpoint::{Acl, Caller, CallerMatcher, Endpoint, Principal, Request, Routes};
 pub use event_sourced::{EventSourcedEntity, Handlers};
 pub use key_value::{KeyValueEntity, KeyValueHandlers};
+pub use keyed_view::{KeyedView, Sources};
 pub use timed_action::{Actions, TimedAction};
-pub use view::{Source, View};
+pub use view::{DeclaredQuery, Source, View, query, table_of};
 pub use workflow::{Recovery, Steps, Workflow, WorkflowHandlers, WorkflowSettings};
 
 /// Whether a component's module instance keeps its state between calls.
@@ -63,6 +65,9 @@ pub mod kinds {
     /// A view.
     #[derive(Debug)]
     pub struct View;
+    /// A keyed view.
+    #[derive(Debug)]
+    pub struct KeyedView;
     /// A consumer.
     #[derive(Debug)]
     pub struct Consumer;

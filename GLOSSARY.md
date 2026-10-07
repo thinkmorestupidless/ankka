@@ -48,7 +48,8 @@ components or publishing to a topic.
 A component that runs a process of several steps and survives a restart part way through.
 
 ### step
-One unit of a workflow's work. A step may call other components.
+One unit of a workflow's work, or of a run's. A step may call other components; a run's step
+uses one pattern.
 
 ### timed action
 A component whose handlers are run by timers.
@@ -1629,20 +1630,112 @@ for them. A module has none of its own.
 *Proposed.* Of a module: stopped by the platform part way through what it is doing. A module
 cannot be, so the platform stops waiting for one and never stops the module itself.
 
+## Blueprints
+
+### blueprint
+A named description of workers and the steps between them, which a service registers
+and the platform runs: the input shape of its runs, its workers, its steps, and optionally a
+schedule and a run budget. It is held, never deployed, and has no conditions or loops of its own.
+Avoid: pipeline, graph, flow
+
+### blueprint version
+One registration of a blueprint, numbered from 1, never changed. A changed blueprint is
+a new blueprint version.
+
+### worker
+An agent a blueprint defines by data: instructions, a model, tools, guardrails and a
+budget. It is not a component, and not an agent instance.
+Avoid: role
+
+### pattern
+One of the ways the platform has for a step of a run to use workers: ask, work, for-each,
+gather, judge and critique.
+
+### ask step
+A step in which one worker answers the step's input once, running the tools its model
+asks for.
+
+### work step
+*Proposed.* A step in which one worker iterates on the step's input until its model completes it,
+gives up, or spends the budget, as an autonomous agent does.
+
+### for-each step
+*Proposed.* A step in which one worker is given each item of a list, at most the step's limit at
+once, and whose result is their results in the list's order.
+
+### gather step
+A step in which several workers, or one worker several times, are given the same input
+at once, and whose result is every result with the worker that gave it.
+
+### judge step
+A step whose result is a judgment's answers to typed questions about its input.
+
+### critique step
+A step in which a drafting worker drafts, a critic or a judgment gives a verdict, and a
+draft that does not pass goes back with the reasons, up to the step's number of rounds.
+
+### draft
+What the drafting worker of a critique step produces in one round.
+
+### critic
+The worker whose verdict passes a draft or returns it with reasons.
+
+### verdict
+A critic's or a judgment's decision on a draft: it passes, or it goes back with reasons.
+
+### round
+One draft and its verdict, in a critique step.
+
+### run
+One carrying out of one blueprint version under a run id: its input, each step's
+result, the session of each worker in each step, its usage and its run status. It is not a task.
+
+### run id
+The id a run's caller chooses for it; a run started twice under one run id is one run.
+
+### run status
+Where a run stands: "running", "waiting for a decision", or ended "completed", "failed"
+or "cancelled".
+
+### run budget
+How many model calls a whole run may make.
+
+### input shape
+*Proposed.* The shape an input must have: of a run, as a blueprint declares it; a step declares the
+shape of its result the same way.
+
+### schedule
+A blueprint's cadence and time zone, from which its due times follow, and whether due
+times missed while the service was down start one run or one run per missed period.
+
+### cadence
+How often a schedule's due times come: every so many hours or days, or weekly on a day
+at a time.
+
+### time zone
+A named region whose local time a cadence is written in, such as "Europe/London".
+
+### research digest sample
+The sample service that shows blueprints at work: a scheduled watch keeping what its
+literature searches find, and a scheduled digest writing a weekly script from it. Its own words
+are in its own glossary.
+
 ## Timers
 
 ### due time
-When a timer is to fire. The platform fires a timer at its due time or shortly after,
-never before. A timer that fires again after a failure fires for the same due time. A handler
-is told the due time of the timer that ran it.
+When a timer is to fire, and so when a schedule says a run starts. The platform fires a timer
+at its due time or shortly after, never before. A timer that fires again after a failure fires
+for the same due time. A handler is told the due time of the timer that ran it.
 
 Avoid: fire time
 
 ### period
-How long after one due time a recurring timer's next due time is. It is a length of
-time and nothing else: it says nothing of a time of day or a day of the week.
+What lies between one due time and the next. Of a recurring timer, how long that is: a length
+of time and nothing else, saying nothing of a time of day or a day of the week. Of a scheduled
+run, the span itself, from the previous due time to its own, which is the run's input; periods
+meet with no gap and no overlap.
 
-Avoid: interval, schedule
+Avoid: interval
 
 ### recurring timer
 A timer with a period. The platform fires it for one due time after another until it
@@ -1737,8 +1830,7 @@ Avoid: presigned URL
 
 ## Everyday words
 
-read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
-since, started, nothing, handle, handles, serve, serves, publish, publishes, outside, only,
+scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,
 focuses, focusing, what, else, make, makes, made, through, time, times, attributed, counted, count,
 counts, apart, together, added, wait, waits, waiting, stopped, longer, takes, finishes, run, runs,

@@ -33,10 +33,10 @@ Feature: Every read of a secret leaves a record
     Then the read record names the service secret "acme" and the outcome <outcome>
 
     Examples:
-      | backend                | what                                                 | outcome   |
-      | Postgres backend       | the service secret "acme", which was never kept      | "none"    |
-      | Secret Manager backend | the service secret "acme", which was never kept      | "none"    |
-      | Secret Manager backend | the service secret "acme" before its grant was made  | "refused" |
+      | backend                | what                                                           | outcome   |
+      | Postgres backend       | the service secret "acme", which was never kept                | "none"    |
+      | Secret Manager backend | the service secret "acme", which was never kept                | "none"    |
+      | Secret Manager backend | the service secret "acme" before its secret access was written | "refused" |
 
   Scenario: an installation whose access log is off is told what to turn on
     Given an installation on the Secret Manager backend with the access log off

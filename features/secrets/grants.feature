@@ -1,9 +1,9 @@
 Feature: A service reaches only its own secrets
   On the Secret Manager backend a service reaches Secret Manager as its own identity: the one the
   platform gives its instances, with no credential for Google Cloud in its environment, its
-  descriptor or its secrets. The cloud provider writes the grant that admits that identity to its
+  descriptor or its secrets. The cloud provider writes the secret access that admits that identity to its
   own service secrets and to a read of its project's entries, and to nothing else; Google Cloud
-  refuses the rest, not code in the instance. A grant follows the service's name, so a service
+  refuses the rest, not code in the instance. Secret access follows the service's name, so a service
   deleted and deployed again reads what it kept.
 
   Background:

@@ -1,7 +1,9 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules*, *Cross-project access*, *Backups and recovery*, *Cloud provider* and the retention terms under *Broker*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Secrets*, *Topic sources*, the retention terms
+under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery*, *Erasure*
+and *Cloud provider*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -856,20 +858,16 @@ credential for Google Cloud.
 *Proposed.* The cloud Secret Manager is part of, which decides by the grants what each identity
 may do there, and keeps the access log.
 
-### grant
-*Proposed.* What an identity may do to which secrets in Secret Manager, as Google Cloud enforces
-it: a service may keep, read and remove its own service secrets and read its project's entries,
-and list nothing; the control plane may add and disable versions of entries and read none; the
-cloud provider may read entries and no service secret. The operator asks for a grant and the cloud
-provider writes it; nothing else can. A grant follows a service's name, so a service deleted and
-deployed again has the one it had.
+### secret access
+*Proposed.* What a cloud identity may do to which secrets in Secret Manager, as Google Cloud
+enforces it: a service may keep, read and remove its own service secrets and read its project's
+entries, and list nothing; the control plane may add and disable versions of entries and read
+none; the cloud provider may read entries and no service secret. The operator asks for it with a
+secret access request and the cloud provider writes it; nothing else can. It follows a service's
+name, so a service deleted and deployed again has the one it had. It is not a grant, which a
+project makes for a grantee.
 
-Avoid: IAM binding, role binding
-
-### cloud provider
-*Proposed.* The part of the platform that acts on the cloud for the installation, holding the
-power the operator does not: it writes grants, and keeps each project's secret in the cluster in
-step with the project's entries in Secret Manager. It is not a judgment provider.
+Avoid: IAM binding, role binding, IAM grant
 
 ### access log
 *Proposed.* Google Cloud's own record of every access to a secret in Secret Manager, naming the
@@ -2008,8 +2006,9 @@ name, and nothing derives it.
 Avoid: GCS
 
 ### Garage
-*Proposed.* The object store the platform runs inside an installation, and the one a local platform
-has. A bucket in it holds one version of each object, is named from the project and the service,
+*Proposed.* The object store the platform runs inside an installation that names no other, and the
+one a local platform has: on one machine as shipped, or on three with each object on every one of
+them. A bucket in it holds one version of each object, is named from the project and the service,
 and is reached from the internet only when its descriptor asks.
 
 ### provider
@@ -2030,11 +2029,6 @@ Avoid: service account, Google account
 storage account. A service that reaches its bucket as its workload identity needs no storage
 credential, and can make no signed URL.
 
-### location
-*Proposed.* Where in Google's cloud a bucket keeps its objects, fixed when the bucket is made and
-reported in the status. The installation names one for its buckets; a project may name its own,
-for the buckets made for it from then on.
-
 ### retention policy
 *Proposed.* A setting of a bucket in Google Cloud Storage that refuses to delete an object younger
 than an age. The platform sets none on any bucket and offers no setting that does: holding a
@@ -2045,11 +2039,6 @@ refused on account of an object's age.
 *Proposed.* An object as it was before it was overwritten or deleted, which a bucket in Google
 Cloud Storage keeps and a service reads back, until every version of the object is deleted. A
 bucket in Garage keeps none.
-
-### KMS key
-*Proposed.* A key the installation holds in Google Cloud's key management and names so that every
-bucket the provider makes is encrypted with it rather than with Google's own. It is not a secret
-key, which a service's secret store encrypts with.
 
 ### move
 *Proposed.* Copying every object of one service's bucket in Garage into a bucket made for it in
@@ -2189,7 +2178,8 @@ With none named, nothing is backed up and every status says so.
 ### backup bucket
 *Proposed.* A bucket the platform makes for one project's backups, and one each for the database of
 the control plane and the platform's other stores. The project database and the platform reach it;
-no storage credential does. The platform never deletes it.
+no storage credential does, no route reaches it, and no descriptor can name it. The platform never
+deletes it.
 
 ### archive
 *Proposed.* Every write a project database makes, written to its backup bucket as it is made, so
@@ -2215,8 +2205,9 @@ base backup has completed.
 ### restore
 *Proposed.* A project database made anew at a moment in the retention window, beside the current
 one, from the latest base backup before the moment and the archive up to it. It changes the current
-project database not at all; a service reaches it only by a switch. As a verb: make one. It is not a
-roll back, which brings back a descriptor and no data.
+project database not at all; a service reaches it only by a switch. The control plane's database
+and the keyring's are restored the same way. As a verb: make one; as an adjective, restored. It is
+not a roll back, which brings back a descriptor and no data.
 
 Avoid: point-in-time recovery, PITR
 
@@ -2246,8 +2237,8 @@ after a restore never carries one an earlier message carried. It protects only a
 deduplicates by it.
 
 ### journal
-*Proposed.* The table a service's database keeps its entities' events in: the record a restore
-takes back to the restore point.
+*Proposed.* The table a service's database keeps its entities' events in, in order: the record a
+restore takes back to the restore point. Nothing is ever removed from it.
 
 ### read position
 *Proposed.* How far a view or a consumer has read of a source, as the service's database records
@@ -2298,19 +2289,6 @@ nothing in the cluster and lists every service, declared topic and project that 
 it recorded.
 
 Avoid: reconciliation loop
-
-### erasure
-*Proposed.* A request that everything recorded about one person be made unreadable, as feature 042
-describes it.
-
-### erasure log
-*Proposed.* The control plane's record of every erasure filed in the installation, of which it keeps
-a copy in a bucket. A control plane restored to before an erasure brings its erasure log up to date
-from that copy before it can be released.
-
-### Garage
-*Proposed.* The object store the platform installs for an installation that names no other: on one
-machine as shipped, or on three with each object on every one of them.
 
 ### secondary store
 *Proposed.* An object store outside the cluster to which every bucket of the installation's Garage
@@ -2413,9 +2391,11 @@ again. What the platform does of its own does not wait for it.
 
 ### erasure log
 *Proposed.* The record of every applied erasure of an installation, written before any subject key
-is destroyed and kept in two places outside the keyring's database. The keyring applies it before
-it answers anyone after its database is restored, and a service applies its project's entries to
-its own tables before it is ready after a restore of its project's database.
+is destroyed and kept in two places outside the keyring's database: the control plane's database
+and a bucket. The keyring applies it before it answers anyone after its database is restored; a
+service applies its project's entries to its own tables before it is ready after a restore of its
+project's database; and a control plane restored to before an erasure brings its copy up to date
+from the bucket before it can be released.
 
 ### erasure certificate
 *Proposed.* What a member fetches for an applied erasure request, to give the data subject: the
@@ -2425,13 +2405,6 @@ erasure became final. It holds no personal field.
 ### correlation id
 *Proposed.* An id whoever asks for an erasure request may give it, so that erasure requests in
 different projects for one person can be listed together. The platform reads nothing into it.
-
-### grant
-*Proposed.* A project's statement that a service of another project, or a machine outside the
-installation, may do one thing with what is its own: read one of its topics, read one of its topics
-with decryption, or ask for an erasure in it. A project revokes a grant, and from then on nothing
-is admitted by it. It is defined by cross-project access (spec 040); this is what erasure needs of
-it.
 
 ### decryption
 *Proposed.* What a grant on a topic may allow beyond reading it: the holder's reads of the personal
@@ -2451,19 +2424,10 @@ erased.
 one before it is gone. The erasure of a data subject's objects becomes final when it has passed.
 It is defined by object storage on Google Cloud (spec 039).
 
-### restore
-*Proposed.* Bringing a database back from a backup to what it held at an earlier point: a service's,
-the control plane's or the keyring's. It is defined by backup and recovery (spec 041); this is what
-erasure needs of it. As an adjective, restored.
-
 ### switched
 *Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
 service that is switched is not ready until it has applied the erasure log to the restored
 database.
-
-### journal
-*Proposed.* Where a service's database keeps every event its event sourced entities recorded, in
-order. Nothing is ever removed from it.
 
 ## Cloud provider
 
@@ -2544,23 +2508,17 @@ written once into a named secret.
 *Proposed.* A cloud request that a cloud identity may wrap with the installation's wrapping key.
 
 ### wrapping key
-*Proposed.* The one key in the cloud account that the installation's keyring wraps its keys with,
-named once for the installation. An installation that names none has its keyring wrap with a
-secret of its own.
+*Proposed.* The one key in the cloud account that the installation names once: its keyring wraps
+its keys with it, and every bucket the cloud provider makes is encrypted with it rather than with
+the cloud's own. An installation that names none has its keyring wrap with a secret of its own and
+its buckets encrypted with the cloud's own key. It is not a secret key, which a service's secret
+store encrypts with.
 
 Avoid: KMS key, root key
-
-### keyring
-*Proposed.* The part of the platform that keeps the keys personal data is encrypted under, so that
-erasing a key erases the data.
 
 ### backup
 *Proposed.* A copy of a project's database that the platform keeps outside it, from which the
 database can be brought back.
-
-### backup bucket
-*Proposed.* A bucket made for a project's backups, which only the project's database reaches. No
-service is given it, no route reaches it, and no descriptor can name it.
 
 ### credential generation
 *Proposed.* A count on a cloud request. Raising it asks the cloud provider for a new credential
@@ -2645,11 +2603,11 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-access, acknowledged, acknowledges, age, ago, authority, became, bring, brings, brought,
+access, acknowledges, age, ago, authority, became, bring, brings, brought,
 certificate, comment, compacts, decrypt, decrypted, decrypts, defaults, derived, destroy, destroyed,
 destroys, differently, entries, equal, fast, filed, filled, final, fulfil, fulfilled, fulfils,
-future, gone, grant, granted, grants, largest, lose, losing, maximum, minimum, minute, newer,
+future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, newer,
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
-registers, rehearse, rehearses, restore, restored, returns, right, SASL, share, shares, union,
+registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
 withdraw, withdraws, withdrew, word, year

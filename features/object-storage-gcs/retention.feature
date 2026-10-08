@@ -4,7 +4,7 @@ Feature: Objects in Google Cloud Storage are kept against accident, and every ve
   Every version of an object can still be deleted, and the deletion is final once that time has
   passed. No bucket has a retention policy: the platform refuses no deletion on account of an
   object's age, and keeping a document for as long as a rule requires is the service's own to do.
-  Every bucket is encrypted, with the installation's KMS key when it names one, and is made in the
+  Every bucket is encrypted, with the installation's wrapping key when it names one, and is made in the
   location its project names, or else the installation's.
 
   Background:
@@ -38,10 +38,10 @@ Feature: Objects in Google Cloud Storage are kept against accident, and every ve
     And the platform offers no setting that gives a bucket one
 
   Scenario: a bucket is encrypted with the installation's key when the installation names one
-    Given the installation names a KMS key for its buckets
+    Given the installation names a wrapping key for its buckets
     And a descriptor for a service "kyc" that asks for a bucket
     When a member applies the descriptor
-    Then the bucket of "kyc" is encrypted with the installation's KMS key
+    Then the bucket of "kyc" is encrypted with the installation's wrapping key
 
   Scenario: a bucket is made in the location the installation names
     Given the installation names the location "europe-west2" for its buckets

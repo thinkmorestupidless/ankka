@@ -813,8 +813,9 @@ It is a platform setting. It is not an entry of a project secret, and it is not 
 Avoid: encryption key, master key
 
 ### encrypted
-Of a service secret as the database holds it: unreadable by anyone who does not have
-the service's secret key.
+Of a service secret as the database holds it, or of a personal field as any store holds it:
+unreadable by anyone who does not have the key it was encrypted with — the service's secret key,
+or the data subject's subject key.
 
 ### project secret
 A named set of entries the platform keeps for a project, which a descriptor's variable
@@ -2269,6 +2270,142 @@ what was on it, unless a replica, another machine or a backup holds it too.
 
 Avoid: disk, PVC
 
+## Erasure
+
+### data subject
+*Proposed.* The person a personal field is about, named by an id the domain chooses, such as
+"player/8c1f", which is readable wherever it is held and survives an erasure. A data subject is of
+one project: a person known to two projects is two data subjects. It is not a subject, which is an
+issuer's id for the person a token names.
+
+### personal field
+*Proposed.* A field of an event, a state, a row or a message that a service marks as about one data
+subject. Every store holds it only encrypted, as a personal envelope. A field that is not marked,
+such as an amount, an id or a time, is held as it was written, and the platform cannot know that
+it is about anyone.
+
+### personal envelope
+*Proposed.* What every store holds a personal field as: the data subject readable beside the
+field's value encrypted under that data subject's subject key. It is the same in every language and
+in every store, and nothing but the code that reads and writes personal fields looks inside it.
+
+### subject key
+*Proposed.* The key one data subject's personal fields are encrypted under, in one project. It is
+made with the first write of one of them, whichever service or instance writes first, kept by the
+keyring, destroyed by an erasure, and never replaced. It is not the secret key, which encrypts a
+service's secret store, and not an issuer's keys.
+
+### keyring
+*Proposed.* The part of the platform that keeps every subject key and lookup key of an installation,
+outside every service's database and every project's backup. It gives a subject key only to a
+service of the data subject's project, or to a holder of a grant that allows decryption, and it
+records every request it refuses. No subject key leaves the installation.
+
+### lookup token
+*Proposed.* What a row of a view carries beside a personal field marked for lookup, so that a
+declared query can match the field's value without reading it: a keyed hash under the project's
+lookup key, which the keyring holds. It is removed from every row of a data subject by an erasure.
+
+### lookup key
+*Proposed.* The key of one project that its lookup tokens are made with. The keyring keeps it; it is
+not a subject key.
+
+### erasure
+*Proposed.* Destroying a data subject's subject key, so that every personal field of that data
+subject reads as erased wherever it is held, and running what each service of the project does for
+the data subject of its own. Nothing written is removed: the personal envelopes stay, unreadable.
+As a verb, erase.
+
+Avoid: shredding, crypto-shredding
+
+### erased
+*Proposed.* Of a personal field: read as having no value, because its data subject's subject key
+was destroyed. It is a value, not a failure: an entity is recovered, a view is rebuilt and a
+consumer is handed a message with erased in a personal field. Of a data subject: with its subject
+key destroyed, so that no personal field can be written for it again.
+
+### erasure request
+*Proposed.* Asking the platform for the erasure of one data subject in one project: who asked, a
+not-before date and a reason if it is held, a correlation id if one was given, and where it
+stands: held, withdrawn, applied. An applied erasure request records when the subject key was
+destroyed, each service's completion and when the erasure became final. The platform never carries
+one beyond its project.
+
+### not-before date
+*Proposed.* The date before which an erasure request is not applied. The domain chooses it, for a
+hold the law puts on the data; the platform keeps it and applies the erasure request when the date
+has passed, without anyone acting. Only an owner may override it, with a reason that is recorded.
+
+### withdrawn
+*Proposed.* Of a held erasure request: taken back before its not-before date by whoever asked for it
+or by a member, so that nothing is destroyed. An applied erasure request cannot be. As a verb,
+withdraw.
+
+### completion
+*Proposed.* What an erasure request records for one service of its project: when the service had
+dropped the subject key, redacted its rows, removed its lookup tokens, ended its sessions of the
+data subject and run its erasure handler to the end, and what the erasure handler reported.
+
+### erasure handler
+*Proposed.* The one handler a service may register to do its own part of an erasure, such as
+erasing the data subject's objects. It is run with the data subject on every application of an
+erasure request in its project, and again on each later application, so it must be safe to run
+again. What the platform does of its own does not wait for it.
+
+### erasure log
+*Proposed.* The record of every applied erasure of an installation, written before any subject key
+is destroyed and kept in two places outside the keyring's database. The keyring applies it before
+it answers anyone after its database is restored, and a service applies its project's entries to
+its own tables before it is ready after a restore of its project's database.
+
+### erasure certificate
+*Proposed.* What a member fetches for an applied erasure request, to give the data subject: the
+erasure request, the data subject, who asked for it, each service's completion and when the
+erasure became final. It holds no personal field.
+
+### correlation id
+*Proposed.* An id whoever asks for an erasure request may give it, so that erasure requests in
+different projects for one person can be listed together. The platform reads nothing into it.
+
+### grant
+*Proposed.* A project's statement that a service of another project, or a machine outside the
+installation, may do one thing with what is its own: read one of its topics, read one of its topics
+with decryption, or ask for an erasure in it. A project revokes a grant, and from then on nothing
+is admitted by it. It is defined by cross-project access (spec 040); this is what erasure needs of
+it.
+
+### decryption
+*Proposed.* What a grant on a topic may allow beyond reading it: the holder's reads of the personal
+fields on that topic are given their values. A service in another project is given the subject key;
+a machine outside the installation is not, and asks the keyring to decrypt each field for it, which
+the keyring records against the machine and the grant. Without it, every personal field on the
+topic is read as erased.
+
+### subject prefix
+*Proposed.* Where a service keeps the objects of one data subject in its bucket: under the name
+"subjects/", the data subject and "/". An erasure handler asks the platform to erase every object
+under it, every version where the object store keeps versions; an object kept outside it is not
+erased.
+
+### soft-delete window
+*Proposed.* How long an object store that keeps every version of an object still holds a deleted
+one before it is gone. The erasure of a data subject's objects becomes final when it has passed.
+It is defined by object storage on Google Cloud (spec 039).
+
+### restore
+*Proposed.* Bringing a database back from a backup to what it held at an earlier point: a service's,
+the control plane's or the keyring's. It is defined by backup and recovery (spec 041); this is what
+erasure needs of it. As an adjective, restored.
+
+### switched
+*Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
+service that is switched is not ready until it has applied the erasure log to the restored
+database.
+
+### journal
+*Proposed.* Where a service's database keeps every event its event sourced entities recorded, in
+order. Nothing is ever removed from it.
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2337,7 +2474,9 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-access, acknowledged, age, ago, authority, bring, brings, brought, certificate, comment, derived,
-equal, fast, filed, final, future, grant, granted, grants, lose, losing, minute, newer, newest, off,
-often, ordinary, overwrite, overwrites, overwritten, parallel, past, permission, promotion, reach,
-registers, rehearse, rehearses, restore, restored, SASL, share, shares, year
+access, acknowledged, age, ago, authority, became, bring, brings, brought, certificate, comment,
+decrypt, decrypted, decrypts, derived, destroy, destroyed, destroys, entries, equal, fast, filed,
+final, future, grant, granted, grants, lose, losing, minute, newer, newest, off, often, ordinary,
+overwrite, overwrites, overwritten, parallel, past, permission, promotion, reach, rebuilt, redacted,
+registers, rehearse, rehearses, restore, restored, right, SASL, share, shares, union, withdraw,
+withdraws, withdrew, year

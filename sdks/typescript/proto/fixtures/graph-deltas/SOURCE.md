@@ -1,8 +1,8 @@
 # Where these fixtures come from
 
 The graph delta contract, `ankka.graph-delta.v1`, is ankka's: a graph consumer here publishes
-deltas, and the graph sink (`ankka-graph-neo4j`, and the `ankka-graph-sink` image built from it)
-reads them into a store. These files are how the two sides, and every SDK's builder, are shown
+deltas, and the graph sink (`ankka-graph-sink`, over a store interface; a store over Neo4j and an
+image of the sink into it are ankka-contrib's) reads them into a store. These files are how the two sides, and every SDK's builder, are shown
 to agree.
 
 | File | Whose | What a row is |
@@ -15,8 +15,9 @@ to agree.
 
 Every SDK builds the element each row of `keys.json` and `deltas.json` describes through its own
 builder and checks the record's key against `key` and the value, read back, against `delta`. The
-sink's suite (`Neo4jSinkSuite` in `modules/graph-neo4j`) reads the same rows into a Neo4j and
-reads back what `reads` says, so a row here is one the sink is proven to accept. Equality is the
+sink's suite (`GraphSinkSuite` in `modules/graph-sink`) reads the same rows into the reference
+store and reads back what `reads` says, so a row here is one the sink is proven to accept;
+ankka-contrib's Neo4j store proves the same against a copy of these files. Equality is the
 reader's: `2.0` and `2` are the same property value, and `labels` and `properties` that are
 absent equal ones that are empty.
 

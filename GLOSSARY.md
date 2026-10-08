@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules* and *Cross-project access*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -120,11 +120,12 @@ Of an instance: able to answer what its service declares it serves. Calls are se
 only to an instance that is ready. Of a service: every instance it asked for is.
 
 ### exposed
-Of a deployed service: reachable from outside the cluster, at its hostname.
+Of a deployed service: reachable from outside the cluster, at its hostname. Of the installation's
+broker: reachable by registered machines, through the gateway, at hostnames of the base domain.
 
 ### hostname
-Where an exposed service answers from outside the cluster, for HTTP and for gRPC. The platform
-derives it; nobody chooses it.
+Where an exposed service answers from outside the cluster, for HTTP and for gRPC, or where an
+exposed broker answers a registered machine. The platform derives it; nobody chooses it.
 
 ### gateway
 What every request and call from outside the cluster passes through to reach an exposed service.
@@ -330,8 +331,8 @@ Avoid: headers
 
 ### ACL
 An endpoint's access control list: what the endpoint, or one of its routes or methods, states
-about who may call it. It denies all, allows all, admits only the workloads it names, or asks an
-authenticator.
+about who may call it. It denies all, allows all, admits only the workloads it names, admits
+granted callers, or asks an authenticator.
 
 Avoid: access rule
 
@@ -344,8 +345,8 @@ Who a call came from, as an authenticator established it.
 
 ### calling workload
 The workload a call to an endpoint came from, as the platform established it: a
-service of a project, the gateway, or the local caller. It is read from the certificate and never
-from what the call says.
+service of a project, the gateway, a registered machine, or the local caller. It is read from the
+certificate, or from a machine token the platform verified, and never from what the call says.
 
 ### local caller
 The calling workload of every call on a developer's machine, where there is no
@@ -599,7 +600,8 @@ How much of a machine each instance of a service is given, as a descriptor asks 
 
 ### expose
 Make a deployed service reachable from the internet at its hostname. A service is private until
-it is exposed.
+it is exposed. Of the installation's broker: make it reachable by registered machines; an
+installation's broker is closed to them until the installation exposes it.
 
 ### internet
 Everyone and everything outside the platform. A request from the internet reaches a service only
@@ -1107,7 +1109,8 @@ members and change their roles, rename it, manage its deploy tokens and delete i
 always has at least one owner, and a deploy token is never one.
 
 ### revoke
-Of a deploy token: end it, so that no request with it is admitted again.
+Of a deploy token: end it, so that no request with it is admitted again. Of an accepted grant:
+end it, by the grantor and without the grantee, so that it opens nothing again.
 
 ### job
 One run of a repository's automation on GitHub, on one machine, whose commands run one after another. It is not a workflow, which is a component.
@@ -1134,8 +1137,10 @@ Of a cluster: fetch a service's image from its registry before an instance can s
 Of time in a trace: spent inside a part of the trace that none of the parts nested under it account for, such as waiting on a model or on the database.
 
 ### history
-Who did what to a service, and when, as the control plane recorded it: what was done, at which
-generation, by whom and when, newest first. It keeps the most recent and forgets the rest. It is
+Who did what to a service, a project or an organization, and when, as the control plane recorded
+it: what was done, at which generation, by whom and when, newest first. A project's history holds
+every change to its grants; an organization's, every change to a grant its registered machines
+were offered. It keeps the most recent and forgets the rest. It is
 not what a service's instances printed, and not what its entities recorded.
 
 Avoid: audit log
@@ -1150,7 +1155,8 @@ owner may revoke it.
 Avoid: invite (as a noun)
 
 ### pending
-Of an invitation: neither claimed nor revoked.
+Of an invitation: neither claimed nor revoked. Of a grant: offered to another organization and
+neither accepted, declined nor withdrawn; it opens nothing.
 
 ### claimed
 Of an invitation: made into a membership by a request from a person whose verified email
@@ -1999,6 +2005,114 @@ it. A move gives a service one while it copies what changed and checks every obj
 service's status says that its storage is moving; the service is given a storage credential that
 writes again when the move ends, on whichever object store it ends on.
 
+## Cross-project access
+
+### grant
+*Proposed.* What a project holds to let one grantee reach one target of its own. An owner of the
+project's organization makes it, as data, and no code of either side changes for it. A grant
+within that organization is accepted when it is made; one to a grantee of another organization is
+pending until an owner there accepts it. Only an accepted grant opens anything; an ended grant is
+never reopened, and granting again makes a new one. A grant is identified, while it is live, by
+its grantee and its target, so the same one made twice is one grant.
+
+Avoid: access grant, ACL entry
+
+### grantor
+*Proposed.* The project that holds a grant, and the owners of its organization, who make,
+withdraw and revoke it.
+
+### grantee
+*Proposed.* Who a grant names: a service of another project, or a registered machine. The
+organization it belongs to is the one a cross-organization grant is offered to, and whose owners
+accept, decline or relinquish it. It is not a principal, which is what an authenticator
+established of a request.
+
+### target
+*Proposed.* What one grant opens: one route or one method of one of the grantor's services, one of
+the grantor's declared topics to consume, to produce to, or both, or the right to ask for the
+erasure of the grantor's data subjects. Never more than one, and never a prefix or a pattern.
+
+### consume
+*Proposed.* Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
+no position: where the grantee starts reading is its own start position.
+
+### produce
+*Proposed.* Of a topic grant: lets the grantee publish to the topic.
+
+### in effect
+*Proposed.* Of a grant: accepted, and reached where it is read, so that its grantee reaches its
+target. A grant that is not in effect says why: "pending", "declined", "withdrawn", "revoked",
+"relinquished", "route not seen", "route not grantable", "rollout needed" or "broker not exposed".
+
+Avoid: active grant, live grant
+
+### accept
+*Proposed.* Of an owner of the grantee's organization and a pending grant: take it, so that it is
+in effect.
+
+### decline
+*Proposed.* Of an owner of the grantee's organization and a pending grant: refuse it, so that it
+never takes effect.
+
+### withdraw
+*Proposed.* Of the grantor and a pending grant: take it back before it is answered, so that it is
+no longer offered.
+
+### relinquish
+*Proposed.* Of an owner of the grantee's organization and an accepted grant: give it up, without
+the grantor, so that it opens nothing again.
+
+### granted caller
+*Proposed.* A calling workload that holds a grant in effect on the route or the method it is
+calling: a service of another project, or a registered machine. An ACL that admits granted callers
+is what makes a route grantable; it admits no caller without a grant.
+
+Avoid: granted matcher
+
+### grantable
+*Proposed.* Of a route or a method: its ACL admits granted callers, so that a grant on it opens
+it. A grant on one that is not is accepted and reported as "route not grantable"; a web-hosted
+service's routes are never grantable.
+
+### registered machine
+*Proposed.* A machine outside the installation that an owner registered on an organization, which
+proves which machine it is with a machine token. It holds no grant; grants name it. On the broker
+it is a credential of its own, with no topic until a grant gives it one, and it is kept when the
+machine is deleted. It is not a member, and it is not a deploy token.
+
+Avoid: external machine, outside machine, partner machine
+
+### client id
+*Proposed.* The name a registered machine gives the token route when it asks for a machine token,
+together with its client secret.
+
+### client secret
+*Proposed.* What a registered machine proves itself with to the token route: shown once, when the
+machine is registered, and never again; the control plane keeps only a digest of it. It is not a
+secret, which a project keeps for a descriptor, nor a service secret.
+
+### machine token
+*Proposed.* What the control plane signs for a registered machine, for its client id and client
+secret: a token that names the machine and nothing else, lives fifteen minutes, and is checked
+against the control plane's keys without asking it. It carries no grant, so a grant changes
+without a new machine token and a revocation never waits for one to expire. On a route it is
+sent as any token is; on the broker it is what the registered machine proves itself with.
+
+Avoid: client credentials token
+
+### token route
+*Proposed.* Where a registered machine asks the control plane for a machine token. A client id
+that asks more often than the installation allows is refused there for a while.
+
+### byte rate
+*Proposed.* How many bytes a second the broker lets a registered machine publish, and how many it
+lets it read, from the installation's defaults; an owner may set one machine's within the
+installation's ceiling. It is not a quota, which counts projects, services and instances.
+
+### throttled
+*Proposed.* Of a registered machine: made to wait by the broker because it has reached its byte
+rate. What it reads still arrives, later; the installation's services are never throttled for it.
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2067,6 +2181,6 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-access, authority, certificate, comment, derived, equal, final, grant, granted, grants, minute,
-newest, off, overwrite, overwrites, overwritten, parallel, permission, reach, registers, restore,
-restored, SASL, year
+access, ago, authority, certificate, comment, derived, equal, fast, final, grant, granted, grants,
+minute, newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, permission,
+reach, registers, restore, restored, SASL, year

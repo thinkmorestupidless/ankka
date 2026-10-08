@@ -1,7 +1,8 @@
 Feature: The installation's broker
   The platform provides one broker for an installation, as it provides each project a database.
   A local platform has one from the start, so a declared topic works on a developer's machine with
-  nothing set up by hand. Only the services of the installation reach it.
+  nothing set up by hand. Only the services of the installation reach it, until the installation
+  exposes it to registered machines (features/cross-project/machine-topics.feature).
 
   Scenario: a local platform has a broker from the start
     Given a local platform, newly made

@@ -1,8 +1,9 @@
 Feature: Who sent a request to an HTTP endpoint
   Every request that reaches a deployed service arrives over a mutually authenticated connection, so its calling
   workload is read from a certificate the platform issued and never from what the request says. An
-  HTTP endpoint's ACL can therefore admit the gateway, a named service, or both, and mean it. A
-  connection that proves nothing reaches no endpoint.
+  HTTP endpoint's ACL can therefore admit the gateway, a named service, or both, and mean it, or
+  admit granted callers (features/cross-project/route-grants.feature). A connection that proves
+  nothing reaches no endpoint.
 
   Background:
     Given a deployed service "cart" in the project "shop"

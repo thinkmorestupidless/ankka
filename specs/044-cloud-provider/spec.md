@@ -134,22 +134,10 @@ account.
 
 **Acceptance Scenarios**:
 
-1. **Given** an installation with `ANKKA_CLOUD_PROVIDER=gcp` and an object store of `gcs`, **When**
-   a descriptor asks for a bucket, **Then** the operator writes a `bucket` request naming the
-   project, the service, `purpose: service`, the project's location or the installation's, and the
-   bucket settings 039 asks for, and a `bucket-credential` request naming that bucket, the service's
-   identity and the Secret `<service>-storage`.
-2. **Given** those requests, **When** the provider fulfils them, **Then** each status carries
-   `observedGeneration`, `phase: Ready`, the bucket's name as the provider made it, and the
-   credential's Secret name; the operator renders `ANKKA_S3_*` from the status and the Secret, and
-   the service's status reports the bucket `Provisioned` with that name.
-3. **Given** a bucket the provider cannot make (the name is taken in another account, the location
-   is refused), **When** it reports `phase: Failed` with a reason, **Then** the service's status
-   reports `Failed` with that reason verbatim, and the operator renders no credential variables.
-4. **Given** a service deleted and re-applied under the same name, **When** the operator writes the
-   same requests again, **Then** the provider finds the bucket, reports it with `recovered: true`,
-   offers a credential as a `create` that answers 409, and reports the existing Secret's name; the
-   service's status says `Recovered`.
+- added `features/cloud-provider/bucket.feature`: a descriptor that asks for a bucket becomes a bucket request and a bucket credential request
+- added `features/cloud-provider/bucket.feature`: a service is given its bucket when the cloud provider fulfils the requests
+- added `features/cloud-provider/bucket.feature`: a bucket the cloud provider cannot make fails the service with the reason the cloud provider gave
+- added `features/cloud-provider/bucket.feature`: a service deleted and applied again under the same name is given the bucket it had
 
 ---
 
@@ -169,19 +157,12 @@ Secret, and the fake reports the first revoked only after the bound.
 
 **Acceptance Scenarios**:
 
-1. **Given** a `bucket-credential` request, **When** the provider fulfils it, **Then** it issues the
-   credential, grants it on the one bucket, offers the Secret as a `create`, and on `Created` reports
-   ready; on 409 it revokes what it just issued and reports ready naming the Secret that is there.
-2. **Given** the provider's ClusterRole, **When** it is inspected, **Then** it holds `create` and
-   `patch` on Secrets and neither `get` nor `list`; `OperatorClusterSuite`'s pattern proves the
-   provider's real identity can do its work with no more.
-3. **Given** a request whose `credentialGeneration` is raised, **When** the provider fulfils it,
-   **Then** it issues a new credential, patches the Secret, reports the new generation in place, and
-   revokes the old credential no sooner than the installation's rotation grace after that report;
-   the operator rolls the service when the status changes, as it does for a replaced database key.
-4. **Given** a request removed because its owner was deleted, **When** the provider observes it gone,
-   **Then** it deletes nothing in the cloud and nothing in the cluster: a bucket, a secret, a key and
-   an identity outlive the service, as a database does.
+- added `features/cloud-provider/credential.feature`: a bucket credential request is fulfilled by offering the secret once
+- added `features/cloud-provider/credential.feature`: a bucket credential request whose secret is already there ends the credential just made
+- added `features/cloud-provider/credential.feature`: the cloud provider can write a secret and cannot read one back
+- added `features/cloud-provider/credential.feature`: the operator cannot read a storage credential the cloud provider made
+- added `features/cloud-provider/credential.feature`: raising the credential generation replaces the credential and ends the old one after the rotation grace
+- added `features/cloud-provider/credential.feature`: a cloud request that goes with its service deletes nothing
 
 ---
 
@@ -198,15 +179,10 @@ descriptor that needs one and read the status within the bound.
 
 **Acceptance Scenarios**:
 
-1. **Given** `ANKKA_CLOUD_PROVIDER=gcp` and no provider running, **When** a request goes
-   unacknowledged — no `observedGeneration` on its status — for the acknowledgement bound (two
-   minutes as shipped), **Then** the service's status reports `Waiting` with "no provider for gcp
-   has answered", and recovers to the provider's answer when one arrives.
-2. **Given** `ANKKA_CLOUD_PROVIDER=none`, **When** the control plane is asked to set a backend that
-   needs a provider (`secret-manager`, `gcs`, a backup target of `gcs`), **Then** it refuses at the
-   setting, naming the provider needed; no request is ever written.
-3. **Given** `ANKKA_CLOUD_PROVIDER=none` on a local installation, **When** every feature runs, **Then**
-   Postgres, Garage and the keyring's own Secret serve as today and no `CloudResource` exists.
+- added `features/cloud-provider/absent.feature`: a cloud request nobody acknowledges is reported after the acknowledgement bound
+- added `features/cloud-provider/absent.feature`: the status recovers when a cloud provider answers
+- added `features/cloud-provider/absent.feature`: a setting that needs a cloud provider is refused when the installation has none
+- added `features/cloud-provider/absent.feature`: an installation with no cloud provider serves everything itself
 
 ---
 
@@ -223,21 +199,12 @@ fake: the rendered request has the fields its feature needs and nothing provider
 
 **Acceptance Scenarios**:
 
-1. **Given** 038 on the `secret-manager` backend, **When** a service is rendered, **Then** the operator
-   writes an `identity` request for the service's ServiceAccount and a `secret-access` request granting
-   that identity `own` access on the service's derived secret ids and `read` on its project's; **and**
-   for the project a `secret-sync` request naming the project's Kubernetes Secret and its entry names,
-   which the provider keeps in step within 038's one-minute bound, writing the Secret by `patch`.
-2. **Given** 041 with a backup target of `gcs`, **When** a project is rendered, **Then** the operator
-   writes a `bucket` request with `purpose: backup` for the project and a `bucket-credential` request
-   whose identity is the project's database and whose Secret is the one the backup plugin reads; a
-   `purpose: backup` bucket is reported with no `ANKKA_S3_*` and no route, and no service can name it.
-3. **Given** 042 on an installation with `ANKKA_CLOUD_KMS_KEY`, **When** the keyring is rendered,
-   **Then** the operator writes a `wrapping-key` request for the keyring's identity, and the status
-   returns the key's name the keyring wraps with; with no key named, the request is refused at the
-   setting and the keyring uses its own Secret.
-4. **Given** any request, **When** its spec is read, **Then** no field names a Google product, role or
-   resource; the provider maps each kind to its account model.
+- added `features/cloud-provider/kinds.feature`: a service whose project secrets are kept in the cloud account asks for an identity and access to its secrets
+- added `features/cloud-provider/kinds.feature`: a project whose project secrets are kept in the cloud account asks for them to be kept in step
+- added `features/cloud-provider/kinds.feature`: a project whose backups are kept in the cloud account asks for a backup bucket and a credential for its database
+- added `features/cloud-provider/kinds.feature`: a keyring on an installation that names a wrapping key asks to wrap with it
+- added `features/cloud-provider/kinds.feature`: a keyring on an installation that names no wrapping key keeps its own secret
+- added `features/cloud-provider/kinds.feature`: no cloud request is in a cloud's own words
 
 ---
 
@@ -256,13 +223,9 @@ account it needs.
 
 **Acceptance Scenarios**:
 
-1. **Given** the fake provider, **When** any k3s suite of ankka runs, **Then** it reaches no cloud and
-   needs no credential, and every scenario above passes against it.
-2. **Given** `ankka-gcp`, **When** its nightly suite runs, **Then** the same feature files run against
-   a real account, and a kind the provider answers differently from the fake fails there.
-3. **Given** a second provider (`aws`, say), **When** it is written, **Then** it implements the six
-   kinds, names itself in `ANKKA_CLOUD_PROVIDER`, and ankka changes only its list of known provider
-   names.
+- added `features/cloud-provider/providers.feature`: the scripted cloud provider fulfils every cloud request without a cloud
+- added `features/cloud-provider/providers.feature`: a cloud provider for a real cloud is tested with the same features against a real cloud account
+- added `features/cloud-provider/providers.feature`: a cloud provider for another cloud needs only its name known to the platform
 
 ---
 

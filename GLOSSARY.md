@@ -1716,7 +1716,7 @@ broker.
 of a partition. A topic with more copies than the broker has broker nodes is reported failed by the
 operator. It is not a node, which is an element of a store.
 
-### beginning offset
+### beginning position
 *Proposed.* Where the earliest message the broker still holds on a partition stands, counted from
 the first ever published. Above 0, earlier messages are gone; what they were is not knowable.
 
@@ -1725,8 +1725,8 @@ the first ever published. Above 0, earlier messages are gone; what they were is 
 
 ### retention gap
 *Proposed.* What a topic source reports, for each partition of its topic, of what the broker no
-longer holds: the beginning offset, the earliest retained time, and whether messages are gone,
-which is so when the beginning offset is above 0 or the earliest retained time is later than when
+longer holds: the beginning position, the earliest retained time, and whether messages are gone,
+which is so when the beginning position is above 0 or the earliest retained time is later than when
 the view first read the topic. A compacted topic is reported as compacted and not as having a gap.
 
 ### warning threshold

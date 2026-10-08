@@ -1,7 +1,7 @@
 Feature: What a topic source reports of what its topic no longer holds
   A broker retains a topic's messages for its retention time and no longer, so a view rebuilt from
   a topic reaches only what the broker still holds. A rebuild is never refused for it. Instead the
-  view's topic source reports, for each partition, the retention gap: the beginning offset and the
+  view's topic source reports, for each partition, the retention gap: the beginning position and the
   earliest retained time, and whether messages are gone. It is carried in the service's metrics, in
   the topology it reports and in the status a member reads, so that nobody reads a log to learn
   what a rebuild reached. A view declared over a topic that keeps less than the installation's
@@ -14,8 +14,8 @@ Feature: What a topic source reports of what its topic no longer holds
     Given the broker no longer holds the earliest messages of the topic "transactions"
     When "entries" is rebuilt
     Then the rebuild runs
-    And the topic source of "entries" reports, for each partition, the beginning offset and the earliest retained time
-    And the retention gap says that messages are gone, because the beginning offset is above 0 or the earliest retained time is later than when the view first read the topic
+    And the topic source of "entries" reports, for each partition, the beginning position and the earliest retained time
+    And the retention gap says that messages are gone, because the beginning position is above 0 or the earliest retained time is later than when the view first read the topic
 
   Scenario: a view rebuilt from a topic that still holds every message reports no retention gap
     Given the broker holds every message published to the topic "transactions"

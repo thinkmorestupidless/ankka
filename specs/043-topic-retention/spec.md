@@ -94,7 +94,7 @@ This feature makes the five decisions those facts call for.
   and converting one already running is a platform administrator's own procedure, outside this
   feature.
 - **What a rebuild reached is shown, not only logged.** The gap is a fact about each partition: the
-  earliest offset the broker still holds and when it was published. A beginning offset above zero, or
+  earliest offset the broker still holds and when it was published. A beginning position above zero, or
   an earliest retained time later than the view's start, says messages are gone; what was ever written
   is not knowable, and the report does not pretend to it. A view's topic source carries the gap in its
   metrics, in the topology it reports over the observe port, in the local console and in
@@ -168,8 +168,8 @@ that does not know a topic keeps seven days cannot know what a rebuild will reac
 - Q: Where is a declaration with more copies than the broker has nodes refused? → A: In the operator,
   as a `Failed` phase naming the node count, as a partition shrink is today. The control plane never
   sees the broker's size; it refuses only what exceeds the installation's declared bounds.
-- Q: What does the gap report say? → A: Per partition, the beginning offset and the earliest retained
-  time. Messages are gone when the beginning offset is above zero or the earliest retained time is
+- Q: What does the gap report say? → A: Per partition, the beginning position and the earliest retained
+  time. Messages are gone when the beginning position is above zero or the earliest retained time is
   later than the view's start. "The first offset ever written" is not knowable and is not claimed.
 - Q: Is seven days the right default? → A: It is the shipped default and a laptop's. Views default to
   reading from the earliest message, so an installation serving long-lived facts raises the default and
@@ -302,7 +302,7 @@ person who raised the version can see what the rebuild reached without reading a
 
 **Independent Test**: In an `AnkkaTestKit` suite with the testcontainers Kafka, publish to a topic with a
 short retention, wait until the broker has removed a segment, raise a view's version, and assert the
-topic source's reported gap: a partition whose beginning offset is above zero, with its earliest
+topic source's reported gap: a partition whose beginning position is above zero, with its earliest
 retained time. Assert the same in the topology the observe port returns. Separately, deploy a view over
 a topic declared with two days' retention and assert the view's status carries the warning.
 
@@ -432,8 +432,8 @@ a topic declared with two days' retention and assert the view's status carries t
 
 **Rebuild visibility**
 
-- **FR-016**: A topic source MUST report, per partition, the beginning offset the broker holds and the
-  earliest retained time, and whether messages are gone, which is the case when the beginning offset is
+- **FR-016**: A topic source MUST report, per partition, the beginning position the broker holds and the
+  earliest retained time, and whether messages are gone, which is the case when the beginning position is
   above zero or the earliest retained time is later than the view's start; it MUST distinguish a
   compacted topic from one that has dropped messages by retention, and MUST NOT claim to know the first
   offset ever written. It MUST report this when it subscribes, when its view is rebuilt, and at an
@@ -474,7 +474,7 @@ a topic declared with two days' retention and assert the view's status carries t
   is checked against, and the retention below which a view is warned.
 - **Topic setting change**: an entry in the project's history naming the topic, the actor, the time and
   each changed setting's old and new value.
-- **Retention gap**: per partition of a topic a source reads, the beginning offset and the earliest
+- **Retention gap**: per partition of a topic a source reads, the beginning position and the earliest
   retained time, and whether messages were dropped or compacted.
 - **Retention warning**: on a view's status, the topic's retention against the installation's
   threshold.

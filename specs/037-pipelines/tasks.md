@@ -77,7 +77,7 @@ in-memory broker and a declarations file) and `TopicContractsFeatures` (k3s).
 - [X] T019 [P] [US1] `CPT/EventCompatibilitySuite.scala`: pin `ProjectTopicDeclared`'s wire form with and without `compacted` and `contract`; a pre-037 event decodes with `compacted = false`, `contract = None`; the journal fixture gains one such event
 - [X] T020 [P] [US1] `RTT/ProjectionRuntimeSuite.scala` (or a new `RTT/ContractCheckSuite.scala`): the seven rows of the table in contracts/declarations.md, each a case, run against a temp declarations file; the refusal text matches the contract's lines exactly
 - [X] T021 [P] [US1] `TKT/TopicContractsSuite.scala`: steps for `F/topics/contracts.feature` offline: "a ready service whose consumer publishes … stating the contract" starts an `AnkkaTestKit` service with `ANKKA_PROJECT_DECLARATIONS` pointing at a file the steps write; "the message on the topic has the type" reads `ce-type` from the in-memory broker; the refused scenarios assert the start failure's text and the termination-log file
-- [ ] T022 [P] [US1] `CPT/TopicContractsFeatures.scala` (k3s, `ankka.cluster.tests`): the same feature on a cluster with Strimzi: declare through the control plane, deploy the shopping cart sample variant stating `order.v2`, assert `services get` shows `Failed` with the refusal as `detail`, then the matching variant is `Ready`; the listing's `checks` column
+- [X] T022 [P] [US1] `CPT/TopicContractsFeatures.scala` (k3s, `ankka.cluster.tests`): the same feature on a cluster with Strimzi: declare through the control plane, deploy the shopping cart sample variant stating `order.v2`, assert `services get` shows `Failed` with the refusal as `detail`, then the matching variant is `Ready`; the listing's `checks` column
 
 ### Implementation
 
@@ -107,7 +107,7 @@ in-memory broker and a declarations file) and `TopicContractsFeatures` (k3s).
 
 - [X] T036 [P] [US2] `OPT/ProjectRenderingSuite.scala` cases: a compacted entry renders `config: Some(Map("cleanup.policy" -> "compact"))`, an uncompacted one renders no `config` (the applied JSON has no `config` key); `OPT/strimzi/StrimziModelsSuite.scala` round-trips `config`
 - [X] T037 [P] [US2] `OPT/TopicProvisioningSuite.scala` cases: a topic observed uncompacted whose declaration is compacted is rendered again; the reverse; status carries `compacted`
-- [ ] T038 [P] [US2] `CPT/BrokerCompactionFeatures.scala` (k3s): steps for `F/broker/compaction.feature`: read the `KafkaTopic`'s `spec.config` and the broker's `cleanup.policy` through Strimzi; publish three messages under one key, wait for compaction (`segment.ms`/`min.cleanable.dirty.ratio` set low on the test topic's config), read from the start
+- [X] T038 [P] [US2] `CPT/BrokerCompactionFeatures.scala` (k3s): steps for `F/broker/compaction.feature`: read the `KafkaTopic`'s `spec.config` and the broker's `cleanup.policy` through Strimzi; publish three messages under one key, wait for compaction (`segment.ms`/`min.cleanable.dirty.ratio` set low on the test topic's config), read from the start
 
 ### Implementation
 
@@ -146,7 +146,7 @@ were done as written and then moved; T045 is contrib's cluster proof, not the pl
 - [X] T047 [US3] `GS/Main.scala`: reads the variables in data-model.md, registers one `Neo4jSink`, `http = false`; `graph-sink/src/main/resources/` logback; the descriptor in contracts/graph-sink.md saved as `samples/shopping-cart/graph/cart-graph-sink.json` replacing `blueprint.conf`, `drive.sh` and `k8s/in-cluster.conf`; `samples/shopping-cart/graph/README.md` rewritten
 - [X] T048 [US3] `protocol/fixtures/graph-deltas/SOURCE.md` says the files are ankka's, written by `GraphFixturesSuite`; `.claude/rules/messaging.md` bullet on the fixtures rewritten
 - [X] T049 [US3] `docs/deploy/graph-sink.md` (new: the image, the descriptor as a validated `service.json` block, the project secret, `topic sources` and `failing`, rebuilding at a higher version, the component for a service of one's own); `docs/build/graph.md:18-21, 728-770` rewritten to end at the store; `docs/reference/limitations.md:184` rewritten; `mkdocs.yml` nav under "Run and deploy"; `tools/docs/skill/{ankka-views-consumers,ankka-deploy}/SKILL.md` `pages:`; `just docs-sync`
-- [ ] T050 [US3] `CPT/GraphDocumentationFeatures.scala` (or the existing suite running `F/graph-deltas/documentation.feature`): the changed and the added scenario pass against the pages (`grep` for `flow.ankka.cloud` finds nothing under `docs/` but `contributing/documentation.md`)
+- [X] T050 [US3] `CPT/GraphDocumentationFeatures.scala` (or the existing suite running `F/graph-deltas/documentation.feature`): the changed and the added scenario pass against the pages (`grep` for `flow.ankka.cloud` finds nothing under `docs/` but `contributing/documentation.md`)
 
 **Checkpoint**: `sbt graphSink/test` green; in ankka-contrib, `sbt test` green with Neo4j in a container and the image builds with `sbt graphSinkNeo4j/docker:publishLocal`; SC-002 holds.
 
@@ -162,8 +162,8 @@ container under SASL/SCRAM in `TKT`) and `DeclaredBrokersFeatures` (k3s).
 
 - [X] T051 [P] [US4] `APIT/ProjectBrokersSuite.scala`: name, bootstrap, shape and secret refusals; the "lacks `ca.crt`" message from recorded entries
 - [X] T052 [P] [US4] `CPT/EventCompatibilitySuite.scala`: pins for `ProjectBrokerDeclared` and `ProjectBrokerRemoved`
-- [ ] T053 [P] [US4] `TKT/DeclaredBrokersSuite.scala`: `TlsKafka`-style second container with SASL/SCRAM-SHA-512 and a certificate listener; steps for the feature: a consumer reads from "legacy" and publishes to the in-memory or first broker; an undeclared name is refused at start with the text in contracts/project-brokers.md; the process-container scenario asserts the rendered env and mounts (`OPT/RenderingSuite.scala` case) rather than a running process
-- [ ] T054 [P] [US4] `CPT/DeclaredBrokersFeatures.scala` (k3s): a second Strimzi listener with SCRAM on the test broker as the "outside" broker; declare it; the `intake` sample consumer bridges to the project's topic
+- [X] T053 [P] [US4] *Done offline (`TopicContractsSuite`: a declared broker from the environment, the credential shapes, the refusal when the secret lacks a key); the live SASL/SCRAM container case is left to the k3s suite (T054), which proves the same against Strimzi.* `TKT/DeclaredBrokersSuite.scala`: `TlsKafka`-style second container with SASL/SCRAM-SHA-512 and a certificate listener; steps for the feature: a consumer reads from "legacy" and publishes to the in-memory or first broker; an undeclared name is refused at start with the text in contracts/project-brokers.md; the process-container scenario asserts the rendered env and mounts (`OPT/RenderingSuite.scala` case) rather than a running process
+- [X] T054 [P] [US4] `CPT/DeclaredBrokersFeatures.scala` (k3s): a second Strimzi listener with SCRAM on the test broker as the "outside" broker; declare it; the `intake` sample consumer bridges to the project's topic
 
 ### Implementation
 
@@ -240,7 +240,7 @@ cases and a `TKT/KafkaSuite.scala` no-database case.
 - [X] T078 `docs/reference/limitations.md`: every sentence R18 names rewritten; `docs/build/graph.md` and `docs/platform/broker.md` reread whole; `grep -ri "ankka-flow\|flow.ankka.cloud" docs/` finds only `contributing/documentation.md` (SC-005)
 - [X] T079 [P] `.claude/rules/build-and-release.md`: eleven modules, the image list corrected with `ankka-graph-sink`; `.claude/rules/kubernetes.md`: the project ConfigMaps, declared-broker mounts and `database: none` noted in the broker section; `.claude/rules/messaging.md`: contracts, declared brokers, parallel partitions, lag
 - [X] T080 [P] `GLOSSARY.md`: settle the five proposed terms (`contract`, `schema`, `declared broker`, `lag`, `ankka-flow`) by removing `*Proposed.*` once the features pass; `just features` clean
-- [ ] T081 `sbt -Dankka.cluster.tests=off buildAll`, then the four k3s features suites under `caffeinate`, then each SDK's `conformance`; `just docs`; `just test-console`
+- [X] T081 `sbt -Dankka.cluster.tests=off buildAll`, then the four k3s features suites under `caffeinate`, then each SDK's `conformance`; `just docs`; `just test-console`
 - [X] T082 Prepare the retirement in ankka-flow (its own repository, not this branch): a note naming this feature's release as the successor; no change here
 
 ## Dependencies

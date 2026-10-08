@@ -40,7 +40,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
 
   test(
     "the variables for the platform's program alone: a model's, a database's, the issuers', " +
-      "a socket's limits, an MCP server's, the secret key"
+      "a socket's limits, an MCP server's, a declared broker's, the secret key"
   ) {
     assertEquals(
       RuntimeOnlyPrefixes,
@@ -50,7 +50,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_DB_",
         "ANKKA_AUTH_",
         "ANKKA_SOCKET_",
-        "ANKKA_MCP_"
+        "ANKKA_MCP_",
+        "ANKKA_TOPIC_BROKER_"
       )
     )
     assertEquals(RuntimeOnlyNames, Set(SecretKey, ServiceClientTimeout))

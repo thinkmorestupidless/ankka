@@ -52,7 +52,8 @@ class TopicSourcesEndpointSuite extends munit.FunSuite with LogCapturing:
     val expected =
       "\"topicSources\":[{\"kind\":\"view\",\"component\":\"stock-levels\"," +
         "\"topic\":\"stock-events\",\"group\":\"ankka-view-stock-levels\"," +
-        "\"start\":\"earliest\",\"version\":1,\"recordedVersion\":1,\"behind\":false}]"
+        "\"start\":\"earliest\",\"version\":1,\"recordedVersion\":1,\"behind\":false," +
+        "\"broker\":null,\"contract\":null,\"lag\":null,\"failing\":null}]"
     val deadline = System.nanoTime() + 20.seconds.toNanos
     var body     = serviceDocument()
     while !body.contains(expected) && System.nanoTime() < deadline do

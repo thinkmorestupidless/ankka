@@ -612,8 +612,9 @@ made it.
 A named value the platform keeps for a project, which a descriptor's variable can be taken from.
 
 ### database
-Where the platform keeps what a service's entities, views and workflows know, and the service's
-secret store. Each deployed service has its own, provisioned by the platform or supplied by the service.
+Where the platform keeps what a service's entities, views and workflows know, and, on the Postgres
+backend, the service's secret store. Each deployed service has its own, provisioned by the platform
+or supplied by the service.
 
 ### logs
 What a service's instances printed.
@@ -642,8 +643,8 @@ a descriptor states, and brings back nothing the service's database held.
 Avoid: revert, rewind, undo
 
 ### digest
-Of a descriptor: a short value that two descriptors share exactly when they state the
-same things.
+Of a descriptor, or of a service secret's value: a short value that two share exactly when they
+are the same.
 
 Avoid: hash, checksum
 
@@ -784,10 +785,11 @@ it. A service never accepts a token signed with one.
 ## Secrets
 
 ### secret store
-Where a service keeps its service secrets: in its database, and apart from everything
-its components know. It is not a component, and nothing a component records or a view is built
-from ever holds what is in it. An entity and a view are given none; every other component of the
-service keeps and reads through the same one.
+Where a service keeps its service secrets, apart from everything its components know: in its
+database on the Postgres backend, in Secret Manager on the Secret Manager backend. It is not a
+component, and nothing a component records or a view is built from ever holds what is in it. An
+entity and a view are given none; every other component of the service keeps and reads through
+the same one.
 
 Avoid: vault
 
@@ -800,10 +802,10 @@ service cannot read it. It is not a project secret, which a member sets before a
 Avoid: runtime secret
 
 ### secret key
-What a service's secret store encrypts its service secrets with. Each service has its
-own. The platform makes one for a deployed service unless its descriptor gives one, and keeps it
-when the service is deleted; on a developer's machine the developer gives one. It is a platform
-setting. It is not an entry of a project secret, and it is not an issuer's keys.
+What a service's secret store encrypts its service secrets with on the Postgres backend. Each
+service has its own. The platform makes one for a deployed service unless its descriptor gives
+one, and keeps it when the service is deleted; on a developer's machine the developer gives one.
+It is a platform setting. It is not an entry of a project secret, and it is not an issuer's keys.
 
 Avoid: encryption key, master key
 
@@ -821,6 +823,96 @@ Avoid: static secret
 
 ### entry
 One named value of a project secret. A descriptor's variable is taken from one entry.
+
+### secret backend
+*Proposed.* Where an installation keeps service secrets and project secrets: the Postgres backend
+or the Secret Manager backend. It is the installation's to say, once, as a platform setting the
+platform alone sets; a descriptor may not give it, and a service's code, descriptor and components
+are the same on either.
+
+Avoid: secret provider, vault backend
+
+### Postgres backend
+*Proposed.* The secret backend an installation is on unless it says otherwise: each service's
+secret store in its own database, encrypted with its secret key, and a project secret's entries in
+the project's secret in the cluster.
+
+### Secret Manager
+*Proposed.* Google Cloud's keeper of secrets, outside the cluster. It holds each service secret
+and each entry under a name the platform derives from the project, the service and the secret's
+own name, so that two never share one, as versions of which the newest is read; it refuses whoever
+has no grant on it; and the access log records every access to it.
+
+### Secret Manager backend
+*Proposed.* The secret backend on which service secrets and project secrets are kept in Secret
+Manager, each service reaching it as its own identity and nothing in the cluster holding a
+credential for Google Cloud.
+
+### Google Cloud
+*Proposed.* The cloud Secret Manager is part of, which decides by the grants what each identity
+may do there, and keeps the access log.
+
+### grant
+*Proposed.* What an identity may do to which secrets in Secret Manager, as Google Cloud enforces
+it: a service may keep, read and remove its own service secrets and read its project's entries,
+and list nothing; the control plane may add and disable versions of entries and read none; the
+cloud provider may read entries and no service secret. The operator asks for a grant and the cloud
+provider writes it; nothing else can. A grant follows a service's name, so a service deleted and
+deployed again has the one it had.
+
+Avoid: IAM binding, role binding
+
+### cloud provider
+*Proposed.* The part of the platform that acts on the cloud for the installation, holding the
+power the operator does not: it writes grants, and keeps each project's secret in the cluster in
+step with the project's entries in Secret Manager. It is not a judgment provider.
+
+### access log
+*Proposed.* Google Cloud's own record of every access to a secret in Secret Manager, naming the
+identity that made it and the secret. An installation turns it on, and the platform reports
+whether it is on. It is not the read record, which the platform keeps on either secret backend,
+and it is not a history.
+
+### read record
+*Proposed.* What the platform records of every read, keep and removal of a service secret, on
+either secret backend: the secret's name, the project, the service, its hosting, the outcome, the
+time, the trace id and the request where known, and the component and its kind where the caller
+can be known, which it cannot be through a process or a module; never the value. The control plane
+keeps it, never the service's database, so a restore of the database does not rewind it; an owner
+may list it; it is kept for the installation's retention.
+
+Avoid: audit trail
+
+### retention
+*Proposed.* How long an installation keeps a read record before removing it: a year unless the
+installation says otherwise.
+
+### kept count
+*Proposed.* How many versions of a service secret Secret Manager keeps for an installation: 2
+unless it says otherwise. After a keep, the versions beyond it are removed, oldest first, once the
+new one can be read; a version is never disabled, so the newest can always be read.
+
+### synced
+*Proposed.* Of an entry on the Secret Manager backend: copied by the cloud provider from Secret
+Manager into the project's secret in the cluster, within a minute of being set or removed, so that
+a starting instance is given it as before. A service of the project is not started until each
+entry it takes a variable from is synced.
+
+### copy check
+*Proposed.* What a move offers for a service or a project: for each name, whether its database and
+Secret Manager hold the same value, by digest, as equal, different or missing; never a value.
+
+### removal step
+*Proposed.* The last step of a service's move: removing its service secrets from its database,
+which the platform does only when the service's last copy check reported every name equal. From
+then on the service's secret key is given to it and not read.
+
+### Secret Manager fake
+*Proposed.* What the test kit gives a test that asks for the Secret Manager backend: a Secret
+Manager of its own, with no network and no Google Cloud, that refuses what Google Cloud's grants
+would refuse.
+
+Avoid: emulator, mock
 
 ## Topic sources
 
@@ -1772,4 +1864,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment
+comment, off, minute, year, equal, derived, granted, restored, restore, newest, access, reach

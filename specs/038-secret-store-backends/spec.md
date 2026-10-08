@@ -173,24 +173,14 @@ derived name.
 
 **Acceptance Scenarios**:
 
-1. **Given** an installation on the Secret Manager backend, **When** a service puts a service
-   secret and another of its components gets it, **Then** the value read is the value kept, and
-   the service's database holds nothing for it.
-2. **Given** a service secret kept on one instance, **When** another instance gets it, **Then** it
-   reads the same value with no restart.
-3. **Given** a service secret that was kept, **When** the service puts a new value under the same
-   name, **Then** the next get on every instance reads the new value, with no redeploy.
-4. **Given** a service secret that was never kept, **When** the service gets it, **Then** it reads
-   none, without a failure.
-5. **Given** a kept service secret, **When** the service deletes it, **Then** a get reads none and
-   no version of it remains.
-6. **Given** a name or a value that breaks the secret store's rules, **When** the service puts it,
-   **Then** it is refused naming the rule, exactly as on the Postgres backend, and Secret Manager
-   is not called.
-7. **Given** a Python, a TypeScript and a Rust service on the Secret Manager backend, **When** each
-   runs the secret store conformance cases, **Then** each passes the same cases as Scala.
-8. **Given** a service on the Secret Manager backend, **When** its pod's environment and files are
-   listed, **Then** neither holds a Google credential, a key file or a secret key.
+- added `features/secrets/secret-manager.feature`: a service secret kept by one component is read by another, and the database holds nothing of it
+- added `features/secrets/secret-manager.feature`: a service secret kept on one instance is read on another with no restart
+- added `features/secrets/secret-manager.feature`: a service secret kept again is read by every instance with no descriptor applied again
+- added `features/secrets/secret-manager.feature`: a service secret that was never kept is read as none, without a failure, on the Secret Manager backend
+- added `features/secrets/secret-manager.feature`: a removed service secret is read as none and no version of it remains
+- added `features/secrets/secret-manager.feature`: a name or a value that breaks the rules of the secret store is refused before Secret Manager is called
+- added `features/secrets/secret-manager.feature`: a service in every language passes every behaviour of the secret store on the Secret Manager backend
+- added `features/secrets/grants.feature`: an instance of a service holds no credential for Google Cloud and no secret key
 
 ---
 
@@ -212,16 +202,12 @@ secret in the Google Cloud project is refused.
 
 **Acceptance Scenarios**:
 
-1. **Given** two services in one project, **When** one calls Secret Manager with its own identity
-   for the other's service secret, **Then** Google Cloud refuses it.
-2. **Given** two projects, **When** a service of one calls Secret Manager for a service secret or a
-   project secret of the other, **Then** Google Cloud refuses it.
-3. **Given** a service, **When** it reads a project secret of its own project, **Then** it is
-   admitted, and it is refused a write to it.
-4. **Given** a service, **When** it lists the secrets of the Google Cloud project, **Then** it is
-   refused, so it cannot learn other services' secret names.
-5. **Given** a service that is deleted and deployed again under the same name, **When** it gets a
-   service secret it kept before, **Then** it reads it, as a re-applied service reads its database.
+- added `features/secrets/grants.feature`: a service is refused another service's service secret of the same project
+- added `features/secrets/grants.feature`: a service is refused the secrets of another project
+- added `features/secrets/grants.feature`: a service reads an entry of a project secret of its own project
+- added `features/secrets/grants.feature`: a service is refused a write to an entry of a project secret of its own project
+- added `features/secrets/grants.feature`: a service cannot list the secrets Google Cloud holds for the installation
+- added `features/secrets/grants.feature`: a service deleted and deployed again reads the service secrets it kept in Secret Manager
 
 ---
 
@@ -244,28 +230,14 @@ Data Access entries in Cloud Audit Logs for the same reads.
 
 **Acceptance Scenarios**:
 
-1. **Given** the Secret Manager backend with Data Access audit logging on, **When** a service gets a
-   service secret, **Then** Cloud Audit Logs holds an entry for the access naming the service's
-   identity and the secret.
-2. **Given** either backend, **When** a component gets a service secret, **Then** the platform
-   records the read in the control plane's store with the secret's name, the project, the service,
-   the kind of hosting, the time, the request and trace ids where known, the component and its kind
-   where known, and never the value.
-3. **Given** either backend, **When** a get reads none or is refused, **Then** that is recorded too,
-   with its outcome.
-4. **Given** the Secret Manager backend, **When** the installation starts and Data Access audit
-   logging is off for Secret Manager in its Google Cloud project, **Then** the platform reports it,
-   naming what to turn on.
-5. **Given** the Postgres backend, **When** an owner asks which services read a secret in a period,
-   **Then** the platform's durable read record answers it, and the platform does not refuse to run
-   any service, money services included, on the Postgres backend.
-6. **Given** a service whose database is restored to an earlier point (041), **When** the read record
-   is listed, **Then** every read made after the restore point is still in it.
-7. **Given** a Python, TypeScript or Rust service, **When** it gets a service secret, **Then** the
-   record names the service and its hosting and not a component, since the sidecar cannot tell
-   which called.
-8. **Given** the record's retention elapsed for an entry, **When** the record is listed, **Then** the
-   entry is gone, and the installation's status shows the retention in force.
+- added `features/secrets/read-record.feature`: the access log records a read of a service secret
+- added `features/secrets/read-record.feature`: a read of a service secret is recorded with what is known of it and never the value
+- added `features/secrets/read-record.feature`: a read that finds none or is refused is recorded with its outcome
+- added `features/secrets/read-record.feature`: an installation whose access log is off is told what to turn on
+- added `features/secrets/read-record.feature`: an owner is answered from the read record which services read a secret on the Postgres backend
+- added `features/secrets/read-record.feature`: the read record outlives a restore of the service's database
+- added `features/secrets/read-record.feature`: a read through a process or a module is recorded without a component
+- added `features/secrets/read-record.feature`: a read record whose retention has passed is removed
 
 ---
 
@@ -289,26 +261,13 @@ entry and assert the variable's value inside the pod.
 
 **Acceptance Scenarios**:
 
-1. **Given** a Secret Manager installation, **When** a member sets an entry of a project secret,
-   **Then** the value is kept in Secret Manager, the control plane records the name and the entry
-   and no value, and the control plane's identity is refused a read of it by Google Cloud.
-2. **Given** an entry set, **When** a service whose variable is taken from it starts, **Then** the
-   variable holds the value: the cloud provider keeps the project's Kubernetes Secret in step with
-   the entry in Secret Manager, and the kubelet resolves `secretKeyRef` from it at pod start, as
-   today.
-3. **Given** an entry set again, **When** an instance starts afterwards, **Then** it has the new
-   value; an instance already running keeps the one it started with.
-4. **Given** an entry removed, **When** a service whose variable is taken from it starts, **Then** it
-   does not become ready, and the status gives the reason, as on Kubernetes Secrets today.
-5. **Given** an entry set in Secret Manager, **When** the cloud provider has synced it, **Then** the
-   project's Kubernetes Secret holds the same value within one minute, and Cloud Audit Logs holds the
-   provider's read of the version; the service's own read at pod start is the kubelet's, from the
-   Kubernetes Secret, and is not recorded per read by Secret Manager.
-6. **Given** an entry set and not yet synced, **When** the operator would roll out a service of the
-   project, **Then** it waits for the provider's status to report the entry synced, and the
-   service's status says what it waits on.
-7. **Given** a project secret's listing, **When** a member lists it, **Then** it shows names and
-   entries and never a value, exactly as on Kubernetes Secrets.
+- added `features/secrets/synced-project-secrets.feature`: a member sets an entry and the value goes to Secret Manager, where the control plane cannot read it
+- added `features/secrets/synced-project-secrets.feature`: a variable taken from an entry reaches a service through the project's secret in the cluster
+- added `features/secrets/synced-project-secrets.feature`: an entry set again is what an instance started afterwards is given, and a running instance keeps what it had
+- added `features/secrets/synced-project-secrets.feature`: a service whose variable is taken from a removed entry does not become ready
+- added `features/secrets/synced-project-secrets.feature`: the cloud provider keeps the project's secret in the cluster in step with Secret Manager
+- added `features/secrets/synced-project-secrets.feature`: a service of the project is not started until the cloud provider has synced an entry it takes a variable from
+- added `features/secrets/synced-project-secrets.feature`: a list of project secrets shows names and entries and never a value on the Secret Manager backend
 
 ---
 
@@ -330,23 +289,13 @@ value.
 
 **Acceptance Scenarios**:
 
-1. **Given** a service with service secrets in Postgres, **When** it starts on an installation set
-   to Secret Manager with the move turned on, **Then** it copies every service secret it has into
-   Secret Manager before it serves, and a secret already there is not overwritten.
-2. **Given** the copy done, **When** the copy check runs, **Then** it reports for each name whether
-   both backends hold the same value, by digest, and never the value.
-3. **Given** a copy check that reports a difference, **When** the removal step is asked for, **Then**
-   it refuses and names the secrets that differ.
-4. **Given** a copy check that reports every secret equal, **When** the removal step runs, **Then**
-   the service's `ankka_secrets` rows are removed, and from then on the service's secret key is
-   rendered and not read.
-5. **Given** a service that cannot reach Secret Manager during the move, **When** it starts, **Then**
-   it does not become ready, its status says why, and the Postgres rows are untouched.
-6. **Given** a project secret on Kubernetes Secrets, **When** the platform moves the project, **Then**
-   each entry is in Secret Manager with the same value, and the control plane's record is unchanged.
-7. **Given** a moved service, **When** it is rolled back to the Postgres backend before the removal
-   step, **Then** it reads its secrets from Postgres as before. A secret kept only after the move is
-   not in Postgres, and the rollback says so by name.
+- added `features/secrets/moving.feature`: a service started on the Secret Manager backend with the move turned on copies its service secrets before it is ready
+- added `features/secrets/moving.feature`: the copy check reports for each name whether the database and Secret Manager hold the same value
+- added `features/secrets/moving.feature`: the removal step refuses while a copy check reports a difference
+- added `features/secrets/moving.feature`: the removal step removes the rows once every name is equal
+- added `features/secrets/moving.feature`: a service that cannot reach Secret Manager during the move does not become ready and leaves its rows
+- added `features/secrets/moving.feature`: the platform moves a project secret into Secret Manager with its values and its record unchanged
+- added `features/secrets/moving.feature`: a moved service set back to the Postgres backend before the removal step reads its secrets from its database
 
 ---
 
@@ -365,12 +314,9 @@ environment; assert they pass on both backends, the Secret Manager one through t
 
 **Acceptance Scenarios**:
 
-1. **Given** no backend setting, **When** a service starts locally, **Then** it uses the Postgres
-   backend, as today.
-2. **Given** the test kit, **When** a test asks for the Secret Manager backend, **Then** it is given
-   one backed by the fake, with no network.
-3. **Given** the fake, **When** a caller touches a secret outside its grant, **Then** the fake refuses
-   it as Google Cloud would.
+- added `features/secrets/backend.feature`: a local platform whose secret backend is not set is on the Postgres backend
+- added `features/secrets/backend.feature`: a test that asks for the Secret Manager backend is given the Secret Manager fake
+- added `features/secrets/backend.feature`: the Secret Manager fake refuses what Google Cloud would refuse
 
 ---
 

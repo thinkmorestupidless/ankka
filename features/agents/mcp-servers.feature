@@ -22,9 +22,9 @@ Feature: An agent using the tools of an MCP server
 
   Scenario: an error from an MCP server reaches the model as the tool's error
     Given "support" has started
-    And "tickets" answers "create" with the error "queue is closed"
+    And "tickets" answers "create" with the error "ticket store is closed"
     When the model calls "mcp__tickets__create"
-    Then the model is told of "queue is closed" as an error of the tool call
+    Then the model is told of "ticket store is closed" as an error of the tool call
 
   Scenario: every tool of an MCP server that requires approval waits for a decision
     Given "helper" lists "tickets" as an MCP server that requires approval

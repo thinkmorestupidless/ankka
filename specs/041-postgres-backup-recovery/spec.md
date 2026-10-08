@@ -156,22 +156,12 @@ bound, then restore the target and assert both clear.
 
 **Acceptance Scenarios**:
 
-1. **Given** an installation with a backup target, **When** a project's first service is deployed, **Then**
-   its database archives its write-ahead log continuously and completes a first base backup, and the
-   project's status reports the time of the last base backup and the earliest moment it can be restored to.
-2. **Given** a project created before the installation had a backup target, **When** one is configured,
-   **Then** the project's existing database begins archiving and takes a base backup without its services
-   being redeployed and without losing a write.
-3. **Given** a project archiving normally, **When** the target refuses writes, **Then** within five minutes
-   the project's status reports backups failing with the reason, and the backup metric for that project
-   reports the failure.
-4. **Given** the control plane's database, **When** the installation has a backup target, **Then** it is
-   archived and backed up the same way, and the installation's status reports it.
-5. **Given** a service that supplies its own database through `ANKKA_DB_*`, **When** the project is backed
-   up, **Then** that service's database is not part of it, and the service's status says its database is
-   backed up by its owner, not the platform.
-6. **Given** an installation with no backup target, **When** any project is deployed, **Then** it works as
-   today, and the installation's status and every project's status say plainly that nothing is backed up.
+- added `features/databases/backups.feature`: the first service of a project is deployed and its project database is backed up from then on
+- added `features/databases/backups.feature`: a project that existed before the installation had a backup target is backed up without a redeploy
+- added `features/databases/backups.feature`: a backup target that refuses writes is reported on the status and as a metric within 5 minutes
+- added `features/databases/backups.feature`: the database of the control plane is backed up as a project database is
+- added `features/databases/backups.feature`: a database a service declares of its own is not backed up by the platform
+- added `features/databases/backups.feature`: an installation with no backup target deploys as before and says that nothing is backed up
 
 ---
 
@@ -197,32 +187,17 @@ B. Switch it back; assert it reads A and B.
 
 **Acceptance Scenarios**:
 
-1. **Given** a project with backups, **When** an owner restores it to a moment inside the retention window,
-   **Then** a new database is created beside the current one from the latest base backup before that moment
-   and the archive up to it, and the current database is not changed in any way.
-2. **Given** a restore requested for a moment outside the retention window, or in the future, **When** it is
-   submitted, **Then** it is refused with the earliest and latest moments that can be restored.
-3. **Given** a restore that completes, **When** an owner reads it, **Then** it reports the moment reached,
-   and per service: that its database is present, the number of rows in its journal, state, offset and timer
-   tables, and the highest journal sequence per table it holds.
-4. **Given** a completed restore, **When** an owner switches one service to it, **Then** that service moves
-   to the restored database at its next rollout, no other service moves, the switch and who made it are
-   recorded in the project's audit, and the database it left is kept and listed.
-5. **Given** a switched service, **When** an owner switches it back, **Then** it returns to the database it
-   left at its next rollout, with every write that database had.
-6. **Given** a member who is not an owner, **When** they request a restore or a switch, **Then** it is
-   refused.
-7. **Given** a restore in progress, **When** a second restore is requested for the same project, **Then** it
-   is refused until the first completes or fails.
-8. **Given** a restored cluster with at least one service switched to it, **When** the project next backs up,
-   **Then** that cluster is archived as a new line of history beside the live cluster's, and every earlier
-   line remains restorable within its retention.
-9. **Given** services on two clusters, **When** the project's status is read, **Then** it names each service's
-   cluster, and **When** every service has left a cluster, **Then** that cluster is listed as left, with the
-   time, and never removed by the platform.
-10. **Given** a restored cluster no service was switched to, **When** the project's status is read, **Then** it
-    is listed with its age, and reclaiming it is a platform administrator's action by hand, outside the
-    platform.
+- added `features/databases/restoring.feature`: a restore makes a new project database beside the current one and changes nothing in the current one
+- added `features/databases/restoring.feature`: a restore to a moment that cannot be restored to is refused with the moments that can
+- added `features/databases/restoring.feature`: a completed restore reports the moment it reached and what each service's database holds
+- added `features/databases/restoring.feature`: switching one service to a restore moves that service and no other, and is recorded
+- added `features/databases/restoring.feature`: a switched service is switched back to the project database it left, with every write that project database had
+- added `features/databases/restoring.feature`: a member who is not an owner can neither restore nor switch
+- added `features/databases/restoring.feature`: a second restore of a project is refused while one is in progress
+- added `features/databases/restoring.feature`: a restore a service was switched to is archived as a line of history of its own
+- added `features/databases/restoring.feature`: the status of a project whose services are on two project databases names each service's
+- added `features/databases/restoring.feature`: a project database every service has left is listed as left, and the platform never removes it
+- added `features/databases/restoring.feature`: a restore no service was switched to is listed with its age, and only a platform administrator removes it by hand
 
 ---
 
@@ -251,23 +226,12 @@ restored offsets carry the ids they carried before; publish a new event and asse
 
 **Acceptance Scenarios**:
 
-1. **Given** a completed restore, **When** an owner reads it, **Then** it lists each topic the project's
-   services publish to whose latest message is newer than the restore point, with the number of such
-   messages per partition, and each consumer group of the project whose committed position is newer than
-   the restore point.
-2. **Given** a projection that publishes from a journal, **When** it re-publishes an event it published
-   before the restore, **Then** the message carries the same id as before.
-3. **Given** a restored database, **When** a service persists its first event after the switch, **Then** the
-   message published from it carries an id that no message published before the restore carries, even
-   where its entity and sequence number match a lost event's.
-4. **Given** a restore, **When** it completes or is switched to, **Then** the platform publishes nothing,
-   deletes nothing and moves no consumer group's position; the report is the platform's whole action on the
-   broker.
-5. **Given** a view in the same project that counts messages from the topic, **When** events 1–5 are
-   re-published after the switch, **Then** the view counts them again, and the report states that
-   re-published events are applied again by every topic-sourced view and consumer.
-6. **Given** a failover promotion with no restore (User Story 4), **When** events are published afterwards,
-   **Then** their ids are on the same line of history as before the promotion.
+- added `features/databases/after-a-restore.feature`: a completed restore lists the topics and the groups that are newer than the restore point
+- added `features/databases/after-a-restore.feature`: an event published again after a restore carries the message id it carried before
+- added `features/databases/after-a-restore.feature`: an event recorded after a restore carries a message id no message published before it carried
+- added `features/databases/after-a-restore.feature`: a restore and a switch do nothing to the broker but list it
+- added `features/databases/after-a-restore.feature`: a view that counts messages counts an event published again a second time, and the restore says so
+- added `features/databases/after-a-restore.feature`: a replica promoted with no restore keeps the line of history, and the message ids stay on it
 
 ---
 
@@ -288,16 +252,11 @@ is present.
 
 **Acceptance Scenarios**:
 
-1. **Given** a project, **When** a member sets its database to N instances, **Then** the project's cluster
-   runs N instances, one primary, and the project's status reports how many are ready and which is primary.
-2. **Given** a project with more than one instance, **When** the primary is lost, **Then** a replica is
-   promoted automatically and the project's services resume writing without a redeploy: each service's
-   connection pool drops its connections to the lost primary and reconnects to the promoted one on its own.
-3. **Given** synchronous replication set, **When** a write is acknowledged to a service, **Then** it is on at
-   least one replica as well as the primary, and losing the primary loses no acknowledged write.
-4. **Given** a project with no setting, **When** it is deployed, **Then** it runs one instance, as today.
-5. **Given** a member who lowers the instance count, **When** it is applied, **Then** the cluster scales
-   down without losing the primary or any data.
+- added `features/databases/replicas.feature`: a member asks for replicas and the project database runs them
+- added `features/databases/replicas.feature`: a lost primary is replaced by a promoted replica and the services go on writing without a redeploy
+- added `features/databases/replicas.feature`: a synchronous project database loses no acknowledged write with its primary
+- added `features/databases/replicas.feature`: a project that asks for no replicas runs a primary alone
+- added `features/databases/replicas.feature`: lowering the number of replicas keeps the primary and everything recorded
 
 ---
 
@@ -324,21 +283,13 @@ namespace and refuses one in the project's.
 
 **Acceptance Scenarios**:
 
-1. **Given** a project with backups, **When** any member of its organization requests a rehearsal to a
-   moment, **Then** the platform restores into a database in the project's rehearsal namespace that no
-   service is switched to, verifies it as User Story 2 does, records the elapsed time, and then removes that
-   database.
-2. **Given** a rehearsal, **When** it completes or fails, **Then** its report is kept on the project with
-   who asked, when, the moment, the outcome and the elapsed time, and the reports can be listed.
-3. **Given** a project, **When** a member sets a rehearsal schedule, **Then** rehearsals run on it and a
-   failed one is reported as a backup failure is.
-4. **Given** a rehearsal, **When** it runs, **Then** the project's services, its current database and its
-   backups are unchanged by it.
+- added `features/databases/rehearsals.feature`: a rehearsal restores into a project database of its own, checks it, times it and removes it
+- added `features/databases/rehearsals.feature`: a rehearsal's report is kept on the project and listed
+- added `features/databases/rehearsals.feature`: a project set to rehearse every day rehearses every day, and a failed rehearsal is reported as a backup failure is
+- added `features/databases/rehearsals.feature`: a rehearsal changes nothing of the project's services, project database or backups
+- added `features/databases/rehearsals.feature`: a rehearsal's project database the platform failed to remove is removed when its time to live passes
+- added `features/databases/rehearsals.feature`: the operator may remove a project database made for a rehearsal and no other
 
-5. **Given** a rehearsal database the platform failed to remove, **When** its time to live passes, **Then** it
-   is removed, and the failure to remove it at the time was reported.
-6. **Given** the operator's grant, **When** it is read, **Then** its delete on database clusters is scoped to
-   rehearsal namespaces and no other.
 ---
 
 ### User Story 6 - The control plane's database is restored (Priority: P2)
@@ -363,18 +314,10 @@ lists S as differing (1 desired, 2 running), and that S keeps running version 2 
 
 **Acceptance Scenarios**:
 
-1. **Given** the control plane's database backed up, **When** a platform administrator restores it to a
-   moment following the documented procedure, **Then** the procedure writes the restore marker and the
-   control plane starts on the restored database with projection to the cluster held.
-2. **Given** projection held, **When** the control plane starts, **Then** it lists every service whose
-   desired state differs from the resource in the cluster, every topic declaration that differs from the
-   project's resource, and every project namespace in the cluster its database does not know, and changes
-   none of them.
-3. **Given** an erasure (042) filed after the restore point, **When** the control plane starts held, **Then**
-   its erasure log is brought up to date from the bucket copy before the release is possible, and the
-   difference listing says the log was reconciled and how many entries it gained.
-4. **Given** projection held, **When** a platform administrator releases it, **Then** the control plane
-   resumes projecting, the marker is cleared, and the release is recorded.
+- added `features/databases/control-plane-restore.feature`: a platform administrator restores the database of the control plane and the control plane starts held
+- added `features/databases/control-plane-restore.feature`: a held control plane lists what differs from what it recorded and changes none of it
+- added `features/databases/control-plane-restore.feature`: a held control plane brings its erasure log up to date from the bucket before it can be released
+- added `features/databases/control-plane-restore.feature`: releasing the projection resumes it, removes the restore marker and is recorded
 
 ---
 
@@ -401,20 +344,14 @@ backup bucket.
 
 **Acceptance Scenarios**:
 
-1. **Given** the installation's Garage set to three nodes, **When** objects are written, **Then** each is held
-   on every node, and losing one node and its volume loses no object.
-2. **Given** a secondary store named, **When** a copy interval passes, **Then** every object in every bucket
-   of the installation's Garage is present in the secondary store, and the installation's status reports the
-   time of the last complete copy.
-3. **Given** a Garage installation that holds backups and names no secondary store, **When** its status is
-   read, **Then** it says that backups share the cluster's failure domain.
-4. **Given** the local installation, **When** it is deployed, **Then** Garage stays one node with no
-   secondary store, as today.
+- added `features/object-storage/durability.feature`: an object written to a Garage of three machines is held on every one of them
+- added `features/object-storage/durability.feature`: losing one machine of a Garage of three and its volume loses no object
+- added `features/object-storage/durability.feature`: every bucket of the installation's Garage is copied to the secondary store, and the status says when
+- added `features/object-storage/durability.feature`: an installation that keeps its backups on Garage with no secondary store says that they share the cluster's failure domain
+- added `features/object-storage/durability.feature`: the local platform keeps Garage on one machine with no secondary store
+- added `features/object-storage/durability.feature`: an object deleted from Garage is deleted from the secondary store at the next copy
+- added `features/object-storage/durability.feature`: with a copy outside the failure domain required, a project is not backed up until its latest base backup has one
 
-5. **Given** an object deleted from a Garage bucket, **When** the next copy runs, **Then** it is deleted from
-   the secondary store too, and the copy's report counts it.
-6. **Given** the off-cluster copy required by the installation, **When** a project's status is read before a
-   copy has completed since its last base backup, **Then** it is not reported as backed up, and says why.
 ---
 
 ### Edge Cases

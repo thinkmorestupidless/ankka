@@ -1,7 +1,9 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Secrets*, *Topic sources*, the retention terms
+under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery*, *Erasure*
+and *Cloud provider*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -120,11 +122,12 @@ Of an instance: able to answer what its service declares it serves. Calls are se
 only to an instance that is ready. Of a service: every instance it asked for is.
 
 ### exposed
-Of a deployed service: reachable from outside the cluster, at its hostname.
+Of a deployed service: reachable from outside the cluster, at its hostname. Of the installation's
+broker: reachable by registered machines, through the gateway, at hostnames of the base domain.
 
 ### hostname
-Where an exposed service answers from outside the cluster, for HTTP and for gRPC. The platform
-derives it; nobody chooses it.
+Where an exposed service answers from outside the cluster, for HTTP and for gRPC, or where an
+exposed broker answers a registered machine. The platform derives it; nobody chooses it.
 
 ### gateway
 What every request and call from outside the cluster passes through to reach an exposed service.
@@ -330,8 +333,8 @@ Avoid: headers
 
 ### ACL
 An endpoint's access control list: what the endpoint, or one of its routes or methods, states
-about who may call it. It denies all, allows all, admits only the workloads it names, or asks an
-authenticator.
+about who may call it. It denies all, allows all, admits only the workloads it names, admits
+granted callers, or asks an authenticator.
 
 Avoid: access rule
 
@@ -344,8 +347,8 @@ Who a call came from, as an authenticator established it.
 
 ### calling workload
 The workload a call to an endpoint came from, as the platform established it: a
-service of a project, the gateway, or the local caller. It is read from the certificate and never
-from what the call says.
+service of a project, the gateway, a registered machine, or the local caller. It is read from the
+certificate, or from a machine token the platform verified, and never from what the call says.
 
 ### local caller
 The calling workload of every call on a developer's machine, where there is no
@@ -599,7 +602,8 @@ How much of a machine each instance of a service is given, as a descriptor asks 
 
 ### expose
 Make a deployed service reachable from the internet at its hostname. A service is private until
-it is exposed.
+it is exposed. Of the installation's broker: make it reachable by registered machines; an
+installation's broker is closed to them until the installation exposes it.
 
 ### internet
 Everyone and everything outside the platform. A request from the internet reaches a service only
@@ -613,8 +617,9 @@ made it.
 A named value the platform keeps for a project, which a descriptor's variable can be taken from.
 
 ### database
-Where the platform keeps what a service's entities, views and workflows know, and the service's
-secret store. Each deployed service has its own, provisioned by the platform or supplied by the service.
+Where the platform keeps what a service's entities, views and workflows know, and, on the Postgres
+backend, the service's secret store. Each deployed service has its own, provisioned by the platform
+or supplied by the service.
 
 ### logs
 What a service's instances printed.
@@ -643,8 +648,8 @@ a descriptor states, and brings back nothing the service's database held.
 Avoid: revert, rewind, undo
 
 ### digest
-Of a descriptor: a short value that two descriptors share exactly when they state the
-same things.
+Of a descriptor, or of a service secret's value: a short value that two share exactly when they
+are the same.
 
 Avoid: hash, checksum
 
@@ -785,10 +790,11 @@ it. A service never accepts a token signed with one.
 ## Secrets
 
 ### secret store
-Where a service keeps its service secrets: in its database, and apart from everything
-its components know. It is not a component, and nothing a component records or a view is built
-from ever holds what is in it. An entity and a view are given none; every other component of the
-service keeps and reads through the same one.
+Where a service keeps its service secrets, apart from everything its components know: in its
+database on the Postgres backend, in Secret Manager on the Secret Manager backend. It is not a
+component, and nothing a component records or a view is built from ever holds what is in it. An
+entity and a view are given none; every other component of the service keeps and reads through
+the same one.
 
 Avoid: vault
 
@@ -801,16 +807,17 @@ service cannot read it. It is not a project secret, which a member sets before a
 Avoid: runtime secret
 
 ### secret key
-What a service's secret store encrypts its service secrets with. Each service has its
-own. The platform makes one for a deployed service unless its descriptor gives one, and keeps it
-when the service is deleted; on a developer's machine the developer gives one. It is a platform
-setting. It is not an entry of a project secret, and it is not an issuer's keys.
+What a service's secret store encrypts its service secrets with on the Postgres backend. Each
+service has its own. The platform makes one for a deployed service unless its descriptor gives
+one, and keeps it when the service is deleted; on a developer's machine the developer gives one.
+It is a platform setting. It is not an entry of a project secret, and it is not an issuer's keys.
 
 Avoid: encryption key, master key
 
 ### encrypted
-Of a service secret as the database holds it: unreadable by anyone who does not have
-the service's secret key.
+Of a service secret as the database holds it, or of a personal field as any store holds it:
+unreadable by anyone who does not have the key it was encrypted with — the service's secret key,
+or the data subject's subject key.
 
 ### project secret
 A named set of entries the platform keeps for a project, which a descriptor's variable
@@ -822,6 +829,92 @@ Avoid: static secret
 
 ### entry
 One named value of a project secret. A descriptor's variable is taken from one entry.
+
+### secret backend
+*Proposed.* Where an installation keeps service secrets and project secrets: the Postgres backend
+or the Secret Manager backend. It is the installation's to say, once, as a platform setting the
+platform alone sets; a descriptor may not give it, and a service's code, descriptor and components
+are the same on either.
+
+Avoid: secret provider, vault backend
+
+### Postgres backend
+*Proposed.* The secret backend an installation is on unless it says otherwise: each service's
+secret store in its own database, encrypted with its secret key, and a project secret's entries in
+the project's secret in the cluster.
+
+### Secret Manager
+*Proposed.* Google Cloud's keeper of secrets, outside the cluster. It holds each service secret
+and each entry under a name the platform derives from the project, the service and the secret's
+own name, so that two never share one, as versions of which the newest is read; it refuses whoever
+has no grant on it; and the access log records every access to it.
+
+### Secret Manager backend
+*Proposed.* The secret backend on which service secrets and project secrets are kept in Secret
+Manager, each service reaching it as its own identity and nothing in the cluster holding a
+credential for Google Cloud.
+
+### Google Cloud
+*Proposed.* The cloud Secret Manager is part of, which decides by the grants what each identity
+may do there, and keeps the access log.
+
+### secret access
+*Proposed.* What a cloud identity may do to which secrets in Secret Manager, as Google Cloud
+enforces it: a service may keep, read and remove its own service secrets and read its project's
+entries, and list nothing; the control plane may add and disable versions of entries and read
+none; the cloud provider may read entries and no service secret. The operator asks for it with a
+secret access request and the cloud provider writes it; nothing else can. It follows a service's
+name, so a service deleted and deployed again has the one it had. It is not a grant, which a
+project makes for a grantee.
+
+Avoid: IAM binding, role binding, IAM grant
+
+### access log
+*Proposed.* Google Cloud's own record of every access to a secret in Secret Manager, naming the
+identity that made it and the secret. An installation turns it on, and the platform reports
+whether it is on. It is not the read record, which the platform keeps on either secret backend,
+and it is not a history.
+
+### read record
+*Proposed.* What the platform records of every read, keep and removal of a service secret, on
+either secret backend: the secret's name, the project, the service, its hosting, the outcome, the
+time, the trace id and the request where known, and the component and its kind where the caller
+can be known, which it cannot be through a process or a module; never the value. The control plane
+keeps it, never the service's database, so a restore of the database does not rewind it; an owner
+may list it; it is kept for the installation's retention.
+
+Avoid: audit trail
+
+### retention
+*Proposed.* How long an installation keeps a read record before removing it: a year unless the
+installation says otherwise.
+
+### kept count
+*Proposed.* How many versions of a service secret Secret Manager keeps for an installation: 2
+unless it says otherwise. After a keep, the versions beyond it are removed, oldest first, once the
+new one can be read; a version is never disabled, so the newest can always be read.
+
+### synced
+*Proposed.* Of an entry on the Secret Manager backend: copied by the cloud provider from Secret
+Manager into the project's secret in the cluster, within a minute of being set or removed, so that
+a starting instance is given it as before. A service of the project is not started until each
+entry it takes a variable from is synced.
+
+### copy check
+*Proposed.* What a move offers for a service or a project: for each name, whether its database and
+Secret Manager hold the same value, by digest, as equal, different or missing; never a value.
+
+### removal step
+*Proposed.* The last step of a service's move: removing its service secrets from its database,
+which the platform does only when the service's last copy check reported every name equal. From
+then on the service's secret key is given to it and not read.
+
+### Secret Manager fake
+*Proposed.* What the test kit gives a test that asks for the Secret Manager backend: a Secret
+Manager of its own, with no network and no Google Cloud, that refuses what Google Cloud's grants
+would refuse.
+
+Avoid: emulator, mock
 
 ## Topic sources
 
@@ -1015,7 +1108,8 @@ members and change their roles, rename it, manage its deploy tokens and delete i
 always has at least one owner, and a deploy token is never one.
 
 ### revoke
-Of a deploy token: end it, so that no request with it is admitted again.
+Of a deploy token: end it, so that no request with it is admitted again. Of an accepted grant:
+end it, by the grantor and without the grantee, so that it opens nothing again.
 
 ### job
 One run of a repository's automation on GitHub, on one machine, whose commands run one after another. It is not a workflow, which is a component.
@@ -1042,8 +1136,10 @@ Of a cluster: fetch a service's image from its registry before an instance can s
 Of time in a trace: spent inside a part of the trace that none of the parts nested under it account for, such as waiting on a model or on the database.
 
 ### history
-Who did what to a service, and when, as the control plane recorded it: what was done, at which
-generation, by whom and when, newest first. It keeps the most recent and forgets the rest. It is
+Who did what to a service, a project or an organization, and when, as the control plane recorded
+it: what was done, at which generation, by whom and when, newest first. A project's history holds
+every change to its grants; an organization's, every change to a grant its registered machines
+were offered. It keeps the most recent and forgets the rest. It is
 not what a service's instances printed, and not what its entities recorded.
 
 Avoid: audit log
@@ -1058,7 +1154,8 @@ owner may revoke it.
 Avoid: invite (as a noun)
 
 ### pending
-Of an invitation: neither claimed nor revoked.
+Of an invitation: neither claimed nor revoked. Of a grant: offered to another organization and
+neither accepted, declined nor withdrawn; it opens nothing.
 
 ### claimed
 Of an invitation: made into a membership by a request from a person whose verified email
@@ -1580,6 +1677,65 @@ not a platform setting: both programs of a service hosted as a process are given
 
 Avoid: Kafka variable
 
+### retention time
+*Proposed.* How long a topic keeps a message before the broker removes it: a duration, or
+everything, when the broker removes nothing by age. A declaration that gives none is filled from
+the installation's default, and the status of the topic says so.
+
+### retention size
+*Proposed.* How much each partition of a topic keeps before the broker removes its oldest
+messages: a size for each partition, or none.
+
+### cleanup policy
+*Proposed.* How the broker removes a topic's messages: "delete", by the topic's retention time and
+size; "compact", keeping the last message under each key; or "compact,delete", both.
+
+### tombstone window
+*Proposed.* How long a compacted topic keeps a message that marks its key deleted, so that a
+reader no further behind than that sees the deletion. It is not a tombstone, which is a delta.
+
+### compaction lag
+*Proposed.* How long after a message is published a compacted topic may compact it away: the
+minimum compaction lag is the soonest, the maximum the latest. It is not compaction, which
+shortens a session.
+
+### minimum in-sync copies
+*Proposed.* How many of a topic's copies must hold a message before the broker acknowledges its
+publication. It is fixed when the topic is declared, as its copies are.
+
+### bound
+*Proposed.* A limit the installation sets on what a topic's declaration may ask: its longest
+retention time, which may be none, its largest retention size for each partition, and its most
+copies. The control plane refuses a declaration outside a bound, before anything is made on the
+broker.
+
+### broker node
+*Proposed.* One of the machines the installation's broker runs on, each holding at most one copy
+of a partition. A topic with more copies than the broker has broker nodes is reported failed by the
+operator. It is not a node, which is an element of a store.
+
+### beginning position
+*Proposed.* Where the earliest message the broker still holds on a partition stands, counted from
+the first ever published. Above 0, earlier messages are gone; what they were is not knowable.
+
+### earliest retained time
+*Proposed.* When the earliest message the broker still holds on a partition was published.
+
+### retention gap
+*Proposed.* What a topic source reports, for each partition of its topic, of what the broker no
+longer holds: the beginning position, the earliest retained time, and whether messages are gone,
+which is so when the beginning position is above 0 or the earliest retained time is later than when
+the view first read the topic. A compacted topic is reported as compacted and not as having a gap.
+
+### warning threshold
+*Proposed.* The retention time below which a view reading a topic is warned, which the
+installation sets: "30 days" as shipped. It is not a threshold, which is a judged guardrail's.
+
+### retention warning
+*Proposed.* What a view's status carries when the topic it reads keeps less than the
+installation's warning threshold, naming both. A topic that keeps everything, or is compacted,
+draws none.
+
 ## Sockets
 
 ### socket
@@ -1840,6 +1996,545 @@ holding the storage credential. It works only while the bucket is reachable from
 
 Avoid: presigned URL
 
+### Google Cloud Storage
+*Proposed.* Google's object store, which an installation in Google's cloud may keep its buckets in
+instead of Garage. A bucket in it is reachable from the internet by anyone holding a signed URL,
+whether or not its descriptor asked, and by nobody else; it keeps every version of an object; and
+its name is shared with every other customer of Google's, so the provider names it and reports the
+name, and nothing derives it.
+
+Avoid: GCS
+
+### Garage
+*Proposed.* The object store the platform runs inside an installation that names no other, and the
+one a local platform has: on one machine as shipped, or on three with each object on every one of
+them. A bucket in it holds one version of each object, is named from the project and the service,
+and is reached from the internet only when its descriptor asks.
+
+### provider
+*Proposed.* The program an installation deploys beside the operator to make what a cloud's object
+store needs for a bucket: the bucket, the storage account, its grant and the storage credential.
+It reaches the cloud as its own workload identity and holds no key of the cloud's. The operator
+asks it for a bucket and reads what it reports, and never reaches the cloud itself.
+
+### storage account
+*Proposed.* The identity in Google Cloud that the provider makes for one service with a bucket in
+Google Cloud Storage, granted on that bucket and on nothing else. The service's storage credential
+belongs to it, and the service's workload identity is it.
+
+Avoid: service account, Google account
+
+### workload identity
+*Proposed.* What a deployed service is, to Google Cloud, without holding any credential: its
+storage account. A service that reaches its bucket as its workload identity needs no storage
+credential, and can make no signed URL.
+
+### retention policy
+*Proposed.* A setting of a bucket in Google Cloud Storage that refuses to delete an object younger
+than an age. The platform sets none on any bucket and offers no setting that does: holding a
+document for as long as a rule requires is the service's own to do, and a deletion is never
+refused on account of an object's age.
+
+### noncurrent version
+*Proposed.* An object as it was before it was overwritten or deleted, which a bucket in Google
+Cloud Storage keeps and a service reads back, until every version of the object is deleted. A
+bucket in Garage keeps none.
+
+### move
+*Proposed.* Copying every object of one service's bucket in Garage into a bucket made for it in
+Google Cloud Storage, so that the service reads and keeps objects there once it is next
+restarted. A member asks for it; it checks every object on both sides; it finishes if it is asked
+for again after stopping part way; and it leaves the bucket in Garage as it was.
+
+Avoid: migration
+
+### read-only credential
+*Proposed.* A storage credential that reads a bucket and cannot keep, change or delete an object in
+it. A move gives a service one while it copies what changed and checks every object, and the
+service's status says that its storage is moving; the service is given a storage credential that
+writes again when the move ends, on whichever object store it ends on.
+
+## Cross-project access
+
+### grant
+*Proposed.* What a project holds to let one grantee reach one target of its own. An owner of the
+project's organization makes it, as data, and no code of either side changes for it. A grant
+within that organization is accepted when it is made; one to a grantee of another organization is
+pending until an owner there accepts it. Only an accepted grant opens anything; an ended grant is
+never reopened, and granting again makes a new one. A grant is identified, while it is live, by
+its grantee and its target, so the same one made twice is one grant.
+
+Avoid: access grant, ACL entry
+
+### grantor
+*Proposed.* The project that holds a grant, and the owners of its organization, who make,
+withdraw and revoke it.
+
+### grantee
+*Proposed.* Who a grant names: a service of another project, or a registered machine. The
+organization it belongs to is the one a cross-organization grant is offered to, and whose owners
+accept, decline or relinquish it. It is not a principal, which is what an authenticator
+established of a request.
+
+### target
+*Proposed.* What one grant opens: one route or one method of one of the grantor's services, one of
+the grantor's declared topics to consume, to produce to, or both, or the right to ask for the
+erasure of the grantor's data subjects. Never more than one, and never a prefix or a pattern.
+
+### consume
+*Proposed.* Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
+no position: where the grantee starts reading is its own start position.
+
+### produce
+*Proposed.* Of a topic grant: lets the grantee publish to the topic.
+
+### in effect
+*Proposed.* Of a grant: accepted, and reached where it is read, so that its grantee reaches its
+target. A grant that is not in effect says why: "pending", "declined", "withdrawn", "revoked",
+"relinquished", "route not seen", "route not grantable", "rollout needed" or "broker not exposed".
+
+Avoid: active grant, live grant
+
+### accept
+*Proposed.* Of an owner of the grantee's organization and a pending grant: take it, so that it is
+in effect.
+
+### decline
+*Proposed.* Of an owner of the grantee's organization and a pending grant: refuse it, so that it
+never takes effect.
+
+### withdraw
+*Proposed.* Of the grantor and a pending grant: take it back before it is answered, so that it is
+no longer offered.
+
+### relinquish
+*Proposed.* Of an owner of the grantee's organization and an accepted grant: give it up, without
+the grantor, so that it opens nothing again.
+
+### granted caller
+*Proposed.* A calling workload that holds a grant in effect on the route or the method it is
+calling: a service of another project, or a registered machine. An ACL that admits granted callers
+is what makes a route grantable; it admits no caller without a grant.
+
+Avoid: granted matcher
+
+### grantable
+*Proposed.* Of a route or a method: its ACL admits granted callers, so that a grant on it opens
+it. A grant on one that is not is accepted and reported as "route not grantable"; a web-hosted
+service's routes are never grantable.
+
+### registered machine
+*Proposed.* A machine outside the installation that an owner registered on an organization, which
+proves which machine it is with a machine token. It holds no grant; grants name it. On the broker
+it is a credential of its own, with no topic until a grant gives it one, and it is kept when the
+machine is deleted. It is not a member, and it is not a deploy token.
+
+Avoid: external machine, outside machine, partner machine
+
+### client id
+*Proposed.* The name a registered machine gives the token route when it asks for a machine token,
+together with its client secret.
+
+### client secret
+*Proposed.* What a registered machine proves itself with to the token route: shown once, when the
+machine is registered, and never again; the control plane keeps only a digest of it. It is not a
+secret, which a project keeps for a descriptor, nor a service secret.
+
+### machine token
+*Proposed.* What the control plane signs for a registered machine, for its client id and client
+secret: a token that names the machine and nothing else, lives fifteen minutes, and is checked
+against the control plane's keys without asking it. It carries no grant, so a grant changes
+without a new machine token and a revocation never waits for one to expire. On a route it is
+sent as any token is; on the broker it is what the registered machine proves itself with.
+
+Avoid: client credentials token
+
+### token route
+*Proposed.* Where a registered machine asks the control plane for a machine token. A client id
+that asks more often than the installation allows is refused there for a while.
+
+### byte rate
+*Proposed.* How many bytes a second the broker lets a registered machine publish, and how many it
+lets it read, from the installation's defaults; an owner may set one machine's within the
+installation's ceiling. It is not a quota, which counts projects, services and instances.
+
+### throttled
+*Proposed.* Of a registered machine: made to wait by the broker because it has reached its byte
+rate. What it reads still arrives, later; the installation's services are never throttled for it.
+
+## Backups and recovery
+
+### project database
+*Proposed.* What holds every provisioned database of one project's services, and is backed up and
+restored as a whole. A project has one until a restore makes another beside it; its status names
+the one each service is on.
+
+Avoid: Postgres cluster, database cluster
+
+### backup target
+*Proposed.* Where an installation's backups go: its object store, named once for the installation.
+With none named, nothing is backed up and every status says so.
+
+### backup bucket
+*Proposed.* A bucket the platform makes for one project's backups, and one each for the database of
+the control plane and the platform's other stores. The project database and the platform reach it;
+no storage credential does, no route reaches it, and no descriptor can name it. The platform never
+deletes it.
+
+### archive
+*Proposed.* Every write a project database makes, written to its backup bucket as it is made, so
+that the project database can be restored to any moment the archive reaches. As a verb: write to
+it. How far behind the project database the archive is, is the writes a loss would lose.
+
+Avoid: WAL, write-ahead log
+
+### base backup
+*Proposed.* A whole copy of a project database at one moment, taken every day. A restore starts
+from the latest one before its moment and reads the archive from there.
+
+### backed up
+*Proposed.* Of a project: its project database has a base backup and an archive in its backup
+bucket, and, where the installation requires a copy outside the failure domain, its latest base
+backup has one.
+
+### retention window
+*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation,
+and a project may set its own. A base backup or archive older than it is removed only once a newer
+base backup has completed.
+
+### restore
+*Proposed.* A project database made anew at a moment in the retention window, beside the current
+one, from the latest base backup before the moment and the archive up to it. It changes the current
+project database not at all; a service reaches it only by a switch. The control plane's database
+and the keyring's are restored the same way. As a verb: make one; as an adjective, restored. It is
+not a roll back, which brings back a descriptor and no data.
+
+Avoid: point-in-time recovery, PITR
+
+### restore point
+*Proposed.* The moment a restore was made at.
+
+### switch
+*Proposed.* Moving one service of a project from the project database it is on to another of the
+project's, a restore or one it left, at the service's next rolling update. An owner switches one
+service at a time; the project database the service leaves is kept, and switching back is the same
+action.
+
+Avoid: migrate, cut over, failover
+
+### line of history
+*Proposed.* One project database's archive, from its making or from the first switch to it. A
+restore a service was switched to begins a line of its own; every earlier line stays restorable
+within its retention window.
+
+Avoid: timeline
+
+### message id
+*Proposed.* What a message published from a journal event carries to be told from every other
+message: made from the event's line of history, its entity and its sequence number, so that an
+event published again after a restore carries the one it carried before, and an event recorded
+after a restore never carries one an earlier message carried. It protects only a reader that
+deduplicates by it.
+
+### journal
+*Proposed.* The table a service's database keeps its entities' events in, in order: the record a
+restore takes back to the restore point. Nothing is ever removed from it.
+
+### read position
+*Proposed.* How far a view or a consumer has read of a source, as the service's database records
+it. A restore takes it back with the journal; a group's position on the broker is not taken back.
+
+Avoid: offset
+
+### rehearsal
+*Proposed.* A restore into a project database made for it, apart from the project's own, which no
+service is switched to: checked as a restore is, timed, and then removed. Its report is kept on the
+project. The operator may remove a project database made for a rehearsal and no other.
+
+Avoid: drill, dry run
+
+### time to live
+*Proposed.* How long a project database made for a rehearsal may exist before the platform removes
+it, whatever became of the rehearsal: 24 hours as shipped.
+
+Avoid: TTL
+
+### primary
+*Proposed.* The one copy of a project database that takes its writes. A project database runs a
+primary alone until the project asks for replicas.
+
+### replica
+*Proposed.* A further copy of a project database, kept up to date from the primary, and promoted
+when the primary is lost. A project asks for how many it has.
+
+Avoid: standby
+
+### promoted
+*Proposed.* Of a replica: made the primary, with no member doing anything, when the primary is
+lost. The services of the project connect to it on their own. A promotion does not change the line
+of history.
+
+### synchronous
+*Proposed.* Of a project database with replicas: a write is not acknowledged until a replica holds
+it as well as the primary, so that losing the primary loses no acknowledged write.
+
+### restore marker
+*Proposed.* What a restore of the database of the control plane ends by writing. The control plane
+reads it at its next start and holds its projection until a platform administrator releases it,
+which removes the marker.
+
+### projection
+*Proposed.* The control plane's making of the cluster into what it recorded. Held, it changes
+nothing in the cluster and lists every service, declared topic and project that differs from what
+it recorded.
+
+Avoid: reconciliation loop
+
+### secondary store
+*Proposed.* An object store outside the cluster to which every bucket of the installation's Garage
+is copied again and again, the services' and the backup buckets alike. An object deleted from
+Garage is deleted from it at the next copy, so it never holds what the installation has erased.
+
+Avoid: mirror, offsite
+
+### failure domain
+*Proposed.* What is lost together: the cluster, with every machine and volume in it. A backup kept
+in the failure domain of what it backs up is not a backup of it.
+
+### volume
+*Proposed.* The disk one machine keeps a project database or Garage's objects on. Losing it loses
+what was on it, unless a replica, another machine or a backup holds it too.
+
+Avoid: disk, PVC
+
+## Erasure
+
+### data subject
+*Proposed.* The person a personal field is about, named by an id the domain chooses, such as
+"player/8c1f", which is readable wherever it is held and survives an erasure. A data subject is of
+one project: a person known to two projects is two data subjects. It is not a subject, which is an
+issuer's id for the person a token names.
+
+### personal field
+*Proposed.* A field of an event, a state, a row or a message that a service marks as about one data
+subject. Every store holds it only encrypted, as a personal envelope. A field that is not marked,
+such as an amount, an id or a time, is held as it was written, and the platform cannot know that
+it is about anyone.
+
+### personal envelope
+*Proposed.* What every store holds a personal field as: the data subject readable beside the
+field's value encrypted under that data subject's subject key. It is the same in every language and
+in every store, and nothing but the code that reads and writes personal fields looks inside it.
+
+### subject key
+*Proposed.* The key one data subject's personal fields are encrypted under, in one project. It is
+made with the first write of one of them, whichever service or instance writes first, kept by the
+keyring, destroyed by an erasure, and never replaced. It is not the secret key, which encrypts a
+service's secret store, and not an issuer's keys.
+
+### keyring
+*Proposed.* The part of the platform that keeps every subject key and lookup key of an installation,
+outside every service's database and every project's backup. It gives a subject key only to a
+service of the data subject's project, or to a holder of a grant that allows decryption, and it
+records every request it refuses. No subject key leaves the installation.
+
+### lookup token
+*Proposed.* What a row of a view carries beside a personal field marked for lookup, so that a
+declared query can match the field's value without reading it: a keyed hash under the project's
+lookup key, which the keyring holds. It is removed from every row of a data subject by an erasure.
+
+### lookup key
+*Proposed.* The key of one project that its lookup tokens are made with. The keyring keeps it; it is
+not a subject key.
+
+### erasure
+*Proposed.* Destroying a data subject's subject key, so that every personal field of that data
+subject reads as erased wherever it is held, and running what each service of the project does for
+the data subject of its own. Nothing written is removed: the personal envelopes stay, unreadable.
+As a verb, erase.
+
+Avoid: shredding, crypto-shredding
+
+### erased
+*Proposed.* Of a personal field: read as having no value, because its data subject's subject key
+was destroyed. It is a value, not a failure: an entity is recovered, a view is rebuilt and a
+consumer is handed a message with erased in a personal field. Of a data subject: with its subject
+key destroyed, so that no personal field can be written for it again.
+
+### erasure request
+*Proposed.* Asking the platform for the erasure of one data subject in one project: who asked, a
+not-before date and a reason if it is held, a correlation id if one was given, and where it
+stands: held, withdrawn, applied. An applied erasure request records when the subject key was
+destroyed, each service's completion and when the erasure became final. The platform never carries
+one beyond its project.
+
+### not-before date
+*Proposed.* The date before which an erasure request is not applied. The domain chooses it, for a
+hold the law puts on the data; the platform keeps it and applies the erasure request when the date
+has passed, without anyone acting. Only an owner may override it, with a reason that is recorded.
+
+### withdrawn
+*Proposed.* Of a held erasure request: taken back before its not-before date by whoever asked for it
+or by a member, so that nothing is destroyed. An applied erasure request cannot be. As a verb,
+withdraw.
+
+### completion
+*Proposed.* What an erasure request records for one service of its project: when the service had
+dropped the subject key, redacted its rows, removed its lookup tokens, ended its sessions of the
+data subject and run its erasure handler to the end, and what the erasure handler reported.
+
+### erasure handler
+*Proposed.* The one handler a service may register to do its own part of an erasure, such as
+erasing the data subject's objects. It is run with the data subject on every application of an
+erasure request in its project, and again on each later application, so it must be safe to run
+again. What the platform does of its own does not wait for it.
+
+### erasure log
+*Proposed.* The record of every applied erasure of an installation, written before any subject key
+is destroyed and kept in two places outside the keyring's database: the control plane's database
+and a bucket. The keyring applies it before it answers anyone after its database is restored; a
+service applies its project's entries to its own tables before it is ready after a restore of its
+project's database; and a control plane restored to before an erasure brings its copy up to date
+from the bucket before it can be released.
+
+### erasure certificate
+*Proposed.* What a member fetches for an applied erasure request, to give the data subject: the
+erasure request, the data subject, who asked for it, each service's completion and when the
+erasure became final. It holds no personal field.
+
+### correlation id
+*Proposed.* An id whoever asks for an erasure request may give it, so that erasure requests in
+different projects for one person can be listed together. The platform reads nothing into it.
+
+### decryption
+*Proposed.* What a grant on a topic may allow beyond reading it: the holder's reads of the personal
+fields on that topic are given their values. A service in another project is given the subject key;
+a machine outside the installation is not, and asks the keyring to decrypt each field for it, which
+the keyring records against the machine and the grant. Without it, every personal field on the
+topic is read as erased.
+
+### subject prefix
+*Proposed.* Where a service keeps the objects of one data subject in its bucket: under the name
+"subjects/", the data subject and "/". An erasure handler asks the platform to erase every object
+under it, every version where the object store keeps versions; an object kept outside it is not
+erased.
+
+### soft-delete window
+*Proposed.* How long an object store that keeps every version of an object still holds a deleted
+one before it is gone. The erasure of a data subject's objects becomes final when it has passed.
+It is defined by object storage on Google Cloud (spec 039).
+
+### switched
+*Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
+service that is switched is not ready until it has applied the erasure log to the restored
+database.
+
+## Cloud provider
+
+### cloud account
+*Proposed.* The one account in a cloud that an installation's cloud resources are made in. An
+installation names one; a project may not name its own. A brand that needs an account of its own
+is a second installation.
+
+Avoid: cloud project, GCP project
+
+### cloud provider
+*Proposed.* A program outside the platform that fulfils the installation's cloud requests, under
+an identity of its own in the cloud account. It holds the power over the cloud account that the
+operator never does, and the two hold nothing of each other's. An installation names its cloud
+provider once, or names "none" and has no cloud request written.
+
+Avoid: cloud operator, connector
+
+### location
+*Proposed.* Where in a cloud account a cloud resource is made, in the installation's own words; the
+cloud provider says what they mean in its cloud. An installation names a default, and a project
+may name one of its own for its buckets.
+
+### cloud request
+*Proposed.* What the operator writes to ask the installation's cloud provider for one thing: an
+identity request, a secret access request, a secret sync request, a bucket request, a bucket
+credential request or a wrapping key request. It belongs to the service or project it serves and
+goes with it. The operator writes what it asks and never the fulfilment; the cloud provider writes
+the fulfilment and never what is asked.
+
+Avoid: CloudResource, resource request
+
+### fulfilment
+*Proposed.* What a cloud provider writes on a cloud request once it has done what was asked, or
+could not: "Waiting", "Ready", "Recovered" or "Failed", the detail, the cloud account and location
+the thing was made in, the credential generation in place, and what was made, such as a bucket's
+name or a secret's. As a verb, fulfil.
+
+### acknowledged
+*Proposed.* Of a cloud request: its cloud provider has written on it that it has read what is now
+asked. The operator acts on no fulfilment of a cloud request that is not acknowledged as it now is.
+
+### acknowledgement bound
+*Proposed.* How long the operator waits for a cloud request to be acknowledged before it reports
+that no cloud provider has answered: "2 minutes".
+
+### identity request
+*Proposed.* A cloud request for a cloud identity for one service.
+
+### cloud identity
+*Proposed.* What a cloud account knows a service, or a project's database, as, under which access
+to a bucket, a secret or a wrapping key is granted. It is not a principal, which is who a call came
+from.
+
+Avoid: service account
+
+### secret access request
+*Proposed.* A cloud request that a cloud identity may own some secrets of the cloud account and
+read others, each named.
+
+### secret sync request
+*Proposed.* A cloud request that what a starting instance is given for a project secret be kept in
+step with the project's entries as the cloud account holds them, within one minute of a change.
+
+### bucket request
+*Proposed.* A cloud request for a bucket with a purpose, in a location, with what the descriptor
+asks of the bucket.
+
+### purpose
+*Proposed.* What a bucket request says a bucket is for: "service", a bucket a service keeps
+objects in, or "backup", a backup bucket.
+
+### bucket credential request
+*Proposed.* A cloud request for a credential by which one cloud identity reaches one bucket,
+written once into a named secret.
+
+### wrapping key request
+*Proposed.* A cloud request that a cloud identity may wrap with the installation's wrapping key.
+
+### wrapping key
+*Proposed.* The one key in the cloud account that the installation names once: its keyring wraps
+its keys with it, and every bucket the cloud provider makes is encrypted with it rather than with
+the cloud's own. An installation that names none has its keyring wrap with a secret of its own and
+its buckets encrypted with the cloud's own key. It is not a secret key, which a service's secret
+store encrypts with.
+
+Avoid: KMS key, root key
+
+### backup
+*Proposed.* A copy of a project's database that the platform keeps outside it, from which the
+database can be brought back.
+
+### credential generation
+*Proposed.* A count on a cloud request. Raising it asks the cloud provider for a new credential
+in the same secret, and the old credential is ended once the rotation grace has passed since the
+fulfilment said the new one is in place.
+
+### rotation grace
+*Proposed.* How long after a fulfilment says a new credential is in place the old one goes on
+working: "1 hour".
+
+### scripted cloud provider
+*Proposed.* A cloud provider the platform's own tests run, which fulfils every cloud request with
+made-up answers and made-up secrets and reaches no cloud.
+
+Avoid: fake provider, stub provider, mock provider
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -1908,4 +2603,11 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment, breaks, fetches, fetched, built, parallel, after, another, registers, beside, shape, SASL, authority, lacks, username, password, certificate
+access, acknowledges, age, ago, authority, became, bring, brings, brought,
+certificate, comment, compacts, decrypt, decrypted, decrypts, defaults, derived, destroy, destroyed,
+destroys, differently, entries, equal, fast, filed, filled, final, fulfil, fulfilled, fulfils,
+future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, newer,
+newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
+permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
+registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
+withdraw, withdraws, withdrew, word, year

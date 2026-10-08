@@ -2,7 +2,9 @@ Feature: A bucket reachable from the internet
   A bucket is reached only from inside the installation until its descriptor asks otherwise. A
   descriptor that asks for a bucket may also ask that the bucket be reachable from the internet.
   The platform then tells the service the address of its bucket on the internet, and the service
-  makes signed URLs to its objects with it. The object store answers a request from the internet
+  makes signed URLs to its objects with it. The descriptor names the origins a browser may send
+  from, which need not be the service's own hostname; the platform sets the bucket to admit them,
+  and the service sets nothing on its bucket. The object store answers a request from the internet
   only for a signed URL: nothing in a bucket is ever read without one.
 
   Scenario: a service whose bucket is reachable from the internet is told the address of its bucket on the internet
@@ -17,9 +19,10 @@ Feature: A bucket reachable from the internet
     When a browser sends a request to a signed URL that "reports" made for reading "march.pdf"
     Then the browser is shown the object "march.pdf"
 
-  Scenario: a browser keeps an object through a signed URL
-    Given a deployed service "reports" whose bucket is reachable from the internet
-    When a browser sends the object "upload.png" to a signed URL that "reports" made for keeping "upload.png"
+  Scenario: a browser on an origin the descriptor names keeps an object through a signed URL without the service setting a rule on its bucket
+    Given a deployed service "reports" whose bucket is reachable from the internet, whose descriptor names the origin "https://app.example"
+    And "reports" has set nothing on its bucket
+    When a browser on the origin "https://app.example" sends the object "upload.png" to a signed URL that "reports" made for keeping "upload.png"
     Then "reports" reads the object "upload.png" back from its bucket
 
   Scenario: a bucket is not reachable from the internet until its descriptor asks

@@ -205,28 +205,14 @@ plain values.
 
 **Acceptance Scenarios**:
 
-1. **Given** an event with fields marked personal to a subject, **When** the entity persists it,
-   **Then** the journal row holds each personal field as ciphertext under that subject's key, the
-   subject beside it in the clear, and every other field as written.
-2. **Given** the same entity, **When** it snapshots, **Then** the snapshot holds the personal fields
-   encrypted in the same way.
-3. **Given** a key value entity whose state has a personal field, **When** it is updated, **Then** the
-   durable state row holds the field encrypted.
-4. **Given** a view whose row has a personal field, **When** the view writes the row, **Then** the row's
-   payload holds the field encrypted, and a read of the row by key or by a declared query returns the
-   plain value.
-5. **Given** a service that publishes an event with a personal field to a topic, **When** a consumer in
-   the same project reads it, **Then** the message on the broker holds the field encrypted and the
-   consumer's handler receives the plain value.
-6. **Given** a Python, a TypeScript and a Rust module service each with the same event, **When** each
-   persists it, **Then** each SDK's own codec wrote the same envelope as the Scala service's, the sidecar
-   journaled the bytes without reading them, and each SDK decodes the field into its own personal type.
-7. **Given** a field marked personal whose subject was never seen before, **When** it is first written,
-   **Then** the subject's key is created in the same write, and a second write for the subject on
-   another instance uses the same key.
-8. **Given** a component built where no service runs (a route table listed by the CLI, a unit test with
-   no test kit), **When** a `Personal` value is encoded, **Then** the codec refuses as `Unavailable`,
-   naming the keyring, and nothing is written.
+- added `features/erasure/personal-fields.feature`: the journal holds a personal field encrypted beside its data subject, and every other field as written
+- added `features/erasure/personal-fields.feature`: a snapshot holds a personal field encrypted
+- added `features/erasure/personal-fields.feature`: a key value entity's state holds a personal field encrypted
+- added `features/erasure/personal-fields.feature`: a view's row holds a personal field encrypted and is read as the value
+- added `features/erasure/personal-fields.feature`: a message on a topic holds a personal field encrypted and a consumer is handed the value
+- added `features/erasure/languages.feature`: an SDK writes the same personal envelope and reads it back into its own personal type
+- added `features/erasure/personal-fields.feature`: a data subject's subject key is made on its first write, once, whichever instance writes first
+- added `features/erasure/personal-fields.feature`: a personal field cannot be written where no service runs
 
 ---
 
@@ -249,29 +235,14 @@ subject included.
 
 **Acceptance Scenarios**:
 
-1. **Given** a subject with personal fields in several services of a project, **When** an erasure for it
-   is filed with no hold, **Then** its key is destroyed and every service reads every personal field of
-   that subject as `Erased`, within the bound of FR-022.
-2. **Given** an erased subject, **When** an entity holding its events is replayed from the journal,
-   **Then** replay completes, the handler's state has `Erased` in each personal field, and every
-   non-personal field is unchanged.
-3. **Given** an erased subject, **When** a view holding its rows is rebuilt by raising its version,
-   **Then** the rebuild completes and the rows hold `Erased` in each personal field.
-4. **Given** an erased subject, **When** a handler tries to write a new personal value for it, **Then**
-   the codec refuses with an error naming the subject as erased, the command fails, and nothing is
-   persisted.
-5. **Given** an erased subject, **When** a member reads the erasure request, **Then** it shows applied,
-   the time the key was destroyed, each service's completion with its time, and the time the erasure
-   became final.
-6. **Given** an erased subject, **When** a member dumps every table of every service of the project,
-   **Then** no table holds a value from which a personal field of the subject can be recovered without
-   the destroyed key.
-7. **Given** an applied erasure, **When** a member fetches its certificate, **Then** it names the
-   request, the subject, the filer, each service's completion time and the time of finality, and nothing
-   personal.
-8. **Given** a service with an erasure handler, **When** the erasure is applied and again when a later
-   application runs, **Then** the handler ran each time, and a second run with nothing to do completes
-   at once.
+- added `features/erasure/erasing.feature`: an erasure request with no not-before date destroys the subject key and every service reads the data subject as erased
+- added `features/erasure/erasing.feature`: an entity of an erased data subject is recovered with its personal fields erased
+- added `features/erasure/erasing.feature`: a view holding rows of an erased data subject is rebuilt with its personal fields erased
+- added `features/erasure/erasing.feature`: a new personal field cannot be written for an erased data subject
+- added `features/erasure/erasing.feature`: a member reads an applied erasure request with each service's completion
+- added `features/erasure/erasing.feature`: no table of any service of the project can give back a personal field of an erased data subject
+- added `features/erasure/erasing.feature`: a member fetches the erasure certificate of an applied erasure request
+- added `features/erasure/erasing.feature`: a service's erasure handler runs on every application of an erasure
 
 ---
 
@@ -297,21 +268,11 @@ subject afterwards.
 
 **Acceptance Scenarios**:
 
-1. **Given** an erased subject and an untouched keyring, **When** a project's database is restored to a
-   point before the erasure and a service is switched to it (041), **Then** the service does not become
-   ready until it has applied the erasure log's entries for its project to its own tables — every view
-   row holding the subject's personal fields redacted, every lookup token for the subject removed — and
-   the restore's status says when it finished.
-2. **Given** the same, **When** the restored service replays an entity of the subject, **Then** the
-   personal fields read `Erased`: the key was never restored, because the keyring was not.
-3. **Given** an erased subject, **When** the keyring's database is restored to a point before the
-   erasure, **Then** the keyring replays the erasure log before it answers any key request, holds no key
-   for the subject afterwards, and every service's next read of the subject is `Erased`.
-4. **Given** an erasure log, **When** one of its two copies is lost or behind, **Then** the replay uses
-   the union of both and reports the copy that was behind.
-5. **Given** an erasure whose log write failed, **When** the request is applied, **Then** no key is
-   destroyed and the request stays pending with the reason; an erasure is never applied without its log
-   entry.
+- added `features/erasure/restores.feature`: a service restored to before an erasure is not ready until it has applied the erasure log to its own tables
+- added `features/erasure/restores.feature`: an entity recovered from a restored database reads an erased data subject as erased, because the keyring was not restored
+- added `features/erasure/restores.feature`: the keyring restored to before an erasure applies the erasure log before it answers any request
+- added `features/erasure/restores.feature`: the keyring applies the union of both copies of the erasure log and reports the copy that was behind
+- added `features/erasure/restores.feature`: an erasure whose erasure log write failed destroys no subject key
 
 ---
 
@@ -333,19 +294,13 @@ it applies at once and the override is recorded; attempt the same as a member an
 
 **Acceptance Scenarios**:
 
-1. **Given** an erasure filed with a not-before date and a reason, **When** the date has not passed,
-   **Then** nothing is shredded and the request shows held, with the date and the reason.
-2. **Given** a held erasure, **When** its date passes, **Then** the platform applies it without anyone
-   acting, within the bound of FR-022 plus the sweep interval of FR-015.
-3. **Given** a held erasure, **When** the filer or a member withdraws it before its date, **Then** it is
-   withdrawn, recorded with who withdrew it, and nothing is shredded.
-4. **Given** a held erasure, **When** the filer files another for the same subject with a later or an
-   earlier date, **Then** the newer request replaces the held one, and both are kept in the request's
-   history.
-5. **Given** a held erasure, **When** an owner overrides the hold with a reason, **Then** it is applied
-   at once and the override, the owner and the reason are recorded; **When** a member tries, **Then** it
-   is refused.
-6. **Given** an applied erasure, **When** anyone tries to withdraw it, **Then** it is refused.
+- added `features/erasure/holds.feature`: an erasure request with a not-before date is held, and nothing is destroyed before the date
+- added `features/erasure/holds.feature`: a held erasure request is applied when its not-before date passes, without anyone acting
+- added `features/erasure/holds.feature`: a held erasure request is withdrawn before its not-before date
+- added `features/erasure/holds.feature`: a held erasure request is replaced by a later one from whoever asked for it
+- added `features/erasure/holds.feature`: an owner overrides a hold with a reason and the erasure request is applied at once
+- added `features/erasure/holds.feature`: a member who is not an owner cannot override a hold
+- added `features/erasure/holds.feature`: an applied erasure request cannot be withdrawn
 
 ---
 
@@ -367,20 +322,13 @@ in B. Revoke the grant and assert B's next key request is refused.
 
 **Acceptance Scenarios**:
 
-1. **Given** a consumer in project B granted a topic of project A with `decrypt`, **When** it reads a
-   message with a personal field of an A subject, **Then** its codec receives the plain value, decrypted
-   with A's subject key, which B's keyring handle was given because the keyring holds the rendered
-   grant.
-2. **Given** a consumer in project B granted the topic without `decrypt`, **When** it reads the same
-   message, **Then** the field decodes as `Erased` and the keyring records the refused fetch.
-3. **Given** that consumer stored the field in B's own view, **When** the subject is erased in A,
-   **Then** B's view reads the field as `Erased`, because the stored field remains encrypted under A's
-   key.
-4. **Given** a grant revoked, **When** B's consumer next needs an A subject key, **Then** it is refused,
-   and the field reads as `Erased` — no plaintext for A's subjects is readable in B after a revocation
-   beyond the cache bound of FR-020.
-5. **Given** a machine outside the installation granted a topic of A, **When** it reads a message,
-   **Then** what it can read of each personal field is set by FR-031.
+- added `features/erasure/other-projects.feature`: a consumer in another project with a grant that allows decryption reads the value
+- added `features/erasure/other-projects.feature`: a consumer in another project with a grant that does not allow decryption reads the field as erased
+- added `features/erasure/other-projects.feature`: an erasure in the producing project reaches what another project kept of the data subject
+- added `features/erasure/other-projects.feature`: a revoked grant ends another project's reads of the producing project's data subjects
+- added `features/erasure/other-projects.feature`: a machine outside the installation with a grant that does not allow decryption reads every personal field as erased
+- added `features/erasure/other-projects.feature`: a machine outside the installation with a grant that allows decryption asks the keyring to decrypt each field
+- added `features/erasure/other-projects.feature`: the keyring refuses to decrypt for a machine outside the installation once its grant is revoked or the data subject is erased
 
 ---
 
@@ -400,18 +348,10 @@ messages; a session not tagged is untouched.
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent session started with a subject, **When** messages are appended, **Then** each
-   message's content, tool calls and tool results are stored encrypted under the subject's key, the
-   agent module having wrapped its own serializers' personal parts in the envelope with the subject
-   carried in the session's state.
-2. **Given** that subject erased, **When** the session is read or continued, **Then** its history is
-   erased: a read reports the messages as erased, and a new turn begins with an empty history and a
-   note to the agent that earlier history was erased.
-3. **Given** an autonomous agent instance or task tagged with a subject, **When** the subject is erased,
-   **Then** its goal, task inputs and results read as erased and the instance is stopped.
-4. **Given** a session with no subject, **When** any subject is erased, **Then** it is unchanged — the
-   documentation states that an untagged session cannot be erased, and that the model provider the
-   session spoke to received plaintext this feature does not reach.
+- added `features/erasure/agents.feature`: a session started with a data subject keeps its conversation encrypted under the subject key
+- added `features/erasure/agents.feature`: a session of an erased data subject reads as erased and a new turn begins with nothing
+- added `features/erasure/agents.feature`: an agent instance or a task tagged with an erased data subject reads as erased and the agent instance is stopped
+- added `features/erasure/agents.feature`: a session started with no data subject is unchanged by any erasure
 
 ---
 
@@ -436,15 +376,10 @@ listed and the finality time reported as the soft-delete window.
 
 **Acceptance Scenarios**:
 
-1. **Given** objects under a subject's prefix, **When** the service's erasure handler calls
-   `erase(subject)`, **Then** every version of each is deleted on GCS and the one version on Garage,
-   and the service's completion records the count.
-2. **Given** a GCS bucket, **When** the deletion completes, **Then** the request shows the time the
-   soft-delete window makes the erasure of objects final.
-3. **Given** an object written under the prefix after the erasure, **When** the erasure is applied
-   again (a later application, or the sweep of FR-015), **Then** the handler runs again and removes it.
-4. **Given** a service whose descriptor asked for no bucket, **When** its handler calls
-   `erase(subject)`, **Then** it is refused naming the missing bucket, and the completion says so.
+- added `features/erasure/objects.feature`: every object under a data subject's subject prefix is erased, and the rest are kept
+- added `features/erasure/objects.feature`: the erasure request says when the erasure of objects becomes final on an object store with a soft-delete window
+- added `features/erasure/objects.feature`: an object written under the subject prefix after an erasure is removed on the next application
+- added `features/erasure/objects.feature`: a service with no bucket cannot erase objects
 
 ---
 
@@ -464,13 +399,10 @@ and a listing by correlation id returns both; assert a service without the grant
 
 **Acceptance Scenarios**:
 
-1. **Given** a service of a project, **When** it files an erasure in its own project through the
-   service client, **Then** the request is accepted and names the service as its filer.
-2. **Given** a service of project A granted the erasure right in project B, **When** it files an
-   erasure in B, **Then** it is accepted; **When** a service without that grant does, **Then** it is
-   refused and the refusal is recorded.
-3. **Given** two requests in two projects with one correlation id, **When** a member lists erasures by
-   correlation id in either project, **Then** both are listed with their states.
+- added `features/erasure/asking.feature`: a service asks for an erasure request in its own project and is named as who asked for it
+- added `features/erasure/asking.feature`: a service granted the right by another project asks for an erasure request there
+- added `features/erasure/asking.feature`: a service without the right is refused and the refusal is recorded
+- added `features/erasure/asking.feature`: a member lists the erasure requests of two projects by their correlation id in either project
 
 ---
 
@@ -771,9 +703,13 @@ and a listing by correlation id returns both; assert a service without the grant
 
 ## Glossary terms proposed
 
-*Proposed* for `GLOSSARY.md`, to settle in `/speckit-clarify`: data subject, personal field, personal
-envelope, subject key, keyring, keyring handle, tombstone, erasure request, erasure handler, erasure
-log, erasure certificate, hold, lookup token, erased.
+*Proposed* in `GLOSSARY.md` under *Erasure*, to settle in `/speckit-clarify`: data subject, personal
+field, personal envelope, subject key, keyring, lookup token, lookup key, erasure, erased, erasure
+request, not-before date, withdrawn, completion, erasure handler, erasure log, erasure certificate,
+correlation id, grant, decryption, subject prefix, soft-delete window, restore, switched, journal.
+The features say "asks for" an erasure request, not "files" one (`file` is a refused synonym of
+`object`), "hold" stays an everyday word with `not-before date` as the term, the keyring handle and
+the tombstone are not named in any scenario, and `encrypted` was widened to cover a personal field.
 
 ## Open Questions
 

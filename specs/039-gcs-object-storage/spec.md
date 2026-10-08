@@ -232,7 +232,7 @@ assert the same result.
 
 - added `features/object-storage-gcs/provisioning.feature`: a service that asks for a bucket on an installation that keeps objects in Google Cloud Storage is given one
 - added `features/object-storage-gcs/provisioning.feature`: a service keeps an object in its Google Cloud Storage bucket and reads it back with the client it used against Garage
-- added `features/object-storage-gcs/provisioning.feature`: the status of a service names its bucket, the store and the bucket's location as the provider reported them
+- added `features/object-storage-gcs/provisioning.feature`: the status of a service names its bucket, its object store and its location as the provider reported them
 - added `features/object-storage-gcs/provisioning.feature`: a bucket whose name another Google customer holds is reported as failed and not used
 - added `features/object-storage-gcs/provisioning.feature`: a bucket Google Cloud Storage cannot make yet is reported as still being made
 - added `features/object-storage-gcs/names.feature`: two services whose project and name would join to the same hyphenated name are given different buckets
@@ -266,9 +266,10 @@ credential; assert the old key is refused and a rolled-out pod reads a different
 - added `features/object-storage-gcs/isolation.feature`: the operator holds no Google client, credential or permission and reads only the provider's status
 - added `features/object-storage-gcs/isolation.feature`: the provider reaches Google Cloud through its workload identity and holds no Google key
 - added `features/object-storage-gcs/isolation.feature`: neither the operator nor the provider can read a storage credential back
-- added `features/object-storage-gcs/isolation.feature`: a service's Google account is granted on its own bucket and on nothing else
-- added `features/object-storage-gcs/isolation.feature`: a storage credential issued again is a new key, and the old one is refused
+- added `features/object-storage-gcs/isolation.feature`: a service's storage account is granted on its own bucket and on nothing else
+- added `features/object-storage-gcs/isolation.feature`: a storage credential issued again is a new one, and the old one is refused
 - changed `features/object-storage/isolation.feature`: a storage credential is made once and replaced only when a member asks
+- added `features/object-storage/isolation.feature`: a storage credential issued again at a member's asking replaces the one the service had
 
 ---
 
@@ -293,12 +294,12 @@ window; assert the bucket's metadata holds no retention policy.
 **Acceptance Scenarios**:
 
 - added `features/object-storage-gcs/retention.feature`: an object that is overwritten can be read as it was before
-- added `features/object-storage-gcs/retention.feature`: an object that is deleted can be read back by its earlier version
+- added `features/object-storage-gcs/retention.feature`: an object that is deleted can be read back as its noncurrent version
 - added `features/object-storage-gcs/retention.feature`: deleting every version of an object leaves none listed
-- added `features/object-storage-gcs/retention.feature`: the status of a bucket says how long a deleted object can still be restored
+- added `features/object-storage-gcs/retention.feature`: the status of a bucket says how long a deleted object can still be recovered
 - added `features/object-storage-gcs/retention.feature`: no bucket is made with a retention policy
 - added `features/object-storage-gcs/retention.feature`: a bucket is encrypted with the installation's key when the installation names one
-- added `features/object-storage-gcs/retention.feature`: a bucket is made in the location the installation keeps its data in
+- added `features/object-storage-gcs/retention.feature`: a bucket is made in the location the installation names
 - added `features/object-storage-gcs/retention.feature`: a bucket is made in the location its project names, when the project names one
 
 ---
@@ -327,7 +328,7 @@ answers.
 - added `features/object-storage-gcs/reachable.feature`: a service whose bucket is reachable from the internet is told the address of its bucket on the internet
 - added `features/object-storage-gcs/reachable.feature`: a browser on an origin the descriptor names keeps an object through a signed URL
 - added `features/object-storage-gcs/reachable.feature`: a browser on an origin the descriptor does not name cannot send an object to the bucket
-- added `features/object-storage-gcs/reachable.feature`: a request without a signature is refused by every bucket
+- added `features/object-storage-gcs/reachable.feature`: a request without a signed URL is refused by every bucket
 - changed `features/object-storage/reachable.feature`: a browser on an origin the descriptor names keeps an object through a signed URL without the service setting a rule on its bucket
 
 ---
@@ -351,9 +352,10 @@ variables and its Google account has no HMAC key.
 
 **Acceptance Scenarios**:
 
-- added `features/object-storage-gcs/keyless.feature`: a service reaches its bucket through its workload identity with no key
+- added `features/object-storage-gcs/keyless.feature`: a service reaches its bucket through its workload identity with no storage credential
 - added `features/object-storage-gcs/keyless.feature`: a service reaching Google Cloud Storage through its workload identity is refused by another service's bucket
-- added `features/object-storage-gcs/keyless.feature`: a service that declines a key is given none
+- added `features/object-storage-gcs/keyless.feature`: a service that declines a storage credential is given none
+- added `features/object-storage-gcs/keyless.feature`: a descriptor that declines a storage credential is refused on an installation whose object store is Garage
 
 ---
 

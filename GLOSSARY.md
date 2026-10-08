@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules*, *Cross-project access*, *Backups and recovery* and the retention terms under *Broker*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules*, *Cross-project access*, *Backups and recovery*, *Cloud provider* and the retention terms under *Broker*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -2465,6 +2465,118 @@ database.
 *Proposed.* Where a service's database keeps every event its event sourced entities recorded, in
 order. Nothing is ever removed from it.
 
+## Cloud provider
+
+### cloud account
+*Proposed.* The one account in a cloud that an installation's cloud resources are made in. An
+installation names one; a project may not name its own. A brand that needs an account of its own
+is a second installation.
+
+Avoid: cloud project, GCP project
+
+### cloud provider
+*Proposed.* A program outside the platform that fulfils the installation's cloud requests, under
+an identity of its own in the cloud account. It holds the power over the cloud account that the
+operator never does, and the two hold nothing of each other's. An installation names its cloud
+provider once, or names "none" and has no cloud request written.
+
+Avoid: cloud operator, connector
+
+### location
+*Proposed.* Where in a cloud account a cloud resource is made, in the installation's own words; the
+cloud provider says what they mean in its cloud. An installation names a default, and a project
+may name one of its own for its buckets.
+
+### cloud request
+*Proposed.* What the operator writes to ask the installation's cloud provider for one thing: an
+identity request, a secret access request, a secret sync request, a bucket request, a bucket
+credential request or a wrapping key request. It belongs to the service or project it serves and
+goes with it. The operator writes what it asks and never the fulfilment; the cloud provider writes
+the fulfilment and never what is asked.
+
+Avoid: CloudResource, resource request
+
+### fulfilment
+*Proposed.* What a cloud provider writes on a cloud request once it has done what was asked, or
+could not: "Waiting", "Ready", "Recovered" or "Failed", the detail, the cloud account and location
+the thing was made in, the credential generation in place, and what was made, such as a bucket's
+name or a secret's. As a verb, fulfil.
+
+### acknowledged
+*Proposed.* Of a cloud request: its cloud provider has written on it that it has read what is now
+asked. The operator acts on no fulfilment of a cloud request that is not acknowledged as it now is.
+
+### acknowledgement bound
+*Proposed.* How long the operator waits for a cloud request to be acknowledged before it reports
+that no cloud provider has answered: "2 minutes".
+
+### identity request
+*Proposed.* A cloud request for a cloud identity for one service.
+
+### cloud identity
+*Proposed.* What a cloud account knows a service, or a project's database, as, under which access
+to a bucket, a secret or a wrapping key is granted. It is not a principal, which is who a call came
+from.
+
+Avoid: service account
+
+### secret access request
+*Proposed.* A cloud request that a cloud identity may own some secrets of the cloud account and
+read others, each named.
+
+### secret sync request
+*Proposed.* A cloud request that what a starting instance is given for a project secret be kept in
+step with the project's entries as the cloud account holds them, within one minute of a change.
+
+### bucket request
+*Proposed.* A cloud request for a bucket with a purpose, in a location, with what the descriptor
+asks of the bucket.
+
+### purpose
+*Proposed.* What a bucket request says a bucket is for: "service", a bucket a service keeps
+objects in, or "backup", a backup bucket.
+
+### bucket credential request
+*Proposed.* A cloud request for a credential by which one cloud identity reaches one bucket,
+written once into a named secret.
+
+### wrapping key request
+*Proposed.* A cloud request that a cloud identity may wrap with the installation's wrapping key.
+
+### wrapping key
+*Proposed.* The one key in the cloud account that the installation's keyring wraps its keys with,
+named once for the installation. An installation that names none has its keyring wrap with a
+secret of its own.
+
+Avoid: KMS key, root key
+
+### keyring
+*Proposed.* The part of the platform that keeps the keys personal data is encrypted under, so that
+erasing a key erases the data.
+
+### backup
+*Proposed.* A copy of a project's database that the platform keeps outside it, from which the
+database can be brought back.
+
+### backup bucket
+*Proposed.* A bucket made for a project's backups, which only the project's database reaches. No
+service is given it, no route reaches it, and no descriptor can name it.
+
+### credential generation
+*Proposed.* A count on a cloud request. Raising it asks the cloud provider for a new credential
+in the same secret, and the old credential is ended once the rotation grace has passed since the
+fulfilment said the new one is in place.
+
+### rotation grace
+*Proposed.* How long after a fulfilment says a new credential is in place the old one goes on
+working: "1 hour".
+
+### scripted cloud provider
+*Proposed.* A cloud provider the platform's own tests run, which fulfils every cloud request with
+made-up answers and made-up secrets and reaches no cloud.
+
+Avoid: fake provider, stub provider, mock provider
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2535,8 +2647,9 @@ enough, front, width, would, choose, whoever, clear, declaration, large, unread,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
 access, acknowledged, acknowledges, age, ago, authority, became, bring, brings, brought,
 certificate, comment, compacts, decrypt, decrypted, decrypts, defaults, derived, destroy, destroyed,
-destroys, entries, equal, fast, filed, filled, final, future, gone, grant, granted, grants, largest,
-lose, losing, maximum, minimum, minute, newer, newest, off, often, ordinary, overwrite, overwrites,
-overwritten, parallel, passed, past, permission, promotion, publishing, reach, rebuilt, redacted,
+destroys, differently, entries, equal, fast, filed, filled, final, fulfil, fulfilled, fulfils,
+future, gone, grant, granted, grants, largest, lose, losing, maximum, minimum, minute, newer,
+newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
+permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restore, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, year
+withdraw, withdraws, withdrew, word, year

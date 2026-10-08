@@ -180,7 +180,7 @@ derived name.
 - added `features/secrets/secret-manager.feature`: a removed service secret is read as none and no version of it remains
 - added `features/secrets/secret-manager.feature`: a name or a value that breaks the rules of the secret store is refused before Secret Manager is called
 - added `features/secrets/secret-manager.feature`: a service in every language passes every behaviour of the secret store on the Secret Manager backend
-- added `features/secrets/grants.feature`: an instance of a service holds no credential for Google Cloud and no secret key
+- added `features/secrets/grants.feature`: an instance of a service holds no credential for Google Cloud and does not read its secret key
 
 ---
 

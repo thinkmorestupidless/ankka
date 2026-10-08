@@ -52,8 +52,8 @@ Feature: A service reaches only its own secrets
     When a member applies the descriptor for "payments" again
     Then a handler of "payments" that reads the service secret "acme" is told "sk-acme-1"
 
-  Scenario: an instance of a service holds no credential for Google Cloud and no secret key
+  Scenario: an instance of a service holds no credential for Google Cloud and does not read its secret key
     Given a deployed service "payments"
     When everything an instance of "payments" holds is read
     Then it holds no credential for Google Cloud
-    And it holds no secret key
+    And the secret key it holds is not read

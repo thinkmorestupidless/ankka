@@ -112,6 +112,7 @@ mod tests {
                 "checkout-fanout",
                 "checkout-recorder",
                 "conformance",
+                "contract-relay",
                 "joined-left",
                 "joined-right",
                 "joined-rows",

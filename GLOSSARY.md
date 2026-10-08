@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules* and *Cross-project access*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources*, *Modules*, *Cross-project access* and *Backups and recovery*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -2113,6 +2113,162 @@ installation's ceiling. It is not a quota, which counts projects, services and i
 *Proposed.* Of a registered machine: made to wait by the broker because it has reached its byte
 rate. What it reads still arrives, later; the installation's services are never throttled for it.
 
+## Backups and recovery
+
+### project database
+*Proposed.* What holds every provisioned database of one project's services, and is backed up and
+restored as a whole. A project has one until a restore makes another beside it; its status names
+the one each service is on.
+
+Avoid: Postgres cluster, database cluster
+
+### backup target
+*Proposed.* Where an installation's backups go: its object store, named once for the installation.
+With none named, nothing is backed up and every status says so.
+
+### backup bucket
+*Proposed.* A bucket the platform makes for one project's backups, and one each for the database of
+the control plane and the platform's other stores. The project database and the platform reach it;
+no storage credential does. The platform never deletes it.
+
+### archive
+*Proposed.* Every write a project database makes, written to its backup bucket as it is made, so
+that the project database can be restored to any moment the archive reaches. As a verb: write to
+it. How far behind the project database the archive is, is the writes a loss would lose.
+
+Avoid: WAL, write-ahead log
+
+### base backup
+*Proposed.* A whole copy of a project database at one moment, taken every day. A restore starts
+from the latest one before its moment and reads the archive from there.
+
+### backed up
+*Proposed.* Of a project: its project database has a base backup and an archive in its backup
+bucket, and, where the installation requires a copy outside the failure domain, its latest base
+backup has one.
+
+### retention window
+*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation,
+and a project may set its own. A base backup or archive older than it is removed only once a newer
+base backup has completed.
+
+### restore
+*Proposed.* A project database made anew at a moment in the retention window, beside the current
+one, from the latest base backup before the moment and the archive up to it. It changes the current
+project database not at all; a service reaches it only by a switch. As a verb: make one. It is not a
+roll back, which brings back a descriptor and no data.
+
+Avoid: point-in-time recovery, PITR
+
+### restore point
+*Proposed.* The moment a restore was made at.
+
+### switch
+*Proposed.* Moving one service of a project from the project database it is on to another of the
+project's, a restore or one it left, at the service's next rolling update. An owner switches one
+service at a time; the project database the service leaves is kept, and switching back is the same
+action.
+
+Avoid: migrate, cut over, failover
+
+### line of history
+*Proposed.* One project database's archive, from its making or from the first switch to it. A
+restore a service was switched to begins a line of its own; every earlier line stays restorable
+within its retention window.
+
+Avoid: timeline
+
+### message id
+*Proposed.* What a message published from a journal event carries to be told from every other
+message: made from the event's line of history, its entity and its sequence number, so that an
+event published again after a restore carries the one it carried before, and an event recorded
+after a restore never carries one an earlier message carried. It protects only a reader that
+deduplicates by it.
+
+### journal
+*Proposed.* The table a service's database keeps its entities' events in: the record a restore
+takes back to the restore point.
+
+### read position
+*Proposed.* How far a view or a consumer has read of a source, as the service's database records
+it. A restore takes it back with the journal; a group's position on the broker is not taken back.
+
+Avoid: offset
+
+### rehearsal
+*Proposed.* A restore into a project database made for it, apart from the project's own, which no
+service is switched to: checked as a restore is, timed, and then removed. Its report is kept on the
+project. The operator may remove a project database made for a rehearsal and no other.
+
+Avoid: drill, dry run
+
+### time to live
+*Proposed.* How long a project database made for a rehearsal may exist before the platform removes
+it, whatever became of the rehearsal: 24 hours as shipped.
+
+Avoid: TTL
+
+### primary
+*Proposed.* The one copy of a project database that takes its writes. A project database runs a
+primary alone until the project asks for replicas.
+
+### replica
+*Proposed.* A further copy of a project database, kept up to date from the primary, and promoted
+when the primary is lost. A project asks for how many it has.
+
+Avoid: standby
+
+### promoted
+*Proposed.* Of a replica: made the primary, with no member doing anything, when the primary is
+lost. The services of the project connect to it on their own. A promotion does not change the line
+of history.
+
+### synchronous
+*Proposed.* Of a project database with replicas: a write is not acknowledged until a replica holds
+it as well as the primary, so that losing the primary loses no acknowledged write.
+
+### restore marker
+*Proposed.* What a restore of the database of the control plane ends by writing. The control plane
+reads it at its next start and holds its projection until a platform administrator releases it,
+which removes the marker.
+
+### projection
+*Proposed.* The control plane's making of the cluster into what it recorded. Held, it changes
+nothing in the cluster and lists every service, declared topic and project that differs from what
+it recorded.
+
+Avoid: reconciliation loop
+
+### erasure
+*Proposed.* A request that everything recorded about one person be made unreadable, as feature 042
+describes it.
+
+### erasure log
+*Proposed.* The control plane's record of every erasure filed in the installation, of which it keeps
+a copy in a bucket. A control plane restored to before an erasure brings its erasure log up to date
+from that copy before it can be released.
+
+### Garage
+*Proposed.* The object store the platform installs for an installation that names no other: on one
+machine as shipped, or on three with each object on every one of them.
+
+### secondary store
+*Proposed.* An object store outside the cluster to which every bucket of the installation's Garage
+is copied again and again, the services' and the backup buckets alike. An object deleted from
+Garage is deleted from it at the next copy, so it never holds what the installation has erased.
+
+Avoid: mirror, offsite
+
+### failure domain
+*Proposed.* What is lost together: the cluster, with every machine and volume in it. A backup kept
+in the failure domain of what it backs up is not a backup of it.
+
+### volume
+*Proposed.* The disk one machine keeps a project database or Garage's objects on. Losing it loses
+what was on it, unless a replica, another machine or a backup holds it too.
+
+Avoid: disk, PVC
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2181,6 +2337,7 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-access, ago, authority, certificate, comment, derived, equal, fast, final, grant, granted, grants,
-minute, newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, permission,
-reach, registers, restore, restored, SASL, year
+access, acknowledged, age, ago, authority, bring, brings, brought, certificate, comment, derived,
+equal, fast, filed, final, future, grant, granted, grants, lose, losing, minute, newer, newest, off,
+often, ordinary, overwrite, overwrites, overwritten, parallel, past, permission, promotion, reach,
+registers, rehearse, rehearses, restore, restored, SASL, share, shares, year

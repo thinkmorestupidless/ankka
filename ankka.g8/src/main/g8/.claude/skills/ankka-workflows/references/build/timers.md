@@ -101,7 +101,11 @@ in the same way.
 
 What fired, and how many times it has already failed, reaches the handler differently: Scala's
 `TimedActionContext` carries `timerName` and `previousAttempts`, while Python, TypeScript and Rust read the
-metadata keys `ankka.timer` and `ankka.attempts`.
+metadata keys `ankka.timer` and `ankka.attempts`. In Scala the context also carries `timers`, the
+service's scheduler, so a handler can set what comes next under another name — a calendar schedule, which a
+recurring timer's fixed period does not express, is one timer per occurrence — and `clock`, the clock the
+sweeper fired it by, which a handler reads as now rather than `Instant.now()`, so that a test moving the
+sweeper's clock moves the handler's too.
 
 A handler is told the due time it is run for: `dueTime` on Scala's `TimedActionContext`, `due_time` in
 Python, `dueTime` in TypeScript and `ctx.due()` in Rust, all read from the metadata key `ankka.due`, which
@@ -259,6 +263,17 @@ testKit = AnkkaTestKit.start(
   Seq(timers)
 )
 ```
+
+A timer a week away need not take a week: give the runtime a clock the test moves, and the sweeper, the
+timers it sets and every handler's `clock` move with it. The clock moves forward only.
+
+```scala
+private val clock  = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
+private val timers = TimerRuntime(pollInterval = 200.millis, clock = clock)
+```
+
+Another extension that needs the same clock finds the timer runtime by type:
+`service.extension[TimerRuntime].map(_.clock)`.
 
 A `TimerProbe` is told what the runtime did with every timer: the due time each run was for, its
 outcome and the next due time it was given. `probe.bind(testKit)` lets it read a timer as the database

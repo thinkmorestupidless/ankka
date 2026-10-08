@@ -2,7 +2,13 @@ package com.thinkmorestupidless.ankka.testkit.timers
 
 import com.thinkmorestupidless.ankka.core.{ComponentId, MethodName}
 import com.thinkmorestupidless.ankka.core.effect.TimedActionEffect
-import com.thinkmorestupidless.ankka.runtime.{Database, FiredTimer, Observability, Sweep}
+import com.thinkmorestupidless.ankka.runtime.{
+  Database,
+  DatabaseTimerScheduler,
+  FiredTimer,
+  Observability,
+  Sweep
+}
 import com.thinkmorestupidless.ankka.sdk.{
   SimpleTimedActionContext,
   TimedAction,
@@ -129,7 +135,9 @@ final class TimerUpgradeFeatures extends TimerSteps("../../features/timers/upgra
           attempts,
           due,
           started.service.secrets,
-          started.service.services
+          started.service.services,
+          DatabaseTimerScheduler(database),
+          java.time.Clock.systemUTC()
         )
         val instance = descriptor.create(context)
         instance._setContext(Some(context))

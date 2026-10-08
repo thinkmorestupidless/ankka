@@ -25,7 +25,7 @@ final class TimerRuntime private (
     pollInterval: FiniteDuration,
     val clock: Clock,
     observer: TimerObserver
-)    extends RuntimeExtension:
+) extends RuntimeExtension:
 
   @volatile private var scheduler: Option[TimerScheduler] = None
 

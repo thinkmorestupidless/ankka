@@ -1636,7 +1636,6 @@ cannot be, so the platform stops waiting for one and never stops the module itse
 A named description of workers and the steps between them, which a service registers
 and the platform runs: the input shape of its runs, its workers, its steps, and optionally a
 schedule and a run budget. It is held, never deployed, and has no conditions or loops of its own.
-Avoid: flow
 
 ### blueprint version
 One registration of a blueprint, numbered from 1, never changed. A changed blueprint is

@@ -100,7 +100,12 @@ object PodProblem:
       .flatMap { cs =>
         Option(cs.getState)
           .flatMap(s => Option(s.getTerminated))
-          .filter(t => Option(t.getExitCode).exists(_ != 0))
+          // A service never exits on purpose: an exit of 0 that left a termination message is a
+          // refusal to start (feature 037), reported like any other.
+          .filter(t =>
+            Option(t.getExitCode).exists(_ != 0) ||
+              Option(t.getMessage).exists(_.trim.nonEmpty)
+          )
           .map { t =>
             val said = Option(t.getMessage).map(_.trim).filter(_.nonEmpty)
             PodProblem(
@@ -129,7 +134,6 @@ object PodProblem:
       .flatMap { cs =>
         Option(cs.getLastState)
           .flatMap(s => Option(s.getTerminated))
-          .filter(t => Option(t.getExitCode).exists(_ != 0))
           .flatMap(t =>
             Option(t.getMessage)
               .map(_.trim)

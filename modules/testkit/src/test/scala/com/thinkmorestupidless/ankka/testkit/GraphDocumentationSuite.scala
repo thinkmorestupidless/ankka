@@ -38,10 +38,11 @@ class GraphDocumentationSuite extends munit.FunSuite:
     says(
       "deploy/graph-sink.md",
       "## Declare the topic compacted",
-      "## Deploy the sink",
+      "## Register the sink in a service",
+      "## Write a store of your own",
       "## What the store holds",
-      "## Rebuild the store from the topic",
-      "## The sink in a service of your own"
+      "## Deploy the sink",
+      "## Rebuild the store from the topic"
     )
     // No page depends on ankka-flow: the one mention left is the contributing page, which names
     // the documentation tool the two projects shared.

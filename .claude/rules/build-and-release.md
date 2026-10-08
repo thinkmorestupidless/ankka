@@ -21,8 +21,9 @@ paths:
 
 Eleven modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Ten are libraries a
 *service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`,
-`telemetry-otlp`, and `graph-neo4j`, the graph merge sink a service registers to fill a Neo4j store from
-a delta topic (the `ankka-graph-sink` image is a service built from it);
+`telemetry-otlp`, and `graph-sink`, the graph sink a service registers to keep a `GraphStore` in step
+with a delta topic, with the in-memory reference store (a store over a database, and a deployable
+image, is ankka-contrib's: `neo4j-graph-store` and `ankka-graph-sink-neo4j`);
 `ankka-grpc` names grpc-java directly in its POM and no ScalaPB, which is the developer's build's, and a
 service adds `auth-oidc` only when it has users of its own whose tokens it verifies, which is why it is
 a module and not part of `http` (feature 022), and `telemetry-otlp` is a module so that the
@@ -174,8 +175,8 @@ renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMO
 removing a test formula once auto-removed the JDK an installed `ankka` from an untapped tap needed.
 
 **The images ship through GitHub Container Registry**, public: `ghcr.io/thinkmorestupidless/<image>`
-for the operator, the control plane, the sidecar, the proxy, the graph sink, the console and the
-shopping cart sample, from the release
+for the operator, the control plane, the sidecar, the proxy, the console and the shopping cart
+sample, from the release
 workflow's `images` job, pushed with the workflow's own token (each image's
 `org.opencontainers.image.source` label links its package to this repository). Public because a Python
 or TypeScript developer runs the sidecar on their own machine. **A package ghcr.io has not seen before

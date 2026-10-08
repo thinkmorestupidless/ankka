@@ -534,7 +534,8 @@ name:
 object WalletRelay
     extends Consumer.Companion[Relay, StockEvent, FanLine](
       ComponentId("wallet"),
-      ChangeSource.fromTopic("events", Codecs.serializer[StockEvent]("stock-event"), StartFrom.Earliest)
+      ChangeSource
+        .fromTopic("events", Codecs.serializer[StockEvent]("stock-event"), StartFrom.Earliest)
     ):
   // The schema document fetched from the project with `ankka projects topics schema get`.
   private val transactions = Contract
@@ -544,8 +545,10 @@ object WalletRelay
     )
     .fold(why => throw IllegalArgumentException(why), identity)
 
-  def create(ctx: ConsumerContext)                           = new Relay
-  override val outputSerializer: Option[Serializer[FanLine]] = Some(Codecs.serializer[FanLine]("fan-line"))
+  def create(ctx: ConsumerContext) = new Relay
+  override val outputSerializer: Option[Serializer[FanLine]] = Some(
+    Codecs.serializer[FanLine]("fan-line")
+  )
   override def produces: Option[Publication] = Some(Publication("transactions", Some(transactions)))
 ```
 

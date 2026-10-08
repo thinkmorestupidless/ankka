@@ -122,15 +122,23 @@ in-memory broker and a declarations file) and `TopicContractsFeatures` (k3s).
 **Goal**: `Neo4jSink` in `ankka-graph-neo4j`, the `ankka-graph-sink` image, the fixtures ankka's own,
 the graph documentation complete without ankka-flow.
 
-**Independent test**: `F/graph-deltas/sink.feature` through `GraphSinkSuite` (offline: in-memory
-broker, Neo4j container) and `GraphSinkFeatures` (k3s: the image in the shopping cart's project).
+**Revised during implementation** (the sink's home): the platform keeps `GraphSink` over a
+`GraphStore` interface with `InMemoryGraphStore` in `modules/graph-sink` (`ankka-graph-sink`,
+published); the Neo4j store, its carried suites and the image moved to the new repository
+`thinkmorestupidless/ankka-contrib` (`neo4j-graph-store`, `graph-sink-neo4j`, image
+`ankka-graph-sink-neo4j`), which depends on the published `ankka-graph-sink`. T042/T043/T046/T047
+were done as written and then moved; T045 is contrib's cluster proof, not the platform's.
+
+**Independent test**: `F/graph-deltas/sink.feature` through `GraphSinkSuite` and
+`InMemoryGraphStoreSuite` (offline: in-memory broker and store) here, and `Neo4jSinkSuite` and
+`Neo4jMergeSuite` (Neo4j container) in ankka-contrib.
 
 ### Tests
 
 - [X] T042 [P] [US3] `GNT/Neo4jMergeSuite.scala`: carried from `../ankka-flow/sidecar/src/test/…/Neo4jMergeSuite.scala` with every assertion, rewritten against `Neo4jSink.apply(delta)` on a `Neo4jContainer(sys.props("ankka.neo4j.image"))`: the version table, placeholders, tombstones, labels replaced, two graphs from one topic compare equal
 - [X] T043 [P] [US3] `GNT/Neo4jSinkSuite.scala`: steps for `F/graph-deltas/sink.feature`'s offline scenarios over `AnkkaTestKit` with the in-memory broker and a Neo4j container: fills the store, newer-only, a refused delta fails the change and is redelivered (`InMemoryBroker.failNext`-style assertion on redelivery and `failing` on the topic source status), version 2 re-reads; the password never appears in the log capture
 - [X] T044 [P] [US3] `CORET/GraphFixturesSuite.scala`: writes `protocol/fixtures/graph-deltas/{keys,deltas,refused}.json` from the `sdk` builder under `-Dankka.fixtures.regenerate=on`, refuses a difference otherwise; the sink's suite (T043) applies every `deltas.json` row and reads back what `reads` says
-- [ ] T045 [P] [US3] `CPT/GraphSinkFeatures.scala` (k3s): deploys Neo4j from `K/overlays/neo4j/neo4j.yaml` (carried from ankka-flow's), declares `cart-deltas` compacted, deploys the shopping cart and the sink image by its descriptor, asserts the store through the driver, redeploys at version 2 after emptying the store
+- [X] T045 [P] [US3] *Moved to ankka-contrib with the image.* `CPT/GraphSinkFeatures.scala` (k3s): deploys Neo4j from `K/overlays/neo4j/neo4j.yaml` (carried from ankka-flow's), declares `cart-deltas` compacted, deploys the shopping cart and the sink image by its descriptor, asserts the store through the driver, redeploys at version 2 after emptying the store
 
 ### Implementation
 
@@ -140,7 +148,7 @@ broker, Neo4j container) and `GraphSinkFeatures` (k3s: the image in the shopping
 - [X] T049 [US3] `docs/deploy/graph-sink.md` (new: the image, the descriptor as a validated `service.json` block, the project secret, `topic sources` and `failing`, rebuilding at a higher version, the component for a service of one's own); `docs/build/graph.md:18-21, 728-770` rewritten to end at the store; `docs/reference/limitations.md:184` rewritten; `mkdocs.yml` nav under "Run and deploy"; `tools/docs/skill/{ankka-views-consumers,ankka-deploy}/SKILL.md` `pages:`; `just docs-sync`
 - [ ] T050 [US3] `CPT/GraphDocumentationFeatures.scala` (or the existing suite running `F/graph-deltas/documentation.feature`): the changed and the added scenario pass against the pages (`grep` for `flow.ankka.cloud` finds nothing under `docs/` but `contributing/documentation.md`)
 
-**Checkpoint**: `sbt graphNeo4j/test` green with Neo4j in a container; `GraphSinkFeatures` green on k3s; SC-002 holds; the image builds with `sbt graphSink/docker:publishLocal`.
+**Checkpoint**: `sbt graphSink/test` green; in ankka-contrib, `sbt test` green with Neo4j in a container and the image builds with `sbt graphSinkNeo4j/docker:publishLocal`; SC-002 holds.
 
 ## Phase 6: User Story 4 — A topic on another broker (P2)
 

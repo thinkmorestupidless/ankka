@@ -1,7 +1,7 @@
 {
   "name": "cart-graph-sink",
   "service": {
-    "image": "ghcr.io/thinkmorestupidless/ankka-graph-sink:latest",
+    "image": "ghcr.io/thinkmorestupidless/ankka-graph-sink-neo4j:latest",
     "http": false,
     "database": "none",
     "env": [

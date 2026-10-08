@@ -1472,7 +1472,7 @@ What a message is published under. Messages under one key are delivered in order
 Where a change stands in its entity's history: an event's number for an event sourced entity, the state's revision for a key value entity. It only rises, also across a deletion and the entity being created again. A message from a topic has none.
 
 ### store
-The database outside the service that a sink keeps nodes and relationships in, one element for each element key. It is not a service's database.
+What a sink keeps nodes and relationships in, one element for each element key, applying each delta under the sink's rules: the reference store the platform provides, which holds them in memory, or a store over a database outside the service, which ankka-contrib provides for Neo4j. It is not a service's database.
 
 ### element
 A node or a relationship, as deltas describe it and a store holds it. Nodes and relationships are named apart, so a node and a relationship may have the same element id.
@@ -1510,8 +1510,11 @@ What reads a topic outside the service and writes what it reads somewhere else, 
 ### ankka-flow
 The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
 
+### ankka-contrib
+The repository of integrations built on ankka's published SDK that are reusable but not the platform's, such as a store over a database for the sink and a ready image of the sink into it, released on its own cadence against a published ankka version.
+
 ### sink
-The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it as a component a developer registers in a service, and as a service image built from that component, which a member deploys into a project.
+The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it as a component a developer registers in a service with a store; a ready image of the sink into a database is ankka-contrib's, which a member deploys into a project.
 
 ## Calling other services
 

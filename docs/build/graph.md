@@ -15,9 +15,10 @@ and edges — the change leaves in which state, and ankka publishes each one to 
 one element's whole state at a version, or a tombstone marking it deleted.
 
 The deltas follow the contract `ankka.graph-delta.v1`. The platform's [graph sink](../deploy/graph-sink.md)
-reads a topic of deltas and keeps a Neo4j store in step with it, applying a delta when its version is
+reads a topic of deltas and keeps a graph store in step with it, applying a delta when its version is
 newer than what the store holds. So a service with a graph consumer needs no second program to have its
-entities in a graph database: the sink, deployed into the project, is the whole of it.
+entities in a graph database: the sink, registered in a service or deployed as a ready image into the
+project, is the whole of it.
 
 A graph consumer is a [consumer](consumers.md). It reads one source, is delivered each change at least
 once, and is registered, sharded and started as any consumer is. What differs is what it may return:
@@ -743,8 +744,9 @@ the project has not declared is listed on the service's status as undeclared.
 ## From the topic to the store
 
 ankka publishes the deltas, and the platform's graph sink reads them: [Fill a graph store](../deploy/graph-sink.md)
-deploys the sink's image into the project, says what the store holds and what the sink does with each
-delta, and rebuilds the store from the topic alone, with the service untouched.
+registers the sink with the store of your choice or deploys a ready image into the project, says what
+the store holds and what the sink does with each delta, and rebuilds the store from the topic alone,
+with the service untouched.
 
 ## What is not there
 

@@ -92,8 +92,9 @@ view's projection is named), and every write of such a view is guarded by the re
 - **`protocol/fixtures/graph-deltas/` is ankka's own** (feature 037): `keys.json` and `deltas.json`
   are written by `GraphFixturesSuite` in `core` from their own elements through the builder
   (`-Dankka.fixtures.regenerate=on`) and refused when a row is not what the builder writes;
-  `refused.json` is authored by hand. The graph sink's suite (`modules/graph-neo4j`) reads the same
-  rows into a Neo4j, which is what makes them proof that a graph consumer writes what the sink reads.
+  `refused.json` is authored by hand. The graph sink's suites (`modules/graph-sink`) read the same
+  rows into the in-memory store, which is what makes them proof that a graph consumer writes what the
+  sink reads; ankka-contrib's Neo4j store copies them and proves the same against a Neo4j.
   All four SDKs test against all three; after a change, run each SDK's copy script.
 - **A kill switch downstream of `Committer.flow` cancels the commit it was about to flush.** The Kafka
   subscriber's switch sat after the committer, so stopping a subscription cancelled the batch in hand,

@@ -70,16 +70,6 @@ object Dependencies {
      */
     val grpc = "1.84.0"
 
-    /** The Neo4j Java driver the graph sink writes with (feature 037, research R13). */
-    val neo4jDriver = "5.28.5"
-
-    /**
-     * The Neo4j the graph sink is tested against: 5.26 LTS, the first with dynamic labels in
-     * `MERGE`, which the sink's statements use. Read by `graphNeo4j`'s tests as
-     * `ankka.neo4j.image`, so no suite names the image by a literal tag.
-     */
-    val neo4jImage = "neo4j:5.26-community"
-
     /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
      *
@@ -169,8 +159,6 @@ object Dependencies {
   val testcontainersPg    = "org.testcontainers" % "postgresql"           % V.testcontainers
   val testcontainersKafka = "org.testcontainers" % "kafka"                % V.testcontainers
   val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
-  val testcontainersNeo4j = "org.testcontainers" % "neo4j"                % V.testcontainers
-  val neo4jDriver         = "org.neo4j.driver"   % "neo4j-java-driver"    % V.neo4jDriver
 
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8" % "kubernetes-client" % V.fabric8

@@ -79,6 +79,12 @@ specified here. This specification says what ankka must have before that can hap
   platform publishes a service image built from that component, which a member deploys into a
   project with the topic, the store's address, a project secret for its credential and a version.
   A sink inside a process-hosted service's own process is not provided.
+  *Revised during implementation*: the platform holds the sink and its rules behind a store
+  interface, with an in-memory reference store; a store over a database (Neo4j) and the ready
+  image are not the platform's but ankka-contrib's, a repository of integrations released against
+  a published ankka version. Reasoning: the delta contract is ankka's, so the reader side must be
+  proven in the same build as the writer; Neo4j is one store, with a driver and an image on the
+  release train, and belongs with other integrations rather than in the platform.
 - Q: How does a component state the schema it was built against? → A: It names the schema
   document kept in the project, fetched from the project's declaration; the SDK fingerprints that
   document after normalising it, and discovery carries the contract's name and the fingerprint.
@@ -157,23 +163,23 @@ it compacted; declaring an existing topic compacted changes it; `topics list` sh
 
 ### User Story 3 - The graph merge sink is ankka's (Priority: P1)
 
-A member fills a Neo4j store from a delta topic with something ankka provides: the sink reads the
+A member fills a graph store from a delta topic with something ankka provides: the sink reads the
 topic from its start, applies each delta only when its version is newer than the element's in the
 store, refuses a delta that breaks a delta's rules and says so, and is rebuilt from the topic's
 start at a higher version. It is a component in a module of its own, which a developer registers
-in a Scala service when the sink belongs beside their other components, and the platform
-publishes a service image built from it, which a member deploys into a project like any service
-when it does not. The graph documentation tells the whole story, from publishing deltas to a
-filled store, and no page points at ankka-flow.
+in a Scala service with the store of their choice: the in-memory reference store the module ships,
+a store over a database from ankka-contrib (Neo4j, with a ready image a member deploys into a
+project like any service), or one of their own against the store interface. The graph
+documentation tells the whole story, from publishing deltas to a filled store, and no page points
+at ankka-flow.
 
 **Why this priority**: Graph deltas are an ankka feature whose second half lives in ankka-flow;
 retiring ankka-flow without this breaks ankka's graph story.
 
-**Independent Test**: The shopping cart publishes deltas to `cart-deltas`; the platform's sink
-image, deployed into the project against a Neo4j, fills the store with every cart and item; a
-refused delta is named in the sink's log and status; redeployed at a higher version, the sink
-empties and refills the store from the topic; a Scala service registering the sink component
-fills the same store the same way.
+**Independent Test**: The sink, registered in a service with the in-memory store, fills the
+store with every element of the platform's fixtures; a refused delta is named in the sink's log
+and status; registered again at a higher version, the sink refills the emptied store from the
+topic; ankka-contrib's Neo4j store, under the same suite, holds the same elements.
 
 **Acceptance Scenarios**:
 
@@ -183,7 +189,7 @@ fills the same store the same way.
 - added `features/graph-deltas/sink.feature`: the sink at a higher version builds the store again from the topic
 - added `features/graph-deltas/sink.feature`: the sink's fixtures are ankka's own
 - added `features/graph-deltas/sink.feature`: a developer registers the sink in a service of their own
-- added `features/graph-deltas/sink.feature`: the platform's sink image is a service built from the component
+- added `features/graph-deltas/sink.feature`: a store over a database applies deltas as the reference store does
 - changed `features/graph-deltas/documentation.feature`: the documentation describes publishing deltas and the rules of a delta
 - added `features/graph-deltas/documentation.feature`: the documentation tells the graph story to the end without ankka-flow
 
@@ -312,9 +318,10 @@ learn whether a pipeline keeps up.
   its type; no message is checked against the schema as it flows.
 - **FR-005**: A declared topic MAY be compacted; the platform MUST make it so, for a new topic and
   for one already made.
-- **FR-006**: ankka MUST provide the graph merge sink as a component in a module of its own and
-  as a service image built from it: a Neo4j store filled from a delta topic under the delta
-  rules, rebuilt at a higher version, with its fixtures held here.
+- **FR-006**: ankka MUST provide the graph merge sink as a component in a module of its own,
+  over a store interface with an in-memory reference store: a store filled from a delta topic
+  under the delta rules, rebuilt at a higher version, with its fixtures held here. A store over a
+  database, and a service image of the sink into it, are ankka-contrib's.
 - **FR-007**: A project MAY declare a broker by name, with its address, the credential's shape
   (a certificate, or SASL PLAIN or SCRAM over TLS) and the project secret holding it, refused when
   the secret lacks what the shape needs; a component MAY name a declared broker for a topic; the
@@ -339,7 +346,8 @@ learn whether a pipeline keeps up.
 - **declared broker**: a broker a project names, with an address, a credential shape (a
   certificate, or SASL over TLS) and a project secret, which a component may name for a topic.
 - **sink**: as already defined: the part of a pipeline that applies deltas to a store; now a
-  component ankka provides, and a service image built from it.
+  component ankka provides, with a store interface; a store over a database and a service image
+  are ankka-contrib's.
 - **topic settings**: a declared topic's partitions and whether it is compacted.
 
 ## Success Criteria *(mandatory)*

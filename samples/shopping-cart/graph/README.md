@@ -3,11 +3,12 @@
 The shopping cart publishes its carts as a graph itself: `CartGraph` and `CartContentsGraph`
 (`src/main/scala/shoppingcart/application/`) are graph consumers over the cart's events, and each
 publishes graph deltas to the topic `cart-graph`. What writes them into a graph database is the
-platform's graph sink, `ankka-graph-sink`, deployed into the project like any service:
-`cart-graph-sink.json` here is its descriptor, and there is no image of ours.
+platform's graph sink into Neo4j, the image `ankka-graph-sink-neo4j` from ankka-contrib, deployed into
+the project like any service: `cart-graph-sink.json` here is its descriptor, and there is no image of
+ours.
 
 ```text
-shopping cart ──▶ cart-graph (declared compacted) ──▶ ankka-graph-sink ──▶ Neo4j
+shopping cart ──▶ cart-graph (declared compacted) ──▶ ankka-graph-sink-neo4j ──▶ Neo4j
 ```
 
 ## What is published

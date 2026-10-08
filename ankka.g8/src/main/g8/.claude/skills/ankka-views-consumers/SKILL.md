@@ -189,4 +189,4 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Run and deploy
 
-- `references/deploy/graph-sink.md` — Deploy the platform's graph sink into a project to keep a Neo4j store in step with a delta topic, or register the sink in a service of your own; rebuild the store from the topic by raising the sink's version.
+- `references/deploy/graph-sink.md` — Register the graph sink in a service to keep a graph store in step with a delta topic, choose the store it writes to, or deploy a ready sink image from ankka-contrib; rebuild the store from the topic by raising the sink's version.

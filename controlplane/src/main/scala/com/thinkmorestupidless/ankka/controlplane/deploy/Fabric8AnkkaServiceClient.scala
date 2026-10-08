@@ -210,10 +210,11 @@ final class Fabric8AnkkaServiceClient(
   def putSchema(namespace: String, fingerprint: String, document: String): Unit =
     ensureNamespace(namespace)
     val name                 = Fabric8AnkkaServiceClient.SchemasConfigMap
+    val key                  = Fabric8AnkkaServiceClient.schemaKey(fingerprint)
     def quoted(text: String) = writeToString(text)(using Fabric8AnkkaServiceClient.stringCodec)
     // One key added or replaced, the others kept: a merge patch, as a project secret's entries are
     // written, and a create when the map is not there yet.
-    val body = s"""{"data":{${quoted(fingerprint)}:${quoted(document)}}}"""
+    val body = s"""{"data":{${quoted(key)}:${quoted(document)}}}"""
     mergePatchConfigMap(namespace, name, body) match
       case 404 =>
         val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
@@ -224,7 +225,7 @@ final class Fabric8AnkkaServiceClient(
               .withLabels(java.util.Map.of("app.kubernetes.io/managed-by", "ankka"))
               .build()
           )
-          .withData(java.util.Map.of(fingerprint, document))
+          .withData(java.util.Map.of(key, document))
           .build()
         try
           val _ = client.configMaps().inNamespace(namespace).resource(configMap).create()
@@ -241,7 +242,8 @@ final class Fabric8AnkkaServiceClient(
         .inNamespace(namespace)
         .withName(Fabric8AnkkaServiceClient.SchemasConfigMap)
         .get()
-    ).flatMap(cm => Option(cm.getData)).flatMap(data => Option(data.get(fingerprint)))
+    ).flatMap(cm => Option(cm.getData))
+      .flatMap(data => Option(data.get(Fabric8AnkkaServiceClient.schemaKey(fingerprint))))
 
   private def mergePatchConfigMap(namespace: String, name: String, body: String): Int =
     val base = client.getMasterUrl.toString.stripSuffix("/")
@@ -340,6 +342,9 @@ final class Fabric8AnkkaServiceClient(
     )
 
 object Fabric8AnkkaServiceClient:
+
+  /** A ConfigMap key holds letters, digits, `-`, `_` and `.`: the fingerprint's `:` becomes `-`. */
+  def schemaKey(fingerprint: String): String = fingerprint.replace(':', '-')
 
   /** The project's schema documents, one key per fingerprint (feature 037). */
   val SchemasConfigMap: String = "ankka-project-schemas"

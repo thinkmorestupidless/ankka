@@ -2,8 +2,10 @@ Feature: The sink is ankka's
   The platform provides the sink: it reads a delta topic from its start, applies each delta to a
   store only when its version is newer than the element's there, refuses a delta that breaks the
   rules of one and says which, and at a higher version builds the store again from the topic. It
-  is a component a developer registers in a service, and a service image the platform publishes,
-  built from that component. The fixtures the sink and the SDKs are tested against are ankka's own.
+  is a component a developer registers in a service with the store of their choice: the reference
+  store the platform provides, which holds the graph in memory, or a store over a database, which
+  the platform does not provide and ankka-contrib does. The fixtures the sink and the SDKs are
+  tested against are ankka's own.
 
   Background:
     Given an installation with a broker
@@ -41,13 +43,14 @@ Feature: The sink is ankka's
     When the fixtures of deltas, keys and refused deltas are read
     Then each is written here and named as such
     And every SDK and the sink are tested against them
+    And a store over a database in ankka-contrib is tested against a copy of them
 
   Scenario: a developer registers the sink in a service of their own
     Given a service "catalogue" that registers the sink reading "cart-deltas" into the store beside its other components
     When "cart" publishes a delta for each of 20 carts and their items
     Then the store holds a node for each cart and each item and a relationship from each cart to its items
 
-  Scenario: the platform's sink image is a service built from the component
-    When a member deploys the platform's sink image into "shop" with the topic "cart-deltas", the store and a project secret for its credential
-    Then the sink is a service of "shop" with the sink component and nothing else
-    And it reads "cart-deltas" into the store as the component does
+  Scenario: a store over a database applies deltas as the reference store does
+    Given a store over a database that applies deltas under the sink's rules
+    When the sink reads "cart-deltas" into that store and into the reference store
+    Then both stores hold the same elements at the same versions

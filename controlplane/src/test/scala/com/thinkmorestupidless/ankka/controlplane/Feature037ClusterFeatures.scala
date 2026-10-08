@@ -269,21 +269,27 @@ class DeclaredBrokersFeatures extends Feature037ClusterFeatures("topics", "broke
       secret(name, project(p), entries)
   }
 
-  Given("the project secret {string} on {string} holds a username and a password and no authority") {
-    (name: String, p: String) =>
-      secret(name, project(p), Map("username" -> "ingest", "password" -> "s3cret"))
+  Given(
+    "the project secret {string} on {string} holds a username and a password and no authority"
+  ) { (name: String, p: String) =>
+    // An earlier scenario may have declared a broker on this secret and given it an authority:
+    // the broker goes first (a named secret keeps what its shape needs), then the authority.
+    ankka("projects", "brokers", "unset", "legacy", "-p", project(p)): Unit
+    ankka("projects", "secrets", "unset", name, "ca.crt", "-p", project(p)): Unit
+    secret(name, project(p), Map("username" -> "ingest", "password" -> "s3cret"))
   }
 
   When(
     "a member declares the broker {string} on {string} with the address of the outside broker, the shape {string} and the project secret {string}"
   ) { (name: String, p: String, shape: String, secretName: String) =>
-    declareBroker(name, project(p), shape, secretName): Unit
+    // The feature writes the shape as a word ("SASL"); the declaration's values are lower-case.
+    declareBroker(name, project(p), shape.toLowerCase, secretName): Unit
   }
 
   Then("the brokers of {string} show {string} with the shape {string}") {
     (p: String, name: String, shape: String) =>
       assertEquals(lastRun.code, 0, lastRun.all)
-      assertEquals(brokersOf(project(p)).find(_.name == name).map(_.shape), Some(shape))
+      assertEquals(brokersOf(project(p)).find(_.name == name).map(_.shape), Some(shape.toLowerCase))
       // And it goes as it came, through the same door.
       ok(ankka("projects", "brokers", "unset", name, "-p", project(p))): Unit
       assert(!brokersOf(project(p)).exists(_.name == name))

@@ -47,10 +47,40 @@ final class AgentRuntime private (
     modelTimeout: FiniteDuration,
     compaction: Option[(CompactionSettings, Summariser)],
     judgments: Judgments,
-    variables: String => Option[String] = sys.env.get
+    variables: String => Option[String] = sys.env.get,
+    blueprintsBuilder: Option[blueprint.BlueprintContext => blueprint.BlueprintRegistry] = None
 ) extends RuntimeExtension:
 
+  @volatile private var blueprintCalls: Option[blueprint.BlueprintCalls] = None
+  @volatile private var runCalls: Option[blueprint.RunCalls]             = None
+
   def name: String = "agents"
+
+  /**
+   * What this service's blueprints may name, built once from a context when the service starts: a
+   * tool that writes an entity needs the component client when it is built. Registers the
+   * blueprints the registry carries, and refuses to start when one has problems.
+   */
+  def withBlueprints(
+      build: blueprint.BlueprintContext => blueprint.BlueprintRegistry
+  ): AgentRuntime =
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, variables, Some(build))
+
+  /** Calls about blueprints. Available once the service has started. */
+  def blueprints: blueprint.BlueprintCalls =
+    blueprintCalls.getOrElse(
+      throw IllegalStateException(
+        "blueprints are not available: the service has not started, or withBlueprints(...) was not called"
+      )
+    )
+
+  /** Calls about runs. Available once the service has started. */
+  def runs: blueprint.RunCalls =
+    runCalls.getOrElse(
+      throw IllegalStateException(
+        "runs are not available: the service has not started, or withBlueprints(...) was not called"
+      )
+    )
 
   /**
    * Where the runtime reads the variables an agent's MCP servers name — their addresses and their
@@ -58,7 +88,7 @@ final class AgentRuntime private (
    * touching the environment of the JVM it runs in.
    */
   def withVariables(read: String => Option[String]): AgentRuntime =
-    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read)
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read, blueprintsBuilder)
 
   /**
    * Enables compaction: long sessions get their oldest messages replaced by a summary.
@@ -84,7 +114,8 @@ final class AgentRuntime private (
           modelTimeout,
           Some(settings -> summary),
           judgments,
-          variables
+          variables,
+          blueprintsBuilder
         )
 
   /**
@@ -105,7 +136,8 @@ final class AgentRuntime private (
       modelTimeout,
       compaction,
       Judgments(Some(provider), timeout),
-      variables
+      variables,
+      blueprintsBuilder
     )
 
   /**
@@ -130,14 +162,23 @@ final class AgentRuntime private (
       )
     }
 
-    // Approval time limits are kept as timers, which need the service's TimerRuntime to fire.
+    // Approval time limits and schedules are kept as timers, which need the service's TimerRuntime
+    // to fire; its clock is the one they are set by, so a test that moves it moves them (R14).
+    val clock: java.time.Clock =
+      service
+        .extension[com.thinkmorestupidless.ankka.runtime.TimerRuntime]
+        .map(_.clock)
+        .getOrElse(java.time.Clock.systemUTC())
     val timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] =
       Option.when(service.extensionNames.contains("timers"))(
         com.thinkmorestupidless.ankka.runtime.DatabaseTimerScheduler(
-          com.thinkmorestupidless.ankka.runtime.Database()
+          com.thinkmorestupidless.ankka.runtime.Database(),
+          clock
         )
       )
 
+    // Blueprints first: the autonomous hosts resolve a work step's task against the registry.
+    startBlueprints(service, timers, clock)
     startAutonomous(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
@@ -147,7 +188,13 @@ final class AgentRuntime private (
       val client   = service.componentClient
 
       agents.foreach { descriptor =>
-        val typed    = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val typed = descriptor.asInstanceOf[AgentDescriptor[Agent]] match
+          // The one agent every worker's turn goes to builds each turn from the service's registry.
+          case ask if ask.componentId == blueprint.AskAgent.componentId =>
+            blueprintCalls.fold(ask)(calls =>
+              blueprint.AskAgent.hosted(calls.registry).asInstanceOf[AgentDescriptor[Agent]]
+            )
+          case other => other
         val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
         val _ = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
@@ -196,6 +243,75 @@ final class AgentRuntime private (
             settings.keepRecentMessages
           )
       }
+
+  /**
+   * Builds the registry of what blueprints may name, connects its MCP servers, and registers the
+   * blueprints the service carries. A carried blueprint with problems fails the start, naming them,
+   * by the same rule an unregistered component does.
+   */
+  private def startBlueprints(
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
+      clock: java.time.Clock
+  )(using system: ActorSystem[?]): Unit =
+    blueprintsBuilder.foreach { build =>
+      val context = new blueprint.BlueprintContext:
+        def componentClient = service.componentClient
+        def viewClient      = service.viewClient
+        def services        = service.services
+        def secrets         = service.secrets
+        def hasTimers       = timers.isDefined
+      val declared = build(context).withTimers(timers.isDefined)
+      val mcpTools = connectMcp(ComponentId("ankka-blueprints"), declared.servers, service, timers)
+      val registry = declared.withMcpTools(mcpTools)
+      val calls    = blueprint.BlueprintCalls(service.componentClient, registry, timers, clock)
+      declared.carried.foreach { carried =>
+        val registered =
+          try calls.register(carried)
+          catch
+            case e: CommandError =>
+              throw IllegalArgumentException(
+                s"the blueprint '${carried.name}' this service carries has problems:\n" +
+                  blueprint.BlueprintRefusal.describe(e)
+              )
+        system.log.info(
+          "blueprint '{}' is at version {}{}",
+          registered.name,
+          registered.version,
+          if registered.isNew then " (registered now)" else ""
+        )
+      }
+      blueprintCalls = Some(calls)
+      val views = Option.when(service.extensionNames.contains("projections"))(service.viewClient)
+      runCalls = Some(blueprint.RunCalls(service.componentClient, calls, views))
+
+      // One host per run, remembered: a run working when its node stopped is started again by
+      // sharding itself, from its record, with nothing sent to it.
+      val _ = ClusterSharding(system).init(
+        Entity(EntityTypeKey[EntityProtocol.Command](blueprint.RunHost.ComponentId)) { ctx =>
+          blueprint.RunHost.behavior(
+            ctx.entityId,
+            ctx.shard,
+            service.componentClient,
+            registry,
+            judgments
+          )
+        }.withStopMessage(blueprint.RunHost.Stop)
+          .withSettings(
+            ClusterShardingSettings(system)
+              .withRememberEntities(true)
+              .withRememberEntitiesStoreMode(
+                ClusterShardingSettings.RememberEntitiesStoreModeEventSourced
+              )
+          )
+      )
+      if !service.registry.components.exists(_.componentId == blueprint.BlueprintEntity.componentId)
+      then
+        system.log.warn(
+          "blueprints are configured but '{}' is not registered; use registerAll(AgentRuntime.descriptors)",
+          blueprint.BlueprintEntity.componentId
+        )
+    }
 
   /**
    * An agent's MCP servers, connected, as tools. Done once per agent when the service starts; a
@@ -251,6 +367,12 @@ final class AgentRuntime private (
     if autonomousAgents.nonEmpty then
       val sharding = ClusterSharding(system)
       val client   = service.componentClient
+      // A task that carries a definition of its own is a blueprint's work step: resolved against
+      // what the service registered for blueprints, or refused when it registered nothing.
+      val perTask: autonomous.TaskDefinitionResolver =
+        blueprintCalls.fold(autonomous.TaskDefinitionResolver.none)(calls =>
+          blueprint.BlueprintTasks.resolver(calls.registry, defaultModel)
+        )
       autonomousAgents.foreach { d =>
         val descriptor =
           d.asInstanceOf[autonomous.AutonomousAgentDescriptor[autonomous.AutonomousAgent]]
@@ -313,7 +435,8 @@ final class AgentRuntime private (
               service.secrets,
               service.services,
               timers,
-              mcpTools
+              mcpTools,
+              perTask
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -393,7 +516,13 @@ object AgentRuntime:
       autonomous.TaskEntity.descriptor,
       autonomous.InstanceEntity.descriptor,
       autonomous.TaskCascade.descriptor,
-      ApprovalExpiry.platformDescriptor
+      ApprovalExpiry.platformDescriptor,
+      blueprint.BlueprintEntity.descriptor,
+      blueprint.RunEntity.descriptor,
+      blueprint.AskAgent.platformDescriptor,
+      blueprint.WorkerAgent.platformDescriptor,
+      blueprint.RunsView.platformDescriptor,
+      blueprint.ScheduleTimer.platformDescriptor
     )
 
 /**

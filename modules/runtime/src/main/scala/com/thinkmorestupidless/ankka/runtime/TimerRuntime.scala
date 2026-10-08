@@ -8,7 +8,7 @@ import org.apache.pekko.cluster.typed.{ClusterSingleton, SingletonActor}
 
 import io.r2dbc.spi.R2dbcException
 
-import java.time.Instant
+import java.time.{Clock, Instant}
 import java.time.temporal.ChronoUnit
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.Await
@@ -21,8 +21,11 @@ import scala.concurrent.Await
  * a singleton rather than sharded slices because timers are capped in the hundreds of thousands,
  * and one poller is far easier to reason about than N pollers racing for the same rows.
  */
-final class TimerRuntime private (pollInterval: FiniteDuration, observer: TimerObserver)
-    extends RuntimeExtension:
+final class TimerRuntime private (
+    pollInterval: FiniteDuration,
+    val clock: Clock,
+    observer: TimerObserver
+) extends RuntimeExtension:
 
   @volatile private var scheduler: Option[TimerScheduler] = None
 
@@ -46,7 +49,8 @@ final class TimerRuntime private (pollInterval: FiniteDuration, observer: TimerO
     lazy val database = Database()
 
     scheduler = Some(
-      if noDatabase then NoDatabase.UnavailableScheduler else new DatabaseTimerScheduler(database)
+      if noDatabase then NoDatabase.UnavailableScheduler
+      else new DatabaseTimerScheduler(database, clock)
     )
 
     if actions.isEmpty then
@@ -63,7 +67,8 @@ final class TimerRuntime private (pollInterval: FiniteDuration, observer: TimerO
             service.services,
             service.conversation,
             pollInterval,
-            observer
+            observer,
+            clock
           ),
           "ankka-timer-sweeper"
         )
@@ -77,13 +82,15 @@ final class TimerRuntime private (pollInterval: FiniteDuration, observer: TimerO
 object TimerRuntime:
   /**
    * Polls once a second, which bounds a timer's lateness rather than its accuracy. `observer` is
-   * told what the sweeper did with each timer; a service has none, and a test a probe.
+   * told what the sweeper did with each timer; a service has none, and a test a probe. The clock is
+   * the one every due time is read against; a test gives one it can move.
    */
   def apply(
       pollInterval: FiniteDuration = 1.second,
-      observer: TimerObserver = TimerObserver.none
+      observer: TimerObserver = TimerObserver.none,
+      clock: Clock = Clock.systemUTC()
   ): TimerRuntime =
-    new TimerRuntime(pollInterval, observer)
+    new TimerRuntime(pollInterval, clock, observer)
 
   /** The documented ceiling on a timer payload. */
   val MaxPayloadBytes: Int = 1024
@@ -117,7 +124,10 @@ object TimerRuntime:
     error
 
 /** The `TimerScheduler` the runtime hands to components. */
-private[ankka] final class DatabaseTimerScheduler(database: Database) extends TimerScheduler:
+private[ankka] final class DatabaseTimerScheduler(
+    database: Database,
+    clock: Clock = Clock.systemUTC()
+) extends TimerScheduler:
 
   private val timeout = 10.seconds
 
@@ -165,7 +175,7 @@ private[ankka] final class DatabaseTimerScheduler(database: Database) extends Ti
    * handler is told is the due stored, in every language. A delay of zero or less is due at once.
    */
   private def due(delay: FiniteDuration): Instant =
-    Instant.now().truncatedTo(ChronoUnit.MILLIS).plusMillis(delay.toMillis.max(0L))
+    Instant.now(clock).truncatedTo(ChronoUnit.MILLIS).plusMillis(delay.toMillis.max(0L))
 
   private def run(statement: SqlFragment): Long =
     try Await.result(database.execute(statement), timeout)

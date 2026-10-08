@@ -1,0 +1,95 @@
+{
+  "name": "watch",
+  "input": {
+    "type": "object",
+    "properties": {
+      "from": {"type": "string"},
+      "to": {"type": "string"},
+      "dueTimes": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["from", "to", "dueTimes"]
+  },
+  "workers": [
+    {
+      "name": "europepmc",
+      "instructions": "You search Europe PMC for papers on cultivated meat. Call search_europepmc with the query \"cultivated meat\" and the dates of the period you are given, then answer with the papers it found. If the source could not be reached, answer with no papers and say so in problem.",
+      "model": "default",
+      "tools": ["search_europepmc"],
+      "guardrails": [],
+      "budget": 3
+    },
+    {
+      "name": "biorxiv",
+      "instructions": "You search bioRxiv for papers on cultivated meat. Call search_biorxiv with the query \"cultivated meat\" and the dates of the period you are given, then answer with the papers it found. If the source could not be reached, answer with no papers and say so in problem.",
+      "model": "default",
+      "tools": ["search_biorxiv"],
+      "guardrails": [],
+      "budget": 3
+    },
+    {
+      "name": "openalex",
+      "instructions": "You search OpenAlex for papers on cultivated meat. Call search_openalex with the query \"cultivated meat\" and the dates of the period you are given, then answer with the papers it found. If the source could not be reached, answer with no papers and say so in problem.",
+      "model": "default",
+      "tools": ["search_openalex"],
+      "guardrails": [],
+      "budget": 3
+    },
+    {
+      "name": "keeper",
+      "instructions": "You keep what the sources found. For each source that found papers, call keep_papers once with the source's name and its papers, then answer with how many papers you kept in all.",
+      "model": "default",
+      "tools": ["keep_papers"],
+      "guardrails": [],
+      "budget": 6
+    }
+  ],
+  "steps": [
+    {
+      "name": "search",
+      "does": {"type": "Ask", "worker": null},
+      "over": {"type": "Workers", "workers": ["europepmc", "biorxiv", "openalex"], "chosenBy": null},
+      "until": null,
+      "reads": ["input"],
+      "result": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "worker": {"type": "string"},
+            "result": {
+              "type": "object",
+              "properties": {
+                "papers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {"identifier": {"type": "string"}, "title": {"type": "string"}},
+                    "required": ["identifier", "title"]
+                  }
+                },
+                "problem": {"type": "string", "description": "Why the source could not be searched, when it could not."}
+              },
+              "required": ["papers"]
+            }
+          },
+          "required": ["worker", "result"]
+        }
+      }
+    },
+    {
+      "name": "keep",
+      "does": {"type": "Ask", "worker": "keeper"},
+      "over": {"type": "Once"},
+      "until": null,
+      "reads": ["search"],
+      "result": {
+        "type": "object",
+        "properties": {"kept": {"type": "integer"}},
+        "required": ["kept"]
+      }
+    }
+  ],
+  "schedule": {"cadence": {"type": "EveryDays", "days": 1}, "zone": "Europe/London", "catchUp": "one"},
+  "runBudget": null,
+  "timeLimit": null
+}

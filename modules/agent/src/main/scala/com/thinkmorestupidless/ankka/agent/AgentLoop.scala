@@ -444,6 +444,10 @@ private[agent] final class AgentLoop(
     case Answer(outcome: Outcome)
     case Wait(progress: Progress, requests: Vector[ApprovalRequest])
 
+  /** The effect's own bound when it set one, else the companion's. */
+  private def stepBound(effect: AgentEffect[?]): Int =
+    effect.toolStepBound.getOrElse(descriptor.maxToolCallSteps)
+
   private def runToolLoop(
       provider: ModelProvider,
       effect: AgentEffect[?],
@@ -481,7 +485,7 @@ private[agent] final class AgentLoop(
               )
             )
 
-      guarded(step(provider, tools, progress, response, checks)) match
+      guarded(step(provider, tools, progress, response, checks, stepBound(effect))) match
         case Left(fault)        => return Left(fault)
         case Right(Left(ended)) => return ended
         case Right(Right(next)) => progress = next
@@ -547,7 +551,7 @@ private[agent] final class AgentLoop(
           CommandError(s"${provider.name} stream ended without completing", ErrorCode.Unavailable)
         )
 
-      guarded(step(provider, tools, progress, completed.get, checks)) match
+      guarded(step(provider, tools, progress, completed.get, checks, stepBound(effect))) match
         case Left(fault)        => return Left(fault)
         case Right(Left(ended)) => return ended
         case Right(Right(next)) => progress = next
@@ -567,7 +571,8 @@ private[agent] final class AgentLoop(
       tools: Map[String, FunctionTool],
       progress: Progress,
       response: ModelResponse,
-      checks: ResultChecks
+      checks: ResultChecks,
+      bound: Int
   ): Either[Either[CommandError, LoopEnd], Progress] =
     val usage = progress.usage + response.usage
 
@@ -583,13 +588,13 @@ private[agent] final class AgentLoop(
     else if !response.wantsTools then
       val produced = progress.produced :+ ChatMessage.Assistant(response.text)
       Left(Right(LoopEnd.Answer(Outcome(response, produced, usage, progress.decisions))))
-    else if progress.steps + 1 > descriptor.maxToolCallSteps then
+    else if progress.steps + 1 > bound then
       // A bound, not a suggestion. A model that keeps asking for tools without
       // converging would otherwise spend without limit.
       Left(
         Left(
           CommandError(
-            s"agent '$agentId' exceeded ${descriptor.maxToolCallSteps} tool-call steps " +
+            s"agent '$agentId' exceeded $bound tool-call steps " +
               "without producing an answer",
             ErrorCode.Internal
           )

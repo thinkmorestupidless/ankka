@@ -525,6 +525,12 @@ time each run was for, which is what a test of a recurring timer asserts. Views 
 so assert on them by retrying until the expected value appears, and retry on the value that changes
 rather than on the mere presence of a row.
 
+A test of something that happens in time — a timer a week away, a schedule, an outage — gives
+`TimerRuntime` a `MovableClock` and moves it; see [Timers](timers.md#testing-timers). An outage is
+`stopService()`, whatever happens while the service is down (moving the clock, say), then
+`startService()`, with other extensions if the service comes back changed; `restartService(extensions =
+…, whileStopped = …)` is the three in one. The kit's clients are not usable while the service is stopped.
+
 In Python and TypeScript the kit starts the real sidecar image beside Postgres, serves your
 components from the test process, and drives the routes through the sidecar. `restart()` replaces the
 sidecar against the same database. Mark the Python tests `@pytest.mark.slow` and run them with

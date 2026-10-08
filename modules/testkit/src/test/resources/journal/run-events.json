@@ -1,0 +1,10 @@
+run-event {"type":"Started","blueprint":"digest","version":2,"input":"{\"from\":\"a\",\"to\":\"b\"}","startedBy":"caller","deadline":1000,"at":1}
+run-event {"type":"StepStarted","step":"papers","at":2}
+run-event {"type":"ItemEnded","step":"findings","item":{"index":0,"result":"{\"finding\":\"x\"}","failure":null,"session":"run:r-1:findings:reader:0","usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5}}}
+run-event {"type":"RoundEnded","step":"script","round":{"round":1,"draft":"{\"text\":\"draft\"}","passed":false,"reasons":["too long"],"sessions":["run:r-1:script:writer"],"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5}}}
+run-event {"type":"WaitingForDecision","step":"send","request":{"session":"run:r-1:send:clerk","approvalId":"a-1","tool":"send_letter"},"at":3}
+run-event {"type":"DecisionReceived","step":"send","approvalId":"a-1","at":4}
+run-event {"type":"ApprovalsRefused","step":"send","approvalIds":["a-2"],"at":5}
+run-event {"type":"StepEnded","step":"papers","result":"[\"p1\"]","sessions":["run:r-1:papers:writer"],"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"judgmentUsage":{},"modelCalls":2,"at":6}
+run-event {"type":"CancelRequested","by":"caller","at":7}
+run-event {"type":"Ended","status":"cancelled","reason":"cancelled by caller","at":8}

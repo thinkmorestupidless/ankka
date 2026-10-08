@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, judgments — typed questions answered by a System One model such as Jev, judged guardrails and TestJudgmentProvider — several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, AnthropicProvider, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails, TestJudgmentProvider), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
 pages:
   - concepts/agents.md
   - concepts/designing-agents.md
@@ -10,6 +10,7 @@ pages:
   - build/multi-agent-orchestration.md
   - concepts/autonomous-agents.md
   - build/autonomous-agents.md
+  - build/blueprints.md
   - build/mcp-servers.md
   - build/workflows.md
   - build/component-client.md

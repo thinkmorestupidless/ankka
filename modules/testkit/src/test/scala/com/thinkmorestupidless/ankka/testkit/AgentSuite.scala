@@ -41,6 +41,21 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
   /** Tool invocations recorded by the fixture, in the order they ran. */
   private def toolCalls: Vector[String] = WeatherAgent.toolCalls.asScala.toVector
 
+  test("an effect's own tool-call bound overrides the companion's for that turn") {
+    model
+      .expectToolCall("current_date", Json.obj())
+      .expectToolCall("current_date", Json.obj())
+      .expectToolCall("current_date", Json.obj())
+      .expectText("never reached")
+
+    val failure = intercept[CommandError] {
+      agent("s-bounded").call(WeatherAgent.askBounded).invoke("What day is it, three times?")
+    }
+    assertEquals(failure.code, ErrorCode.Internal)
+    assert(failure.getMessage.contains("exceeded 2 tool-call steps"), failure.getMessage)
+    assertEquals(toolCalls, Vector("current_date()", "current_date()"))
+  }
+
   test("a plain question reaches the model and its answer comes back") {
     model.expectText("It is sunny in Berlin.")
 

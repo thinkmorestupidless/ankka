@@ -292,7 +292,8 @@ object AutonomousAgentSettings:
 final case class AutonomousAgentDescriptor[A <: AutonomousAgent](
     componentId: ComponentId,
     definition: AutonomousAgentDefinition,
-    create: AutonomousAgentContext => A
+    create: AutonomousAgentContext => A,
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.AutonomousAgent
 

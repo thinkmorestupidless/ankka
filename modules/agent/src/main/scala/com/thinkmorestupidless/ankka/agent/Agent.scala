@@ -192,7 +192,8 @@ final case class AgentDescriptor[A <: Agent](
     handlers: Map[MethodName, HandlerBinding[A]],
     streams: Map[MethodName, StreamHandle[A, ?]],
     mcpServers: Vector[mcp.McpServer] = Vector.empty,
-    resultGuardrails: Vector[Guardrail] = Vector.empty
+    resultGuardrails: Vector[Guardrail] = Vector.empty,
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Agent
 

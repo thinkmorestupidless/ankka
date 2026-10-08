@@ -474,6 +474,14 @@ final class AnkkaService private[ankka] (
   def extensionNames: Vector[String] = extensions.map(_.name)
 
   /**
+   * The extension of a type this service runs, when it runs one — `extension[TimerRuntime]` for its
+   * clock, say. By type, so an extension that relies on another reaches it without the runtime
+   * knowing what either is.
+   */
+  def extension[E <: RuntimeExtension](using tag: scala.reflect.ClassTag[E]): Option[E] =
+    extensions.collectFirst { case e: E => e }
+
+  /**
    * Blocks until this node is a cluster member.
    *
    * Sharding buffers messages sent before the node is up, so this is not required for correctness —

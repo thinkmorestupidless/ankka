@@ -59,7 +59,9 @@ final case class TaskRecord(
     createdAt: Long,
     assignedAt: Option[Long],
     startedAt: Option[Long],
-    endedAt: Option[Long]
+    endedAt: Option[Long],
+    /** The agent's definition for this task alone, when the task carries one. */
+    definition: Option[TaskDefinition] = None
 ):
   def exists: Boolean = createdAt > 0L
 
@@ -90,7 +92,8 @@ enum TaskEvent:
       instructions: String,
       attachments: Vector[Attachment],
       dependencies: Vector[String],
-      at: Long
+      at: Long,
+      definition: Option[TaskDefinition] = None
   )
   case DependentAdded(taskId: String)
   case Assigned(assignee: Assignee, at: Long)
@@ -122,14 +125,15 @@ final class TaskEntity(context: EventSourcedEntityContext)
   def applyEvent(event: TaskEvent): TaskRecord =
     val s = currentState
     event match
-      case E.Created(id, typeName, instructions, attachments, dependencies, at) =>
+      case E.Created(id, typeName, instructions, attachments, dependencies, at, definition) =>
         TaskRecord.empty.copy(
           id = id,
           typeName = typeName,
           instructions = instructions,
           attachments = attachments,
           dependencies = dependencies,
-          createdAt = at
+          createdAt = at,
+          definition = definition
         )
       case E.DependentAdded(id) =>
         if s.dependents.contains(id) then s else s.copy(dependents = s.dependents :+ id)
@@ -182,7 +186,8 @@ final class TaskEntity(context: EventSourcedEntityContext)
             request.instructions,
             request.attachments,
             request.dependencies.distinct,
-            now()
+            now(),
+            request.definition
           )
         )
         .thenReply(_ => Done)
@@ -291,7 +296,8 @@ object TaskEntity
       typeName: String,
       instructions: String,
       attachments: Vector[Attachment] = Vector.empty,
-      dependencies: Vector[String] = Vector.empty
+      dependencies: Vector[String] = Vector.empty,
+      definition: Option[TaskDefinition] = None
   )
   final case class AddDependent(taskId: String)
 

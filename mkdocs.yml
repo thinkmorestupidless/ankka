@@ -179,6 +179,7 @@ nav:
       - Streaming responses: build/streaming.md
       - Multi-agent orchestration: build/multi-agent-orchestration.md
       - Autonomous agents: build/autonomous-agents.md
+      - Blueprints: build/blueprints.md
       - MCP servers: build/mcp-servers.md
       - HTTP endpoints: build/http-endpoints.md
       - Calling other services: build/calling-services.md

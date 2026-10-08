@@ -412,6 +412,9 @@
                 "name" : "cart-secret-key"
               }
             }
+          }, {
+            "name" : "ANKKA_PROJECT_DECLARATIONS",
+            "value" : "/var/run/ankka/project/topics.json"
           } ],
           "image" : "registry.example.com/acme/cart:1.4.2",
           "imagePullPolicy" : "IfNotPresent",
@@ -461,6 +464,7 @@
               "memory" : "512Mi"
             }
           },
+          "terminationMessagePolicy" : "FallbackToLogsOnError",
           "volumeMounts" : [ {
             "mountPath" : "/var/run/secrets/ankka/cluster",
             "name" : "ankka-cluster-tls",
@@ -468,6 +472,10 @@
           }, {
             "mountPath" : "/var/run/secrets/ankka/service",
             "name" : "ankka-service-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/ankka/project",
+            "name" : "ankka-project",
             "readOnly" : true
           } ]
         } ],
@@ -482,6 +490,12 @@
           "secret" : {
             "secretName" : "cart-service-tls"
           }
+        }, {
+          "configMap" : {
+            "name" : "ankka-project",
+            "optional" : true
+          },
+          "name" : "ankka-project"
         } ]
       }
     }

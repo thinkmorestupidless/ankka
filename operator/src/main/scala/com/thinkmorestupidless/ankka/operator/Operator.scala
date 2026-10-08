@@ -106,7 +106,20 @@ final class Operator(
               handler[AnkkaProject](p =>
                 Option(p.getMetadata)
                   .filter(m => watched(m.getNamespace))
-                  .map(m => ServiceRef(m.getNamespace, m.getName))
+                  .map { m =>
+                    // A project's declared brokers (feature 037) are mounted on every service of
+                    // the project: each is reconciled again when the project changes.
+                    client
+                      .resources(classOf[AnkkaService])
+                      .inNamespace(m.getNamespace)
+                      .list()
+                      .getItems
+                      .asScala
+                      .foreach(s =>
+                        queue.enqueue(ServiceRef(m.getNamespace, s.getMetadata.getName))
+                      )
+                    ServiceRef(m.getNamespace, m.getName)
+                  }
               )(using projectQueue),
               resyncMillis
             )

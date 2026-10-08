@@ -40,7 +40,7 @@ from ankka._proto.ankka.protocol.v1 import (
     workflow_pb2,
     workflow_pb2_grpc,
 )
-from ankka import start_from
+from ankka import contract, start_from
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient, SidecarRows
@@ -88,7 +88,21 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         """A sidecar older than 1.7 would ignore where a topic source starts and its version: a
         consumer declared ``latest`` would read everything, and a raised version would rebuild nothing.
         One older than 1.13 would not know a view's declared queries, which would be missing at their
-        first asking. Refused, naming what declares them, rather than served wrong."""
+        first asking. One older than 1.14 would ignore a contract, a broker, parallel partitions and a
+        publication's contract: a service checked against nothing, reading the wrong broker. Refused,
+        naming what declares them, rather than served wrong."""
+        if start_from.older_than(sidecar_protocol, contract.CONTRACT_PROTOCOL):
+            stating = [
+                cls.__name__
+                for cls in (*self.registry.views.values(), *self.registry.consumers.values())
+                if contract.declares_any(cls)
+            ]
+            if stating:
+                return (
+                    f"{', '.join(stating)} declare a contract, a broker, parallel partitions or a publication, which "
+                    f"the sidecar ignores: it speaks protocol {sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. "
+                    "Run a sidecar speaking 1.14 or later."
+                )
         if start_from.older_than(sidecar_protocol, DECLARED_QUERY_PROTOCOL):
             asking = [cls.__name__ for cls in self.registry.views.values() if declares_queries(cls)]
             # A keyed view, and a version on a view that reads an entity, are 1.13's too: an older

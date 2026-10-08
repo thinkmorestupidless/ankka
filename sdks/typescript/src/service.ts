@@ -5,6 +5,7 @@
 //   await Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen()
 
 import { isStartFrom, type StartFrom } from "./startFrom.ts"
+import { Contract, type Publication } from "./contract.ts"
 import { codecFor, isCodec, type Codec, type Shape } from "./codec.ts"
 import { EventSourcedEntity, type EventSourcedEntityClass } from "./eventSourcedEntity.ts"
 import { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
@@ -59,7 +60,16 @@ export interface RegisteredWorkflow {
 /** Where a view or consumer reads from: a component, by kind and id, or a topic. */
 export type Source =
   | { readonly component: { readonly kind: ComponentKind; readonly id: string } }
-  | { readonly topic: string; readonly startFrom?: StartFrom }
+  | {
+      readonly topic: string
+      readonly startFrom?: StartFrom
+      /** The contract the topic is expected to carry. */
+      readonly contract?: Contract
+      /** The declared broker the topic is on; absent is the installation's. */
+      readonly broker?: string
+      /** Partitions handled at once, each in order. */
+      readonly parallel?: boolean
+    }
 
 export interface RegisteredView {
   readonly kind: "view"
@@ -100,6 +110,8 @@ export interface RegisteredConsumer {
   readonly messageCodec: Codec<any>
   readonly outCodec: Codec<any> | undefined
   readonly producesTo: string | undefined
+  /** The publication as declared: the topic with the contract stated for it and its broker. */
+  readonly produces: Publication | undefined
   /** A graph consumer: its handlers return elements, each published as a delta under its element key. */
   readonly graph: boolean
   readonly version: number | undefined
@@ -384,7 +396,7 @@ function registerWorkflow(cls: WorkflowClass<any, any>, problems: string[]): Reg
   return Object.freeze({ kind: "workflow", id: cls.componentId, cls, stateCodec: codecFor(cls.state), handlers, steps, settings })
 }
 
-type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; version?: unknown }
+type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; version?: unknown; contract?: unknown; broker?: unknown; parallel?: unknown }
 
 /**
  * What a view or consumer says about the topic it reads, checked where its other declarations are:
@@ -405,6 +417,12 @@ function topicProblems(cls: Declares, consumer: boolean, fail: Fail): void {
       fail(`declares version ${String(cls.version)}; a version is a whole number of 1 or more`)
     } else if (consumer && !readsTopic) fail("declares a version, which applies to a topic; it reads a component")
   }
+  if (cls.contract !== undefined && !(cls.contract instanceof Contract)) fail("contract must be a Contract: Contract.fromFile(path, name)")
+  if (cls.broker !== undefined && (typeof cls.broker !== "string" || cls.broker.trim() === "")) fail("broker must be the name of a broker the project declares")
+  if (cls.parallel !== undefined && typeof cls.parallel !== "boolean") fail("parallel must be true or false")
+  if ((cls.contract !== undefined || cls.broker !== undefined || cls.parallel !== undefined) && !readsTopic) {
+    fail("declares a contract, a broker or parallel, which apply to a topic; it reads a component")
+  }
 }
 
 function sourceOf(cls: Declares, fail: Fail, consumer: boolean): Source | undefined {
@@ -420,7 +438,13 @@ function sourceOf(cls: Declares, fail: Fail, consumer: boolean): Source | undefi
       fail("topic must be a non-empty string")
       return undefined
     }
-    return isStartFrom(cls.startFrom) ? { topic: cls.topic, startFrom: cls.startFrom } : { topic: cls.topic }
+    return {
+      topic: cls.topic,
+      ...(isStartFrom(cls.startFrom) ? { startFrom: cls.startFrom } : {}),
+      ...(cls.contract instanceof Contract ? { contract: cls.contract } : {}),
+      ...(typeof cls.broker === "string" ? { broker: cls.broker } : {}),
+      ...(cls.parallel === true ? { parallel: true } : {}),
+    }
   }
   const src = cls.source as ComponentRef
   const kind = src?.prototype?._kind
@@ -533,8 +557,8 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
   requireId(cls, fail)
   const source = sourceOf(cls, fail, true)
   requireShape(cls.message, "message: a schema or codec for the source's messages", fail)
-  if (cls.producesTo !== undefined && (typeof cls.producesTo !== "string" || cls.producesTo.trim() === "")) fail("producesTo must be a topic name")
-  if (cls.producesTo !== undefined && !isShape(cls.out)) fail(`produces to ${JSON.stringify(cls.producesTo)} and needs a static out: the shape of what it produces`)
+  const produces = publicationOf(cls.producesTo, fail)
+  if (produces !== undefined && !isShape(cls.out)) fail(`produces to ${JSON.stringify(produces.topic)} and needs a static out: the shape of what it produces`)
   if (!ok() || !source) return undefined
   return Object.freeze({
     kind: "consumer",
@@ -543,10 +567,35 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
     source,
     messageCodec: codecFor(cls.message),
     outCodec: cls.out ? codecFor(cls.out) : undefined,
-    producesTo: cls.producesTo,
+    producesTo: produces?.topic,
+    produces,
     graph: false,
     version: cls.version,
   })
+}
+
+/**
+ * `producesTo` as declared: a topic name, or a Publication naming the topic with the contract stated
+ * for it and its broker. Undefined when the consumer produces nothing.
+ */
+function publicationOf(declared: unknown, fail: Fail): Publication | undefined {
+  if (declared === undefined) return undefined
+  if (typeof declared === "string") {
+    if (declared.trim() === "") fail("producesTo must be a topic name")
+    return declared.trim() === "" ? undefined : { topic: declared }
+  }
+  const p = declared as { topic?: unknown; contract?: unknown; broker?: unknown }
+  if (typeof p !== "object" || p === null || typeof p.topic !== "string" || p.topic.trim() === "") {
+    fail("producesTo must be a topic name, or { topic, contract?, broker? }")
+    return undefined
+  }
+  if (p.contract !== undefined && !(p.contract instanceof Contract)) fail("producesTo.contract must be a Contract: Contract.fromFile(path, name)")
+  if (p.broker !== undefined && (typeof p.broker !== "string" || p.broker.trim() === "")) fail("producesTo.broker must be the name of a broker the project declares")
+  return {
+    topic: p.topic,
+    ...(p.contract instanceof Contract ? { contract: p.contract } : {}),
+    ...(typeof p.broker === "string" ? { broker: p.broker } : {}),
+  }
 }
 
 /** A graph consumer is a consumer to discovery and to the runtime: one that produces deltas to its topic. */
@@ -566,6 +615,7 @@ function registerGraphConsumer(cls: GraphConsumerClass<any, any>, problems: stri
     messageCodec: codecFor(cls.message),
     outCodec: graphDeltaCodec,
     producesTo: cls.producesTo,
+    produces: undefined,
     graph: true,
     version: cls.version,
   })

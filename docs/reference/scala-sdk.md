@@ -106,7 +106,7 @@ See [Key value entities](../build/key-value-entities.md).
 |---|---|
 | Base class | `View[Src, Row]` |
 | Companion | `View.Companion[V, Src, Row](componentId, source, rowSerializer)` |
-| Source | `ChangeSource.eventsOf(EntityCompanion)`, `ChangeSource.stateOf(KeyValueCompanion)`, `ChangeSource.fromTopic(name, serializer)` |
+| Source | `ChangeSource.eventsOf(EntityCompanion)`, `ChangeSource.stateOf(KeyValueCompanion)`, `ChangeSource.fromTopic(name, serializer)`, or `fromTopic(name, serializer, startFrom, TopicOptions(contract, broker, parallel))` |
 | Must define | `onChange(change: Src): Effect`, `create(ctx: ViewComponentContext)` |
 | May override | `onDelete: Effect` (default: delete the row), `parallelism` (default 4) |
 | In a handler | `rowState: Option[Row]`, `updateContext` (`subject`, `sequenceNumber`, `localOrigin`) |
@@ -124,7 +124,7 @@ fragments over the row's JSON, built with `jsonText("field") ++ sql" = $value"` 
 | Base class | `Consumer[Src, Out]` |
 | Companion | `Consumer.Companion[C, Src, Out](componentId, source)` |
 | Must define | `onMessage(message: Src): Effect`, `create(ctx: ConsumerContext)` |
-| May override | `onDelete: Effect` (default: ignore), `produceTo: Option[String]`, `outputSerializer: Option[Serializer[Out]]`, `parallelism` (default 4) |
+| May override | `onDelete: Effect` (default: ignore), `produceTo: Option[String]` or `produces: Option[Publication]` (a topic with its contract and broker), `outputSerializer: Option[Serializer[Out]]`, `parallelism` (default 4) |
 | In a handler | `messageContext` (`subject`, `sequenceNumber`, `localOrigin`); the context's `componentClient` |
 | Effects | `effects.produce(out)`, `effects.produce(out, metadata)`, `effects.produceAll(messages)`, `effects.done()`, `effects.ignore()` |
 | One of several messages | `effects.message(out)`, then `.withKey(key)` to publish it under a record key other than its subject and `.withMetadata(metadata)` for its headers |

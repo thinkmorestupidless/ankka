@@ -60,21 +60,22 @@ object TopicProvisioning:
     else
       val name = BrokerNames.topic(projectId, entry.name)
       observed match
-        case Some(TopicState(_, Some(partitions))) if partitions > entry.partitions =>
+        case Some(TopicState(_, Some(partitions), _)) if partitions > entry.partitions =>
           TopicPlan.Failed(
             Vector(
               s"topic '$name' has $partitions partitions and cannot have fewer; " +
                 s"${entry.partitions} was asked"
             )
           )
-        case Some(TopicState(state, _))
+        case Some(TopicState(state, _, _))
             if state.ready.contains(false) &&
               state.reason.exists(BrokerProvisioning.PermanentReasons) =>
           TopicPlan.Failed(
             Vector(s"topic '$name': ${state.message.orElse(state.reason).getOrElse("refused")}")
           )
-        case Some(TopicState(state, partitions))
-            if state.ready.contains(true) && partitions.forall(_ == entry.partitions) =>
+        case Some(TopicState(state, partitions, compacted))
+            if state.ready.contains(true) && partitions.forall(_ == entry.partitions) &&
+              compacted.forall(_ == entry.compacted) =>
           TopicPlan.Ready(recovered = madeBefore(state, entry))
         case _ =>
           TopicPlan.Waiting(Some(s"waiting for the broker to make topic '$name'"))
@@ -89,7 +90,13 @@ object TopicProvisioning:
       spec.topics.map { t =>
         val seen = observed.get(BrokerNames.topic(spec.projectId, t.name))
         val plan = decide(spec.projectId, t, broker, seen)
-        ProjectTopicStatus(t.name, plan.phase, seen.flatMap(_.partitions), plan.explanation)
+        ProjectTopicStatus(
+          t.name,
+          plan.phase,
+          seen.flatMap(_.partitions),
+          plan.explanation,
+          seen.flatMap(_.compacted)
+        )
       }
     )
 

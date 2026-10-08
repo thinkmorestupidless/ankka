@@ -1961,13 +1961,64 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("profile-graph", "topic:conformance-profile-graph", "topic-publication"),
         ("topic:conformance-topic", "topic-rows", "topic-subscription"),
         ("topic:conformance-topic", "topic-relay", "topic-subscription"),
-        ("topic-relay", "topic:conformance-topic-relayed", "topic-publication")
+        ("topic-relay", "topic:conformance-topic-relayed", "topic-publication"),
+        // A topic on a declared broker is named with it (feature 037).
+        ("topic:legacy/conformance-contracts", "contract-relay", "topic-subscription"),
+        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap
     assertEquals(kinds.get("cart-rows"), Some("View"))
     assertEquals(kinds.get("checkout-recorder"), Some("Consumer"))
     assertEquals(kinds.get("shopping-cart"), Some("EventSourcedEntity"))
+  }
+
+  // ── Contracts, declared brokers and parallel partitions (feature 037) ──────
+
+  // `features/topics/contracts.feature` and `features/topics/brokers.feature`, for every language:
+  // what a component states reaches the runtime the same way from each SDK, and the fingerprint of
+  // one schema document is the same in each.
+  test(
+    "contracts.declared: a consumer states its contract, broker and parallel reading in every language"
+  ) {
+    val (options, publication) = target.contractRelay.getOrElse(fail("no contract-relay"))
+    val expected               = ConformanceReference.OrderContract
+    assertEquals(options.contract, Some(expected))
+    assertEquals(options.broker, Some(ConformanceReference.DeclaredBroker))
+    assertEquals(options.parallel, true)
+    assertEquals(publication.topic, ConformanceReference.Contracted)
+    assertEquals(publication.contract, Some(expected))
+    assertEquals(publication.broker, Some(ConformanceReference.DeclaredBroker))
+    // The fixture's fingerprint: `protocol/fixtures/contracts/fingerprints.json`, row `order.v1`.
+    assertEquals(
+      expected.fingerprint,
+      "sha256:79f2b2961c07b4565ebcf05e35163318c7cdcca7f70d1de60d8118e8562c17e0"
+    )
+  }
+
+  test("contracts.edges: the topology says what a component states for a topic") {
+    val document = Json.parse(target.topology).fold(p => fail(s"not JSON: $p"), identity)
+    val edges    = document("declared").flatMap(_.asArray).getOrElse(fail(target.topology))
+    val relay = edges.filter(e =>
+      e("from").flatMap(_.asString).contains("contract-relay") ||
+        e("to").flatMap(_.asString).contains("contract-relay")
+    )
+    assertEquals(relay.size, 2, target.topology)
+    relay.foreach { e =>
+      assertEquals(e("broker").flatMap(_.asString), Some("legacy"), e.render)
+      assertEquals(
+        e("contract").flatMap(_("fingerprint")).flatMap(_.asString),
+        Some(ConformanceReference.OrderContract.fingerprint),
+        e.render
+      )
+    }
+  }
+
+  // `features/topics/parallelism.feature`: a parallel consumer's process answers two handles at
+  // once. The broker in memory has one partition, so the two are sent to the process directly, the
+  // second before the first is answered; both are answered, each with its own message handled.
+  test("contracts.parallel: two concurrent handles of a parallel consumer are both answered") {
+    assertEquals(target.handleBoth(1, 10), Vector(Some(2), Some(11)))
   }
 
   /** The observed calls of the target's topology: who called whom, handler to handler. */

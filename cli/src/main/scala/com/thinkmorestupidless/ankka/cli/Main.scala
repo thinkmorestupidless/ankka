@@ -406,17 +406,44 @@ object Main:
     ) {
       val set = Opts.subcommand(
         "set",
-        "Declare a topic on the project, or give it more partitions. A topic is never given fewer."
+        "Declare a topic on the project, or give it more partitions. A topic is never given fewer. " +
+          "--compacted keeps the last message under each key; --contract and --schema declare " +
+          "what the topic carries, which every side must state."
       ) {
         (
           Opts.argument[String]("name"),
           Opts.option[Int]("partitions", "How many partitions the topic has."),
+          Opts.flag("compacted", "The broker keeps the last message under each key.").orFalse,
+          Opts
+            .option[String]("contract", "The contract's name, such as order.v1; needs --schema.")
+            .orNone,
+          Opts
+            .option[String](
+              "schema",
+              "The contract's schema document, a JSON file; - reads standard input."
+            )
+            .orNone,
           contextOpt
-        ).mapN { (name, partitions, ctx) => () =>
-          val problems = ProjectTopics.problems(name, partitions)
+        ).mapN { (name, partitions, compacted, contractName, schemaPath, ctx) => () =>
+          val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
+          val request  = TopicDeclarationRequest(partitions, compacted, contract)
+          val problems = ProjectTopics.problems(name, request)
           if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-          ctx.client.declareTopic(ctx.project, name, partitions)
-          s"topic '$name' in '${ctx.project}' has $partitions partitions"
+          ctx.client.declareTopic(ctx.project, name, request)
+          val how = (if compacted then ", compacted" else "") +
+            contract.fold("")(c => s", carrying ${c.name}")
+          s"topic '$name' in '${ctx.project}' has $partitions partitions$how"
+        }
+      }
+
+      val schema = Opts.subcommand(
+        "schema",
+        "A topic's contract schema: fetch it to build against."
+      ) {
+        Opts.subcommand("get", "Print the schema document the topic's contract was declared with.") {
+          (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+            ctx.client.topicSchema(ctx.project, name)
+          }
         }
       }
 
@@ -436,6 +463,50 @@ object Main:
       ) {
         contextOpt.map { ctx => () =>
           Output.projectTopics(ctx.client.listTopics(ctx.project), ctx.format)
+        }
+      }
+
+      set.orElse(unset).orElse(list).orElse(schema)
+    }
+
+    val brokers = Opts.subcommand(
+      "brokers",
+      "Brokers a project declares beside the installation's, which a component may name for one " +
+        "topic; the credential is a project secret, mounted for the platform's program alone."
+    ) {
+      val set = Opts.subcommand(
+        "set",
+        "Declare a broker, or change where it is. The project secret holds ca.crt with tls.crt and " +
+          "tls.key (shape certificate), or ca.crt with username and password (shape sasl)."
+      ) {
+        (
+          Opts.argument[String]("name"),
+          Opts.option[String]("bootstrap", "The broker's address, host:port[,host:port]."),
+          Opts.option[String]("shape", "certificate or sasl."),
+          Opts.option[String]("secret", "The project secret holding the credential."),
+          contextOpt
+        ).mapN { (name, bootstrap, shape, secret, ctx) => () =>
+          val request  = BrokerDeclarationRequest(bootstrap, shape, secret)
+          val problems = ProjectBrokers.problems(name, request)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          ctx.client.declareBroker(ctx.project, name, request)
+          s"broker '$name' in '${ctx.project}' is at $bootstrap, reached by $shape with project secret '$secret'"
+        }
+      }
+
+      val unset = Opts.subcommand(
+        "unset",
+        "Stop declaring a broker. A service naming it is refused at its next start."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          ctx.client.removeBroker(ctx.project, name)
+          s"'${ctx.project}' no longer declares broker '$name'"
+        }
+      }
+
+      val list = Opts.subcommand("list", "List a project's declared brokers.") {
+        contextOpt.map { ctx => () =>
+          Output.projectBrokers(ctx.client.listBrokers(ctx.project), ctx.format)
         }
       }
 
@@ -490,6 +561,7 @@ object Main:
       .orElse(registry)
       .orElse(secrets)
       .orElse(topics)
+      .orElse(brokers)
   }
 
   // ── services ──────────────────────────────────────────────────────────────

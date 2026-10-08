@@ -41,6 +41,16 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
 
   def namespaceExists(namespace: String): Boolean = namespaces.contains(namespace)
 
+  // A contract's schema documents, by namespace and fingerprint (feature 037).
+  private val schemas = TrieMap.empty[(String, String), String]
+
+  def putSchema(namespace: String, fingerprint: String, document: String): Unit =
+    ensureNamespace(namespace)
+    schemas.put((namespace, fingerprint), document): Unit
+
+  def schema(namespace: String, fingerprint: String): Option[String] =
+    schemas.get((namespace, fingerprint))
+
   /**
    * What the control plane tried to put in the cluster, password included.
    *

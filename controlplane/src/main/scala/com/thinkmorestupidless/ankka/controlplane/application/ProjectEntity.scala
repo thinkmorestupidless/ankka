@@ -1,7 +1,9 @@
 package com.thinkmorestupidless.ankka.controlplane.application
 
 import com.thinkmorestupidless.ankka.controlplane.api.{
+  BrokerDeclarationRequest,
   CreateProject,
+  ProjectBrokers,
   ProjectDetail,
   ProjectSecretSummary,
   ProjectTopics,
@@ -36,9 +38,12 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       currentState.onSecretEntriesSet(name, entries, actor, at)
     case ProjectSecretEntryRemoved(name, entry, _, _) =>
       currentState.onSecretEntryRemoved(name, entry)
-    case ProjectTopicDeclared(name, partitions, _, at) =>
-      currentState.onTopicDeclared(name, partitions, at)
-    case ProjectTopicRemoved(name, _, _) => currentState.onTopicRemoved(name)
+    case ProjectTopicDeclared(name, partitions, _, at, compacted, contract) =>
+      currentState.onTopicDeclared(name, partitions, at, compacted, contract)
+    case ProjectBrokerDeclared(name, bootstrap, shape, secretName, _, at) =>
+      currentState.onBrokerDeclared(name, DeclaredBroker(bootstrap, shape, secretName, at))
+    case ProjectBrokerRemoved(name, _, _) => currentState.onBrokerRemoved(name)
+    case ProjectTopicRemoved(name, _, _)  => currentState.onTopicRemoved(name)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -119,6 +124,19 @@ final class ProjectEntity(context: EventSourcedEntityContext)
         s"project secret '${request.name}' has no entry '${request.entry}'",
         ErrorCode.NotFound
       )
+    else if currentState.brokers.exists((_, d) =>
+        d.secretName == request.name && ProjectBrokers.needs(d.shape).contains(request.entry)
+      )
+    then
+      // Feature 037: a broker's credential is not pulled from under it; the broker goes first.
+      val named = currentState.brokers.collect {
+        case (b, d) if d.secretName == request.name => b
+      }
+      effects.error(
+        s"project secret '${request.name}' is the credential of broker " +
+          s"${named.toVector.sorted.map(b => s"'$b'").mkString(", ")}; remove the broker first",
+        ErrorCode.Conflict
+      )
     else
       effects
         .persist(ProjectSecretEntryRemoved(request.name, request.entry, actor, at))
@@ -135,16 +153,28 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       val problems = ProjectTopics.problems(request.name, request.partitions)
       if problems.nonEmpty then effects.error(problems.mkString("; "))
       else
-        currentState.topics.get(request.name).map(_.partitions) match
-          case Some(has) if has > request.partitions =>
+        currentState.topics.get(request.name) match
+          case Some(has) if has.partitions > request.partitions =>
             effects.error(
-              ProjectTopics.fewer(request.name, has, request.partitions),
+              ProjectTopics.fewer(request.name, has.partitions, request.partitions),
               ErrorCode.Conflict
             )
-          case Some(has) if has == request.partitions => effects.reply(Done)
+          case Some(has)
+              if has.partitions == request.partitions && has.compacted == request.compacted &&
+                has.contract == request.contract =>
+            effects.reply(Done)
           case _ =>
             effects
-              .persist(ProjectTopicDeclared(request.name, request.partitions, actor, at))
+              .persist(
+                ProjectTopicDeclared(
+                  request.name,
+                  request.partitions,
+                  actor,
+                  at,
+                  request.compacted,
+                  request.contract
+                )
+              )
               .thenReply(_ => Done)
 
   /** Stop declaring a topic. Nothing on the broker is removed; one not declared is not found. */
@@ -156,6 +186,65 @@ final class ProjectEntity(context: EventSourcedEntityContext)
         ErrorCode.NotFound
       )
     else effects.persist(ProjectTopicRemoved(request.name, actor, at)).thenReply(_ => Done)
+
+  /**
+   * Declare a broker on the project, or change where it is (feature 037). The secret must be one
+   * the project has set, with the entries the shape needs, which this entity's own record says
+   * exactly.
+   */
+  def declareBroker(request: DeclareBroker): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      val problems = ProjectBrokers.problems(
+        request.name,
+        BrokerDeclarationRequest(request.bootstrap, request.shape, request.secretName)
+      )
+      if problems.nonEmpty then effects.error(problems.mkString("; "))
+      else
+        currentState.secrets.get(request.secretName) match
+          case None =>
+            effects.error(
+              s"project '${context.entityId}' has no project secret '${request.secretName}'",
+              ErrorCode.BadRequest
+            )
+          case Some(secret) =>
+            val missing = ProjectBrokers.needs(request.shape).filterNot(secret.entries)
+            if missing.nonEmpty then
+              effects.error(ProjectBrokers.lacking(request.secretName, request.shape, missing))
+            else
+              currentState.brokers.get(request.name) match
+                case Some(has)
+                    if has.bootstrap == request.bootstrap && has.shape == request.shape &&
+                      has.secretName == request.secretName =>
+                  effects.reply(Done)
+                case _ =>
+                  effects
+                    .persist(
+                      ProjectBrokerDeclared(
+                        request.name,
+                        request.bootstrap,
+                        request.shape,
+                        request.secretName,
+                        actor,
+                        at
+                      )
+                    )
+                    .thenReply(_ => Done)
+
+  /** Stop declaring a broker. A service naming it is refused at its next start. */
+  def removeBroker(request: RemoveBroker): Effect[Done] =
+    if !currentState.exists then notFound
+    else if !currentState.brokers.contains(request.name) then
+      effects.error(
+        s"project '${context.entityId}' declares no broker '${request.name}'",
+        ErrorCode.NotFound
+      )
+    else effects.persist(ProjectBrokerRemoved(request.name, actor, at)).thenReply(_ => Done)
+
+  /** The project's declared brokers, by name. */
+  def brokers: ReadOnlyEffect[Map[String, DeclaredBroker]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.brokers)
 
   /** The project's declared topics, by name. */
   def topics: ReadOnlyEffect[Map[String, DeclaredTopic]] =
@@ -222,6 +311,13 @@ object ProjectEntity
   given Serializer[RemoveTopic]  = Codecs.serializer[RemoveTopic]("remove-topic")
   given Serializer[Map[String, DeclaredTopic]] =
     Codecs.serializer[Map[String, DeclaredTopic]]("declared-topics")
+  given declareBrokerSerializer: Serializer[DeclareBroker] =
+    Codecs.serializer[DeclareBroker]("declare-broker")
+  given removeBrokerSerializer: Serializer[RemoveBroker] =
+    Codecs.serializer[RemoveBroker]("remove-broker")
+  // Named: an anonymous given of `Map[String, DeclaredBroker]` erases to the declared topics' one.
+  given declaredBrokersSerializer: Serializer[Map[String, DeclaredBroker]] =
+    Codecs.serializer[Map[String, DeclaredBroker]]("declared-brokers")
 
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
@@ -242,3 +338,7 @@ object ProjectEntity
   val declareTopic = command("declare-topic")(_.declareTopic)
   val removeTopic  = command("remove-topic")(_.removeTopic)
   val topics       = query("topics")(_.topics)
+
+  val declareBroker = command("declare-broker")(_.declareBroker)
+  val removeBroker  = command("remove-broker")(_.removeBroker)
+  val brokers       = query("brokers")(_.brokers)

@@ -280,14 +280,20 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
       mounts.map(m => m.getName -> m.getMountPath).toSet,
       Set(
         "ankka-cluster-tls" -> "/var/run/secrets/ankka/cluster",
-        "ankka-service-tls" -> "/var/run/secrets/ankka/service"
+        "ankka-service-tls" -> "/var/run/secrets/ankka/service",
+        // The project's declarations (feature 037): a ConfigMap, mounted whole for the same reason.
+        "ankka-project" -> "/var/run/ankka/project"
       )
     )
     assert(mounts.forall(m => m.getSubPath == null && m.getReadOnly), mounts.toString)
+    val volumes = pod.getVolumes.asScala
     assertEquals(
-      pod.getVolumes.asScala.map(v => v.getName -> v.getSecret.getSecretName).toSet,
+      volumes.filter(_.getSecret != null).map(v => v.getName -> v.getSecret.getSecretName).toSet,
       Set("ankka-cluster-tls" -> "cart-cluster-tls", "ankka-service-tls" -> "cart-service-tls")
     )
+    val project = volumes.find(_.getName == "ankka-project").get.getConfigMap
+    assertEquals(project.getName, "ankka-project")
+    assertEquals(project.getOptional, java.lang.Boolean.TRUE)
   }
 
   test(

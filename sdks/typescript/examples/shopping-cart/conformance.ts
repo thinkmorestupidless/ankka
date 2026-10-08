@@ -3,6 +3,7 @@
 // (`sidecar/src/test/.../ConformanceReference.scala`) and the Python one have the same.
 import {
   socket,
+  Contract,
   type Socket,
   Acl,
   Agent,
@@ -193,6 +194,33 @@ export class TopicRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fann
   }
 }
 // docs:end topic-sources
+
+// ── contract-relay: a consumer that states a contract, a declared broker and parallel reading ──
+
+/** The contract every reference states, from the same schema document: the fixtures' `order.v1`. */
+const orderSchema =
+  '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",' +
+  '"required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}'
+const orderContract = Contract.fromBytes(orderSchema, "order.v1")
+
+// docs:start contract-relay
+/** Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more. */
+export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "contract-relay"
+  static readonly topic = "conformance-contracts"
+  static readonly startFrom = StartFrom.earliest
+  static readonly contract = orderContract
+  static readonly broker = "legacy"
+  static readonly parallel = true
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-contracted", contract: orderContract, broker: "legacy" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce({ n: message.n + 1 })
+  }
+}
+// docs:end contract-relay
 
 // ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
@@ -806,6 +834,7 @@ export function referenceService() {
     .register(CheckoutFanout)
     .register(TopicRows)
     .register(TopicRelay)
+    .register(ContractRelay)
     .register(TreeNode)
     .register(TreeRows)
     .register(JoinedLeft)

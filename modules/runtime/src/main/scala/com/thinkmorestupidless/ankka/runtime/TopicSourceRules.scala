@@ -35,7 +35,7 @@ private[ankka] object TopicSourceRules:
         start ++ versionProblems("consumer", c.componentId, c.version, readsOf(c.source))
       case c: RemoteConsumerDescriptor =>
         val start = c.source match
-          case RemoteSource.Topic(topic, None) if c.startDeclarable =>
+          case RemoteSource.Topic(topic, None, _) if c.startDeclarable =>
             Vector(noStartPosition(c.componentId, topic))
           case _ => Vector.empty
         start ++ versionProblems("consumer", c.componentId, c.version, readsOf(c.source))
@@ -56,7 +56,7 @@ private[ankka] object TopicSourceRules:
     case other: ChangeSource[?]   => Some(other.describe)
 
   private def readsOf(source: RemoteSource): Option[String] = source match
-    case RemoteSource.Topic(_, _)         => None
+    case RemoteSource.Topic(_, _, _)      => None
     case RemoteSource.Component(kind, id) => Some(s"$kind($id)")
 
   /**

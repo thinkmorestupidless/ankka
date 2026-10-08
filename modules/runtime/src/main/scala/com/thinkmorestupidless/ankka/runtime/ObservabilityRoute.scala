@@ -122,6 +122,20 @@ private[runtime] object Metrics:
         )
         builder ++= s"ankka_topic_source_behind${labelSet(labels)} ${if s.behind then 1 else 0}\n"
     }
+    builder ++= "# HELP ankka_topic_source_lag Messages the topic holds past the last one this " +
+      "source handled, as of its last poll.\n"
+    builder ++= "# TYPE ankka_topic_source_lag gauge\n"
+    topicSources.foreach { s =>
+      s.lag.foreach { lag =>
+        val labels = Vector(
+          "kind"      -> s.kindWord,
+          "component" -> s.componentId,
+          "topic"     -> s.topic,
+          "group"     -> s.group
+        )
+        builder ++= s"ankka_topic_source_lag${labelSet(labels)} $lag\n"
+      }
+    }
 
     builder.toString
 

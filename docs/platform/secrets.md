@@ -99,13 +99,22 @@ when it starts:
 }
 ```
 
+A project secret also holds the credential of a broker the project declares. That is the one case a
+project secret reaches a service as files rather than a variable: the platform mounts the secret, read-only,
+at `/var/run/secrets/ankka/brokers/<broker>` on the platform's container of every service in the project,
+where its entries (`ca.crt`, `tls.crt` and `tls.key`, or `ca.crt`, `username` and `password`) are the
+files the runtime reads to connect. A process-hosted service's own container sees nothing of it. See
+[A topic on another broker](../build/topics.md#a-topic-on-another-broker).
+
 ### Setting, removing, listing
 
 - **set** adds or replaces the entries it names and keeps every other entry of the secret.
 - **unset** removes one entry: `ankka projects secrets unset checkout STRIPE_KEY -p shop`. A secret whose
   last entry is removed is no longer listed; its Secret stays in the namespace, empty, and setting an
   entry on that name again brings it back. An entry that was never set is answered not found, and
-  nothing is written.
+  nothing is written. An entry a declared broker needs — `ca.crt`, `tls.crt`, `tls.key`, `username` or
+  `password` of the secret a broker names — cannot be removed while the broker names it: the removal is
+  refused naming the broker, and the broker is removed first.
 - **list** shows each secret's name, its entries, and who last set one — never a value:
   `ankka projects secrets list -p shop`.
 

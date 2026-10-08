@@ -14,6 +14,7 @@ pages:
   - operate/console.md
   - deploy/expose.md
   - deploy/web-hosting.md
+  - deploy/graph-sink.md
   - reference/web-hosting.md
   - deploy/scaling-and-rollouts.md
   - deploy/ci.md

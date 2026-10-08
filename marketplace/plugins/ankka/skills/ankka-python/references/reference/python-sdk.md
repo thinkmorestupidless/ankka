@@ -114,7 +114,7 @@ See [Views](../build/views.md).
 | Part | API |
 |---|---|
 | Base class | `ankka.consumer.Consumer[Src, Out]` |
-| Class attributes | `component_id`, `source` or `topic`, `message_codec`; to publish, `produces_to` and `out_codec` |
+| Class attributes | `component_id`, `source` or `topic`, `message_codec`; for a topic, `start_from`, `contract`, `broker`, `parallel`; to publish, `produces_to` (a topic, or a `Publication` with its contract and broker) and `out_codec` |
 | Must define | `async on_message(self, message) -> ConsumerEffect` |
 | May override | `on_delete(self)`, which ignores by default |
 | In a handler | `self.metadata` (`subject`, `sequence_number`), `self.client`, `self.effects` |
@@ -133,7 +133,7 @@ nothing but deltas.
 | Part | API |
 |---|---|
 | Base class | `ankka.GraphConsumer[Src]`, in `ankka.graph` |
-| Class attributes | `component_id`, `source` or `topic`, `message_codec`, `produces_to`; no `out_codec` |
+| Class attributes | `component_id`, `source` or `topic`, `message_codec`, `produces_to`; `contract`, `broker`, `parallel` for a topic; no `out_codec` |
 | Must define | `on_message(self, message) -> GraphEffect`, which may be `async` |
 | May override | `on_delete(self)`, which ignores by default |
 | In a handler | `self.metadata`, `self.client`, `self.graph`, `self.effects` |

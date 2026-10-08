@@ -64,9 +64,10 @@ object Protocol:
    * `ScheduleRecurring` on `Client`, the `schedule_recurring` module import, and `ankka.due` on a
    * timed action's request (feature 032). 1.13 added a view's declared queries, the keyed view with
    * several entity sources and row changes by key, and a version on a view that reads entities
-   * (feature 031).
+   * (feature 031). 1.14 added a topic source's contract, broker and parallel flag and a consumer's
+   * publication with its contract and broker (feature 037).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 13)
+  val version: ProtocolVersion = ProtocolVersion(1, 14)
 
 object Compatibility:
 

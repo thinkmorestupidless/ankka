@@ -1,11 +1,5 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import org.slf4j.LoggerFactory
-
-import java.nio.charset.StandardCharsets.UTF_8
-import java.nio.file.{Files, Paths}
-import scala.util.Try
-
 /**
  * A service deployed to serve gRPC that registers nothing to serve it.
  *
@@ -21,8 +15,6 @@ import scala.util.Try
  */
 private[ankka] object DeclaredGrpc:
 
-  private val log = LoggerFactory.getLogger("com.thinkmorestupidless.ankka.runtime.Ankka")
-
   /** What the platform tells a service its gRPC port by. */
   val PortEnvVar: String = "ANKKA_GRPC_PORT"
 
@@ -32,9 +24,6 @@ private[ankka] object DeclaredGrpc:
   /**
    * Where Kubernetes reads a container's termination message from, unless a test says otherwise.
    */
-  private def terminationLog: String =
-    sys.props.getOrElse("ankka.termination.log", "/dev/termination-log")
-
   def problem(env: String => Option[String], extensions: Seq[String]): Option[String] =
     env(PortEnvVar).filter(_.nonEmpty).filterNot(_ => extensions.contains(ServerName)).map { port =>
       s"the descriptor declares gRPC ($PortEnvVar=$port) and this service registers no gRPC " +
@@ -43,9 +32,5 @@ private[ankka] object DeclaredGrpc:
 
   def check(env: String => Option[String], extensions: Seq[String]): Unit =
     problem(env, extensions).foreach { message =>
-      // Best effort: outside a container there is no termination log, and failing to write one
-      // must not hide the reason the service is refusing to start.
-      Try(Files.writeString(Paths.get(terminationLog), message + "\n", UTF_8)): Unit
-      log.error(message)
-      throw IllegalStateException(message)
+      StartRefusal.refuse(message, IllegalStateException(_))
     }

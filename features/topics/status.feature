@@ -27,3 +27,14 @@ Feature: What a service shows of its topic sources
     Given a service with no topic source
     When the metrics of the service are read
     Then the metrics list no topic source
+
+  Scenario: a service's status lists each topic source with how far behind it is
+    Given a ready service with a consumer reading a topic that holds 100 messages
+    And the consumer has handled 40 of them
+    When a member reads the status of the service
+    Then the status lists the consumer's topic source with its group, its start position, its version and a lag of 60
+
+  Scenario: the console and the server show the same
+    Given a ready service with a consumer behind on its topic
+    When the service is read in the console and through the server
+    Then each shows the topic source with the same lag as the status

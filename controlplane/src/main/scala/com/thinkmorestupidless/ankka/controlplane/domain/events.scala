@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.domain
 
 import com.thinkmorestupidless.ankka.controlplane.api.*
+import com.thinkmorestupidless.ankka.core.Contract
 
 import java.time.Instant
 
@@ -213,16 +214,38 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
-  /** A topic declared on the project, or its partitions raised (feature 027). */
+  /**
+   * A topic declared on the project, or its partitions raised (feature 027); its compaction and
+   * contract since feature 037, defaulted so an older journal decodes.
+   */
   case ProjectTopicDeclared(
       name: String,
       partitions: Int,
       actor: Option[Actor] = None,
-      at: Option[Instant] = None
+      at: Option[Instant] = None,
+      compacted: Boolean = false,
+      contract: Option[Contract] = None
   )
 
   /** The project no longer declares a topic. The topic stays on the broker. */
   case ProjectTopicRemoved(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** A broker declared on the project beside the installation's (feature 037). */
+  case ProjectBrokerDeclared(
+      name: String,
+      bootstrap: String,
+      shape: String,
+      secretName: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The project no longer declares a broker; a service naming it is refused at its next start. */
+  case ProjectBrokerRemoved(
       name: String,
       actor: Option[Actor] = None,
       at: Option[Instant] = None
@@ -377,11 +400,25 @@ final case class SetSecretEntries(name: String, entries: Vector[String])
 /** `ProjectEntity.removeSecretEntry`: an entry the cluster no longer holds. */
 final case class RemoveSecretEntry(name: String, entry: String)
 
-/** `declare-topic`: a topic on the project, with its partitions (feature 027). */
-final case class DeclareTopic(name: String, partitions: Int)
+/**
+ * `declare-topic`: a topic on the project, with its partitions (feature 027), compaction and
+ * contract (feature 037).
+ */
+final case class DeclareTopic(
+    name: String,
+    partitions: Int,
+    compacted: Boolean = false,
+    contract: Option[Contract] = None
+)
 
 /** `remove-topic`: stop declaring a topic. */
 final case class RemoveTopic(name: String)
+
+/** `declare-broker`: a broker on the project (feature 037). */
+final case class DeclareBroker(name: String, bootstrap: String, shape: String, secretName: String)
+
+/** `remove-broker`: stop declaring a broker. */
+final case class RemoveBroker(name: String)
 
 /** `DeployTokenEntity.get` — everything the entity knows except the digest. */
 final case class DeployTokenDetail(

@@ -14,7 +14,11 @@ import scala.jdk.CollectionConverters.*
 final case class IncomingMessage(
     key: Option[String],
     payload: Array[Byte],
-    metadata: Metadata
+    metadata: Metadata,
+    /**
+     * The partition the message was read from; a broker with one partition says 0 (feature 037).
+     */
+    partition: Int = 0
 ):
   /** CloudEvents subject, which ankka uses as the entity id a message concerns. */
   def subject: Option[String] = metadata.subject.orElse(key)
@@ -23,7 +27,16 @@ final case class IncomingMessage(
  * What a topic source asks a broker for: a topic, read under a consumer group, starting at
  * `startFrom` wherever the group has never read.
  */
-final case class TopicSubscription(topic: String, group: String, startFrom: StartFrom)
+final case class TopicSubscription(
+    topic: String,
+    group: String,
+    startFrom: StartFrom,
+    /**
+     * Feature 037: handle the partitions this instance holds at once, each in order. A broker with
+     * one partition reads as before. Without it, one message at a time across every partition.
+     */
+    parallel: Boolean = false
+)
 
 /** One running subscription. */
 trait Subscribed:
@@ -58,6 +71,15 @@ trait MessageSubscriber:
 
   /** For each partition of `topic`, when its earliest retained message was published. */
   def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]]
+
+  /**
+   * How many messages the topic holds past the last one the subscription's group has handled, over
+   * every partition (feature 037); `None` when the broker cannot say. Polled, never on the path of
+   * a message.
+   */
+  def lag(subscription: TopicSubscription): Future[Option[Long]] =
+    val _ = subscription
+    Future.successful(None)
 
   /** Stops every subscription. */
   def stop(): Unit
@@ -240,6 +262,12 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
 
   def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]] =
     Future.successful(Map(0 -> logOf(topic).headOption.map(_.at)))
+
+  override def lag(subscription: TopicSubscription): Future[Option[Long]] =
+    val behind =
+      logOf(subscription.topic).size - positions(subscription.topic)
+        .getOrElse(subscription.group, 0)
+    Future.successful(Some(behind.toLong.max(0L)))
 
   /**
    * Every subscription ends; every group keeps its position, as a broker keeps committed offsets.

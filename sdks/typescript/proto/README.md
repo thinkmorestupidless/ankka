@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.13`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.14`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -34,6 +34,10 @@ timers: `ScheduleRecurring` on `Client` and the `schedule_recurring` import for 
 and `ankka.due` on every timed action request. `1.13` added a view's declared queries, asked by name
 with values; the keyed view, whose several entity sources each send their changes with `source_id` and
 which answers with `rows`, several row changes by key; and a version on a view that reads entities.
+`1.14` added what a project must know about a topic source and a publication: `Source.contract`,
+`Source.broker` and `Source.parallel`, `ConsumerDetail.produces` (a `Publication` with its
+contract and broker; `produces_to` stays), and `fixtures/contracts/`, the fingerprints every SDK
+must compute for a schema document.
 
 `MAJOR.MINOR`. Within a major:
 

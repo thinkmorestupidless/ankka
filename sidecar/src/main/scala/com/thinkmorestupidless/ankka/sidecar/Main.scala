@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{
+  StartRefusal,
   Ankka,
   AnkkaService,
   ClusterConfig,
@@ -72,6 +73,9 @@ object Main:
     Discovery.discover(channel, settings, BuildInfo.version) match
       case Left(problems) =>
         log.error("refusing to start: {} problem(s)", problems.size)
+        // Where the operator reads it, so `ankka services get` shows the first problem as the
+        // service's detail; each problem was already logged by discovery.
+        StartRefusal.report(problems.mkString("discovery refused:\n  - ", "\n  - ", ""))
         channel.shutdownNow()
         system.terminate()
         1

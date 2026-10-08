@@ -1472,7 +1472,7 @@ What a message is published under. Messages under one key are delivered in order
 Where a change stands in its entity's history: an event's number for an event sourced entity, the state's revision for a key value entity. It only rises, also across a deletion and the entity being created again. A message from a topic has none.
 
 ### store
-The database outside the service that a sink keeps nodes and relationships in, one element for each element key. It is not a service's database.
+What a sink keeps nodes and relationships in, one element for each element key, applying each delta under the sink's rules: the reference store the platform provides, which holds them in memory, or a store over a database outside the service, which ankka-contrib provides for Neo4j. It is not a service's database.
 
 ### element
 A node or a relationship, as deltas describe it and a store holds it. Nodes and relationships are named apart, so a node and a relationship may have the same element id.
@@ -1505,10 +1505,16 @@ The key a delta is published under: "node:" or "edge:" followed by its element i
 Of a topic: kept by the broker as the last message under each key, so that it holds every element's latest delta and not every change.
 
 ### pipeline
-What reads a topic outside the service and writes what it reads somewhere else, such as into a store. It declares the topics it owns.
+What reads a topic outside the service and writes what it reads somewhere else, such as into a store: a service with consumers, or several. Its topics are declared on its project.
+
+### ankka-flow
+The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
+
+### ankka-contrib
+The repository of integrations built on ankka's published SDK that are reusable but not the platform's, such as a store over a database for the sink and a ready image of the sink into it, released on its own cadence against a published ankka version.
 
 ### sink
-The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one.
+The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it as a component a developer registers in a service with a store; a ready image of the sink into a database is ankka-contrib's, which a member deploys into a project.
 
 ## Calling other services
 
@@ -1531,6 +1537,32 @@ divide a topic's partitions between them. A descriptor says how many a topic it 
 topic may be given more and never fewer.
 
 Avoid: shard
+
+### contract
+A name and the schema of what a topic carries, declared on the topic and held by the
+project, stated by each component that reads the topic or publishes to it with the schema it was
+built against, and whose name is carried as the type of every message published to it. Two sides
+of a topic must state the declared one.
+
+### schema
+The document that says the shape of what a topic carries, held by the project with the
+topic's contract, which a member fetches to build against. A message is not checked against it as
+it flows.
+
+Avoid: format
+
+### declared broker
+A broker a member declares on a project by name, with its address, the shape of its
+credential (a certificate, or SASL over TLS) and the project secret holding it, which a component may
+name for one topic it reads or publishes to.
+
+Avoid: external broker
+
+### lag
+How far behind a topic source is: how many messages the topic holds past the last one
+it has handled.
+
+Avoid: backlog, offset lag
 
 ### declared topic
 A topic a member declares on a project, once, with the partitions it has, which the platform makes
@@ -1772,4 +1804,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment
+comment, breaks, fetches, fetched, built, parallel, after, another, registers, beside, shape, SASL, authority, lacks, username, password, certificate

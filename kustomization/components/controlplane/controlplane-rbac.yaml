@@ -47,6 +47,12 @@ rules:
   - apiGroups: ["ankka.thinkmorestupidless.com"]
     resources: ["ankkaprojects/status"]
     verbs: ["get"]
+  # A declared contract's schema (feature 037): written to the project's `ankka-project-schemas`
+  # ConfigMap before the declaration is recorded, and read back when a member fetches it. No list,
+  # no delete: a document, once held, stays.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch"]
   # A project's namespace has to exist before its resource can be written into it, and the
   # operator cannot create it first — it only learns a project exists by seeing the resource.
   # Still no workload access: it can make a namespace and ask for a service, not run one.

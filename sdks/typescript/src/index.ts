@@ -32,6 +32,7 @@ export { View, declaredQuery, tableOf, type DeclaredQuery, type ViewClass } from
 export { KeyedView, on, type KeyedSource, type KeyedViewClass, type ViewRows } from "./keyedView.ts"
 export { KeyedViewEffects, type KeyedViewEffect, type RowChange } from "./effects/keyed.ts"
 export { Consumer, ProtocolVersionError, type ConsumerClass } from "./consumer.ts"
+export { Contract, CONTRACT_NAME_RULE, fingerprintOf, type Publication } from "./contract.ts"
 export {
   GRAPH_DELTA_SCHEMA, Graph, GraphConsumer, GraphEffects, GraphError, edgeKey, elementKey, graphDeltaCodec, nodeKey, readDelta,
   type Delta, type Element, type GraphConsumerClass, type GraphEffect, type GraphFault, type Properties, type PropertyValue, type Scalar, type Version,

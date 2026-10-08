@@ -22,7 +22,9 @@ final class McpServerSuite extends FunSuite:
 
   private val cart =
     """{"name":"cart","projectId":"checkout","lifecycle":"Ready","generation":3,""" +
-      """"image":"cart:1.0.0","readyInstances":1,"desiredInstances":1}"""
+      """"image":"cart:1.0.0","readyInstances":1,"desiredInstances":1,""" +
+      """"topicSources":[{"kind":"consumer","component":"relay","topic":"events","group":"ankka.checkout.cart.consumer.relay","start":"earliest","version":1,"lag":60}],""" +
+      """"topicChecks":[{"topic":"orders","service":"cart","component":"consumer:relay","direction":"publishes","stated":"order.v1","state":"checked"}]}"""
 
   override def beforeAll(): Unit =
     controlPlane = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress, 0), 0)
@@ -177,6 +179,9 @@ final class McpServerSuite extends FunSuite:
     val result = call("get_service", """{"name":"cart"}""")
     assertEquals(result("isError"), Some(Json.bool(false)))
     assert(text(result).contains("\"lifecycle\": \"Ready\""), text(result))
+    // features/topics/status.feature: the server shows each topic source with its lag, and the checks
+    assert(text(result).contains("\"lag\": 60"), text(result))
+    assert(text(result).contains("\"topicChecks\""), text(result))
     assertEquals(requests.toVector, Vector("GET /services/checkout/cart"))
   }
 

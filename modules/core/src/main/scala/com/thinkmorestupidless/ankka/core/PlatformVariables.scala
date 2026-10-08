@@ -83,7 +83,17 @@ private[ankka] object PlatformVariables:
    * and holds sockets, handing the process only the principal, the answers and the frames.
    */
   val RuntimeOnlyPrefixes: Vector[String] =
-    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_", "ANKKA_SOCKET_", "ANKKA_MCP_")
+    Vector(
+      "ANTHROPIC_",
+      "ANKKA_MODEL_",
+      "ANKKA_DB_",
+      "ANKKA_AUTH_",
+      "ANKKA_SOCKET_",
+      "ANKKA_MCP_",
+      // A declared broker's address and credential (feature 037): the platform's program connects;
+      // the process never sees them.
+      "ANKKA_TOPIC_BROKER_"
+    )
   val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
 
   /** Where a web-hosted service's program listens. */

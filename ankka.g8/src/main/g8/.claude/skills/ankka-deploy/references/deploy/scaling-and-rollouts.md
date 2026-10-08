@@ -48,8 +48,10 @@ limits:
 | `medium` | 1000m | 1024Mi |
 | `large` | 2000m | 2048Mi |
 
-For a Python service the size applies to the sidecar, which runs the runtime. Your process's container
-has a small fixed size of 100m CPU and 128Mi memory.
+For a process-hosted service the size applies to the sidecar, which runs the runtime. Your process's
+container is sized by the descriptor's `resources.process`, requests equal to limits, and is given 100m
+CPU and 128Mi memory when the descriptor says nothing; see
+[the service descriptor](../reference/service-descriptor.md#the-process-container).
 
 ## Deploys roll without downtime
 

@@ -26,6 +26,8 @@ export const operations = [
   "project-secret.unset",
   "project-topic.set",
   "project-topic.unset",
+  "project-broker.set",
+  "project-broker.unset",
   "service.apply",
   "service.pause",
   "service.resume",

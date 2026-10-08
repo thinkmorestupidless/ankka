@@ -79,9 +79,11 @@ final class ServiceEndpoint(
         catch case scala.util.control.NonFatal(_) => Vector.empty
       if read.isEmpty then status
       else
+        // A topic on a declared broker (feature 037) is named `topic:<broker>/<name>` and is that
+        // broker's, not one the project would declare.
         val used = read
           .flatMap(_.nodes)
-          .filter(_.kind == "Topic")
+          .filter(n => n.kind == "Topic" && !n.id.stripPrefix("topic:").contains('/'))
           .map(_.id.stripPrefix("topic:"))
           .distinct
           .sorted
@@ -90,8 +92,11 @@ final class ServiceEndpoint(
             .forEventSourcedEntity(EntityId(status.projectId))
             .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.topics)
             .invoke()
-            .keySet
-        status.copy(undeclaredTopics = Some(used.filterNot(declared)))
+        status.copy(
+          undeclaredTopics = Some(used.filterNot(declared.keySet)),
+          topicChecks = Some(TopicChecks.ofService(declared, status.name, read)),
+          topicSources = Some(ServiceEndpoint.topicSourcesOf(read))
+        )
 
   /**
    * The organization is asked for the capacity first (feature 015): a refusal for quota changes
@@ -373,6 +378,25 @@ final class ServiceEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
 
 object ServiceEndpoint:
+
+  /**
+   * One report per topic source over the instances: lags summed, the first failing reason kept
+   * (feature 037).
+   */
+  def topicSourcesOf(documents: Vector[InstanceTopologyDocument]): Vector[TopicSourceReport] =
+    documents
+      .flatMap(_.topicSources)
+      .groupBy(_.component)
+      .toVector
+      .sortBy(_._1)
+      .map { (_, reports) =>
+        val lags = reports.flatMap(_.lag)
+        reports.head.copy(
+          lag = Option.when(lags.nonEmpty)(lags.sum),
+          failing = reports.flatMap(_.failing).headOption,
+          behind = reports.exists(_.behind)
+        )
+      }
 
   /** The hostings whose pods hold the platform's container beside the developer's (R11). */
   val TwoContainerHostings: Set[String] = Set(ServiceSpec.Process, ServiceSpec.Web)

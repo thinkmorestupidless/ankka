@@ -81,7 +81,14 @@ object StrimziObjectState:
     )
 
 /** A topic as found: its state, and the partitions its resource asks for. */
-final case class TopicState(state: StrimziObjectState, partitions: Option[Int] = None)
+final case class TopicState(
+    state: StrimziObjectState,
+    partitions: Option[Int] = None,
+    /**
+     * Feature 037: whether the topic's resource says it is compacted; `None` when there is none.
+     */
+    compacted: Option[Boolean] = None
+)
 
 /** What the operator found on the broker for one service: its user. */
 final case class BrokerObservation(

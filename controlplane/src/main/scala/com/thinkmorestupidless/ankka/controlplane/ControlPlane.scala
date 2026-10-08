@@ -96,7 +96,9 @@ object ControlPlane:
       /** Where a project secret's entries go; the projector too, for the same reasons. */
       secrets: Option[ProjectSecretWriter] = None,
       /** Where a project's topics' phases are read from; the projector, as for the others. */
-      topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None
+      topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
+      /** Where a contract's schema is held (feature 037); the projector, as for the others. */
+      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -104,7 +106,7 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics),
+      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics, schemas, topology),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -167,7 +169,8 @@ object ControlPlane:
             tokens = tokens,
             registry = Some(projector),
             secrets = Some(projector),
-            topics = Some(projector)
+            topics = Some(projector),
+            schemas = Some(projector)
           )*
         )
       case _ =>
@@ -180,7 +183,8 @@ object ControlPlane:
             tokens = tokens,
             registry = Some(projector),
             secrets = Some(projector),
-            topics = Some(projector)
+            topics = Some(projector),
+            schemas = Some(projector)
           )*
         )
     val base = Ankka.service

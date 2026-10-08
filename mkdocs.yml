@@ -196,6 +196,7 @@ nav:
       - Deploy a user interface: deploy/web-hosting.md
       - Scale and roll out: deploy/scaling-and-rollouts.md
       - Deploy from GitHub Actions: deploy/ci.md
+      - Fill a graph store: deploy/graph-sink.md
       - Upgrade ankka: deploy/upgrading.md
   - Observe and operate:
       - The local console: operate/local-console.md

@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.13"
+export const PROTOCOL_VERSION = "1.14"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -72,12 +72,18 @@ function handlerInits(handlers: ReadonlyMap<string, HandlerRef<any, any, any, an
 function sourceInit(source: Source): SourceInit {
   if (!("topic" in source)) return { source: { case: "component", value: { kind: kindToProto(source.component.kind), id: source.component.id } } }
   const start = source.startFrom
-  if (start === undefined) return { source: { case: "topic", value: source.topic } }
+  // 1.14: the contract, the broker and parallel, absent when not declared.
+  const options = {
+    ...(source.contract !== undefined ? { contract: { name: source.contract.name, fingerprint: source.contract.fingerprint } } : {}),
+    ...(source.broker !== undefined ? { broker: source.broker } : {}),
+    ...(source.parallel === true ? { parallel: true } : {}),
+  }
+  if (start === undefined) return { source: { case: "topic", value: source.topic }, ...options }
   const position =
     start.kind === "at"
       ? { case: "atMillis" as const, value: BigInt(start.atMillis) }
       : { case: "named" as const, value: start.kind === "earliest" ? StartFrom_Named.EARLIEST : StartFrom_Named.LATEST }
-  return { source: { case: "topic", value: source.topic }, startFrom: { position } }
+  return { source: { case: "topic", value: source.topic }, startFrom: { position }, ...options }
 }
 
 function recoveryInit(r: Recovery): RecoveryInit {
@@ -154,6 +160,16 @@ function componentInit(c: RegisteredComponent): ComponentInit {
             source: sourceInit(c.source),
             ...(c.producesTo !== undefined ? { producesTo: c.producesTo } : {}),
             ...(c.version !== undefined ? { version: c.version } : {}),
+            // 1.14: the publication with its contract and broker; `producesTo` stays for an older sidecar.
+            ...(c.produces !== undefined
+              ? {
+                  produces: {
+                    topic: c.produces.topic,
+                    ...(c.produces.contract !== undefined ? { contract: { name: c.produces.contract.name, fingerprint: c.produces.contract.fingerprint } } : {}),
+                    ...(c.produces.broker !== undefined ? { broker: c.produces.broker } : {}),
+                  },
+                }
+              : {}),
           },
         },
       }

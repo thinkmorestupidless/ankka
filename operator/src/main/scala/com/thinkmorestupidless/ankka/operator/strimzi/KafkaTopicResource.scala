@@ -13,7 +13,15 @@ import io.fabric8.kubernetes.model.annotation.{Group, Kind, Plural, Version}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
-final case class KafkaTopicSpec(partitions: Int = 1)
+final case class KafkaTopicSpec(
+    partitions: Int = 1,
+    /**
+     * Feature 037: `cleanup.policy: compact` for a topic the project declares compacted; absent
+     * otherwise, so an existing topic's applied object does not change (`NON_ABSENT` would still
+     * write an empty map). Strimzi's values may be numbers or booleans, so `Object`.
+     */
+    config: Option[Map[String, Object]] = None
+)
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_ABSENT)

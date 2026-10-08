@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.controlplane.deploy
 import com.thinkmorestupidless.ankka.controlplane.api.{
   Compatibility,
   InstanceType,
+  ProcessResources,
   ProjectId,
   Protocol,
   ServiceDescriptor,
@@ -119,6 +120,19 @@ object ServiceProjection:
               instanceType = instance.name,
               cpuMillis = instance.cpuMillis,
               memoryMiB = instance.memoryMiB,
+              // Feature 037: the process container's size, when the descriptor says; `problems`
+              // already refused a quantity that does not parse.
+              processCpuMillis = resources.process
+                .flatMap(p => ProcessResources.cpuMillis(p.cpu).toOption)
+                .getOrElse(ProcessResources.DefaultCpuMillis),
+              processMemoryMiB = resources.process
+                .flatMap(p => ProcessResources.memoryMiB(p.memory).toOption)
+                .getOrElse(ProcessResources.DefaultMemoryMiB),
+              database =
+                if descriptor.service.hasNoDatabase then "none"
+                else if descriptor.service.env.exists(_.name.startsWith("ANKKA_DB_")) then
+                  "supplied"
+                else "platform",
               autoscaling = AutoscalingSpec(
                 minInstances = resources.autoscaling.minInstances,
                 maxInstances = resources.autoscaling.maxInstances,
@@ -132,6 +146,7 @@ object ServiceProjection:
               // A web-hosted service has no database at all (feature 021): nothing is provisioned
               // and, as the descriptor's rules refuse ANKKA_DB_* for it, nothing is supplied either.
               provisionDatabase = !descriptor.service.isWebHosted &&
+                !descriptor.service.hasNoDatabase &&
                 !descriptor.service.env.exists(_.name.startsWith("ANKKA_DB_")),
               // Resolved here, once. The operator never sees `http` or the descriptor's `port`,
               // only the answer — the same split `instanceType` → cpu/memory already uses.

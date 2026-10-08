@@ -34,6 +34,7 @@ from ankka.services import (  # noqa: E402
 )
 from ankka.service import Ankka, ServiceBuilder  # noqa: E402
 from ankka.start_from import StartFrom  # noqa: E402
+from ankka.contract import Contract, Publication  # noqa: E402
 from ankka.view import DeclaredQuery, table_of  # noqa: E402
 from ankka.effects.keyed_view import KeyedViewEffect  # noqa: E402
 from ankka.keyed_view import KeyedView  # noqa: E402
@@ -43,7 +44,8 @@ from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
 
 __all__ = [
     "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail", "SseEvent",
-    "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "DeclaredQuery", "Gateway",
+    "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "Contract", "DeclaredQuery", "Gateway",
+    "Publication",
     "LocalCaller",
     "ServiceCaller", "DeleteNow", "Done", "DONE", "Endpoint", "Error",
     "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "KeyedView",

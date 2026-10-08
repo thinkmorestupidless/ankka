@@ -77,7 +77,11 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     // The sidecar holds every identity; the process speaks only to it, over loopback.
     assertEquals(
       node.getVolumeMounts.asScala.map(_.getMountPath).toSet,
-      Set("/var/run/secrets/ankka/cluster", "/var/run/secrets/ankka/service")
+      Set(
+        "/var/run/secrets/ankka/cluster",
+        "/var/run/secrets/ankka/service",
+        "/var/run/ankka/project"
+      )
     )
     assert(app.getVolumeMounts.isEmpty)
     assertEquals(app.getReadinessProbe, null)

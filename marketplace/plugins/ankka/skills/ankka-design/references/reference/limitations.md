@@ -32,8 +32,10 @@ feature also says what that feature does not do.
   isolation is then whatever its owner configured.
 - **One broker per installation, and a project is its boundary.** Every project's topics are on the
   installation's one Kafka, and a service reaches the topics of its own project only. There is no grant
-  that lets a service of one project read or publish to another project's topic. A local platform's broker
-  is a single node.
+  that lets a service of one project read or publish to another project's topic. A project may declare
+  brokers of its own beside the installation's, each named per topic by a component, and those topics are
+  the broker owner's: the platform makes nothing on them and checks no contract there. A local platform's
+  broker is a single node.
 - **The platform removes nothing from the broker.** Deleting a service or a project leaves its topics,
   what was published to them and its user on the broker. Removing them is a manual task for whoever
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
@@ -191,13 +193,14 @@ feature also says what that feature does not do.
 - **The secret store has no rotation, sharing or history.** A service's secret key cannot be changed in
   place: values kept with one key fail to read under another. A service secret belongs to the service that
   kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
-  audit of reads. A project secret reaches a pod as an environment variable only, not as a file.
-- **A topic is made only by declaring it, with partitions and nothing else.** On the installation's broker
-  a topic exists because its project declares it; publishing to one nobody declared waits. A declaration
-  says how many partitions a topic has and nothing more: no retention, compaction or other topic setting.
-  A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, so it is the pipeline that
-  reads it, not ankka, that creates it so and reports when it is not; on a broker a descriptor names, every
-  topic is the broker owner's to create.
+  audit of reads. A project secret reaches a pod as an environment variable, or, when it is the credential
+  of a broker the project declares, as files on the platform's container alone.
+- **A topic is made only by declaring it, with its partitions and whether it is compacted.** On the
+  installation's broker a topic exists because its project declares it; publishing to one nobody
+  declared waits. A declaration says how many partitions a topic has and whether the broker keeps only
+  the last message under each key, and nothing more: no retention or other topic setting. A
+  [graph consumer](../build/graph.md#the-topic)'s topic is declared compacted on its project; on a
+  broker a descriptor or a project names, every topic is the broker owner's to create.
 - **A graph consumer's rules are the author's.** That an element has one writing entity, and that an
   element is its whole state, are not checked. A graph consumer writes tombstones and no delete markers,
   so a tombstoned element's record stays in its topic; and there is no source that hands a consumer an

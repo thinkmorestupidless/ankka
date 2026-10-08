@@ -207,13 +207,65 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     ),
     fixture(
       "TopicDeclarationRequest",
-      TopicDeclarationRequest(12),
+      TopicDeclarationRequest(
+        12,
+        compacted = true,
+        contract = Some(
+          ContractDeclaration(
+            "transaction.v1",
+            com.thinkmorestupidless.ankka.core.graph.GraphJson
+              .parse("""{"type":"object","required":["id"]}""".getBytes("UTF-8"))
+              .toOption
+              .get
+          )
+        )
+      ),
       TopicDeclarationRequest(1)
     ),
     fixture(
       "ProjectTopic",
-      ProjectTopic("transactions", 12, Some("failed"), Some("the installation has no broker")),
+      ProjectTopic(
+        "transactions",
+        12,
+        Some("failed"),
+        Some("the installation has no broker"),
+        compacted = true,
+        contract =
+          Some(com.thinkmorestupidless.ankka.core.Contract("transaction.v1", "sha256:" + "a" * 64)),
+        checks = Vector(
+          TopicCheck(
+            "transactions",
+            "wallet",
+            "consumer:relay",
+            "publishes",
+            Some("transaction.v1"),
+            "checked"
+          ),
+          TopicCheck("transactions", "ledger", "view:by-day", "reads", None, "mismatch")
+        )
+      ),
       ProjectTopic("transactions", 12)
+    ),
+    fixture(
+      "Contract",
+      com.thinkmorestupidless.ankka.core.Contract("transaction.v1", "sha256:" + "a" * 64),
+      com.thinkmorestupidless.ankka.core.Contract("transaction.v1", "sha256:" + "a" * 64)
+    ),
+    fixture(
+      "BrokerDeclarationRequest",
+      BrokerDeclarationRequest("kafka.legacy:9094", "sasl", "legacy-credential"),
+      BrokerDeclarationRequest("kafka.legacy:9094", "certificate", "legacy-credential")
+    ),
+    fixture(
+      "ProjectBroker",
+      ProjectBroker(
+        "legacy",
+        "kafka.legacy:9094",
+        "sasl",
+        "legacy-credential",
+        Some("2026-10-07T10:00:00Z")
+      ),
+      ProjectBroker("legacy", "kafka.legacy:9094", "sasl", "legacy-credential")
     ),
     fixture(
       "SetProjectSecret",

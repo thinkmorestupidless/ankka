@@ -111,8 +111,12 @@ The table is generated from the control plane's own route declarations.
 | `PUT` | `/projects/{projectId}/secrets/{name}` | |
 | `DELETE` | `/projects/{projectId}/secrets/{name}` | |
 | `PUT` | `/projects/{projectId}/topics/{name}` | |
+| `GET` | `/projects/{projectId}/topics/{name}/schema` | |
 | `DELETE` | `/projects/{projectId}/topics/{name}` | |
 | `GET` | `/projects/{projectId}/topics` | |
+| `PUT` | `/projects/{projectId}/brokers/{name}` | |
+| `DELETE` | `/projects/{projectId}/brokers/{name}` | |
+| `GET` | `/projects/{projectId}/brokers` | |
 | `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
@@ -417,14 +421,27 @@ value — the control plane cannot read a Secret back.
 ### `PUT /projects/{projectId}/topics/{name}`
 
 Declares a topic on the project, which the platform makes on the installation's broker as
-`<projectId>.<name>`, or gives a declared topic more partitions. Body: `{ "partitions": 12 }`. Members of
-the project's organization, including deploy tokens. Answers `204`.
+`<projectId>.<name>`, or changes a declared topic: more partitions, its compaction, its contract. Body:
+`{ "partitions": 12, "compacted": false, "contract": { "name": "order.v1", "schema": { … } } }`, where
+`compacted` and `contract` are optional and absent means not compacted and no contract. Members of the
+project's organization, including deploy tokens. Answers `204`.
 
 A project holds one declaration per topic, and every service of the project uses the topic by its name.
-Declaring a topic again with the partitions it has records nothing. A name that is not lower-case
-letters, digits, `-` and `.` starting and ending with a letter or digit, or is over 100 characters, and
-partitions outside 1 to 1000, are refused with `400`, every problem at once. Fewer partitions than the
-project declares is refused with `409`, naming both counts: a topic is never made smaller.
+Declaring a topic again as it is records nothing. A name that is not lower-case letters, digits, `-` and
+`.` starting and ending with a letter or digit, or is over 100 characters, partitions outside 1 to 1000,
+a contract name outside `[a-z0-9][a-z0-9._-]{0,98}[a-z0-9]`, and a schema that is not JSON or is over
+64 KiB, are refused with `400`, every problem at once. Fewer partitions than the project declares is
+refused with `409`, naming both counts: a topic is never made smaller.
+
+A contract's schema is written to the project's schema store in the cluster before the declaration is
+recorded, under its fingerprint — `sha256:` and the SHA-256 of the document under RFC 8785 — so the
+record never names a document the cluster does not hold; a cluster that could not be written answers
+`503` and records nothing.
+
+### `GET /projects/{projectId}/topics/{name}/schema`
+
+The schema document a topic's contract was declared with, as JSON, exactly as it was given. Members
+only. `404` when the project declares no contract on the topic.
 
 ### `DELETE /projects/{projectId}/topics/{name}`
 
@@ -433,11 +450,40 @@ topic and what was published to it stay on the broker; declaring it again finds 
 
 ### `GET /projects/{projectId}/topics`
 
-The project's declared topics, by name: `[{ "name": "transactions", "partitions": 12, "phase":
-"provisioned" }]`. From the project's own record, so a topic just declared is listed at once. `phase`
-says how far the platform has got with it — `waiting for broker`, `provisioned`, `recovered` or
-`failed`, with a `detail` — and is absent until the operator has reported on the topic, or when the
-cluster cannot be read.
+The project's declared topics, by name: `[{ "name": "orders", "partitions": 3, "compacted": false,
+"contract": { "name": "order.v1", "fingerprint": "sha256:…" }, "phase": "provisioned", "checks": [ { "topic":
+"orders", "service": "wallet", "component": "consumer:relay", "direction": "publishes", "stated":
+"order.v1", "state": "checked" } ] }]`. From the project's own record, so a topic just declared is listed
+at once. `phase` says how far the platform has got with it — `waiting for broker`, `provisioned`,
+`recovered` or `failed`, with a `detail` — and is absent until the operator has reported on the topic,
+or when the cluster cannot be read. `checks` lists each side a running service takes on a topic with a
+contract, read from the services' instances: `checked` when the component states the declared contract,
+`mismatch` when it states another or none, `unchecked` for an instance started before the declaration;
+empty for a topic without a contract or when no instance could be read.
+
+### `PUT /projects/{projectId}/brokers/{name}`
+
+Declares a broker beside the installation's, which a component of any service in the project may name
+for one topic, or changes where it is. Body: `{ "bootstrap": "kafka.legacy:9094", "shape": "sasl",
+"secret": "legacy-credential" }`. Members of the project's organization, including deploy tokens.
+Answers `204`.
+
+`shape` is `certificate` (the project secret holds `ca.crt`, `tls.crt` and `tls.key`) or `sasl` (it
+holds `ca.crt`, `username` and `password`, and optionally `mechanism`); every shape is over TLS. A name
+outside a topic's rule, a `bootstrap` that is not `host:port[,host:port]`, another shape, or a secret
+name the platform reserves is refused with `400`; a secret the project has not set, or one lacking an
+entry the shape needs, is refused with `400` naming the entry. Declaring a broker again as it is records
+nothing.
+
+### `DELETE /projects/{projectId}/brokers/{name}`
+
+Stops declaring a broker. Answers `204`, or `404` when the project declares no broker of that name. A
+service whose component names the broker is refused at its next start.
+
+### `GET /projects/{projectId}/brokers`
+
+The project's declared brokers, by name: `[{ "name": "legacy", "bootstrap": "kafka.legacy:9094",
+"shape": "sasl", "secret": "legacy-credential", "declaredAt": "…" }]`. Never a credential.
 
 ## Services
 
@@ -461,6 +507,8 @@ Every service route answers with a service status, except where noted:
 | `paused` | boolean | Whether its members paused it. |
 | `hosting` | string | `embedded` or `process`. |
 | `protocol` | string, optional | The sidecar protocol a process-hosted service declared. |
+| `topicSources` | list, optional | Each topic source of the service, from its running instances: `kind`, `component`, `topic`, `group`, `start`, `version`, `recordedVersion`, `behind`, `broker`, `contract`, `lag` (messages past the last one handled, summed over the instances, as of their last poll) and `failing` (the reason of the change being delivered again). Absent when no instance answered, and on a listing row. |
+| `topicChecks` | list, optional | Each side the service's components take on a declared topic with a contract: `topic`, `component`, `direction`, `stated`, `state` (`checked`, `mismatch` or `unchecked`). Absent as `topicSources` is. |
 
 ### `GET /services/{projectId}`
 

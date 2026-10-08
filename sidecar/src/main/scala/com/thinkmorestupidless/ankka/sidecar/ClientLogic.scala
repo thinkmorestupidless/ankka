@@ -111,7 +111,8 @@ final class ClientLogic(
     observability.declared.origin(metadata) match
       case Some(origin) => Trace.asOrigin(origin)(call)
       case None         => call
-  private val database = Database()
+  // Lazily: a service with no database (feature 037) never asks for a view's rows.
+  private lazy val database = Database()
 
   // Each discovered view's declared queries, checked once: discovery has already refused a service
   // whose statements the check would not pass.

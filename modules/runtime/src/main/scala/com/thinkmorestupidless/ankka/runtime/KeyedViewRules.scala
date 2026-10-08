@@ -30,14 +30,14 @@ private[ankka] object KeyedViewRules:
               Read.Component(ComponentKind.EventSourcedEntity, id.toString)
             case ChangeSource.KeyValue(id, _) =>
               Read.Component(ComponentKind.KeyValueEntity, id.toString)
-            case ChangeSource.Topic(name, _, _) => Read.Topic(name))
+            case ChangeSource.Topic(name, _, _, _) => Read.Topic(name))
         )
       case view: RemoteKeyedViewDescriptor =>
         problemsOf(
           view.componentId.toString,
           view.sources.map {
             case RemoteSource.Component(kind, id) => Read.Component(kind, id.toString)
-            case RemoteSource.Topic(name, _)      => Read.Topic(name)
+            case RemoteSource.Topic(name, _, _)   => Read.Topic(name)
           }
         )
       case _ => Vector.empty

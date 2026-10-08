@@ -163,7 +163,10 @@ lazy val commonSettings = Seq(
     "ankka.golden.update",
     // The operator's rendering as it was before web hosting (feature 021): with `true`,
     // `RenderingUnchangedSuite` rewrites its fixtures. Its own switch, so that nothing else repins it.
-    "ankka.rendering.pin"
+    "ankka.rendering.pin",
+    // The fixture suites (contract fingerprints, graph deltas) rewrite their files instead of
+    // refusing a difference, which is only ever right for a change meant to alter them.
+    "ankka.fixtures.regenerate"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
@@ -352,6 +355,17 @@ lazy val telemetryOtlp = project
     name := "ankka-telemetry-otlp",
     libraryDependencies ++= Seq(otelExporterOtlp, otelSenderJdk, testcontainersPg % Test)
   )
+
+/**
+ * The graph sink (feature 037): a consumer that keeps a `GraphStore` in step with a delta topic
+ * under the contract's rules, with the in-memory reference store. A store over a database lives
+ * outside the platform: ankka-contrib holds the Neo4j one and the `ankka-graph-sink-neo4j` image.
+ */
+lazy val graphSink = project
+  .in(file("modules/graph-sink"))
+  .dependsOn(sdk, runtime, testkit % Test)
+  .settings(commonSettings)
+  .settings(name := "ankka-graph-sink")
 
 /** Unit and integration test support, plus TestModelProvider. */
 lazy val testkit = project
@@ -912,6 +926,7 @@ lazy val root = project
     agent,
     testkit,
     telemetryOtlp,
+    graphSink,
     controlPlaneApi,
     crd,
     operator,

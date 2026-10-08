@@ -51,3 +51,8 @@ export function olderThanStartPositions(protocolVersion: string): boolean {
 export function olderThanDeclaredQueries(protocolVersion: string): boolean {
   return olderThan(protocolVersion, DECLARED_QUERY_PROTOCOL)
 }
+
+/** Whether a sidecar speaking `protocolVersion` would ignore a topic's contract, broker and parallel reading. */
+export function olderThanContracts(protocolVersion: string): boolean {
+  return olderThan(protocolVersion, [1, 14])
+}

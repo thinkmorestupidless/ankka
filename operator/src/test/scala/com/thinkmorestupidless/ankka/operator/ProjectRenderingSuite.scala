@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{
+  ProjectBrokerEntry,
   AnkkaProjectSpec,
   AnkkaProjectStatus,
   ProjectTopicEntry,
@@ -50,6 +51,70 @@ class ProjectRenderingSuite extends munit.FunSuite:
       assertEquals(labels.get(StrimziDefinitions.ClusterLabel), "ankka")
       assertEquals(labels.get(Labels.ManagedByKey), Labels.ManagedByAnkka)
       assertEquals(labels.get(Labels.ProjectKey), "money")
+  }
+
+  // features/topics/contracts.feature: the declarations every service reads at start (feature 037)
+  test(
+    "the project's declarations are rendered for every service to read, with or without a broker"
+  ) {
+    val spec = AnkkaProjectSpec(
+      "money",
+      List(
+        ProjectTopicEntry("wallet-events", 3, "2026-10-07T10:00:00Z"),
+        ProjectTopicEntry(
+          "transactions",
+          12,
+          "2026-10-07T10:00:00Z",
+          compacted = true,
+          contractName = Some("transaction.v1"),
+          contractFingerprint = Some("sha256:ab")
+        )
+      ),
+      List(
+        ProjectBrokerEntry(
+          "legacy",
+          "kafka.legacy:9094",
+          "sasl",
+          "legacy-credential",
+          "2026-10-07T10:00:00Z"
+        )
+      )
+    )
+    val expected =
+      """{"project":"money","topics":[""" +
+        """{"name":"transactions","partitions":12,"compacted":true,"contract":{"name":"transaction.v1","fingerprint":"sha256:ab"}},""" +
+        """{"name":"wallet-events","partitions":3,"compacted":false}],""" +
+        """"brokers":[{"name":"legacy","bootstrap":"kafka.legacy:9094","shape":"sasl"}]}"""
+    for settings <- Vector(broker, None) do
+      val configs = actions(spec, settings).collect { case Action.EnsureProjectConfig(cm) => cm }
+      assertEquals(configs.size, 1)
+      val cm = configs.head
+      assertEquals(cm.getMetadata.getNamespace, "ankka-money")
+      assertEquals(cm.getMetadata.getName, ProjectConfig.Name)
+      assertEquals(cm.getData.get(ProjectConfig.Key), expected)
+    // Before the topics: a service started between the two sees the declarations.
+    val as = actions(spec)
+    assert(as.head.isInstanceOf[Action.EnsureProjectConfig], as.map(_.describe).toString)
+  }
+
+  // features/broker/compaction.feature
+  test(
+    "a topic declared compacted is rendered with cleanup.policy compact, and one not declared without a config"
+  ) {
+    val spec = AnkkaProjectSpec(
+      "shop",
+      List(
+        ProjectTopicEntry("cart-deltas", 3, "2026-10-07T10:00:00Z", compacted = true),
+        ProjectTopicEntry("orders", 3, "2026-10-07T10:00:00Z")
+      )
+    )
+    val rendered = topics(actions(spec)).map(t => t.getMetadata.getName -> t.getSpec).toMap
+    assertEquals(
+      rendered("shop.cart-deltas"),
+      KafkaTopicSpec(3, Some(Map("cleanup.policy" -> "compact")))
+    )
+    assertEquals(rendered("shop.orders"), KafkaTopicSpec(3))
+    assertEquals(rendered("shop.orders").config, None)
   }
 
   test("a project's topics are owned by nothing, and nothing removes one") {

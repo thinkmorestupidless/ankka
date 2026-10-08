@@ -68,7 +68,11 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
           s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
           s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
           s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},""" +
-          s""""behind":${s.behind}}"""
+          s""""behind":${s.behind},""" +
+          s""""broker":${s.broker.fold("null")(Json.str)},""" +
+          s""""contract":${s.contract.fold("null")(Json.str)},""" +
+          s""""lag":${s.lag.fold("null")(_.toString)},""" +
+          s""""failing":${s.failing.fold("null")(Json.str)}}"""
       }
       .mkString("[", ",", "]")
 

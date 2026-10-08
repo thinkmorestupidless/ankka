@@ -156,7 +156,7 @@ See [Views](../build/views.md).
 | Part | API |
 |---|---|
 | Base class | `Consumer<M, Out>` |
-| Statics | `componentId`, `source` or `topic`, `message`; to publish, `producesTo` and `out` |
+| Statics | `componentId`, `source` or `topic`, `message`; for a topic, `startFrom`, `contract`, `broker`, `parallel`; to publish, `producesTo` (a topic, or a `Publication` with its contract and broker) and `out` |
 | Must define | `onMessage(message): ConsumerEffect<Out>` |
 | May override | `onDelete()`, which ignores by default |
 | In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.client`, `this.effects` |
@@ -175,7 +175,7 @@ nothing but deltas.
 | Part | API |
 |---|---|
 | Base class | `GraphConsumer<M>` |
-| Statics | `componentId`, `source` or `topic`, `message`, `producesTo`; no `out` |
+| Statics | `componentId`, `source` or `topic`, `message`, `producesTo`; `contract`, `broker`, `parallel` for a topic; no `out` |
 | Must define | `onMessage(message): GraphEffect`, which may be `async` |
 | May override | `onDelete()`, which ignores by default |
 | In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.client`, `this.graph`, `this.effects` |

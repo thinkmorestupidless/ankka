@@ -63,6 +63,7 @@ import io.fabric8.kubernetes.api.model.{
   Quantity,
   ResourceRequirementsBuilder,
   Volume,
+  VolumeMount,
   VolumeBuilder,
   VolumeMountBuilder
 }
@@ -183,10 +184,6 @@ object Rendering:
   val ProcessPort: Int = 9010
   val SidecarPort: Int = 9011
 
-  /** The developer's container, until the descriptor can size it: small, and bounded. */
-  private val AppQuantities =
-    Map("cpu" -> new Quantity("100m"), "memory" -> new Quantity("128Mi")).asJava
-
   val ManagementPort: Int = 7626
   val RemotingPort: Int   = 17355
 
@@ -209,7 +206,10 @@ object Rendering:
       settings: Settings,
       databasePlan: ProvisioningPlan,
       knownToBroker: Boolean = false,
-      objectStoragePlan: ObjectStoragePlan = ObjectStoragePlan.NotAsked
+      objectStoragePlan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
+      // The project's declared brokers (feature 037), read by the caller from `AnkkaProject` as
+      // `databasePlan` is decided by it: `render` stays a pure function of its arguments.
+      declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -253,19 +253,23 @@ object Rendering:
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker) :+
           Action.ApplyDeployment(
-            deployment(
-              resource,
+            BrokerMounts.attach(
+              deployment(
+                resource,
+                deployed,
+                namespace,
+                databasePlan,
+                settings.sidecarImage,
+                settings.namespacePrefix,
+                settings.proxyImage,
+                settings.baseDomain,
+                settings.httpsPort,
+                settings.otlpEndpoint,
+                settings.otlpHeaders.isDefined,
+                storageEnv(spec, settings)
+              ),
               deployed,
-              namespace,
-              databasePlan,
-              settings.sidecarImage,
-              settings.namespacePrefix,
-              settings.proxyImage,
-              settings.baseDomain,
-              settings.httpsPort,
-              settings.otlpEndpoint,
-              settings.otlpHeaders.isDefined,
-              storageEnv(spec, settings)
+              declaredBrokers
             )
           ) :+
           addressAction(resource, spec, namespace) :+
@@ -1042,8 +1046,11 @@ object Rendering:
           mount = spec.mounts.nonEmpty
         )
       else ZeroTrust.Held(cluster = true, service = true, database = provisioned)
+    // The project's declarations (feature 037) ride beside the TLS volumes on every pod: optional,
+    // so a project without them starts as before.
     val tlsVolumes =
-      ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec)
+      ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec) ++
+        projectVolumes(spec)
     val moduleInit = moduleInitContainers(spec)
 
     // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
@@ -1320,8 +1327,8 @@ object Rendering:
         )
         .withResources(
           new ResourceRequirementsBuilder()
-            .withRequests(AppQuantities)
-            .withLimits(AppQuantities)
+            .withRequests(appQuantities(spec))
+            .withLimits(appQuantities(spec))
             .build()
         )
         .withLifecycle(
@@ -1452,6 +1459,28 @@ object Rendering:
           .build()
       )
       .build()
+
+  // The project's declarations (feature 037) reach every runtime: a web-hosted service has none, so
+  // it mounts nothing and renders as before.
+  /** The process container's size (feature 037): the descriptor's, else the platform's minimum. */
+  private def appQuantities(spec: AnkkaServiceSpec): java.util.Map[String, Quantity] =
+    Map(
+      "cpu"    -> new Quantity(s"${spec.processCpuMillis}m"),
+      "memory" -> new Quantity(s"${spec.processMemoryMiB}Mi")
+    ).asJava
+
+  private def projectVolumes(spec: AnkkaServiceSpec): Vector[Volume] =
+    if spec.hosting == WebHosting then Vector.empty else Vector(ProjectConfig.volume())
+
+  private def projectMounts(spec: AnkkaServiceSpec): Vector[VolumeMount] =
+    if spec.hosting == WebHosting then Vector.empty else Vector(ProjectConfig.mount())
+
+  private def projectEnvironment(spec: AnkkaServiceSpec): Vector[EnvVar] =
+    if spec.hosting == WebHosting then Vector.empty
+    else
+      // Feature 037: a service with no database is told so, and refuses a component that needs one.
+      val none = Option.when(spec.database == "none")(literal("ANKKA_DATABASE", "none"))
+      Vector(ProjectConfig.environment()) ++ none
 
   private def container(
       spec: AnkkaServiceSpec,
@@ -1589,15 +1618,20 @@ object Rendering:
         (spec.env.map(
           environment
         ) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++ secretKeyEnv ++
-          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty))*
+          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty)
+          ++ projectEnvironment(spec))*
       )
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ grpcPorts.toVector ++ clusterPorts)*)
       .withVolumeMounts(
-        ZeroTrust.mounts(
+        (ZeroTrust.mounts(
           ZeroTrust.Held(cluster = true, service = true, database = withDatabaseEnv)
-        )*
+        ) ++ projectMounts(spec))*
       )
+      // A service that refuses to start writes why to the termination log (StartRefusal); one that
+      // exits before it can, or without one, leaves its last log lines instead. Either way the
+      // operator reports the message as the service's detail, so `ankka services get` shows it.
+      .withTerminationMessagePolicy("FallbackToLogsOnError")
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()
       )

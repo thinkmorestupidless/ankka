@@ -72,7 +72,20 @@ message Source {
   // 1.7: where a topic source starts the first time its consumer group reads a partition. Only
   // with `topic`. Absent: a view starts at the earliest message; a consumer is refused.
   optional StartFrom start_from = 3;
+  // 1.14, only with `topic`: the contract the component expects the topic to carry, checked at
+  // start against the project's declaration; the declared broker the topic is on (absent: the
+  // installation's); whether the partitions an instance holds are handled at once, each in order.
+  optional Contract contract = 4;
+  optional string broker = 5;
+  optional bool parallel = 6;
 }
+
+// 1.14: a name and the fingerprint of the schema document a component was built against:
+// `sha256:` and the hex SHA-256 of the document under RFC 8785 (protocol/fixtures/contracts/).
+message Contract { string name = 1; string fingerprint = 2; }
+
+// 1.14: a topic a consumer publishes to, with the contract it states and the declared broker it is on.
+message Publication { string topic = 1; optional Contract contract = 2; optional string broker = 3; }
 
 // 1.7
 message StartFrom {
@@ -106,6 +119,9 @@ message ConsumerDetail {
   Source source = 1;
   optional string produces_to = 2;
   optional uint32 version = 3;    // 1.7: only with a topic source; a new one reads under a new group. Absent: 1
+  // 1.14: the publication with its contract and broker; `produces_to` stays for a process that
+  // states only the topic. Both present must name one topic.
+  optional Publication produces = 4;
 }
 message TimedActionDetail {}
 

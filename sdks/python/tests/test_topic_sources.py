@@ -115,3 +115,62 @@ def test_a_service_that_declares_neither_is_served_by_an_older_sidecar() -> None
     plain = view(topic=None, source=CounterEntity)
     servicer = DiscoveryServicer(Ankka.service().register(plain)._registry)
     assert servicer.refusal("1.6") is None
+
+
+# 1.14: what a project must know about a topic source and a publication.
+
+
+def test_a_consumer_states_its_contract_broker_parallel_and_publication_in_discovery() -> None:
+    from ankka import Contract, Publication
+
+    orders = Contract.from_bytes(b'{"type": "object"}', name="order.v1")
+    enriched = Contract.from_bytes(b'{"type": "object"}', name="enriched.v1")
+    cls = consumer(
+        start_from=StartFrom.EARLIEST,
+        contract=orders,
+        broker="legacy",
+        parallel=True,
+        out_codec=CODEC,
+        produces_to=Publication("enriched", contract=enriched, broker="legacy"),
+    )
+    detail = cls.to_component().consumer
+    assert (detail.source.contract.name, detail.source.contract.fingerprint) == ("order.v1", orders.fingerprint)
+    assert detail.source.broker == "legacy"
+    assert detail.source.parallel is True
+    assert detail.produces_to == "enriched"
+    assert (detail.produces.topic, detail.produces.contract.name, detail.produces.broker) == ("enriched", "enriched.v1", "legacy")
+
+
+def test_a_consumer_declaring_nothing_new_states_nothing_new() -> None:
+    detail = consumer(start_from=StartFrom.EARLIEST, out_codec=CODEC, produces_to="enriched").to_component().consumer
+    assert not detail.source.HasField("contract")
+    assert not detail.source.HasField("broker")
+    assert not detail.source.HasField("parallel")
+    assert detail.produces_to == "enriched"
+    assert detail.produces.topic == "enriched"
+    assert not detail.produces.HasField("contract")
+
+
+def test_a_view_states_its_contract_and_broker_in_discovery() -> None:
+    from ankka import Contract
+
+    orders = Contract.from_bytes(b"{}", name="order.v1")
+    source = view(contract=orders, broker="legacy", parallel=True).to_component().view.source
+    assert source.contract.name == "order.v1"
+    assert source.broker == "legacy"
+    assert source.parallel is True
+
+
+def test_a_contract_a_broker_or_parallel_on_a_component_source_is_refused() -> None:
+    with pytest.raises(RegistrationError, match="which apply to a topic"):
+        consumer(topic=None, source=CounterEntity, parallel=True)
+
+
+def test_a_sidecar_before_1_14_is_refused_what_it_would_ignore() -> None:
+    from ankka import Contract
+
+    stating = consumer(start_from=StartFrom.EARLIEST, contract=Contract.from_bytes(b"{}", name="order.v1"))
+    registry = Ankka.service().register(stating).validate()
+    refusal = DiscoveryServicer(registry).refusal("1.13")
+    assert refusal is not None and "Run a sidecar speaking 1.14 or later" in refusal
+    assert DiscoveryServicer(registry).refusal("1.14") is None

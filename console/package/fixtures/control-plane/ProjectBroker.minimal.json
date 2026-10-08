@@ -1,0 +1,1 @@
+{"type":"ProjectBroker","json":{"name":"legacy","bootstrap":"kafka.legacy:9094","shape":"sasl","secret":"legacy-credential"}}

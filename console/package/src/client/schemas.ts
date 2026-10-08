@@ -148,6 +148,10 @@ export const serviceStatusSchema = z.object({
   broker: optional(z.string()),
   /** Topics the service's components use that its project does not declare; absent when not read. */
   undeclaredTopics: optional(z.array(z.string())),
+  /** Each side the service takes on a declared topic with a contract, checked against it; absent when not read. */
+  topicChecks: optional(z.array(z.lazy(() => topicCheckSchema))),
+  /** Each topic source of the service with how far behind it is, from its instances; absent when not read. */
+  topicSources: optional(z.array(z.lazy(() => topicSourceReportSchema))),
   objectStorage: optional(z.string()),
   bucket: optional(z.string()),
   bucketAddress: optional(z.string()),
@@ -370,9 +374,32 @@ export const setProjectSecretSchema = z.object({
 });
 export type SetProjectSecret = z.input<typeof setProjectSecretSchema>;
 
-/** `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has. */
+/** A contract as declared on a topic: its name and the fingerprint of its schema document. */
+export const contractSchema = z.object({
+  name: z.string(),
+  fingerprint: z.string(),
+});
+export type Contract = z.infer<typeof contractSchema>;
+
+/** One side of a declared topic as a running service states it, against the declared contract. */
+export const topicCheckSchema = z.object({
+  topic: optional(z.string()),
+  service: z.string(),
+  component: z.string(),
+  direction: z.string(),
+  stated: optional(z.string()),
+  state: z.string(),
+});
+export type TopicCheck = z.infer<typeof topicCheckSchema>;
+
+/**
+ * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
+ * only the last message under each key, and the contract it carries with its schema document.
+ */
 export const topicDeclarationRequestSchema = z.object({
   partitions: z.number().int(),
+  compacted: z.boolean().default(false),
+  contract: optional(z.object({ name: z.string(), schema: z.unknown() })),
 });
 export type TopicDeclarationRequest = z.input<typeof topicDeclarationRequestSchema>;
 
@@ -382,8 +409,50 @@ export const projectTopicSchema = z.object({
   partitions: z.number().int(),
   phase: optional(z.string()),
   detail: optional(z.string()),
+  compacted: z.boolean().default(false),
+  contract: optional(contractSchema),
+  checks: z.array(topicCheckSchema).default([]),
 });
 export type ProjectTopic = z.infer<typeof projectTopicSchema>;
+
+/**
+ * A topic source as a service's instances report it: what reads which topic under which group, the
+ * declared broker and contract it states, `lag` (messages past the last one handled, as of the last
+ * poll) and `failing` (the reason of the change being delivered again, until one succeeds).
+ */
+export const topicSourceReportSchema = z.object({
+  kind: z.string(),
+  component: z.string(),
+  topic: z.string(),
+  group: z.string(),
+  start: z.string(),
+  version: z.number().int(),
+  recordedVersion: optional(z.number().int()),
+  behind: z.boolean().default(false),
+  broker: optional(z.string()),
+  contract: optional(z.string()),
+  lag: optional(z.number().int()),
+  failing: optional(z.string()),
+});
+export type TopicSourceReport = z.infer<typeof topicSourceReportSchema>;
+
+/** `PUT /projects/{id}/brokers/{name}`: a broker declared beside the installation's, and how it is reached. */
+export const brokerDeclarationRequestSchema = z.object({
+  bootstrap: z.string(),
+  shape: z.string(),
+  secret: z.string(),
+});
+export type BrokerDeclarationRequest = z.input<typeof brokerDeclarationRequestSchema>;
+
+/** A broker a project declares, as listed: where it is, the shape of its credential, and the project secret holding it. */
+export const projectBrokerSchema = z.object({
+  name: z.string(),
+  bootstrap: z.string(),
+  shape: z.string(),
+  secret: z.string(),
+  declaredAt: optional(z.string()),
+});
+export type ProjectBroker = z.infer<typeof projectBrokerSchema>;
 
 /** A project secret as the control plane lists it: entries' names, never a value. */
 export const projectSecretSummarySchema = z.object({
@@ -436,4 +505,7 @@ export const schemasByType: Record<string, z.ZodType> = {
   ProjectSecretSummary: projectSecretSummarySchema,
   TopicDeclarationRequest: topicDeclarationRequestSchema,
   ProjectTopic: projectTopicSchema,
+  Contract: contractSchema,
+  BrokerDeclarationRequest: brokerDeclarationRequestSchema,
+  ProjectBroker: projectBrokerSchema,
 };

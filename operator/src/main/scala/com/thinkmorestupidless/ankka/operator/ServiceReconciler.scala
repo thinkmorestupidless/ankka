@@ -69,7 +69,8 @@ final class ServiceReconciler(
       settings,
       databasePlan,
       BrokerProvisioning.known(spec, settings.broker),
-      storagePlan
+      storagePlan,
+      executor.projectBrokers(ref.namespace, spec.projectId)
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -129,7 +130,8 @@ final class ServiceReconciler(
   private def decideDatabasePlan(ref: ServiceRef, spec: AnkkaServiceSpec): ProvisioningPlan =
     val observed =
       // A web-hosted service has no database to observe: no CNPG read is made for it at all.
-      if spec.provisionDatabase && spec.hosting != Rendering.WebHosting then
+      if spec.provisionDatabase && spec.hosting != Rendering.WebHosting && spec.database != "none"
+      then
         executor
           .observeDatabase(ref.namespace, CnpgRendering.projectClusterName, ref.name)
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))

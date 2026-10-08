@@ -11,7 +11,9 @@ import com.thinkmorestupidless.ankka.core.{
 import com.thinkmorestupidless.ankka.sdk.{
   ConsumerDescriptor,
   DeclaredQuery,
+  Publication,
   StartFrom,
+  TopicOptions,
   ViewDescriptor,
   WorkflowSettings
 }
@@ -30,7 +32,11 @@ enum RemoteSource:
   case Component(kind: ComponentKind, id: ComponentId)
 
   /** `startFrom` as the process declared it; `None` when it declared nowhere. */
-  case Topic(name: String, startFrom: Option[StartFrom] = None)
+  case Topic(
+      name: String,
+      startFrom: Option[StartFrom] = None,
+      options: TopicOptions = TopicOptions()
+  )
 
 /**
  * Descriptors for components whose handlers live in another process.
@@ -121,8 +127,8 @@ final case class RemoteKeyedViewDescriptor(
   override def declaredHandlers: Vector[DeclaredHandler] =
     sources
       .map {
-        case RemoteSource.Component(_, id) => DeclaredHandler(id.toString, HandlerKind.Update)
-        case RemoteSource.Topic(name, _)   => DeclaredHandler(name, HandlerKind.Update)
+        case RemoteSource.Component(_, id)  => DeclaredHandler(id.toString, HandlerKind.Update)
+        case RemoteSource.Topic(name, _, _) => DeclaredHandler(name, HandlerKind.Update)
       }
       .sortBy(_.name)
 
@@ -137,10 +143,17 @@ final case class RemoteConsumerDescriptor(
     source: RemoteSource,
     producesTo: Option[String],
     startDeclarable: Boolean = true,
-    version: Option[Int] = None
+    version: Option[Int] = None,
+    produces: Option[Publication] = None
 ) extends RemoteDescriptor:
   val kind: ComponentKind                      = ComponentKind.Consumer
   val handlers: Map[MethodName, RemoteHandler] = Map.empty
+
+  /**
+   * The topic this consumer publishes to: `produces` where the process stated one, else
+   * `producesTo`.
+   */
+  def publication: Option[Publication] = produces.orElse(producesTo.map(Publication(_)))
 
   override def declaredHandlers: Vector[DeclaredHandler] = Vector(ConsumerDescriptor.OnMessage)
 

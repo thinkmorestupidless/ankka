@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf"
 import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
-import { olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
+import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -15,7 +15,31 @@ import { olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
-  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol)
+  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol) ?? contractRefusal(spec, sidecarProtocol)
+}
+
+/**
+ * A sidecar older than 1.14 would ignore a topic's contract, broker and parallel reading and a
+ * publication's contract and broker: a contract would go unchecked, a topic on another broker would be
+ * read from the installation's. Refused at discovery, naming the components, rather than served wrong.
+ */
+function contractRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanContracts(sidecarProtocol)) return undefined
+  const declaring = spec.components
+    .filter((c) => {
+      const d = c.detail
+      if (d.case !== "view" && d.case !== "consumer") return false
+      const src = d.value.source
+      const onSource = src !== undefined && (src.contract !== undefined || src.broker !== undefined || src.parallel === true)
+      const onPublication = d.case === "consumer" && d.value.produces !== undefined && (d.value.produces.contract !== undefined || d.value.produces.broker !== undefined)
+      return onSource || onPublication
+    })
+    .map((c) => c.id)
+  if (declaring.length === 0) return undefined
+  return (
+    `${declaring.join(", ")} declare a topic's contract, broker or parallel reading, which the sidecar ignores: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.14 or later.`
+  )
 }
 
 /**

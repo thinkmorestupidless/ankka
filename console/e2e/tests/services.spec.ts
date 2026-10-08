@@ -108,6 +108,30 @@ test("a service known to the installation's broker shows its broker and the topi
   await audit(page);
 });
 
+test("a service shows the sides it takes on its project's declared contracts", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "a topic check is seeded on the fake");
+  const org = unique("check-org");
+  const project = unique("check-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    services: [
+      {
+        projectId: project,
+        name: "wallet",
+        topicChecks: [
+          { topic: "orders", service: "wallet", component: "consumer:relay", direction: "publishes", stated: "order.v1", state: "checked" },
+          { topic: "returns", service: "wallet", component: "view:by-day", direction: "reads", state: "mismatch" },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/wallet`);
+  const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+  await expect(fact("Topic checks")).toContainText("consumer:relay publishes: checked");
+  await expect(fact("Topic checks").locator('li[data-check="mismatch"]')).toContainText("view:by-day reads: mismatch (none)");
+  await audit(page);
+});
+
 test("US3-3 a descriptor is applied, and a refused one shows every problem", async ({ page, target, signIn, unique }) => {
   const { project } = await tenancy(page, target, signIn, unique);
   await page.goto(`${target.url}/projects/${project}/services/apply`);
@@ -303,3 +327,31 @@ test("a bucket reachable from the internet shows its address beneath its name", 
   await audit(page);
 });
 
+
+test("a service shows each topic source with how far behind it is, and what one is failing on", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "topic sources are seeded on the fake");
+  const org = unique("source-org");
+  const project = unique("source-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    services: [
+      {
+        projectId: project,
+        name: "intake",
+        topicSources: [
+          { kind: "consumer", component: "relay", topic: "events", group: "ankka.shop.intake.consumer.relay", broker: "legacy", lag: 60 },
+          { kind: "view", component: "by-day", topic: "orders", group: "ankka.shop.intake.view-v2.by-day", version: 2, contract: "order.v1", lag: 0, failing: "cannot decode offset 4711: not an order" },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/intake`);
+  const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+  const relay = fact("Topic sources").locator('tr[data-topic-source="relay"]');
+  await expect(relay).toContainText("events@legacy");
+  await expect(relay).toContainText("60");
+  const byDay = fact("Topic sources").locator('tr[data-topic-source="by-day"][data-failing="yes"]');
+  await expect(byDay).toContainText("orders as order.v1");
+  await expect(byDay).toContainText("cannot decode offset 4711");
+  await audit(page);
+});

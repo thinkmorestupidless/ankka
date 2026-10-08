@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.discovery.*
 import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.core.{
+  Contract as CoreContract,
   ComponentKind,
   ComponentId,
   EntityId,
@@ -13,7 +14,7 @@ import com.thinkmorestupidless.ankka.core.{
 }
 import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.runtime.remote.*
-import com.thinkmorestupidless.ankka.sdk.StartFrom
+import com.thinkmorestupidless.ankka.sdk.{Publication as SdkPublication, StartFrom, TopicOptions}
 import com.typesafe.config.ConfigFactory
 import io.grpc.ManagedChannelBuilder
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -154,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.13")
+    assertEquals(Discovery.ProtocolVersion, "1.14")
   }
 
   test(
@@ -323,6 +324,88 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     assertEquals(sources("late"), RemoteSource.Topic("orders", Some(StartFrom.Latest)))
     assertEquals(sources("at"), RemoteSource.Topic("orders", Some(StartFrom.At(at))))
     assertEquals(sources("summary"), RemoteSource.Topic("orders", None))
+  }
+
+  test("discovery 1.14: a topic source's contract, broker and parallel reach the remote source") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val stated = Some(Contract("order.v1", "sha256:ab"))
+    val src = Source(
+      Source.Source.Topic("orders"),
+      named(P.Named.EARLIEST),
+      contract = stated,
+      broker = Some("legacy"),
+      parallel = Some(true)
+    )
+    val detail = ConsumerDetail(
+      Some(src),
+      producesTo = Some("enriched"),
+      produces =
+        Some(Publication("enriched", Some(Contract("enriched.v1", "sha256:cd")), Some("legacy")))
+    )
+    val discovered = validateSpec(
+      topicSpec(
+        "1.14",
+        Component(Kind.CONSUMER, "relay", Vector.empty, Component.Detail.Consumer(detail))
+      )
+    ).toOption.get
+    val relay = discovered.descriptors.collectFirst { case c: RemoteConsumerDescriptor => c }.get
+    assertEquals(
+      relay.source,
+      RemoteSource.Topic(
+        "orders",
+        Some(StartFrom.Earliest),
+        TopicOptions(Some(CoreContract("order.v1", "sha256:ab")), Some("legacy"), parallel = true)
+      )
+    )
+    assertEquals(
+      relay.publication,
+      Some(
+        SdkPublication("enriched", Some(CoreContract("enriched.v1", "sha256:cd")), Some("legacy"))
+      )
+    )
+  }
+
+  test("discovery 1.14: a Spec from an earlier minor states nothing new and is accepted") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val discovered = validateSpec(
+      topicSpec("1.13", consumer("early", overTopic(named(P.Named.EARLIEST))))
+    ).toOption.get
+    val early = discovered.descriptors.collectFirst { case c: RemoteConsumerDescriptor => c }.get
+    assertEquals(
+      early.source,
+      RemoteSource.Topic("orders", Some(StartFrom.Earliest), TopicOptions())
+    )
+    assertEquals(early.publication, None)
+  }
+
+  test("discovery 1.14: produces and produces_to naming different topics are refused") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val detail = ConsumerDetail(
+      overTopic(named(P.Named.EARLIEST)),
+      producesTo = Some("one"),
+      produces = Some(Publication("another"))
+    )
+    val problems = validateSpec(
+      topicSpec(
+        "1.14",
+        Component(Kind.CONSUMER, "relay", Vector.empty, Component.Detail.Consumer(detail))
+      )
+    ).left.toOption.get
+    assert(
+      problems.exists(_.contains("names 'one' in produces_to and 'another' in produces")),
+      problems
+    )
+  }
+
+  test("discovery 1.14: a contract, a broker or parallel on a component source is refused") {
+    val src = Source(
+      Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart")),
+      None,
+      parallel = Some(true)
+    )
+    val problems =
+      validateSpec(topicSpec("1.14", consumer("follower", Some(src)))).left.toOption.get
+    assert(problems.exists(_.contains("which apply to a topic")), problems)
   }
 
   test("discovery: what a process may not declare about a topic source is refused, all at once") {

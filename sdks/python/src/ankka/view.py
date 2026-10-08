@@ -8,7 +8,8 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
-from ankka import start_from
+from ankka import contract, start_from
+from ankka.contract import Contract
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import Codec
 from ankka.start_from import StartFrom
@@ -57,7 +58,7 @@ def _source_pb(cls: type) -> discovery_pb2.Source:
             kind = source.to_component().kind
         return discovery_pb2.Source(component=discovery_pb2.Source.ComponentRef(kind=kind, id=source.component_id))
     if topic is not None:
-        return start_from.apply(discovery_pb2.Source(topic=topic), cls)
+        return contract.apply(start_from.apply(discovery_pb2.Source(topic=topic), cls), cls)
     raise RegistrationError(f"{cls.__name__} must declare a source (a component class) or a topic")
 
 
@@ -74,6 +75,11 @@ class View(Generic[Src, Row]):
     # Raised to have the view emptied and read again: its topic from its start position, or its
     # entity from the first thing it recorded. Absent is 1.
     version: ClassVar[int | None] = None
+    # What the project must know about a topic source (1.14): the contract the view expects the
+    # topic to carry, the declared broker it is on, and whether its partitions are read in parallel.
+    contract: ClassVar[Contract | None] = None
+    broker: ClassVar[str | None] = None
+    parallel: ClassVar[bool] = False
     event_codec: ClassVar[Codec[Any]]
     row_codec: ClassVar[Codec[Any]]
     queries: ClassVar[tuple[str, ...]] = ("get", "all")
@@ -91,7 +97,7 @@ class View(Generic[Src, Row]):
             if not hasattr(cls, required):
                 raise RegistrationError(f"{cls.__name__} must declare {required}")
         _source_pb(cls)
-        found = start_from.problems(cls, consumer=False)
+        found = start_from.problems(cls, consumer=False) + contract.problems(cls)
         if found:
             raise RegistrationError("; ".join(found))
 

@@ -218,6 +218,48 @@ class WasmHostingRenderingSuite extends munit.FunSuite:
     assert(problem.message.contains("ABI version 2"), problem.message)
   }
 
+  // features/topics/contracts.feature: a refusal reaches `services get` whatever the exit code
+  test(
+    "a service that refused to start and exited 0 still names why, from its termination message"
+  ) {
+    val exited = new ContainerStatusBuilder()
+      .withName("wallet")
+      .withState(
+        new ContainerStateBuilder()
+          .withTerminated(
+            new ContainerStateTerminatedBuilder()
+              .withExitCode(0)
+              .withReason("Completed")
+              .withMessage(
+                "cannot start ankka projections:\n  - consumer 'relay' publishes to 'orders' with no contract"
+              )
+              .build()
+          )
+          .build()
+      )
+      .build()
+    val p = new PodBuilder()
+      .withMetadata(new ObjectMetaBuilder().withName("wallet-0").build())
+      .withStatus(new PodStatusBuilder().withContainerStatuses(exited).build())
+      .build()
+    val problem = PodProblem.of(p).get
+    assert(problem.message.contains("with no contract"), problem.message)
+    // An exit of 0 with nothing said is not a problem: a container may be replaced quietly.
+    val quiet = new ContainerStatusBuilder()
+      .withName("wallet")
+      .withState(
+        new ContainerStateBuilder()
+          .withTerminated(new ContainerStateTerminatedBuilder().withExitCode(0).build())
+          .build()
+      )
+      .build()
+    val q = new PodBuilder()
+      .withMetadata(new ObjectMetaBuilder().withName("wallet-0").build())
+      .withStatus(new PodStatusBuilder().withContainerStatuses(quiet).build())
+      .build()
+    assertEquals(PodProblem.of(q), None)
+  }
+
   /** A container running again after it last exited, ready or not, saying `said` as it exited. */
   private def runningAfterExit(ready: Boolean, said: String) =
     val status = new ContainerStatusBuilder()

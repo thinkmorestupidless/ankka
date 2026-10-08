@@ -69,6 +69,32 @@ class StrimziModelsSuite extends munit.FunSuite:
     )
   }
 
+  test(
+    "a compacted KafkaTopic round-trips its config, and a value Strimzi wrote as a number is read"
+  ) {
+    val topic = KafkaTopicResource(
+      "ankka-broker",
+      "shop.cart-deltas",
+      Map(StrimziDefinitions.ClusterLabel -> "ankka"),
+      KafkaTopicSpec(3, Some(Map("cleanup.policy" -> "compact")))
+    )
+    val json = serialization.asJson(topic)
+    assert(json.contains("\"cleanup.policy\":\"compact\""), json)
+    // An uncompacted topic's applied object carries no config key at all (feature 037).
+    val plain = KafkaTopicResource(
+      "ankka-broker",
+      "shop.orders",
+      Map(StrimziDefinitions.ClusterLabel -> "ankka"),
+      KafkaTopicSpec(3)
+    )
+    assert(!serialization.asJson(plain).contains("config"), serialization.asJson(plain))
+    assertEquals(serialization.unmarshal(json, classOf[KafkaTopicResource]).getSpec, topic.getSpec)
+    val written = json.replace("\"config\":{", "\"config\":{\"segment.ms\":100,")
+    val read    = serialization.unmarshal(written, classOf[KafkaTopicResource]).getSpec
+    assert(com.thinkmorestupidless.ankka.operator.StrimziRendering.compacted(read.config))
+    assertEquals(read.config.get("segment.ms").toString, "100")
+  }
+
   test("a resource Strimzi has not reported on has no status") {
     val topic = KafkaTopicResource("ankka-broker", "money.t", Map.empty, KafkaTopicSpec(1))
     assertEquals(topic.getStatus, null)

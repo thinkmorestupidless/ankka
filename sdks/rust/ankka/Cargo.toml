@@ -24,6 +24,9 @@ all-features = true
 prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A contract's fingerprint is the SHA-256 of its schema under RFC 8785 (feature 037).
+serde_jcs = "0.1"
+sha2 = "0.10"
 # The integration testkit: Postgres and the runtime image in Docker. Only with `testkit`, so a
 # service's dependencies never include Docker tooling unless it asks.
 testcontainers = { version = "0.28", optional = true, features = ["blocking"] }

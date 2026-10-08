@@ -83,9 +83,84 @@ interface Project {
   organizationId: string;
   registry?: Registry;
   secrets?: Map<string, ProjectSecret>;
-  /** Declared topics, by name: their partitions and what the broker reported of each. */
-  topics?: Map<string, { partitions: number; phase?: string; detail?: string }>;
+  /** Declared topics, by name: their partitions, compaction, contract and what the broker reported of each. */
+  topics?: Map<string, TopicRecord>;
+  /** Declared brokers beside the installation's, by name. */
+  brokers?: Map<string, BrokerRecord>;
   hidden: boolean;
+}
+
+interface BrokerRecord {
+  bootstrap: string;
+  shape: string;
+  secret: string;
+  declaredAt: string;
+}
+
+/** The entries a project secret must hold for a broker's shape, as the control plane checks. */
+const brokerNeeds = (shape: string): string[] =>
+  shape === "certificate" ? ["ca.crt", "tls.crt", "tls.key"] : shape === "sasl" ? ["ca.crt", "username", "password"] : [];
+
+/** A topic source as an instance reports it, with how far behind it is. */
+interface TopicSourceRecord {
+  kind: string;
+  component: string;
+  topic: string;
+  group: string;
+  start?: string;
+  version?: number;
+  broker?: string;
+  contract?: string;
+  lag?: number;
+  failing?: string;
+}
+
+const topicSourceOnTheWire = (t: TopicSourceRecord) => ({
+  kind: t.kind,
+  component: t.component,
+  topic: t.topic,
+  group: t.group,
+  start: t.start ?? "earliest",
+  version: t.version ?? 1,
+  recordedVersion: null,
+  behind: false,
+  broker: t.broker ?? null,
+  contract: t.contract ?? null,
+  lag: t.lag ?? null,
+  failing: t.failing ?? null,
+});
+
+interface TopicRecord {
+  partitions: number;
+  phase?: string;
+  detail?: string;
+  compacted?: boolean;
+  contract?: { name: string; fingerprint: string; schema: unknown };
+}
+
+/** One side a running service takes on a declared topic with a contract, against it; `topic` is the fake's own, for the project's listing. */
+interface TopicCheckRecord {
+  topic?: string;
+  service: string;
+  component: string;
+  direction: string;
+  stated?: string;
+  state: string;
+}
+
+const checkOnTheWire = (c: TopicCheckRecord) => ({ service: c.service, component: c.component, direction: c.direction, stated: c.stated ?? null, state: c.state });
+
+/** A stable fingerprint of the right shape; the control plane's is RFC 8785 over the document, which the fake need not reproduce. */
+function fakeFingerprint(schema: unknown): string {
+  const text = JSON.stringify(schema);
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    h1 = Math.imul(h1 ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + text.charCodeAt(i), 0x9e3779b1) >>> 0;
+  }
+  const hex = (h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0")).repeat(4);
+  return `sha256:${hex}`;
 }
 
 interface Service {
@@ -125,6 +200,10 @@ interface Service {
   broker?: string;
   /** Topics the service's components use that its project does not declare, as last read. */
   undeclaredTopics?: string[];
+  /** The sides it takes on declared topics with a contract, as last read. */
+  topicChecks?: TopicCheckRecord[];
+  /** Its topic sources with how far behind each is, as last read. */
+  topicSources?: TopicSourceRecord[];
   /** The descriptor asked for a bucket (feature 034). */
   provisionObjectStorage?: boolean;
   /** The descriptor gave an ANKKA_S3_ variable: an object store of its own. */
@@ -241,12 +320,26 @@ export interface FakeSeed {
     database?: string | null;
     broker?: string;
     undeclaredTopics?: string[];
+    topicChecks?: TopicCheckRecord[];
+    topicSources?: TopicSourceRecord[];
     provisionObjectStorage?: boolean;
     exposeObjectStorage?: boolean;
     ownObjectStore?: boolean;
   }[];
+  /** Project secrets, by name and entry: a value each, never listed. */
+  secrets?: { projectId: string; name: string; entries: Record<string, string> }[];
+  /** Brokers a project declares beside the installation's. */
+  brokers?: { projectId: string; name: string; bootstrap: string; shape: string; secret: string }[];
   /** Topics a project declares, as the control plane holds them, with the broker's report. */
-  topics?: { projectId: string; name: string; partitions: number; phase?: string; detail?: string }[];
+  topics?: {
+    projectId: string;
+    name: string;
+    partitions: number;
+    phase?: string;
+    detail?: string;
+    compacted?: boolean;
+    contract?: { name: string; schema: unknown };
+  }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -345,6 +438,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       processPort: s.processPort ?? null,
       broker: s.broker ?? null,
       undeclaredTopics: s.undeclaredTopics ?? null,
+      topicChecks: s.topicChecks ? s.topicChecks.map(checkOnTheWire) : null,
+      topicSources: s.topicSources ? s.topicSources.map(topicSourceOnTheWire) : null,
       objectStorage: s.provisionObjectStorage ? "provisioned" : s.ownObjectStore ? "supplied" : null,
       bucket: s.provisionObjectStorage ? `${s.projectId}.${s.name}` : null,
       bucketAddress:
@@ -739,6 +834,9 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const entry = url.searchParams.get("entry") ?? "";
     const secret = project.secrets?.get(p.name);
     if (!secret?.entries.has(entry)) throw new HttpError(404, `project secret '${p.name}' has no entry '${entry}'`);
+    // A broker's credential is not pulled from under it: the broker goes first.
+    const naming = [...(project.brokers ?? new Map<string, BrokerRecord>()).entries()].filter(([, b]) => b.secret === p.name && brokerNeeds(b.shape).includes(entry)).map(([name]) => `'${name}'`);
+    if (naming.length > 0) throw new HttpError(409, `project secret '${p.name}' is the credential of broker ${naming.sort().join(", ")}; remove the broker first`);
     secret.entries.delete(entry);
     return "done";
   });
@@ -754,23 +852,43 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   // Project topics: the control plane's rules, one declaration per name, never fewer partitions.
   const TopicName = /^[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?$/;
   const TopicNameRule = 'a name is lower-case letters, digits, "-" and ".", starting and ending with a letter or digit, at most 100 characters';
+  const ContractName = /^[a-z0-9][a-z0-9._-]{0,98}[a-z0-9]$/;
+  const ContractNameRule = "[a-z0-9][a-z0-9._-]{0,98}[a-z0-9]";
 
   route("PUT", "/projects/{projectId}/topics/{name}", (c, p, body) => {
     const { project, org } = requireProject(c, p.projectId);
     requireWrite(org);
     const name = p.name;
-    const partitions = Number((body as { partitions?: number }).partitions);
+    const request = body as { partitions?: number; compacted?: boolean; contract?: { name?: string; schema?: unknown } };
+    const partitions = Number(request.partitions);
     const problems: string[] = [];
     if (!TopicName.test(name)) problems.push(`topic '${name}': ${TopicNameRule}`);
     if (!Number.isInteger(partitions) || partitions < 1 || partitions > 1000)
       problems.push(`topic '${name}': partitions ${partitions} is outside the range 1-1000`);
+    // A contract's own rules: its name, and a schema that is a JSON document (feature 037).
+    if (request.contract !== undefined && request.contract !== null) {
+      const contractName = String(request.contract.name ?? "");
+      if (!ContractName.test(contractName)) problems.push(`topic '${name}': contract name '${contractName}' is not ${ContractNameRule}`);
+      if (request.contract.schema === undefined || request.contract.schema === null) problems.push(`topic '${name}': the contract's schema is missing`);
+    }
     if (problems.length > 0) throw new HttpError(400, problems.join("; "));
     project.topics ??= new Map();
     const has = project.topics.get(name)?.partitions;
     if (has !== undefined && has > partitions)
       throw new HttpError(409, `topic '${name}' has ${has} partitions and cannot have fewer; ${partitions} was asked`);
-    project.topics.set(name, { ...(project.topics.get(name) ?? {}), partitions });
+    const contract = request.contract
+      ? { name: String(request.contract.name), schema: request.contract.schema, fingerprint: fakeFingerprint(request.contract.schema) }
+      : undefined;
+    project.topics.set(name, { ...(project.topics.get(name) ?? {}), partitions, compacted: request.compacted === true, contract });
     return "done";
+  });
+
+  // The schema a topic's contract was declared with (feature 037); 404 without a contract.
+  route("GET", "/projects/{projectId}/topics/{name}/schema", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const topic = project.topics?.get(p.name);
+    if (!topic?.contract) throw new HttpError(404, `project '${p.projectId}' declares no contract on topic '${p.name}'`);
+    return topic.contract.schema;
   });
 
   route("DELETE", "/projects/{projectId}/topics/{name}", (c, p) => {
@@ -782,9 +900,63 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
 
   route("GET", "/projects/{projectId}/topics", (c, p) => {
     const { project } = requireProject(c, p.projectId);
-    return [...(project.topics ?? new Map()).entries()]
+    // The sides the project's services were seeded with, by topic: the control plane reads them
+    // from every service's instances; the fake reads them from what it was told.
+    const checks = [...services.values()].filter((s) => s.projectId === p.projectId).flatMap((s) => s.topicChecks ?? []);
+    return [...(project.topics ?? new Map<string, TopicRecord>()).entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, t]) => ({ name, partitions: t.partitions, phase: t.phase, detail: t.detail }));
+      .map(([name, t]) => ({
+        name,
+        partitions: t.partitions,
+        phase: t.phase,
+        detail: t.detail,
+        compacted: t.compacted ?? false,
+        contract: t.contract ? { name: t.contract.name, fingerprint: t.contract.fingerprint } : null,
+        checks: t.contract ? checks.filter((c) => c.topic === name).map(checkOnTheWire) : [],
+      }));
+  });
+
+  // Declared brokers (feature 037): the control plane's rules, and the secret's entries checked by name.
+  const BrokerBootstrap = /^[A-Za-z0-9._-]+:[0-9]+(,[A-Za-z0-9._-]+:[0-9]+)*$/;
+
+  route("PUT", "/projects/{projectId}/brokers/{name}", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const name = p.name;
+    const request = body as { bootstrap?: string; shape?: string; secret?: string };
+    const bootstrap = String(request.bootstrap ?? "").trim();
+    const shape = String(request.shape ?? "");
+    const secret = String(request.secret ?? "");
+    const problems: string[] = [];
+    if (!TopicName.test(name)) problems.push(`broker '${name}': ${TopicNameRule}`);
+    if (!BrokerBootstrap.test(bootstrap)) problems.push(`broker '${name}': bootstrap '${bootstrap}' is not host:port[,host:port]`);
+    if (shape !== "certificate" && shape !== "sasl") problems.push(`broker '${name}': shape '${shape}' is not one of certificate, sasl`);
+    if (secret === "") problems.push(`broker '${name}': secret a project secret needs a name`);
+    else if (secret.startsWith("ankka-") || PlatformSuffixes.some((s) => secret.endsWith(s)))
+      problems.push(`broker '${name}': secret project secret name '${secret}' is one the platform uses for its own Secrets in a project`);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    const held = project.secrets?.get(secret);
+    if (!held) throw new HttpError(400, `project '${p.projectId}' has no project secret '${secret}'`);
+    const missing = brokerNeeds(shape).filter((e) => !held.entries.has(e));
+    if (missing.length > 0) throw new HttpError(400, `project secret '${secret}' lacks ${missing.map((m) => `'${m}'`).join(", ")}, which shape '${shape}' needs`);
+    project.brokers ??= new Map();
+    const declaredAt = project.brokers.get(name)?.declaredAt ?? now();
+    project.brokers.set(name, { bootstrap, shape, secret, declaredAt });
+    return "done";
+  });
+
+  route("DELETE", "/projects/{projectId}/brokers/{name}", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    if (!project.brokers?.delete(p.name)) throw new HttpError(404, `project '${p.projectId}' declares no broker '${p.name}'`);
+    return "done";
+  });
+
+  route("GET", "/projects/{projectId}/brokers", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return [...(project.brokers ?? new Map<string, BrokerRecord>()).entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, b]) => ({ name, bootstrap: b.bootstrap, shape: b.shape, secret: b.secret, declaredAt: b.declaredAt }));
   });
 
   route("GET", "/services/{projectId}", (c, p) => {
@@ -1136,16 +1308,38 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           processPort: s.processPort,
           broker: s.broker,
           undeclaredTopics: s.undeclaredTopics,
+          topicChecks: s.topicChecks,
+          topicSources: s.topicSources,
           provisionObjectStorage: s.provisionObjectStorage,
           exposeObjectStorage: s.exposeObjectStorage,
           ownObjectStore: s.ownObjectStore,
         });
       }
+      for (const sec of seed.secrets ?? []) {
+        const project = projects.get(sec.projectId);
+        if (!project) throw new Error(`no project ${sec.projectId}`);
+        project.secrets ??= new Map();
+        const held = project.secrets.get(sec.name)?.entries ?? new Map<string, string>();
+        for (const [entry, value] of Object.entries(sec.entries)) held.set(entry, value);
+        project.secrets.set(sec.name, { entries: held, setAt: now(), setBy: "seed" });
+      }
+      for (const b of seed.brokers ?? []) {
+        const project = projects.get(b.projectId);
+        if (!project) throw new Error(`no project ${b.projectId}`);
+        project.brokers ??= new Map();
+        project.brokers.set(b.name, { bootstrap: b.bootstrap, shape: b.shape, secret: b.secret, declaredAt: now() });
+      }
       for (const t of seed.topics ?? []) {
         const project = projects.get(t.projectId);
         if (!project) throw new Error(`no project ${t.projectId}`);
         project.topics ??= new Map();
-        project.topics.set(t.name, { partitions: t.partitions, phase: t.phase, detail: t.detail });
+        project.topics.set(t.name, {
+          partitions: t.partitions,
+          phase: t.phase,
+          detail: t.detail,
+          compacted: t.compacted,
+          contract: t.contract ? { ...t.contract, fingerprint: fakeFingerprint(t.contract.schema) } : undefined,
+        });
       }
     },
     close: () =>

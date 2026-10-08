@@ -2,12 +2,13 @@
 
 The shopping cart publishes its carts as a graph itself: `CartGraph` and `CartContentsGraph`
 (`src/main/scala/shoppingcart/application/`) are graph consumers over the cart's events, and each
-publishes graph deltas to the topic `cart-graph`. The pipeline that writes them into a graph
-database is [ankka-flow](https://flow.ankka.cloud)'s built-in merge sink and nothing else:
-`blueprint.conf` here has one streamlet and no image of ours.
+publishes graph deltas to the topic `cart-graph`. What writes them into a graph database is the
+platform's graph sink into Neo4j, the image `ankka-graph-sink-neo4j` from ankka-contrib, deployed into
+the project like any service: `cart-graph-sink.json` here is its descriptor, and there is no image of
+ours.
 
 ```text
-shopping cart ──▶ cart-graph (compacted) ──▶ ankka-flow: builtin/neo4j-merge-sink ──▶ Neo4j
+shopping cart ──▶ cart-graph (declared compacted) ──▶ ankka-graph-sink-neo4j ──▶ Neo4j
 ```
 
 ## What is published
@@ -26,103 +27,48 @@ the same id publishes above its tombstones and is live again.
 
 ## Run it on the local cluster
 
-Needs the cluster `kustomization/deploy-local.sh` deploys to, with ankka-flow 0.3.0 or later
-installed beside ankka and its development Kafka and Neo4j (`just deploy` and `just neo4j-up` in
-the ankka-flow repository), and ankka-flow's `flow` command.
+Needs the cluster `kustomization/deploy-local.sh` deploys to, with its broker, and a Neo4j 5.26 or
+later the sink can reach (here one in the namespace `neo4j`, as `NEO4J_URI` in the descriptor
+names it).
 
-**The pipeline first.** It declares `cart-graph` as its own topic, so ankka-flow creates it
-compacted. ankka creates no topics: on a broker that creates topics on first use, a service that
-published first would get an uncompacted one, which the pipeline then reports as
-`TopicNotCompacted` and leaves as it is.
+**The topic first**, declared on the project and compacted, so that it holds every element's
+latest delta however long the service runs:
 
 ```bash
-cd samples/shopping-cart/graph
-flow verify blueprint.conf --conf k8s/in-cluster.conf
-flow generate blueprint.conf --conf k8s/in-cluster.conf -n shop | kubectl apply -f -
-kubectl -n shop get ankkaflow cart-graph            # Ready
+ankka projects topics set cart-graph --partitions 3 --compacted -p checkout
 ```
 
-```text
-note: Topic 'cart-graph' carries graph deltas and is compacted (cleanup.policy = compact).
-verified: 1 streamlets, 1 topics
-```
-
-**Then the service**, with a broker named, which is what registers the two graph consumers:
-
-```json
-{
-  "name": "shopping-cart",
-  "service": {
-    "image": "sample-shopping-cart:latest",
-    "env": [{ "name": "ANKKA_KAFKA_BOOTSTRAP_SERVERS", "value": "kafka.kafka.svc:9092" }]
-  }
-}
-```
+**Then the store's credential and the sink**, with `database: none`: a sink keeps no state of its
+own.
 
 ```bash
-ankka services apply -f shopping-cart.json --project checkout
+ankka projects secrets set graph-store username=neo4j password=- -p checkout   # the password from standard input
+ankka services apply -f cart-graph-sink.json -p checkout
+ankka services get cart-graph-sink -p checkout        # topic sources: cart-graph … lag 0
 ```
 
-**Drive it and look:**
+**Then the service**, as it is: the two graph consumers register themselves.
 
 ```bash
-./drive.sh https://shopping-cart-checkout.127.0.0.1.sslip.io:8443
-kubectl -n neo4j exec neo4j-0 -- cypher-shell -u neo4j -p flow-local-password --format plain \
+ankka services deploy shopping-cart sample-shopping-cart:latest -p checkout
+```
+
+**Drive it and look:** add items, check out and discard a few carts through the service's
+endpoints, then:
+
+```bash
+kubectl -n neo4j exec neo4j-0 -- cypher-shell -u neo4j -p "$NEO4J_PASSWORD" --format plain \
   "MATCH (n:Element) RETURN n.id AS id, labels(n) AS labels, n._version AS version, n._deleted AS deleted ORDER BY id"
 ```
 
-## What the graph should hold after `drive.sh`
-
-| Element | Version | State |
-|---|---|---|
-| `cart:cg-1` | 4 | `checkedOut: true` |
-| `cart:cg-2` | 2 | `checkedOut: true` |
-| `cart:cg-3` | 3 | deleted |
-| `cart:cg-4` | 4 | `checkedOut: false` — live again, above its tombstone at 3 |
-| `cart:cg-5` | 1 | `checkedOut: false` |
-| `checkout:cg-1`, `checkout:cg-2` | 4, 2 | |
-| `cart-contents:cg-1` | 4 | `lines: 1`, `quantity: 2` |
-| `cart-contents:cg-2` | 2 | `lines: 1`, `quantity: 1` |
-| `cart-contents:cg-3` | 3 | deleted |
-| `cart-contents:cg-4` | 4 | `lines: 1`, `quantity: 3` |
-| `cart-contents:cg-5` | 1 | `lines: 1`, `quantity: 4` |
-| edges `checked-out:cg-1`, `checked-out:cg-2` | 4, 2 | `CHECKED_OUT`, cart → checkout |
-
-Twelve nodes, two of them marked deleted, and two edges.
+A checked-out cart is a `Cart` node with `checkedOut: true`, a `Checkout` node and a
+`CHECKED_OUT` edge between them; a discarded cart is a `Cart` node marked deleted at the
+version of its deletion; a cart started again under the same id is live again, above its
+tombstone.
 
 ## Rebuilding the graph
 
 The topic is the graph: compacted, it keeps the latest delta under every element's key. To fill
-an empty database from it, reset only the sink, as ankka-flow's guide
-[Rebuild a graph from its delta topic](https://flow.ankka.cloud/deploy/rebuild-a-graph/)
-describes. The service is not involved.
-
-## Run on the local cluster, 2026-10-02
-
-With ankka-flow 0.3.0's operator and sink beside this build of ankka:
-
-1. **The pipeline first.** `cart-graph` was created by ankka-flow with `cleanup.policy=compact`,
-   under exactly the name the service publishes to; the pipeline was `Ready` with one pod, the sink.
-2. **The service**, with the broker named: its registry listed `cart-graph` and
-   `cart-contents-graph`, and after `drive.sh` the graph held the twelve nodes and two edges of the
-   table, at those versions, with `cart:cg-3` and `cart-contents:cg-3` marked deleted and
-   `cart:cg-4` live at 4, above its tombstone at 3.
-3. **The topic**: every record's key was its element key, its `ce-type` `ankka.graph-delta.v1`, its
-   `ce-subject` the cart's id.
-4. **A restart of the service straight after a second set of carts** (`drive.sh … rs`): the graph
-   for that set was identical to the first, and the sink never failed a batch.
-5. **A replay**: the two graph consumers' progress was erased and the service restarted, so both
-   read every cart's events again. The topic went from 88 records to 176; the sink wrote none of
-   them (88 more counted stale, none failed) and the graph did not change.
-6. **A rebuild**: the sink scaled to zero, the database emptied, `flow reset cart-graph --streamlet
-   graph`, the sink scaled up. Every live element came back identical, and every deleted one
-   marked deleted at its version, with no request made to the service.
-7. **The same script against the Python example behind a sidecar, and against the Rust example as
-   a WebAssembly module**, each publishing to the same topic under its own cart ids: the graph of
-   each was the same as the Scala service's.
-
-One thing to know when comparing two graphs: an element that is **marked deleted** may keep
-whatever labels and properties it had when its tombstone was applied, and that depends on how the
-sink happened to batch the records — a node and its tombstone read in one batch leave a bare
-marker, read in two they leave the node's last properties under the marker. Its id, its version
-and its mark are always the same. Live elements are identical however they were batched.
+an empty database from it, empty the store and apply the sink again with
+`ANKKA_GRAPH_SINK_VERSION` one higher: it reads the topic again from its start under a new
+group. The service is not involved. See the graph sink page of the documentation.

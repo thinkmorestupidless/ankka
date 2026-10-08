@@ -387,9 +387,12 @@ private[ankka] final class RemoteConsumer(
                   ProjectionSupport.Encoded(
                     m.payload.data,
                     ProjectionSupport.stamped(
-                      m.metadata
-                        .set(PayloadKeys.Manifest, m.payload.manifest)
-                        .set(PayloadKeys.ContentType, m.payload.contentType),
+                      ProjectionSupport.typed(
+                        m.metadata
+                          .set(PayloadKeys.Manifest, m.payload.manifest)
+                          .set(PayloadKeys.ContentType, m.payload.contentType),
+                        descriptor.publication.flatMap(_.contract)
+                      ),
                       context
                     ),
                     m.key
@@ -409,10 +412,12 @@ private[ankka] final class RemoteConsumer(
               // `ce-subject` defaults to the source entity id so per-entity ordering survives
               // the hop onto a partition; the manifest travels so a topic-sourced remote
               // component can decode what it gets.
-              val enriched =
+              val enriched = ProjectionSupport.typed(
                 (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
                   .set(PayloadKeys.Manifest, payload.manifest)
-                  .set(PayloadKeys.ContentType, payload.contentType)
+                  .set(PayloadKeys.ContentType, payload.contentType),
+                descriptor.publication.flatMap(_.contract)
+              )
               target.publish(topic, payload.data, ProjectionSupport.stamped(enriched, context))
             case _ =>
               // Startup validation rules this out; silently dropping would hide a slip.

@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.domain
 
 import com.thinkmorestupidless.ankka.controlplane.api.*
-import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata}
+import com.thinkmorestupidless.ankka.core.{CommandError, Contract, ErrorCode, Metadata}
 
 import java.time.Instant
 
@@ -301,7 +301,28 @@ final case class ProjectSecretRef(
  * when the partitions are raised, so a topic the broker held from before this declaration can be
  * told apart from one it made for it.
  */
-final case class DeclaredTopic(partitions: Int, declaredAt: Option[Instant] = None)
+final case class DeclaredTopic(
+    partitions: Int,
+    declaredAt: Option[Instant] = None,
+    /** Feature 037: the broker keeps the last message under each key. */
+    compacted: Boolean = false,
+    /**
+     * Feature 037: the contract every side must state; its document is in the project's schema
+     * store.
+     */
+    contract: Option[Contract] = None
+)
+
+/**
+ * A broker a project declares beside the installation's (feature 037): where it is, the shape of
+ * its credential, and the project secret holding it. A component names it for one topic.
+ */
+final case class DeclaredBroker(
+    bootstrap: String,
+    shape: String,
+    secretName: String,
+    declaredAt: Option[Instant] = None
+)
 
 /** A project. Services live in one. */
 final case class Project(
@@ -313,7 +334,9 @@ final case class Project(
     /** By the secret's name. A secret with no entry left is not here. */
     secrets: Map[String, ProjectSecretRef] = Map.empty,
     /** By the topic's name, as the project's components use it (feature 027). */
-    topics: Map[String, DeclaredTopic] = Map.empty
+    topics: Map[String, DeclaredTopic] = Map.empty,
+    /** By the broker's name, as a component names it (feature 037). */
+    brokers: Map[String, DeclaredBroker] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -346,11 +369,23 @@ final case class Project(
     val had = secrets.get(name).map(_.entries).getOrElse(Set.empty)
     copy(secrets = secrets.updated(name, ProjectSecretRef(had ++ entries, actor, at)))
 
-  def onTopicDeclared(name: String, partitions: Int, at: Option[Instant]): Project =
+  def onTopicDeclared(
+      name: String,
+      partitions: Int,
+      at: Option[Instant],
+      compacted: Boolean = false,
+      contract: Option[Contract] = None
+  ): Project =
     val declaredAt = topics.get(name).fold(at)(_.declaredAt)
-    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt)))
+    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt, compacted, contract)))
 
   def onTopicRemoved(name: String): Project = copy(topics = topics - name)
+
+  def onBrokerDeclared(name: String, broker: DeclaredBroker): Project =
+    val declaredAt = brokers.get(name).fold(broker.declaredAt)(_.declaredAt)
+    copy(brokers = brokers.updated(name, broker.copy(declaredAt = declaredAt)))
+
+  def onBrokerRemoved(name: String): Project = copy(brokers = brokers - name)
 
   def onSecretEntryRemoved(name: String, entry: String): Project =
     secrets.get(name) match

@@ -89,11 +89,13 @@ view's projection is named), and every write of such a view is guarded by the re
 - **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
   generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
   `AutonomousFixturesSuite` in `testkit`.
-- **`protocol/fixtures/graph-deltas/` is not generated here at all.** `keys.json` and `deltas.json` are
-  ankka-flow's, copied byte for byte — its merge sink's suite reads the same rows, which is what makes
-  them proof that a graph consumer writes what the sink reads — and `refused.json` is ankka's own.
-  `SOURCE.md` there names the ankka-flow commit. Change neither copied file here; copy them again.
-  All four SDKs test against all three.
+- **`protocol/fixtures/graph-deltas/` is ankka's own** (feature 037): `keys.json` and `deltas.json`
+  are written by `GraphFixturesSuite` in `core` from their own elements through the builder
+  (`-Dankka.fixtures.regenerate=on`) and refused when a row is not what the builder writes;
+  `refused.json` is authored by hand. The graph sink's suites (`modules/graph-sink`) read the same
+  rows into the in-memory store, which is what makes them proof that a graph consumer writes what the
+  sink reads; ankka-contrib's Neo4j store copies them and proves the same against a Neo4j.
+  All four SDKs test against all three; after a change, run each SDK's copy script.
 - **A kill switch downstream of `Committer.flow` cancels the commit it was about to flush.** The Kafka
   subscriber's switch sat after the committer, so stopping a subscription cancelled the batch in hand,
   and the same group, subscribed again, was handed everything since the last flush — the subscriber
@@ -122,6 +124,31 @@ view's projection is named), and every write of such a view is guarded by the re
   cannot be handled is redelivered for ever and stalls its slice of the projection for every test
   after it in the suite. The size bound is held by the pure `PublishAllSuite`; a refused
   publication is tested with `InMemoryBroker.failNext`, which refuses once.
+- **A contract is checked at start, from a file, never per message.** The operator writes the project's
+  declarations (topics with partitions, `compacted`, contract name and fingerprint; declared brokers) as
+  the `ankka-project` ConfigMap, mounted at `/var/run/ankka/project` and named by
+  `ANKKA_PROJECT_DECLARATIONS`; `ProjectDeclarations` reads it once and `ProjectionRuntime.rejectUndeclared`
+  compares every `DeclaredSource.Topic` and `Publication` with it, refusing through `StartRefusal` (the
+  termination log, which the operator reports as `detail`). Without the variable nothing is checked. A
+  `Contract` is a name and `sha256:` of the RFC 8785 form (`Contract.Canonical`); every SDK must match
+  `protocol/fixtures/contracts/fingerprints.json`, written by `ContractFixturesSuite`. The name rides as
+  `ce-type` through `ProjectionSupport.typed`; a message naming its own type keeps it.
+- **A declared broker is a second `KafkaConnection`, chosen per topic.** `KafkaConnection.declaredFromEnv`
+  reads `ANKKA_TOPIC_BROKER_<NAME>_*` (runtime-only: the prefix is in `PlatformVariables.RuntimeOnlyPrefixes`,
+  never `ANKKA_KAFKA_`, which would make the service "supply its own broker" and reach the process);
+  `KafkaCredential` is `Certificate(dir)` through `KafkaTls` or `Sasl(dir)` as `SASL_SSL` with a PEM
+  truststore. `ProjectionRuntime.subscriberFor`/`publisherFor` pick by `TopicOptions.broker` and
+  `Publication.broker`; a declared broker's topics have no prefix and are not "undeclared".
+- **Parallel partitions are a partitioned source with one actor per lane.** `TopicSubscription.parallel`
+  switches `KafkaSubscriber` to `committablePartitionedSource`, each lane `.async` with its own handler
+  instance (`subscribeTopic`'s `lanes`), and a failed message retried in its lane (`RestartSource` around
+  `Source.lazyFuture`) so it holds its partition alone. Without `.async` every lane fused into one actor
+  and a sleeping handler serialised them; without the per-lane retry one poison message restarted every
+  lane. The committer is `.async` too, or a blocked handler holds the commit of what came before it.
+- **Lag is polled, never on the message path.** `MessageSubscriber.lag` (a raw consumer under the group:
+  `endOffsets` minus `committed`) every `ProjectionRuntime.LagInterval`, onto `TopicSourceStatus.lag`;
+  `failing` is set and cleared around every handled message. Both ride on the topology document
+  (`topicSources`), which the control plane sums over instances into `ServiceStatus.topicSources`.
 - **`runtime` and `sidecar` hold no graph code.** A delta is a value in `core`
   (`core/graph`), the builder is in `sdk`, and what the runtime publishes is bytes under a key.
   If a change needs the runtime to know what a delta is, the change is wrong.

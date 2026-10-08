@@ -349,6 +349,8 @@ descriptor therefore reaches the runtime, which runs the agent loop, and never t
 | `resources.autoscaling.minInstances` | integer | `1` | The number of instances to run. |
 | `resources.autoscaling.maxInstances` | integer | `10` | Validated and stored; not acted on. |
 | `resources.autoscaling.targetCpuPercent` | integer | `80` | Validated and stored; not acted on. |
+| `resources.process.cpu` | string | `"100m"` | The process container's CPU, as a Kubernetes quantity, for a process-hosted service. |
+| `resources.process.memory` | string | `"128Mi"` | The process container's memory, as a Kubernetes quantity. |
 
 ### Instance types
 
@@ -362,6 +364,26 @@ Requests equal limits: an instance is given exactly its size.
 
 Any other value is refused with `unknown instanceType '<value>'; one of small, medium, large`.
 
+### The process container
+
+For a process-hosted service the instance type sizes the sidecar, which runs the runtime; the developer's
+own container is sized by `resources.process`, requests equal to limits, and is small unless the
+descriptor says otherwise:
+
+```json
+{ "resources": { "process": { "cpu": "1000m", "memory": "1Gi" } } }
+```
+
+`cpu` is millicores (`500m`) or CPUs (`0.5`, `1`), at most `8`; `memory` is a binary quantity (`512Mi`,
+`1Gi`), at most `16Gi`. Absent, the container is given 100m and 128Mi.
+
+| Problem | Message |
+|---|---|
+| `cpu` that does not parse | `process cpu '<value>': …` |
+| `cpu` above 8 | `process cpu '<value>' is more than 8` |
+| `memory` without a binary unit | `process memory '<value>': needs a binary unit: Ki, Mi, Gi or Ti` |
+| `memory` above 16Gi | `process memory '<value>' is more than 16Gi` |
+
 ### Instance counts
 
 `minInstances` is honoured as a fixed count; there is no autoscaler. The instances form one cluster,
@@ -374,10 +396,27 @@ stopped. Changing the count adds or removes pods without restarting the existing
 | `maxInstances` below `minInstances` | `maxInstances (<max>) is below minInstances (<min>)` |
 | `targetCpuPercent` outside 1 to 100 | `targetCpuPercent must be between 1 and 100, was <n>` |
 
+## Database
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `database` | string, optional | absent | `"none"` for a service with no database at all. |
+
+A service has the platform's database unless its `env` supplies one through `ANKKA_DB_*` variables, and
+neither needs saying. `"database": "none"` declares a service that has none: one made of consumers,
+endpoints and agents, such as a stage of a streaming pipeline. Nothing is provisioned for it, no
+credential or certificate reaches it, and its runtime is told so with `ANKKA_DATABASE=none`: an entity, a
+view, a workflow or a timed action registered in such a service refuses the start, naming itself —
+`this service declares no database: - view 'orders-by-day' needs a database, and this service declares
+none (ANKKA_DATABASE=none)` — and the timer scheduler refuses every timer. Any other value is refused
+with `database '<value>' is not a choice; leave it out, or say "none" for a service with no database`,
+and `"none"` beside an `ANKKA_DB_*` variable with `database "none" and an ANKKA_DB_ variable: a service
+with no database supplies none`.
+
 ## Fields you will not find
 
-- **A database.** One is provisioned per service, except a web-hosted one, which has none. See
-  [Databases](../platform/databases.md).
+- **A database's location.** One is provisioned per service, except a web-hosted one, which has none,
+  and one that declares `"database": "none"`. See [Databases](../platform/databases.md).
 - **A bucket's name or address.** A bucket is named from the project and the service, and reached at the
   store's hostname; neither is chosen. See [Object storage](../platform/object-storage.md).
 - **A route, a rewrite or a header rule.** A web-hosted service's mounts pass whole paths to a service of

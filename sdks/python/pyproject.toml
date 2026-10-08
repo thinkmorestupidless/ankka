@@ -23,6 +23,8 @@ classifiers = [
 dependencies = [
   "grpcio>=1.84,<2",
   "protobuf>=6,<8",
+  # A contract's fingerprint is the SHA-256 of its schema under RFC 8785 (feature 037).
+  "rfc8785>=0.1,<1",
 ]
 
 [project.urls]

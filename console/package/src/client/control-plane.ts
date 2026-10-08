@@ -5,37 +5,41 @@ import {
   deployTokenCreatedSchema,
   deployTokenSummarySchema,
   historyEntrySchema,
-  rolledBackSchema,
   logsResponseSchema,
-  serviceTopologySchema,
   membersResponseSchema,
   organizationSummarySchema,
+  projectBrokerSchema,
   projectDetailSchema,
   projectSecretSummarySchema,
-  projectTopicSchema,
   projectSummarySchema,
+  projectTopicSchema,
+  rolledBackSchema,
   serviceStatusSchema,
-  whoamiSchema,
+  serviceTopologySchema,
   type AuthDiscovery,
+  type BrokerDeclarationRequest,
   type CreateDeployToken,
   type CreateOrganization,
   type DeployTokenCreated,
   type DeployTokenSummary,
   type HistoryEntry,
   type LogsResponse,
-  type ServiceTopology,
   type MembersResponse,
   type OrganizationSummary,
+  type ProjectBroker,
   type ProjectDetail,
+  type ProjectSecretSummary,
   type ProjectSummary,
+  type ProjectTopic,
   type Quota,
   type Role,
   type RolledBack,
   type ServiceStatus,
+  type ServiceTopology,
   type SetRegistry,
-  type ProjectSecretSummary,
-  type ProjectTopic,
+  type TopicDeclarationRequest,
   type Whoami,
+  whoamiSchema,
 } from "./schemas.ts";
 
 /** `fetch`'s shape; the server supplies one that presents the console's certificate. */
@@ -232,9 +236,14 @@ export class ControlPlaneClient {
     return this.#call("GET", `/projects/${segment(id)}/secrets`, { schema: arrayOf(projectSecretSummarySchema) });
   }
 
-  /** Declares a topic on the project, or raises its partitions. */
-  declareTopic(id: string, name: string, partitions: number): Promise<void> {
-    return this.#call("PUT", `/projects/${segment(id)}/topics/${segment(name)}`, { body: { partitions } });
+  /** Declares a topic on the project, or raises its partitions; its compaction and contract with it. */
+  declareTopic(id: string, name: string, request: TopicDeclarationRequest): Promise<void> {
+    return this.#call("PUT", `/projects/${segment(id)}/topics/${segment(name)}`, { body: request });
+  }
+
+  /** The schema document a topic's contract was declared with. */
+  topicSchema(id: string, name: string): Promise<unknown> {
+    return this.#call("GET", `/projects/${segment(id)}/topics/${segment(name)}/schema`, { schema: { parse: (v: unknown) => v } });
   }
 
   /** Stops declaring a topic; it stays on the broker. */
@@ -244,6 +253,20 @@ export class ControlPlaneClient {
 
   listTopics(id: string): Promise<ProjectTopic[]> {
     return this.#call("GET", `/projects/${segment(id)}/topics`, { schema: arrayOf(projectTopicSchema) });
+  }
+
+  /** Declares a broker beside the installation's, or changes where it is; the project secret holds its credential. */
+  declareBroker(id: string, name: string, request: BrokerDeclarationRequest): Promise<void> {
+    return this.#call("PUT", `/projects/${segment(id)}/brokers/${segment(name)}`, { body: request });
+  }
+
+  /** Stops declaring a broker; a service naming it is refused at its next start. */
+  removeBroker(id: string, name: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/brokers/${segment(name)}`);
+  }
+
+  listBrokers(id: string): Promise<ProjectBroker[]> {
+    return this.#call("GET", `/projects/${segment(id)}/brokers`, { schema: arrayOf(projectBrokerSchema) });
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

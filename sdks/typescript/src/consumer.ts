@@ -1,6 +1,7 @@
 // A consumer: reacts to a source's changes, optionally producing onward to a topic.
 
 import type { StartFrom } from "./startFrom.ts"
+import type { Contract, Publication } from "./contract.ts"
 import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
@@ -115,8 +116,15 @@ export interface ConsumerClass<M = unknown, Out = unknown, C extends Consumer<M,
   readonly startFrom?: StartFrom
   /** Raised to read the topic again from the start position, under a group of its own. Absent is 1. */
   readonly version?: number
+  /** The contract the topic read is expected to carry, checked at start against the project's declaration. */
+  readonly contract?: Contract
+  /** The declared broker the topic read is on; absent is the installation's. */
+  readonly broker?: string
+  /** Whether the partitions an instance holds are handled at once, each in order. */
+  readonly parallel?: boolean
   readonly message: Shape<M>
   /** The shape of what `produce` sends onward; required with `producesTo`. */
   readonly out?: Shape<Out>
-  readonly producesTo?: string
+  /** The topic produced to: its name, or a `Publication` with the contract stated for it and its broker. */
+  readonly producesTo?: string | Publication
 }

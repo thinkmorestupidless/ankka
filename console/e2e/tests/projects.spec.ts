@@ -1,4 +1,4 @@
-import { test, expect, afterProjection } from "../fixtures.ts";
+import { test, expect, afterProjection, seedTenancy } from "../fixtures.ts";
 
 test("US2-7 projects are created, renamed and deleted; one with services cannot be deleted", async ({ page, target, signIn, unique, audit }) => {
   await signIn(page, "owner");
@@ -167,4 +167,90 @@ test("a project declares a topic once, gives it more partitions, never fewer, an
 
   await page.getByRole("button", { name: "Stop declaring transactions" }).click();
   await expect(row).toHaveCount(0);
+});
+
+test("a topic is declared compacted with a contract and its schema, shown with its checks, and the schema is fetched", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "the checks of a topic's sides are seeded on the fake");
+  const org = unique("contract-org");
+  const project = unique("contract-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    services: [
+      {
+        projectId: project,
+        name: "wallet",
+        topicChecks: [{ topic: "orders", service: "wallet", component: "consumer:relay", direction: "publishes", stated: "order.v2", state: "mismatch" }],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}`);
+  await expect(page.getByText("No topics declared.")).toBeVisible();
+  await page.getByText("Declare a topic").click();
+  await page.getByLabel("Topic", { exact: true }).fill("orders");
+  await page.getByLabel("Partitions", { exact: true }).fill("3");
+  await page.getByLabel("Compacted").check();
+  await page.getByLabel("Contract", { exact: true }).fill("order.v1");
+  await page.getByLabel("Schema", { exact: true }).fill('{"type": "object", "required": ["id"]}');
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  const row = page.locator('tr[data-topic="orders"]');
+  await expect(row.locator("td[data-compacted]")).toHaveText("yes");
+  await expect(row).toContainText("order.v1");
+  await expect(row).toContainText("sha256:");
+  await expect(row.locator('li[data-check="mismatch"]')).toContainText("wallet publishes: mismatch (order.v2)");
+  await audit(page);
+
+  await page.getByRole("button", { name: "Show schema of orders" }).click();
+  await expect(page.locator('[data-schema="orders"] pre')).toContainText('"required"');
+
+  // A contract is a name and a schema, both: the console refuses the half before the platform sees it.
+  // Without scripts the page was re-rendered by the schema action, with the form closed again.
+  if (!(await page.getByLabel("Topic", { exact: true }).isVisible())) await page.getByText("Declare a topic").click();
+  await page.getByLabel("Topic", { exact: true }).fill("half");
+  await page.getByLabel("Contract", { exact: true }).fill("half.v1");
+  await page.getByLabel("Schema", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  await expect(page.getByText("give the schema")).toBeVisible();
+  await page.getByLabel("Schema", { exact: true }).fill("{ not json");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  await expect(page.getByText("not valid JSON")).toBeVisible();
+});
+
+test("a project declares a broker beside the installation's, refuses one whose secret lacks what its shape needs, and stops declaring it", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "a project secret with a credential is seeded on the fake");
+  const org = unique("broker-org");
+  const project = unique("broker-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    secrets: [
+      { projectId: project, name: "legacy-credential", entries: { "ca.crt": "-----BEGIN CERTIFICATE-----", username: "ingest", password: "s3cret" } },
+      { projectId: project, name: "half-credential", entries: { username: "ingest", password: "s3cret" } },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}`);
+  await expect(page.getByText("No brokers declared")).toBeVisible();
+
+  // A secret lacking what the shape needs is refused, in the platform's words.
+  await page.getByText("Declare a broker").click();
+  await page.getByLabel("Broker", { exact: true }).fill("legacy");
+  await page.getByLabel("Bootstrap", { exact: true }).fill("kafka.legacy:9094");
+  await page.getByLabel("Shape", { exact: true }).selectOption("sasl");
+  await page.getByLabel("Credential secret", { exact: true }).fill("half-credential");
+  await page.getByRole("button", { name: "Declare broker" }).click();
+  await expect(page.getByText("project secret 'half-credential' lacks 'ca.crt', which shape 'sasl' needs")).toBeVisible();
+
+  // One holding every entry is declared and listed.
+  await page.getByLabel("Credential secret", { exact: true }).fill("legacy-credential");
+  await page.getByRole("button", { name: "Declare broker" }).click();
+  const row = page.locator('tr[data-broker="legacy"]');
+  await expect(row).toContainText("kafka.legacy:9094");
+  await expect(row).toContainText("sasl");
+  await expect(row).toContainText("legacy-credential");
+  await audit(page);
+
+  // Its credential's entries cannot be pulled from under it: the broker goes first.
+  await page.locator('tr[data-secret="legacy-credential"][data-entry="ca.crt"]').getByRole("button", { name: "Remove ca.crt" }).click();
+  await expect(page.getByText("is the credential of broker 'legacy'; remove the broker first")).toBeVisible();
+
+  await page.getByRole("button", { name: "Stop declaring legacy" }).click();
+  await expect(page.getByText("No brokers declared")).toBeVisible();
 });

@@ -52,6 +52,13 @@ object Consumer:
     /** Topic to publish `effects.produce(...)` output to. */
     def produceTo: Option[String] = None
 
+    /**
+     * The topic this consumer publishes to, with its contract and broker. By default the one
+     * `produceTo` names; a consumer that states a contract or a broker overrides this and leaves
+     * `produceTo` alone.
+     */
+    def produces: Option[Publication] = produceTo.map(Publication(_))
+
     def parallelism: Int = 4
 
     /**
@@ -62,20 +69,27 @@ object Consumer:
     def version: Option[Int] = None
 
     final def descriptor: ConsumerDescriptor[C, Src, Out] =
-      if produceTo.isDefined && outputSerializer.isEmpty then
+      val publication = produces
+      if publication.isDefined && outputSerializer.isEmpty then
         throw IllegalArgumentException(
-          s"consumer '$componentId' publishes to '${produceTo.get}' but declares no " +
+          s"consumer '$componentId' publishes to '${publication.get.topic}' but declares no " +
             "outputSerializer, so its messages could not be encoded"
+        )
+      else if produceTo.exists(t => publication.exists(_.topic != t)) then
+        throw IllegalArgumentException(
+          s"consumer '$componentId' names '${produceTo.get}' in produceTo and " +
+            s"'${publication.get.topic}' in produces; a consumer publishes to one topic"
         )
       else
         ConsumerDescriptor(
           componentId,
           source,
           outputSerializer,
-          produceTo,
+          publication.map(_.topic),
           create,
           parallelism,
-          version = version
+          version = version,
+          produces = publication
         )
 
 /** The registered form of a consumer. */
@@ -87,7 +101,8 @@ final case class ConsumerDescriptor[C <: Consumer[Src, Out], Src, Out](
     create: ConsumerContext => C,
     parallelism: Int,
     override val platform: Boolean = false,
-    version: Option[Int] = None
+    version: Option[Int] = None,
+    produces: Option[Publication] = None
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Consumer
 

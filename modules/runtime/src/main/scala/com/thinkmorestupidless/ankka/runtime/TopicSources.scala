@@ -22,7 +22,14 @@ final case class TopicSourceStatus(
     startFrom: StartFrom,
     version: Int,
     recordedVersion: Option[Int],
-    behind: Boolean
+    behind: Boolean,
+    /** Feature 037: the declared broker the topic is on, and the contract the component states. */
+    broker: Option[String] = None,
+    contract: Option[String] = None,
+    /** Feature 037: messages the topic holds past the last one handled, as of the last poll. */
+    lag: Option[Long] = None,
+    /** Feature 037: the reason of the change being delivered again, until one succeeds. */
+    failing: Option[String] = None
 ):
   def kindWord: String = if kind == ComponentKind.View then "view" else "consumer"
 

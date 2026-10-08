@@ -182,19 +182,43 @@ final class ControlPlaneClient(settings: Settings):
   def listProjectSecrets(projectId: String): Vector[ProjectSecretSummary] =
     get[Vector[ProjectSecretSummary]](s"/projects/${segment(projectId)}/secrets")
 
-  /** Declares a topic on a project, or raises its partitions (feature 027). */
-  def declareTopic(projectId: String, name: String, partitions: Int): Unit =
+  /**
+   * Declares a topic on a project, or raises its partitions (feature 027); its compaction and
+   * contract (feature 037).
+   */
+  def declareTopic(projectId: String, name: String, request: TopicDeclarationRequest): Unit =
     send(
       "PUT",
       s"/projects/${segment(projectId)}/topics/${segment(name)}",
-      Some(writeToString(TopicDeclarationRequest(partitions)))
+      Some(writeToString(request))
     ): Unit
+
+  def declareTopic(projectId: String, name: String, partitions: Int): Unit =
+    declareTopic(projectId, name, TopicDeclarationRequest(partitions))
+
+  /** The schema document a topic's contract was declared with, as JSON text. */
+  def topicSchema(projectId: String, name: String): String =
+    send("GET", s"/projects/${segment(projectId)}/topics/${segment(name)}/schema", None)
 
   def removeTopic(projectId: String, name: String): Unit =
     send("DELETE", s"/projects/${segment(projectId)}/topics/${segment(name)}", None): Unit
 
   def listTopics(projectId: String): Vector[ProjectTopic] =
     get[Vector[ProjectTopic]](s"/projects/${segment(projectId)}/topics")
+
+  /** Declares a broker on a project (feature 037). */
+  def declareBroker(projectId: String, name: String, request: BrokerDeclarationRequest): Unit =
+    send(
+      "PUT",
+      s"/projects/${segment(projectId)}/brokers/${segment(name)}",
+      Some(writeToString(request))
+    ): Unit
+
+  def removeBroker(projectId: String, name: String): Unit =
+    send("DELETE", s"/projects/${segment(projectId)}/brokers/${segment(name)}", None): Unit
+
+  def listBrokers(projectId: String): Vector[ProjectBroker] =
+    get[Vector[ProjectBroker]](s"/projects/${segment(projectId)}/brokers")
 
   // ── Services ──────────────────────────────────────────────────────────────
 

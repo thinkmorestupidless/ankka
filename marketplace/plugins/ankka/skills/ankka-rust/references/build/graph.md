@@ -8,11 +8,11 @@ checkout, an edge from one to the other. For each change to its source it says w
 and edges — the change leaves in which state, and ankka publishes each one to a topic as a **graph delta**:
 one element's whole state at a version, or a tombstone marking it deleted.
 
-The deltas follow the contract `ankka.graph-delta.v1`, which belongs to
-[ankka-flow](https://flow.ankka.cloud/reference/graph-deltas/). Its built-in merge sink reads a topic of
-deltas and keeps a Neo4j database in step with it, applying a delta when its version is newer than what
-the graph holds. So a service with a graph consumer needs no second program to have its entities in a
-graph database: the pipeline that fills the database is the sink alone.
+The deltas follow the contract `ankka.graph-delta.v1`. The platform's [graph sink](../deploy/graph-sink.md)
+reads a topic of deltas and keeps a graph store in step with it, applying a delta when its version is
+newer than what the store holds. So a service with a graph consumer needs no second program to have its
+entities in a graph database: the sink, registered in a service or deployed as a ready image into the
+project, is the whole of it.
 
 A graph consumer is a [consumer](consumers.md). It reads one source, is delivered each change at least
 once, and is registered, sharded and started as any consumer is. What differs is what it may return:
@@ -690,28 +690,21 @@ the latest record under every key, and every delta's key is its element, so the 
 latest state however long the service runs. A topic that deletes by age holds only recent history, and a
 graph cannot be rebuilt from it.
 
-ankka creates no topics and checks none. The topic belongs to whoever declares it, and the right owner is
-the ankka-flow pipeline that reads it:
+The topic is the project's, declared once with `--compacted`, before anything publishes to it:
 
-1. Declare the topic in the pipeline's blueprint as a managed topic, under the name the graph consumer
-   publishes to. ankka-flow creates a managed delta topic compacted.
-2. Deploy the pipeline before the service publishes.
-3. Deploy the service with `ANKKA_KAFKA_BOOTSTRAP_SERVERS` set.
+```bash
+ankka projects topics set cart-graph --partitions 3 --compacted -p checkout
+```
 
-If the service publishes first and the broker creates topics on first use, the topic comes into being
-uncompacted, with the broker's defaults. The pipeline then reports `TopicNotCompacted` and leaves the
-topic as it is; compacting it is a matter of altering or recreating the topic.
+A topic already made is made compacted when its declaration says so. A topic a component names that
+the project has not declared is listed on the service's status as undeclared.
 
-## Where ankka's part ends
+## From the topic to the store
 
-ankka publishes the deltas. Everything from the topic onward is ankka-flow's:
-
-- [Build a graph sink](https://flow.ankka.cloud/build/graph-sink/): the pipeline that reads a delta topic
-  into Neo4j.
-- [Graph deltas](https://flow.ankka.cloud/reference/graph-deltas/): the contract, field by field, and
-  what the sink does with each delta.
-- [Rebuild a graph from its delta topic](https://flow.ankka.cloud/deploy/rebuild-a-graph/): fill an empty
-  database from the topic alone, with the service untouched.
+ankka publishes the deltas, and the platform's graph sink reads them: [Fill a graph store](../deploy/graph-sink.md)
+registers the sink with the store of your choice or deploys a ready image into the project, says what
+the store holds and what the sink does with each delta, and rebuilds the store from the topic alone,
+with the service untouched.
 
 ## What is not there
 
@@ -722,7 +715,8 @@ ankka publishes the deltas. Everything from the topic onward is ankka-flow's:
 - **No state source for an event sourced entity.** A graph consumer is handed the event and reads the
   state through the client.
 - **No delete markers.** A tombstoned element's record stays in the topic.
-- **No topic creation, and no check that the topic exists or is compacted.**
+- **No check that the topic is declared.** A topic the project has not declared is reported on the
+  service's status, not refused.
 - **No tombstones for an expired entity.**
 - **No atomic publication.** A change's records are published at least once and in order, not all or
   nothing; see [Consistency and delivery](../concepts/consistency.md#delivery-to-views-and-consumers).

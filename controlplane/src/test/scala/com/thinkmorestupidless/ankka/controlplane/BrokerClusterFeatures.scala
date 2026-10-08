@@ -64,8 +64,8 @@ import scala.jdk.CollectionConverters.*
  *
  * Disable with `-Dankka.cluster.tests=off`.
  */
-abstract class BrokerClusterFeatures(feature: String)
-    extends GherkinSuite(s"../features/broker/$feature")
+abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
+    extends GherkinSuite(s"../features/$area/$feature")
     with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 15.minutes
@@ -74,7 +74,7 @@ abstract class BrokerClusterFeatures(feature: String)
 
   // Every file's, narrowed to this file's scenarios: a name the file does not hold fails the suite.
   override protected def ranElsewhere: Map[String, String] =
-    val text = Files.readString(Path.of(s"../features/broker/$feature"))
+    val text = Files.readString(Path.of(s"../features/$area/$feature"))
     ranElsewhereInAnyFile.filter((name, _) =>
       text.contains(s"Scenario: $name\n") || text.contains(s"Scenario Outline: $name\n")
     )
@@ -104,11 +104,11 @@ abstract class BrokerClusterFeatures(feature: String)
       "TopicProvisioningSuite and ProjectRenderingSuite"
   )
 
-  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
-  private val Tag         = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')
-  private val SampleImage = s"sample-shopping-cart:$Tag"
-  private val Prefix      = "ankka"
-  private val Broker      = BrokerStack.Namespace
+  private val K3sImage      = "rancher/k3s:v1.35.1-k3s1"
+  private val Tag           = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')
+  protected val SampleImage = s"sample-shopping-cart:$Tag"
+  protected val Prefix      = "ankka"
+  protected val Broker      = BrokerStack.Namespace
 
   private lazy val identity = TestIdentity()
   private lazy val Token = identity.token(
@@ -119,7 +119,7 @@ abstract class BrokerClusterFeatures(feature: String)
   )
 
   private var k3s: K3sContainer       = null
-  private var k8s: KubernetesClient   = null
+  protected var k8s: KubernetesClient = null
   private var operator: Operator      = null
   private var testKit: AnkkaTestKit   = null
   private var url: String             = ""
@@ -186,7 +186,9 @@ abstract class BrokerClusterFeatures(feature: String)
           deployConfig,
           auth = Some(identity.config()),
           logs = Some(new PodLogs(k8s, Prefix)),
-          topics = Some(projector)
+          secrets = Some(projector),
+          topics = Some(projector),
+          schemas = Some(projector)
         )*
       )
       testKit = AnkkaTestKit.start(
@@ -216,10 +218,10 @@ abstract class BrokerClusterFeatures(feature: String)
 
   // ── the CLI and the cluster ───────────────────────────────────────────────
 
-  private final case class Run(code: Int, out: String, err: String):
+  protected final case class Run(code: Int, out: String, err: String):
     def all: String = out + err
 
-  private def ankka(args: String*): Run =
+  protected def ankka(args: String*): Run =
     val out = ByteArrayOutputStream()
     val err = ByteArrayOutputStream()
     val code = Main.run(
@@ -229,11 +231,11 @@ abstract class BrokerClusterFeatures(feature: String)
     )
     Run(code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8))
 
-  private def ok(run: Run): Run =
+  protected def ok(run: Run): Run =
     assertEquals(run.code, 0, run.all)
     run
 
-  private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
+  protected def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
     val deadline = timeout.fromNow
     var passed   = false
     while !passed && deadline.hasTimeLeft() do
@@ -243,7 +245,7 @@ abstract class BrokerClusterFeatures(feature: String)
       if !passed then Thread.sleep(1000)
     if !passed then fail(s"$what did not happen within $timeout${diagnosis()}")
 
-  private def node(args: String*): String =
+  protected def node(args: String*): String =
     val r = k3s.execInContainer(args*)
     r.getStdout + r.getStderr
 
@@ -260,20 +262,20 @@ abstract class BrokerClusterFeatures(feature: String)
       )
       s"\n${pods.mkString("\n")}\n$broker\n${resources.mkString("\n")}"
 
-  private def ns(project: String) = s"$Prefix-$project"
+  protected def ns(project: String) = s"$Prefix-$project"
 
-  private def statusOf(name: String, project: String): Option[ServiceStatus] =
+  protected def statusOf(name: String, project: String): Option[ServiceStatus] =
     val run = ankka("services", "get", name, "-p", project, "-o", "json")
     Option.when(run.code == 0)(readFromString[ServiceStatus](run.out))
 
-  private def ensureProject(project: String): Unit =
+  protected def ensureProject(project: String): Unit =
     if !projects(project) then
       val run = ankka("projects", "create", project, "--name", project, "--organization", "acme")
       assert(run.code == 0 || run.all.contains("already"), run.all)
       projects += project
 
   /** Every container of a service's Deployment, by name, with its plain variables. */
-  private def environment(service: String, project: String): Map[String, Map[String, String]] =
+  protected def environment(service: String, project: String): Map[String, Map[String, String]] =
     val deployment = k8s.apps().deployments().inNamespace(ns(project)).withName(service).get()
     if deployment == null then Map.empty
     else
@@ -281,7 +283,7 @@ abstract class BrokerClusterFeatures(feature: String)
         c.getName -> c.getEnv.asScala.map(e => e.getName -> Option(e.getValue).getOrElse("")).toMap
       }.toMap
 
-  private def logsOf(service: String, project: String): String =
+  protected def logsOf(service: String, project: String): String =
     node(
       "kubectl",
       "logs",
@@ -295,12 +297,12 @@ abstract class BrokerClusterFeatures(feature: String)
       "--prefix"
     )
 
-  private def jsonPath(args: String*): String = PkiStack.jsonPath(k3s, args*)
+  protected def jsonPath(args: String*): String = PkiStack.jsonPath(k3s, args*)
 
-  private def topicExists(name: String): Boolean =
+  protected def topicExists(name: String): Boolean =
     jsonPath("kafkatopic", "-n", Broker, name, "{.metadata.name}") == name
 
-  private def topicReady(name: String): Boolean =
+  protected def topicReady(name: String): Boolean =
     jsonPath(
       "kafkatopic",
       "-n",
@@ -338,11 +340,11 @@ abstract class BrokerClusterFeatures(feature: String)
   /** Services a scenario made for itself alone, deleted when it ends. */
   private val disposable = Set("purse", "till", "kiosk", "shopping-cart")
 
-  private var aliases: Map[String, String]   = Map.empty
-  private var made: Vector[(String, String)] = Vector.empty
-  private var scenarioName: String           = ""
-  private def a(name: String): String        = aliases.getOrElse(name, name)
-  private def project(name: String): String  = a(name)
+  private var aliases: Map[String, String]     = Map.empty
+  protected var made: Vector[(String, String)] = Vector.empty
+  private var scenarioName: String             = ""
+  protected def a(name: String): String        = aliases.getOrElse(name, name)
+  protected def project(name: String): String  = a(name)
 
   /** The partitions each topic of each project has been declared with, so later scenarios agree. */
   private var partitions: Map[(String, String), Int] = Map.empty
@@ -382,7 +384,7 @@ abstract class BrokerClusterFeatures(feature: String)
   // ── descriptors ───────────────────────────────────────────────────────────
 
   /** A service as the scenario describes it, before it is applied. */
-  private final case class Desc(
+  protected final case class Desc(
       service: String,
       project: String,
       env: Map[String, String] = Map.empty,
@@ -405,10 +407,10 @@ abstract class BrokerClusterFeatures(feature: String)
 
   /** What each service was last applied as, for applying it again. */
   private var appliedAs: Map[(String, String), Desc] = Map.empty
-  private var descriptorOf: Option[Desc]             = None
-  private var lastApply: Run                         = Run(0, "", "")
+  protected var descriptorOf: Option[Desc]           = None
+  protected var lastApply: Run                       = Run(0, "", "")
 
-  private def apply(d: Desc): Run =
+  protected def apply(d: Desc): Run =
     ensureProject(d.project)
     val file = Files.createTempFile("ankka-broker", ".json")
     try
@@ -421,7 +423,7 @@ abstract class BrokerClusterFeatures(feature: String)
       run
     finally Files.deleteIfExists(file): Unit
 
-  private def ready(service: String, p: String): Unit =
+  protected def ready(service: String, p: String): Unit =
     waitFor(360.seconds, s"$service of $p being Ready") {
       statusOf(service, p).exists(s =>
         s.lifecycle == ServiceLifecycle.Ready && s.readyInstances >= 1 && s.confirmed
@@ -432,7 +434,7 @@ abstract class BrokerClusterFeatures(feature: String)
    * The cart sample as `service` of `p`, its checkout notices published to (and read from)
    * `notices`.
    */
-  private def deploy(service: String, p: String, notices: String = "cart-checkouts"): Desc =
+  protected def deploy(service: String, p: String, notices: String = "cart-checkouts"): Desc =
     val d = Desc(service, p, Map("CART_CHECKOUTS_TOPIC" -> notices))
     ok(apply(d))
     ready(service, p)
@@ -440,10 +442,10 @@ abstract class BrokerClusterFeatures(feature: String)
 
   /** The scenario's last declaration, and its project. */
   private var lastDeclared: Option[(String, String)] = None
-  private var lastDeclare: Run                       = Run(0, "", "")
+  protected var lastDeclare: Run                     = Run(0, "", "")
 
   /** Declares a topic on a project through the CLI, as a member does. */
-  private def declare(t: String, p: String, n: Int = -1): Run =
+  protected def declare(t: String, p: String, n: Int = -1): Run =
     ensureProject(p)
     val count = if n < 0 then partitionsOf(p, t) else n
     val run =
@@ -453,7 +455,7 @@ abstract class BrokerClusterFeatures(feature: String)
     lastDeclare = run
     run
 
-  private def topicMade(p: String, t: String): Unit =
+  protected def topicMade(p: String, t: String): Unit =
     waitFor(180.seconds, s"$p.$t being made")(topicReady(s"$p.$t"))
 
   /** A topic's phase as `ankka projects topics list` shows it. */
@@ -1250,7 +1252,7 @@ abstract class BrokerClusterFeatures(feature: String)
   // ── helpers for the steps ─────────────────────────────────────────────────
 
   /** The project a service was last applied in. */
-  private def currentProject(service: String): String =
+  protected def currentProject(service: String): String =
     made.reverseIterator
       .collectFirst { case (s, p) if s == service => p }
       .orElse(appliedAs.keys.collectFirst { case (s, p) if s == service => p })
@@ -1274,7 +1276,7 @@ abstract class BrokerClusterFeatures(feature: String)
       )
       .getOrElse(fail(s"no service of $p is deployed"))
 
-  private def deleteService(service: String, p: String): Unit =
+  protected def deleteService(service: String, p: String): Unit =
     ok(ankka("services", "delete", service, "-p", p))
     waitFor(180.seconds, s"$service going away") {
       k8s.apps().deployments().inNamespace(ns(p)).withName(service).get() == null &&

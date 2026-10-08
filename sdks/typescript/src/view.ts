@@ -10,6 +10,7 @@
 //   }
 
 import type { StartFrom } from "./startFrom.ts"
+import type { Contract } from "./contract.ts"
 import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import type { ComponentClient } from "./client.ts"
@@ -104,6 +105,12 @@ export interface ViewClass<E = unknown, Row = unknown, C extends View<E, Row> = 
    * its own, as far back as the broker retains; an entity from its first event or state. Absent is 1.
    */
   readonly version?: number
+  /** The contract the topic read is expected to carry, checked at start against the project's declaration. */
+  readonly contract?: Contract
+  /** The declared broker the topic read is on; absent is the installation's. */
+  readonly broker?: string
+  /** Whether the partitions an instance holds are handled at once, each in order. */
+  readonly parallel?: boolean
   readonly events: Shape<E>
   readonly row: Shape<Row>
   /** The query names the view answers; `get` and `all` by default. */

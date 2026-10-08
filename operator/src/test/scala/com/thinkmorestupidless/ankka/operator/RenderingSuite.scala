@@ -46,6 +46,105 @@ class RenderingSuite extends munit.FunSuite:
           .getOrElse(fail("no deployment was rendered"))
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
 
+  test("the platform container's termination message falls back to its log") {
+    // A refusal at start writes the termination log (StartRefusal); a crash before that leaves its
+    // last lines. Either way the operator reports it as the service's detail (feature 037).
+    val containers = deploymentFor(spec).getSpec.getTemplate.getSpec.getContainers.asScala
+    assertEquals(containers.map(_.getTerminationMessagePolicy).toSet, Set("FallbackToLogsOnError"))
+  }
+
+  // features/deploying/process-resources.feature (feature 037)
+  test(
+    "a descriptor sizes the process container, and one that says nothing keeps the platform's size"
+  ) {
+    def app(s: AnkkaServiceSpec) =
+      deploymentFor(s).getSpec.getTemplate.getSpec.getContainers.asScala
+        .find(_.getName == "cart-app")
+        .get
+    val process = spec.copy(hosting = Rendering.ProcessHosting)
+    val sized   = app(process.copy(processCpuMillis = 1000, processMemoryMiB = 1024))
+    assertEquals(sized.getResources.getRequests.get("cpu").toString, "1000m")
+    assertEquals(sized.getResources.getLimits.get("memory").toString, "1024Mi")
+    val plain = app(process)
+    assertEquals(plain.getResources.getRequests.get("cpu").toString, "100m")
+    assertEquals(plain.getResources.getLimits.get("memory").toString, "128Mi")
+  }
+
+  test("a service with no database is rendered without one, and told so") {
+    val none = spec.copy(database = "none", provisionDatabase = false)
+    val Right(actions) =
+      Rendering.render(resource(none), settings, ProvisioningPlan.NotNeeded): @unchecked
+    val deployment = actions.collectFirst { case Action.ApplyDeployment(d) => d }.get
+    val pod        = deployment.getSpec.getTemplate.getSpec
+    assert(pod.getInitContainers.isEmpty, "no schema-init container")
+    val container = pod.getContainers.get(0)
+    val env       = container.getEnv.asScala.map(e => e.getName -> e.getValue).toMap
+    assertEquals(env.get("ANKKA_DATABASE"), Some("none"))
+    assert(!env.keys.exists(_.startsWith("ANKKA_DB_")), env.keys.toString)
+    assert(container.getEnvFrom.isEmpty, "no database credential")
+    assert(
+      !pod.getVolumes.asScala.exists(_.getName.startsWith("ankka-database")),
+      "no database certificates"
+    )
+  }
+
+  // features/topics/brokers.feature: a declared broker's credential never reaches the process
+  test(
+    "a declared broker is mounted on the platform container with its variables, and on no process"
+  ) {
+    val legacy = com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry(
+      "legacy",
+      "kafka.legacy:9094",
+      "sasl",
+      "legacy-credential",
+      "2026-10-07T10:00:00Z"
+    )
+    def rendered(s: AnkkaServiceSpec) =
+      Rendering.render(
+        resource(s),
+        settings,
+        ProvisioningPlan.Supplied,
+        declaredBrokers = Vector(legacy)
+      ) match
+        case Right(actions) => actions.collectFirst { case Action.ApplyDeployment(d) => d }.get
+        case Left(problems) => fail(problems.mkString("; "))
+    val process    = rendered(spec.copy(hosting = Rendering.ProcessHosting))
+    val pod        = process.getSpec.getTemplate.getSpec
+    val containers = pod.getContainers.asScala.map(c => c.getName -> c).toMap
+    val node       = containers("cart")
+    val app        = containers("cart-app")
+    val env        = node.getEnv.asScala.map(e => e.getName -> e.getValue).toMap
+    assertEquals(env.get("ANKKA_TOPIC_BROKER_LEGACY_BOOTSTRAP_SERVERS"), Some("kafka.legacy:9094"))
+    assertEquals(env.get("ANKKA_TOPIC_BROKER_LEGACY_SHAPE"), Some("sasl"))
+    assertEquals(
+      env.get("ANKKA_TOPIC_BROKER_LEGACY_SECRET_DIRECTORY"),
+      Some("/var/run/secrets/ankka/brokers/legacy")
+    )
+    assertEquals(env.get("ANKKA_TOPIC_BROKER_LEGACY_NAME"), Some("legacy"))
+    assert(
+      node.getVolumeMounts.asScala.exists(m =>
+        m.getMountPath == "/var/run/secrets/ankka/brokers/legacy" && m.getReadOnly
+      )
+    )
+    assert(
+      !app.getEnv.asScala.exists(_.getName.startsWith("ANKKA_TOPIC_BROKER_")),
+      "the process has the variables"
+    )
+    assert(app.getVolumeMounts.isEmpty, "the process has a mount")
+    assertEquals(
+      pod.getVolumes.asScala
+        .find(_.getName == "ankka-broker-legacy")
+        .map(_.getSecret.getSecretName),
+      Some("legacy-credential")
+    )
+    // A web-hosted service has no runtime, and gets nothing.
+    val web = rendered(spec.copy(hosting = Rendering.WebHosting, port = Some(3000)))
+    assert(
+      !web.getSpec.getTemplate.getSpec.getVolumes.asScala
+        .exists(_.getName.startsWith("ankka-broker-"))
+    )
+  }
+
   test("a namespace is ensured before the workload that goes in it") {
     val Right(actions) =
       Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked

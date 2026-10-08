@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources* and the retention terms under *Broker*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -1547,6 +1547,65 @@ not a platform setting: both programs of a service hosted as a process are given
 
 Avoid: Kafka variable
 
+### retention time
+*Proposed.* How long a topic keeps a message before the broker removes it: a duration, or
+everything, when the broker removes nothing by age. A declaration that gives none is filled from
+the installation's default, and the status of the topic says so.
+
+### retention size
+*Proposed.* How much each partition of a topic keeps before the broker removes its oldest
+messages: a size for each partition, or none.
+
+### cleanup policy
+*Proposed.* How the broker removes a topic's messages: "delete", by the topic's retention time and
+size; "compact", keeping the last message under each key; or "compact,delete", both.
+
+### tombstone window
+*Proposed.* How long a compacted topic keeps a message that marks its key deleted, so that a
+reader no further behind than that sees the deletion. It is not a tombstone, which is a delta.
+
+### compaction lag
+*Proposed.* How long after a message is published a compacted topic may compact it away: the
+minimum compaction lag is the soonest, the maximum the latest. It is not compaction, which
+shortens a session.
+
+### minimum in-sync copies
+*Proposed.* How many of a topic's copies must hold a message before the broker acknowledges its
+publication. It is fixed when the topic is declared, as its copies are.
+
+### bound
+*Proposed.* A limit the installation sets on what a topic's declaration may ask: its longest
+retention time, which may be none, its largest retention size for each partition, and its most
+copies. The control plane refuses a declaration outside a bound, before anything is made on the
+broker.
+
+### broker node
+*Proposed.* One of the machines the installation's broker runs on, each holding at most one copy
+of a partition. A topic with more copies than the broker has broker nodes is reported failed by the
+operator. It is not a node, which is an element of a store.
+
+### beginning offset
+*Proposed.* Where the earliest message the broker still holds on a partition stands, counted from
+the first ever published. Above 0, earlier messages are gone; what they were is not knowable.
+
+### earliest retained time
+*Proposed.* When the earliest message the broker still holds on a partition was published.
+
+### retention gap
+*Proposed.* What a topic source reports, for each partition of its topic, of what the broker no
+longer holds: the beginning offset, the earliest retained time, and whether messages are gone,
+which is so when the beginning offset is above 0 or the earliest retained time is later than when
+the view first read the topic. A compacted topic is reported as compacted and not as having a gap.
+
+### warning threshold
+*Proposed.* The retention time below which a view reading a topic is warned, which the
+installation sets: "30 days" as shipped. It is not a threshold, which is a judged guardrail's.
+
+### retention warning
+*Proposed.* What a view's status carries when the topic it reads keeps less than the
+installation's warning threshold, naming both. A topic that keeps everything, or is compacted,
+draws none.
+
 ## Sockets
 
 ### socket
@@ -1772,4 +1831,5 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment
+comment, filled, acknowledges, acknowledged, gone, defaults, largest, compacts, ago, publishing,
+minimum, maximum, returns, passed, rebuilt

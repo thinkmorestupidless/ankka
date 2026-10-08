@@ -202,20 +202,11 @@ setting explicitly.
 
 **Acceptance Scenarios**:
 
-1. **Given** an installation whose default retention is seven days, **When** a member declares a topic
-   with partitions alone, **Then** the declaration records seven days, delete, and the default copies,
-   the topic's status shows each and marks them as the installation's defaults, and the broker holds
-   each setting on the topic itself.
-2. **Given** a member declares a topic with a retention of 90 days and a retention size of 50 GiB per
-   partition, **When** the topic is provisioned, **Then** the broker keeps a message until it is 90
-   days old or its partition passes 50 GiB, whichever comes first, and the status says both.
-3. **Given** an installation whose longest retention is one year, **When** a member declares a topic
-   with two years, **Then** the declaration is refused at the control plane naming the bound, and
-   nothing is written to the cluster.
-4. **Given** an installation whose longest retention is unbounded, **When** a member declares a topic
-   that keeps everything, **Then** it is accepted and the status says the topic keeps everything.
-5. **Given** a topic declared with the default, **When** the installation's default is changed to 14
-   days, **Then** the topic still keeps seven, and its status still says seven.
+- added `features/broker/retention.feature`: a topic declared with partitions alone is filled from the installation's defaults
+- added `features/broker/retention.feature`: a topic keeps a message until it is older than its retention time or its partition is larger than its retention size
+- added `features/broker/retention.feature`: a declaration longer than the installation's longest retention time is refused
+- added `features/broker/retention.feature`: a topic keeps everything where the installation sets no longest retention time
+- added `features/broker/retention.feature`: a change to the installation's default changes no topic already declared
 
 ---
 
@@ -236,18 +227,11 @@ latest.
 
 **Acceptance Scenarios**:
 
-1. **Given** a member declares a topic with cleanup `compact`, **When** it is provisioned, **Then** the
-   broker compacts it and the status says `compact`.
-2. **Given** a topic with cleanup `compact,delete` and a retention of 30 days, **When** a key's latest
-   message is older than 30 days, **Then** it is removed, and keys newer than that keep their latest
-   message.
-3. **Given** a topic declared `compact` or `compact,delete`, **When** a component publishes a message
-   with neither a key nor a subject, **Then** the publication fails in the service before anything
-   reaches the broker, with an error naming the topic and that a compacted topic needs a key; a
-   consumer's change is redelivered with its backoff, as any failed publication is.
-4. **Given** a compacted topic declared with a tombstone window of one day and a minimum compaction
-   lag of one hour, **When** a key is deleted, **Then** its tombstone is readable for at least a day,
-   and no message is compacted away within an hour of its publication.
+- added `features/broker/compaction.feature`: a topic declared with the cleanup policy "compact" is compacted
+- added `features/broker/compaction.feature`: a topic with the cleanup policy "compact,delete" keeps the last message under a key only within its retention time
+- added `features/broker/compaction.feature`: a message published under no key to a compacted topic fails in the service before it reaches the broker
+- added `features/broker/compaction.feature`: a deletion on a compacted topic is read for the topic's tombstone window
+- added `features/broker/compaction.feature`: no message on a compacted topic is compacted away within its minimum compaction lag
 
 ---
 
@@ -269,20 +253,12 @@ messages, stop one broker pod, publish a hundred more, and read two hundred from
 
 **Acceptance Scenarios**:
 
-1. **Given** the three-node overlay, **When** the installation comes up, **Then** the broker's default
-   replication, its minimum in-sync copies and both internal topics' factors are all set for three
-   nodes, and the operator reports the broker's node count.
-2. **Given** a three-node broker, **When** a member declares a topic with five copies, **Then** the
-   control plane accepts it if five is within the installation's bound, the operator reports the topic
-   failed naming the broker's three nodes, and nothing is created on the broker.
-3. **Given** a member declares a topic with three copies and a minimum of three in-sync, **When** one
-   node is stopped, **Then** publications to the topic are refused until the node returns, and the
-   service's log names the topic and the reason; a minimum of two would have accepted them.
-4. **Given** a one-node installation, **When** a member lists the project's topics, **Then** each topic
-   says it has a single copy.
-5. **Given** a topic declared with three copies, **When** a member declares it again with one, or with
-   a minimum of three in-sync, **Then** it is refused, naming that copies and the minimum are fixed at
-   declaration.
+- added `features/broker/copies.feature`: an installation installed with three broker nodes sets every setting that counts copies for three
+- added `features/broker/copies.feature`: a topic with more copies than the broker has broker nodes is reported failed by the operator
+- added `features/broker/copies.feature`: stopping one broker node of three loses no acknowledged message
+- added `features/broker/copies.feature`: a publication waits for the topic's minimum in-sync copies
+- added `features/broker/copies.feature`: a topic on a broker of one broker node says it has a single copy
+- added `features/broker/copies.feature`: a topic's copies and minimum in-sync copies are fixed when it is declared
 
 ---
 
@@ -303,22 +279,13 @@ their pods, and that the project's history has one attributed entry per change.
 
 **Acceptance Scenarios**:
 
-1. **Given** a provisioned topic, **When** a member declares it again with a longer retention, **Then**
-   the broker's setting changes, no service is redeployed, and the project records the actor, the old
-   value and the new.
-2. **Given** a provisioned topic, **When** a member declares it again with other copies or another
-   minimum of in-sync copies, **Then** it is refused at the control plane, naming that both are fixed
-   at declaration, and nothing else in the declaration is applied.
-3. **Given** a topic with retention 90 days, **When** a member who is not an owner of the organization
-   declares it with 30 days, or changes its cleanup from `compact` to `delete`, **Then** it is refused,
-   naming the owner role. **When** an owner does, **Then** the CLI and the console say that messages
-   older than 30 days will be removed and are not recoverable, the declaration is sent only once the
-   owner confirms, and the change is recorded with the owner, the old and the new values. Raising
-   retention, or any change that destroys no message, needs only a member.
-4. **Given** a topic with cleanup `delete`, **When** a member declares it `compact`, **Then** the broker
-   compacts it from then on, and the status says so.
-5. **Given** a declaration that changes nothing, **When** it is sent, **Then** nothing is recorded and
-   nothing is written to the cluster, as 027 already does for partitions.
+- added `features/broker/changing.feature`: a topic declared again with a longer retention time is changed on the broker in place
+- added `features/broker/copies.feature`: a topic's copies and minimum in-sync copies are fixed when it is declared
+- added `features/broker/changing.feature`: a change that removes messages is refused to a member who is not an owner
+- added `features/broker/changing.feature`: an owner is told what a shorter retention time removes and confirms before it is sent
+- added `features/broker/changing.feature`: a change that removes no message needs only a member
+- added `features/broker/changing.feature`: a topic declared again with the cleanup policy "compact" is compacted from then on
+- added `features/broker/changing.feature`: a declaration that changes nothing records nothing
 
 ---
 
@@ -341,20 +308,12 @@ a topic declared with two days' retention and assert the view's status carries t
 
 **Acceptance Scenarios**:
 
-1. **Given** a view over a topic that has dropped messages, **When** the view is rebuilt, **Then** the
-   rebuild runs, and the view's topic source reports, per partition, the beginning offset, the earliest
-   retained time, and that messages are gone because the beginning offset is above zero or the
-   earliest retained time is later than the view's start.
-2. **Given** a view over a topic that has dropped nothing, **When** it is rebuilt, **Then** it reports
-   no gap.
-3. **Given** a view over a compacted topic, **When** it is rebuilt, **Then** it reports the topic as
-   compacted rather than as having a gap, since compaction removes earlier messages by design.
-4. **Given** a deployed service whose view has a gap, **When** a member runs `ankka services get`,
-   **Then** the view's topic source shows the gap, read from the service's instances.
-5. **Given** an installation whose warning threshold is 30 days, **When** a service declares a view
-   over a topic whose retention is seven days, **Then** the service deploys, and the view's status in
-   `ankka services get` and the console says the topic keeps less than the threshold and names both
-   values; a topic that keeps everything, or a compacted one, draws no warning.
+- added `features/topics/gap.feature`: a view rebuilt from a topic that no longer holds its earliest messages reports the retention gap for each partition
+- added `features/topics/gap.feature`: a view rebuilt from a topic that still holds every message reports no retention gap
+- added `features/topics/gap.feature`: a view rebuilt from a compacted topic reports the topic as compacted and not as having a retention gap
+- added `features/topics/gap.feature`: the retention gap is shown wherever a service's topic sources are
+- added `features/topics/gap.feature`: a view over a topic that keeps less than the warning threshold is warned in its status
+- added `features/topics/gap.feature`: a topic that keeps everything or is compacted draws no retention warning
 
 ---
 

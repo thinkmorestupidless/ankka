@@ -1932,6 +1932,73 @@ holding the storage credential. It works only while the bucket is reachable from
 
 Avoid: presigned URL
 
+### Google Cloud Storage
+*Proposed.* Google's object store, which an installation in Google's cloud may keep its buckets in
+instead of Garage. A bucket in it is reachable from the internet by anyone holding a signed URL,
+whether or not its descriptor asked, and by nobody else; it keeps every version of an object; and
+its name is shared with every other customer of Google's, so the provider names it and reports the
+name, and nothing derives it.
+
+Avoid: GCS
+
+### Garage
+*Proposed.* The object store the platform runs inside an installation, and the one a local platform
+has. A bucket in it holds one version of each object, is named from the project and the service,
+and is reached from the internet only when its descriptor asks.
+
+### provider
+*Proposed.* The program an installation deploys beside the operator to make what a cloud's object
+store needs for a bucket: the bucket, the storage account, its grant and the storage credential.
+It reaches the cloud as its own workload identity and holds no key of the cloud's. The operator
+asks it for a bucket and reads what it reports, and never reaches the cloud itself.
+
+### storage account
+*Proposed.* The identity in Google Cloud that the provider makes for one service with a bucket in
+Google Cloud Storage, granted on that bucket and on nothing else. The service's storage credential
+belongs to it, and the service's workload identity is it.
+
+Avoid: service account, Google account
+
+### workload identity
+*Proposed.* What a deployed service is, to Google Cloud, without holding any credential: its
+storage account. A service that reaches its bucket as its workload identity needs no storage
+credential, and can make no signed URL.
+
+### location
+*Proposed.* Where in Google's cloud a bucket keeps its objects, fixed when the bucket is made and
+reported in the status. The installation names one for its buckets; a project may name its own,
+for the buckets made for it from then on.
+
+### retention policy
+*Proposed.* A setting of a bucket in Google Cloud Storage that refuses to delete an object younger
+than an age. The platform sets none on any bucket and offers no setting that does: holding a
+document for as long as a rule requires is the service's own to do, and a deletion is never
+refused on account of an object's age.
+
+### noncurrent version
+*Proposed.* An object as it was before it was overwritten or deleted, which a bucket in Google
+Cloud Storage keeps and a service reads back, until every version of the object is deleted. A
+bucket in Garage keeps none.
+
+### KMS key
+*Proposed.* A key the installation holds in Google Cloud's key management and names so that every
+bucket the provider makes is encrypted with it rather than with Google's own. It is not a secret
+key, which a service's secret store encrypts with.
+
+### move
+*Proposed.* Copying every object of one service's bucket in Garage into a bucket made for it in
+Google Cloud Storage, so that the service reads and keeps objects there once it is next
+restarted. A member asks for it; it checks every object on both sides; it finishes if it is asked
+for again after stopping part way; and it leaves the bucket in Garage as it was.
+
+Avoid: migration
+
+### read-only credential
+*Proposed.* A storage credential that reads a bucket and cannot keep, change or delete an object in
+it. A move gives a service one while it copies what changed and checks every object, and the
+service's status says that its storage is moving; the service is given a storage credential that
+writes again when the move ends, on whichever object store it ends on.
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2000,5 +2067,6 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-access, authority, certificate, comment, derived, equal, granted, minute, newest, off, parallel,
-reach, registers, restore, restored, SASL, year
+access, authority, certificate, comment, derived, equal, final, grant, granted, grants, minute,
+newest, off, overwrite, overwrites, overwritten, parallel, permission, reach, registers, restore,
+restored, SASL, year

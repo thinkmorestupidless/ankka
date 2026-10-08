@@ -168,7 +168,7 @@ credential Secret is refused by the API server.
 
 - added `features/object-storage/isolation.feature`: a storage credential is refused by another service's bucket
 - added `features/object-storage/isolation.feature`: the platform cannot read a storage credential back
-- added `features/object-storage/isolation.feature`: a storage credential is made once and never replaced
+- added `features/object-storage/isolation.feature`: a storage credential is made once and replaced only when a member asks
 - added `features/object-storage/isolation.feature`: a descriptor cannot take a variable from the secret that holds a storage credential
 - changed `features/secrets/project-secrets.feature`: a project secret may not take a name the platform uses
 
@@ -217,7 +217,7 @@ field and assert its bucket's path answers nothing at the hostname.
 
 - added `features/object-storage/reachable.feature`: a service whose bucket is reachable from the internet is told the address of its bucket on the internet
 - added `features/object-storage/reachable.feature`: a browser reads an object through a signed URL
-- added `features/object-storage/reachable.feature`: a browser keeps an object through a signed URL
+- added `features/object-storage/reachable.feature`: a browser on an origin the descriptor names keeps an object through a signed URL without the service setting a rule on its bucket
 - added `features/object-storage/reachable.feature`: a bucket is not reachable from the internet until its descriptor asks
 - added `features/object-storage/reachable.feature`: a request from the internet without a signed URL is refused
 - added `features/object-storage/reachable.feature`: a signed URL stops working when the bucket is no longer reachable from the internet

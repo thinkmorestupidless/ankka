@@ -1,7 +1,8 @@
 Feature: A project's topics are its own
   The installation has one broker for every project, so the boundary between projects is the
-  broker's to keep: a service's credential reaches the topics of its own project and nothing else.
-  The platform checks nothing when a service reads or publishes; the broker refuses.
+  broker's to keep: a service's credential reaches the topics of its own project and nothing else,
+  until a grant of another project names it (features/cross-project/topic-grants.feature). The
+  platform checks nothing when a service reads or publishes; the broker refuses.
 
   Background:
     Given an installation with a broker

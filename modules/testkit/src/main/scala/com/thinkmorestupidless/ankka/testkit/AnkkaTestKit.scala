@@ -36,14 +36,24 @@ final class AnkkaTestKit private (
     readyTimeout: FiniteDuration,
     private var current: AnkkaService,
     /** The secret key the running service was started with, or `None` for none. */
-    private var currentKey: Option[String]
+    private var currentKey: Option[String],
+    /** Where the service keeps its service secrets. */
+    val secretBackend: SecretBackendChoice
 ):
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
 
-  /** The running service's secret store: one table in this kit's database. */
+  /**
+   * The running service's secret store: one table in this kit's database, or the Secret Manager
+   * fake the kit was started on.
+   */
   def secrets: SecretStore = current.secrets
+
+  /** The Secret Manager fake the service keeps its secrets in, when it is on that backend. */
+  def fakeSecretManager: Option[FakeSecretManager] = secretBackend match
+    case SecretBackendChoice.SecretManager(fake, _, _) => Some(fake)
+    case SecretBackendChoice.Postgres                  => None
 
   /** The secret key the running service has, as `ANKKA_SECRET_KEY` would give it. */
   def secretKey: Option[String] = currentKey
@@ -266,7 +276,13 @@ object AnkkaTestKit:
        * `ankka.telemetry.endpoint` for a test of telemetry export, say. Without it a test's service
        * names no collector, whatever the developer's own `ANKKA_OTLP_ENDPOINT` says.
        */
-      settings: Config = ConfigFactory.empty()
+      settings: Config = ConfigFactory.empty(),
+      /**
+       * Where the service keeps its service secrets: its database, as by default, or a
+       * `FakeSecretManager` the test started (`SecretBackendChoice.secretManager(fake)`). Kept
+       * across `restartService`.
+       */
+      secretBackend: SecretBackendChoice = SecretBackendChoice.postgres
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
@@ -284,6 +300,7 @@ object AnkkaTestKit:
     claimRegistryDirectory()
 
     val config = settings
+      .withFallback(SecretBackendChoice.settings(secretBackend))
       .withFallback(ConfigFactory.parseString("ankka.telemetry.endpoint = \"\""))
       .withFallback(withLocalServices(configFor(database), localServices))
       .resolve()
@@ -310,7 +327,8 @@ object AnkkaTestKit:
       database,
       readyTimeout,
       service,
-      secretKey
+      secretKey,
+      secretBackend
     )
 
   /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */

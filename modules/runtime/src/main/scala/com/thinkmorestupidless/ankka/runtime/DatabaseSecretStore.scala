@@ -17,11 +17,13 @@ import scala.util.control.NonFatal
  * Nothing is cached. Another instance may have replaced or removed a value since it was last read,
  * and a cache would be a second place a plaintext lives. Names are logged; values never are.
  */
-private[ankka] final class DatabaseSecretStore(database: Database, key: Option[SecretKey])
-    extends SecretStore:
+private[ankka] final class DatabaseSecretStore(
+    database: Database,
+    key: Option[SecretKey],
+    timeout: FiniteDuration = 10.seconds
+) extends SecretStore:
 
-  private val log     = LoggerFactory.getLogger(classOf[DatabaseSecretStore])
-  private val timeout = 10.seconds
+  private val log = LoggerFactory.getLogger(classOf[DatabaseSecretStore])
 
   def put(name: String, value: String): Unit =
     SecretRules.check(name, value)

@@ -38,6 +38,47 @@ private[ankka] object PlatformVariables:
   val OtlpHeaders: String = "ANKKA_OTLP_HEADERS"
 
   /**
+   * Where the installation keeps service secrets and project secrets: `postgres` (each service's
+   * database, the default) or `secret-manager`. The installation's to say, once.
+   */
+  val SecretBackend: String = "ANKKA_SECRET_BACKEND"
+
+  /**
+   * The phase of a move to Secret Manager each service performs when it starts: copy, check,
+   * remove.
+   */
+  val SecretMove: String = "ANKKA_SECRET_MOVE"
+
+  /**
+   * Where a service writes the record of each read of a secret. A deployed service's runtime knows
+   * the control plane's address already; this is for an installation that reaches it elsewhere.
+   */
+  val SecretRecordsUrl: String = "ANKKA_SECRET_RECORDS_URL"
+
+  /** How many versions of a service secret Secret Manager keeps; the rest are destroyed. */
+  val SecretVersionsKept: String = "ANKKA_SECRET_VERSIONS_KEPT"
+
+  /** The installation's cloud provider: `none`, or a known provider's name. */
+  val CloudProvider: String = "ANKKA_CLOUD_PROVIDER"
+
+  /** The cloud project or account the installation's cloud resources live in. */
+  val CloudAccount: String = "ANKKA_CLOUD_ACCOUNT"
+
+  /** The installation's default location for anything in its cloud account that has one. */
+  val CloudLocation: String = "ANKKA_CLOUD_LOCATION"
+
+  /** The installation's settings for its secret store, which reach the platform's program only. */
+  val SecretStoreSettings: Set[String] =
+    Set(
+      SecretBackend,
+      SecretMove,
+      SecretRecordsUrl,
+      SecretVersionsKept,
+      CloudAccount,
+      CloudLocation
+    )
+
+  /**
    * A service's name when it runs on a developer's machine, which names its topic sources' consumer
    * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
    * refused, with a message of its own rather than as one of `PlatformOnly`: the platform does not
@@ -72,7 +113,7 @@ private[ankka] object PlatformVariables:
     // Where telemetry goes: the installation's, given only to the platform's program.
     OtlpEndpoint,
     OtlpHeaders
-  )
+  ) ++ SecretStoreSettings + CloudProvider
 
   /**
    * For the platform's program and never the developer's. A descriptor may give them — a model's
@@ -94,7 +135,7 @@ private[ankka] object PlatformVariables:
       // the process never sees them.
       "ANKKA_TOPIC_BROKER_"
     )
-  val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
+  val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout) ++ SecretStoreSettings
 
   /** Where a web-hosted service's program listens. */
   val WebPort: String = "PORT"

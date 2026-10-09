@@ -39,15 +39,18 @@ the missing one.
 
 | Input | Id | Prefix |
 |---|---|---|
-| service secret `name` of `<service>` in `<project>` | `s_<project>_<service>_<tail(name)>` | `s_<project>_<service>_` |
-| entry `<entry>` of project secret `<secret>` of `<project>` | `p_<project>_<secret>_<entry>` | `p_<project>_` |
+| service secret `name` of `<service>` in `<project>` | `s_<project>_<service>_<enc(name)>` | `s_<project>_<service>_` |
+| entry `<entry>` of project secret `<secret>` of `<project>` | `p_<project>_<enc(secret)>__<enc(entry)>` | `p_<project>_` |
 
-`tail(name)`: `.` → `_p`, `/` → `_s`, else the character. When the id would exceed 255 characters:
-`<prefix>_<sha256-hex(name)>` (the prefix's trailing `_` plus `_` gives the `__` marker). Invariants
-(property-tested): `tail` is injective; every id matches `[A-Za-z0-9_-]{1,255}`; no prefix is a
-prefix of another prefix; the digest marker never arises from `tail`. The original name is the
-annotation `ankka.thinkmorestupidless.com/name` on the secret; an entry's secret carries
-`…/project-secret` and `…/entry` annotations.
+`enc`: `_` → `_u`, `.` → `_p`, `/` → `_s`, else the character — a prefix code whose output never
+holds `__` and never ends in `_`, so the first `__` of an entry id ends the secret's name (an entry
+of a Kubernetes Secret may contain `_`, as `STRIPE_KEY` does). When the id would exceed 255
+characters: `<prefix>_<sha256-hex(name)>` (the prefix's trailing `_` plus `_` gives `__` and a hex
+digit, where an encoded `_` is followed by `u`, `p` or `s`). Invariants (`DerivedIdsSuite`): ids are
+distinct for distinct names; every id matches `[A-Za-z0-9_-]{1,255}`; no prefix is a prefix of
+another prefix; a digest id is never an encoded one. Secret Manager's annotation keys allow no `/`,
+so the names are kept as `ankka-project`, `ankka-service` and `ankka-name` on a service secret, and
+`ankka-project`, `ankka-project-secret` and `ankka-entry` on an entry.
 
 ## Secret Manager objects (what the store creates)
 

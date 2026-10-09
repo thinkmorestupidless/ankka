@@ -33,7 +33,7 @@ spec:
   subject: { project: spinvibe }
   parameters:
     secretName: checkout                 # the project secret = the Kubernetes Secret's name
-    entries: { STRIPE_KEY: p_spinvibe_checkout_STRIPE_KEY, WEBHOOK_KEY: p_spinvibe_checkout_WEBHOOK_KEY }
+    entries: { STRIPE_KEY: p_spinvibe_checkout__STRIPE_uKEY, WEBHOOK_KEY: p_spinvibe_checkout__WEBHOOK_uKEY }
     generation: 7                        # AnkkaProject.spec.secretsGeneration
 ```
 

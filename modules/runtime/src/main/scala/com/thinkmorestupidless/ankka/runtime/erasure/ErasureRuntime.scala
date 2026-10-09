@@ -62,6 +62,13 @@ final class ErasureRuntime(
   /** Whether the keyring's log has been applied, so the service may be ready. */
   def applied: Boolean = ready
 
+  /**
+   * The highest log sequence this service has applied, and when it finished applying the log it was
+   * handed at start: what a restore's status reads, from the topology document.
+   */
+  @volatile var appliedUpTo: Option[Long]             = None
+  @volatile var finishedAt: Option[java.time.Instant] = None
+
   def start(service: AnkkaService): Unit =
     this.service = service
     given ActorSystem[?] = service.system
@@ -86,6 +93,8 @@ final class ErasureRuntime(
             ErasureOrder(entry.erasureId, entry.sequence, entry.subject, reapply = false)
           )
         }
+        appliedUpTo = (appliedUpTo.toVector ++ entries.map(_.sequence)).maxOption
+        finishedAt = Some(java.time.Instant.now())
         ready = true
       }
 
@@ -148,6 +157,7 @@ final class ErasureRuntime(
       viewsRedacted.size,
       outcome.fold("")(o => s"; handler ${if o.ok then "done" else "failed"}")
     )
+    appliedUpTo = (appliedUpTo.toVector :+ order.sequence).maxOption
     // A failed handler is not complete: the next order of the same erasure runs it again.
     if outcome.forall(_.ok) then completed.put(order.erasureId, completion): Unit
     connection.completed(completion)

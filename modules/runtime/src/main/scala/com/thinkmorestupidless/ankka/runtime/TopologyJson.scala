@@ -56,7 +56,11 @@ object TopologyJson:
       service.routes,
       observability.calls.snapshot(System.currentTimeMillis()),
       observability.names.nameOf,
-      TopicSources(service.system).all
+      TopicSources(service.system).all,
+      service
+        .extensionsOf[erasure.ErasureRuntime]
+        .headOption
+        .flatMap(r => r.finishedAt.map(at => (r.appliedUpTo, at)))
     )
 
   /** Who a call is from when nobody can say. A node of its own, and never a guess at one. */
@@ -78,7 +82,12 @@ object TopologyJson:
       routes: Vector[ServedRoute],
       calls: CallCounts.Snapshot,
       nameOf: Int => Option[String],
-      topicSources: Vector[TopicSourceStatus] = Vector.empty
+      topicSources: Vector[TopicSourceStatus] = Vector.empty,
+      /**
+       * The highest erasure log sequence applied and when the log handed at start was finished: for
+       * a restore's status. Absent for a service with no keyring, whose document is unchanged.
+       */
+      erasures: Option[(Option[Long], java.time.Instant)] = None
   ): String =
     // An endpoint is drawn from the routes it serves. A remote one is also in the registry, by the
     // id it was declared with; listing it from there as well would draw it twice.
@@ -122,7 +131,11 @@ object TopologyJson:
       s""""calls":${observed.edges.mkString("[", ",", "]")},""" +
       // Feature 037: each topic source with how far behind it is, read by the control plane with
       // the rest of the document.
-      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}}"""
+      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}""" +
+      erasures.fold("")((upTo, at) =>
+        s""","erasures":{"appliedUpTo":${upTo.fold("null")(_.toString)},""" +
+          s""""finishedAt":${Json.str(at.toString)}}"""
+      ) + "}"
 
   private def topicSource(s: TopicSourceStatus): String =
     s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +

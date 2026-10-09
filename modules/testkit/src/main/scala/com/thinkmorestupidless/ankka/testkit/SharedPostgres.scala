@@ -85,6 +85,22 @@ private[testkit] object SharedPostgres:
         Some(scheduler.schedule((() => stopIfIdle()): Runnable, Linger, TimeUnit.SECONDS))
   }
 
+  /**
+   * A copy of `database` as it is now, as a backup holds it: a database of its own, made from it as
+   * a template, which nothing may be connected to while it is copied. Dropped with the server.
+   */
+  def snapshot(database: TestDatabase): String = synchronized {
+    val name = s"${database.name}_snap_${databases.incrementAndGet()}"
+    psql(s"CREATE DATABASE $name TEMPLATE ${database.name}")
+    name
+  }
+
+  /** `database` replaced by the copy `snapshot` made, as a restore from a backup replaces it. */
+  def restore(database: TestDatabase, snapshot: String): Unit = synchronized {
+    psql(s"DROP DATABASE IF EXISTS ${database.name} WITH (FORCE)")
+    psql(s"CREATE DATABASE ${database.name} TEMPLATE $snapshot")
+  }
+
   /** Has the server log every statement sent to `database`, by connections opened from now on. */
   def logStatements(database: TestDatabase): Unit = synchronized {
     psql(s"ALTER DATABASE ${database.name} SET log_statement = 'all'")

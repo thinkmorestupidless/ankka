@@ -66,6 +66,13 @@ forwards. An erasure reaches a process only through `Erasure.Handle`, after the 
   channel's message as its event. Only the real `KeyringClient` serializes; the in-memory keyring hid it.
 - **The journal carries no lookup token, so a value read from an event is not marked for lookup.** A view
   marks its row's field again where it writes it (`forLookup` in every language).
+- **Garage accepts `If-None-Match: *` and overwrites anyway.** The erasure log's bucket copy is
+  append-only because `ErasureLogBucket` reads the key before it writes (one writer, the sweeper
+  singleton), not because the store refuses; `ObjectStoreClientSuite` pins the store's behaviour so the
+  day it changes is visible.
+- **A test keyring restarted on port 0 comes back elsewhere.** Restoring its database restarts it, and
+  every channel and the sweeper still name the old port; a suite that restarts the keyring binds it to a
+  port chosen once (`RestoresFeatures.keyringPort`), as a deployment finds it at its Service's address.
 - **A first application can arrive twice** — the control plane asks until it hears, a reconnecting channel
   replays the log — and each copy ran the handler. `ErasureRuntime` answers a repeat with the completion it
   sent; only a reapplication runs again, and a failed handler is not remembered as complete.

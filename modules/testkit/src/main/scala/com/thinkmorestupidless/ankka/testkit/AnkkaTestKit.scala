@@ -267,6 +267,24 @@ final class AnkkaTestKit private (
       readyTimeout
     )
 
+  /**
+   * The service's database as it is now, kept as a backup keeps it. The service is stopped for the
+   * copy — a template cannot be copied while anything is connected — and started again.
+   */
+  def snapshotDatabase(): AnkkaTestKit.DatabaseSnapshot =
+    stopService()
+    try AnkkaTestKit.DatabaseSnapshot(SharedPostgres.snapshot(database))
+    finally startService()
+
+  /**
+   * The service's database restored from `snapshot`, as an operator restores a backup: the service
+   * is stopped, the database replaced, and the service started on it, ready only when it says so.
+   */
+  def restoreDatabase(snapshot: AnkkaTestKit.DatabaseSnapshot): Unit =
+    stopService()
+    SharedPostgres.restore(database, snapshot.name)
+    startService()
+
   def stop(): Unit =
     current.terminate()
     // Dropped once the service has let go of it, not before, or its last writes fail loudly.
@@ -276,6 +294,12 @@ final class AnkkaTestKit private (
     AnkkaTestKit.releaseRegistryDirectory()
 
 object AnkkaTestKit:
+
+  /**
+   * A copy of a kit's database, by name: what `snapshotDatabase` took and `restoreDatabase` puts
+   * back.
+   */
+  final case class DatabaseSnapshot(name: String)
 
   /** A second node of a test service. Stop it before the kit, or the kit's stop waits for it. */
   final class Peer private[AnkkaTestKit] (val service: AnkkaService):

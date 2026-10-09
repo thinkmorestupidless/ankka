@@ -219,7 +219,9 @@ object ControlPlane:
             erasures = Some(sweeper)
           )*
         )
-    val base = Ankka.service
+    // The keyring's address is the control plane's to call (`KeyringCaller`), not a keyring of its
+    // own: it holds no personal field, and the keyring refuses the platform's identity a channel.
+    val base = Ankka.service.withoutKeyring
       .registerAll(componentsWith(projector))
       .withExtension(ProjectionRuntime())
       .withExtension(projector)

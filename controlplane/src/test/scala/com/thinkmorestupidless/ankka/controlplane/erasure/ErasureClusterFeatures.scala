@@ -208,12 +208,19 @@ class ErasureClusterFeatures extends munit.FunSuite with LogCapturing:
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
 
-      waitFor(600.seconds, "the keyring's two instances") {
-        readyReplicas(KeyringNamespace, "ankka-keyring") == 2
-      }
-      waitFor(600.seconds, "the control plane") {
-        readyReplicas(Namespace, "ankka-controlplane") >= 1 && api("GET", "/organizations")._1 == 0
-      }
+      explained(KeyringNamespace, "ankka-keyring")(
+        waitFor(600.seconds, "the keyring's two instances") {
+          readyReplicas(KeyringNamespace, "ankka-keyring") == 2
+        }
+      )
+      explained(Namespace, "ankka-controlplane")(
+        waitFor(600.seconds, "the control plane") {
+          readyReplicas(Namespace, "ankka-controlplane") >= 1 && api(
+            "GET",
+            "/organizations"
+          )._1 == 0
+        }
+      )
       system = ActorSystem(
         "erasure-cluster-suite",
         ConfigFactory.parseString("pekko.actor.provider = local").withFallback(ConfigFactory.load())
@@ -278,6 +285,35 @@ class ErasureClusterFeatures extends munit.FunSuite with LogCapturing:
         catch case _: Throwable => false
       if !passed then Thread.sleep(1000)
     if !passed then fail(s"$what did not happen within $timeout")
+
+  /**
+   * Runs `wait`, and when it fails says what the workload's pods were doing: their states and the
+   * last lines each logged. A ready count alone cannot tell an image that will not start from a
+   * cluster that will not form or a readiness check that never passes.
+   */
+  private def explained(namespace: String, name: String)(wait: => Unit): Unit =
+    try wait
+    catch
+      case failure: Throwable =>
+        val report = podsOf(namespace, name).map { pod =>
+          val states = Option(pod.getStatus).toVector
+            .flatMap(s => Option(s.getContainerStatuses).toVector.flatMap(_.asScala))
+            .map(c =>
+              s"${c.getName} ready=${c.getReady} restarts=${c.getRestartCount} ${c.getState}"
+            )
+          val log =
+            try
+              k8s
+                .pods()
+                .inNamespace(namespace)
+                .withName(pod.getMetadata.getName)
+                .inContainer(name)
+                .tailingLines(40)
+                .getLog
+            catch case e: Throwable => s"(no log: ${e.getMessage})"
+          s"${pod.getMetadata.getName}\n  ${states.mkString("\n  ")}\n$log"
+        }
+        throw AssertionError(s"${failure.getMessage}\n${report.mkString("\n---\n")}", failure)
 
   private def readyReplicas(namespace: String, name: String): Int =
     Option(k8s.apps().deployments().inNamespace(namespace).withName(name).get())

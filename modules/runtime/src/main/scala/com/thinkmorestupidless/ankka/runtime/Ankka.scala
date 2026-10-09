@@ -102,7 +102,8 @@ final class ServiceBuilder private[ankka] (
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
     private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
     private val keyringOverride: Option[erasure.KeyringConnection] = None,
-    private val erasureHandler: Option[ErasureHandler] = None
+    private val erasureHandler: Option[ErasureHandler] = None,
+    private val keyringRefused: Boolean = false
 ):
 
   private def copy(
@@ -112,7 +113,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride: Option[Either[String, ServiceIdentity]] = identityOverride,
       wrapServices: ServiceClients => ServiceClients = wrapServices,
       keyringOverride: Option[erasure.KeyringConnection] = keyringOverride,
-      erasureHandler: Option[ErasureHandler] = erasureHandler
+      erasureHandler: Option[ErasureHandler] = erasureHandler,
+      keyringRefused: Boolean = keyringRefused
   ): ServiceBuilder =
     ServiceBuilder(
       descriptors,
@@ -121,7 +123,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       keyringOverride,
-      erasureHandler
+      erasureHandler,
+      keyringRefused
     )
 
   /**
@@ -137,6 +140,13 @@ final class ServiceBuilder private[ankka] (
    */
   private[ankka] def withKeyring(connection: erasure.KeyringConnection): ServiceBuilder =
     copy(keyringOverride = Some(connection))
+
+  /**
+   * No keyring, whatever `ANKKA_KEYRING_URL` says: for a platform application that calls the
+   * keyring but holds no personal field of its own — the control plane, which the keyring would
+   * refuse a channel, and which would then never be ready.
+   */
+  def withoutKeyring: ServiceBuilder = copy(keyringRefused = true)
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
     copy(descriptors = descriptors :+ descriptor)
@@ -218,7 +228,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
     val project = ServiceBuilder.projectOf(serviceIdentity)
     // Its keyring (feature 042): the test kit's, or the installation's at ANKKA_KEYRING_URL, or none.
-    val keyringConnection = keyringOverride.orElse(erasure.KeyringClient.fromConfig(system))
+    val keyringConnection =
+      if keyringRefused then None
+      else keyringOverride.orElse(erasure.KeyringClient.fromConfig(system))
     val keyring = keyringConnection.map(c =>
       erasure.ServiceKeyring(
         c,

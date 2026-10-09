@@ -1,0 +1,29 @@
+# Where the control plane keeps the record of secret reads: the database this component makes, by
+# the keys CNPG writes into its credential Secret — the same mapping the control plane's own database
+# uses for ANKKA_DB_*.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_SECRET_RECORDS_DB_HOST
+              valueFrom:
+                secretKeyRef: { name: ankka-secret-reads-db-app, key: host }
+            - name: ANKKA_SECRET_RECORDS_DB_PORT
+              valueFrom:
+                secretKeyRef: { name: ankka-secret-reads-db-app, key: port }
+            - name: ANKKA_SECRET_RECORDS_DB_NAME
+              valueFrom:
+                secretKeyRef: { name: ankka-secret-reads-db-app, key: dbname }
+            - name: ANKKA_SECRET_RECORDS_DB_USER
+              valueFrom:
+                secretKeyRef: { name: ankka-secret-reads-db-app, key: username }
+            - name: ANKKA_SECRET_RECORDS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ankka-secret-reads-db-app, key: password }

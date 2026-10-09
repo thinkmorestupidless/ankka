@@ -1520,6 +1520,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     val r = get(secretPath("acme"))
     assertEquals(r.status, 200)
     assertEquals(r.body, "sk-acme-1")
+    // Every language's read is recorded, with the hosting it came through; a component is named
+    // only where the runtime ran the handler itself, never through a process or a module.
+    val read = target.recordedReads.filter(r => r.name == "acme" && r.operation == "get").last
+    assertEquals((read.outcome, read.hosting), ("read", target.hosting))
+    if target.hosting != "embedded" then assertEquals(read.component, None, read.toString)
     // The switch that ran Postgres would be green above; this is what says it did not.
     ConformanceTarget.secretManager.foreach { fake =>
       val id =

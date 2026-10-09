@@ -38,7 +38,8 @@ class CallerAclSuite extends munit.FunSuite:
       Callers.service("orders"),
       Callers.service("billing", "orders"),
       Callers.anyInProject,
-      Callers.self
+      Callers.self,
+      Callers.anyService
     )
     matchers.foreach(m => assert(m.admits(Caller.Local, self), s"$m must admit Local"))
 
@@ -49,6 +50,7 @@ class CallerAclSuite extends munit.FunSuite:
     assertEquals(admitted(Callers.service("billing", "orders")), Vector(foreign))
     assertEquals(admitted(Callers.anyInProject), Vector(orders, itself))
     assertEquals(admitted(Callers.self), Vector(itself))
+    assertEquals(admitted(Callers.anyService), Vector(orders, foreign, itself))
   }
 
   test("a caller encodes and decodes for the local header, and garbage decodes to nothing") {

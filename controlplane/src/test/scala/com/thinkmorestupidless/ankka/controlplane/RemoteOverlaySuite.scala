@@ -804,3 +804,32 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assertEquals(platformData(local)("secretBackend"), "postgres")
     assertEquals(platformData(local)("cloudProvider"), "none")
   }
+
+  test(
+    "both overlays keep the record of secret reads in a database of its own, which the control plane is told of"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val cluster = documentsOfKind(render, "Cluster")
+        .find(_.contains("name: ankka-secret-reads-db"))
+        .getOrElse(fail(s"$name: no database for the record of secret reads"))
+      assert(cluster.contains("namespace: ankka-controlplane"), cluster)
+      val container =
+        deploymentNamed(
+          render,
+          "ankka-controlplane"
+        ).getSpec.getTemplate.getSpec.getContainers.asScala
+          .find(_.getName == "ankka-controlplane")
+          .getOrElse(fail(s"$name: the control plane has no container of its own name"))
+      for variable <- Vector("HOST", "PORT", "NAME", "USER", "PASSWORD") do
+        val set = container.getEnv.asScala.filter(_.getName == s"ANKKA_SECRET_RECORDS_DB_$variable")
+        assertEquals(set.size, 1, s"$name: ANKKA_SECRET_RECORDS_DB_$variable is set once")
+        assertEquals(set.head.getValueFrom.getSecretKeyRef.getName, "ankka-secret-reads-db-app")
+      assertEquals(
+        deploymentNamed(
+          render,
+          "ankka-controlplane"
+        ).getSpec.getTemplate.getSpec.getContainers.size,
+        1,
+        s"$name: the patch added a container"
+      )
+  }

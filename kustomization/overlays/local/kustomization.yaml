@@ -26,6 +26,8 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  # After the control plane, whose Deployment it tells where the record of secret reads is kept.
+  - ../../components/secret-reads
   - ../../components/console
   # Where a developer reads their services' traces, metrics and logs: https://grafana.<base domain>.
   # Not the otel-collector component, which keeps nothing; the two make one namespace.

@@ -50,6 +50,14 @@ final class AnkkaTestKit private (
    */
   def secrets: SecretStore = current.secrets
 
+  /**
+   * The record of every read, keep and removal of a secret the running service made, oldest first:
+   * what the control plane would have been sent. A test's service has no control plane, so each is
+   * kept here (and logged) instead, unless `ankka.secrets.records-url` names one in `settings`.
+   */
+  def recordedReads: Vector[com.thinkmorestupidless.ankka.core.secrets.ReadRecord] =
+    current.readRecorder.fold(Vector.empty)(_.kept)
+
   /** The Secret Manager fake the service keeps its secrets in, when it is on that backend. */
   def fakeSecretManager: Option[FakeSecretManager] = secretBackend match
     case SecretBackendChoice.SecretManager(fake, _, _) => Some(fake)

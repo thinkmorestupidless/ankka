@@ -182,6 +182,28 @@ final class ControlPlaneClient(settings: Settings):
   def listProjectSecrets(projectId: String): Vector[ProjectSecretSummary] =
     get[Vector[ProjectSecretSummary]](s"/projects/${segment(projectId)}/secrets")
 
+  /** The record of a project's secret reads, newest first: an owner's to read. */
+  def listSecretReads(
+      projectId: String,
+      service: Option[String] = None,
+      name: Option[String] = None,
+      from: Option[String] = None,
+      to: Option[String] = None,
+      limit: Option[Int] = None
+  ): SecretReadsPage =
+    val params = Vector(
+      service.map(s => s"service=${encode(s)}"),
+      name.map(n => s"name=${encode(n)}"),
+      from.map(f => s"from=${encode(f)}"),
+      to.map(t => s"to=${encode(t)}"),
+      limit.map(l => s"limit=$l")
+    ).flatten
+    val query = if params.isEmpty then "" else params.mkString("?", "&", "")
+    get[SecretReadsPage](s"/projects/${segment(projectId)}/secret-reads$query")
+
+  /** The installation's status: its secret backend, its cloud, the record's retention. */
+  def platformStatus(): PlatformStatus = get[PlatformStatus]("/platform")
+
   /**
    * Declares a topic on a project, or raises its partitions (feature 027); its compaction and
    * contract (feature 037).

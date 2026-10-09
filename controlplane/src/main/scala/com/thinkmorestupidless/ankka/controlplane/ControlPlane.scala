@@ -98,7 +98,16 @@ object ControlPlane:
       /** Where a project's topics' phases are read from; the projector, as for the others. */
       topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
-      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None
+      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
+      /**
+       * Where the record of secret reads is kept (feature 038). `None` answers unavailable, which a
+       * service reads as a record not acknowledged.
+       */
+      secretRecords: Option[
+        com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore
+      ] = None,
+      /** The installation's status, as `GET /platform` answers it. */
+      platform: () => PlatformStatus = () => ControlPlane.defaultPlatformStatus
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -106,7 +115,20 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics, schemas, topology),
+      clients =>
+        ProjectEndpoint(
+          clients,
+          acl,
+          clock,
+          registry,
+          secrets,
+          topics,
+          schemas,
+          topology,
+          secretRecords
+        ),
+      _ => SecretReadsEndpoint(secretRecords),
+      _ => PlatformEndpoint(acl, platform),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -129,6 +151,34 @@ object ControlPlane:
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
+    )
+
+  /** The installation's status from its settings: what `GET /platform` answers. */
+  def platformStatus(
+      backend: secrets.SecretBackendConfig,
+      records: secrets.SecretRecordsConfig
+  ): PlatformStatus =
+    PlatformStatus(
+      secretBackend = backend.backend.word,
+      cloudProvider = backend.cloudProvider,
+      cloudAccount = backend.cloudAccount,
+      cloudLocation = backend.cloudLocation,
+      secretRecordRetention = records.retentionText
+    )
+
+  /** An installation that has said nothing: Postgres, no cloud, a year's records. */
+  lazy val defaultPlatformStatus: PlatformStatus =
+    platformStatus(
+      secrets.SecretBackendConfig(
+        com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres,
+        "none",
+        None,
+        None
+      ),
+      secrets.SecretRecordsConfig(
+        scala.concurrent.duration.FiniteDuration(365, "days"),
+        scala.concurrent.duration.FiniteDuration(1, "day")
+      )
     )
 
   /**
@@ -157,7 +207,11 @@ object ControlPlane:
     val policy = OrganizationPolicy.from(config)
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.
-    val _ = secrets.SecretBackendConfig.from(config)
+    val backend = secrets.SecretBackendConfig.from(config)
+    // The record of every secret read, in a database of its own, opened when the service starts.
+    val recordsConfig = secrets.SecretRecordsConfig.from(config)
+    val records       = secrets.SecretRecords.postgres(recordsConfig)
+    val platform      = () => ControlPlane.platformStatus(backend, recordsConfig)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
@@ -173,7 +227,9 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            secretRecords = Some(records),
+            platform = platform
           )*
         )
       case _ =>
@@ -187,13 +243,16 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            secretRecords = Some(records),
+            platform = platform
           )*
         )
     val base = Ankka.service
       .registerAll(componentsWith(projector))
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
+      .withExtension(records)
       .withExtension(server)
     tokens.fold(base)(base.withExtension)
 

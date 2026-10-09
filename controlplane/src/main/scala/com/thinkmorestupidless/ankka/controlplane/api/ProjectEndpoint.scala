@@ -59,7 +59,9 @@ final class ProjectEndpoint(
     /** Where a contract's schema is held (feature 037); `None` refuses a declaration with one. */
     schemaStore: Option[ProjectSchemaStore] = None,
     /** Where each service's instances report what they state about a topic (feature 037). */
-    topology: Option[TopologyReader] = None
+    topology: Option[TopologyReader] = None,
+    /** Where the record of secret reads is kept (feature 038); `None` answers unavailable. */
+    secretRecords: Option[com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore] = None
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -399,6 +401,46 @@ final class ProjectEndpoint(
   get("/{projectId}/secrets") { (projectId: String) =>
     authz.project(principal, projectId, write = false): Unit
     entity(projectId).call(ProjectEntity.secrets).invoke()
+  }
+
+  /**
+   * The record of the project's secret reads, newest first: which service read which secret, and
+   * when. An owner's to read — a member is refused, as is a deploy token, which is a member — and a
+   * non-member is told the project does not exist, as for every read of a project.
+   */
+  get("/{projectId}/secret-reads") { (projectId: String) =>
+    val access = authz.project(principal, projectId, write = false)
+    authz.requireOwner(principal, access.organizationId, write = false): Unit
+    def instant(name: String) =
+      request.query.optional[String](name).map { text =>
+        try java.time.Instant.parse(text)
+        catch
+          case _: java.time.format.DateTimeParseException =>
+            throw CommandError(s"'$name' is not an instant: $text", ErrorCode.BadRequest)
+      }
+    val limit = request.query
+      .optional[Int]("limit")
+      .getOrElse(com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore.DefaultLimit)
+    if limit < 1 || limit > com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore.MaxLimit
+    then
+      throw CommandError(
+        s"limit must be between 1 and " +
+          com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore.MaxLimit,
+        ErrorCode.BadRequest
+      )
+    val store = secretRecords.getOrElse(
+      throw CommandError("this control plane keeps no record of reads", ErrorCode.Unavailable)
+    )
+    SecretReadsPage(
+      store.list(
+        projectId,
+        request.query.optional[String]("service"),
+        request.query.optional[String]("name"),
+        instant("from"),
+        instant("to"),
+        limit
+      )
+    )
   }
 
   private def serviceCount(projectId: String): Int =

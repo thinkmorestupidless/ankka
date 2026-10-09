@@ -72,6 +72,8 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  # After the control plane, whose Deployment it tells where the record of secret reads is kept.
+  - ../../components/secret-reads
   - ../../components/console
 
 resources:

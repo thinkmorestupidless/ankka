@@ -115,6 +115,7 @@ Usage:
     ankka login
     ankka logout
     ankka whoami
+    ankka platform
     ankka organizations
     ankka projects
     ankka services
@@ -137,6 +138,8 @@ Subcommands:
         Forget the saved login for the control plane.
     whoami
         Show who the control plane thinks you are.
+    platform
+        The installation itself.
     organizations
         Manage organizations.
     projects
@@ -193,6 +196,42 @@ Options and flags:
 Usage: ankka whoami [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Show who the control plane thinks you are.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka platform`
+
+```text
+Usage: ankka platform status
+
+The installation itself.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    status
+        Where the installation keeps its secrets, its cloud, and how long the record of reads is kept.
+```
+
+### `ankka platform status`
+
+```text
+Usage: ankka platform status [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Where the installation keeps its secrets, its cloud, and how long the record of reads is kept.
 
 Options and flags:
     --help
@@ -745,6 +784,7 @@ Usage:
     ankka projects delete
     ankka projects registry
     ankka projects secrets
+    ankka projects secret-reads
     ankka projects topics
     ankka projects brokers
 
@@ -769,6 +809,8 @@ Subcommands:
         Credentials the cluster pulls this project's private images with.
     secrets
         Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
+    secret-reads
+        The record of a project's secret reads: which service read which secret, and when. Owners only.
     topics
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
@@ -1024,6 +1066,52 @@ List a project's secrets: names and entries, never values.
 Options and flags:
     --help
         Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects secret-reads`
+
+```text
+Usage: ankka projects secret-reads list
+
+The record of a project's secret reads: which service read which secret, and when. Owners only.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List the record, newest first; never a value.
+```
+
+### `ankka projects secret-reads list`
+
+```text
+Usage: ankka projects secret-reads list [--service <string>] [--name <string>] [--from <string>] [--to <string>] [--limit <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List the record, newest first; never a value.
+
+Options and flags:
+    --help
+        Display this help text.
+    --service <string>
+        Only this service's reads.
+    --name <string>
+        Only the reads of this secret.
+    --from <string>
+        From this instant (RFC 3339), inclusive.
+    --to <string>
+        Up to this instant (RFC 3339), exclusive.
+    --limit <integer>
+        At most this many records, up to 1000; 200 if omitted.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

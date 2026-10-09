@@ -1669,6 +1669,33 @@ object DeployTokenRules:
       case _ => Vector.empty
     labelProblems ++ lifetimeProblems
 
+/**
+ * The record of secret reads an owner asked for, newest first (`GET /projects/{id}/secret-reads`).
+ * A record names a secret and never holds its value.
+ */
+final case class SecretReadsPage(
+    records: Vector[com.thinkmorestupidless.ankka.core.secrets.ReadRecord]
+)
+
+/**
+ * The installation's status (`GET /platform`): where its secrets are kept, its cloud, how long the
+ * record of secret reads is kept, and whether Google Cloud's own access log is on — `unknown` until
+ * the installation's cloud provider reports it. Never the encryption key's name.
+ */
+final case class PlatformStatus(
+    secretBackend: String,
+    cloudProvider: String,
+    cloudAccount: Option[String] = None,
+    cloudLocation: Option[String] = None,
+    secretRecordRetention: String,
+    auditLog: String = PlatformStatus.AuditLogUnknown
+)
+
+object PlatformStatus:
+  val AuditLogOn: String      = "on"
+  val AuditLogOff: String     = "off"
+  val AuditLogUnknown: String = "unknown"
+
 object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
   given specCodec: JsonValueCodec[ServiceSpec]             = Codecs.make[ServiceSpec]
@@ -1732,5 +1759,7 @@ object Wire:
   given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
+  given secretReadsPageCodec: JsonValueCodec[SecretReadsPage]    = Codecs.make[SecretReadsPage]
+  given platformStatusCodec: JsonValueCodec[PlatformStatus]      = Codecs.make[PlatformStatus]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
     Codecs.make[Vector[ProjectSecretSummary]]

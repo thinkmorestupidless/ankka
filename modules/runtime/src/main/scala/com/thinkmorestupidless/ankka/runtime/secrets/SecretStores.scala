@@ -21,35 +21,79 @@ private[ankka] object SecretStores:
       identity: Either[String, ServiceIdentity],
       secretKey: Option[SecretKey],
       noDatabase: Boolean,
-      database: () => com.thinkmorestupidless.ankka.runtime.Database
+      database: () => com.thinkmorestupidless.ankka.runtime.Database,
+      /** Where each read, keep and removal is recorded before it returns. */
+      recorder: ReadRecorder,
+      /** How the service's program is hosted, as the record names it. */
+      hosting: String,
+      /** A component's kind by its id, as the record names it. */
+      kindOf: String => Option[String]
   )
+
+  /**
+   * The store the service's components are given (`recorded`), the backend's own beneath it
+   * (`underlying`, which a move reads and writes without recording the platform's own copying), and
+   * whose secrets they are.
+   */
+  final case class Built(
+      recorded: SecretStore,
+      underlying: SecretStore,
+      backend: SecretBackend,
+      project: String,
+      service: String
+  )
+
+  /** A component kind as a record names it: `EventSourcedEntity` is `event-sourced-entity`. */
+  def kindWord(kind: String): String =
+    kind.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase
 
   def timeout(config: Config): FiniteDuration =
     FiniteDuration(config.getDuration("ankka.secrets.timeout").toMillis, "ms")
 
-  /** The backend's store, or an exception naming why there can be none. */
-  def build(inputs: Inputs): SecretStore =
-    val config = inputs.config
-    SecretBackend.from(config) match
-      case Left(problem)                 => throw IllegalArgumentException(problem)
-      case Right(SecretBackend.Postgres) =>
+  /** The backend's store, recorded, or an exception naming why there can be none. */
+  def build(inputs: Inputs): Built =
+    val config  = inputs.config
+    val backend = SecretBackend.from(config).fold(p => throw IllegalArgumentException(p), b => b)
+    val (underlying, project, service) = backend match
+      case SecretBackend.Postgres =>
+        val (project, service) = recordedAs(inputs.identity)
         // A service with no database (feature 037) keeps no secrets on this backend.
-        if inputs.noDatabase then SecretStore.unavailable
-        else DatabaseSecretStore(inputs.database(), inputs.secretKey, timeout(config))
-      case Right(SecretBackend.SecretManager) => secretManager(config, inputs.identity)
+        val store =
+          if inputs.noDatabase then SecretStore.unavailable
+          else DatabaseSecretStore(inputs.database(), inputs.secretKey, timeout(config))
+        (store, project, service)
+      case SecretBackend.SecretManager =>
+        val (project, service) = whose(config, inputs.identity)
+        (secretManager(config, project, service), project, service)
+    val recorded =
+      if underlying eq SecretStore.unavailable then underlying
+      else
+        RecordingSecretStore(
+          underlying,
+          inputs.recorder,
+          project,
+          service,
+          inputs.hosting,
+          backend,
+          inputs.kindOf
+        )
+    Built(recorded, underlying, backend, project, service)
 
-  private def secretManager(
-      config: Config,
-      identity: Either[String, ServiceIdentity]
-  ): SecretManagerStore =
+  /** Whose reads a record names on the Postgres backend, where a local run may have no project. */
+  private def recordedAs(identity: Either[String, ServiceIdentity]): (String, String) =
+    identity match
+      case Right(ServiceIdentity(project, service)) =>
+        (project.getOrElse(ServiceIdentity.LocalProject), service.getOrElse("unnamed"))
+      case Left(_) => ("unknown", "unknown")
+
+  private def secretManager(config: Config, project: String, service: String): SecretManagerStore =
     val account = config.getString("ankka.cloud.account").trim
     if account.isEmpty then
       throw IllegalArgumentException(
         s"${PlatformVariables.SecretBackend} is secret-manager and ${PlatformVariables.CloudAccount} " +
           "is not set, so there is no Google Cloud project to keep secrets in"
       )
-    val (project, service) = whose(config, identity)
-    val token              = config.getString("ankka.secrets.secret-manager.token").trim
+    val token = config.getString("ankka.secrets.secret-manager.token").trim
     val tokens =
       if token.nonEmpty then AccessTokens.fixed(token) else AccessTokens.metadata()
     val client = SecretManager(

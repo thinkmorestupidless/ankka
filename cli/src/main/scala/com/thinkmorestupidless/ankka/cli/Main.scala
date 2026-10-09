@@ -553,6 +553,29 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val secretReads = Opts.subcommand(
+      "secret-reads",
+      "The record of a project's secret reads: which service read which secret, and when. Owners only."
+    ) {
+      Opts.subcommand("list", "List the record, newest first; never a value.") {
+        (
+          Opts.option[String]("service", "Only this service's reads.").orNone,
+          Opts.option[String]("name", "Only the reads of this secret.").orNone,
+          Opts.option[String]("from", "From this instant (RFC 3339), inclusive.").orNone,
+          Opts.option[String]("to", "Up to this instant (RFC 3339), exclusive.").orNone,
+          Opts
+            .option[Int]("limit", "At most this many records, up to 1000; 200 if omitted.")
+            .orNone,
+          contextOpt
+        ).mapN { (service, name, from, to, limit, ctx) => () =>
+          Output.secretReads(
+            ctx.client.listSecretReads(ctx.project, service, name, from, to, limit),
+            ctx.format
+          )
+        }
+      }
+    }
+
     list
       .orElse(get)
       .orElse(create)
@@ -560,6 +583,7 @@ object Main:
       .orElse(delete)
       .orElse(registry)
       .orElse(secrets)
+      .orElse(secretReads)
       .orElse(topics)
       .orElse(brokers)
   }
@@ -875,6 +899,15 @@ object Main:
       contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
     }
 
+  private val platformCommand = Opts.subcommand("platform", "The installation itself.") {
+    Opts.subcommand(
+      "status",
+      "Where the installation keeps its secrets, its cloud, and how long the record of reads is kept."
+    ) {
+      contextOpt.map(ctx => () => Output.platformStatus(ctx.client.platformStatus(), ctx.format))
+    }
+  }
+
   private val versionCommand = Opts.subcommand("version", "Print the ankka version of this CLI.") {
     Opts.unit.map(_ => () => com.thinkmorestupidless.ankka.core.BuildInfo.version)
   }
@@ -1123,6 +1156,7 @@ object Main:
     loginCommand
       .orElse(logoutCommand)
       .orElse(whoamiCommand)
+      .orElse(platformCommand)
       .orElse(organizationsCommand)
       .orElse(projectsCommand)
       .orElse(servicesCommand)

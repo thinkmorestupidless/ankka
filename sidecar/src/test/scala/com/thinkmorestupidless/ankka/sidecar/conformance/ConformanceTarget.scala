@@ -38,6 +38,7 @@ import com.thinkmorestupidless.ankka.sidecar.wasm.{
   WasmConversation,
   WasmDiscovery
 }
+import com.thinkmorestupidless.ankka.core.secrets.ReadRecord
 import com.thinkmorestupidless.ankka.testkit.{
   AnkkaTestKit,
   FakeSecretManager,
@@ -67,6 +68,15 @@ trait ConformanceTarget:
   def baseUrl: String
   def system: ActorSystem[?]
   def model: TestModelProvider
+
+  /** The record of every read, keep and removal of a secret the target's service made. */
+  def recordedReads: Vector[ReadRecord]
+
+  /** How the target's program is hosted, as a record names it. */
+  def hosting: String = this match
+    case _: ConformanceTarget.InProcess => "embedded"
+    case _: ConformanceTarget.Sidecar   => "process"
+    case _                              => "module"
 
   /**
    * Where the target's consumers publish, in this JVM: what a producing consumer wrote can be read
@@ -323,12 +333,13 @@ object ConformanceTarget:
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend
     )
-    def name: String             = "in-process"
-    def baseUrl: String          = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?]   = kit.service.system
-    def restart(): Unit          = kit.restartService()
-    def isProcess: Boolean       = false
-    def problems: Vector[String] = Vector.empty
+    def name: String           = "in-process"
+    def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?] = kit.service.system
+    def recordedReads: Vector[ReadRecord] = kit.recordedReads
+    def restart(): Unit                   = kit.restartService()
+    def isProcess: Boolean                = false
+    def problems: Vector[String]          = Vector.empty
     // Minus the agent runtime's own components, which a process target never declares.
     def componentIds: Set[String] =
       kit.service.registry.components.map(_.componentId.toString).toSet --
@@ -449,8 +460,9 @@ object ConformanceTarget:
     def name: String           = s"sidecar → $address"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
     def system: ActorSystem[?] = kit.service.system
-    def restart(): Unit        = kit.restartService()
-    def isProcess: Boolean     = true
+    def recordedReads: Vector[ReadRecord] = kit.recordedReads
+    def restart(): Unit                   = kit.restartService()
+    def isProcess: Boolean                = true
     def problems: Vector[String] =
       val client = HttpClient.newHttpClient()
       val r = client.send(
@@ -618,14 +630,15 @@ object ConformanceTarget:
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend
     )
-    def name: String               = s"module $path ($shape)"
-    def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?]     = kit.service.system
-    def restart(): Unit            = kit.restartService()
-    def isProcess: Boolean         = true
-    override def isModule: Boolean = true
-    def problems: Vector[String]   = lastProblems
-    def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet
+    def name: String           = s"module $path ($shape)"
+    def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?] = kit.service.system
+    def recordedReads: Vector[ReadRecord] = kit.recordedReads
+    def restart(): Unit                   = kit.restartService()
+    def isProcess: Boolean                = true
+    override def isModule: Boolean        = true
+    def problems: Vector[String]          = lastProblems
+    def componentIds: Set[String]         = discovered.spec.components.map(_.id).toSet
     def readOnlyHandlers: Set[(String, String)] =
       discovered.spec.components
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))

@@ -4,7 +4,7 @@ import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
-import com.thinkmorestupidless.ankka.runtime.secrets.SecretStores
+import com.thinkmorestupidless.ankka.runtime.secrets.{ReadRecorder, SecretStores}
 import org.apache.pekko.Done
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
@@ -260,15 +260,25 @@ final class ServiceBuilder private[ankka] (
 
     // The installation's backend: the service's own database (no store at all for a service with
     // no database, feature 037) or Secret Manager. A wrong setting stops the start, naming it.
-    val secrets: SecretStore = SecretStores.build(
+    // Every read, keep and removal is recorded before it returns: with the control plane in a
+    // cluster, in the log and in memory on a developer's machine.
+    val readRecorder = ReadRecorder.from(system.settings.config)
+    val builtSecrets = SecretStores.build(
       SecretStores.Inputs(
         system.settings.config,
         serviceIdentity,
         secretKey,
         NoDatabase.declared(system.settings.config),
-        () => Database()(using system)
+        () => Database()(using system),
+        readRecorder,
+        conversation.fold(remote.Conversation.Embedded)(_.hosting),
+        id =>
+          registry.components
+            .find(_.componentId.toString == id)
+            .map(d => SecretStores.kindWord(d.kind.toString))
       )
     )
+    val secrets: SecretStore = builtSecrets.recorded
 
     // And the one client for other services that every component which may call one is given.
     val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))
@@ -329,7 +339,9 @@ final class ServiceBuilder private[ankka] (
       conversation,
       secrets,
       serviceIdentity,
-      services
+      services,
+      Some(builtSecrets),
+      Some(readRecorder)
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -472,7 +484,13 @@ final class AnkkaService private[ankka] (
      * process is given this same one. Nothing behind it is built until the first call, since only a
      * service that calls another needs it, and in a cluster it reads the service's certificate.
      */
-    val services: ServiceClients = ServiceBuilder.noServices
+    val services: ServiceClients = ServiceBuilder.noServices,
+    /**
+     * The store beneath `secrets`, unrecorded, and whose they are: what a move reads and writes.
+     */
+    private[ankka] val secretStores: Option[SecretStores.Built] = None,
+    /** Where each read of a secret is recorded; a local recorder keeps them for the test kit. */
+    private[ankka] val readRecorder: Option[ReadRecorder] = None
 ):
 
   /**

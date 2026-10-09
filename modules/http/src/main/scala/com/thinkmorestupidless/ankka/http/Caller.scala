@@ -93,6 +93,13 @@ enum CallerMatcher:
   /** This service itself — another of its own instances, or itself through its own address. */
   case Self
 
+  /**
+   * Any service of any project, and never the internet: a platform route every workload calls as
+   * itself, whose handler then holds the caller to what it may say — the control plane's record of
+   * secret reads, which a service may write only for itself.
+   */
+  case AnyService
+
   /** Whether this admits `caller`, for a service whose own identity is `self`. */
   def admits(caller: Caller, self: RotatingTls.Identity): Boolean = (this, caller) match
     case (_, Caller.Local)                                  => true
@@ -100,8 +107,9 @@ enum CallerMatcher:
     case (NamedService(Some(p), n), Caller.Service(cp, cn)) => p == cp && n == cn
     case (NamedService(None, n), Caller.Service(cp, cn))    => cp == self.project && n == cn
     case (AnyInProject, Caller.Service(cp, _))              => cp == self.project
-    case (Self, Caller.Service(cp, cn)) => cp == self.project && cn == self.service
-    case _                              => false
+    case (Self, Caller.Service(cp, cn))     => cp == self.project && cn == self.service
+    case (AnyService, Caller.Service(_, _)) => true
+    case _                                  => false
 
 /**
  * The spellings an endpoint uses: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`.
@@ -113,6 +121,7 @@ object Callers:
     CallerMatcher.NamedService(Some(project), name)
   val anyInProject: CallerMatcher = CallerMatcher.AnyInProject
   val self: CallerMatcher         = CallerMatcher.Self
+  val anyService: CallerMatcher   = CallerMatcher.AnyService
 
 /**
  * How a test names a caller outside a cluster, where there is no certificate to read.

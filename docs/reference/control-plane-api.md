@@ -123,6 +123,9 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/projects/{projectId}/brokers/{name}` | |
 | `GET` | `/projects/{projectId}/brokers` | |
 | `GET` | `/projects/{projectId}/secrets` | |
+| `GET` | `/projects/{projectId}/secret-reads` | |
+| `POST` | `/secret-reads` | |
+| `GET` | `/platform` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -147,6 +150,24 @@ is at most 57 characters. The project id `platform` is reserved for the platform
 creating a project with it answers `400`.
 
 ## Identity
+
+### `GET /platform`
+
+The installation's status, for any signed-in caller. Response: `{ "secretBackend": "postgres",
+"cloudProvider": "none", "cloudAccount": "…", "cloudLocation": "…", "secretRecordRetention": "365d",
+"auditLog": "unknown" }` — where the installation keeps its secrets, its cloud provider, account and
+default location (absent when not set), how long the record of secret reads is kept, and whether Google
+Cloud's own access log for Secret Manager is on (`on`, `off`, or `unknown` until the installation's cloud
+provider reports it). The name of an encryption key is never in it.
+
+### `POST /secret-reads`
+
+Where a service writes the record of each read, keep and removal of one of its secrets, before it uses
+the value. A service calls it, never a person: it is admitted by the certificate the platform issued the
+service, and refused to the internet. A record must name the calling service's own project and name, or
+it is refused with `403`; one with an operation or outcome the platform does not write is `400`. Answers
+`204` once the record is kept. A service that is answered anything else, or nothing in time, refuses the
+read it was recording, so no value is used without its record.
 
 ### `GET /auth`
 
@@ -424,6 +445,31 @@ no entry left is no longer listed.
 The project's secrets, by name: `[{ "name": "checkout", "entries": ["STRIPE_KEY"], "setAt": "…",
 "setBy": "…" }]`. From the control plane's own record, so a secret just set is listed at once. Never a
 value — the control plane cannot read a Secret back.
+
+### `GET /projects/{projectId}/secret-reads`
+
+The record of the project's secret reads, newest first: which service read, kept or removed which
+service secret, and when. Owners only: a member who is not an owner, and a deploy token, are refused
+with `403`; someone outside the organization is told the project does not exist (`404`).
+
+Query parameters narrow it: `service` and `name` match exactly, `from` (inclusive) and `to`
+(exclusive) are RFC 3339 instants, and `limit` is how many records to answer, from 1 to 1000 (200 when
+omitted). Response: `{ "records": [ … ] }`, each record:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `at` | instant | When the service asked. |
+| `project`, `service` | string | Whose read it was, as the service's certificate names it. |
+| `hosting` | string | `embedded`, `process` or `module`. |
+| `name` | string | The secret's name. A record never holds a value. |
+| `operation` | string | `get`, `put` or `delete`. |
+| `outcome` | string | `read`, `none`, `refused`, `unavailable`, `written` or `removed`. |
+| `backend` | string | `postgres` or `secret-manager`. |
+| `traceId`, `spanId` | string, optional | The trace, and the handler's span within it. |
+| `component`, `componentKind` | string, optional | The component that asked, when the runtime ran it; never for a process or a module. |
+| `latestSkipped` | boolean | On Secret Manager: a newer version had been disabled, and was not the one read. |
+
+Records older than the installation's retention are removed; `GET /platform` says how long that is.
 
 ### `PUT /projects/{projectId}/topics/{name}`
 

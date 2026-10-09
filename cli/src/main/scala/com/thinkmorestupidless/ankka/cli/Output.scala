@@ -135,6 +135,38 @@ object Output:
           )
         )
 
+  def secretReads(page: SecretReadsPage, format: Format): String =
+    format match
+      case Format.Json => writeToString(page)
+      case Format.Table =>
+        table(
+          Vector("AT", "SERVICE", "COMPONENT", "NAME", "OPERATION", "OUTCOME", "TRACE"),
+          page.records.map(r =>
+            Vector(
+              r.at.toString,
+              r.service,
+              r.component.getOrElse("-"),
+              r.name,
+              r.operation,
+              r.outcome,
+              r.traceId.getOrElse("-")
+            )
+          )
+        )
+
+  def platformStatus(status: PlatformStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        Vector(
+          "secret backend    " -> status.secretBackend,
+          "cloud provider    " -> status.cloudProvider,
+          "cloud account     " -> status.cloudAccount.getOrElse("(none)"),
+          "cloud location    " -> status.cloudLocation.getOrElse("(none)"),
+          "records kept for  " -> status.secretRecordRetention,
+          "access log        " -> status.auditLog
+        ).map((label, value) => s"$label $value").mkString("\n")
+
   def project(row: ProjectSummary, format: Format): String =
     format match
       case Format.Json  => writeToString(row)

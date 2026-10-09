@@ -48,6 +48,9 @@ enum ErasureState:
   /** A step failed; it is tried again on the next sweep. */
   case Failed
 
+  /** Asked for by a service its grants do not allow: recorded, and nothing done. */
+  case Refused
+
 object ErasureState:
   def byName(name: String): Option[ErasureState] = values.find(_.toString.equalsIgnoreCase(name))
 
@@ -160,7 +163,8 @@ object ProjectHistory:
     "erasure-overridden",
     "erasure-withdrawn",
     "erasure-failed",
-    "erasure-applied"
+    "erasure-applied",
+    "erasure-refused"
   )
 
   /** A project's history, read from its erasure requests: the newest `Limit` entries. */
@@ -185,8 +189,26 @@ object ProjectHistory:
             ProjectHistoryEntry(r.askedAt, "erasure-withdrawn", r.id, r.subject, Some(by))
           ),
           r.appliedAt.map(at => ProjectHistoryEntry(at, "erasure-applied", r.id, r.subject)),
-          r.failure.map(reason =>
-            ProjectHistoryEntry(r.askedAt, "erasure-failed", r.id, r.subject, detail = Some(reason))
+          r.failure
+            .filter(_ => r.state != ErasureState.Refused)
+            .map(reason =>
+              ProjectHistoryEntry(
+                r.askedAt,
+                "erasure-failed",
+                r.id,
+                r.subject,
+                detail = Some(reason)
+              )
+            ),
+          Option.when(r.state == ErasureState.Refused)(
+            ProjectHistoryEntry(
+              r.askedAt,
+              "erasure-refused",
+              r.id,
+              r.subject,
+              Some(r.askedBy),
+              r.failure
+            )
           )
         ).flatten
       }

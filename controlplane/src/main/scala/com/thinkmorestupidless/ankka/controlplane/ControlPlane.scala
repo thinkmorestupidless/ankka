@@ -104,7 +104,12 @@ object ControlPlane:
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
       schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
       /** What applies erasure requests (feature 042); the routes record requests without one. */
-      erasures: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = None
+      erasures: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = None,
+      /**
+       * The installation's grants (spec 040): none until it renders them; a suite gives its own.
+       */
+      grants: com.thinkmorestupidless.ankka.runtime.erasure.GrantReader =
+        com.thinkmorestupidless.ankka.runtime.erasure.GrantReader.none
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -122,7 +127,8 @@ object ControlPlane:
           topics,
           schemas,
           topology,
-          erasures
+          erasures,
+          grants
         ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix

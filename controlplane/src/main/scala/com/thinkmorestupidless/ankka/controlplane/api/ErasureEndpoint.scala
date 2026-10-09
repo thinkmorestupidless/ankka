@@ -24,6 +24,11 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
   protected def erasureClients: EndpointClients
   protected def erasureSweeper: Option[ErasureSweeper]
 
+  /** The installation's grants (spec 040): what admits a service's ask. None until 040. */
+  protected def erasureGrants: com.thinkmorestupidless.ankka.runtime.erasure.GrantReader
+
+  private def grants = erasureGrants
+
   private def clients    = erasureClients
   private def sweeper    = erasureSweeper
   private lazy val authz = Authorization(clients, clock)
@@ -53,14 +58,64 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
    * one; a request from whoever has a held one for the subject replaces it, the history keeping
    * both; a held one from someone else must be withdrawn first.
    */
-  postBody("/{projectId}/erasures") { (projectId: String, request: RequestErasure) =>
-    val access   = authz.project(principal, projectId, write = true)
-    val problems = ErasureRequests.problems(request, today)
-    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
-    val prior = ofSubject(projectId, request.subject)
-    val done =
-      Set(ErasureState.Applying, ErasureState.Applied, ErasureState.Final, ErasureState.Settled)
-    prior.find(r => done(r.state)) match
+  /**
+   * Who may ask: a member, by their token, or a service of the installation, by its certificate —
+   * admitted here and authorized by its grants in the handler, so that a refusal is recorded.
+   */
+  private def memberOrService: Acl = Acl.Authenticate(context =>
+    context.caller match
+      case Caller.Service(project, name) =>
+        AuthDecision.Allow(
+          Principal(
+            com.thinkmorestupidless.ankka.runtime.erasure.GrantReader.service(project, name),
+            name = Some(s"$project/$name")
+          )
+        )
+      case _ =>
+        acl match
+          case Acl.Authenticate(decide) => decide(context)
+          case _                        => AuthDecision.Forbidden("members only")
+  )
+
+  withAcl(memberOrService) {
+    postBody("/{projectId}/erasures") { (projectId: String, request: RequestErasure) =>
+      val problems = ErasureRequests.problems(request, today)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      caller match
+        case Caller.Service(project, name) => askAsService(projectId, request, project, name)
+        case _                             => askAsMember(projectId, request)
+    }
+  }
+
+  /**
+   * A service's ask (FR-031): admitted by a grant of `erasure` in the project, its own included,
+   * and named as who asked; refused without one, and the refusal kept in the project's history.
+   */
+  private def askAsService(
+      projectId: String,
+      request: RequestErasure,
+      project: String,
+      name: String
+  ): Respond[ErasureRequest] =
+    val asker   = ErasureWho("service", name, Some(s"$project/$name"), Some(project))
+    val id      = "e-" + UUID.randomUUID().toString.replace("-", "").take(12)
+    val ask     = AskErasure(request, id, projectId, asker, clock.instant())
+    val allowed = grants.allows(principal.subject, projectId, "erasure")
+    if !allowed then
+      val reason = s"service $project/$name holds no grant of erasure in project $projectId"
+      entity(projectId, id).call(ErasureEntity.recordRefusal).invoke(RefuseAsk(ask, reason)): Unit
+      throw CommandError(reason, ErrorCode.Forbidden)
+    ofSubject(projectId, request.subject).find(r => Done(r.state)) match
+      case Some(applied) => Respond(applied, 200)
+      case None          => Respond(entity(projectId, id).call(ErasureEntity.ask).invoke(ask), 201)
+
+  private val Done =
+    Set(ErasureState.Applying, ErasureState.Applied, ErasureState.Final, ErasureState.Settled)
+
+  private def askAsMember(projectId: String, request: RequestErasure): Respond[ErasureRequest] =
+    val access = authz.project(principal, projectId, write = true)
+    val prior  = ofSubject(projectId, request.subject)
+    prior.find(r => Done(r.state)) match
       case Some(applied) => Respond(applied, 200)
       case None =>
         val held = prior.find(_.state == ErasureState.Held)
@@ -81,19 +136,29 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
             .invoke(Replace(id, clock.instant())): Unit
         }
         Respond(created, 201)
-  }
 
   /** `?subject=`, `?state=`, `?correlation=`: any, all or none. */
   get("/{projectId}/erasures") { (projectId: String) =>
     authz.project(principal, projectId, write = false): Unit
+    val correlation = query.optional[String]("correlation")
+    // By correlation id, the requests of every project the member may read: one person's requests
+    // across the projects that know them, found from either (FR-032).
     val filters =
-      Vector(Some(jsonText("projectId") ++ sql" = $projectId")) ++ Vector(
+      Vector(
+        Option.when(correlation.isEmpty)(jsonText("projectId") ++ sql" = $projectId"),
         query.optional[String]("subject").map(s => jsonText("subject") ++ sql" = $s"),
         query.optional[String]("state").map(s => jsonText("state") ++ sql" = ${s.toLowerCase}"),
-        query.optional[String]("correlation").map(c => jsonText("correlationId") ++ sql" = $c")
+        correlation.map(c => jsonText("correlationId") ++ sql" = $c")
       )
     val condition = filters.flatten.reduce((a, b) => a ++ SqlFragment.raw(" AND ") ++ b)
-    rows.where(condition).sortBy(_.askedAt)
+    val readable  = scala.collection.mutable.Map.empty[String, Boolean]
+    def mayRead(project: String): Boolean =
+      readable.getOrElseUpdate(
+        project,
+        try { authz.project(principal, project, write = false); true }
+        catch case _: CommandError => false
+      )
+    rows.where(condition).filter(r => mayRead(r.projectId)).sortBy(_.askedAt)
   }
 
   /** What has happened to the project, newest first: its erasures asked for, applied, failed. */

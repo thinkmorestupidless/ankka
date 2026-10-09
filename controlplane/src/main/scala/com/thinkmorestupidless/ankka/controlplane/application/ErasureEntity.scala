@@ -33,6 +33,7 @@ final case class AskErasure(
     at: Instant
 )
 final case class Withdraw(by: ErasureWho, at: Instant)
+final case class RefuseAsk(ask: AskErasure, reason: String)
 final case class Override(by: ErasureWho, reason: String, at: Instant)
 final case class Replace(by: String, at: Instant)
 final case class Step(at: Instant, sequence: Option[Long] = None, reason: Option[String] = None)
@@ -92,6 +93,26 @@ final class ErasureEntity extends EventSourcedEntity[Option[ErasureRequest], Era
           notBefore = command.request.notBefore,
           reason = command.request.reason,
           correlationId = command.request.correlationId
+        )
+        effects.persist(ErasureEvent.Asked(request)).thenReply(_ => request)
+
+  /**
+   * A service asked and its grants did not allow it: the attempt is kept, refused, with why, so the
+   * project's history shows it. Nothing is applied.
+   */
+  def recordRefusal(command: RefuseAsk): Effect[ErasureRequest] =
+    currentState match
+      case Some(r) => effects.reply(r)
+      case None =>
+        val request = ErasureRequest(
+          id = command.ask.id,
+          projectId = command.ask.projectId,
+          subject = command.ask.request.subject,
+          state = ErasureState.Refused,
+          askedBy = command.ask.askedBy,
+          askedAt = command.ask.at,
+          correlationId = command.ask.request.correlationId,
+          failure = Some(command.reason)
         )
         effects.persist(ErasureEvent.Asked(request)).thenReply(_ => request)
 
@@ -206,6 +227,7 @@ object ErasureEntity
 
   given Serializer[AskErasure] = Codecs.serializer[AskErasure]("erasure-ask")
   given Serializer[Withdraw]   = Codecs.serializer[Withdraw]("erasure-withdraw")
+  given Serializer[RefuseAsk]  = Codecs.serializer[RefuseAsk]("erasure-refuse-ask")
   given Serializer[Override]   = Codecs.serializer[Override]("erasure-override")
   given Serializer[Replace]    = Codecs.serializer[Replace]("erasure-replace")
   given Serializer[Step]       = Codecs.serializer[Step]("erasure-step")
@@ -213,20 +235,21 @@ object ErasureEntity
     Codecs.serializer[ErasureServiceCompletion]("erasure-completion")
   given Serializer[ErasureRequest] = Codecs.serializer[ErasureRequest]("erasure-request")
 
-  val ask          = command("ask")(_.ask)
-  val withdraw     = command("withdraw")(_.withdraw)
-  val replace      = command("replace")(_.replace)
-  val overrideHold = command("override")(_.overrideHold)
-  val release      = command("release")(_.release)
-  val logWritten   = command("log-written")(_.logWritten)
-  val keyDestroyed = command("key-destroyed")(_.keyDestroyed)
-  val completed    = command("completed")(_.completed)
-  val applied      = command("applied")(_.applied)
-  val finalised    = command("finalised")(_.finalised)
-  val settled      = command("settled")(_.settled)
-  val failed       = command("failed")(_.failed)
-  val retry        = command("retry")(_.retry)
-  val get          = query("get")(_.get)
+  val ask           = command("ask")(_.ask)
+  val withdraw      = command("withdraw")(_.withdraw)
+  val replace       = command("replace")(_.replace)
+  val overrideHold  = command("override")(_.overrideHold)
+  val release       = command("release")(_.release)
+  val logWritten    = command("log-written")(_.logWritten)
+  val keyDestroyed  = command("key-destroyed")(_.keyDestroyed)
+  val completed     = command("completed")(_.completed)
+  val applied       = command("applied")(_.applied)
+  val finalised     = command("finalised")(_.finalised)
+  val settled       = command("settled")(_.settled)
+  val failed        = command("failed")(_.failed)
+  val retry         = command("retry")(_.retry)
+  val get           = query("get")(_.get)
+  val recordRefusal = command("record-refusal")(_.recordRefusal)
 
   /** Who a member is, as an erasure request names them. */
   def member(actor: Actor): ErasureWho = ErasureWho("member", actor.subject, actor.display)

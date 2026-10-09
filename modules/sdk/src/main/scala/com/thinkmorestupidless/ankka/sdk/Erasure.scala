@@ -61,3 +61,43 @@ object ObjectErasure:
       "this service has no bucket: it cannot erase objects (provisionObjectStorage is not set)",
       com.thinkmorestupidless.ankka.core.ErrorCode.BadRequest
     )
+
+/**
+ * A service asking for an erasure as code (feature 042), through the client it calls other services
+ * with: the request goes to the control plane under the service's own certificate, which names it
+ * as who asked. Admitted only by a grant of `erasure` in the project, its own included; a refusal
+ * is recorded in the project's history.
+ */
+object Erasures:
+
+  /** Where the control plane is, as a service client names it. */
+  val ControlPlane: (String, String) = ("platform", "controlplane")
+
+  /**
+   * Asks for the erasure of `subject` in `project`, with an optional correlation id joining it to
+   * the same person's requests in other projects. The control plane's answer, as JSON: the request,
+   * new or the one already applied.
+   */
+  def ask(
+      services: ServiceClients,
+      project: String,
+      subject: String,
+      correlationId: Option[String] = None
+  ): ServiceResponse =
+    val body =
+      s"""{"subject":${quote(subject)}${correlationId.fold("")(c =>
+          s""","correlationId":${quote(c)}"""
+        )}}"""
+    services(ControlPlane._1, ControlPlane._2).request(
+      "POST",
+      s"/projects/$project/erasures",
+      Some(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+      Some("application/json")
+    )
+
+  private def quote(text: String): String =
+    "\"" + text.flatMap {
+      case '"'  => "\\\""
+      case '\\' => "\\\\"
+      case c    => c.toString
+    } + "\""

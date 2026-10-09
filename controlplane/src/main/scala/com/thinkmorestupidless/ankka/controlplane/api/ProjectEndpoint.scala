@@ -61,7 +61,10 @@ final class ProjectEndpoint(
     /** Where each service's instances report what they state about a topic (feature 037). */
     topology: Option[TopologyReader] = None,
     /** What applies erasure requests (feature 042); requests are recorded without one. */
-    erasures: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = None
+    erasures: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = None,
+    /** The installation's grants, which admit a service's erasure request (spec 040). */
+    grants: com.thinkmorestupidless.ankka.runtime.erasure.GrantReader =
+      com.thinkmorestupidless.ankka.runtime.erasure.GrantReader.none
 ) extends HttpEndpoint("/projects")
     with Attributing
     with ErasureRoutes:
@@ -69,6 +72,7 @@ final class ProjectEndpoint(
   protected def erasureClients: EndpointClients = clients
   protected def erasureSweeper
       : Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = erasures
+  protected def erasureGrants: com.thinkmorestupidless.ankka.runtime.erasure.GrantReader = grants
 
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)

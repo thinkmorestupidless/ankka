@@ -269,7 +269,11 @@ object HttpServiceClients:
   private def namespacePrefix: String = sys.env.getOrElse("ANKKA_NAMESPACE_PREFIX", "ankka")
 
   def hostOf(project: String, name: String): String =
-    s"$name.$namespacePrefix-$project.svc.cluster.local"
+    // The control plane is the platform's, in a namespace of its own, not a project's: what a
+    // service reaches to ask for an erasure (feature 042), and its certificate is `ankka://platform/controlplane`.
+    if project == "platform" && name == "controlplane" then
+      "ankka-controlplane.ankka-controlplane.svc.cluster.local"
+    else s"$name.$namespacePrefix-$project.svc.cluster.local"
 
   /**
    * The Service's in-cluster name, and the port its SRV record publishes for `http`.

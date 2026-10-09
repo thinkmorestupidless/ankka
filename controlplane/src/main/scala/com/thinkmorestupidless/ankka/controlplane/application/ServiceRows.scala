@@ -174,6 +174,7 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
           // Nothing a listing shows changes until the operator reports the rollout.
           case _: StorageCredentialReissued => effects.ignore()
           case _: StorageMoveRequested      => effects.ignore()
+          case _: StorageSettingsReapplied  => effects.ignore()
 
 object ServiceRows
     extends View.Companion[ServiceRowsView, ServiceEvent, ServiceStatus](

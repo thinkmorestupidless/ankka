@@ -146,6 +146,18 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       )
   }
 
+  test("a project's location, named and taken back, round-trips (feature 039)") {
+    for event <- Vector[ProjectEvent](
+        ProjectEvent.ProjectLocationSet(Some("europe-west6")),
+        ProjectEvent.ProjectLocationSet(None)
+      )
+    do
+      assertEquals(
+        ProjectEntity.eventSerializer.fromBytes(ProjectEntity.eventSerializer.toBytes(event)),
+        event
+      )
+  }
+
   test("an observation from before feature 039 reports no store") {
     val observed = samples("service-event")
       .map(ServiceEntity.eventSerializer.fromBytes)

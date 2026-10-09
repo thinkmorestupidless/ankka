@@ -179,6 +179,23 @@ final class ServiceEntity(context: EventSourcedEntityContext)
             .persist(StorageMoveRequested(generation, bound, actor, at))
             .thenReply(_.toStatus)
 
+  /**
+   * Asks for the installation's current bucket settings to be applied to the service's bucket
+   * (feature 039). Only a bucket in Google Cloud Storage has them.
+   */
+  def reapplyStorageSettings: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.storage.flatMap(_.store).contains("gcs") then
+      effects.error(
+        s"the bucket of service '${key.name}' is not in Google Cloud Storage; settings are " +
+          "reapplied there only",
+        ErrorCode.Conflict
+      )
+    else
+      effects
+        .persist(StorageSettingsReapplied(currentState.storageSettingsGeneration + 1, actor, at))
+        .thenReply(_.toStatus)
+
   def pause: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.isPaused then effects.reply(currentState.toStatus)
@@ -315,7 +332,9 @@ object ServiceEntity
   val restart         = command("restart")(_.restart)
   val reissueStorageCredential =
     command("reissue-storage-credential")(_.reissueStorageCredential)
-  val moveStorage    = command("move-storage")(_.moveStorage)
+  val moveStorage = command("move-storage")(_.moveStorage)
+  val reapplyStorageSettings =
+    command("reapply-storage-settings")(_.reapplyStorageSettings)
   val rollback       = command("rollback")(_.rollback)
   val rollbackTarget = query("rollback-target")(_.rollbackTarget)
   val descriptorAt   = query("descriptor-at")(_.descriptorAt)

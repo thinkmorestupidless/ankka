@@ -336,7 +336,12 @@ final case class Project(
     /** By the topic's name, as the project's components use it (feature 027). */
     topics: Map[String, DeclaredTopic] = Map.empty,
     /** By the broker's name, as a component names it (feature 037). */
-    brokers: Map[String, DeclaredBroker] = Map.empty
+    brokers: Map[String, DeclaredBroker] = Map.empty,
+    /**
+     * Where the project's new buckets in Google Cloud Storage are made, in the installation's own
+     * words (feature 039); `None` is the installation's default.
+     */
+    bucketLocation: Option[String] = None
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -386,6 +391,9 @@ final case class Project(
     copy(brokers = brokers.updated(name, broker.copy(declaredAt = declaredAt)))
 
   def onBrokerRemoved(name: String): Project = copy(brokers = brokers - name)
+
+  /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+  def onLocationSet(location: Option[String]): Project = copy(bucketLocation = location)
 
   def onSecretEntryRemoved(name: String, entry: String): Project =
     secrets.get(name) match
@@ -461,6 +469,11 @@ final case class Service(
     storage: Option[StorageReport] = None,
     /** Desired state: the last move of the bucket a member asked for (feature 039). */
     storageMove: Option[MoveRequest] = None,
+    /**
+     * Desired state: how many times a member has asked for the installation's bucket settings to be
+     * applied to the bucket again (feature 039).
+     */
+    storageSettingsGeneration: Int = 0,
     /**
      * Desired state, owned by the *organization*: disabled means every one of its services stops
      * (feature 008). Separate from `paused`, which the members own, so that re-enabling restores
@@ -862,6 +875,10 @@ object Service:
         current
           .copy(storageMove = Some(MoveRequest(generation, bound)))
           .remember("storage-moved", actor, at)
+      case StorageSettingsReapplied(generation, actor, at) =>
+        current
+          .copy(storageSettingsGeneration = generation)
+          .remember("storage-settings-reapplied", actor, at)
 
   /**
    * The operator's reported database phase

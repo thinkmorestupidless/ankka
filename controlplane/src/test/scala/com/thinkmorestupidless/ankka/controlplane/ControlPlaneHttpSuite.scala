@@ -413,6 +413,15 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test("a project's location is refused where the installation keeps new buckets in Garage") {
+    val (status, body) =
+      send("PUT", "/projects/checkout/location", Some("""{"location":"europe-west6"}"""))
+    assertEquals(status, 409, body)
+    assert(body.contains("no location to choose"), body)
+    val (cleared, clearedBody) = send("DELETE", "/projects/checkout/location")
+    assertEquals(cleared, 409, clearedBody)
+  }
+
   test("a move is refused where the installation keeps new buckets in Garage, saying why") {
     val (status, body) =
       send("POST", "/services/checkout/cart/storage/move", Some("""{"writePauseBound":"30m"}"""))

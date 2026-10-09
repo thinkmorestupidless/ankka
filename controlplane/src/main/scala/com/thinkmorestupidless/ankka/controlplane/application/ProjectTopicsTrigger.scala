@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectBrokerDeclared,
   ProjectBrokerRemoved,
+  ProjectLocationSet,
   ProjectTopicDeclared,
   ProjectTopicRemoved
 }
@@ -24,7 +25,7 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
 
   def onMessage(event: ProjectEvent): Effect = event match
     case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectBrokerDeclared |
-        _: ProjectBrokerRemoved =>
+        _: ProjectBrokerRemoved | _: ProjectLocationSet =>
       projector.projectTopics(messageContext.subject)
       effects.ignore()
     case _ => effects.ignore()

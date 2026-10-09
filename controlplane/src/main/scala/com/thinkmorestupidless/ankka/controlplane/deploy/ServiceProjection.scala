@@ -190,6 +190,7 @@ object ServiceProjection:
               grpcPort = descriptor.service.resolvedGrpcPort,
               restarts = service.restarts,
               storageCredentialGeneration = service.storageCredentialGeneration,
+              objectStorageSettingsGeneration = service.storageSettingsGeneration,
               objectStorageMove = service.storageMove.map(m =>
                 com.thinkmorestupidless.ankka.crd
                   .ObjectStorageMoveRequest(m.generation, m.writePauseBound)

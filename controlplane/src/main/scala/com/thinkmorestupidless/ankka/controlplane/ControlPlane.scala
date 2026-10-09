@@ -106,7 +106,18 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics, schemas, topology),
+      clients =>
+        ProjectEndpoint(
+          clients,
+          acl,
+          clock,
+          registry,
+          secrets,
+          topics,
+          schemas,
+          topology,
+          deploy.objectStore
+        ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.

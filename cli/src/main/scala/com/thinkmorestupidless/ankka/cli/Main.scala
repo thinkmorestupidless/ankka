@@ -513,6 +513,26 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val location = Opts.subcommand(
+      "location",
+      "Where a project's new buckets in Google Cloud Storage are made; a bucket's location is fixed " +
+        "when it is made."
+    ) {
+      val set = Opts.subcommand("set", "Name the location, in the installation's own words.") {
+        (Opts.argument[String]("location"), contextOpt).mapN { (location, ctx) => () =>
+          ctx.client.setProjectLocation(ctx.project, location)
+          s"'${ctx.project}' makes its new buckets in $location"
+        }
+      }
+      val clear = Opts.subcommand("clear", "Let the installation's default location apply again.") {
+        contextOpt.map { ctx => () =>
+          ctx.client.clearProjectLocation(ctx.project)
+          s"'${ctx.project}' makes its new buckets in the installation's default location"
+        }
+      }
+      set.orElse(clear)
+    }
+
     val secrets = Opts.subcommand(
       "secrets",
       "Project secrets: values a descriptor's variables take by secretKeyRef, which the control " +
@@ -562,6 +582,7 @@ object Main:
       .orElse(secrets)
       .orElse(topics)
       .orElse(brokers)
+      .orElse(location)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -658,7 +679,16 @@ object Main:
           Output.service(ctx.client.moveStorage(ctx.project, name, bound), ctx.format)
         }
       }
-      reissue.orElse(move)
+      val reapply = Opts.subcommand(
+        "reapply-settings",
+        "Apply the installation's current soft-delete window and key to the bucket in Google Cloud " +
+          "Storage."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          Output.service(ctx.client.reapplyStorageSettings(ctx.project, name), ctx.format)
+        }
+      }
+      reissue.orElse(move).orElse(reapply)
     }
 
     val logs = Opts.subcommand("logs", "Print a deployed service's recent output.") {

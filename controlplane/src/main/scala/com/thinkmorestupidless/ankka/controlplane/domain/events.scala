@@ -251,6 +251,17 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A member named where the project's new buckets in Google Cloud Storage are made, or took the
+   * name back so the installation's default applies (`None`) (feature 039). A bucket's location is
+   * fixed when it is made: this moves none.
+   */
+  case ProjectLocationSet(
+      location: Option[String],
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -357,6 +368,18 @@ enum ServiceEvent:
   case StorageMoveRequested(
       generation: Int,
       writePauseBound: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A member asked for the installation's current bucket settings — its soft-delete window and its
+   * wrapping key — to be applied to the service's bucket in Google Cloud Storage (feature 039). A
+   * changed setting reaches a new bucket by itself and an existing one only so, because shortening
+   * the window over regulated documents is a decision, not a reconcile.
+   */
+  case StorageSettingsReapplied(
+      generation: Int,
       actor: Option[Actor] = None,
       at: Option[Instant] = None
   )

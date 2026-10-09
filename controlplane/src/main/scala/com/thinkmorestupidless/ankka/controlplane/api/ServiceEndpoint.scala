@@ -232,6 +232,19 @@ final class ServiceEndpoint(
   }
 
   /**
+   * Applies the installation's current bucket settings to the service's bucket in Google Cloud
+   * Storage (feature 039): its soft-delete window and its wrapping key.
+   */
+  post("/{projectId}/{name}/storage/settings") { (projectId: String, name: String) =>
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.reapplyStorageSettings)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
+  }
+
+  /**
    * Moves the service's bucket from Garage to Google Cloud Storage (feature 039). Refused when the
    * installation keeps new buckets in Garage, since there is nothing to move to; the entity refuses
    * the rest.

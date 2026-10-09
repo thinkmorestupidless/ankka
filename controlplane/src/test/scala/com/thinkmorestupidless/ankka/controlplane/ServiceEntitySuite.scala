@@ -488,6 +488,32 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(status.storageMove, Some("write pause"))
   }
 
+  test(
+    "the installation's bucket settings are reapplied to a bucket in Google Cloud Storage, and to no other"
+  ) {
+    val garage = newKit
+    val _      = garage.call(ServiceEntity.applyDescriptor)(withBucket)
+    assertEquals(garage.call(ServiceEntity.reapplyStorageSettings).error.code, ErrorCode.Conflict)
+
+    val gcs = newKit
+    val _   = gcs.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _ = gcs.call(ServiceEntity.observe)(
+      ServiceObservation(
+        1L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        storage = Some(StorageReport(store = Some("gcs")))
+      )
+    )
+    val reapplied = gcs.call(ServiceEntity.reapplyStorageSettings)
+    assertEquals(
+      reapplied.events.collect { case e: StorageSettingsReapplied => e.generation },
+      Vector(1)
+    )
+    assertEquals(gcs.currentState.history.head.kind, "storage-settings-reapplied")
+  }
+
   test("resuming a running service is a no-op") {
     val kit    = newKit
     val _      = kit.call(ServiceEntity.applyDescriptor)(applying())

@@ -370,6 +370,19 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assert(!journal("member|pm5").exists(_._3.contains("unseen@example.com")))
   }
 
+  test("erasure.handler-erases-objects") {
+    // The reference's erasure handler asks the platform to erase the subject's objects, whatever
+    // language it is written in; the platform deletes them from the service's bucket.
+    val bucket = ConformanceBucket.client
+    val prefix = "subjects/member/pm6/"
+    Seq("passport.jpg", "proof.pdf").foreach(n => bucket.put(prefix + n, n.getBytes("UTF-8")): Unit)
+    bucket.put("shared/terms.pdf", "kept".getBytes("UTF-8")): Unit
+    post("/conformance/members/pm6", "objects@example.com")
+    target.erase("member/pm6")
+    assertEquals(bucket.list(prefix), Vector.empty)
+    assert(bucket.get("shared/terms.pdf").isDefined, "an object outside the prefix was erased")
+  }
+
   private def viewRow(table: String, key: String): Option[String] =
     given ActorSystem[?] = target.system
     Await

@@ -25,12 +25,11 @@ object ObjectErasures:
       val keys = items.map(_.key).distinct.size.toLong
       ErasedObjects(keys, softDeleteWindow.fold(Instant.now())(Instant.now().plus(_)))
 
-  /** The bucket the service's `ANKKA_S3_*` variables name, or `noBucket` without them. */
-  def fromConfig(
-      config: Config,
-      env: String => Option[String] = sys.env.get
-  ): String => ObjectErasure =
-    val _ = config
-    ObjectStoreClient.fromEnvironment(env) match
+  /**
+   * The bucket `ankka.erasure.bucket` names — the service's `ANKKA_S3_*` variables, unless the
+   * configuration says otherwise — or `noBucket` without one.
+   */
+  def fromConfig(config: Config): String => ObjectErasure =
+    ObjectStoreClient.fromConfig(config) match
       case Some(client) => subject => over(client, subject)
       case None         => _ => ObjectErasure.noBucket

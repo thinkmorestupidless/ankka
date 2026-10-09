@@ -154,6 +154,20 @@ object ObjectStoreClient:
   /** A key, and the version of it where the store keeps versions. */
   final case class Listed(key: String, versionId: Option[String])
 
+  /** The bucket `ankka.erasure.bucket` names; none when any of its four values is empty. */
+  def fromConfig(config: com.typesafe.config.Config): Option[ObjectStoreClient] =
+    val at = "ankka.erasure.bucket."
+    def value(key: String): Option[String] =
+      Option.when(config.hasPath(at + key))(config.getString(at + key)).filter(_.nonEmpty)
+    fromEnvironment {
+      case "ANKKA_S3_ENDPOINT"   => value("endpoint")
+      case "ANKKA_S3_REGION"     => value("region")
+      case "ANKKA_S3_BUCKET"     => value("name")
+      case "ANKKA_S3_ACCESS_KEY" => value("access-key")
+      case "ANKKA_S3_SECRET_KEY" => value("secret-key")
+      case _                     => None
+    }
+
   /** The bucket the platform gave a service, from its `ANKKA_S3_*` variables; none without them. */
   def fromEnvironment(env: String => Option[String]): Option[ObjectStoreClient] =
     for

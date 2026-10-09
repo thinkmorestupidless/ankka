@@ -1539,11 +1539,23 @@ pub fn shape() -> Shape {
     }
 }
 
+/// Erases the data subject's objects from the service's bucket, on every application.
+fn erase_objects(ctx: &ankka::erasure::ErasureContext) -> ankka::erasure::ErasureOutcome {
+    match ctx.objects().erase() {
+        Ok(erased) => ankka::erasure::ErasureOutcome::Done {
+            detail: format!("erased {} objects", erased.count),
+            objects: Some(erased),
+        },
+        Err(refused) => ankka::erasure::ErasureOutcome::Failed(refused.message),
+    }
+}
+
 /// The cart sample plus the conformance extras: what `conformance.sh` builds and runs the suite
 /// against, in the shape `ANKKA_CONFORMANCE_SHAPE` names.
 pub fn build() -> Service {
     let shape = shape();
     let service = Service::new("ankka-rust")
+        .on_erasure(erase_objects)
         .register_as(ShoppingCart, shape)
         .register(CartRows)
         .register_as(CheckoutWorkflow, shape)

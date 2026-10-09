@@ -57,6 +57,7 @@ import {
   present,
   valueOf,
   forLookup,
+  ErasureOutcomes,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
@@ -899,6 +900,11 @@ export function referenceService() {
     .register(TreeRows)
     .register(Member)
     .register(MemberRows)
+    // Erases the data subject's objects from the service's bucket, on every application.
+    .onErasure(async (ctx) => {
+      const erased = await ctx.objects.erase()
+      return ErasureOutcomes.done(`erased ${erased.count} objects`, erased)
+    })
     .register(JoinedLeft)
     .register(JoinedRight)
     .register(JoinedRows)

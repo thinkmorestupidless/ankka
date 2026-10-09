@@ -1210,6 +1210,13 @@ object ConformanceReference:
     "approver"
   )
 
+  // docs:start erasure-handler
+  /** Erases the data subject's objects from the service's bucket, on every application. */
+  val erasureHandler: ErasureHandler = ctx =>
+    val erased = ctx.objects.erase()
+    ErasureOutcome.Done(s"erased ${erased.count} objects", Some(erased))
+  // docs:end erasure-handler
+
   def descriptors: Seq[ComponentDescriptor] = Seq(
     ShoppingCartEntity.descriptor,
     Conformance.descriptor,

@@ -127,11 +127,26 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       )
   }
 
-  test("for every hosting, the variables are on the developer's container and on no other") {
+  /**
+   * Beside a sidecar, the sidecar holds the bucket too: an erasure handler asks it to erase a data
+   * subject's objects (feature 042). No other program of the platform's does.
+   */
+  private def sidecarOf(spec: AnkkaServiceSpec, cs: Vector[Container]): Option[Container] =
+    Option
+      .when(spec.hosting == "process")(cs.find(_.getName == Names.container(spec.serviceName)))
+      .flatten
+
+  test(
+    "for every hosting, the variables are on the developer's container, a sidecar's, and no other"
+  ) {
     for hosting <- Hostings do
-      val spec = asks.copy(hosting = hosting)
-      val cs   = containers(render(spec, ObjectStoragePlan.Ready(false)))
-      val dev  = developers(spec, cs)
+      val spec    = asks.copy(hosting = hosting)
+      val cs      = containers(render(spec, ObjectStoragePlan.Ready(false)))
+      val dev     = developers(spec, cs)
+      val sidecar = sidecarOf(spec, cs)
+      sidecar.foreach(s =>
+        assertEquals(storageVariables(s), storageVariables(dev), s"$hosting: the sidecar")
+      )
       assertEquals(
         storageVariables(dev),
         Map(
@@ -142,7 +157,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         hosting
       )
       assertEquals(storageSecrets(dev), Vector("reports-storage"), hosting)
-      for other <- cs if other ne dev do
+      for other <- cs if (other ne dev) && !sidecar.contains(other) do
         assertEquals(
           storageVariables(other),
           Map.empty[String, String],
@@ -243,17 +258,20 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       )
   }
 
-  test("the store's address on the internet is on the developer's container alone") {
+  test(
+    "the store's address on the internet is on the developer's container and a sidecar's alone"
+  ) {
     for hosting <- Hostings do
-      val spec = exposing.copy(hosting = hosting)
-      val cs   = containers(render(spec, ObjectStoragePlan.Ready(false), withBase))
-      val dev  = developers(spec, cs)
+      val spec    = exposing.copy(hosting = hosting)
+      val cs      = containers(render(spec, ObjectStoragePlan.Ready(false), withBase))
+      val dev     = developers(spec, cs)
+      val sidecar = sidecarOf(spec, cs)
       assertEquals(
         storageVariables(dev).get("ANKKA_S3_PUBLIC_ENDPOINT"),
         Some("https://storage.example.com:8443"),
         hosting
       )
-      for other <- cs if other ne dev do
+      for other <- cs if (other ne dev) && !sidecar.contains(other) do
         assertEquals(
           storageVariables(other),
           Map.empty[String, String],

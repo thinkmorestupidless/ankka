@@ -135,10 +135,11 @@ private[ankka] object PlatformVariables:
   def shared(name: String): Boolean = SharedPrefixes.exists(name.startsWith)
 
   /**
-   * The developer's program's own, never the platform's: where its bucket is and how to reach it
-   * (feature 034). In none of the lists above, so they reach a process and a module unwithheld. A
-   * descriptor that gives one has an object store of its own, and cannot also ask the platform for
-   * a bucket.
+   * The developer's program's: where its bucket is and how to reach it (feature 034). In none of
+   * the lists above, so they reach a process and a module unwithheld. The platform reads them for
+   * one thing, to delete a data subject's objects when an erasure handler asks (feature 042), which
+   * is why a sidecar is given them too. A descriptor that gives one has an object store of its own,
+   * and cannot also ask the platform for a bucket.
    */
   val ObjectStoragePrefix: String = "ANKKA_S3_"
 

@@ -6,6 +6,8 @@ where the two disagree."""
 from __future__ import annotations
 
 from ankka.contract import Contract, Publication
+from ankka.erasure import Done as ErasureDone
+from ankka.erasure import ErasureContext, Failed
 from ankka.personal import Personal, personal
 
 import asyncio
@@ -1063,10 +1065,21 @@ class PrivateEndpoint(Endpoint):
             pass
 
 
+# docs:start erasure-handler
+async def erase_objects(ctx: ErasureContext) -> ErasureDone | Failed:
+    """Erases the data subject's objects from the service's bucket, on every application."""
+    erased = await ctx.objects.erase()
+    return ErasureDone(f"erased {erased.count} objects", erased)
+
+
+# docs:end erasure-handler
+
+
 def reference_service() -> ServiceBuilder:
     """The cart sample plus the conformance extras: what `uv run conformance` serves."""
     return (
         Ankka.service()
+        .on_erasure(erase_objects)
         .register(ShoppingCartEntity)
         .register(CartRows)
         .register(CheckoutWorkflow)

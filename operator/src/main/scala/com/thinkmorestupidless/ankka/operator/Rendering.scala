@@ -1181,10 +1181,11 @@ object Rendering:
       .build()
 
   /**
-   * The bucket's variables go to the developer's program and to no program of the platform's: the
-   * one container of an embedded or a wasm service (whose module asks its `config` for them), and
-   * `<service>-app` beside a sidecar or a proxy, neither of which opens a bucket. Unlike a
-   * database's credential, which the sidecar holds because the sidecar opens the database.
+   * The bucket's variables go to the developer's program — the one container of an embedded or a
+   * wasm service (whose module asks its `config` for them), `<service>-app` beside a sidecar or a
+   * proxy — and, beside a sidecar, to the sidecar too: an erasure handler asks it to erase the data
+   * subject's objects, which it does with the service's own credential (feature 042). Never the
+   * proxy's, which opens no bucket.
    */
   private def withStorage(
       spec: AnkkaServiceSpec,
@@ -1192,21 +1193,25 @@ object Rendering:
       storage: Option[StorageEnv]
   ): Vector[Container] =
     storage.fold(containers) { env =>
-      val target =
-        if spec.hosting == ProcessHosting || spec.hosting == WebHosting then
-          containers.indexWhere(_.getName == Names.container(spec.serviceName) + "-app")
-        else 0
-      containers.updated(
-        target,
-        new ContainerBuilder(containers(target))
-          .addToEnv(env.literals.map((name, value) => literal(name, value))*)
-          .addToEnvFrom(
-            new EnvFromSourceBuilder()
-              .withSecretRef(new SecretEnvSourceBuilder().withName(env.secret).build())
-              .build()
-          )
-          .build()
-      )
+      val app = Names.container(spec.serviceName) + "-app"
+      val targets =
+        if spec.hosting == ProcessHosting then
+          Vector(containers.indexWhere(_.getName == app), 0).distinct
+        else if spec.hosting == WebHosting then Vector(containers.indexWhere(_.getName == app))
+        else Vector(0)
+      targets.foldLeft(containers) { (all, target) =>
+        all.updated(
+          target,
+          new ContainerBuilder(all(target))
+            .addToEnv(env.literals.map((name, value) => literal(name, value))*)
+            .addToEnvFrom(
+              new EnvFromSourceBuilder()
+                .withSecretRef(new SecretEnvSourceBuilder().withName(env.secret).build())
+                .build()
+            )
+            .build()
+        )
+      }
     }
 
   /**

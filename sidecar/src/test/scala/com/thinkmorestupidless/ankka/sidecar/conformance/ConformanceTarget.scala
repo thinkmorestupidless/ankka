@@ -114,6 +114,7 @@ trait ConformanceTarget:
 
   /** Stops what the trait started, after the target's own service. */
   protected def stopShared(): Unit =
+    ConformanceBucket.stop()
     scripted.stop()
     tickets.stop()
     guarded.stop()
@@ -239,6 +240,29 @@ object ConformanceTarget:
 
   private val reference = ConformanceReference
 
+  /**
+   * The guest's erasure handler, when its discovery declared one, as the sidecar's `Main` registers
+   * it: the conversation asked to run it for each application.
+   */
+  private def withGuestErasure(
+      builder: ServiceBuilder,
+      discovered: Discovery.Discovered,
+      conversation: com.thinkmorestupidless.ankka.runtime.remote.Conversation
+  ): ServiceBuilder =
+    if !discovered.spec.erasureHandler then builder
+    else
+      builder.withErasureHandler(ctx =>
+        scala.concurrent.Await.result(
+          conversation.erase(
+            ctx.subject,
+            ctx.erasureId,
+            ctx.reapply,
+            com.thinkmorestupidless.ankka.core.Metadata.empty
+          ),
+          60.seconds
+        )
+      )
+
   /** A declared query's statement in a Scala service's descriptors. */
   private def declaredIn(
       descriptors: Seq[com.thinkmorestupidless.ankka.core.ComponentDescriptor],
@@ -299,8 +323,9 @@ object ConformanceTarget:
         )
       ),
       60.seconds,
-      ConformanceTarget.withImpostor,
-      localServices = ConformanceTarget.localServices(scripted)
+      b => ConformanceTarget.withImpostor(b.withErasureHandler(reference.erasureHandler)),
+      localServices = ConformanceTarget.localServices(scripted),
+      settings = ConformanceBucket.settings
     )
     def name: String                 = "in-process"
     def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -422,8 +447,13 @@ object ConformanceTarget:
         SidecarExtension(settings, conversation, timers, served)
       ),
       60.seconds,
-      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
-      localServices = ConformanceTarget.localServices(scripted)
+      b =>
+        ConformanceTarget.withImpostor(
+          ConformanceTarget
+            .withGuestErasure(b.withConversation(conversation), discovered, conversation)
+        ),
+      localServices = ConformanceTarget.localServices(scripted),
+      settings = ConformanceBucket.settings
     )
     def name: String                 = s"sidecar → $address"
     def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -594,8 +624,13 @@ object ConformanceTarget:
         SidecarExtension(settings, conversation, timers, served, Some(imports))
       ),
       60.seconds,
-      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
-      localServices = ConformanceTarget.localServices(scripted)
+      b =>
+        ConformanceTarget.withImpostor(
+          ConformanceTarget
+            .withGuestErasure(b.withConversation(conversation), discovered, conversation)
+        ),
+      localServices = ConformanceTarget.localServices(scripted),
+      settings = ConformanceBucket.settings
     )
     def name: String                 = s"module $path ($shape)"
     def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get

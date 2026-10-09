@@ -92,6 +92,9 @@ email for lookup again, with the declared query `by-email` over its token); rout
   finds the member by the token the SDK made.
 - `personal.sidecar-uninspected` — nothing the platform's program keeps of the calls (span names, the
   journal) holds the value.
+- `erasure.handler-erases-objects` — the reference's erasure handler asks the platform to erase the
+  subject's objects; every object under `subjects/<subject>/` in the service's bucket (a Garage bucket the
+  suite gives every target, as the platform gives a service one) is gone and one outside it is kept.
 
 **View and consumer**
 - `view.row-updated`, `view.query-by-id`, `view.row-marked-on-checkout`, `view.row-removed-with-source` — a checked-out cart is kept and its row marked `checkedOut`; a discarded cart (`DELETE /carts/{id}`) is deleted, and the view's default deletion handler removes its row.

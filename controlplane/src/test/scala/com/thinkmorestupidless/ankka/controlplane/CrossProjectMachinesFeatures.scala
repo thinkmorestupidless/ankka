@@ -102,7 +102,7 @@ class CrossProjectMachinesFeatures
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
-      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml") do
+      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml", "ankkamachine.yaml") do
         k8s.load(getClass.getResourceAsStream(s"/ankka/crd/$crd")).serverSideApply(): Unit
       PkiStack.install(k3s, k8s)
       k8s
@@ -392,6 +392,7 @@ class CrossProjectMachinesFeatures
   private var lastBearer: Option[String]                      = None
   private var grants: Vector[(String, String)]                = Vector.empty
   private var revokedAt: Option[Deadline]                     = None
+  private var lastService: Option[String]                     = None
   private var restartsBefore: Map[String, Int]                = Map.empty
   private var issuers: Map[String, TestIssuer]                = Map.empty
 
@@ -409,9 +410,21 @@ class CrossProjectMachinesFeatures
 
   override def afterEach(context: AfterEach): Unit =
     if !munitIgnore then
-      val owner = ownerOf.getOrElse(machineOrganization, "")
+      val owner   = ownerOf.getOrElse(machineOrganization, "")
+      val revoked = grants.nonEmpty
       for (id, p) <- grants do
         ankka(person(owner), "projects", "grants", "revoke", id, "-p", p): Unit
+      // A revocation reaches the service within the contract's 120 seconds, not at once, and the
+      // next scenario registers a machine of the same name: wait until the grant admits nobody.
+      for
+        _       <- Option.when(revoked)(())
+        token   <- held
+        route   <- lastRoute
+        service <- lastService
+      do
+        waitFor(150.seconds, s"the revoked grant on $route refusing the machine") {
+          through(service, route, Some(token))._1 == 403
+        }
       registered.foreach(m =>
         ankka(
           person(owner),
@@ -431,6 +444,7 @@ class CrossProjectMachinesFeatures
   private def through(service: String, route: String, bearer: Option[String]): (Int, String) =
     val (_, path) = route.trim.span(_ != ' ')
     lastRoute = Some(route)
+    lastService = Some(service)
     lastBearer = bearer
     InPod.curl(
       k3s,

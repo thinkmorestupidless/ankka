@@ -47,6 +47,21 @@ Feature: What a topic source reports of what its topic no longer holds
     Then "ledger" is ready
     And the status of "ledger" carries a retention warning for the view "entries", naming the retention time "7 days" and the warning threshold "30 days"
 
+  Scenario: a topic lowered below the warning threshold warns the views reading it from the change on
+    Given an installation whose warning threshold is "30 days"
+    And the topic "transactions" is declared on "money" with the retention time "90 days"
+    And "ledger" is deployed in the project "money" with no retention warning
+    When an owner declares the topic "transactions" on "money" with the retention time "7 days"
+    Then the status of "ledger" carries a retention warning for the view "entries", naming the retention time "7 days" and the warning threshold "30 days"
+    And no instance of "ledger" is restarted
+
+  Scenario: a topic raised above the warning threshold clears the retention warning
+    Given an installation whose warning threshold is "30 days"
+    And the topic "transactions" is declared on "money" with the retention time "7 days"
+    And "ledger" is deployed in the project "money" with a retention warning for the view "entries"
+    When a member declares the topic "transactions" on "money" with the retention time "90 days"
+    Then the status of "ledger" carries no retention warning for the view "entries"
+
   Scenario Outline: a topic that keeps everything or is compacted draws no retention warning
     Given an installation whose warning threshold is "30 days"
     And the topic "transactions" is declared on "money" <declared>

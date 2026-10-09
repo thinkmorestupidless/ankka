@@ -27,3 +27,13 @@ data:
   objectStoreBackend: garage
   objectStorePrefix: ""
   objectStoreSoftDeleteDays: "7"
+  # The installation's cloud (feature 044): which cloud provider fulfils its cloud requests, the
+  # account and default location they are made in, its one wrapping key, how long a request may go
+  # unanswered before a service says so, and how long a replaced credential goes on working. A
+  # local cluster has no cloud: "none" writes no request, and everything is served here.
+  cloudProvider: none
+  cloudAccount: ""
+  cloudLocation: ""
+  cloudKmsKey: ""
+  cloudAcknowledgementBound: 2m
+  cloudRotationGrace: 1h

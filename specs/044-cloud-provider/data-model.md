@@ -38,6 +38,7 @@ What exists, who writes it, and what each state means. Decisions are in
 | `account` | string | the account the thing was made in |
 | `location` | string | the location it was made in, in the installation's words |
 | `credentialGeneration` | integer, optional | the generation of the credential now in the Secret (`bucket-credential` only) |
+| `credentialReportedAt` | string, optional | when that generation was reported in place, RFC 3339; the rotation grace counts from here, so a provider that restarts still ends the old credential |
 | `recovered` | boolean | the thing existed before this request; `phase` is `Recovered` when ready and recovered |
 | `providerVersion` | string | what fulfilled it, e.g. `ankka-gcp 0.1.0`, `scripted 0.7.0` |
 | `outputs` | map of string to string | the kind's outputs, named in the contract |
@@ -87,7 +88,7 @@ A provider adds its Deployment, and on GKE the ServiceAccount's Workload Identit
 
 | Field | Type | Meaning |
 |---|---|---|
-| `storageCredentialGeneration` | integer, default `1` | copied into the `storage-credential` request's `spec.credentialGeneration`; raising it asks for a new credential; the control plane's projector never sets it, so a value raised on the resource survives re-projection (R7) |
+| `storageCredentialGeneration` | integer, optional; absent means `1` | copied into the `storage-credential` request's `spec.credentialGeneration`; raising it asks for a new credential. An `Option`, so the control plane's projector, which never sets it, writes nothing there and never owns the field: a value raised on the resource survives re-projection (R7) |
 
 `status.objectStorage` is unchanged in shape: on the cloud path `bucket` is the provider's output,
 `phase` and `detail` are folded from the two requests, `recovered` is the bucket request's.
@@ -119,7 +120,7 @@ Instant`, `status: Option[CloudResourceStatus]`. Absent when the object or the t
 | `Failed(detail)` | the provider's refusal, word for word |
 
 Derived by `CloudProvisioning.decide` (the table in R5). `CloudBucketPlans(identity, bucket, credential: Option[CloudPlan])` make an `ObjectStoragePlan`
-for the bucket path (R6).
+for the bucket path (R6); the credential's is absent until the identity and the bucket are answered.
 
 ### `ObjectStoragePlan.Ready`, one new field
 
@@ -137,6 +138,14 @@ path, absent on Garage, so every Garage render is byte for byte what it was.
 | `reached` | a counter of anything outside the cluster | always zero |
 
 ## In the control plane
+
+### The reported bucket
+
+`ServiceObservation.bucket` and `ServiceObserved.bucket` (`Option[String]`, default `None`) carry the
+bucket's name as the operator reported it; the `Service` state keeps it as `reportedBucket`, and
+`Service.bucketNamed` shows it in place of the derived name: the cloud provider's name for a cloud
+bucket, none while it is empty (not yet answered), and the derived name when nothing was reported,
+which is what every event from before the field says. The listing row applies the same rule.
 
 ### `CloudConfig`
 

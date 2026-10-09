@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
-import io.fabric8.kubernetes.api.model.{OwnerReference, OwnerReferenceBuilder}
-import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceDefinition}
+import io.fabric8.kubernetes.api.model.{HasMetadata, OwnerReference, OwnerReferenceBuilder}
+import com.thinkmorestupidless.ankka.crd.{AnkkaProject, AnkkaService, AnkkaServiceDefinition}
 
 import scala.jdk.CollectionConverters.*
 
@@ -115,6 +115,17 @@ object Labels:
    * new uid, and children of the old one are then garbage-collected rather than silently adopted by
    * the new one.
    */
+  /** As for a service, for what a project's resource owns: its cloud requests (feature 044). */
+  def ownerReference(project: AnkkaProject): OwnerReference =
+    new OwnerReferenceBuilder()
+      .withApiVersion(HasMetadata.getApiVersion(classOf[AnkkaProject]))
+      .withKind(HasMetadata.getKind(classOf[AnkkaProject]))
+      .withName(project.getMetadata.getName)
+      .withUid(project.getMetadata.getUid)
+      .withController(true)
+      .withBlockOwnerDeletion(true)
+      .build()
+
   def ownerReference(resource: AnkkaService): OwnerReference =
     new OwnerReferenceBuilder()
       .withApiVersion(AnkkaServiceDefinition.apiVersion)

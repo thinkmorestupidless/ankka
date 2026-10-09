@@ -194,6 +194,21 @@ bucket and declares an `ANKKA_S3_` variable is refused, naming the variable.
 No descriptor may take a variable from a Secret named `<service>-storage`, its own service's included, and
 no project secret may be given such a name: a storage credential reaches its own service and no other.
 
+## A bucket in the installation's cloud account
+
+On an installation that names a [cloud provider](cloud-provider.md) and runs no store of its own, a
+service's bucket is made in the installation's cloud account by that provider. The descriptor is the
+same, and so are the five variables: `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION` and `ANKKA_S3_BUCKET` are
+what the provider answered, and the storage credential is in `<service>-storage`, written once by the
+provider. The bucket's name is the provider's, shown by `ankka services get`. Its instances start only
+once the provider has answered: until then the service is `UpdateInProgress`, saying what it waits for,
+and a bucket the provider refuses starts the service told of no bucket at all, with the provider's
+reason in its status.
+
+A bucket in a cloud account is reached at the cloud's own address, not through the installation's
+gateway, so `exposeObjectStorage` gives it no route. An installation that runs its own store and names a
+provider as well keeps its buckets in its own store.
+
 ## The store in an installation
 
 The object store is the `garage` component of the installation's overlay. It is one node with one volume,

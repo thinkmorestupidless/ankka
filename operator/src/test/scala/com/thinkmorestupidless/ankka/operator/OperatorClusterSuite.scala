@@ -2,7 +2,13 @@ package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
-import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaSerialization,
+  AnkkaService,
+  AnkkaServiceSpec,
+  CloudResource,
+  CloudResourceStatus
+}
 import com.thinkmorestupidless.ankka.operator.cnpg.{
   PostgresCluster,
   PostgresDatabase,
@@ -1575,6 +1581,221 @@ class OperatorClusterSuite extends munit.FunSuite:
           .list()
       )
     finally asService.close()
+  }
+
+  // ── Cloud requests (feature 044): both identities' grants, on a real API server ──────────
+
+  private val CloudOwner = "cloud-probe"
+
+  /** A token for a ServiceAccount, minted by the node's kubectl. */
+  private def mintToken(account: String, namespace: String): String =
+    val result = k3s.execInContainer(
+      "kubectl",
+      "create",
+      "token",
+      account,
+      "-n",
+      namespace,
+      "--duration=10m"
+    )
+    assertEquals(result.getExitCode, 0, result.getStderr)
+    result.getStdout.trim
+
+  /** The cloud request type, the operator's RBAC and the provider's, and a resource to own. */
+  private lazy val cloudReady: AnkkaService =
+    cloud.CloudProviderStack.install(k3s, client)
+    client
+      .load(getClass.getResourceAsStream("/ankka/install/operator.yaml"))
+      .items()
+      .asScala
+      .filter(o =>
+        Set("Namespace", "ServiceAccount", "ClusterRole", "ClusterRoleBinding").contains(o.getKind)
+      )
+      .foreach(o => client.resource(o).serverSideApply(): Unit)
+    if client.namespaces().withName(Namespace).get() == null then
+      client
+        .namespaces()
+        .resource(
+          new io.fabric8.kubernetes.api.model.NamespaceBuilder()
+            .withMetadata(new ObjectMetaBuilder().withName(Namespace).build())
+            .build()
+        )
+        .serverSideApply(): Unit
+    resources
+      .inNamespace(Namespace)
+      .resource(
+        AnkkaService(
+          Namespace,
+          CloudOwner,
+          spec(paused = true).copy(serviceName = CloudOwner, port = None)
+        )
+      )
+      .fieldManager("ankka-test")
+      .forceConflicts()
+      .serverSideApply(): Unit
+    var owner: AnkkaService = null
+    waitFor(30.seconds) {
+      owner = resources.inNamespace(Namespace).withName(CloudOwner).get()
+      owner != null && owner.getMetadata.getUid != null
+    }
+    owner
+
+  private val probeCloud =
+    CloudSettings("gcp", "probe-account", "probe-location", None, 2.minutes, 1.hour)
+
+  private def probeRequest(owner: AnkkaService) =
+    CloudRequests.bucket(
+      probeCloud,
+      CloudRequests.Requester.of(owner),
+      CloudRequests.Purpose.Service,
+      probeCloud.location,
+      CloudRequests.BucketAsk()
+    )
+
+  private def cloudRequests = client.resources(classOf[CloudResource]).inNamespace(Namespace)
+
+  private def refused(what: String)(attempt: => Any): Unit =
+    val e = intercept[io.fabric8.kubernetes.client.KubernetesClientException](attempt)
+    assertEquals(e.getCode, 403, s"$what should be refused by the API server: ${e.getMessage}")
+
+  test("40. the operator's token writes a cloud request, and cannot answer or delete one") {
+    val owner = cloudReady
+    val asOperator =
+      cloud.CloudProviderStack.client(client, mintToken("ankka-operator", "ankka-operator"))
+    try
+      val executor = new Fabric8Executor(asOperator)
+      // The first apply of an absent object is a PATCH: "create" alone would be refused here.
+      executor.execute(Action.EnsureCloudResource(probeRequest(owner)))
+      val name = s"$CloudOwner-bucket"
+      val seen = executor.observeCloudResource(Namespace, name).getOrElse(fail("not read back"))
+      assertEquals(seen.generation, 1L)
+      assertEquals(seen.status, None)
+      val written = cloudRequests.withName(name).get()
+      assertEquals(
+        written.getMetadata.getOwnerReferences.asScala.map(_.getUid).toVector,
+        Vector(owner.getMetadata.getUid)
+      )
+      refused("the operator's status write")(
+        asOperator
+          .resources(classOf[CloudResource])
+          .inNamespace(Namespace)
+          .withName(name)
+          .editStatus { r =>
+            r.setStatus(CloudResourceStatus(observedGeneration = Some(1L), phase = "Ready"))
+            r
+          }
+      )
+      refused("the operator's delete")(
+        asOperator.resources(classOf[CloudResource]).inNamespace(Namespace).withName(name).delete()
+      )
+    finally asOperator.close()
+  }
+
+  test("41. the provider's token writes an answer and a Secret, and reads no Secret back") {
+    // credential.feature: "the cloud provider can write a secret and cannot read one back", and
+    // "the operator cannot read a storage credential the cloud provider made".
+    cloudReady
+    val name       = s"$CloudOwner-bucket"
+    val asProvider = cloud.CloudProviderStack.client(client, cloud.CloudProviderStack.token(k3s))
+    val asOperator =
+      cloud.CloudProviderStack.client(client, mintToken("ankka-operator", "ankka-operator"))
+    try
+      asProvider
+        .resources(classOf[CloudResource])
+        .inNamespace(Namespace)
+        .withName(name)
+        .editStatus { r =>
+          r.setStatus(CloudResourceStatus(observedGeneration = Some(1L), phase = "Ready"))
+          r
+        }: Unit
+      assertEquals(cloudRequests.withName(name).get().getMetadata.getGeneration.longValue, 1L)
+
+      val secret = new io.fabric8.kubernetes.api.model.SecretBuilder()
+        .withMetadata(
+          new ObjectMetaBuilder().withName("probe-storage").withNamespace(Namespace).build()
+        )
+        .withStringData(Map("ANKKA_S3_ACCESS_KEY" -> "one").asJava)
+        .build()
+      asProvider.secrets().inNamespace(Namespace).resource(secret).create(): Unit
+      val again = intercept[io.fabric8.kubernetes.client.KubernetesClientException](
+        asProvider.secrets().inNamespace(Namespace).resource(secret).create()
+      )
+      assertEquals(again.getCode, 409, "a second create learns that one is there")
+      asProvider
+        .secrets()
+        .inNamespace(Namespace)
+        .withName("probe-storage")
+        .patch(
+          io.fabric8.kubernetes.client.dsl.base.PatchContext
+            .of(io.fabric8.kubernetes.client.dsl.base.PatchType.JSON_MERGE),
+          new io.fabric8.kubernetes.api.model.SecretBuilder()
+            .withStringData(Map("ANKKA_S3_ACCESS_KEY" -> "two").asJava)
+            .build()
+        ): Unit
+
+      refused("the provider's get of a Secret")(
+        asProvider.secrets().inNamespace(Namespace).withName("probe-storage").get()
+      )
+      refused("the provider's list of Secrets")(asProvider.secrets().inNamespace(Namespace).list())
+      refused("the provider's change to what is asked")(
+        asProvider
+          .resources(classOf[CloudResource])
+          .inNamespace(Namespace)
+          .withName(name)
+          .patch(
+            io.fabric8.kubernetes.client.dsl.base.PatchContext
+              .of(io.fabric8.kubernetes.client.dsl.base.PatchType.JSON_MERGE),
+            """{"spec":{"provider":"other"}}"""
+          )
+      )
+      refused("the provider's delete")(
+        asProvider.resources(classOf[CloudResource]).inNamespace(Namespace).withName(name).delete()
+      )
+      refused("the operator's get of the credential")(
+        asOperator.secrets().inNamespace(Namespace).withName("probe-storage").get()
+      )
+    finally
+      asProvider.close()
+      asOperator.close()
+  }
+
+  test("42. a change to what is asked raises the generation, and an answer does not") {
+    val owner = cloudReady
+    val name  = s"$CloudOwner-bucket"
+    val asOperator =
+      cloud.CloudProviderStack.client(client, mintToken("ankka-operator", "ankka-operator"))
+    try
+      val before = cloudRequests.withName(name).get().getMetadata.getGeneration.longValue
+      val asked  = probeRequest(owner)
+      asked.setSpec(
+        asked.getSpec.copy(parameters = asked.getSpec.parameters + ("versioning" -> "true"))
+      )
+      new Fabric8Executor(asOperator).execute(Action.EnsureCloudResource(asked))
+      val after = cloudRequests.withName(name).get().getMetadata.getGeneration.longValue
+      assertEquals(after, before + 1)
+      val asProvider = cloud.CloudProviderStack.client(client, cloud.CloudProviderStack.token(k3s))
+      try
+        asProvider
+          .resources(classOf[CloudResource])
+          .inNamespace(Namespace)
+          .withName(name)
+          .editStatus { r =>
+            r.setStatus(CloudResourceStatus(observedGeneration = Some(after), phase = "Ready"))
+            r
+          }: Unit
+      finally asProvider.close()
+      assertEquals(cloudRequests.withName(name).get().getMetadata.getGeneration.longValue, after)
+    finally asOperator.close()
+  }
+
+  test("43. a cloud request goes with its service, and the Secret it was answered with stays") {
+    cloudReady
+    resources.inNamespace(Namespace).withName(CloudOwner).delete(): Unit
+    waitFor(60.seconds)(cloudRequests.withName(s"$CloudOwner-bucket").get() == null)
+    assert(
+      client.secrets().inNamespace(Namespace).withName("probe-storage").get() != null,
+      "nothing that answered a request goes with it"
+    )
   }
 
   test("11. deleting the resource cascades to the deployment with no operator involvement") {

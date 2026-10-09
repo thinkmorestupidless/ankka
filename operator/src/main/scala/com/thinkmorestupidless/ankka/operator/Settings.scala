@@ -84,10 +84,10 @@ final case class Settings(
     /** Google Cloud Storage's settings, when the backend is `Gcs` (feature 039). */
     gcs: Option[GcsSettings] = None,
     /**
-     * The installation's cloud provider, as feature 044 names it (`none` or a provider's name).
-     * Read here only to refuse `gcs` without one; 044 owns the setting.
+     * The installation's cloud provider and account (feature 044). `None` when it has none: no
+     * cloud request is written, and everything is served by the installation itself.
      */
-    cloudProvider: Option[String] = None,
+    cloud: Option[CloudSettings] = None,
     /** The image of the program a move runs as a Job (feature 039), as `sidecarImage` is. */
     storageMoverImage: String = "ankka-storage-mover:latest",
     /**
@@ -184,7 +184,7 @@ object Settings:
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
       objectStore = objectStore(),
-      cloudProvider = raw("ankka.operator.cloud-provider", "ANKKA_CLOUD_PROVIDER"),
+      cloud = CloudSettings.read(raw),
       storageMoverImage = string(
         "ankka.operator.storage-mover-image",
         "ANKKA_STORAGE_MOVER_IMAGE",
@@ -217,7 +217,7 @@ object Settings:
             )
           settings.copy(objectStoreBackend = Some(ObjectStoreBackend.Garage))
         case Some(Right(ObjectStoreBackend.Gcs)) =>
-          if !settings.cloudProvider.exists(_ != "none") then
+          if settings.cloud.isEmpty then
             throw new IllegalArgumentException(
               s"${PlatformVariables.ObjectStoreBackend} is gcs, so ANKKA_CLOUD_PROVIDER must name a " +
                 "cloud provider: the operator makes nothing in Google Cloud itself"

@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.operator
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.{BackendTLSPolicy, HTTPRoute}
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
 import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientException}
-import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceStatus}
+import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceStatus, CloudResource}
 import com.thinkmorestupidless.ankka.operator.cnpg.{
   CnpgObjectState,
   DatabaseObservation,
@@ -71,6 +71,14 @@ trait Executor:
       @scala.annotation.unused namespace: String,
       @scala.annotation.unused name: String
   ): StorageMove.JobOutcome = StorageMove.JobOutcome.Absent
+
+  /**
+   * One cloud request as the API server holds it (feature 044): its generation, when it was made
+   * and the provider's answer. None when it, or the type, does not exist yet.
+   */
+  def observeCloudResource(namespace: String, name: String): Option[CloudObservation] =
+    val _ = (namespace, name)
+    None
 
   /**
    * What `BrokerProvisioning.decide` needs: the service's user and each of `topics`, by the name
@@ -439,6 +447,16 @@ final class Fabric8Executor(
         "ensured kafka topic {}/{}",
         topic.getMetadata.getNamespace,
         topic.getMetadata.getName
+      )
+
+    case Action.EnsureCloudResource(request) =>
+      val _ =
+        client.resource(request).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured cloud request {} {}/{}",
+        request.getSpec.kind,
+        request.getMetadata.getNamespace,
+        request.getMetadata.getName
       )
 
     case Action.EnsureDatabase(database) =>
@@ -894,6 +912,17 @@ final class Fabric8Executor(
                 )
               )
             )
+
+  override def observeCloudResource(namespace: String, name: String): Option[CloudObservation] =
+    ifTypeExists(
+      client.resources(classOf[CloudResource]).inNamespace(namespace).withName(name).get()
+    ).map { found =>
+      CloudObservation(
+        generation = Option(found.getMetadata.getGeneration).map(_.longValue).getOrElse(0L),
+        createdAt = parseTimestamp(found.getMetadata.getCreationTimestamp).getOrElse(Instant.EPOCH),
+        status = Option(found.getStatus)
+      )
+    }
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =
     Option(client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).get())

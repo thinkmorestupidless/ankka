@@ -42,7 +42,7 @@ status:
   account: my-account
   location: europe-west2
   recovered: false
-  providerVersion: "scripted 0.7.0"
+  providerVersion: "scripted 0.1.0"
   outputs:
     bucket: my-account-shop-reports
     endpoint: https://storage.scripted.invalid
@@ -132,7 +132,9 @@ A `backup` bucket is named by the provider so that no `service` bucket can colli
 | `identity` | an `identity` request's output, or a project's database's identity (041) |
 | `secretName` | the Secret to write, in the request's namespace |
 
-`spec.credentialGeneration` is `1` when first written and raised to ask for a new credential.
+`spec.credentialGeneration` is `1` when first written and raised to ask for a new credential. The
+status says the generation in place, `credentialGeneration`, and when it was reported,
+`credentialReportedAt` (RFC 3339), from which the rotation grace counts.
 
 | Output | Meaning |
 |---|---|

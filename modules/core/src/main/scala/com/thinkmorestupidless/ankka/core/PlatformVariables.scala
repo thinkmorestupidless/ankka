@@ -64,6 +64,37 @@ private[ankka] object PlatformVariables:
   val ObjectStoreSoftDeleteDays: String = "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"
 
   /**
+   * The installation's cloud provider (feature 044): `none`, or a name in `CloudProviders`. Read by
+   * the operator, the control plane and the provider; never a descriptor's to give.
+   */
+  val CloudProvider: String = "ANKKA_CLOUD_PROVIDER"
+
+  /** The one cloud account the installation's cloud resources are made in. */
+  val CloudAccount: String = "ANKKA_CLOUD_ACCOUNT"
+
+  /** The default location of anything made in the cloud account, in the installation's words. */
+  val CloudLocation: String = "ANKKA_CLOUD_LOCATION"
+
+  /** The one wrapping key the installation names, if any. */
+  val CloudKmsKey: String = "ANKKA_CLOUD_KMS_KEY"
+
+  /** How long the operator waits for a cloud request to be acknowledged before saying so. */
+  val CloudAcknowledgementBound: String = "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND"
+
+  /** How long a replaced credential goes on working, which a provider honours. */
+  val CloudRotationGrace: String = "ANKKA_CLOUD_ROTATION_GRACE"
+
+  /** What `CloudProvider` says when the installation has no cloud provider. */
+  val CloudProviderNone: String = "none"
+
+  /**
+   * The cloud providers the platform knows by name: the only cloud-specific thing in this
+   * repository (FR-014). A provider for another cloud needs its name added here, and nothing else
+   * on the platform's side.
+   */
+  val CloudProviders: Set[String] = Set("gcp")
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -89,7 +120,14 @@ private[ankka] object PlatformVariables:
     "ANKKA_WASM_MAX_MEMORY_PAGES",
     // Where telemetry goes: the installation's, given only to the platform's program.
     OtlpEndpoint,
-    OtlpHeaders
+    OtlpHeaders,
+    // The installation's cloud (feature 044): named once, for the platform's processes only.
+    CloudProvider,
+    CloudAccount,
+    CloudLocation,
+    CloudKmsKey,
+    CloudAcknowledgementBound,
+    CloudRotationGrace
   )
 
   /**

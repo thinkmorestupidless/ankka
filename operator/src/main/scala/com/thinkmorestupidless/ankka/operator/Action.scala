@@ -12,7 +12,7 @@ import io.fabric8.kubernetes.api.model.{
   Service,
   ServiceAccount
 }
-import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
+import com.thinkmorestupidless.ankka.crd.{AnkkaServiceStatus, CloudResource}
 import com.thinkmorestupidless.ankka.operator.cnpg.{
   PostgresCluster,
   PostgresDatabase,
@@ -213,6 +213,12 @@ enum Action:
   case EnsureKafkaTopic(topic: KafkaTopicResource)
 
   /**
+   * A request to the installation's cloud provider (feature 044). Server-side apply of the spec
+   * alone; the operator never writes a request's status, and its grant has no verb that could.
+   */
+  case EnsureCloudResource(request: CloudResource)
+
+  /**
    * The schema `ConfigMap`, one per project namespace, mounted by every service's schema-init
    * container. Re-applied on every reconcile so a schema change reaches existing namespaces.
    */
@@ -310,6 +316,8 @@ enum Action:
       s"ensure kafka user ${u.getMetadata.getNamespace}/${u.getMetadata.getName}"
     case EnsureKafkaTopic(t) =>
       s"ensure kafka topic ${t.getMetadata.getNamespace}/${t.getMetadata.getName}"
+    case EnsureCloudResource(r) =>
+      s"cloud request ${r.getSpec.kind} ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureSchemaConfig(cm) =>
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case EnsureProjectConfig(cm) =>

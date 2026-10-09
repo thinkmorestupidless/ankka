@@ -495,7 +495,11 @@ final case class Service(
      * The operator's last-reported object storage phase, verbatim (feature 034). The bucket's name
      * and address are not stored: both are derived when a status is built.
      */
-    objectStorage: Option[String] = None
+    objectStorage: Option[String] = None,
+    /**
+     * The bucket's name as the operator last reported it (feature 044); see `Service.bucketNamed`.
+     */
+    reportedBucket: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -761,9 +765,14 @@ final case class Service(
       objectStorage = objectStorage.map(Service.objectStoragePhrase),
       // Feature 039: a bucket in Google Cloud Storage is named and placed by the cloud provider, so
       // its name and address are what the operator reported; Garage's are derived, as before.
-      bucket = Service
-        .bucketOf(projectId, name, descriptor)
-        .map(derived => storage.flatMap(_.bucket).getOrElse(derived)),
+      bucket =
+        if storage.flatMap(_.store).contains("gcs") then
+          Service.bucketOf(projectId, name, descriptor).flatMap(_ => storage.flatMap(_.bucket))
+        else
+          Service
+            .bucketOf(projectId, name, descriptor)
+            .map(derived => storage.flatMap(_.bucket).getOrElse(derived))
+      ,
       bucketAddress =
         if storage.flatMap(_.store).contains("gcs") then
           Service

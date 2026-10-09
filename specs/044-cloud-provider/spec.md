@@ -289,7 +289,7 @@ account it needs.
   `subject` (the project and, when there is one, the service), `credentialGeneration` and a
   `parameters` map of the kind's fields, and a `status` of `observedGeneration`, `phase` (`Waiting`,
   `Ready`, `Recovered`, `Failed`), `detail`, `account`, `location`, `credentialGeneration`,
-  `recovered`, `providerVersion`, and the kind's outputs (a bucket's name, a cloud identity, a key's
+  `credentialReportedAt`, `recovered`, `providerVersion`, and the kind's outputs (a bucket's name, a cloud identity, a key's
   name, a Secret's name). The
   CRD's case class and its YAML MUST be held to each other by `CrdSchemaSuite`.
 - **FR-002**: The operator MUST write a `CloudResource` by server-side apply, owned by the

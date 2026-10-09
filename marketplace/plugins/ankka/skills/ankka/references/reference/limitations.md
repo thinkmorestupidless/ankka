@@ -42,9 +42,12 @@ feature also says what that feature does not do.
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
 - **One object store, of one node.** A bucket is in the installation's own store, a single Garage node with
-  one volume, so its durability is that volume's. A cloud provider's buckets are not provisioned; a service
-  that needs one supplies its own store through `ANKKA_S3_*` variables. A bucket and its objects are never
-  deleted by the platform, and a storage credential is never rotated.
+  one volume, so its durability is that volume's, unless the installation names a cloud provider and runs no
+  store, when it is in the cloud account. A bucket and its objects are never deleted by the platform.
+- **One cloud provider and one cloud account per installation.** A project names no account of its own. The
+  platform deletes nothing in a cloud account, ever: removing what a provider made is the administrator's
+  task. A storage credential in a cloud account is replaced by raising its generation on the service's
+  resource; there is no command for it, and the installation's own store's credential is never rotated.
 - **No storage client in the SDKs.** A service keeps and reads objects with its own language's S3 client. A
   service run on a developer's own machine is given no bucket.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a

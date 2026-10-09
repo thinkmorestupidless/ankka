@@ -32,6 +32,25 @@ object Names:
   /** The entry of that Secret the key is under. */
   val SecretKeyEntry: String = "key"
 
+  /**
+   * A cloud request's name (feature 044), from what it is for and whom it serves, so a second
+   * render finds the first. A service's is `<service>-<suffix>`; a project's is
+   * `<project>.<suffix>`: a dot cannot appear in a service's name, a DNS label, so a project's
+   * request can never share a name with any service's, whatever the service is called.
+   */
+  object CloudRequest:
+    val IdentitySuffix: String          = "identity"
+    val SecretAccessSuffix: String      = "secret-access"
+    val BucketSuffix: String            = "bucket"
+    val StorageCredentialSuffix: String = "storage-credential"
+    val SecretSyncSuffix: String        = "secret-sync"
+    val BackupBucketSuffix: String      = "backup-bucket"
+    val BackupCredentialSuffix: String  = "backup-credential"
+    val WrappingKeySuffix: String       = "wrapping-key"
+
+    def ofService(serviceName: String, suffix: String): String = s"$serviceName-$suffix"
+    def ofProject(projectId: String, suffix: String): String   = s"$projectId.$suffix"
+
   /** Kubernetes DNS label ceiling. Namespaces, Deployments and containers all obey it. */
   val MaxLabelLength: Int = 63
 
@@ -63,8 +82,12 @@ object Names:
    * service reads a topic under, and a service run on a developer's machine that states its name
    * reads under `ankka.local.<service>.…`. The control plane's list is the same
    * (`ReservedProjectIdsSuite`).
+   *
+   * `cloud-provider` is reserved because a project's namespace is `<prefix>-<project>`, and the
+   * installation's cloud provider runs in `ankka-cloud-provider` with the power over the cloud
+   * account (feature 044): a project of that name would render into the provider's namespace.
    */
-  val ReservedProjectIds: Set[String] = Set("platform", "local")
+  val ReservedProjectIds: Set[String] = Set("platform", "local", "cloud-provider")
 
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =

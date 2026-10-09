@@ -224,6 +224,12 @@ These are set by the platform on every deployed instance, and a descriptor that 
 - `ANKKA_NAMESPACE_PREFIX` is how a project id becomes a namespace, `ankka-<project>`, which the service
   client uses to address another service by name.
 
+The installation's cloud is named for the platform's own processes and set on no instance:
+`ANKKA_CLOUD_PROVIDER`, `ANKKA_CLOUD_ACCOUNT`, `ANKKA_CLOUD_LOCATION`, `ANKKA_CLOUD_KMS_KEY`,
+`ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND` and `ANKKA_CLOUD_ROTATION_GRACE` are read by the operator, the
+control plane and the cloud provider, and a descriptor that sets one is refused. See
+[The cloud provider](../platform/cloud-provider.md).
+
 In `kubernetes` mode the remoting port is fixed at 17355, the management port at 7626 and the readiness
 port at 7627, and every one of them but readiness is mutual TLS with certificates the platform mounts under
 `/var/run/secrets/ankka/`. See [Runtime endpoints](runtime-endpoints.md) and

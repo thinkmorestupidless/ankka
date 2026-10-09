@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
+import scala.concurrent.duration.DurationInt
+
 /**
  * The operator's settings as read from system properties, which stand in for the environment the
  * manifests set: an environment variable cannot be set in-process, which is why the properties come
@@ -136,7 +138,9 @@ class SettingsSuite extends munit.FunSuite:
   private val gcs = Vector(
     "ankka.operator.object-store.backend" -> "gcs",
     "ankka.operator.object-store.prefix"  -> "ankka",
-    "ankka.operator.cloud-provider"       -> "gcp"
+    "ankka.operator.cloud-provider"       -> "gcp",
+    "ankka.operator.cloud-account"        -> "acct",
+    "ankka.operator.cloud-location"       -> "europe-west2"
   )
 
   test("an installation with Garage makes new buckets in Garage, and one with no store in none") {
@@ -237,4 +241,96 @@ class SettingsSuite extends munit.FunSuite:
         "ghcr.io/example/ankka-storage-mover:1.2.3"
       )
     }
+  }
+
+  // The installation's cloud (feature 044).
+
+  private val gcp = Seq(
+    "ankka.operator.cloud-provider" -> "gcp",
+    "ankka.operator.cloud-account"  -> "my-account",
+    "ankka.operator.cloud-location" -> "europe-west2"
+  )
+
+  test("an installation that names no cloud provider has no cloud") {
+    assertEquals(Settings.fromEnvironment().cloud, None)
+  }
+
+  test("a cloud provider of 'none' is no cloud") {
+    withProperties("ankka.operator.cloud-provider" -> "none") {
+      assertEquals(Settings.fromEnvironment().cloud, None)
+    }
+  }
+
+  test("a known provider with its account and location is the installation's cloud") {
+    withProperties(gcp*) {
+      assertEquals(
+        Settings.fromEnvironment().cloud,
+        Some(CloudSettings("gcp", "my-account", "europe-west2", None, 2.minutes, 1.hour))
+      )
+    }
+  }
+
+  test("the wrapping key and the two durations are read when set") {
+    withProperties(
+      (gcp ++ Seq(
+        "ankka.operator.cloud-kms-key"               -> "keys/ankka",
+        "ankka.operator.cloud-acknowledgement-bound" -> "30s",
+        "ankka.operator.cloud-rotation-grace"        -> "20s"
+      ))*
+    ) {
+      val cloud = Settings.fromEnvironment().cloud.getOrElse(fail("no cloud"))
+      assertEquals(cloud.kmsKey, Some("keys/ankka"))
+      assertEquals(cloud.acknowledgementBound, 30.seconds)
+      assertEquals(cloud.rotationGrace, 20.seconds)
+    }
+  }
+
+  test("a provider named without its account refuses to start, naming the variable") {
+    withProperties(gcp.filterNot(_._1.endsWith("account"))*) {
+      val e = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_CLOUD_ACCOUNT"), e.getMessage)
+    }
+  }
+
+  test("a provider named without its location refuses to start, naming the variable") {
+    withProperties(gcp.filterNot(_._1.endsWith("location"))*) {
+      val e = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_CLOUD_LOCATION"), e.getMessage)
+    }
+  }
+
+  test("a provider the platform does not know refuses to start, naming the known ones") {
+    withProperties("ankka.operator.cloud-provider" -> "aws") {
+      val e = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("'aws'"), e.getMessage)
+      assert(e.getMessage.contains("gcp"), e.getMessage)
+    }
+  }
+
+  test("a malformed duration refuses to start rather than becoming the default") {
+    withProperties((gcp :+ ("ankka.operator.cloud-rotation-grace" -> "an hour"))*) {
+      val e = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_CLOUD_ROTATION_GRACE"), e.getMessage)
+    }
+  }
+
+  test("durations are seconds, minutes or hours, and a bare number is seconds") {
+    assertEquals(CloudSettings.duration("2m", "X"), 2.minutes)
+    assertEquals(CloudSettings.duration("1h", "X"), 1.hour)
+    assertEquals(CloudSettings.duration("45", "X"), 45.seconds)
+  }
+
+  test("a provider for another cloud needs only its name known to the platform") {
+    // providers.feature, scenario 3: the platform's side of a second provider is one name.
+    val lookup: (String, String) => Option[String] = (property, _) =>
+      Map(
+        "ankka.operator.cloud-provider" -> "other",
+        "ankka.operator.cloud-account"  -> "acct",
+        "ankka.operator.cloud-location" -> "somewhere"
+      ).get(property)
+    intercept[IllegalStateException](CloudSettings.read(lookup))
+    assertEquals(
+      CloudSettings.read(lookup, known = Set("gcp", "other")).map(_.provider),
+      Some("other")
+    )
   }

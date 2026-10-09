@@ -195,9 +195,9 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
 
   /**
    * The control plane's Deployment as an overlay would make it: the base domain and the HTTPS port
-   * filled in, this build's image, one instance (three are `ControlPlaneClusterSuite`'s to prove),
-   * and the `secret-reads` component's patch merged in from its own file — so a change to the
-   * component is a change to what this suite deploys.
+   * filled in, this build's image, one instance with one contact point (three are
+   * `ControlPlaneClusterSuite`'s to prove), and the `secret-reads` component's patch merged in from
+   * its own file — so a change to the component is a change to what this suite deploys.
    */
   private def controlPlaneDeployment: Deployment =
     val yaml = read("kustomization/components/controlplane/deployment.yaml")
@@ -226,8 +226,11 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
     val container = deployment.getSpec.getTemplate.getSpec.getContainers.asScala
       .find(_.getName == "ankka-controlplane")
       .getOrElse(fail("the control plane's manifest has no ankka-controlplane container"))
-    val kept = container.getEnv.asScala.filterNot(e => added.exists(_.getName == e.getName))
-    container.setEnv((kept ++ added).asJava)
+    // One instance forms a cluster of one only when it is told one contact point is enough.
+    val single   = Vector(EnvVar("ANKKA_CLUSTER_CONTACT_POINTS", "1", null))
+    val replaced = added ++ single
+    val kept     = container.getEnv.asScala.filterNot(e => replaced.exists(_.getName == e.getName))
+    container.setEnv((kept ++ replaced).asJava)
     deployment
 
   private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =

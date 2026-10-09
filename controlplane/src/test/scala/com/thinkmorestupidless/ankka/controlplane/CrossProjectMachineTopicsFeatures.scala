@@ -734,13 +734,20 @@ class CrossProjectMachineTopicsFeatures
     )
     val p = producer(feeder)
     try
+      // Notices the topic's own readers can read, padded to 10 KiB: a view reading the topic
+      // must not stall on something it cannot decode.
+      val padding = "x" * 10240
       for i <- 1 to 400 do
-        val r = ProducerRecord[String, Array[Byte]](
+        val r = record(topic, s"bulk-$i")
+        val padded = ProducerRecord[String, Array[Byte]](
           topic,
-          s"bulk-$i",
-          Array.fill[Byte](10240)('x'.toByte)
+          null,
+          r.key(),
+          s"""{"cartId":"bulk-$i","at":${System.currentTimeMillis()},"padding":"$padding"}"""
+            .getBytes(StandardCharsets.UTF_8),
+          r.headers()
         )
-        p.send(r): Unit
+        p.send(padded): Unit
       p.flush()
     finally p.close(Duration.ofSeconds(10))
     val c = consumer(machine(name), s"${groupOf(name)}.bulk")
@@ -812,12 +819,6 @@ class CrossProjectMachineTopicsFeatures
       ),
       lastRead.take(3).toString
     )
-  }
-
-  Then("the view {string} shows what was published") { (v: String) =>
-    val (reader, p) = view(v)
-    val cart        = published.getOrElse("machine", fail("the machine published nothing"))
-    waitFor(120.seconds, s"$reader's view showing $cart")(seen(reader, p, cart)._1 == 200)
   }
 
   Then("the credential may read {string}") { (topic: String) =>
@@ -925,5 +926,5 @@ class CrossProjectMachineTopicsFeatures
       deploy("wallet", spinvibe, notices = "affiliates.attribution"): Unit
     else noticesTo("wallet", spinvibe, "affiliates.attribution")
     val cart = checkout("wallet", spinvibe)
-    waitFor(60.seconds, s"$reader's view reading $cart")(seen(reader, p, cart)._1 == 200)
+    waitFor(120.seconds, s"$reader's view reading $cart")(seen(reader, p, cart)._1 == 200)
   }

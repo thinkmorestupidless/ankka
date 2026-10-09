@@ -21,15 +21,19 @@ export type CallerMatcher =
   | { readonly kind: "service"; readonly name: string; readonly project?: string }
   | { readonly kind: "anyInProject" }
   | { readonly kind: "self" }
+  | { readonly kind: "granted" }
 
 /**
  * The callers an endpoint can name: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`. A named
- * service is in this service's own project unless `project` names another.
+ * service is in this service's own project unless `project` names another. `Callers.granted` is whoever this
+ * service's project has granted the route to — a service of another project, or a registered machine
+ * (protocol 1.15); a route that does not name it can never be granted.
  */
 export const Callers = Object.freeze({
   internet: Object.freeze({ kind: "internet" }) as CallerMatcher,
   anyInProject: Object.freeze({ kind: "anyInProject" }) as CallerMatcher,
   self: Object.freeze({ kind: "self" }) as CallerMatcher,
+  granted: Object.freeze({ kind: "granted" }) as CallerMatcher,
   service(name: string, options?: { readonly project?: string }): CallerMatcher {
     return Object.freeze(options?.project !== undefined ? { kind: "service", name, project: options.project } : { kind: "service", name })
   },

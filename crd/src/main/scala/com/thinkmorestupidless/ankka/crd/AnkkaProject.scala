@@ -28,7 +28,12 @@ final case class AnkkaProjectSpec(
     /** Feature 041: every restore of the project ever asked for, in order. */
     restores: List[RestoreEntry] = Nil,
     /** Feature 041: rehearsals asked for and not yet reported back to the control plane. */
-    rehearsals: List[RehearsalEntry] = Nil
+    rehearsals: List[RehearsalEntry] = Nil,
+    /**
+     * The project's accepted grants (feature 040), and only those: a pending grant is never here,
+     * so a grant opens nothing in the cluster until it is accepted.
+     */
+    grants: List[ProjectGrantEntry] = Nil
 )
 
 /**
@@ -69,6 +74,27 @@ final case class RehearsalEntry(
     line: String = "",
     targetTime: String = "",
     requestedAt: String = ""
+)
+
+/**
+ * One accepted grant: `grantee` is `service:<project>/<name>` or `machine:<organization>/<name>`;
+ * `kind` is `route` (`service`, `httpMethod`, `path`), `method` (`service`, `method`, a gRPC method
+ * as `Service/Method`), `topic` (`topic`, `right` `consume` or `produce`, `decrypt`) or `erasure`.
+ * Flat, as every entry here is: the schema suite checks one level.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ProjectGrantEntry(
+    id: String = "",
+    grantee: String = "",
+    kind: String = "",
+    service: Option[String] = None,
+    httpMethod: Option[String] = None,
+    path: Option[String] = None,
+    method: Option[String] = None,
+    topic: Option[String] = None,
+    right: Option[String] = None,
+    decrypt: Boolean = false,
+    grantedAt: String = ""
 )
 
 /**

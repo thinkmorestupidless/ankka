@@ -109,10 +109,17 @@ final class RotatingTls(
     RequiredIdentityTrustManager(trustManager, uri)
 
   /** An engine for accepting a connection: TLS 1.3, a client certificate required. */
-  def serverEngine(): SSLEngine =
+  def serverEngine(): SSLEngine = serverEngine(clientCertificates = true)
+
+  /**
+   * An engine serving this identity that asks the client for a certificate only when
+   * `clientCertificates`: off for a port whose content is public, such as the control plane's
+   * machine token keys (feature 040), which the broker reads holding no certificate at all.
+   */
+  def serverEngine(clientCertificates: Boolean): SSLEngine =
     val engine = sslContext.createSSLEngine()
     engine.setUseClientMode(false)
-    engine.setNeedClientAuth(true)
+    engine.setNeedClientAuth(clientCertificates)
     engine.setEnabledProtocols(Protocols)
     engine
 

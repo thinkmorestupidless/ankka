@@ -47,6 +47,11 @@ rules:
   - apiGroups: ["ankka.thinkmorestupidless.com"]
     resources: ["ankkaprojects/status"]
     verbs: ["get"]
+  # A machine registered on an organization (feature 040): written when it is registered or its
+  # byte rates change, and deleted with it. Cluster-scoped, so this rule is the ClusterRole's.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkamachines"]
+    verbs: ["get", "create", "patch", "delete"]
   # A declared contract's schema (feature 037): written to the project's `ankka-project-schemas`
   # ConfigMap before the declaration is recorded, and read back when a member fetches it. No list,
   # no delete: a document, once held, stays.

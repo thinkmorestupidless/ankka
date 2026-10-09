@@ -160,6 +160,28 @@ final class TopologyJsonSuite extends FunSuite:
     )
   }
 
+  test("a route whose ACL admits granted callers says so, and no other route carries the field") {
+    val routes = Vector(
+      ServedRoute(
+        "POST",
+        "/v1/wallets/{p}/deposits",
+        streaming = false,
+        "endpoint:/v1/wallets",
+        true
+      ),
+      ServedRoute("GET", "/v1/wallets/{p}", streaming = false, "endpoint:/v1/wallets")
+    )
+    val json = render(Nil, routes)
+    assertEquals(
+      read(json).nodes.head.handlers,
+      Vector(
+        Handler("GET /v1/wallets/{p}", "route", Some(false)),
+        Handler("POST /v1/wallets/{p}/deposits", "route", Some(false), Some(true))
+      )
+    )
+    assertEquals("grantable".r.findAllIn(json).size, 1, json)
+  }
+
   test("an endpoint that is also registered as a component is drawn once, from its routes") {
     // A remote endpoint is declared in discovery, so it is in the registry too.
     val registered = descriptor("orders-api", ComponentKind.Endpoint)
@@ -640,7 +662,12 @@ object TopologyJsonSuite:
   // The document as a reader models it. A field the renderer drops or renames fails to decode.
   final case class Service(name: String, runtime: String, instance: String, startedAt: String)
   final case class Window(seconds: Long, since: String, calls: Long, unanswered: Long)
-  final case class Handler(name: String, `type`: String, streaming: Option[Boolean] = None)
+  final case class Handler(
+      name: String,
+      `type`: String,
+      streaming: Option[Boolean] = None,
+      grantable: Option[Boolean] = None
+  )
   final case class Node(
       id: String,
       kind: String,

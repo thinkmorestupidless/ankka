@@ -1,0 +1,1 @@
+{"type":"JsonWebKeySet","json":{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"20261009000000ab12","n":"n","e":"AQAB"}]}}

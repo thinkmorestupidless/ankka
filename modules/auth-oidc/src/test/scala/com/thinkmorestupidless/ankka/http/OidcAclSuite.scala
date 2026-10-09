@@ -89,6 +89,26 @@ class OidcAclSuite extends munit.FunSuite:
     assert(body.endsWith("tier=gold"), body)
   }
 
+  test("a machine the server established is a principal naming it, with no issuer of the service") {
+    // A machine's token is the installation's, verified by the server before any ACL runs (the
+    // request's caller says so); the issuers this service lists are not asked.
+    val (name, value) = LocalCallers.header(Caller.Machine("eitheror", "affiliate-network"))
+    val response = Await.result(
+      router(acl()).handle(HttpRequest(uri = "/account/me").withHeaders(RawHeader(name, value))),
+      10.seconds
+    )
+    val body = Await.result(response.entity.toStrict(5.seconds), 5.seconds).data.utf8String
+    assertEquals(
+      (response.status.intValue, body),
+      (200, "machine:eitheror/affiliate-network from machine roles= tier=")
+    )
+    // A person's token from a listed issuer is verified as before.
+    assertEquals(
+      call(router(acl()), "/account/me", Some(issuer.token("ada")))._2,
+      "ada from customers roles= tier="
+    )
+  }
+
   test("a request with no token is challenged") {
     val (status, body, headers) = call(router(acl()), "/account/me")
     assertEquals(status, 401)

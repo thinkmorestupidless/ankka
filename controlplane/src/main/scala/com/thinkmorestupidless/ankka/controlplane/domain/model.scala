@@ -99,10 +99,15 @@ final case class Organization(
     invitations: Map[String, Invitation] = Map.empty,
     disabled: Boolean = false,
     quota: Option[Quota] = None,
-    record: UsageRecord = UsageRecord()
+    record: UsageRecord = UsageRecord(),
+    /** What projects granted this organization's machines, by grant id (feature 040). */
+    received: Map[String, ReceivedGrant] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
   def usage: Usage    = record.usage
+
+  def onGrantRecorded(fields: GrantRecordedFields): Organization =
+    copy(received = ReceivedGrant.fold(received, fields))
 
   /**
    * Whether this id has ever been used.
@@ -372,12 +377,118 @@ final case class ProjectHistoryEntry(
 object Project:
   val HistoryLimit: Int = 100
 
+/** Who did something to a grant, and when: what an event carried, kept on the grant. */
+final case class GrantMark(actor: Option[Actor] = None, at: Option[Instant] = None):
+  def display: GrantAct = GrantAct(actor.flatMap(_.display).orElse(actor.map(_.subject)), at)
+
+/**
+ * A grant a project holds (feature 040): one grantee, one target, and where it is in its life. The
+ * project is the grantor; this record, written by the project's own commands, is the only one a
+ * command writes. Identified by `id`; while it is live, also by its grantee and target together.
+ */
+final case class Grant(
+    id: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    state: GrantState,
+    granted: GrantMark = GrantMark(),
+    answered: Option[GrantMark] = None,
+    ended: Option[GrantMark] = None
+):
+  def detail(effect: String): GrantDetail =
+    GrantDetail(
+      id,
+      grantee,
+      target,
+      state,
+      effect,
+      granted.display,
+      answered.map(_.display),
+      ended.map(_.display)
+    )
+
+/** One change to a grant as the grantee side recorded it. */
+final case class GrantChangeEntry(
+    change: GrantChange,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None
+)
+
+/**
+ * A grant as the grantee side keeps it: on the grantee project for a service, on the organization
+ * for a machine. Derived from the granting project's events by a consumer, never written beside
+ * them, so the two cannot disagree for longer than the consumer takes.
+ */
+final case class ReceivedGrant(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    state: GrantState,
+    changes: Vector[GrantChangeEntry] = Vector.empty
+):
+  def recorded(change: GrantChange): Boolean = changes.exists(_.change == change)
+
+object ReceivedGrant:
+
+  /** The state a grant is in after `change`. */
+  def stateAfter(change: GrantChange): GrantState = change match
+    case GrantChange.Made | GrantChange.Accepted => GrantState.Accepted
+    case GrantChange.Offered                     => GrantState.Pending
+    case GrantChange.Declined                    => GrantState.Declined
+    case GrantChange.Withdrawn                   => GrantState.Withdrawn
+    case GrantChange.Revoked                     => GrantState.Revoked
+    case GrantChange.Relinquished                => GrantState.Relinquished
+    case GrantChange.Lapsed                      => GrantState.Lapsed
+
+  /** Fold one recorded change into what a grantee side holds, by the grant's id. */
+  def fold(
+      held: Map[String, ReceivedGrant],
+      recorded: GrantRecordedFields
+  ): Map[String, ReceivedGrant] =
+    val entry = GrantChangeEntry(recorded.change, recorded.actor, recorded.at)
+    val next = held.get(recorded.id) match
+      case Some(had) =>
+        had.copy(state = stateAfter(recorded.change), changes = had.changes :+ entry)
+      case None =>
+        ReceivedGrant(
+          recorded.id,
+          recorded.grantingProject,
+          recorded.grantingOrganization,
+          recorded.grantee,
+          recorded.target,
+          stateAfter(recorded.change),
+          Vector(entry)
+        )
+    held.updated(recorded.id, next)
+
+/** What a `GrantRecorded` event says, the same on a project and on an organization. */
+final case class GrantRecordedFields(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    change: GrantChange,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None
+)
+
+/**
+ * Who deleted a project or a registered machine, and when (feature 040): what a grant made to it
+ * just before is lapsed under, when the grant reaches the grantee's side only after the deletion.
+ */
+final case class Deletion(by: Option[Actor] = None, at: Option[Instant] = None)
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
     name: String,
     organizationId: String,
     deleted: Boolean = false,
+    /** Who deleted it and when (feature 040); none while it exists. */
+    deletion: Option[Deletion] = None,
     registry: Option[RegistryRef] = None,
     /** By the secret's name. A secret with no entry left is not here. */
     secrets: Map[String, ProjectSecretRef] = Map.empty,
@@ -401,7 +512,11 @@ final case class Project(
     /**
      * How many times the backup credential was asked to be issued again; the operator's generation.
      */
-    backupCredentialGeneration: Int = 0
+    backupCredentialGeneration: Int = 0,
+    /** The grants this project holds, by id (feature 040). An ended grant stays, as history. */
+    grants: Map[String, Grant] = Map.empty,
+    /** What other projects granted this project's services, by grant id (feature 040). */
+    received: Map[String, ReceivedGrant] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -518,6 +633,50 @@ final case class Project(
       (history :+ ProjectHistoryEntry(kind, actor, at, detail)).takeRight(Project.HistoryLimit)
     )
 
+  /** The live grant of this grantee on this target, if there is one. */
+  def liveGrant(grantee: Grantee, target: GrantTarget): Option[Grant] =
+    grants.values.find(g => g.state.live && g.grantee == grantee && g.target == target)
+
+  def onGrantMade(
+      id: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      pending: Boolean,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    val state = if pending then GrantState.Pending else GrantState.Accepted
+    copy(grants = grants.updated(id, Grant(id, grantee, target, state, GrantMark(actor, at))))
+
+  /** An answer from the grantee's side: accepted or declined. */
+  def onGrantAnswered(
+      id: String,
+      state: GrantState,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    grants.get(id).fold(this) { g =>
+      val answered = Some(GrantMark(actor, at))
+      val ended    = Option.when(!state.live)(GrantMark(actor, at))
+      copy(grants = grants.updated(id, g.copy(state = state, answered = answered, ended = ended)))
+    }
+
+  /** An end from either side, or a lapse. */
+  def onGrantEnded(
+      id: String,
+      state: GrantState,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    grants
+      .get(id)
+      .fold(this)(g =>
+        copy(grants = grants.updated(id, g.copy(state = state, ended = Some(GrantMark(actor, at)))))
+      )
+
+  def onGrantRecorded(fields: GrantRecordedFields): Project =
+    copy(received = ReceivedGrant.fold(received, fields))
+
   /** As for [[Organization.known]] — a deleted project's id stays taken. */
   def known: Boolean = name.nonEmpty || deleted
 
@@ -526,6 +685,8 @@ final case class Project(
 
   def onRenamed(name: String): Project = copy(name = name)
   def onDeleted: Project               = copy(deleted = true)
+  def onDeleted(by: Option[Actor], at: Option[Instant]): Project =
+    copy(deleted = true, deletion = Some(Deletion(by, at)))
 
   def onRegistryConfigured(
       server: String,
@@ -678,7 +839,9 @@ final case class Service(
      * restore or one it left. `None` is the project database. A switch bumps the generation, so it
      * rolls the service as an apply does.
      */
-    databaseCluster: Option[String] = None
+    databaseCluster: Option[String] = None,
+    /** The operator's last report on whether the service reads its grants (feature 040). */
+    grants: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -888,7 +1051,8 @@ final case class Service(
         database = event.database,
         broker = event.broker,
         objectStorage = event.objectStorage,
-        storage = event.storage
+        storage = event.storage,
+        grants = event.grants
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -974,7 +1138,8 @@ final case class Service(
       bucketLocation = storage.flatMap(_.location),
       softDeleteDays = storage.flatMap(_.softDeleteDays),
       storageMove = Service.moveStatus(storageMove, storage),
-      databaseCluster = databaseCluster
+      databaseCluster = databaseCluster,
+      grants = grants
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -1290,3 +1455,63 @@ object DeployToken:
 
   /** The longest lifetime that may be chosen. */
   val MaximumLifetime: java.time.Duration = java.time.Duration.ofDays(365)
+
+// ── Machines (feature 040) ────────────────────────────────────────────────────
+
+/** What a machine may move through the broker, each a ceiling the broker enforces. */
+final case class ByteRates(
+    produceBytesPerSecond: Long,
+    consumeBytesPerSecond: Long,
+    requestPercentage: Int
+)
+
+/**
+ * A machine registered on an organization, keyed `<organization>/<name>`. Deleting one is a
+ * tombstone that may be registered over: a new machine, a new secret, and no grant of the old
+ * one's, since a grant names the machine by its client id and the old grants lapsed with it.
+ */
+final case class Machine(
+    id: String,
+    organizationId: String = "",
+    name: String = "",
+    digest: String = "",
+    registeredBy: Option[Actor] = None,
+    registeredAt: Option[Instant] = None,
+    byteRates: Option[ByteRates] = None,
+    deleted: Boolean = false,
+    /** Who deleted it and when; none while it exists, and none again once registered anew. */
+    deletion: Option[Deletion] = None
+):
+  def exists: Boolean = organizationId.nonEmpty && !deleted
+
+  def clientId: String =
+    com.thinkmorestupidless.ankka.controlplane.api.Machines.clientId(organizationId, name)
+
+  def onRegistered(
+      organizationId: String,
+      name: String,
+      digest: String,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Machine =
+    Machine(id, organizationId, name, digest, actor, at)
+
+  def onByteRatesSet(rates: ByteRates): Machine = copy(byteRates = Some(rates))
+
+  def onDeleted(by: Option[Actor], at: Option[Instant]): Machine =
+    copy(deleted = true, deletion = Some(Deletion(by, at)))
+
+  def summary: com.thinkmorestupidless.ankka.controlplane.api.MachineSummary =
+    com.thinkmorestupidless.ankka.controlplane.api.MachineSummary(
+      name = name,
+      clientId = clientId,
+      registeredBy = registeredBy.flatMap(_.display),
+      registeredAt = registeredAt,
+      byteRates = byteRates.map(r =>
+        com.thinkmorestupidless.ankka.controlplane.api
+          .ByteRatesRequest(r.produceBytesPerSecond, r.consumeBytesPerSecond, r.requestPercentage)
+      )
+    )
+
+object Machine:
+  def key(organizationId: String, name: String): String = s"$organizationId/$name"

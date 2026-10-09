@@ -1,0 +1,18 @@
+# The certificate the external listener presents: the installation's public wildcard, from its public
+# issuer, so a machine's client trusts it as it trusts the control plane's address. PUBLIC_ISSUER and
+# BASE_DOMAIN are replaced by the overlay.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-broker-external
+  namespace: ankka-broker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  secretName: ankka-broker-external-tls
+  dnsNames:
+    - "*.BASE_DOMAIN"
+  issuerRef:
+    name: PUBLIC_ISSUER
+    kind: ClusterIssuer
+    group: cert-manager.io

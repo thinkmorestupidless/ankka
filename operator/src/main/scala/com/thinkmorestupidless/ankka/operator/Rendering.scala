@@ -221,7 +221,10 @@ object Rendering:
       // The project's resource (feature 041): its database's replicas and retention, and the
       // backup credential's generation, which shape the cluster and its archiving. Read by the
       // caller for the same reason.
-      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None
+      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None,
+      // Other projects' topics granted to this service (feature 040), read by the caller from
+      // every `AnkkaProject`: entries on its broker user, and nothing else.
+      granted: Vector[GrantedTopic] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -265,7 +268,7 @@ object Rendering:
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
           moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
-          brokerActions(spec, broker) ++
+          brokerActions(spec, broker, granted) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
           // provider's to say, and an instance started without them would be started wrong.
           Option
@@ -768,9 +771,12 @@ object Rendering:
    */
   private def brokerActions(
       spec: AnkkaServiceSpec,
-      broker: Option[BrokerSettings]
+      broker: Option[BrokerSettings],
+      granted: Vector[GrantedTopic]
   ): Vector[Action] =
-    broker.toVector.map(settings => Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)))
+    broker.toVector.map(settings =>
+      Action.EnsureKafkaUser(StrimziRendering.user(spec, settings, granted))
+    )
 
   private def zeroTrustActions(
       resource: AnkkaService,

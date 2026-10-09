@@ -1,0 +1,1 @@
+{"type":"MachineRegistered","json":{"name":"network","clientId":"machine:affiliates/network","clientSecret":"c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff","tokenUrl":"https://api.example.com/oauth/token","brokerBootstrap":"broker.example.com:9094"}}

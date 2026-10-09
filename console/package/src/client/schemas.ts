@@ -186,6 +186,10 @@ export const serviceStatusSchema = z.object({
   storageMove: optional(z.string()),
   /** The project database cluster the service is on, when a member switched it to a restore. */
   databaseCluster: optional(z.string()),
+  /** `mounted` when the service's instances read their project's grants (feature 040). */
+  grants: optional(z.string()),
+  /** Each other project's topic the service uses, and whether that project grants it; absent when not read. */
+  crossProjectTopics: optional(z.array(z.lazy(() => crossProjectTopicSchema))),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -196,6 +200,14 @@ export type StorageMoveRequest = z.infer<typeof storageMoveRequestSchema>;
 /** `PUT /projects/{id}/location`. */
 export const setProjectLocationSchema = z.object({ location: z.string() });
 export type SetProjectLocation = z.infer<typeof setProjectLocationSchema>;
+
+export const crossProjectTopicSchema = z.object({
+  project: z.string(),
+  topic: z.string(),
+  right: z.string(),
+  status: z.string(),
+});
+export type CrossProjectTopic = z.infer<typeof crossProjectTopicSchema>;
 
 export const historyActorSchema = z.object({
   subject: z.string(),
@@ -686,6 +698,112 @@ export const projectHistoryViewSchema = z.object({
 });
 export type ProjectHistoryView = z.infer<typeof projectHistoryViewSchema>;
 
+// ── Grants and machines (feature 040) ───────────────────────────────────────
+
+/** What a grant opens: one route, one gRPC method, one topic with one right, or the erasure. */
+export const grantTargetSchema = z.object({
+  kind: z.string(),
+  service: optional(z.string()),
+  method: optional(z.string()),
+  path: optional(z.string()),
+  topic: optional(z.string()),
+  right: optional(z.string()),
+  decrypt: z.boolean().default(false),
+});
+export type GrantTarget = z.infer<typeof grantTargetSchema>;
+
+/** Who did something to a grant, and when. */
+export const grantActSchema = z.object({
+  by: optional(z.string()),
+  at: optional(z.string()),
+});
+export type GrantAct = z.infer<typeof grantActSchema>;
+
+export const grantRequestSchema = z.object({
+  grantee: z.string(),
+  target: grantTargetSchema,
+});
+export type GrantRequest = z.infer<typeof grantRequestSchema>;
+
+/** A grant as its project lists it; `effect` is `in effect`, or why not. */
+export const grantDetailSchema = z.object({
+  id: z.string(),
+  grantee: z.string(),
+  target: grantTargetSchema,
+  state: z.string(),
+  effect: z.string(),
+  granted: grantActSchema,
+  answered: optional(grantActSchema),
+  ended: optional(grantActSchema),
+});
+export type GrantDetail = z.infer<typeof grantDetailSchema>;
+
+export const grantChangeRecordSchema = z.object({
+  change: z.string(),
+  by: optional(z.string()),
+  at: optional(z.string()),
+});
+
+export const topicSettingsSchema = z.object({
+  partitions: z.number().int(),
+  compacted: z.boolean().default(false),
+  retention: optional(z.string()),
+  copies: optional(z.number().int()),
+});
+
+/** A grant as its grantee's side records it. */
+export const receivedGrantDetailSchema = z.object({
+  id: z.string(),
+  grantingProject: z.string(),
+  grantingOrganization: z.string(),
+  grantee: z.string(),
+  target: grantTargetSchema,
+  state: z.string(),
+  changes: z.array(grantChangeRecordSchema).default([]),
+  topic: optional(topicSettingsSchema),
+});
+export type ReceivedGrantDetail = z.infer<typeof receivedGrantDetailSchema>;
+
+export const machineRegistrationSchema = z.object({ name: z.string() });
+
+/** A machine just registered: its secret, shown this once. */
+export const machineRegisteredSchema = z.object({
+  name: z.string(),
+  clientId: z.string(),
+  clientSecret: z.string(),
+  tokenUrl: z.string(),
+  brokerBootstrap: optional(z.string()),
+});
+export type MachineRegistered = z.infer<typeof machineRegisteredSchema>;
+
+export const byteRatesRequestSchema = z.object({
+  produceBytesPerSecond: z.number().int(),
+  consumeBytesPerSecond: z.number().int(),
+  requestPercentage: z.number().int(),
+});
+export type ByteRatesRequest = z.infer<typeof byteRatesRequestSchema>;
+
+export const machineSummarySchema = z.object({
+  name: z.string(),
+  clientId: z.string(),
+  registeredBy: optional(z.string()),
+  registeredAt: optional(z.string()),
+  byteRates: optional(byteRatesRequestSchema),
+});
+export type MachineSummary = z.infer<typeof machineSummarySchema>;
+
+export const tokenResponseSchema = z.object({
+  access_token: z.string(),
+  token_type: z.string(),
+  expires_in: z.number().int(),
+});
+
+export const jsonWebKeySetSchema = z.object({
+  keys: z.array(
+    z.object({ kty: z.string(), use: z.string(), alg: z.string(), kid: z.string(), n: z.string(), e: z.string() }),
+  ),
+});
+
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -745,4 +863,13 @@ export const schemasByType: Record<string, z.ZodType> = {
   RehearsalView: rehearsalViewSchema,
   RestoreHoldStatus: restoreHoldStatusSchema,
   CredentialReissued: credentialReissuedSchema,
+  GrantRequest: grantRequestSchema,
+  GrantDetail: grantDetailSchema,
+  ReceivedGrantDetail: receivedGrantDetailSchema,
+  MachineRegistration: machineRegistrationSchema,
+  MachineRegistered: machineRegisteredSchema,
+  MachineSummary: machineSummarySchema,
+  ByteRatesRequest: byteRatesRequestSchema,
+  TokenResponse: tokenResponseSchema,
+  JsonWebKeySet: jsonWebKeySetSchema,
 };

@@ -42,6 +42,9 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
     contract: ClassVar[Contract | None] = None
     broker: ClassVar[str | None] = None
     parallel: ClassVar[bool] = False
+    # Another project's topic (1.15): the id of the project whose topic `topic` is. The broker
+    # serves it while that project grants this service consume on it.
+    project: ClassVar[str | None] = None
     message_codec: ClassVar[Codec[Any]]
     out_codec: ClassVar[Codec[Any] | None] = None
 

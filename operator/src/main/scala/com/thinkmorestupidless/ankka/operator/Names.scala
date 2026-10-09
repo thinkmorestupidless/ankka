@@ -81,13 +81,14 @@ object Names:
    * `local` is reserved because a project's id is also part of the consumer group a deployed
    * service reads a topic under, and a service run on a developer's machine that states its name
    * reads under `ankka.local.<service>.…`. The control plane's list is the same
-   * (`ReservedProjectIdsSuite`).
+   * (`ReservedProjectIdsSuite`). `machine` likewise names a registered machine's group prefix,
+   * `ankka.machine.<organization>.<name>.`.
    *
    * `cloud-provider` is reserved because a project's namespace is `<prefix>-<project>`, and the
    * installation's cloud provider runs in `ankka-cloud-provider` with the power over the cloud
    * account (feature 044): a project of that name would render into the provider's namespace.
    */
-  val ReservedProjectIds: Set[String] = Set("platform", "local", "cloud-provider")
+  val ReservedProjectIds: Set[String] = Set("platform", "local", "cloud-provider", "machine")
 
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =

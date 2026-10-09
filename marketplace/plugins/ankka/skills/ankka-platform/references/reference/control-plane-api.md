@@ -12,8 +12,9 @@ platform prints it when it is deployed.
 
 ## Authentication
 
-Every route except `GET /auth` requires an OpenID Connect access token from the installation's identity
-provider, sent as a bearer token:
+Every route except `GET /auth` and the machine token routes (`POST /oauth/token`,
+`/.well-known/jwks.json` and `/.well-known/openid-configuration`) requires an OpenID Connect access token
+from the installation's identity provider, sent as a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" https://api.127.0.0.1.sslip.io:8443/organizations
@@ -24,6 +25,10 @@ starts. A person obtains a token with `ankka login`; a machine obtains one from 
 with the client-credentials grant and presents it as given. The control plane verifies the token itself,
 against the identity provider's published keys, and takes the token's `sub` claim as the caller's
 identity.
+
+A registered machine is not a caller of these routes. It takes its own token from `POST /oauth/token`,
+which answers without a bearer token and authenticates the machine by its client id and secret, and
+presents that token to the services and the broker that grants name it.
 
 | Status | Meaning |
 |---|---|
@@ -94,6 +99,14 @@ The table is generated from the control plane's own route declarations.
 | `PUT` | `/organizations/{organizationId}/members/{subject}/role` | |
 | `DELETE` | `/organizations/{organizationId}/invitations/{email}` | |
 | `POST` | `/organizations/{organizationId}/members/{subject}/repair` | |
+| `GET` | `/organizations/{organizationId}/grants` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/accept` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/decline` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/relinquish` | |
+| `GET` | `/organizations/{organizationId}/machines` | |
+| `POST` | `/organizations/{organizationId}/machines` | |
+| `DELETE` | `/organizations/{organizationId}/machines/{name}` | |
+| `PUT` | `/organizations/{organizationId}/machines/{name}/byte-rates` | |
 | `GET` | `/organizations/{organizationId}/tokens` | |
 | `POST` | `/organizations/{organizationId}/tokens` | |
 | `DELETE` | `/organizations/{organizationId}/tokens/{tokenId}` | |
@@ -130,6 +143,10 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/projects/{projectId}/location` | |
 | `GET` | `/projects/{projectId}/brokers` | |
 | `GET` | `/projects/{projectId}/secrets` | |
+| `POST` | `/projects/{projectId}/grants` | |
+| `GET` | `/projects/{projectId}/grants` | |
+| `GET` | `/projects/{projectId}/grants/received` | |
+| `DELETE` | `/projects/{projectId}/grants/{grantId}` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -340,6 +357,62 @@ answer so that a guessed id discloses nothing.
 The control plane node that handles the revocation refuses the token on the very next request. Other
 nodes refuse it within the platform's read-refresh interval, since each one learns from the token's
 journal; the id is never reused.
+
+### `GET /organizations/{organizationId}/grants`
+
+What the organization's registered machines and the services of every project it owns hold, or are
+offered, from other projects. Members only. Each entry is a received grant: its granting project and
+organization, the grantee, the target, its state, every change made to it with who made it and when,
+and for a topic grant the topic's partitions and whether it is compacted.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/accept`
+
+Accepts a pending grant offered to the organization: one naming a registered machine of it, or a
+service of one of its projects. Owners only; a member or a deploy token is refused with `403`. The grant
+takes effect, on the granting project's listing and its history, with the owner who accepted it. A
+grant not offered to this organization is `404`, whoever asks, so an id discloses nothing; a grant that
+is no longer pending is `409`. Answers `204`.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/decline`
+
+Declines a pending grant offered to the organization. It ends and never takes effect. Owners only, with
+the same answers as accepting.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/relinquish`
+
+Gives up an accepted grant the organization holds, without the grantor. What it opened closes as a
+revoked grant's does. Owners only; a grant that is not accepted is `409`.
+
+### `GET /organizations/{organizationId}/machines`
+
+Lists the organization's registered machines, by name. Members only. Each entry carries `name`,
+`clientId` (`machine:<organization>/<name>`), `registeredBy`, `registeredAt` and `byteRates`, absent
+while the installation's defaults apply. No entry carries the secret.
+
+### `POST /organizations/{organizationId}/machines`
+
+Registers a machine outside the installation: a system another organization runs, which takes tokens
+and calls what a project grants it. Body: `{ "name": "affiliate-network" }`, a name under the service
+name rule. Owners only; a deploy token is refused. A name registered and not deleted is `409`.
+
+Answers `200` with `{ "name", "clientId", "clientSecret", "tokenUrl", "brokerBootstrap" }`.
+**`clientSecret` is shown here and nowhere else**: it is kept only as a one-way digest. `tokenUrl` is
+the token route below; `brokerBootstrap` is the broker's address outside the cluster, absent when the
+installation does not expose it. A machine holds no grant until a project grants it one. See
+[Cross-project access](../platform/cross-project-access.md).
+
+### `DELETE /organizations/{organizationId}/machines/{name}`
+
+Deletes a machine. Owners only. Answers `204`, and `404` for one that is not registered. Its secret is
+refused from then on, and the name may be registered again as a new machine, with a new secret and no
+grant.
+
+### `PUT /organizations/{organizationId}/machines/{name}/byte-rates`
+
+Limits what a machine may move through the installation's broker. Body: `{ "produceBytesPerSecond":
+1048576, "consumeBytesPerSecond": 4194304, "requestPercentage": 50 }`. Each rate is more than nothing
+and at most the installation's ceiling, and `requestPercentage` is from 1 to 100; anything else is `400`
+naming every problem. Owners only. Answers the machine's entry with its new rates.
 
 ### `POST /organizations/{organizationId}/disable`
 

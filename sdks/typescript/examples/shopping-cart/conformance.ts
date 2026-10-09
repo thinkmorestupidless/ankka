@@ -222,6 +222,25 @@ export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof F
 }
 // docs:end contract-relay
 
+// ── partner-relay: another project's topic, read and published to (1.15) ──
+
+// docs:start partner-relay
+/** Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other. */
+export class PartnerRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "partner-relay"
+  static readonly topic = "conformance-shared"
+  static readonly project = "partner"
+  static readonly startFrom = StartFrom.earliest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-shared-relayed", project: "partner" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
+// docs:end partner-relay
+
 // ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
 export const TreePlaced = s.record("TreePlaced", { under: s.option(s.string) })
@@ -696,9 +715,12 @@ export class CallersEndpoint extends Endpoint {
   static readonly routes = {
     whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => {
       const c = req.caller
-      return c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
+      if (c.kind === "service") return `service:${c.project}/${c.name}`
+      if (c.kind === "machine") return `machine:${c.organization}/${c.name}`
+      return c.kind
     }),
     onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
+    granted: get("/granted", s.string, () => "granted", { acl: Acl.allowCallers(Callers.granted) }),
     events: sse("/events", async function* () {
       yield "tick"
     }, { acl: Acl.allowCallers(Callers.self) }),
@@ -835,6 +857,7 @@ export function referenceService() {
     .register(TopicRows)
     .register(TopicRelay)
     .register(ContractRelay)
+    .register(PartnerRelay)
     .register(TreeNode)
     .register(TreeRows)
     .register(JoinedLeft)

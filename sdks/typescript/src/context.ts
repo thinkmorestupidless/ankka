@@ -53,6 +53,8 @@ export interface Principal {
 export type Caller =
   | { readonly kind: "gateway" }
   | { readonly kind: "service"; readonly project: string; readonly name: string }
+  /** A machine registered on an organization, proven by a token the control plane issued (protocol 1.15). */
+  | { readonly kind: "machine"; readonly organization: string; readonly name: string }
   | { readonly kind: "local" }
 
 /** Query parameters in request order; a name may repeat. */

@@ -9,7 +9,7 @@ import { TokenCache } from "./session/token-cache.ts";
 import { SessionTokenSource, type TokenSource } from "./session/token-source.ts";
 import { tlsFetch, type FetchLike } from "./server/transport.ts";
 import type { ConsoleOptions } from "./options.ts";
-import type { DeployTokenCreated } from "./client/schemas.ts";
+import type { DeployTokenCreated, MachineRegistered } from "./client/schemas.ts";
 
 export interface ConsoleRuntime {
   options: ConsoleOptions;
@@ -23,6 +23,8 @@ export interface ConsoleRuntime {
   controlPlaneFetch: FetchLike;
   /** A deploy token's secret, carried across one redirect and shown once. */
   tokenFlash: SealedFlash<DeployTokenCreated>;
+  /** A registered machine's client secret, carried across one redirect and shown once, as a token's is. */
+  machineFlash: SealedFlash<MachineRegistered>;
   pendingLogin: SealedFlash<{ state: string; nonce: string; verifier: string; returnTo: string }>;
   log: (line: Record<string, unknown>) => void;
 }
@@ -93,6 +95,7 @@ export function createRuntime(options: ConsoleOptions): ConsoleRuntime {
     sessionTokens,
     controlPlaneFetch,
     tokenFlash: new SealedFlash({ secret: secret ?? "unused", secure, name: "ankka_console_flash", maxAgeSeconds: 60 }),
+    machineFlash: new SealedFlash({ secret: secret ?? "unused", secure, name: "ankka_console_machine_flash", maxAgeSeconds: 60 }),
     pendingLogin: new SealedFlash({ secret: secret ?? "unused", secure, name: "ankka_console_login", maxAgeSeconds: 600 }),
     log: options.log ?? ((line) => process.stdout.write(JSON.stringify(line) + "\n")),
   };

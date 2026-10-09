@@ -152,6 +152,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       "GET /conformance/echo",
       "GET /private/",
       "GET /callers/whoami",
+      "GET /callers/granted",
       "POST /autonomous/tasks/{type}",
       "GET /autonomous/tasks/{id}"
     ).foreach { r =>
@@ -515,6 +516,50 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     )
     val _ = eventually()(Option.when(relayed().contains("t-4"))(()))
     assertEquals(relayed().filterNot(_ == "t-4"), Vector.empty)
+  }
+
+  // ── Another project's topic (feature 040) ──────────────────────────────────
+
+  /** The topic `partner-relay` reads and publishes to, as the runtime carries them. */
+  private val partnerShared = s"${ConformanceReference.Partner}/${ConformanceReference.Shared}"
+  private val partnerRelayed =
+    s"${ConformanceReference.Partner}/${ConformanceReference.SharedRelayed}"
+
+  private def publishFanned(topic: String, subject: String, n: Int) =
+    target.broker.publish(
+      topic,
+      s"""{"n":$n}""".getBytes("UTF-8"),
+      com.thinkmorestupidless.ankka.core.Metadata.empty
+        .withSubject(subject)
+        .set(com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.Manifest, "fanned")
+        .set(
+          com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.ContentType,
+          com.thinkmorestupidless.ankka.runtime.remote.Payload.Json
+        )
+    )
+
+  test("topics.cross-project-source: a consumer reads another project's topic by its project") {
+    val _ = publishFanned(partnerShared, "x-1", 1)
+    val _ = eventually()(
+      Option.when(
+        target.broker.publishedTo(partnerRelayed).flatMap(_.message.subject).contains("x-1")
+      )(())
+    )
+    // Under a group of the service's own, named for the component as any topic source's is: the
+    // target states no service name, so `ankka-consumer-<id>`, and nothing of the topic's project.
+    val groups = target.broker.positions(partnerShared).keySet
+    assertEquals(groups, Set("ankka-consumer-partner-relay"))
+  }
+
+  test("topics.cross-project-publication: a consumer publishes to another project's topic") {
+    val _ = publishFanned(partnerShared, "x-2", 2)
+    val _ = eventually()(
+      Option.when(
+        target.broker.publishedTo(partnerRelayed).flatMap(_.message.subject).contains("x-2")
+      )(())
+    )
+    // Never to a topic of this project's that has the same name.
+    assertEquals(target.broker.publishedTo(ConformanceReference.SharedRelayed), Seq.empty)
   }
 
   test("topic.version-names-the-group") {
@@ -958,6 +1003,41 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(get("/callers/whoami", as(Caller.Service("local", "payments"))).status, 403)
     assertEquals(get("/callers/whoami", as(Caller.Service("billing", "orders"))).status, 403)
     assertEquals(get("/callers/self", as(Caller.Service("local", "local"))).body, "self")
+  }
+
+  // Feature 040: a route whose ACL names granted callers admits exactly the callers its
+  // project granted it to, and a machine is a caller as a service is.
+  test("http.granted-admits-a-grant") {
+    val service = get("/callers/granted", as(Caller.Service("billing", "invoices")))
+    assertEquals((service.status, service.body), (200, "granted"))
+    val machine = get("/callers/granted", as(Caller.Machine("affiliates", "network")))
+    assertEquals((machine.status, machine.body), (200, "granted"))
+    assertEquals(
+      get("/callers/granted").status,
+      200,
+      "a local caller is admitted, as by every matcher"
+    )
+  }
+
+  test("http.granted-refuses-without") {
+    for caller <- Vector(
+        Caller.Service("billing", "payroll"),
+        Caller.Service("local", "orders"),
+        Caller.Machine("affiliates", "other"),
+        Caller.Gateway
+      )
+    do
+      val r = get("/callers/granted", as(caller))
+      assertEquals(r.status, 403, caller.toString)
+      assert(!r.body.contains("invoices") && !r.body.contains("grant"), r.body)
+    // A grant on one route opens no other: the caller the grant names is refused elsewhere.
+    assertEquals(get("/callers/self", as(Caller.Service("billing", "invoices"))).status, 403)
+  }
+
+  test("http.caller-machine") {
+    val r = get("/callers/whoami", as(Caller.Machine("affiliates", "network")))
+    // The endpoint admits the internet, and a machine is the internet that proved who it is.
+    assertEquals((r.status, r.body), (200, "machine:affiliates/network"))
   }
 
   test("http.caller-in-stream") {
@@ -1964,7 +2044,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("topic-relay", "topic:conformance-topic-relayed", "topic-publication"),
         // A topic on a declared broker is named with it (feature 037).
         ("topic:legacy/conformance-contracts", "contract-relay", "topic-subscription"),
-        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication")
+        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication"),
+        // Another project's topic is named with its project (feature 040).
+        ("topic:partner/conformance-shared", "partner-relay", "topic-subscription"),
+        ("partner-relay", "topic:partner/conformance-shared-relayed", "topic-publication")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap

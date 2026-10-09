@@ -55,7 +55,8 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants
       )
 
     case ClusterView.Refused(reason) =>
@@ -69,7 +70,8 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants
       )
 
     case ClusterView.NoReport =>
@@ -83,7 +85,8 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants
       )
 
     case ClusterView.Reported(status) =>
@@ -102,7 +105,8 @@ object StatusIngest:
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
         objectStorage = status.objectStorage.map(_.phase),
-        storage = status.objectStorage.flatMap(report)
+        storage = status.objectStorage.flatMap(report),
+        grants = status.grants
       )
 
   /**

@@ -116,6 +116,17 @@ project or a service that would exceed the quota at the moment it is asked for. 
 is ever stopped by a quota, however it is lowered. See
 [Quotas](../platform/organizations.md#quotas).
 
+## Access across projects and organizations
+
+A project is a boundary: by default nothing outside it calls its routes or reads its topics. An owner
+opens one route, gRPC method or topic to a named service of another project, or to a **registered
+machine** outside the installation, with a **grant**. A grant within one organization takes effect when
+it is made. One whose grantee belongs to another organization is **offered** to that organization and
+opens nothing until an owner there accepts it, so no organization is recorded as holding access it never
+agreed to hold. Either side can end a grant on its own: the grantor withdraws or revokes it, the grantee's
+organization declines or relinquishes it, and deleting the grantee lapses it. Every change is recorded on
+both sides with the owner who made it. See [Cross-project access](../platform/cross-project-access.md).
+
 ## Every change is attributed
 
 Every command recorded by the control plane carries who asked for it, when, and whether it was the

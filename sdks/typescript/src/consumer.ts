@@ -120,6 +120,11 @@ export interface ConsumerClass<M = unknown, Out = unknown, C extends Consumer<M,
   readonly contract?: Contract
   /** The declared broker the topic read is on; absent is the installation's. */
   readonly broker?: string
+  /**
+   * Another project's topic (1.15): the id of the project whose topic `topic` is. The broker serves it
+   * while that project grants this service consume on it.
+   */
+  readonly project?: string
   /** Whether the partitions an instance holds are handled at once, each in order. */
   readonly parallel?: boolean
   readonly message: Shape<M>

@@ -80,6 +80,28 @@ spec:
               gateway.envoyproxy.io/owning-gateway-name: ankka
               gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
 ---
+# The keys machine tokens are signed with (feature 040): public, served with TLS and no client
+# certificate, so the broker, which holds none, and every ankka workload may read them. Nothing else
+# in the cluster reaches the port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-controlplane-keys
+  namespace: ankka-controlplane
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 7629 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-broker }
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: BackendTLSPolicy
 metadata:

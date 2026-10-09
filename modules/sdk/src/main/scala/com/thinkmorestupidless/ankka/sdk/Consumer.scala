@@ -59,6 +59,14 @@ object Consumer:
      */
     def produces: Option[Publication] = produceTo.map(Publication(_))
 
+    /**
+     * Another project's topic to publish to (feature 040), for `produces`:
+     * `override def produces = produceTo("spinvibe", "payments.deposits")`. That project must grant
+     * this service produce on it.
+     */
+    protected final def produceTo(project: String, topic: String): Option[Publication] =
+      Some(Publication(topic, project = Some(project)))
+
     def parallelism: Int = 4
 
     /**
@@ -85,7 +93,8 @@ object Consumer:
           componentId,
           source,
           outputSerializer,
-          publication.map(_.topic),
+          // As the runtime carries it: `<project>/<name>` for another project's topic.
+          publication.map(_.address),
           create,
           parallelism,
           version = version,

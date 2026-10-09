@@ -85,7 +85,14 @@ final case class KafkaConnection(
      */
     credential: Option[KafkaCredential] = None
 ):
-  def qualified(topic: String): String = topicPrefix + topic
+  /**
+   * The name the broker holds: this project's prefix and the name, or for another project's topic
+   * (`<project>/<name>`, feature 040) that project's prefix and the name, whatever this one's is.
+   */
+  def qualified(topic: String): String =
+    com.thinkmorestupidless.ankka.sdk.TopicAddress.split(topic) match
+      case (Some(project), name) => s"$project.$name"
+      case (None, name)          => topicPrefix + name
 
   /** What a Kafka client is configured with beyond the bootstrap address. */
   def properties: Map[String, String] =

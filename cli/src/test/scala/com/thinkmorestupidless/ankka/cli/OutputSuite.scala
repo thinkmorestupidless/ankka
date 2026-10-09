@@ -240,7 +240,39 @@ class OutputSuite extends munit.FunSuite:
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     for label <- Vector("process", "callers", "mounts") do
       assert(!rendered.linesIterator.exists(_.startsWith(label)), rendered)
-    assertEquals(rendered.linesIterator.toVector.last, "database    provisioned")
+    // Its own lines end with its database and, a ready service whose operator reported no grants
+    // volume, that a grant on its routes waits for a rollout (feature 040).
+    assertEquals(
+      rendered.linesIterator.toVector.takeRight(2),
+      Vector("database    provisioned", "grants      rollout needed")
+    )
+  }
+
+  test("a service says whether its grants are mounted, and each other project's topic it uses") {
+    val rendered = Output.service(
+      status("attribution").copy(
+        grants = Some("mounted"),
+        crossProjectTopics = Some(
+          Vector(
+            CrossProjectTopic("spinvibe", "casino.players", "consume", "granted"),
+            CrossProjectTopic("spinvibe", "payments.deposits", "produce", "not granted (pending)")
+          )
+        )
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines.contains("grants                mounted"), rendered)
+    assert(
+      lines.contains("cross-project topics  spinvibe/casino.players     consume  granted"),
+      rendered
+    )
+    assert(
+      lines.contains(
+        "                      spinvibe/payments.deposits  produce  not granted (pending)"
+      ),
+      rendered
+    )
   }
 
   test("a service with a bucket says so after its database, and its address when it has one") {

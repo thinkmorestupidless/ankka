@@ -39,7 +39,7 @@ class StrimziModelsSuite extends munit.FunSuite:
     assertEquals(
       user.getSpec,
       KafkaUserSpec(
-        KafkaUserAuthentication("tls-external"),
+        Some(KafkaUserAuthentication("tls-external")),
         KafkaUserAuthorization(
           "simple",
           Vector(

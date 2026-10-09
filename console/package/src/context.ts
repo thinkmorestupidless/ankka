@@ -182,7 +182,7 @@ export const text = (form: FormData, name: string): string => {
 };
 
 /** The rail's areas, in the order it shows them. */
-export const areas = ["organizations", "projects", "services", "members", "tokens"] as const;
+export const areas = ["organizations", "projects", "services", "members", "tokens", "machines"] as const;
 export type Area = (typeof areas)[number];
 
 export interface Crumb {

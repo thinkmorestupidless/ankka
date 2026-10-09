@@ -76,7 +76,8 @@ final class ProjectReconciler(
             restores = restores.statuses,
             clusters = restores.clusters,
             rehearsals = rehearsals.statuses
-          )
+          ),
+          settings.machines
         )).foreach(executor.execute)
 
 object ProjectReconciler:
@@ -116,7 +117,9 @@ object ProjectReconciler:
       broker: Option[BrokerSettings],
       observed: Map[String, TopicState],
       current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus],
-      backups: Backups = Backups.none
+      backups: Backups = Backups.none,
+      // Feature 040: where machines' tokens come from, for every service of the project.
+      machines: Option[Settings.MachineIssuer] = None
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
@@ -134,7 +137,9 @@ object ProjectReconciler:
       )
     // The declarations every service of the project reads at start (feature 037), with or without
     // a broker: a contract is checked wherever the topic lives.
-    (Action.EnsureProjectConfig(ProjectConfig.configMap(ref.namespace, spec)) +: topics) ++
+    (Action.EnsureProjectConfig(
+      ProjectConfig.configMap(ref.namespace, spec, machines)
+    ) +: topics) ++
       Option.unless(current.contains(next))(
         Action.SetProjectStatus(ref.namespace, ref.name, next)
       )

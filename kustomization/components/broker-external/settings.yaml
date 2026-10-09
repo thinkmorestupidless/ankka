@@ -1,0 +1,15 @@
+# The control plane tells a machine registered on an organization where the broker is, and lists a
+# machine's topic grant as in effect only once it is exposed. Replaced by the overlay.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_BROKER_EXTERNAL_BOOTSTRAP
+              value: "BROKER_EXTERNAL_BOOTSTRAP"

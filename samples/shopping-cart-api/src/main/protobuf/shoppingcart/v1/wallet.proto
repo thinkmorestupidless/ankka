@@ -1,0 +1,15 @@
+// A player's wallet as a gRPC service: a method another project may be granted, and one it may not
+// be, so a grant on one method is seen to open that method alone.
+syntax = "proto3";
+
+package shoppingcart.v1;
+
+service WalletService {
+  rpc Deposit    (DepositRequest)    returns (DepositReply);
+  rpc GetBalance (GetBalanceRequest) returns (BalanceReply);
+}
+
+message DepositRequest    { string player = 1; string currency = 2; int64 amount = 3; string idempotency_key = 4; }
+message DepositReply      { string currency = 1; int64 balance = 2; bool applied = 3; }
+message GetBalanceRequest { string player = 1; string currency = 2; }
+message BalanceReply      { string currency = 1; int64 balance = 2; }

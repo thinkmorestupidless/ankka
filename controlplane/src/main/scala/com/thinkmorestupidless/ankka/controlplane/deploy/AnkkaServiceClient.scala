@@ -93,6 +93,15 @@ trait AnkkaServiceClient extends AutoCloseable:
   def putProject(namespace: String, name: String, spec: AnkkaProjectSpec): Unit
 
   /**
+   * Writes a registered machine as its cluster-scoped `AnkkaMachine` (feature 040), from which the
+   * operator gives it a user on the installation's broker. Idempotent, as `putProject` is.
+   */
+  def putMachine(spec: com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec): Unit
+
+  /** Removes a deleted machine's `AnkkaMachine`; one already gone is no failure. */
+  def deleteMachine(organizationId: String, name: String): Unit
+
+  /**
    * A contract's schema document into the project's schema `ConfigMap`, under its fingerprint
    * (feature 037).
    */
@@ -207,6 +216,16 @@ final class HeldClient(underlying: AnkkaServiceClient, hold: RestoreHold)
       def topics(t: List[com.thinkmorestupidless.ankka.crd.ProjectTopicEntry]) =
         t.map(e => (e.name, e.partitions, e.compacted)).toSet
       hold.topics(spec.projectId, topics(spec.topics) != topics(written))
+
+  // A machine's resource (feature 040) is written by a consumer, which retries a refusal: the
+  // write is made once the hold is released, rather than dropped.
+  def putMachine(spec: com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec): Unit =
+    if hold.held then refuse("a registered machine's resource")
+    else underlying.putMachine(spec)
+
+  def deleteMachine(organizationId: String, name: String): Unit =
+    if hold.held then refuse("a registered machine's removal")
+    else underlying.deleteMachine(organizationId, name)
 
   def putSchema(namespace: String, fingerprint: String, document: String): Unit =
     if hold.held then refuse("a contract's schema")

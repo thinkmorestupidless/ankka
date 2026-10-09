@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the twenty-four it renders") {
+  test("the variables the platform alone sets are exactly the twenty-eight it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -37,7 +37,11 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_CLOUD_LOCATION",
         "ANKKA_CLOUD_KMS_KEY",
         "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND",
-        "ANKKA_CLOUD_ROTATION_GRACE"
+        "ANKKA_CLOUD_ROTATION_GRACE",
+        "ANKKA_PROJECT_GRANTS",
+        "ANKKA_MACHINE_ISSUER",
+        "ANKKA_MACHINE_JWKS_URL",
+        "ANKKA_MACHINE_JWKS_CA"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -157,6 +161,13 @@ class PlatformVariablesSuite extends munit.FunSuite:
       !runtimeOnly(OtlpEndpoint),
       "a process is not given it, and a descriptor may not give it"
     )
+  }
+
+  test("which grants name a service, and how it believes a machine, are the platform's to say") {
+    for name <- Vector(ProjectGrants, MachineIssuer, MachineJwksUrl, MachineJwksCa) do
+      assert(platformOnly(name), name)
+      assert(withheldFromModule(name), name)
+    assert(!platformOnly(MachineTokenRate), "the control plane's own setting, never a service's")
   }
 
   test("the object store's variables are the developer's program's, by prefix") {

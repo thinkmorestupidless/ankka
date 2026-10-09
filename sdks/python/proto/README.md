@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.14`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.15`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -37,7 +37,13 @@ which answers with `rows`, several row changes by key; and a version on a view t
 `1.14` added what a project must know about a topic source and a publication: `Source.contract`,
 `Source.broker` and `Source.parallel`, `ConsumerDetail.produces` (a `Publication` with its
 contract and broker; `produces_to` stays), and `fixtures/contracts/`, the fingerprints every SDK
-must compute for a schema document.
+must compute for a schema document. `1.15` added cross-project access: `CallerMatcher.granted`, a
+caller holding a grant its service's project made on the route or method; `Caller.machine`, a machine
+registered on an organization, proven by a token the control plane issued; and `Source.project` and
+`Publication.project`, another project's topic, which the broker serves only under a grant. The
+sidecar refuses a `Spec` that uses any of them and declares an earlier minor, and an SDK refuses
+discovery from a runtime stating an earlier one, as for socket routes: a runtime that did not know
+`granted` would read the matcher as nothing.
 
 `MAJOR.MINOR`. Within a major:
 

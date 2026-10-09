@@ -58,7 +58,8 @@ object Discovery:
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
-   * (feature 031).
+   * (feature 031). 1.14: a topic source's contract, broker and parallel flag (feature 037). 1.15:
+   * the granted-caller matcher, the machine caller, and another project's topic (feature 040).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -139,6 +140,15 @@ object Discovery:
 
   /** The minor that introduced socket routes. */
   private val SocketsSince = 9
+
+  /** The first minor whose SDKs may declare granted callers and another project's topic. */
+  private val GrantsSince = 15
+
+  /**
+   * Whether an SDK speaking `version` predates grants, so cannot have meant another project's
+   * topic.
+   */
+  private def beforeGrants(version: String): Boolean = minorOf(version).exists(_ < GrantsSince)
 
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
@@ -234,15 +244,24 @@ object Discovery:
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>
               source(s"consumer '${c.id}'", c.id, d.source, problems).foreach { s =>
                 val produces = d.produces.map(p =>
-                  Publication(p.topic, p.contract.map(contract), p.broker.filter(_.nonEmpty))
+                  Publication(
+                    p.topic,
+                    p.contract.map(contract),
+                    p.broker.filter(_.nonEmpty),
+                    p.project.filter(_.nonEmpty)
+                  )
                 )
                 if produces.exists(p => d.producesTo.exists(_ != p.topic)) then
                   problems += s"consumer '${c.id}' names '${d.producesTo.get}' in produces_to and " +
                     s"'${produces.get.topic}' in produces; a consumer publishes to one topic"
+                if produces.exists(_.project.isDefined) && beforeGrants(spec.protocolVersion) then
+                  problems += s"consumer '${c.id}' publishes to another project's topic, which " +
+                    s"needs protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
                 descriptors += RemoteConsumerDescriptor(
                   id,
                   s,
-                  d.producesTo,
+                  // As the runtime carries it: `<project>/<name>` for another project's topic.
+                  produces.map(_.address).orElse(d.producesTo),
                   startDeclarable = declaresStartPositions(spec.protocolVersion),
                   version = d.version,
                   produces = produces
@@ -366,7 +385,29 @@ object Discovery:
             problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, which needs " +
               s"protocol 1.$SocketsSince; the SDK speaks ${spec.protocolVersion}"
       }
+      // Feature 040: an SDK before 1.15 cannot have meant granted callers, and a runtime before it
+      // would read the matcher as nobody — refused here, as a socket route is, so the mismatch is
+      // named at start rather than found as a 403.
+      val grantsBefore = minorOf(spec.protocolVersion).exists(_ < GrantsSince)
+      if grantsBefore && e.allowCallers.exists(_.kind.isGranted) then
+        problems += s"endpoint '${e.id}' admits granted callers, which needs protocol " +
+          s"1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      e.routes.filter(r => grantsBefore && r.allowCallers.exists(_.kind.isGranted)).foreach { r =>
+        problems += s"endpoint '${e.id}': route '${r.id}' admits granted callers, which needs " +
+          s"protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      }
     }
+    // Feature 040: a runtime before 1.15 would read another project's topic as this project's.
+    if beforeGrants(spec.protocolVersion) then
+      spec.components.foreach { c =>
+        val sources = c.detail match
+          case Component.Detail.View(d)     => d.source.toVector ++ d.sources
+          case Component.Detail.Consumer(d) => d.source.toVector
+          case _                            => Vector.empty
+        if sources.exists(_.project.exists(_.nonEmpty)) then
+          problems += s"component '${c.id}' reads another project's topic, which needs " +
+            s"protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      }
 
     val found = problems.result()
     if found.nonEmpty then Left(found)
@@ -435,7 +476,9 @@ object Discovery:
       TopicOptions(
         src.contract.map(contract),
         src.broker.filter(_.nonEmpty),
-        src.parallel.getOrElse(false)
+        src.parallel.getOrElse(false),
+        // 1.15: another project's topic; refused below on an earlier Spec.
+        src.project.filter(_.nonEmpty)
       )
     )
     s.map(_.source) match

@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.14"
+export const PROTOCOL_VERSION = "1.15"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -51,6 +51,8 @@ export function callersToProto(acl: Acl): MessageInitShape<typeof CallerMatcherS
         return { kind: { case: "anyInProject", value: {} } }
       case "self":
         return { kind: { case: "self", value: {} } }
+      case "granted":
+        return { kind: { case: "granted", value: {} } }
       case "service":
         return { kind: { case: "service", value: m.project !== undefined ? { name: m.name, project: m.project } : { name: m.name } } }
     }
@@ -77,6 +79,8 @@ function sourceInit(source: Source): SourceInit {
     ...(source.contract !== undefined ? { contract: { name: source.contract.name, fingerprint: source.contract.fingerprint } } : {}),
     ...(source.broker !== undefined ? { broker: source.broker } : {}),
     ...(source.parallel === true ? { parallel: true } : {}),
+    // 1.15: another project's topic.
+    ...(source.project !== undefined ? { project: source.project } : {}),
   }
   if (start === undefined) return { source: { case: "topic", value: source.topic }, ...options }
   const position =
@@ -167,6 +171,7 @@ function componentInit(c: RegisteredComponent): ComponentInit {
                     topic: c.produces.topic,
                     ...(c.produces.contract !== undefined ? { contract: { name: c.produces.contract.name, fingerprint: c.produces.contract.fingerprint } } : {}),
                     ...(c.produces.broker !== undefined ? { broker: c.produces.broker } : {}),
+                    ...(c.produces.project !== undefined ? { project: c.produces.project } : {}),
                   },
                 }
               : {}),

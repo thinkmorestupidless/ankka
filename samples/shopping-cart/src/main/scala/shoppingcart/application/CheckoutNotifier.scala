@@ -33,4 +33,7 @@ object CheckoutNotifier
   override val outputSerializer: Option[Serializer[CheckoutNotice]] =
     Some(Codecs.serializer[CheckoutNotice]("checkout-notice"))
 
-  override val produceTo: Option[String] = Some(CheckoutTopic.name)
+  override val produceTo: Option[String] = Some(CheckoutTopic.publishTo.topic)
+
+  /** The topic with its project: another project's when `CART_PUBLISH_TO` names one. */
+  override def produces: Option[Publication] = Some(CheckoutTopic.publishTo)

@@ -4,7 +4,10 @@ import com.thinkmorestupidless.ankka.http.{
   Acl,
   AuthDecision,
   Caller,
+  GrantTarget,
+  Grants,
   LocalCallers,
+  MachineTokens,
   QueryParams,
   RequestContext,
   SimpleRequestContext
@@ -27,7 +30,19 @@ import scala.util.Try
  * Outside TLS every caller is `Caller.Local`, or the caller a test names with the process's local
  * token, exactly as on the HTTP server.
  */
-private[grpc] final class Admission(val tls: Boolean, val self: RotatingTls.Identity):
+private[grpc] final class Admission(
+    val tls: Boolean,
+    val self: RotatingTls.Identity,
+    val grants: Grants = Grants.none,
+    val machines: Option[MachineTokens] = None
+):
+
+  /** The same admission, reading `grants` for `Callers.granted` (feature 040). */
+  def withGrants(grants: Grants): Admission = Admission(tls, self, grants, machines)
+
+  /** The same admission, reading a machine's token on a call through the gateway (feature 040). */
+  def withMachines(machines: Option[MachineTokens]): Admission =
+    Admission(tls, self, grants, machines)
 
   /** The context a handler and an ACL both see, or the refusal of a certificate naming nobody. */
   def contextFor(
@@ -57,11 +72,32 @@ private[grpc] final class Admission(val tls: Boolean, val self: RotatingTls.Iden
           // means one caller whichever port it is presented on.
           Caller
             .fromCertificate(certificate, Some(self))
+            .map {
+              // A call from outside may say which machine it is; between services the
+              // certificate is the caller (feature 040).
+              case Caller.Gateway => machineOf(headers).getOrElse(Caller.Gateway)
+              case other          => other
+            }
             .left
             .map(Status.PERMISSION_DENIED.withDescription)
         case None => Left(Status.PERMISSION_DENIED.withDescription("no client certificate"))
     else
       Right(CallMetadata.localCaller(headers).map(LocalCallers.callerFrom).getOrElse(Caller.Local))
+
+  /** The machine a bearer token in the call's `authorization` metadata proves, if any. */
+  private def machineOf(headers: Metadata): Option[Caller] =
+    val authorization =
+      Option(headers.get(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER)))
+    for
+      tokens <- machines
+      bearer <- authorization
+        .map(_.trim)
+        .filter(_.regionMatches(true, 0, "Bearer ", 0, 7))
+        .map(_.drop(7).trim)
+        .filter(_.nonEmpty)
+      if tokens.issuerOf(bearer).contains(tokens.issuer)
+      machine <- tokens.verify(bearer).toOption
+    yield machine
 
   /**
    * The context to dispatch with — carrying the principal, when the ACL established one — or the
@@ -79,7 +115,9 @@ private[grpc] final class Admission(val tls: Boolean, val self: RotatingTls.Iden
       case Acl.AllowCallers(matchers) =>
         // The same text as every other refusal: naming who would have been admitted tells an
         // unauthorised caller whose certificate to go looking for.
-        if matchers.exists(_.admits(context.caller, self)) then Right(context)
+        // A grant opens one method, by the full name the call's path carries (feature 040).
+        val target = Some(GrantTarget.Method(context.path.stripPrefix("/")))
+        if matchers.exists(_.admits(context.caller, self, target, grants)) then Right(context)
         else refused(Admission.NotPermitted)
       case Acl.Authenticate(decide) =>
         decide(context) match

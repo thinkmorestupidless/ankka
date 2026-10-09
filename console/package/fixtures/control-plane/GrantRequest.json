@@ -1,0 +1,1 @@
+{"type":"GrantRequest","json":{"grantee":"service:payments/merchant","target":{"kind":"route","service":"wallet","method":"POST","path":"/v1/wallets/{player}/{currency}/deposits"}}}

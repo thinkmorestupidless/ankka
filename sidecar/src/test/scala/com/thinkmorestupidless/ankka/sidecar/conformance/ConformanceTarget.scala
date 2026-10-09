@@ -170,6 +170,23 @@ trait ConformanceTarget:
 object ConformanceTarget:
 
   /**
+   * The grants every target's server holds (feature 040): `billing/invoices` may call
+   * `GET /callers/granted`, and nobody else holds anything. The same set in every target, so every
+   * language's `Callers.granted` is held to one answer.
+   */
+  val grants: com.thinkmorestupidless.ankka.http.Grants =
+    com.thinkmorestupidless.ankka.http.Grants.of(
+      com.thinkmorestupidless.ankka.http.GrantEntry(
+        com.thinkmorestupidless.ankka.http.Caller.Service("billing", "invoices"),
+        com.thinkmorestupidless.ankka.http.GrantTarget.Route("GET", "/callers/granted")
+      ),
+      com.thinkmorestupidless.ankka.http.GrantEntry(
+        com.thinkmorestupidless.ankka.http.Caller.Machine("affiliates", "network"),
+        com.thinkmorestupidless.ankka.http.GrantTarget.Route("GET", "/callers/granted")
+      )
+    )
+
+  /**
    * Where the target's service finds other services: `scripted`, and `nobody-home` at a port
    * nothing listens on, so a call to it gets no answer rather than no address.
    */
@@ -289,9 +306,11 @@ object ConformanceTarget:
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(
-          reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
-        )
+        HttpServer
+          .at("127.0.0.1", 0)(
+            reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
+          )
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       ConformanceTarget.withImpostor,
@@ -412,7 +431,9 @@ object ConformanceTarget:
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
+        HttpServer
+          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .withGrants(ConformanceTarget.grants),
         SidecarExtension(settings, conversation, timers, served)
       ),
       60.seconds,
@@ -583,7 +604,9 @@ object ConformanceTarget:
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
+        HttpServer
+          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .withGrants(ConformanceTarget.grants),
         SidecarExtension(settings, conversation, timers, served, Some(imports))
       ),
       60.seconds,

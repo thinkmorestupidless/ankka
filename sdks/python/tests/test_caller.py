@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from ankka import Acl, Callers, Endpoint, Gateway, LocalCaller, RequestContext, ServiceCaller, get
+from ankka import Acl, Callers, Endpoint, Gateway, LocalCaller, MachineCaller, RequestContext, ServiceCaller, get
 from ankka._proto.ankka.protocol.v1 import discovery_pb2, endpoint_pb2, payload_pb2
 from ankka.server import _caller
 from ankka.testkit import EndpointTestKit
@@ -75,6 +75,45 @@ def test_the_servers_mapping_from_the_protocol() -> None:
     # A sidecar that predates protocol 1.1 sends no caller at all.
     assert _caller(endpoint_pb2.HttpRequest()) == LocalCaller()
     assert RequestContext().caller == LocalCaller()
+
+
+def test_granted_callers_are_declared_and_a_machine_is_read_from_the_protocol() -> None:
+    class Wallets(Endpoint):
+        prefix = "/v1/wallets"
+        acl = Acl.allow_callers(Callers.granted)
+
+        @get("/{player}", acl=Acl.allow_callers(Callers.internet, Callers.granted))
+        def wallet(self, player: str) -> str:
+            return player
+
+    ep = Wallets.to_endpoint()
+    assert [m.WhichOneof("kind") for m in ep.allow_callers] == ["granted"]
+    route = next(iter(ep.routes))
+    assert [m.WhichOneof("kind") for m in route.allow_callers] == ["internet", "granted"]
+    machine = endpoint_pb2.HttpRequest(
+        caller=endpoint_pb2.Caller(machine=endpoint_pb2.MachineCaller(organization="eitheror", name="affiliate-network"))
+    )
+    assert _caller(machine) == MachineCaller("eitheror", "affiliate-network")
+
+
+def test_a_runtime_before_1_15_is_refused_a_service_that_admits_granted_callers() -> None:
+    from ankka.server import grants_refusal
+    from ankka.service import Registry
+
+    class Wallets(Endpoint):
+        prefix = "/v1/wallets"
+        acl = Acl.allow_callers(Callers.granted)
+
+        @get("/{player}")
+        def wallet(self, player: str) -> str:
+            return player
+
+    registry = Registry()
+    registry.endpoints[Wallets.endpoint_id()] = Wallets
+    refusal = grants_refusal(registry, "1.14")
+    assert refusal is not None and "granted callers and another project's topics need 1.15" in refusal
+    assert grants_refusal(registry, "1.15") is None
+    assert grants_refusal(Registry(), "1.14") is None
 
 
 def test_an_endpoint_with_no_constructor_is_built_without_a_client() -> None:

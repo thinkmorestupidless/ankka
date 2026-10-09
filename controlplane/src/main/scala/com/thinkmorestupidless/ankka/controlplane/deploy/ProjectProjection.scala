@@ -1,9 +1,16 @@
 package com.thinkmorestupidless.ankka.controlplane.deploy
 
-import com.thinkmorestupidless.ankka.controlplane.domain.{DeclaredBroker, DeclaredTopic, Restore}
+import com.thinkmorestupidless.ankka.controlplane.api.{GrantState, GrantTarget}
+import com.thinkmorestupidless.ankka.controlplane.domain.{
+  DeclaredBroker,
+  DeclaredTopic,
+  Grant,
+  Restore
+}
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaProjectSpec,
   ProjectBrokerEntry,
+  ProjectGrantEntry,
   ProjectTopicEntry,
   RestoreEntry
 }
@@ -31,7 +38,8 @@ object ProjectProjection:
       rehearsals: Map[String, com.thinkmorestupidless.ankka.controlplane.domain.Rehearsal] =
         Map.empty,
       /** How many times the project's backup credential was issued again; none renders nothing. */
-      backupCredentialGeneration: Int = 0
+      backupCredentialGeneration: Int = 0,
+      grants: Iterable[Grant] = Nil
   ): AnkkaProjectSpec =
     AnkkaProjectSpec(
       projectId,
@@ -81,5 +89,24 @@ object ProjectProjection:
           d.retentionDays,
           d.rehearse
         )
-      )
+      ),
+      // Accepted grants only (feature 040): a pending or ended grant is not in the cluster at all,
+      // so nothing there can open what an organization has not agreed to.
+      grants = grants.toList.filter(_.state == GrantState.Accepted).sortBy(_.id).map(entry)
+    )
+
+  def entry(grant: Grant): ProjectGrantEntry =
+    val t = grant.target
+    ProjectGrantEntry(
+      grant.id,
+      grant.grantee.text,
+      t.kind,
+      service = t.service,
+      httpMethod = t.method.filter(_ => t.kind == GrantTarget.Route),
+      path = t.path,
+      method = t.method.filter(_ => t.kind == GrantTarget.Method),
+      topic = t.topic,
+      right = t.right,
+      decrypt = t.decrypt,
+      grantedAt = grant.granted.at.fold("")(_.toString)
     )

@@ -54,5 +54,8 @@ enum CloseReason(val code: Int, val word: String):
   /** A frame was larger than a frame may be. */
   case TooLarge extends CloseReason(1009, "too large")
 
+  /** The grant that admitted the socket ended (feature 040); opening it again is refused. */
+  case Revoked extends CloseReason(1008, "revoked")
+
   /** The handler failed, or the process behind it did. */
   case Failed extends CloseReason(1011, "failed")

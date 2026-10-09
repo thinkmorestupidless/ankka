@@ -41,8 +41,24 @@ final case class KafkaUserAuthorization(
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class KafkaUserSpec(
-    authentication: KafkaUserAuthentication = KafkaUserAuthentication(),
-    authorization: KafkaUserAuthorization = KafkaUserAuthorization()
+    // Absent for a user the broker knows by a credential of its own making (a machine, feature
+    // 040, whose SCRAM user is the listener's); a service's is always `tls-external`.
+    authentication: Option[KafkaUserAuthentication] = Some(KafkaUserAuthentication()),
+    authorization: KafkaUserAuthorization = KafkaUserAuthorization(),
+    /** Byte rates and request share (feature 040): absent for a service, as before. */
+    quotas: Option[KafkaUserQuotas] = None
+)
+
+/** What Strimzi enforces on a user's traffic, each absent when not limited. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class KafkaUserQuotas(
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    producerByteRate: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    consumerByteRate: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    requestPercentage: Option[Int] = None
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)

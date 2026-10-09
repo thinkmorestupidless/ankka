@@ -111,6 +111,21 @@ enum OrganizationEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A change to a grant a project made to one of this organization's registered machines (feature
+   * 040), recorded by the consumer that follows the granting project.
+   */
+  case GrantRecorded(
+      id: String,
+      grantingProject: String,
+      grantingOrganization: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      change: GrantChange,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 /**
  * `OrganizationEntity.claimInvitation`: who is claiming, with the verified email they presented.
  */
@@ -326,6 +341,66 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A grant made by the project (feature 040): one grantee, one target. `pending` when the grantee
+   * belongs to another organization, which must accept it before it opens anything. These seven
+   * events are the one record a command writes of a grant; the grantee side's copy is derived.
+   */
+  case GrantMade(
+      id: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      pending: Boolean,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** An owner of the grantee's organization took a pending grant. */
+  case GrantAccepted(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** An owner of the grantee's organization refused a pending grant. */
+  case GrantDeclined(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantor took back a pending grant. */
+  case GrantWithdrawn(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantor ended an accepted grant. */
+  case GrantRevoked(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantee's organization gave up an accepted grant. */
+  case GrantRelinquished(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantee was deleted; the actor is whoever deleted it. */
+  case GrantLapsed(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * A change to a grant another project made to one of this project's services, recorded here by
+   * the consumer that follows the granting project, with the actor who made the change there.
+   */
+  case GrantRecorded(
+      id: String,
+      grantingProject: String,
+      grantingOrganization: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      change: GrantChange,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+/** `ProjectEntity.makeGrant`: the endpoint mints the id and says whether the grant must wait. */
+final case class MakeGrant(id: String, grantee: Grantee, target: GrantTarget, pending: Boolean)
+
+/** `record-grant-change`, on a grantee project or organization, from the consumer. */
+final case class RecordGrantChange(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    change: GrantChange
+)
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -410,7 +485,12 @@ enum ServiceEvent:
        * in, its name and address as reported, its location and soft-delete window, and a move.
        * `None` for events from before it existed, which a reader takes as a bucket in Garage.
        */
-      storage: Option[StorageReport] = None
+      storage: Option[StorageReport] = None,
+      /**
+       * `mounted` when the operator reported the service reads its project's grants (feature 040).
+       * `None` from an operator that predates grants, and for events from before it.
+       */
+      grants: Option[String] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -481,7 +561,8 @@ final case class ServiceObservation(
     database: Option[String] = None,
     broker: Option[String] = None,
     objectStorage: Option[String] = None,
-    storage: Option[StorageReport] = None
+    storage: Option[StorageReport] = None,
+    grants: Option[String] = None
 )
 
 /**
@@ -627,4 +708,37 @@ final case class DeployTokenDetail(
     createdAt: Option[Instant] = None,
     expiresAt: Option[Instant] = None,
     lastUsed: Option[java.time.LocalDate] = None
+)
+
+// ── Machines (feature 040) ────────────────────────────────────────────────────
+
+/**
+ * A machine outside the installation, registered on an organization. No event carries its secret:
+ * `MachineRegistered` holds the digest the token route compares against, and nothing else does.
+ */
+enum MachineEvent:
+  case MachineRegistered(
+      organizationId: String,
+      name: String,
+      digest: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+  case MachineByteRatesSet(
+      produceBytesPerSecond: Long,
+      consumeBytesPerSecond: Long,
+      requestPercentage: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+  case MachineDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+/** `register`: the endpoint minted the secret and hands over only its digest. */
+final case class RegisterMachine(organizationId: String, name: String, digest: String)
+
+/** `set-byte-rates`: within the installation's ceiling, checked by the endpoint. */
+final case class SetMachineByteRates(
+    produceBytesPerSecond: Long,
+    consumeBytesPerSecond: Long,
+    requestPercentage: Int
 )

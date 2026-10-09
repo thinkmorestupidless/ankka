@@ -135,7 +135,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag and what it is failing on (topicSources), each side it takes on a declared topic's contract (topicChecks), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag, what it is failing on and what its topic still holds per partition (topicSources, gap), warnings such as a view over a topic that keeps less than the installation's threshold (warnings), each side it takes on a declared topic's contract (topicChecks), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true
@@ -148,6 +148,14 @@ private[cli] final class AnkkaTools(
       readOnly = true,
       idempotent = true
     )(args => ToolResult(json(client.serviceHistory(project(args), required(args, "name"))))),
+    Tool(
+      "project_history",
+      "Project history",
+      "Who declared, changed or removed each of a project's topics and when, newest first, with each setting changed from what to what. An entry the platform made, filling the settings of a topic declared before topics stated them, has no actor.",
+      schema(Seq.empty, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args => ToolResult(json(client.projectHistory(project(args))))),
     Tool(
       "service_logs",
       "Service logs",

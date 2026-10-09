@@ -501,3 +501,19 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
   service rolling on upgrade, and is never accepted.
+- **A declared topic states every setting and its copies on its `KafkaTopic`** (feature 043):
+  `StrimziRendering.kafkaConfig` writes the seven keys from the `AnkkaProject` entry's numbers, and
+  `TopicProvisioning.decide` answers `Ready` only when the resource's `config` and `replicas` equal the
+  declaration's, so a setting Strimzi has not yet applied reads as waiting. An entry with no settings —
+  a topic declared before them, until the control plane's sweep fills it — renders exactly as before,
+  which `ProjectRenderingSuite` pins. The operator has no `controlplane-api`, so the key names are held
+  to the control plane's by `protocol/fixtures/topics/settings.json`, read by `StrimziModelsSuite`.
+- **The operator reads the broker's node count from its `KafkaNodePool`s** (`get`/`list`, nothing
+  else, in the broker component's Role) and fails a topic asking for more copies than the pools' broker
+  replicas, rendering nothing for it. Copies are fixed: Strimzi changes a topic's replication only
+  through Cruise Control, which is not installed.
+- **`components/broker-three-nodes` is a shape for a new installation, not a conversion.** The node
+  pool is controller and broker both, so its replicas are the KRaft quorum. The component also sets the
+  control plane's default copies; `BrokerShapeSuite` asserts each value from the parsed render, and that
+  the local overlay still says one everywhere. `BrokerStack.install(k3s, nodes = 3)` makes the same
+  shape on k3s and fails if a line it rewrites is missing from `kafka.yaml`.

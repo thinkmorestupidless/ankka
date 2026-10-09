@@ -98,7 +98,10 @@ object ControlPlane:
       /** Where a project's topics' phases are read from; the projector, as for the others. */
       topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
-      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None
+      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
+      /** The installation's topic defaults, bounds and warning threshold (feature 043). */
+      topicPolicy: => com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -106,7 +109,18 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics, schemas, topology),
+      clients =>
+        ProjectEndpoint(
+          clients,
+          acl,
+          clock,
+          registry,
+          secrets,
+          topics,
+          schemas,
+          topology,
+          topicPolicy
+        ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -123,9 +137,18 @@ object ControlPlane:
               deploy,
               logs = logReader,
               clock = clock,
-              topology = reader
+              topology = reader,
+              topicPolicy = topicPolicy
             )
-          case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
+          case None =>
+            ServiceEndpoint(
+              clients,
+              acl,
+              deploy,
+              logs = logReader,
+              clock = clock,
+              topicPolicy = topicPolicy
+            ),
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
@@ -155,6 +178,8 @@ object ControlPlane:
   ): ServiceBuilder =
     val deploy = DeployConfig.from(config)
     val policy = OrganizationPolicy.from(config)
+    val topicPolicy =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
@@ -170,7 +195,8 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            topicPolicy = topicPolicy
           )*
         )
       case _ =>
@@ -184,7 +210,8 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            topicPolicy = topicPolicy
           )*
         )
     val base = Ankka.service
@@ -192,6 +219,10 @@ object ControlPlane:
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(server)
+      // Feature 043: fill the settings of topics declared before topics stated them.
+      .withExtension(
+        com.thinkmorestupidless.ankka.controlplane.application.TopicSettingsSweep(topicPolicy)
+      )
     tokens.fold(base)(base.withExtension)
 
   /**

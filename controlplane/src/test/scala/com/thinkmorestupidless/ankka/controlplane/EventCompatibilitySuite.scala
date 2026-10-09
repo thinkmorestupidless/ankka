@@ -244,6 +244,76 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(ProjectEntity.eventSerializer.fromBytes(old.getBytes("UTF-8")), bare)
   }
 
+  test("a topic's settings, the defaulted ones and its changes pin their wire form (feature 043)") {
+    import com.thinkmorestupidless.ankka.controlplane.api.*
+    val at = java.time.Instant.parse("2026-10-08T10:00:00Z")
+    val settings = TopicSettings(
+      RetentionTime.Bounded(90L * 86400000L),
+      RetentionSize.NoLimit,
+      CleanupPolicy.Delete,
+      TimeSpan(86400000L),
+      TimeSpan(0L),
+      CompactionLag.NoLimit,
+      Some(3),
+      Some(2)
+    )
+    val declared = ProjectEvent.ProjectTopicDeclared(
+      "transactions",
+      12,
+      Some(Actor("alice", Some("alice@example.test"))),
+      Some(at),
+      settings = Some(settings),
+      defaulted = Vector(Setting.RetentionSize, Setting.Cleanup),
+      changes = Vector(SettingChange(Setting.Retention, "30d", "90d"))
+    )
+    val filled = ProjectEvent.ProjectTopicSettingsFilled(
+      "notices",
+      settings.copy(copies = None, minInSync = None),
+      Vector(Setting.Retention),
+      Some(at)
+    )
+    def fields(json: String): Set[String] =
+      com.fasterxml.jackson.databind.ObjectMapper().readTree(json).fieldNames().asScala.toSet
+    for (event, expected) <- Vector(
+        declared -> Set(
+          "type",
+          "name",
+          "partitions",
+          "actor",
+          "at",
+          "settings",
+          "defaulted",
+          "changes"
+        ),
+        filled -> Set("type", "name", "settings", "defaulted", "at")
+      )
+    do
+      val bytes = ProjectEntity.eventSerializer.toBytes(event)
+      val json  = new String(bytes, "UTF-8")
+      assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), event)
+      assertEquals(fields(json), expected, json)
+    // Settings are journalled in the words a member reads, never Kafka's keys.
+    val json = new String(ProjectEntity.eventSerializer.toBytes(declared), "UTF-8")
+    assert(json.contains("\"retention\":\"90d\""), json)
+    assert(json.contains("\"defaulted\":[\"retentionSize\",\"cleanup\"]"), json)
+    assert(json.contains("{\"setting\":\"retention\",\"from\":\"30d\",\"to\":\"90d\"}"), json)
+    assert(!json.contains("retention.ms"), json)
+    // A 037 declaration still decodes, with no settings, which keeps what the topic had.
+    val old =
+      """{"type":"ProjectTopicDeclared","name":"orders","partitions":3,"at":"2026-10-07T10:00:00Z","compacted":true}"""
+    val read = ProjectEntity.eventSerializer.fromBytes(old.getBytes("UTF-8"))
+    assertEquals(
+      read,
+      ProjectEvent.ProjectTopicDeclared(
+        "orders",
+        3,
+        None,
+        Some(java.time.Instant.parse("2026-10-07T10:00:00Z")),
+        compacted = true
+      )
+    )
+  }
+
   test("a broker's declaration pins its wire form, and never a credential (feature 037)") {
     val at = java.time.Instant.parse("2026-10-07T10:00:00Z")
     val declared = ProjectEvent.ProjectBrokerDeclared(

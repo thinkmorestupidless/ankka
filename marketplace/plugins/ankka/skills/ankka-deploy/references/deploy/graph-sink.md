@@ -17,11 +17,11 @@ project like any service.
 
 The topic a graph consumer publishes to must be compacted: the broker then keeps the latest record
 under every key, and every delta's key is its element, so the topic holds each element's latest state
-however long the service runs. Declare it on the project with `--compacted`, before anything publishes
-to it:
+however long the service runs. Declare it on the project with the cleanup policy `compact`
+(`--compacted` is the short form), before anything publishes to it:
 
 ```bash
-ankka projects topics set cart-graph --partitions 3 --compacted -p checkout
+ankka projects topics set cart-graph --partitions 3 --cleanup compact -p checkout
 ```
 
 A topic already made uncompacted is made compacted when its declaration says so.

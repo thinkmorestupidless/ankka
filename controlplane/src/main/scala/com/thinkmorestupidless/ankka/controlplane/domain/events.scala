@@ -216,7 +216,9 @@ enum ProjectEvent:
 
   /**
    * A topic declared on the project, or its partitions raised (feature 027); its compaction and
-   * contract since feature 037, defaulted so an older journal decodes.
+   * contract since feature 037, defaulted so an older journal decodes. Since feature 043 its every
+   * setting, the ones the installation supplied, and each setting it changed from what to what;
+   * `settings` absent is a declaration that said nothing of them, which keeps what the topic had.
    */
   case ProjectTopicDeclared(
       name: String,
@@ -224,7 +226,22 @@ enum ProjectEvent:
       actor: Option[Actor] = None,
       at: Option[Instant] = None,
       compacted: Boolean = false,
-      contract: Option[Contract] = None
+      contract: Option[Contract] = None,
+      settings: Option[TopicSettings] = None,
+      defaulted: Vector[Setting] = Vector.empty,
+      changes: Vector[SettingChange] = Vector.empty
+  )
+
+  /**
+   * The platform filled the settings of a topic declared before topics stated them (feature 043),
+   * from the installation's defaults then in force; its copies stay the broker's. No actor: no
+   * member did it.
+   */
+  case ProjectTopicSettingsFilled(
+      name: String,
+      settings: TopicSettings,
+      defaulted: Vector[Setting] = Vector.empty,
+      at: Option[Instant] = None
   )
 
   /** The project no longer declares a topic. The topic stays on the broker. */
@@ -402,14 +419,27 @@ final case class RemoveSecretEntry(name: String, entry: String)
 
 /**
  * `declare-topic`: a topic on the project, with its partitions (feature 027), compaction and
- * contract (feature 037).
+ * contract (feature 037), and its settings (feature 043), filled or merged by the endpoint, which
+ * knows the installation's defaults. Partitions absent keep the topic's; a new topic needs them.
+ * Settings absent, from a node that does not know them, keep what the topic had.
  */
 final case class DeclareTopic(
     name: String,
-    partitions: Int,
+    partitions: Option[Int],
     compacted: Boolean = false,
-    contract: Option[Contract] = None
+    contract: Option[Contract] = None,
+    settings: Option[TopicSettings] = None,
+    defaulted: Vector[Setting] = Vector.empty
 )
+
+/**
+ * `fill-topic-settings` (feature 043): fill every topic of the project declared before topics
+ * stated their settings from these defaults. Replies with the names it filled.
+ */
+final case class FillTopicSettings(defaults: TopicDefaults)
+
+/** The topics `fill-topic-settings` filled, by name. */
+final case class FilledTopics(names: Vector[String])
 
 /** `remove-topic`: stop declaring a topic. */
 final case class RemoveTopic(name: String)

@@ -742,6 +742,7 @@ Usage:
     ankka projects secrets
     ankka projects topics
     ankka projects brokers
+    ankka projects history
 
 Manage projects.
 
@@ -768,6 +769,8 @@ Subcommands:
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
         Brokers a project declares beside the installation's, which a component may name for one topic; the credential is a project secret, mounted for the platform's program alone.
+    history
+        The changes to a project's topics, newest first: who declared, changed or removed each, and each setting changed from what to what.
 ```
 
 ### `ankka projects list`
@@ -1046,7 +1049,7 @@ Options and flags:
 
 Subcommands:
     set
-        Declare a topic on the project, or give it more partitions. A topic is never given fewer. --compacted keeps the last message under each key; --contract and --schema declare what the topic carries, which every side must state.
+        Declare a topic on the project, or change it. A topic is never given fewer partitions. A new topic takes every setting left out from the installation's defaults; a topic already declared keeps what is left out. --compacted is --cleanup compact; --contract and --schema declare what the topic carries, which every side must state. A change that removes messages is an owner's, and asks before it is sent.
     unset
         Stop declaring a topic. The topic and what was published to it stay on the broker.
     list
@@ -1058,21 +1061,39 @@ Subcommands:
 ### `ankka projects topics set`
 
 ```text
-Usage: ankka projects topics set --partitions <integer> [--compacted] [--contract <string>] [--schema <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+Usage: ankka projects topics set [--partitions <integer>] [--compacted] [--contract <string>] [--schema <string>] [--retention <string>] [--retention-size <string>] [--cleanup <string>] [--tombstone-window <string>] [--min-compaction-lag <string>] [--max-compaction-lag <string>] [--copies <integer>] [--min-in-sync <integer>] [--removes <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
-Declare a topic on the project, or give it more partitions. A topic is never given fewer. --compacted keeps the last message under each key; --contract and --schema declare what the topic carries, which every side must state.
+Declare a topic on the project, or change it. A topic is never given fewer partitions. A new topic takes every setting left out from the installation's defaults; a topic already declared keeps what is left out. --compacted is --cleanup compact; --contract and --schema declare what the topic carries, which every side must state. A change that removes messages is an owner's, and asks before it is sent.
 
 Options and flags:
     --help
         Display this help text.
     --partitions <integer>
-        How many partitions the topic has.
+        How many partitions the topic has; required for a new topic.
     --compacted
-        The broker keeps the last message under each key.
+        The broker keeps the last message under each key: --cleanup compact.
     --contract <string>
         The contract's name, such as order.v1; needs --schema.
     --schema <string>
         The contract's schema document, a JSON file; - reads standard input.
+    --retention <string>
+        How long the topic keeps a message: 90d, 36h, or everything.
+    --retention-size <string>
+        How much each partition keeps: 50GiB, or none.
+    --cleanup <string>
+        delete, compact, or compact,delete.
+    --tombstone-window <string>
+        How long a compacted topic keeps a deletion: 1d.
+    --min-compaction-lag <string>
+        The soonest a compacted topic compacts a message: 1h.
+    --max-compaction-lag <string>
+        The latest a compacted topic compacts a message, or none.
+    --copies <integer>
+        How many copies the broker keeps; fixed once declared.
+    --min-in-sync <integer>
+        How many copies must hold a message before it is acknowledged; fixed once declared.
+    --removes <string>
+        What a change that removes messages removes, in the control plane's words: the confirmation a script gives instead of answering the question.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>
@@ -1234,6 +1255,26 @@ Options and flags:
 Usage: ankka projects brokers list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 List a project's declared brokers.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects history`
+
+```text
+Usage: ankka projects history [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+The changes to a project's topics, newest first: who declared, changed or removed each, and each setting changed from what to what.
 
 Options and flags:
     --help

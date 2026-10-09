@@ -116,7 +116,8 @@ patches:
     target:
       kind: Deployment
       name: ankka-operator
-  # The broker sized for this cluster.
+  # The broker sized for this cluster. Three nodes is components/broker-three-nodes, listed with the
+  # components above, for a new installation; broker-size.yaml says how.
   - path: broker-size.yaml
     target:
       kind: KafkaNodePool

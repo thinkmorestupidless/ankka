@@ -118,7 +118,17 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     expiresIn = 3.hours
   )
 
-  private var k3s: K3sContainer       = null
+  private var k3s: K3sContainer = null
+
+  /** How many broker nodes the installation's broker is installed with (feature 043). */
+  protected def brokerNodes: Int = 1
+
+  /** The control plane's topic defaults and bounds (feature 043). */
+  protected def topicPolicy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+    com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
+
+  /** The node the suite runs on, for a probe a subclass starts. */
+  protected def cluster: K3sContainer = k3s
   protected var k8s: KubernetesClient = null
   private var operator: Operator      = null
   private var testKit: AnkkaTestKit   = null
@@ -152,7 +162,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
             .openStream()
         )
         .serverSideApply(): Unit
-      val broker = BrokerStack.install(k3s)
+      val broker = BrokerStack.install(k3s, brokerNodes)
       waitFor(180.seconds, "CloudNativePG's controller") {
         PkiStack.jsonPath(
           k3s,
@@ -188,7 +198,8 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
           logs = Some(new PodLogs(k8s, Prefix)),
           secrets = Some(projector),
           topics = Some(projector),
-          schemas = Some(projector)
+          schemas = Some(projector),
+          topicPolicy = topicPolicy
         )*
       )
       testKit = AnkkaTestKit.start(
@@ -523,7 +534,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   /** What a cart's checkout was published as: the cart's id, which the notice carries. */
   private var published: Map[String, String] = Map.empty
 
-  private def checkout(service: String, p: String): String =
+  protected def checkout(service: String, p: String): String =
     val cart = s"cart-${java.util.UUID.randomUUID().toString.take(8)}"
     val add = call(
       service,
@@ -541,7 +552,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   private var probes: Map[(String, String), BrokerProbe] = Map.empty
 
   /** The probe holding `service`'s credential, started the first time it is asked for. */
-  private def probe(service: String, p: String): BrokerProbe =
+  protected def probe(service: String, p: String): BrokerProbe =
     probes.getOrElse(
       (service, p), {
         val made = BrokerProbe.holding(k3s, ns(p), service)
@@ -551,7 +562,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     )
 
   /** A group of `service`'s own, as the broker's permission for it reads them. */
-  private def groupOf(service: String, p: String) =
+  protected def groupOf(service: String, p: String) =
     s"ankka.$p.$service.probe.${java.util.UUID.randomUUID().toString.take(8)}"
 
   /** Reads `topic` as `service` until `cart` is on it, or fails naming what was read. */
@@ -582,7 +593,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
    * entity operator, then the entity operator, whose topic and user operators make topics and
    * users. Nothing the broker already holds changes.
    */
-  private def stopStrimzi(): Unit =
+  protected def stopStrimzi(): Unit =
     strimziStopped = true
     PkiStack.kubectl(
       k3s,
@@ -621,7 +632,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       ).isEmpty
     }
 
-  private def startStrimzi(): Unit =
+  protected def startStrimzi(): Unit =
     PkiStack.kubectl(
       k3s,
       "scale",
@@ -1389,6 +1400,12 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         assertEquals(may("create", resource), "yes", resource)
         assertEquals(may("patch", resource), "yes", resource)
         assertEquals(may("delete", resource), "no", resource)
+      // The node pools are read, to count the broker nodes, and nothing more.
+      val pools = "kafkanodepools.kafka.strimzi.io"
+      assertEquals(may("get", pools), "yes", pools)
+      assertEquals(may("list", pools), "yes", pools)
+      for verb <- Seq("create", "patch", "delete") do
+        assertEquals(may(verb, pools), "no", s"$verb $pools")
       // And a removal attempted with that token is refused by the API server itself.
       val anyTopic = jsonPath("kafkatopics", "-n", Broker, "{.items[0].metadata.name}")
       assume(anyTopic.nonEmpty, "no topic to try")

@@ -136,6 +136,143 @@ class OutputSuite extends munit.FunSuite:
     assert(lines(2).contains("the installation has no broker"), rendered)
   }
 
+  // features/broker/retention.feature: each setting, marked as the installation's default
+  test(
+    "a project's topics show every setting, a star on each the installation supplied (feature 043)"
+  ) {
+    val settings = TopicSettingsView(
+      "90d",
+      "none",
+      "delete",
+      "1d",
+      "0s",
+      "none",
+      Some(3),
+      Some(2),
+      Vector(
+        "retentionSize",
+        "cleanup",
+        "tombstoneWindow",
+        "minCompactionLag",
+        "maxCompactionLag",
+        "copies",
+        "minInSync"
+      )
+    )
+    val rendered = Output.projectTopics(
+      Vector(
+        ProjectTopic(
+          "transactions",
+          12,
+          Some("provisioned"),
+          settings = Some(settings),
+          copiesHeld = Some(3),
+          brokerNodes = Some(3)
+        ),
+        ProjectTopic(
+          "notices",
+          3,
+          Some("provisioned"),
+          Some("copies are the broker's; single copy"),
+          settings = Some(settings.copy(retention = "7d", copies = None, minInSync = None)),
+          copiesHeld = Some(1)
+        )
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assertEquals(lines.head, "broker: 3 nodes")
+    assert(
+      lines(1).startsWith("TOPIC") && lines(1).contains("RETENTION") && lines(1).contains(
+        "IN-SYNC"
+      ),
+      rendered
+    )
+    val transactions = lines.find(_.startsWith("transactions")).get
+    assert(
+      transactions.contains("90d ") && transactions.contains("none*") && transactions.contains(
+        "3*"
+      ),
+      transactions
+    )
+    val notices = lines.find(_.startsWith("notices")).get
+    assert(notices.contains("broker (1)") && notices.contains("single copy"), notices)
+  }
+
+  test("a project's history names each change, from what to what, and who made it") {
+    val rendered = Output.projectHistory(
+      Vector(
+        ProjectHistoryEntry(
+          "topic-changed",
+          "transactions",
+          Some(HistoryActor("alice", Some("Alice"))),
+          Some(java.time.Instant.parse("2026-10-08T10:00:00Z")),
+          Vector(SettingChange(Setting.Retention, "90d", "180d"))
+        ),
+        ProjectHistoryEntry("topic-filled", "notices")
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines(1).contains("Alice") && lines(1).contains("retention 90d → 180d"), rendered)
+    assert(lines(2).contains("the platform"), rendered)
+  }
+
+  // features/topics/gap.feature: the retention gap and the warning in `services get`
+  test("a service's topic sources say what their topics still hold, and its warnings are listed") {
+    val at = java.time.Instant.parse("2026-09-01T10:00:00Z")
+    val source = TopicSourceReport(
+      "view",
+      "entries",
+      "transactions",
+      "ankka.money.ledger.view-v2.entries",
+      "earliest",
+      2,
+      gap = Some(
+        RetentionGapReport(
+          Vector(PartitionGapReport(0, 1240, Some(at)), PartitionGapReport(1, 0, None)),
+          gone = true
+        )
+      )
+    )
+    val rendered = Output.service(
+      status("ledger").copy(
+        topicSources = Some(Vector(source)),
+        warnings = Some(
+          Vector(
+            ServiceWarning(
+              "retention",
+              "entries",
+              "transactions",
+              "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d"
+            )
+          )
+        )
+      ),
+      Format.Table
+    )
+    assert(
+      rendered.contains(
+        s"retained: p0 from 1240 ($at), p1 from 0 (holds nothing); earlier messages gone"
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains("retention: view 'entries' reads topic 'transactions', which keeps 7d"),
+      rendered
+    )
+    assertEquals(
+      Output.retained(RetentionGapReport(Vector(PartitionGapReport(0, 0, Some(at))))),
+      "everything"
+    )
+    assertEquals(
+      Output.retained(
+        RetentionGapReport(Vector(PartitionGapReport(0, 9, Some(at))), compacted = true)
+      ),
+      "compacted"
+    )
+  }
+
   test("a single service shows its database phrase when one has been reported") {
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     assert(rendered.contains("database"), rendered)

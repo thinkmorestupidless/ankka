@@ -136,6 +136,46 @@ private[runtime] object Metrics:
         builder ++= s"ankka_topic_source_lag${labelSet(labels)} $lag\n"
       }
     }
+    // Feature 043: what the broker still holds of each source's topic, per partition.
+    builder ++= "# HELP ankka_topic_source_beginning The earliest position the broker holds on a " +
+      "partition of the source's topic; above 0, earlier messages are gone.\n"
+    builder ++= "# TYPE ankka_topic_source_beginning gauge\n"
+    topicSources.foreach { s =>
+      s.gap.foreach(_.partitions.foreach { p =>
+        val labels = Vector(
+          "kind"      -> s.kindWord,
+          "component" -> s.componentId,
+          "topic"     -> s.topic,
+          "partition" -> p.partition.toString
+        )
+        builder ++= s"ankka_topic_source_beginning${labelSet(labels)} ${p.beginning}\n"
+      })
+    }
+    builder ++= "# HELP ankka_topic_source_earliest_retained_seconds When the earliest message the " +
+      "broker holds on a partition was published, in seconds since the epoch.\n"
+    builder ++= "# TYPE ankka_topic_source_earliest_retained_seconds gauge\n"
+    topicSources.foreach { s =>
+      s.gap.foreach(_.partitions.foreach { p =>
+        p.earliestAt.foreach { at =>
+          val labels = Vector(
+            "kind"      -> s.kindWord,
+            "component" -> s.componentId,
+            "topic"     -> s.topic,
+            "partition" -> p.partition.toString
+          )
+          builder ++= s"ankka_topic_source_earliest_retained_seconds${labelSet(labels)} ${at.getEpochSecond}\n"
+        }
+      })
+    }
+    builder ++= "# HELP ankka_topic_source_gone 1 when the source's topic no longer holds messages " +
+      "published before what it holds now, and is not compacted.\n"
+    builder ++= "# TYPE ankka_topic_source_gone gauge\n"
+    topicSources.foreach { s =>
+      s.gap.foreach { gap =>
+        val labels = Vector("kind" -> s.kindWord, "component" -> s.componentId, "topic" -> s.topic)
+        builder ++= s"ankka_topic_source_gone${labelSet(labels)} ${if gap.gone then 1 else 0}\n"
+      }
+    }
 
     builder.toString
 

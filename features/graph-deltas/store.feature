@@ -17,9 +17,9 @@ Feature: A store filled from a service
     When the cart is deleted and its tombstones are applied
     Then its elements are marked deleted in the store
 
-  Scenario: a topic the pipeline declares as its own is compacted and holds only element keys
-    Given the topic is declared as the pipeline's own
-    When the pipeline is deployed before the service publishes
+  Scenario: a topic its project declares compacted holds only element keys
+    Given the project declares the topic with the cleanup policy "compact"
+    When the service publishes
     Then the topic is compacted
     And every message on the topic is under its element key
 

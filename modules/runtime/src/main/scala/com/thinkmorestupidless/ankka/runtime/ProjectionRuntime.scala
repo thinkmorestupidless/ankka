@@ -165,6 +165,7 @@ final class ProjectionRuntime private (
       // The project's word first: a broker the project does not declare is named as such, not as
       // a publisher nobody configured.
       rejectUndeclared(service.registry.components.toVector)
+      rejectUnsafeAcks(service.registry.components.toVector)
       rejectUnsupported(views, consumers)
       rejectUnsupportedRemote(remoteViews, remoteConsumers)
 
@@ -328,6 +329,37 @@ final class ProjectionRuntime private (
           )
 
   /**
+   * A producer that does not wait for a topic's in-sync copies, refused at start (feature 043):
+   * with `acks` below `all`, a write the broker acknowledged can be lost with the one node that
+   * held it, which a topic declaring more than one in-sync copy exists to prevent. The producer's
+   * `acks` is its settings', from the service's own configuration; each topic's minimum is the
+   * broker's own word. A topic the broker does not know yet is not checked: publishing to it waits
+   * as ever.
+   */
+  private def rejectUnsafeAcks(components: Vector[ComponentDescriptor]): Unit =
+    val publications =
+      components.flatMap(c => DeclaredConnections.publicationOf(c).map(c.componentId -> _))
+    val problems = publications.flatMap { (id, p) =>
+      publisherFor(p.broker).collect { case kafka: KafkaPublisher => kafka }.flatMap { kafka =>
+        val acks = kafka.acks
+        if acks == "all" then None
+        else
+          val config =
+            try Await.result(kafka.describeTopic(p.topic), KafkaPublisher.TopicWait * 3)
+            catch case scala.util.control.NonFatal(_) => None
+          config.filter(_.minInSync > 1).map { c =>
+            s"consumer '$id' publishes to topic '${p.topic}', which needs ${c.minInSync} in-sync " +
+              s"copies, and the producer's acks is $acks; set acks=all"
+          }
+      }
+    }
+    if problems.nonEmpty then
+      StartRefusal.refuse(
+        problems.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
+        IllegalArgumentException(_)
+      )
+
+  /**
    * The same checks for remote components, plus one of their own: discovery lets a source name any
    * component kind, and only entities have a change stream to project.
    */
@@ -396,7 +428,8 @@ final class ProjectionRuntime private (
       startFrom: StartFrom,
       version: Int,
       handler: () => IncomingMessage => Future[Done],
-      parallel: Boolean
+      parallel: Boolean,
+      since: () => Future[Option[java.time.Instant]] = () => Future.successful(None)
   )(using system: ActorSystem[?]): Subscribed =
     val group = groupFor(kind, componentId, version)
     // A handler holds one component instance and sets its context per message, so a parallel
@@ -431,6 +464,13 @@ final class ProjectionRuntime private (
         )
     )(using system.executionContext)
     subscriptions.add(() => poll.cancel(): Unit): Unit
+    // Feature 043: what the broker still holds of the topic, now and every few minutes after.
+    reportGap(broker, componentId, topic, since)
+    val gapPoll = system.scheduler.scheduleWithFixedDelay(
+      ProjectionRuntime.GapInterval,
+      ProjectionRuntime.GapInterval
+    )(() => reportGap(broker, componentId, topic, since))(using system.executionContext)
+    subscriptions.add(() => gapPoll.cancel(): Unit): Unit
     sources.update(componentId)(_.copy(group = group))
     system.log.info(
       "topic source subscribed: kind={} component={} topic={} group={} start={} version={}",
@@ -442,6 +482,26 @@ final class ProjectionRuntime private (
       version
     )
     subscribed
+
+  /**
+   * Asks the broker what it still holds of `topic` and whether it is compacted, and puts the answer
+   * on the source's status (feature 043). A broker that cannot answer leaves the last report.
+   */
+  private def reportGap(
+      broker: MessageSubscriber,
+      componentId: ComponentId,
+      topic: String,
+      since: () => Future[Option[java.time.Instant]],
+      known: Option[Map[Int, Retained]] = None
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val retained           = known.fold(broker.earliestRetained(topic))(Future.successful)
+    (for
+      held   <- retained
+      config <- broker.topicConfig(topic).recover { case scala.util.control.NonFatal(_) => None }
+      start  <- since().recover { case scala.util.control.NonFatal(_) => None }
+    yield RetentionGap.of(held, config.exists(_.compacted), start, java.time.Instant.now()))
+      .foreach(gap => TopicSources(system).update(componentId)(_.copy(gap = Some(gap))))
 
   /** What the service says about each topic source, before it has subscribed. */
   private def declare(
@@ -516,7 +576,8 @@ final class ProjectionRuntime private (
             startFrom,
             declared,
             () => handler(guard),
-            parallel
+            parallel,
+            () => ViewVersions.builtAt(database, componentId)
           )
         )
       )
@@ -565,7 +626,7 @@ final class ProjectionRuntime private (
       declared: Int
   )(using system: ActorSystem[?]): Future[ViewVersions.Rebuilt] =
     given ExecutionContext = system.executionContext
-    def ask(delay: FiniteDuration): Future[Map[Int, Option[java.time.Instant]]] =
+    def ask(delay: FiniteDuration): Future[Map[Int, Retained]] =
       broker.earliestRetained(topic).recoverWith { case failure =>
         system.log.warn(
           "view '{}' waits to rebuild: the broker could not say what topic '{}' holds ({}); " +
@@ -581,8 +642,12 @@ final class ProjectionRuntime private (
     ask(1.second).flatMap { retained =>
       val reach = retained.toVector
         .sortBy(_._1)
-        .map((partition, at) => s"$partition=${at.fold("holds nothing")(_.toString)}")
+        .map((partition, r) =>
+          s"$partition=${r.earliestAt.fold("holds nothing")(_.toString)} from ${r.beginning}"
+        )
         .mkString(", ")
+      // Feature 043: what the rebuild reaches, shown where a member reads, not only in the log.
+      reportGap(broker, componentId, topic, () => Future.successful(None), Some(retained))
       system.log.info(
         "view rebuild: component={} table={} from version={} to version={} earliest retained per " +
           "partition: {}",
@@ -1152,6 +1217,12 @@ object ProjectionRuntime:
 
   /** The first protocol in which a process can declare where a topic source starts. */
   val StartPositionProtocol: String = "1.7"
+
+  /**
+   * How often a topic source asks the broker what it still holds (feature 043): rarer than lag,
+   * since it reads the first record of every partition.
+   */
+  val GapInterval: FiniteDuration = 5.minutes
 
   /** How often a topic source asks its broker how far behind it is (feature 037). */
   val LagInterval: FiniteDuration = 30.seconds

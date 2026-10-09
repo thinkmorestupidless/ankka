@@ -194,7 +194,11 @@ final class ControlPlaneClient(settings: Settings):
     ): Unit
 
   def declareTopic(projectId: String, name: String, partitions: Int): Unit =
-    declareTopic(projectId, name, TopicDeclarationRequest(partitions))
+    declareTopic(projectId, name, TopicDeclarationRequest(Some(partitions)))
+
+  /** The changes to a project's topics, newest first (feature 043). */
+  def projectHistory(projectId: String): Vector[ProjectHistoryEntry] =
+    get[Vector[ProjectHistoryEntry]](s"/projects/${segment(projectId)}/history")
 
   /** The schema document a topic's contract was declared with, as JSON text. */
   def topicSchema(projectId: String, name: String): String =

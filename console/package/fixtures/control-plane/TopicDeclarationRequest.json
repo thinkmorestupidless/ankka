@@ -1,1 +1,1 @@
-{"type":"TopicDeclarationRequest","json":{"partitions":12,"compacted":true,"contract":{"name":"transaction.v1","schema":{"type":"object","required":["id"]}}}}
+{"type":"TopicDeclarationRequest","json":{"partitions":12,"compacted":true,"contract":{"name":"transaction.v1","schema":{"type":"object","required":["id"]}},"retention":"90d","retentionSize":"50GiB","cleanup":"compact,delete","tombstoneWindow":"1d","minCompactionLag":"1h","maxCompactionLag":"none","copies":3,"minInSync":2,"removes":"messages older than 90d"}}

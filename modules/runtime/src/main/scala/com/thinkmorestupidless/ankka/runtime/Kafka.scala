@@ -209,6 +209,29 @@ final class KafkaPublisher private (
 
   @volatile private var made: Option[Producer[String, Array[Byte]]] = None
 
+  // Feature 043: each topic's cleanup policy and minimum in-sync copies, from the broker itself.
+  private val configs = TopicConfigs.kafka(connection)(using system.executionContext)
+
+  /** What the broker says of `topic`'s configuration; `None` for a topic it does not know. */
+  def topicConfig(topic: String): Future[Option[TopicConfig]] =
+    configs.get(connection.qualified(topic))
+
+  /** A reading of `topic`'s configuration made now, for a check at start. */
+  private[ankka] def describeTopic(topic: String): Future[Option[TopicConfig]] =
+    configs.describe(connection.qualified(topic))
+
+  /**
+   * The producer's `acks` as its settings say it (feature 043): Kafka's default, `all`, unless the
+   * service's own configuration (`pekko.kafka.producer.kafka-clients.acks`) says otherwise. `-1` is
+   * `all` under another name.
+   */
+  def acks: String =
+    ProducerSettings(system, StringSerializer(), ByteArraySerializer()).properties
+      .get(ProducerConfig.ACKS_CONFIG)
+      .map(_.trim.toLowerCase)
+      .map(a => if a == "-1" then "all" else a)
+      .getOrElse("all")
+
   private def producer: Producer[String, Array[Byte]] =
     made.getOrElse(synchronized {
       made.getOrElse {
@@ -235,15 +258,38 @@ final class KafkaPublisher private (
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
     publish(topic, None, payload, metadata)
 
-  /** The record key is the one named, else `ce-subject`. The subject is a header either way. */
+  /**
+   * The record key is the one named, else `ce-subject`. The subject is a header either way. A
+   * message with neither, to a topic the broker says is compacted, is refused before anything is
+   * sent (feature 043): the broker would refuse it, and the change would come back with no word of
+   * why. Only such a message waits for the topic's configuration, and only the first time.
+   */
   override def publish(
       topic: String,
       key: Option[String],
       payload: Array[Byte],
       metadata: Metadata
   ): Future[Done] =
+    val recordKey = key.orElse(metadata.subject)
+    if recordKey.isDefined then send(topic, recordKey, payload, metadata)
+    else
+      given ExecutionContext = system.executionContext
+      configs.get(connection.qualified(topic)).flatMap { config =>
+        if config.exists(_.compacted) then
+          val refused = KeylessPublication(topic)
+          system.log.warn("could not publish to topic '{}': {}", topic, refused.getMessage)
+          Future.failed(refused)
+        else send(topic, None, payload, metadata)
+      }
+
+  private def send(
+      topic: String,
+      recordKey: Option[String],
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[Done] =
     val qualified = connection.qualified(topic)
-    val record    = ProducerRecord(qualified, key.orElse(metadata.subject).orNull, payload)
+    val record    = ProducerRecord(qualified, recordKey.orNull, payload)
 
     CloudEvents.headers(metadata, manifestOf(topic)).foreach { (key, value) =>
       record.headers().add(RecordHeader(key, value.getBytes(UTF_8))): Unit
@@ -269,7 +315,9 @@ final class KafkaPublisher private (
     catch case NonFatal(failure) => failed(failure)
     sent.future
 
-  def close(): Unit = made.foreach(_.close())
+  def close(): Unit =
+    made.foreach(_.close())
+    configs.close()
 
 object KafkaPublisher:
 
@@ -310,6 +358,12 @@ final class KafkaSubscriber private (
     extends MessageSubscriber:
 
   private given ExecutionContext = system.executionContext
+
+  // Feature 043: whether a topic is compacted, from the broker, for what a topic source reports.
+  private val configs = TopicConfigs.kafka(connection)
+
+  override def topicConfig(topic: String): Future[Option[TopicConfig]] =
+    configs.get(connection.qualified(topic))
 
   // A KillSwitch, not a Consumer.Control: `RestartSource` recreates the inner source on each
   // restart, so its control is not a stable handle on the subscription. Shared, so one switch is in
@@ -455,11 +509,12 @@ final class KafkaSubscriber private (
       .recover { case NonFatal(_) => None }(using system.executionContext)
 
   /**
-   * A consumer with no group, assigned every partition and moved to the beginning: the first record
-   * of each says when the oldest message it holds was published. It commits nothing, and fails when
-   * the broker cannot be asked, or a partition that holds messages yields none in time.
+   * A consumer with no group, assigned every partition and moved to the beginning: each partition's
+   * beginning and end offsets, and the first record of each, which says when the oldest message it
+   * holds was published. It commits nothing, and fails when the broker cannot be asked, or a
+   * partition that holds messages yields none in time.
    */
-  def earliestRetained(declared: String): Future[Map[Int, Option[Instant]]] =
+  def earliestRetained(declared: String): Future[Map[Int, Retained]] =
     val topic = connection.qualified(declared)
     Future {
       blocking {
@@ -499,7 +554,13 @@ final class KafkaSubscriber private (
               s"topic '$topic' partitions ${missing.map(_.partition).mkString(", ")} hold " +
                 "messages and yielded none within 30 seconds"
             )
-          partitions.map(p => p.partition -> found.get(p.partition)).toMap
+          partitions.map { p =>
+            p.partition -> Retained(
+              beginnings(p).longValue,
+              ends(p).longValue,
+              found.get(p.partition)
+            )
+          }.toMap
         finally consumer.close()
       }
     }
@@ -507,6 +568,7 @@ final class KafkaSubscriber private (
   def stop(): Unit =
     running.asScala.foreach(_.shutdown())
     running.clear()
+    configs.close()
 
 object KafkaSubscriber:
 

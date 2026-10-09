@@ -42,7 +42,8 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
     // to say about them.
     case _: ProjectSecretEntriesSet | _: ProjectSecretEntryRemoved => effects.ignore()
     // A project's topics are read from the project itself, whose record is exact, not a listing.
-    case _: ProjectTopicDeclared | _: ProjectTopicRemoved => effects.ignore()
+    case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectTopicSettingsFilled =>
+      effects.ignore()
     // Likewise a project's brokers (feature 037).
     case _: ProjectBrokerDeclared | _: ProjectBrokerRemoved => effects.ignore()
 

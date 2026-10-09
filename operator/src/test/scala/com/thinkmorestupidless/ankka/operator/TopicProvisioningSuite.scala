@@ -164,6 +164,75 @@ class TopicProvisioningSuite extends munit.FunSuite:
     )
   }
 
+  // Feature 043: copies and settings
+  private val stated = transactions.copy(
+    retentionMs = Some(7776000000L),
+    retentionBytes = Some(-1L),
+    cleanupPolicy = Some("delete"),
+    deleteRetentionMs = Some(86400000L),
+    minCompactionLagMs = Some(0L),
+    maxCompactionLagMs = Some(Long.MaxValue),
+    replicas = Some(3),
+    minInsyncReplicas = Some(2)
+  )
+  private val statedConfig =
+    StrimziRendering.kafkaConfig(stated).get.map((k, v) => k -> v.toString)
+
+  test(
+    "a topic asking for more copies than the broker has broker nodes is failed, naming the count"
+  ) {
+    assertEquals(
+      TopicProvisioning.decide("money", stated.copy(replicas = Some(5)), broker, None, Some(3)),
+      TopicPlan.Failed(
+        Vector("topic 'money.transactions' asks for 5 copies and the broker has 3 broker nodes")
+      )
+    )
+    assertEquals(
+      TopicProvisioning.decide("money", stated.copy(replicas = Some(2)), broker, None, Some(1)),
+      TopicPlan.Failed(
+        Vector("topic 'money.transactions' asks for 2 copies and the broker has 1 broker node")
+      )
+    )
+    val spec = AnkkaProjectSpec("money", List(stated.copy(replicas = Some(5)), entries))
+    assertEquals(
+      TopicProvisioning.topicsToRender(spec, broker, Map.empty, Some(3)),
+      Vector(entries)
+    )
+    // Without a count, nothing is refused for it: the operator cannot read the pools.
+    assertEquals(TopicProvisioning.topicsToRender(spec, broker, Map.empty, None).size, 2)
+    // An entry that states no copies is not held to the count.
+    assert(
+      !TopicProvisioning
+        .decide("money", transactions, broker, None, Some(1))
+        .isInstanceOf[TopicPlan.Failed]
+    )
+  }
+
+  test("a topic is ready only when its resource holds every setting and its copies") {
+    val held = TopicState(ready(), Some(12), Some(false), Some(3), Some(statedConfig))
+    assertEquals(decide(stated, Some(held)), TopicPlan.Ready(recovered = false))
+    val older = held.copy(config = Some(statedConfig.updated("retention.ms", "604800000")))
+    assertEquals(
+      decide(stated, Some(older)),
+      TopicPlan.Waiting(
+        Some("waiting for the broker to apply the settings of topic 'money.transactions'")
+      )
+    )
+    assert(decide(stated, Some(held.copy(replicas = Some(1)))).isInstanceOf[TopicPlan.Waiting])
+    // The status says what the resource holds.
+    val status = TopicProvisioning.status(
+      AnkkaProjectSpec("money", List(stated)),
+      broker,
+      Map("money.transactions" -> held),
+      Some(3)
+    )
+    assertEquals(
+      status.topics.map(t => (t.replicas, t.config)),
+      List((Some(3), Some(statedConfig)))
+    )
+    assertEquals(status.brokerNodes, Some(3))
+  }
+
   test("a declaration with a time that cannot be read is never taken as recovered") {
     val unreadable = transactions.copy(declaredAt = "")
     assertEquals(decide(unreadable, made(12, ready(earlier))), TopicPlan.Ready(recovered = false))

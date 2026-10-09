@@ -41,63 +41,108 @@ enum TopicPlan:
  */
 object TopicProvisioning:
 
-  /** The topics to render: every declared topic, less any whose resource already asks for more. */
+  /**
+   * The topics to render: every declared topic, less any whose resource already asks for more
+   * partitions, and less any asking for more copies than the broker has broker nodes (feature 043),
+   * so nothing is made on the broker for it.
+   */
   def topicsToRender(
       spec: AnkkaProjectSpec,
       broker: Option[BrokerSettings],
-      observed: Map[String, TopicState]
+      observed: Map[String, TopicState],
+      brokerNodes: Option[Int] = None
   ): Vector[ProjectTopicEntry] =
     if broker.isEmpty then Vector.empty
-    else spec.topics.toVector.filterNot(t => shrinks(spec, t, observed))
+    else spec.topics.toVector.filterNot(t => shrinks(spec, t, observed) || tooMany(t, brokerNodes))
 
   def decide(
       projectId: String,
       entry: ProjectTopicEntry,
       broker: Option[BrokerSettings],
-      observed: Option[TopicState]
+      observed: Option[TopicState],
+      brokerNodes: Option[Int] = None
   ): TopicPlan =
     if broker.isEmpty then TopicPlan.Failed(Vector("the installation has no broker"))
+    else if tooMany(entry, brokerNodes) then
+      val copies = entry.replicas.getOrElse(0)
+      val nodes  = brokerNodes.getOrElse(0)
+      TopicPlan.Failed(
+        Vector(
+          s"topic '${BrokerNames.topic(projectId, entry.name)}' asks for $copies copies and the " +
+            s"broker has $nodes broker node${if nodes == 1 then "" else "s"}"
+        )
+      )
     else
       val name = BrokerNames.topic(projectId, entry.name)
       observed match
-        case Some(TopicState(_, Some(partitions), _)) if partitions > entry.partitions =>
+        case Some(TopicState(_, Some(partitions), _, _, _)) if partitions > entry.partitions =>
           TopicPlan.Failed(
             Vector(
               s"topic '$name' has $partitions partitions and cannot have fewer; " +
                 s"${entry.partitions} was asked"
             )
           )
-        case Some(TopicState(state, _, _))
+        case Some(TopicState(state, _, _, _, _))
             if state.ready.contains(false) &&
               state.reason.exists(BrokerProvisioning.PermanentReasons) =>
           TopicPlan.Failed(
             Vector(s"topic '$name': ${state.message.orElse(state.reason).getOrElse("refused")}")
           )
-        case Some(TopicState(state, partitions, compacted))
+        case Some(seen @ TopicState(state, partitions, _, _, _))
             if state.ready.contains(true) && partitions.forall(_ == entry.partitions) &&
-              compacted.forall(_ == entry.compacted) =>
+              applied(entry, seen) =>
           TopicPlan.Ready(recovered = madeBefore(state, entry))
+        case Some(TopicState(state, _, _, _, _)) if state.exists && state.ready.contains(true) =>
+          TopicPlan.Waiting(Some(s"waiting for the broker to apply the settings of topic '$name'"))
         case _ =>
           TopicPlan.Waiting(Some(s"waiting for the broker to make topic '$name'"))
 
-  /** Every declared topic's phase, in the order the project declares them. */
+  /**
+   * Whether the topic's resource says what the declaration says (feature 043): its copies where the
+   * declaration states them, and its whole configuration where the declaration has settings; for a
+   * declaration from before settings, its compaction alone (feature 037).
+   */
+  private def applied(entry: ProjectTopicEntry, seen: TopicState): Boolean =
+    val copies = entry.replicas.forall(r => seen.replicas.contains(r))
+    val config = entry.retentionMs match
+      case Some(_) =>
+        seen.config.contains(
+          StrimziRendering
+            .kafkaConfig(entry)
+            .getOrElse(Map.empty)
+            .map((k, v) => k -> String.valueOf(v))
+        )
+      case None => seen.compacted.forall(_ == entry.compacted)
+    copies && config
+
+  /** A topic that asks for more copies than the broker has broker nodes, when that is known. */
+  private def tooMany(entry: ProjectTopicEntry, brokerNodes: Option[Int]): Boolean =
+    (entry.replicas, brokerNodes) match
+      case (Some(copies), Some(nodes)) => copies > nodes
+      case _                           => false
+
+  /** Every declared topic's phase, in the order the project declares them, and the node count. */
   def status(
       spec: AnkkaProjectSpec,
       broker: Option[BrokerSettings],
-      observed: Map[String, TopicState]
+      observed: Map[String, TopicState],
+      brokerNodes: Option[Int] = None
   ): AnkkaProjectStatus =
     AnkkaProjectStatus(
       spec.topics.map { t =>
         val seen = observed.get(BrokerNames.topic(spec.projectId, t.name))
-        val plan = decide(spec.projectId, t, broker, seen)
+        val plan = decide(spec.projectId, t, broker, seen, brokerNodes)
         ProjectTopicStatus(
           t.name,
           plan.phase,
           seen.flatMap(_.partitions),
           plan.explanation,
-          seen.flatMap(_.compacted)
+          seen.flatMap(_.compacted),
+          seen.flatMap(_.replicas),
+          seen.flatMap(_.config)
         )
-      }
+      },
+      brokerNodes
     )
 
   private def shrinks(

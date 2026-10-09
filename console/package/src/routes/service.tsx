@@ -165,6 +165,20 @@ export default function Service() {
               </dd>
             </>
           ) : null}
+          {s.warnings && s.warnings.length > 0 ? (
+            <>
+              <dt>Warnings</dt>
+              <dd>
+                <ul className="ac-topics">
+                  {s.warnings.map((w) => (
+                    <li key={`${w.kind}/${w.component}/${w.topic}`} data-warning={w.kind}>
+                      <span className="ac-notice">{w.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           {s.topicSources && s.topicSources.length > 0 ? (
             <>
               <dt>Topic sources</dt>
@@ -183,6 +197,7 @@ export default function Service() {
                           Lag
                         </th>
                         <th scope="col">Failing</th>
+                        <th scope="col">Retained</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -199,6 +214,26 @@ export default function Service() {
                           <td className="ac-num">{t.version}</td>
                           <td className="ac-num">{t.lag ?? "—"}</td>
                           <td>{t.failing ? <span className="ac-notice">{t.failing}</span> : "—"}</td>
+                          <td data-gap={t.gap ? (t.gap.compacted ? "compacted" : t.gap.gone ? "gone" : "everything") : "unknown"}>
+                            {t.gap === undefined || t.gap === null ? (
+                              "—"
+                            ) : t.gap.compacted ? (
+                              "compacted"
+                            ) : !t.gap.gone ? (
+                              "everything"
+                            ) : (
+                              <details>
+                                <summary>earlier messages gone</summary>
+                                <ul className="ac-topics">
+                                  {t.gap.partitions.map((p) => (
+                                    <li key={p.partition} data-partition={p.partition}>
+                                      p{p.partition} from {p.beginning} ({p.earliestRetained ?? "holds nothing"})
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

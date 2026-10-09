@@ -72,6 +72,43 @@ spec:
                         description: >-
                           sha256 of the contract's schema document under RFC 8785, as every
                           component states the schema it was built against.
+                      retentionMs:
+                        type: integer
+                        format: int64
+                        description: >-
+                          How long the topic keeps a message, in milliseconds; -1 keeps everything.
+                          Absent, with every setting below, for a topic declared before topics
+                          stated their settings.
+                      retentionBytes:
+                        type: integer
+                        format: int64
+                        description: How much each partition keeps, in bytes; -1 sets no limit.
+                      cleanupPolicy:
+                        type: string
+                        enum:
+                          - delete
+                          - compact
+                          - compact,delete
+                      deleteRetentionMs:
+                        type: integer
+                        format: int64
+                        description: How long a compacted topic keeps a deletion (its tombstone window).
+                      minCompactionLagMs:
+                        type: integer
+                        format: int64
+                      maxCompactionLagMs:
+                        type: integer
+                        format: int64
+                      replicas:
+                        type: integer
+                        minimum: 1
+                        description: >-
+                          How many copies the broker keeps, fixed when declared. Absent for a topic
+                          whose copies are the broker's.
+                      minInsyncReplicas:
+                        type: integer
+                        minimum: 1
+                        description: How many copies must hold a message before it is acknowledged.
                 brokers:
                   type: array
                   description: >-
@@ -123,3 +160,12 @@ spec:
                         type: string
                       compacted:
                         type: boolean
+                      replicas:
+                        type: integer
+                      config:
+                        type: object
+                        additionalProperties:
+                          type: string
+                brokerNodes:
+                  type: integer
+                  description: How many broker nodes the installation's broker has, as its node pools say.

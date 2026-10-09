@@ -116,6 +116,7 @@ The table is generated from the control plane's own route declarations.
 | `PUT` | `/projects/{projectId}/secrets/{name}` | |
 | `DELETE` | `/projects/{projectId}/secrets/{name}` | |
 | `PUT` | `/projects/{projectId}/topics/{name}` | |
+| `GET` | `/projects/{projectId}/history` | |
 | `GET` | `/projects/{projectId}/topics/{name}/schema` | |
 | `DELETE` | `/projects/{projectId}/topics/{name}` | |
 | `GET` | `/projects/{projectId}/topics` | |
@@ -428,13 +429,32 @@ value — the control plane cannot read a Secret back.
 ### `PUT /projects/{projectId}/topics/{name}`
 
 Declares a topic on the project, which the platform makes on the installation's broker as
-`<projectId>.<name>`, or changes a declared topic: more partitions, its compaction, its contract. Body:
-`{ "partitions": 12, "compacted": false, "contract": { "name": "order.v1", "schema": { … } } }`, where
-`compacted` and `contract` are optional and absent means not compacted and no contract. Members of the
-project's organization, including deploy tokens. Answers `204`.
+`<projectId>.<name>`, or changes a declared topic: more partitions, its settings, its contract. Body:
+`{ "partitions": 12, "retention": "90d", "retentionSize": "50GiB", "cleanup": "delete", "tombstoneWindow":
+"1d", "minCompactionLag": "0s", "maxCompactionLag": "none", "copies": 3, "minInSync": 2, "compacted": false,
+"contract": { "name": "order.v1", "schema": { … } }, "removes": "messages older than 30d" }`. Every field is
+optional but `partitions` on a topic's first declaration. A first declaration takes each setting it leaves
+out from the installation's defaults; a declaration of a topic already declared keeps each setting it
+leaves out, partitions included. Durations are a whole number and `ms`, `s`, `m`, `h` or `d`, and
+`retention` may be `everything`; sizes are a whole number and `B`, `KiB`, `MiB`, `GiB` or `TiB`, and
+`retentionSize` and `maxCompactionLag` may be `none`; `cleanup` is `delete`, `compact` or `compact,delete`,
+and `compacted: true` is its short form. Members of the project's organization, including deploy tokens.
+Answers `204`.
 
 A project holds one declaration per topic, and every service of the project uses the topic by its name.
-Declaring a topic again as it is records nothing. A name that is not lower-case letters, digits, `-` and
+Declaring a topic again as it is records nothing. A value that is not one of the words above, `compacted`
+and `cleanup` that disagree, a setting past the installation's longest retention time, largest retention
+size or most copies, and a minimum in-sync copies outside 1 to the copies are refused with `400`, naming
+the setting. A change to a topic's `copies` or `minInSync`, or either stated for a topic whose copies are
+the broker's, is refused with `409`: they are fixed when a topic is declared, and nothing else in the
+declaration is applied.
+
+A declaration that removes messages — a shorter retention time, a smaller retention size, or a compacted
+topic that starts deleting by age — is an owner's: a member who is not an owner is refused with `403`,
+naming what it removes, and so is a deploy token. Its body must also say what it removes, in `removes`,
+exactly as the control plane words it; without it, or with other words, it is refused with `400`, naming
+what the declaration would remove, so a client shows that to its user and sends the declaration again
+saying so. `removes` on a declaration that removes nothing is refused with `400` too. A name that is not lower-case letters, digits, `-` and
 `.` starting and ending with a letter or digit, or is over 100 characters, partitions outside 1 to 1000,
 a contract name outside `[a-z0-9][a-z0-9._-]{0,98}[a-z0-9]`, and a schema that is not JSON or is over
 64 KiB, are refused with `400`, every problem at once. Fewer partitions than the project declares is
@@ -444,6 +464,15 @@ A contract's schema is written to the project's schema store in the cluster befo
 recorded, under its fingerprint — `sha256:` and the SHA-256 of the document under RFC 8785 — so the
 record never names a document the cluster does not hold; a cluster that could not be written answers
 `503` and records nothing.
+
+### `GET /projects/{projectId}/history`
+
+The changes to the project's topics, newest first, as many as a service's history keeps: `[{ "kind":
+"topic-changed", "topic": "transactions", "actor": { "subject": "…", "display": "Ada", "administrative":
+false }, "at": "2026-10-08T10:00:00Z", "changes": [{ "setting": "retention", "from": "90d", "to": "180d" }]
+}]`. `kind` is `topic-declared`, `topic-changed`, `topic-removed`, or `topic-filled` for a topic declared
+before topics stated their settings, which the control plane filled from the installation's defaults when
+it started, with no actor. A declaration that changed nothing is not listed. Members only.
 
 ### `GET /projects/{projectId}/topics/{name}/schema`
 
@@ -458,6 +487,10 @@ topic and what was published to it stay on the broker; declaring it again finds 
 ### `GET /projects/{projectId}/topics`
 
 The project's declared topics, by name: `[{ "name": "orders", "partitions": 3, "compacted": false,
+"settings": { "retention": "7d", "retentionSize": "none", "cleanup": "delete", "tombstoneWindow": "1d",
+"minCompactionLag": "0s", "maxCompactionLag": "none", "copies": 1, "minInSync": 1, "defaulted":
+["retention", "retentionSize", "cleanup", "tombstoneWindow", "minCompactionLag", "maxCompactionLag",
+"copies", "minInSync"] }, "copiesHeld": 1, "brokerNodes": 1,
 "contract": { "name": "order.v1", "fingerprint": "sha256:…" }, "phase": "provisioned", "checks": [ { "topic":
 "orders", "service": "wallet", "component": "consumer:relay", "direction": "publishes", "stated":
 "order.v1", "state": "checked" } ] }]`. From the project's own record, so a topic just declared is listed
@@ -466,7 +499,11 @@ at once. `phase` says how far the platform has got with it — `waiting for brok
 or when the cluster cannot be read. `checks` lists each side a running service takes on a topic with a
 contract, read from the services' instances: `checked` when the component states the declared contract,
 `mismatch` when it states another or none, `unchecked` for an instance started before the declaration;
-empty for a topic without a contract or when no instance could be read.
+empty for a topic without a contract or when no instance could be read. `settings` names every setting in
+words and, in `defaulted`, those the installation supplied; `copies` and `minInSync` are absent for a topic
+whose copies are the broker's. `copiesHeld` is how many copies the broker holds of the topic and
+`brokerNodes` how many nodes the broker has, as the operator last read them; the `detail` says when a
+topic's copies are the broker's, below the installation's default, or a single copy.
 
 ### `PUT /projects/{projectId}/brokers/{name}`
 

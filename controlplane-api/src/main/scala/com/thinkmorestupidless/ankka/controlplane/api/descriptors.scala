@@ -908,6 +908,12 @@ final case class ServiceStatus(
      */
     topicSources: Option[Vector[TopicSourceReport]] = None,
     /**
+     * What a member should know about the service and need not act on (feature 043), worked out
+     * from the project's current declarations each time the status is read. Absent when there is
+     * nothing, and on listing rows.
+     */
+    warnings: Option[Vector[ServiceWarning]] = None,
+    /**
      * What the platform did about the service's bucket (feature 034), as a phrase — `provisioned`,
      * `recovered existing bucket`, `supplied`, `waiting for object storage`, `object storage
      * provisioning failed` — like `database`, and for the same reason. Absent when the service has
@@ -1289,8 +1295,42 @@ final case class TopicSourceReport(
     broker: Option[String] = None,
     contract: Option[String] = None,
     lag: Option[Long] = None,
-    failing: Option[String] = None
+    failing: Option[String] = None,
+    /**
+     * Feature 043: what the broker still holds of the topic, per partition, and whether earlier
+     * messages are gone. Absent until the source has asked the broker.
+     */
+    gap: Option[RetentionGapReport] = None
 )
+
+/**
+ * Where a partition of a topic begins on the broker: the earliest position it still holds and when
+ * that message was published, absent for a partition holding nothing. Neither says what was ever
+ * written first; a beginning above zero says only that something before it is gone.
+ */
+final case class PartitionGapReport(
+    partition: Int,
+    beginning: Long,
+    earliestRetained: Option[java.time.Instant] = None
+)
+
+/**
+ * A topic source's retention gap (feature 043). `gone` is true when the topic is not compacted and
+ * a partition begins above zero, or holds nothing earlier than the view's start; a compacted topic
+ * says `compacted` and is never `gone`. `readAt` is when the broker was asked.
+ */
+final case class RetentionGapReport(
+    partitions: Vector[PartitionGapReport],
+    compacted: Boolean = false,
+    gone: Boolean = false,
+    readAt: Option[java.time.Instant] = None
+)
+
+/**
+ * Something about a service a member should know and need not act on (feature 043). `kind` is
+ * `retention`: a view reads a topic that keeps less than the installation's warning threshold.
+ */
+final case class ServiceWarning(kind: String, component: String, topic: String, message: String)
 
 /** Whether an instance's topology was read, and if not, why not. */
 enum InstanceStatus:
@@ -1427,11 +1467,27 @@ object Registries:
  * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
  * only the last message under each key, and the contract it carries (feature 037): a name and the
  * schema document, which the control plane fingerprints and holds for the project.
+ *
+ * Feature 043: how long it keeps, how it is cleaned and how many copies it has, each in the words a
+ * member types (`TopicSettings`). On a topic's first declaration a setting left out is the
+ * installation's default and partitions are required; on a redeclaration a setting or the
+ * partitions left out keep their value. `compacted` is the short form of `cleanup: "compact"`.
+ * `removes` restates, in the control plane's words, what a declaration that removes messages
+ * removes; it is refused on one that removes nothing.
  */
 final case class TopicDeclarationRequest(
-    partitions: Int,
+    partitions: Option[Int] = None,
     compacted: Boolean = false,
-    contract: Option[ContractDeclaration] = None
+    contract: Option[ContractDeclaration] = None,
+    retention: Option[String] = None,
+    retentionSize: Option[String] = None,
+    cleanup: Option[String] = None,
+    tombstoneWindow: Option[String] = None,
+    minCompactionLag: Option[String] = None,
+    maxCompactionLag: Option[String] = None,
+    copies: Option[Int] = None,
+    minInSync: Option[Int] = None,
+    removes: Option[String] = None
 )
 
 /** A contract as declared: its name and its schema document, a JSON Schema. */
@@ -1464,7 +1520,26 @@ final case class ProjectTopic(
     detail: Option[String] = None,
     compacted: Boolean = false,
     contract: Option[Contract] = None,
-    checks: Vector[TopicCheck] = Vector.empty
+    checks: Vector[TopicCheck] = Vector.empty,
+    /** Feature 043: every setting in words, and which the installation supplied. */
+    settings: Option[TopicSettingsView] = None,
+    /** How many copies the broker holds of the topic, as the operator last saw it. */
+    copiesHeld: Option[Int] = None,
+    /** How many broker nodes the installation's broker has, as the operator last counted. */
+    brokerNodes: Option[Int] = None
+)
+
+/**
+ * One entry of `GET /projects/{id}/history` (feature 043): what was done to a topic, by whom and
+ * when, and each setting it changed. `kind` is `topic-declared`, `topic-changed`, `topic-filled`
+ * (by the platform, with no actor) or `topic-removed`.
+ */
+final case class ProjectHistoryEntry(
+    kind: String,
+    topic: String,
+    actor: Option[HistoryActor] = None,
+    at: Option[java.time.Instant] = None,
+    changes: Vector[SettingChange] = Vector.empty
 )
 
 /**
@@ -1542,6 +1617,12 @@ object ProjectTopics:
   val MaxSchemaBytes: Int = 65536
 
   /** Everything wrong with declaring `name` with `partitions`, all at once. */
+  def problems(name: String, partitions: Option[Int]): Vector[String] =
+    partitions.fold(Option.when(!validName(name))(s"topic '$name': $NameRule").toVector)(
+      problems(name, _)
+    )
+
+  /** Everything wrong with declaring `name` with `partitions`, all at once. */
   def problems(name: String, partitions: Int): Vector[String] =
     Option.when(!validName(name))(s"topic '$name': $NameRule").toVector ++
       Option
@@ -1554,16 +1635,18 @@ object ProjectTopics:
    * The same, with the contract's own rules: its name, and a schema that is JSON and not too big.
    */
   def problems(name: String, request: TopicDeclarationRequest): Vector[String] =
-    problems(name, request.partitions) ++ request.contract.toVector.flatMap { c =>
-      val nameProblem = Option.when(!Contract.validName(c.name))(
-        s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
-      )
-      val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
-      val sizeProblem = Option.when(size > MaxSchemaBytes)(
-        s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
-      )
-      nameProblem.toVector ++ sizeProblem.toVector
-    }
+    problems(name, request.partitions) ++
+      TopicSettingsRules.parse(name, request).left.getOrElse(Vector.empty) ++
+      request.contract.toVector.flatMap { c =>
+        val nameProblem = Option.when(!Contract.validName(c.name))(
+          s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
+        )
+        val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
+        val sizeProblem = Option.when(size > MaxSchemaBytes)(
+          s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
+        )
+        nameProblem.toVector ++ sizeProblem.toVector
+      }
 
   /** The refusal of fewer partitions than the project declares: the entity's rule, worded here. */
   def fewer(name: String, has: Int, asked: Int): String =
@@ -1730,6 +1813,10 @@ object Wire:
     Codecs.make[TopicDeclarationRequest]
   given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]
   given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
+  given projectHistoryEntryCodec: JsonValueCodec[ProjectHistoryEntry] =
+    Codecs.make[ProjectHistoryEntry]
+  given projectHistoryCodec: JsonValueCodec[Vector[ProjectHistoryEntry]] =
+    Codecs.make[Vector[ProjectHistoryEntry]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =

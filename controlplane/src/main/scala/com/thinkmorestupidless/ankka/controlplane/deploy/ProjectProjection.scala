@@ -18,13 +18,24 @@ object ProjectProjection:
     AnkkaProjectSpec(
       projectId,
       topics.toList.sortBy(_._1).map { (name, topic) =>
+        val settings = topic.settings
+        // Feature 043: every setting as the topic's Kafka configuration says it, so the operator
+        // states each one on the topic. A topic with no settings yet projects as it did before.
         ProjectTopicEntry(
           name,
           topic.partitions,
           topic.declaredAt.fold("")(_.toString),
-          topic.compacted,
+          settings.fold(topic.compacted)(_.compacted),
           topic.contract.map(_.name),
-          topic.contract.map(_.fingerprint)
+          topic.contract.map(_.fingerprint),
+          retentionMs = settings.map(_.retention.kafka),
+          retentionBytes = settings.map(_.retentionSize.kafka),
+          cleanupPolicy = settings.map(_.cleanup.text),
+          deleteRetentionMs = settings.map(_.tombstoneWindow.millis),
+          minCompactionLagMs = settings.map(_.minCompactionLag.millis),
+          maxCompactionLagMs = settings.map(_.maxCompactionLag.kafka),
+          replicas = settings.flatMap(_.copies),
+          minInsyncReplicas = settings.flatMap(_.minInSync)
         )
       },
       brokers.toList.sortBy(_._1).map { (name, b) =>

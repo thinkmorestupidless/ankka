@@ -83,7 +83,7 @@ keys (`retention.ms`, `retention.bytes`, `cleanup.policy`, `delete.retention.ms`
 entry carries the Kafka-shaped numbers (R8) and the operator builds the config map from them with a
 copy of the same seven-line mapping; one test on each side (`TopicSettingsSuite` in
 `controlplane-api`, `StrimziModelsSuite` in the operator) renders the same fixture
-(`protocol/fixtures/topic-settings.json`, written by the `controlplane-api` suite) to the same map.
+(`protocol/fixtures/topics/settings.json`, written by the `controlplane-api` suite) to the same map.
 
 **Rationale**: a duration with a unit is what every page of the docs already writes ("7 days",
 "50 GiB"); Kafka's keys are an implementation detail the member never sees. Two renderings of a
@@ -345,7 +345,8 @@ publish (a round trip per message).
 compacted: Boolean, gone: Boolean, readAt: Instant)`, where `gone` is `beginning > 0` on any partition
 or `earliestAt` later than the view's `since`, and `compacted` comes from `TopicConfigs` (R11),
 in which case `gone` is `false` and the report says compacted. The view's `since` is the instant
-its version was recorded: `ankka_view_versions` gains `recorded_at` (`ViewVersions.createTable`,
+its version was built: `ankka_view_versions.built_at`, which `rebuild` already writes (found when
+implementing; an earlier draft added a `recorded_at` column for the same fact) (`ViewVersions.createTable`,
 `R/ViewVersions.scala:40`, with `ALTER TABLE … ADD COLUMN IF NOT EXISTS` on `ensure`; the table is the
 runtime's, not the DDL directory's) and `rebuild` writes it; a consumer has no version and `gone` is
 the beginning rule alone. `ProjectionRuntime` reports the gap when a topic source subscribes

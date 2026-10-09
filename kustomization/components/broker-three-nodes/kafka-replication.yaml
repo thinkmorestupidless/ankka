@@ -1,0 +1,16 @@
+# Every setting that counts copies, for three nodes: a topic made with no stated copies has three,
+# the broker's own topics too, and two copies must hold a message before it is acknowledged, so one
+# node can stop without losing an acknowledged message or refusing a publication.
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: ankka
+  namespace: ankka-broker
+spec:
+  kafka:
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2

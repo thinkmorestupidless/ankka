@@ -281,6 +281,7 @@ latest.
 - added `features/broker/cleanup-policy.feature`: a message published under no key to a compacted topic fails in the service before it reaches the broker
 - added `features/broker/cleanup-policy.feature`: a deletion on a compacted topic is read for the topic's tombstone window
 - added `features/broker/cleanup-policy.feature`: no message on a compacted topic is compacted away within its minimum compaction lag
+- changed `features/graph-deltas/store.feature`: a topic its project declares compacted holds only element keys
 
 ---
 

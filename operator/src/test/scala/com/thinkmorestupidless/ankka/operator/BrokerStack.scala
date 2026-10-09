@@ -27,7 +27,12 @@ object BrokerStack:
   val settings: BrokerSettings =
     BrokerSettings(s"$Cluster-kafka-bootstrap.$Namespace.svc:9093", Namespace, Cluster)
 
-  def install(k3s: K3sContainer): BrokerSettings =
+  /**
+   * The broker component on `k3s`, on ephemeral storage; with `nodes` = 3, the shape the
+   * `broker-three-nodes` component gives a new installation (feature 043): three nodes and every
+   * setting that counts copies for three, with a smaller heap so three fit on one k3s node.
+   */
+  def install(k3s: K3sContainer, nodes: Int = 1): BrokerSettings =
     val component = PkiStack.repoRoot.resolve("kustomization/components/broker")
     apply(k3s, component.resolve("namespace.yaml"))
     // Strimzi's operator and CRDs: a Kustomization of their own, rendered by the node's kubectl.
@@ -64,7 +69,12 @@ object BrokerStack:
     val kafka = Files.readString(component.resolve("kafka.yaml"))
     if !kafka.contains(persistent) then
       throw new AssertionError("kafka.yaml's storage is not the block BrokerStack makes ephemeral")
-    applyText(k3s, kafka.replace(persistent, "        type: ephemeral\n"), "/tmp/broker-kafka.yaml")
+    val ephemeral = kafka.replace(persistent, "        type: ephemeral\n")
+    applyText(
+      k3s,
+      if nodes == 1 then ephemeral else shaped(ephemeral, nodes),
+      "/tmp/broker-kafka.yaml"
+    )
     waitFor(600.seconds, "the installation's Kafka is Ready") {
       PkiStack.jsonPath(
         k3s,
@@ -76,6 +86,30 @@ object BrokerStack:
       ) == "True"
     }
     settings
+
+  /**
+   * The component's Kafka with `nodes` broker nodes, each line it changes found or the run fails.
+   */
+  private def shaped(kafka: String, nodes: Int): String =
+    val inSync = (nodes - 1).max(1)
+    val lines = Vector(
+      "  replicas: 1" -> s"  replicas: $nodes",
+      "      offsets.topic.replication.factor: 1" -> s"      offsets.topic.replication.factor: $nodes",
+      "      transaction.state.log.replication.factor: 1" -> s"      transaction.state.log.replication.factor: $nodes",
+      "      transaction.state.log.min.isr: 1" -> s"      transaction.state.log.min.isr: $inSync",
+      "      default.replication.factor: 1"    -> s"      default.replication.factor: $nodes",
+      "      min.insync.replicas: 1"           -> s"      min.insync.replicas: $inSync",
+      "    -Xmx: 512m"                         -> "    -Xmx: 384m",
+      "      memory: 768Mi"                    -> "      memory: 512Mi",
+      "      cpu: 250m"                        -> "      cpu: 200m"
+    )
+    lines.foldLeft(kafka) { case (text, (from, to)) =>
+      if !text.linesIterator.contains(from) then
+        throw new AssertionError(
+          s"kafka.yaml has no line '$from' for BrokerStack to make $nodes nodes"
+        )
+      text.linesIterator.map(l => if l == from then to else l).mkString("", "\n", "\n")
+    }
 
   private def apply(k3s: K3sContainer, file: Path): Unit =
     applyText(k3s, Files.readString(file), s"/tmp/broker-${file.getFileName}")

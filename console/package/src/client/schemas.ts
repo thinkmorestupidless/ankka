@@ -152,6 +152,8 @@ export const serviceStatusSchema = z.object({
   topicChecks: optional(z.array(z.lazy(() => topicCheckSchema))),
   /** Each topic source of the service with how far behind it is, from its instances; absent when not read. */
   topicSources: optional(z.array(z.lazy(() => topicSourceReportSchema))),
+  /** What a member should know and need not act on, worked out from the project's declarations now. */
+  warnings: optional(z.array(z.lazy(() => serviceWarningSchema))),
   objectStorage: optional(z.string()),
   bucket: optional(z.string()),
   bucketAddress: optional(z.string()),
@@ -394,14 +396,41 @@ export type TopicCheck = z.infer<typeof topicCheckSchema>;
 
 /**
  * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
- * only the last message under each key, and the contract it carries with its schema document.
+ * only the last message under each key, and the contract it carries with its schema document; and
+ * how long it keeps, how it is cleaned and how many copies it has, each in the words a member types.
+ * A new topic needs its partitions and takes every setting left out from the installation; a topic
+ * already declared keeps what is left out. `removes` restates what a change that removes messages
+ * removes, in the control plane's own words.
  */
 export const topicDeclarationRequestSchema = z.object({
-  partitions: z.number().int(),
+  partitions: optional(z.number().int()),
   compacted: z.boolean().default(false),
   contract: optional(z.object({ name: z.string(), schema: z.unknown() })),
+  retention: optional(z.string()),
+  retentionSize: optional(z.string()),
+  cleanup: optional(z.string()),
+  tombstoneWindow: optional(z.string()),
+  minCompactionLag: optional(z.string()),
+  maxCompactionLag: optional(z.string()),
+  copies: optional(z.number().int()),
+  minInSync: optional(z.number().int()),
+  removes: optional(z.string()),
 });
 export type TopicDeclarationRequest = z.input<typeof topicDeclarationRequestSchema>;
+
+/** A declared topic's every setting in words, and the ones the installation supplied. */
+export const topicSettingsViewSchema = z.object({
+  retention: z.string(),
+  retentionSize: z.string(),
+  cleanup: z.string(),
+  tombstoneWindow: z.string(),
+  minCompactionLag: z.string(),
+  maxCompactionLag: z.string(),
+  copies: optional(z.number().int()),
+  minInSync: optional(z.number().int()),
+  defaulted: z.array(z.string()).default([]),
+});
+export type TopicSettingsView = z.infer<typeof topicSettingsViewSchema>;
 
 /** A topic a project declares, and how far the platform has got with it. */
 export const projectTopicSchema = z.object({
@@ -412,8 +441,57 @@ export const projectTopicSchema = z.object({
   compacted: z.boolean().default(false),
   contract: optional(contractSchema),
   checks: z.array(topicCheckSchema).default([]),
+  settings: optional(topicSettingsViewSchema),
+  /** How many copies the broker holds, as the operator last saw. */
+  copiesHeld: optional(z.number().int()),
+  /** How many broker nodes the installation's broker has. */
+  brokerNodes: optional(z.number().int()),
 });
 export type ProjectTopic = z.infer<typeof projectTopicSchema>;
+
+/** One setting a declaration changed, from what to what. */
+export const settingChangeSchema = z.object({
+  setting: z.string(),
+  from: z.string(),
+  to: z.string(),
+});
+export type SettingChange = z.infer<typeof settingChangeSchema>;
+
+/** One change to a project's topics: what, to which topic, by whom, when, and each setting it changed. */
+export const projectHistoryEntrySchema = z.object({
+  kind: z.string(),
+  topic: z.string(),
+  actor: optional(z.lazy(() => historyActorSchema)),
+  at: optional(z.string()),
+  changes: z.array(settingChangeSchema).default([]),
+});
+export type ProjectHistoryEntry = z.infer<typeof projectHistoryEntrySchema>;
+
+/** Where a partition begins on the broker, and when that message was published. */
+export const partitionGapReportSchema = z.object({
+  partition: z.number().int(),
+  beginning: z.number().int(),
+  earliestRetained: optional(z.string()),
+});
+export type PartitionGapReport = z.infer<typeof partitionGapReportSchema>;
+
+/** What a topic source's topic no longer holds, per partition, and whether earlier messages are gone. */
+export const retentionGapReportSchema = z.object({
+  partitions: z.array(partitionGapReportSchema),
+  compacted: z.boolean().default(false),
+  gone: z.boolean().default(false),
+  readAt: optional(z.string()),
+});
+export type RetentionGapReport = z.infer<typeof retentionGapReportSchema>;
+
+/** Something about a service a member should know: a view over a topic that keeps too little. */
+export const serviceWarningSchema = z.object({
+  kind: z.string(),
+  component: z.string(),
+  topic: z.string(),
+  message: z.string(),
+});
+export type ServiceWarning = z.infer<typeof serviceWarningSchema>;
 
 /**
  * A topic source as a service's instances report it: what reads which topic under which group, the
@@ -433,6 +511,8 @@ export const topicSourceReportSchema = z.object({
   contract: optional(z.string()),
   lag: optional(z.number().int()),
   failing: optional(z.string()),
+  /** What the broker still holds of the topic, per partition. */
+  gap: optional(retentionGapReportSchema),
 });
 export type TopicSourceReport = z.infer<typeof topicSourceReportSchema>;
 
@@ -505,6 +585,7 @@ export const schemasByType: Record<string, z.ZodType> = {
   ProjectSecretSummary: projectSecretSummarySchema,
   TopicDeclarationRequest: topicDeclarationRequestSchema,
   ProjectTopic: projectTopicSchema,
+  ProjectHistoryEntry: projectHistoryEntrySchema,
   Contract: contractSchema,
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,

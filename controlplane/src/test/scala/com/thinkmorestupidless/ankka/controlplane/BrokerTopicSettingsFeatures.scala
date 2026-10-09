@@ -236,6 +236,9 @@ class BrokerCopiesFeatures extends BrokerTopicSettingsFeatures("copies.feature")
 
   override protected def brokerNodes: Int = 3
 
+  // One scenario declares "transactions" with five copies, which the topic keeps for its life.
+  override protected def projectPerScenario: Boolean = true
+
   // The three-node component's control plane: three copies, two in sync; at most five.
   override protected def topicPolicy: TopicPolicy =
     TopicPolicy.default.copy(

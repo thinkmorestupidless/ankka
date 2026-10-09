@@ -364,13 +364,18 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
 
   private var declaringScenarios = 0
 
+  /**
+   * Whether every scenario declares on a "money" of its own. A declaration fixes what no later one
+   * can undo — more partitions, and since feature 043 a topic's copies — so a file whose scenarios
+   * each declare "transactions" from nothing needs one.
+   */
+  protected def projectPerScenario: Boolean = feature == "declaring.feature"
+
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
       scenarioName = aliasesByScenario.keys.find(context.test.name.startsWith).getOrElse("")
       aliases = aliasesByScenario.getOrElse(scenarioName, Map.empty)
-      // Each of the declaring file's scenarios declares "transactions" from nothing, and one grows
-      // it, which no later declaration of fewer partitions can undo: each has a project of its own.
-      if feature == "declaring.feature" then
+      if projectPerScenario then
         declaringScenarios += 1
         aliases += "money" -> s"money$declaringScenarios"
       made = Vector.empty

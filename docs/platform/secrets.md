@@ -1,6 +1,6 @@
 ---
 title: Secrets on the platform
-description: The secret key the platform makes for each deployed service, and project secrets — values a member sets for a project, with no cluster credential, that a descriptor's variable takes by secretKeyRef.
+description: Where an installation keeps secrets (each service's database or Google Secret Manager), the secret key, project secrets a descriptor takes by secretKeyRef, the record of every read, and moving to Secret Manager.
 kind: guide
 related: [build/secrets.md, platform/databases.md, platform/identity.md, reference/control-plane-api.md, reference/cli.md]
 ---
@@ -17,6 +17,9 @@ The platform keeps two kinds of secret for a deployed service, and they do diffe
 
 A value the service itself is given while it runs, through its own API, belongs in the service's secret
 store instead: see [Secrets a service keeps](../build/secrets.md).
+
+Where both are kept — each service's database and the cluster's Secrets, or Google Secret Manager — is
+the installation's to choose, once, and every read of a service secret leaves a record a person can find.
 
 ## The secret key
 
@@ -66,6 +69,145 @@ Recreate the volume, or apply that file. A deployed service gets the table when 
 
 The first time an operator that makes secret keys reconciles an existing service, the service's pods gain
 the variable, so every service rolls once, by the platform's usual replace-one-at-a-time.
+
+## Choosing a backend
+
+Where an installation keeps service secrets and project secrets is one setting, the installation's, on the
+`ankka-platform` ConfigMap. A service's code, its descriptor and its calls on the store are the same on
+either, and a descriptor cannot choose differently.
+
+| Key | Variable | Values |
+|---|---|---|
+| `secretBackend` | `ANKKA_SECRET_BACKEND` | `postgres` (the default): each service's own database, and the cluster's Secrets. `secret-manager`: Google Secret Manager. |
+| `cloudProvider` | `ANKKA_CLOUD_PROVIDER` | `none` (the default) or `gcp`. `secret-manager` needs `gcp`, or the control plane does not start. |
+| `cloudAccount` | `ANKKA_CLOUD_ACCOUNT` | The Google Cloud project the secrets are kept in. Required for `secret-manager`. |
+| `cloudLocation` | `ANKKA_CLOUD_LOCATION` | A region to keep secrets in. Empty, Secret Manager replicates them automatically. |
+| `secretVersionsKept` | `ANKKA_SECRET_VERSIONS_KEPT` | On `secret-manager`, how many versions of a service secret are kept: `2` unless set. |
+| `secretRecordRetention` | `ANKKA_SECRET_RECORD_RETENTION` | How long the record of reads is kept: `365d` unless set. |
+| `secretMove` | `ANKKA_SECRET_MOVE` | A phase of a move from `postgres` to `secret-manager`: `copy`, `check` or `remove`. Empty: no move. |
+
+The operator gives each service the settings its runtime reads, on the platform's own container only, and
+renders nothing for a setting left at its default. A setting the runtime refuses — a backend it does not
+know, `secret-manager` with no account — stops the service starting, naming the variable.
+
+## Secret Manager
+
+On the `secret-manager` backend each service secret is a secret in Google Secret Manager, and each read
+reads its newest enabled version, every time, with no cache. A value kept on one instance is read by the
+next read on every instance; a value kept again adds a version, and the versions beyond
+`secretVersionsKept` are destroyed, oldest first, once the new one can be read. The platform never
+disables a service secret's version, so the newest can always be read; a version disabled by hand is
+skipped, and the record of that read says so. Removing a service secret deletes it and every version. The
+service's database holds nothing of a secret kept here.
+
+Secret Manager limits how many reads a Google Cloud project answers a minute. A service that reads a
+credential for every request it makes counts against that limit, and a read refused for quota fails as
+unavailable: size the quota for it rather than keep a copy.
+
+A secret's id carries the project, the service and the secret's name, and the name itself is kept on the
+secret as the annotation `ankka-name`, where an administrator can read it:
+
+| What | Id |
+|---|---|
+| The service secret `psp/acme/api-key` of `payments` in `spinvibe` | `s_spinvibe_payments_psp_sacme_sapi-key` |
+| The entry `STRIPE_KEY` of the project secret `checkout` in `spinvibe` | `p_spinvibe_checkout__STRIPE_uKEY` |
+
+In a name, `_` is written `_u`, `.` is `_p` and `/` is `_s`, so no two names share an id. A name too long
+for an id is kept under its prefix and a digest of the name.
+
+### Secret access on Google Cloud
+
+A service reaches Secret Manager as its own Kubernetes ServiceAccount, through Workload Identity
+Federation for GKE: no Google service account, no key file, nothing in the pod's environment. What each
+identity may do is written as IAM bindings on the Google Cloud project, by the installation's cloud
+provider, conditioned on the id's prefix. A condition names a secret by the project's **number**, not its
+id: `resource.name.startsWith("projects/123456789012/secrets/s_spinvibe_payments_")`.
+
+| Identity | May | May not |
+|---|---|---|
+| A service | create a secret; add versions to, read, list the versions of, destroy versions of and delete secrets under `s_<project>_<service>_`; read under `p_<project>_` | list secrets; touch another service's or another project's |
+| The control plane | create a secret; add, list and disable versions under `p_` | read any version |
+| The cloud provider | read and seed versions under `p_` | touch a service secret |
+
+Google Cloud cannot limit a create by the secret's name, because the secret does not exist when the
+create is authorised, so any service may create a secret under any id. That is harmless: a service that
+creates a secret under another service's prefix can neither read it, add to it nor delete it, and the
+owning service's next keep adds its version to that secret as to its own. The create is in Google Cloud's
+audit log, under the creator's identity.
+
+A service whose access has not been written yet is refused by Google Cloud, and its store says so —
+naming the prefix its access must admit — never that the secret does not exist.
+
+The power to write these bindings, `setIamPolicy` on the Google Cloud project, can grant anything to
+anyone. The operator does not hold it, and nor does the control plane; the installation's cloud provider
+does, and nothing else in the installation needs a Google credential.
+
+### Before an installation uses it
+
+- Workload Identity Federation for GKE on the cluster (`--workload-pool=<project>.svc.id.goog`) and on
+  every node pool a service may run on (`--workload-metadata=GKE_METADATA`).
+- The Secret Manager API enabled on the Google Cloud project.
+- Data Access audit logging on for `secretmanager.googleapis.com`, so Google Cloud records each access.
+- The installation's cloud provider installed, holding the roles that write the bindings above.
+
+To verify an installation by hand: mint a token for one service's ServiceAccount and call Secret Manager
+with it. Reading that service's own secret succeeds; reading another service's, another project's, and
+listing the project's secrets are each `PERMISSION_DENIED`.
+
+## The record of reads
+
+Every read, keep and removal of a service secret leaves a record, on either backend: the secret's name,
+the project and service, how the service's program is hosted, the outcome, the time, the trace and the
+handler's span, and — where the platform ran the handler itself — the component and its kind. Never the
+value: a record has nowhere to put one.
+
+A service writes the record to the control plane, as itself, **before** it uses the value, and a read
+whose record is not acknowledged within five seconds fails as unavailable. So no value is used without its
+record, and a service's reads of secrets depend on the control plane being reachable. The control plane
+keeps the records in a database of its own, apart from its journal and from every service's database: a
+service cannot remove the record of its own reads, and restoring its database does not rewind them. A
+service may write records only of its own reads.
+
+An owner of the project's organization reads them, newest first:
+
+```console
+$ ankka projects secret-reads list -p spinvibe --name psp/acme/api-key --from 2026-09-01T00:00:00Z
+AT                    SERVICE   COMPONENT  NAME              OPERATION  OUTCOME  TRACE
+2026-10-08T12:00:00Z  payments  charge     psp/acme/api-key  get        read     4bf92f35…
+```
+
+A member who is not an owner, and a deploy token, are refused. Records older than `secretRecordRetention`
+are removed each day. `ankka platform status` shows the backend, the cloud, the retention, and whether
+Google Cloud's own access log is on (`unknown` until the cloud provider reports it). On Secret Manager,
+Google Cloud's audit log records each access beside the platform's record.
+
+## Moving an installation to Secret Manager
+
+An installation on `postgres` moves service by service, with no person seeing a value. Each step is a
+change to the ConfigMap and a rollout; each service performs the phase when its instances next start, and
+an instance is not ready until it has.
+
+1. Set `secretBackend` to `secret-manager` and `secretMove` to `copy`, and roll the services. Each
+   instance copies every row of its database that Secret Manager does not already hold, decrypting with
+   the service's secret key; a secret Secret Manager already holds is never overwritten. The rows stay.
+2. Set `secretMove` to `check`. Each instance compares every name's value in its database with Secret
+   Manager's newest, by digest, and reports `equal`, `different` or `missing-in-secret-manager` for each.
+3. When every service reports every name equal, set `secretMove` to `remove`. Each instance checks
+   again, and deletes its rows only when every name is equal; otherwise it leaves them and names the
+   differences. Then clear `secretMove`.
+
+`ankka services get` shows each service's backend, the phase its instances ran, the outcome and every
+name's state, once an instance is ready. An instance that cannot reach Secret Manager during a phase is
+not ready, changes nothing, says why in its readiness probe's answer and its log, and tries again.
+
+Before a service's removal step, setting `secretBackend` back to `postgres` is a rollback: the service
+reads its rows again, and names any secret kept since its copy, which Secret Manager alone holds. After
+its removal step the database holds nothing, and a service on `postgres` refuses to start, saying its
+secrets live only in Secret Manager — so a switch back stops at that service, named, until the setting is
+put back.
+
+The secret key is still given to a service on Secret Manager. Through a move it is what decrypts the
+rows; after the removal step it is not read, and `ankka services get` says so.
 
 ## Project secrets
 
@@ -132,6 +274,20 @@ secret exists, its entries' names, and who set them. Its grant on Secrets is to 
 cannot read a Secret back, list Secrets or delete one, and the API server refuses each. A request the
 cluster refuses is answered unavailable and records nothing, so the control plane never names an entry the
 cluster does not hold.
+
+### On Secret Manager
+
+On the `secret-manager` backend, setting an entry adds a version of that entry's secret in Secret Manager,
+written as the control plane's own identity, which may add versions and may not read one; unsetting it
+disables its versions. The control plane's record and the listing are unchanged: names, entries and who
+set them, never a value.
+
+A service still takes a variable from an entry by `secretKeyRef`, unchanged: the installation's cloud
+provider keeps the project's Secret in the cluster in step with Secret Manager, within a minute of a
+change. **The value is therefore also held in the cluster's Secret store**, and a pod's read of it at
+start is the kubelet's, which Secret Manager does not record per read; the record of reads covers service
+secrets. A service of the project that takes a variable from an entry does not start until the provider
+has synced that entry.
 
 ### Names
 

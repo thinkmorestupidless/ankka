@@ -132,6 +132,17 @@ final class SecretManagerSecretStoreSuite extends SecretStoreBehaviours:
     finally kit.stop()
   }
 
+  test("a service on the Secret Manager backend with no cloud account does not start, naming it") {
+    val refused = intercept[IllegalArgumentException](
+      AnkkaTestKit.start(
+        Seq.empty,
+        settings = ConfigFactory.parseString("ankka.cloud.account = \"\""),
+        secretBackend = SecretBackendChoice.secretManager(fake, Project, "unaccounted")
+      )
+    )
+    assert(refused.getMessage.contains("ANKKA_CLOUD_ACCOUNT"), refused.getMessage)
+  }
+
   test("an unreachable Secret Manager is Unavailable, with nothing read from anywhere else") {
     secrets.put("outage", "sk-1")
     fake.unreachable(true)

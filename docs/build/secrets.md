@@ -1,6 +1,6 @@
 ---
 title: Secrets a service keeps
-description: Keep a credential a person gives your service, such as a payment provider's key, in the service's secret store — encrypted in its own database, never in a journal, a snapshot or a view — and read it back by name.
+description: Keep a credential a person gives your service in its secret store — its own database, encrypted, or Google Secret Manager; never a journal or a view — read it back by name, and find every read afterwards.
 kind: guide
 languages: [scala, python, typescript, rust]
 components: [http-endpoint, workflow, consumer, timed-action, agent]
@@ -14,10 +14,12 @@ operator enters through the service's own backoffice, a token a partner issued f
 an entity's state, that value would be in the journal, in every snapshot, in every view built from them,
 and in every backup of any of those, readable by anything that can read the database.
 
-The **secret store** is where such a value goes. It is a table in the service's own database that holds
-each value encrypted with the service's **secret key**, and it is apart from everything the service's
-components know: it is not an entity, not a view, and nothing a projection reads. A dump of every
-table holds the value in one row, encrypted, and nowhere else.
+The **secret store** is where such a value goes. It is apart from everything the service's components
+know: it is not an entity, not a view, and nothing a projection reads. Where it keeps a value is the
+installation's choice: by default a table in the service's own database, each value encrypted with the
+service's **secret key**, so a dump of every table holds the value in one row, encrypted, and nowhere
+else; or Google Secret Manager, where the service's database holds nothing of it. Your code is the same
+on either.
 
 A value kept here is a **service secret**: a name and a text value, kept and read by the service while it
 runs. A value a member sets for a project before a service starts, which a descriptor's variable takes,
@@ -183,6 +185,19 @@ fn remove_secret(request: &Request) -> Result<Done, HttpProblem> {
 }
 ```
 
+## Every read is recorded
+
+Each read, keep and removal leaves a record — the secret's name, the service, the time, the trace, and the
+component that asked when the platform ran it — and never the value. The record is written before the
+value is returned, and a read whose record cannot be written fails as `Unavailable`: a service's reads of
+its secrets depend on the platform's record being reachable, as they depend on the store. On your machine
+the record is a line in the service's log. An owner reads the records of a deployed project with
+`ankka projects secret-reads list`; see [Secrets on the platform](../platform/secrets.md#the-record-of-reads).
+
+Nothing is cached: every `get` is a read of the store, and a record. A service that reads a credential for
+every request it makes reads the store, and records, that often; on Secret Manager that counts against a
+per-project quota. Read once where the value cannot change underneath you, and every time where it can.
+
 ## The rules
 
 - **A name** is 1 to 253 characters, each a letter, a digit, `.`, `_`, `-` or `/`. A slash is a separator
@@ -199,8 +214,8 @@ Every failure is a `CommandError` with a code:
 | Code | When |
 |---|---|
 | `BadRequest` | a name or a value breaks its rule; a workflow's command handler called the store |
-| `Internal` | the service has no secret key; or the key is not the one the value was kept with |
-| `Unavailable` | the database cannot be reached |
+| `Internal` | the service has no secret key, or not the one the value was kept with; on Secret Manager, the service has not been given access to its secrets |
+| `Unavailable` | the database or Secret Manager cannot be reached, or is over its quota; or the record of the read was not acknowledged |
 
 A service **with no secret key** starts, and keeping or reading fails naming `ANKKA_SECRET_KEY`; removing
 needs no key. A key that is set but is not the base64 of 32 bytes stops the service starting, naming the
@@ -219,6 +234,23 @@ deleted; on your machine you supply one. Both are in [Secrets on the platform](.
 another key restarts it as a careless rotation would. A dump of the test database is how to prove a value
 reached no table but the store's.
 
+A test that must show its service on the Secret Manager backend starts the kit on a
+`FakeSecretManager`: Secret Manager played on loopback, with Google's answers, which refuses what Google
+Cloud's access would refuse. Two kits on one fake are two services, each refused the other's secrets.
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/secrets/BackendFeatures.scala#secret-manager-kit -->
+```scala
+val kit = AnkkaTestKit.start(
+  Seq.empty,
+  secretBackend = SecretBackendChoice.secretManager(theFake, "spinvibe", service)
+)
+```
+
+`fake.latestValue(id)` and `fake.versionsOf(id)` show what it holds, `fake.unreachable(true)` and
+`fake.failNext(503)` make it fail, and `fake.access.withhold(identity)` takes a service's access away.
+`testKit.recordedReads` is every record the service made, which a test reads to show what was recorded
+and that no value was. Nothing reaches a network or needs a credential.
+
 For a unit test, `InMemorySecretStore` is a store in memory that applies the runtime's rules, so a name or
 a value a running service would refuse is refused there too. `ConsumerTestKit` gives the consumer one:
 
@@ -234,6 +266,7 @@ a unit test runs against), and their integration test kits put a generated key o
 
 ## What it is not
 
-The secret store has no versions, no history and no audit of reads. It is not shared between services:
-another service asks for what it needs over HTTP, as for anything else. The secret key cannot be rotated
-in place. These are in [Limitations](../reference/limitations.md).
+The secret store is not shared between services: another service asks for what it needs over HTTP, as
+for anything else. It keeps no history a service can read: on Secret Manager a few versions are kept and
+the rest destroyed. The secret key cannot be rotated in place. These are in
+[Limitations](../reference/limitations.md).

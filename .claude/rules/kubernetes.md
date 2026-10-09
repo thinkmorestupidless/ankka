@@ -187,6 +187,13 @@ for the load-restrictor reason in the traps: that is the one place kustomize can
 and everything else follows a symlink.
 The journal and projection scripts are taken verbatim from the Pekko projects.
 
+Two tables are made by code rather than listed here, on purpose: `secret_reads`, in the control plane's
+record database (`components/secret-reads`, its own CNPG cluster with no schema ConfigMap, so no grants
+literal either: the control plane creates the table as the role that owns it), and `ankka_secret_moves`, a
+service's ledger of a move to Secret Manager, created only in a database that has moved. Neither is service
+schema every database needs, and listing either in the seven lists would roll every project's schema
+ConfigMap for nothing.
+
 ## Traps
 
 - **Kafka knows a TLS client by its certificate's subject and nothing else.** The default principal builder

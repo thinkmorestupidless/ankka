@@ -43,8 +43,41 @@ patch finds nothing, never read; the `Project` entity records names only (`Proje
 the platform uses for its own Secrets in a namespace are refused (`ProjectSecrets.problems`), held to the
 operator's naming by `ReservedSecretNamesSuite`.
 
+## The backend is the installation's; every read is recorded
+
+Feature 038. `SecretStores.build` (`runtime/secrets`) is the one place a store is chosen, from
+`ANKKA_SECRET_BACKEND`: `DatabaseSecretStore` as above, or `SecretManagerStore`, which speaks Secret Manager's
+REST API over the JDK client (`SecretManager`, no Google library: the sidecar image carries the store, and
+gax/grpc/protobuf 4 would clash with ScalaPB) with the pod's Workload Identity token from the metadata server
+(`AccessTokens`). Either is wrapped in `RecordingSecretStore`: the backend answers, the record is written,
+and only then is the value returned; a record not acknowledged within `ankka.secrets.record-timeout` is
+`Unavailable` and the value is dropped. The record goes to the control plane (`POST /secret-reads`, admitted
+by any service's certificate through `CallerMatcher.AnyService`, held to the caller's own project and name) at
+the address the **Kubernetes overlay** carries (`ankka.secrets.records-url`) — a runtime default, so the
+operator renders nothing and no pod template changed; locally `LocalRecorder` logs it and the test kit reads
+it (`recordedReads`). The control plane keeps records in their own database (`components/secret-reads`,
+`SecretRecords`, `PostgresReadRecordStore`, which makes its table as the owning role), lists them to owners and
+sweeps them by retention. `DerivedIds` is the one id derivation: `s_<project>_<service>_<enc(name)>` and
+`p_<project>_<enc(secret)>__<enc(entry)>`, `_`→`_u`, `.`→`_p`, `/`→`_s` — `_` because project and service
+names are DNS labels, so a prefix can never begin another's, and access is conditioned on the prefix.
+`FakeSecretManager` (testkit) plays Google on loopback; the bearer token is the identity
+(`fake:<project>/<service>`, `fake:controlplane`, `fake:provider`). A move (`ANKKA_SECRET_MOVE`) runs at start
+and gates readiness; its ledger, `ankka_secret_moves`, is in the service's own database, and its `*removed*`
+mark makes a Postgres-backend start refuse (`StartRefusal`). Group B — the secret access request, the sync,
+the rollout hold, the audit-log state — waits for spec 044's `CloudResource`.
+
 ## Traps
 
+- **A Secret Manager annotation key allows no `/`.** Kubernetes' `ankka.thinkmorestupidless.com/name` form is
+  refused with `INVALID_ARGUMENT`; the platform's keys are `ankka-name`, `ankka-project` and so on, and the
+  fake refuses what Google would.
+- **An IAM condition on a name cannot limit a create.** The secret does not exist when the create is
+  authorised, so a service's create is unconditioned and everything else is conditioned on its prefix. A
+  squat is harmless — the creator can do nothing else with it, and the owner's `put` adds a version to it —
+  and `GrantsSuite` holds that. A condition names the project by **number**, not id.
+- **`get` is never cached, on either backend.** It is a read and a record every time; on Secret Manager that
+  counts against a per-project quota. Do not add a cache: a copy is a second place a plaintext lives, and the
+  record would stop being one per read.
 - **Server-side apply cannot merge a Secret's entries.** An apply replaces everything that field manager
   applied before, so applying one entry of a project secret removes the others, and the control plane,
   which holds no `get`, cannot read them back to send again. Project secrets are a JSON merge patch

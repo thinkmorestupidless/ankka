@@ -42,6 +42,13 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
+| `ANKKA_SECRET_BACKEND` | `ankka.secrets.backend` | `""` | every service |
+| `ANKKA_SECRET_RECORDS_URL` | `ankka.secrets.records-url` | `""` | every service |
+| `ANKKA_SECRET_MOVE` | `ankka.secrets.move` | `""` | every service |
+| `ANKKA_SECRET_VERSIONS_KEPT` | `ankka.secrets.versions-kept` | `2` | every service |
+| `ANKKA_CLOUD_PROVIDER` | `ankka.cloud.provider` | `"none"` | every service |
+| `ANKKA_CLOUD_ACCOUNT` | `ankka.cloud.account` | `""` | every service |
+| `ANKKA_CLOUD_LOCATION` | `ankka.cloud.location` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
@@ -67,6 +74,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_CLUSTER_SEED_NODES` | `ankka.cluster.seed-nodes` | `""` | local mode |
 | `ANKKA_CLUSTER_PORT` | `pekko.remote.artery.canonical.port` | `0` | local mode |
 | `POD_IP` | `pekko.remote.artery.canonical.hostname` | required, set by the platform | kubernetes mode |
+| `ANKKA_SECRET_RECORDS_URL` | `ankka.secrets.records-url` | `"https://ankka-controlplane.ankka-controlplane.svc:9000"` | kubernetes mode |
 | `POD_IP` | `pekko.management.http.hostname` | required, set by the platform | kubernetes mode |
 | `ANKKA_CLUSTER_SERVICE` | `pekko.management.cluster.bootstrap.contact-point-discovery.service-name` | required, set by the platform | kubernetes mode |
 | `ANKKA_CLUSTER_CONTACT_POINTS` | `pekko.management.cluster.bootstrap.contact-point-discovery.required-contact-point-nr` | required, set by the platform | kubernetes mode |
@@ -78,6 +86,11 @@ Settings with no environment variable, overridable in the service's own `applica
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
 | `ankka.query-resend-after` | `2s` | every service |
+| `ankka.secrets.timeout` | `10s` | every service |
+| `ankka.secrets.record-timeout` | `5s` | every service |
+| `ankka.secrets.secret-manager.endpoint` | `"https://secretmanager.googleapis.com"` | every service |
+| `ankka.secrets.secret-manager.token` | `""` | every service |
+| `ankka.secrets.secret-manager.identity` | `""` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |
@@ -189,6 +202,30 @@ service, so two services sharing a database delete each other's timers and overw
   platform's own program, never to a process or a module. Empty, the default, the service starts and
   keeping or reading a secret fails naming the variable. Set to anything that is not 32 bytes of base64,
   the service does not start. See [Secrets a service keeps](../build/secrets.md).
+
+- `ANKKA_SECRET_BACKEND` (`ankka.secrets.backend`) is where service secrets are kept: `postgres`, the
+  default, for the table in the service's own database; `secret-manager` for Google Secret Manager. The
+  installation's setting, given by the operator; a descriptor cannot set it.
+- `ankka.secrets.timeout` is how long one keep, read or removal waits for the backend before it fails as
+  unavailable, `10s` unless set.
+- `ankka.secrets.record-timeout` is how long the record of a read waits to be acknowledged before the read
+  fails as unavailable, `5s` unless set: no value is used without its record.
+- `ANKKA_SECRET_RECORDS_URL` (`ankka.secrets.records-url`) is where the record of each read is written. A
+  deployed service is given the control plane's address; empty, on your machine, the record is a line in
+  the log.
+- `ANKKA_SECRET_MOVE` (`ankka.secrets.move`) is the phase of a move to Secret Manager the instance performs
+  when it starts: `copy`, `check` or `remove`. Empty, the default, no move.
+- `ANKKA_SECRET_VERSIONS_KEPT` (`ankka.secrets.versions-kept`) is how many versions of a service secret
+  Secret Manager keeps, `2` unless set.
+- `ankka.secrets.secret-manager.endpoint` is Secret Manager's address, Google's unless a test runs a
+  stand-in; `ankka.secrets.secret-manager.token` is a fixed access token for that stand-in, and empty, as
+  deployed, means the pod's own token from the metadata server; `ankka.secrets.secret-manager.identity`
+  says whose secrets these are, `<project>/<service>`, when the service's certificate cannot.
+- `ANKKA_CLOUD_PROVIDER` (`ankka.cloud.provider`), `ANKKA_CLOUD_ACCOUNT` (`ankka.cloud.account`) and
+  `ANKKA_CLOUD_LOCATION` (`ankka.cloud.location`) are the installation's cloud: `none` or `gcp`, the
+  Google Cloud project the secrets are kept in, and the region they are kept in, automatic when empty.
+
+See [Secrets on the platform](../platform/secrets.md#choosing-a-backend).
 
 ### Local clusters
 

@@ -194,11 +194,25 @@ feature also says what that feature does not do.
 - **A consumer's several messages are not published atomically.** They are published at least once and
   in order; when the broker refuses one, the change is delivered again and all are published again. One
   change's messages may be at most 4 MiB together.
-- **The secret store has no rotation, sharing or history.** A service's secret key cannot be changed in
-  place: values kept with one key fail to read under another. A service secret belongs to the service that
-  kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
-  audit of reads. A project secret reaches a pod as an environment variable, or, when it is the credential
-  of a broker the project declares, as files on the platform's container alone.
+- **The secret store has no rotation, sharing or history a service can read.** A service's secret key
+  cannot be changed in place: values kept with one key fail to read under another. A service secret
+  belongs to the service that kept it, and another service asks for what it needs over HTTP. On Secret
+  Manager a few versions of a value are kept and the rest destroyed; the kept count is the
+  installation's, not a secret's. A project secret reaches a pod as an environment variable, or, when it
+  is the credential of a broker the project declares, as files on the platform's container alone — never
+  as a file from Secret Manager.
+- **Secret Manager is Google's, on GKE, and its access is written by the cloud provider.** The
+  `secret-manager` backend needs Workload Identity Federation for GKE; no other cloud's secret manager is
+  supported. The bindings that admit each service to its own secrets, the sync of project secrets into
+  the cluster, a service's wait for that sync, and the report of whether Google Cloud's access log is on
+  are the installation's cloud provider's; without one, they are made by hand and the status says
+  `unknown`. On that backend a project secret's value is also in the cluster's Secret store, and a pod's
+  read of it at start is not recorded per read.
+- **Every read of a secret depends on the record of reads.** A read whose record the control plane does not
+  acknowledge within five seconds fails as unavailable. A keep or a removal is recorded after the backend
+  answers, so one that succeeded while the record could not be written is done and reported as
+  unavailable. The record is not shown in the console, and the platform's own copying during a move to
+  Secret Manager is not recorded.
 - **A topic is made only by declaring it, with its partitions and whether it is compacted.** On the
   installation's broker a topic exists because its project declares it; publishing to one nobody
   declared waits. A declaration says how many partitions a topic has and whether the broker keeps only

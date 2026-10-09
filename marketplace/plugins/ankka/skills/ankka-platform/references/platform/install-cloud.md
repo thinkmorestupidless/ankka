@@ -255,7 +255,15 @@ The console is at `https://console.example.com`. A publicly trusted certificate 
 [Organizations, projects and members](organizations.md).
 
 Upgrading the installation is the same apply with new image tags. The operator, control plane, sidecar,
-console and CLI are released together as one version.
+console and CLI are released together as one version. Let the control plane's rollout finish before any
+service is deployed again: a service's runtime records each read of its secrets with the control plane,
+and refuses the read when the control plane does not yet know how.
+
+Where secrets are kept is `secretBackend` on the `ankka-platform` ConfigMap, with `cloudProvider`,
+`cloudAccount` and `cloudLocation` for Google Secret Manager; the record of reads is kept in a database of
+its own, `ankka-secret-reads-db`, which every overlay installs beside the control plane's. See
+[Secrets on the platform](secrets.md#choosing-a-backend) for each setting, what Google Cloud needs before
+an installation uses Secret Manager, and how an installation moves to it.
 
 ## A spoke installation
 

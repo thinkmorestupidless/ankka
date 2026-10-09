@@ -4,7 +4,7 @@ import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
-import com.thinkmorestupidless.ankka.runtime.secrets.{ReadRecorder, SecretStores}
+import com.thinkmorestupidless.ankka.runtime.secrets.{LocalRecorder, ReadRecorder, SecretStores}
 import org.apache.pekko.Done
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
@@ -286,6 +286,14 @@ final class ServiceBuilder private[ankka] (
         case refused: IllegalStateException =>
           StartRefusal.refuse(refused.getMessage, IllegalStateException(_))
     val secrets: SecretStore = builtSecrets.recorded
+    system.log.info(
+      "secret store: the {} backend, as {}/{}; each read recorded {}",
+      builtSecrets.backend.word,
+      builtSecrets.project,
+      builtSecrets.service,
+      if readRecorder.isInstanceOf[LocalRecorder] then "in this log"
+      else "with the control plane"
+    )
     // A move of the service's secrets holds readiness until its phase has run to its end.
     builtSecrets.move.foreach { move =>
       ExtensionsReadiness(system).registerExplained(move.readiness)

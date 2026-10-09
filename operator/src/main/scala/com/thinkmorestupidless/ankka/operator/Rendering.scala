@@ -266,7 +266,8 @@ object Rendering:
                 settings.httpsPort,
                 settings.otlpEndpoint,
                 settings.otlpHeaders.isDefined,
-                storageEnv(spec, settings)
+                storageEnv(spec, settings),
+                settings.keyringUrl
               ),
               deployed,
               declaredBrokers
@@ -315,6 +316,15 @@ object Rendering:
         )
       )
       .toVector
+
+  /**
+   * Where the keyring is (feature 042), on the container the runtime runs in — never on a process's
+   * container, which reaches subject keys through its sidecar, and not for a web-hosted service,
+   * which runs no runtime. Nothing when the installation runs no keyring.
+   */
+  private def keyringEnv(spec: AnkkaServiceSpec, keyringUrl: Option[String]): Vector[EnvVar] =
+    if spec.hosting == WebHosting then Vector.empty
+    else keyringUrl.toVector.map(literal(PlatformVariables.KeyringUrl, _))
 
   /**
    * Where the platform's program of a workload sends its telemetry (feature 026): the collector's
@@ -1007,7 +1017,8 @@ object Rendering:
       httpsPort: Int = Settings.default.httpsPort,
       otlpEndpoint: Option[String] = None,
       otlpHeaders: Boolean = false,
-      storage: Option[StorageEnv] = None
+      storage: Option[StorageEnv] = None,
+      keyringUrl: Option[String] = None
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -1032,7 +1043,7 @@ object Rendering:
         proxyImage,
         baseDomain,
         httpsPort,
-        telemetryEnv(spec, otlpEndpoint, otlpHeaders)
+        telemetryEnv(spec, otlpEndpoint, otlpHeaders) ++ keyringEnv(spec, keyringUrl)
       ),
       storage
     )

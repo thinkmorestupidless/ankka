@@ -59,6 +59,12 @@ final case class Settings(
      */
     otlpEndpoint: Option[String] = None,
     /**
+     * Where the installation's keyring is (feature 042), given by the keyring component's patch.
+     * Every service's platform container is told it; `None` — an installation without the keyring —
+     * renders nothing, so a Deployment is what it was before.
+     */
+    keyringUrl: Option[String] = None,
+    /**
      * What is sent with the telemetry so the collector accepts it: a credential, from the
      * installation's `ankka-telemetry` Secret. Written into each service's own Secret, never onto a
      * Deployment, and never printed.
@@ -156,6 +162,7 @@ object Settings:
       proxyImage = string("ankka.operator.proxy-image", "ANKKA_PROXY_IMAGE", default.proxyImage),
       httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort),
       otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
+      keyringUrl = raw("ankka.operator.keyring-url", PlatformVariables.KeyringUrl),
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),

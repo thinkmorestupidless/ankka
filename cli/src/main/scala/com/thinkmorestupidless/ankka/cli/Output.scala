@@ -235,6 +235,11 @@ object Output:
           // Feature 034: each only when present, so a service with no bucket reads as before.
           row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
           row.bucketAddress.map("bucket address" -> _) ++
+          // Feature 039: where the bucket is, how long it keeps a deleted object, and a move.
+          row.objectStore.map("object store" -> _) ++
+          row.bucketLocation.map("bucket location" -> _) ++
+          row.softDeleteDays.map(days => "soft delete" -> s"$days days") ++
+          row.storageMove.map("storage move" -> _) ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.

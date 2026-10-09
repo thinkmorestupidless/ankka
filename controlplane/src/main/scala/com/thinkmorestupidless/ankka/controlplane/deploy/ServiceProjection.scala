@@ -190,6 +190,10 @@ object ServiceProjection:
               grpcPort = descriptor.service.resolvedGrpcPort,
               restarts = service.restarts,
               storageCredentialGeneration = service.storageCredentialGeneration,
+              objectStorageMove = service.storageMove.map(m =>
+                com.thinkmorestupidless.ankka.crd
+                  .ObjectStorageMoveRequest(m.generation, m.writePauseBound)
+              ),
               exposed = service.exposed,
               hosting = descriptor.service.hosting,
               // The name of the Secret the project's credential was written to, so the operator can

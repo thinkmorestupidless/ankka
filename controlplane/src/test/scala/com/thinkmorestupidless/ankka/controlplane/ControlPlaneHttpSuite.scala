@@ -413,6 +413,13 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test("a move is refused where the installation keeps new buckets in Garage, saying why") {
+    val (status, body) =
+      send("POST", "/services/checkout/cart/storage/move", Some("""{"writePauseBound":"30m"}"""))
+    assertEquals(status, 409, body)
+    assert(body.contains("nowhere to move a bucket to"), body)
+  }
+
   // --- Exposure (feature 005): contracts/expose-api.md
 
   test("exposing reports the derived URL, is idempotent, and shows on get and list") {

@@ -432,6 +432,121 @@ object Rendering:
           )
         )
 
+  /**
+   * The mover's Job for one phase of a move (feature 039, contracts/operator.md "The Job").
+   *
+   * It runs as the service, under the service's identity labels, so the network policies that let
+   * the service reach Garage and Google Cloud Storage let it, and it holds no Kubernetes
+   * permission. Its only credentials are the service's two, by reference from their Secrets: the
+   * operator names them and never reads either. Never retried, so a failure is the phase's, read
+   * from the mover's termination message; removed a day after it finishes.
+   *
+   * @param move
+   *   the move's generation, so a move asked for again has Jobs of its own
+   * @param deadlineSeconds
+   *   for the verify: what remains of the write pause bound, after which Kubernetes stops it
+   */
+  def moveJob(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      move: Int,
+      phase: MovePhase,
+      targetBucket: String,
+      deadlineSeconds: Option[Long]
+  ): io.fabric8.kubernetes.api.model.batch.v1.Job =
+    val source = settings.objectStore
+    val target = settings.gcs
+    def literal(name: String, value: String) =
+      new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(name).withValue(value).build()
+    def fromSecret(name: String, secret: String, key: String) =
+      new io.fabric8.kubernetes.api.model.EnvVarBuilder()
+        .withName(name)
+        .withValueFrom(
+          new io.fabric8.kubernetes.api.model.EnvVarSourceBuilder()
+            .withSecretKeyRef(
+              new io.fabric8.kubernetes.api.model.SecretKeySelectorBuilder()
+                .withName(secret)
+                .withKey(key)
+                .build()
+            )
+            .build()
+        )
+        .build()
+    val env = Vector(
+      literal("MOVER_SOURCE_ENDPOINT", source.map(_.endpoint).getOrElse("")),
+      literal("MOVER_SOURCE_REGION", source.map(_.region).getOrElse("")),
+      literal("MOVER_SOURCE_BUCKET", Buckets.name(spec.projectId, spec.serviceName)),
+      fromSecret(
+        "MOVER_SOURCE_ACCESS_KEY",
+        Buckets.secret(spec.serviceName),
+        StorageCredential.AccessKeyEntry
+      ),
+      fromSecret(
+        "MOVER_SOURCE_SECRET_KEY",
+        Buckets.secret(spec.serviceName),
+        StorageCredential.SecretKeyEntry
+      ),
+      literal("MOVER_TARGET_ENDPOINT", target.map(_.endpoint).getOrElse("")),
+      literal("MOVER_TARGET_REGION", GcsSettings.Region),
+      literal("MOVER_TARGET_BUCKET", targetBucket),
+      fromSecret(
+        "MOVER_TARGET_ACCESS_KEY",
+        Buckets.gcsSecret(spec.serviceName),
+        StorageCredential.AccessKeyEntry
+      ),
+      fromSecret(
+        "MOVER_TARGET_SECRET_KEY",
+        Buckets.gcsSecret(spec.serviceName),
+        StorageCredential.SecretKeyEntry
+      )
+    )
+    val labels   =
+      Labels.identity(spec.projectId, spec.serviceName) + (Labels.RoleKey -> "storage-mover")
+    val quantity = (q: String) => new io.fabric8.kubernetes.api.model.Quantity(q)
+    val container = new ContainerBuilder()
+      .withName("mover")
+      .withImage(settings.storageMoverImage)
+      .withImagePullPolicy("IfNotPresent")
+      .withTerminationMessagePolicy("FallbackToLogsOnError")
+      .withArgs(phase.mode)
+      .withEnv(env*)
+      .withResources(
+        new io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder()
+          .withRequests(Map("cpu" -> quantity("250m"), "memory" -> quantity("256Mi")).asJava)
+          .withLimits(Map("memory" -> quantity("512Mi")).asJava)
+          .build()
+      )
+      .build()
+    val template = new PodTemplateSpecBuilder()
+      .withMetadata(new ObjectMetaBuilder().withLabels(labels.asJava).build())
+      .withSpec(
+        new PodSpecBuilder()
+          .withRestartPolicy("Never")
+          .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+          .withContainers(container)
+          .build()
+      )
+      .build()
+    val jobSpec = new io.fabric8.kubernetes.api.model.batch.v1.JobSpecBuilder()
+      .withBackoffLimit(0)
+      .withTtlSecondsAfterFinished(86400)
+      .withTemplate(template)
+      .build()
+    deadlineSeconds.foreach(d => jobSpec.setActiveDeadlineSeconds(java.lang.Long.valueOf(d)))
+    new io.fabric8.kubernetes.api.model.batch.v1.JobBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withNamespace(namespace)
+          .withName(Names.moveJob(spec.serviceName, move, phase))
+          .withLabels(labels.asJava)
+          .withOwnerReferences(Labels.ownerReference(resource))
+          .build()
+      )
+      .withSpec(jobSpec)
+      .build()
+
   /** Lets the routes of one project's namespace name the store's Service, and nothing else. */
   def referenceGrant(namespace: String, store: ObjectStoreSettings): GenericKubernetesResource =
     new GenericKubernetesResourceBuilder()

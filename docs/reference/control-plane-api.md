@@ -132,6 +132,7 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/resume` | |
 | `POST` | `/services/{projectId}/{name}/restart` | |
 | `POST` | `/services/{projectId}/{name}/storage-credential` | |
+| `POST` | `/services/{projectId}/{name}/storage/move` | |
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
@@ -557,6 +558,19 @@ refused. The service's generation is unchanged. Refused with `409` when the serv
 for no bucket, since the platform holds no credential of its own for it. Answers with the status, and
 the history records `storage-credential-reissued`.
 
+### `POST /services/{projectId}/{name}/storage/move`
+
+Moves the service's bucket from Garage to Google Cloud Storage. The body may name how long the
+service's writes may be paused, `{ "writePauseBound": "30m" }`, from one minute to 24 hours; `{}` is
+ten minutes. Every object is copied while the service goes on writing; then its writes are paused,
+what changed is copied, every object is checked on both sides, and the service is replaced onto its
+new bucket. A pause that reaches its bound, or an object that does not check, fails the move and gives
+the service its writes back, still on Garage. The bucket in Garage is kept. Refused with `409` where
+the installation keeps new buckets in Garage, for a service whose descriptor asks for no bucket, for a
+bucket already in Google Cloud Storage, and while a move is in progress; `400` for a bound that is not
+one. A move that failed may be asked for again. Answers with the status, whose `storageMove` says
+where the move is; the history records `storage-moved`.
+
 ### `POST /services/{projectId}/{name}/rollback`
 
 Rolls the service back: applies the descriptor it recorded at an earlier generation again, as a new
@@ -649,7 +663,7 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended`, `reinstated` or `storage-credential-reissued`. `administrative` is `true` when the platform administrator role
+`deleted`, `suspended`, `reinstated`, `storage-credential-reissued` or `storage-moved`. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

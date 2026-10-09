@@ -129,12 +129,55 @@ final class ServiceEntity(context: EventSourcedEntityContext)
         s"service '${key.name}' has no storage credential to reissue: its descriptor asks for no bucket",
         ErrorCode.Conflict
       )
+    else if moving then
+      effects.error(s"the storage of service '${key.name}' is moving", ErrorCode.Conflict)
     else
       effects
         .persist(
           StorageCredentialReissued(currentState.storageCredentialGeneration + 1, actor, at)
         )
         .thenReply(_.toStatus)
+
+  /**
+   * Whether a move the members asked for has not ended: asked for and not yet reported, or reported
+   * in one of the states before `Switched` and `Failed`.
+   */
+  private def moving: Boolean =
+    currentState.storageMove.exists { asked =>
+      val reported = currentState.storage.flatMap(s => s.moveGeneration.zip(s.move))
+      reported match
+        case Some((generation, state)) if generation == asked.generation =>
+          MoveRequest.InProgress(state)
+        case _ => true
+    }
+
+  /**
+   * Asks for the service's bucket to be moved from Garage to Google Cloud Storage (feature 039).
+   * Whether the installation can move at all is the endpoint's to say, from its configuration.
+   */
+  def moveStorage(request: StorageMoveRequest): Effect[ServiceStatus] =
+    val bound = request.writePauseBound.getOrElse(MoveRequest.DefaultBound)
+    if !currentState.exists then notFound
+    else if !currentState.descriptor.exists(_.service.provisionObjectStorage) then
+      effects.error(
+        s"service '${key.name}' has no bucket to move: its descriptor asks for none",
+        ErrorCode.Conflict
+      )
+    else if moving then
+      effects.error(s"the storage of service '${key.name}' is moving", ErrorCode.Conflict)
+    else if currentState.storage.flatMap(_.store).contains("gcs") then
+      effects.error(
+        s"the bucket of service '${key.name}' is in Google Cloud Storage already",
+        ErrorCode.Conflict
+      )
+    else
+      MoveRequest.boundProblem(bound) match
+        case Some(problem) => effects.error(problem, ErrorCode.BadRequest)
+        case None =>
+          val generation = currentState.storageMove.fold(1)(_.generation + 1)
+          effects
+            .persist(StorageMoveRequested(generation, bound, actor, at))
+            .thenReply(_.toStatus)
 
   def pause: Effect[ServiceStatus] =
     if !currentState.exists then notFound
@@ -193,7 +236,8 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.confirmed,
       observation.database,
       observation.broker,
-      observation.objectStorage
+      observation.objectStorage,
+      observation.storage
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)
@@ -250,7 +294,9 @@ object ServiceEntity
   given Serializer[ApplyService]    = Codecs.serializer[ApplyService]("apply-service")
   given Serializer[RollbackService] = Codecs.serializer[RollbackService]("rollback-service")
   given Serializer[RollbackRequest] = Codecs.serializer[RollbackRequest]("rollback-request")
-  given Serializer[KeptDescriptor]  = Codecs.serializer[KeptDescriptor]("kept-descriptor")
+  given Serializer[StorageMoveRequest] =
+    Codecs.serializer[StorageMoveRequest]("storage-move-request")
+  given Serializer[KeptDescriptor] = Codecs.serializer[KeptDescriptor]("kept-descriptor")
   given Serializer[ServiceDescriptor] =
     Codecs.serializer[ServiceDescriptor]("service-descriptor")
   given Serializer[ServiceStatus] = Codecs.serializer[ServiceStatus]("service-status")
@@ -269,6 +315,7 @@ object ServiceEntity
   val restart         = command("restart")(_.restart)
   val reissueStorageCredential =
     command("reissue-storage-credential")(_.reissueStorageCredential)
+  val moveStorage    = command("move-storage")(_.moveStorage)
   val rollback       = command("rollback")(_.rollback)
   val rollbackTarget = query("rollback-target")(_.rollbackTarget)
   val descriptorAt   = query("descriptor-at")(_.descriptorAt)

@@ -395,6 +395,99 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(replayed.storageCredentialGeneration, 1)
   }
 
+  // Feature 039: a move from Garage to Google Cloud Storage.
+
+  private def reported(state: String, generation: Int, store: String = "garage") =
+    ServiceObservation(
+      generation = 1L,
+      lifecycle = ServiceLifecycle.Ready,
+      readyInstances = 1,
+      desiredInstances = 1,
+      objectStorage = Some("Provisioned"),
+      storage = Some(
+        StorageReport(store = Some(store), move = Some(state), moveGeneration = Some(generation))
+      )
+    )
+
+  test("a move is asked for with the shipped bound, and recorded in the history") {
+    val kit   = newKit
+    val _     = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val asked = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    assertEquals(
+      asked.events.collect { case e: StorageMoveRequested => (e.generation, e.writePauseBound) },
+      Vector((1, "10m"))
+    )
+    assertEquals(kit.currentState.history.head.kind, "storage-moved")
+    val named = newKit
+    val _     = named.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = named.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some("30m")))
+    assertEquals(named.currentState.storageMove, Some(MoveRequest(1, "30m")))
+  }
+
+  test("while a move is in progress, a second move and a re-issue are both refused") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    // Asked for and not yet reported is in progress too.
+    assertEquals(
+      kit.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.code,
+      ErrorCode.Conflict
+    )
+    val _       = kit.call(ServiceEntity.observe)(reported("Pausing", 1))
+    val again   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val reissue = kit.call(ServiceEntity.reissueStorageCredential)
+    assert(again.error.message.contains("is moving"), again.error.message)
+    assert(reissue.error.message.contains("is moving"), reissue.error.message)
+  }
+
+  test("a move that failed may be asked for again, as the next generation") {
+    val kit   = newKit
+    val _     = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _     = kit.call(ServiceEntity.observe)(reported("Failed", 1))
+    val again = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    assertEquals(again.events.collect { case e: StorageMoveRequested => e.generation }, Vector(2))
+  }
+
+  test("a bucket already in Google Cloud Storage, or none at all, has nothing to move") {
+    val moved = newKit
+    val _     = moved.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = moved.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _     = moved.call(ServiceEntity.observe)(reported("Switched", 1, store = "gcs"))
+    assert(
+      moved.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.message.contains("already"),
+      "a switched bucket is moved again"
+    )
+    val none = newKit
+    val _    = none.call(ServiceEntity.applyDescriptor)(applying())
+    assert(
+      none.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.message.contains("no bucket")
+    )
+  }
+
+  test("a write pause bound is a duration from one minute to a day") {
+    for bad <- Vector("30s", "25h", "ten", "10") do
+      val kit = newKit
+      val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+      assertEquals(
+        kit.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some(bad))).error.code,
+        ErrorCode.BadRequest,
+        bad
+      )
+  }
+
+  test(
+    "the status says which store the bucket is in and where its move is, as the operator reported"
+  ) {
+    val kit    = newKit
+    val _      = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _      = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _      = kit.call(ServiceEntity.observe)(reported("Pausing", 1))
+    val status = kit.currentState.toStatus
+    assertEquals(status.objectStore, Some("garage"))
+    assertEquals(status.storageMove, Some("write pause"))
+  }
+
   test("resuming a running service is a no-op") {
     val kit    = newKit
     val _      = kit.call(ServiceEntity.applyDescriptor)(applying())

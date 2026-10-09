@@ -641,7 +641,24 @@ object Main:
           Output.service(ctx.client.reissueStorageCredential(ctx.project, name), ctx.format)
         }
       }
-      reissue
+      val move = Opts.subcommand(
+        "move",
+        "Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly."
+      ) {
+        (
+          Opts.argument[String]("name"),
+          Opts
+            .option[String](
+              "write-pause-bound",
+              "How long the service's writes may be paused, such as 10m or 1h; 10m when not given."
+            )
+            .orNone,
+          contextOpt
+        ).mapN { (name, bound, ctx) => () =>
+          Output.service(ctx.client.moveStorage(ctx.project, name, bound), ctx.format)
+        }
+      }
+      reissue.orElse(move)
     }
 
     val logs = Opts.subcommand("logs", "Print a deployed service's recent output.") {

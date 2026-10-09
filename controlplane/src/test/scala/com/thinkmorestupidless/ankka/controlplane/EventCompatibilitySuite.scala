@@ -7,7 +7,12 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ProjectEntity,
   ServiceEntity
 }
-import com.thinkmorestupidless.ankka.controlplane.api.{Mount, ServiceDescriptor, ServiceSpec}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  Mount,
+  ServiceDescriptor,
+  ServiceLifecycle,
+  ServiceSpec
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 
 import scala.jdk.CollectionConverters.*
@@ -108,6 +113,45 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
     val json = String(bytes, java.nio.charset.StandardCharsets.UTF_8)
     assert(!json.toLowerCase.contains("secret") && !json.toLowerCase.contains("key\""), json)
+  }
+
+  test(
+    "a move asked for, and an observation reporting a store and a move, round-trip (feature 039)"
+  ) {
+    val events: Vector[ServiceEvent] = Vector(
+      ServiceEvent.StorageMoveRequested(2, "30m"),
+      ServiceEvent.ServiceObserved(
+        3L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        None,
+        storage = Some(
+          StorageReport(
+            store = Some("gcs"),
+            bucket = Some("ankka-casino-kyc-3f9a1c2e"),
+            bucketAddress = Some("https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"),
+            location = Some("europe-west2"),
+            softDeleteDays = Some(7),
+            move = Some("Switched"),
+            moveGeneration = Some(2)
+          )
+        )
+      )
+    )
+    for event <- events do
+      assertEquals(
+        ServiceEntity.eventSerializer.fromBytes(ServiceEntity.eventSerializer.toBytes(event)),
+        event
+      )
+  }
+
+  test("an observation from before feature 039 reports no store") {
+    val observed = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case o: ServiceEvent.ServiceObserved => o }
+      .getOrElse(fail("the fixture has no ServiceObserved"))
+    assertEquals(observed.storage, None)
   }
 
   test("a descriptor of feature 039 round-trips through the event, its new fields whole") {

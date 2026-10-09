@@ -178,6 +178,15 @@ enum Action:
    */
   case SetBucketCors(bucket: String, origins: List[String])
 
+  /** Takes write from the key in place of a service's bucket in Garage: a move's pause. */
+  case PauseWrites(bucket: String, generation: Int)
+
+  /** Gives that key its writes back: a move that failed while paused. */
+  case ResumeWrites(bucket: String, generation: Int)
+
+  /** Applies one phase's Job of a move (feature 039); it names its Secrets and holds no value. */
+  case EnsureMoveJob(job: io.fabric8.kubernetes.api.model.batch.v1.Job)
+
   /**
    * Lets the routes of one project's namespace name the object store's Service (feature 034): a
    * `ReferenceGrant` in the store's namespace. No owner and never removed: a grant permits nothing
@@ -285,6 +294,12 @@ enum Action:
     case SetBucketCors(bucket, origins) =>
       if origins.isEmpty then s"set no cors rule on bucket $bucket"
       else s"set cors rule on bucket $bucket admitting ${origins.mkString(", ")}"
+    case PauseWrites(bucket, generation) =>
+      s"pause writes to bucket $bucket (key of generation $generation)"
+    case ResumeWrites(bucket, generation) =>
+      s"resume writes to bucket $bucket (key of generation $generation)"
+    case EnsureMoveJob(job) =>
+      s"ensure move job ${job.getMetadata.getNamespace}/${job.getMetadata.getName}"
     case EnsureReferenceGrant(g) =>
       s"ensure referencegrant ${g.getMetadata.getNamespace}/${g.getMetadata.getName}"
     case EnsureDatabaseRole(r) =>

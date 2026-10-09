@@ -317,7 +317,13 @@ enum ServiceEvent:
        * The operator's reported object storage phase, verbatim (feature 034). `None` for a service
        * with none and for events from before it existed.
        */
-      objectStorage: Option[String] = None
+      objectStorage: Option[String] = None,
+      /**
+       * What the operator reported of the bucket beyond its phase (feature 039): which store it is
+       * in, its name and address as reported, its location and soft-delete window, and a move.
+       * `None` for events from before it existed, which a reader takes as a bucket in Garage.
+       */
+      storage: Option[StorageReport] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -342,6 +348,19 @@ enum ServiceEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A member asked for the service's bucket to be moved from Garage to Google Cloud Storage
+   * (feature 039), its writes paused for at most `writePauseBound` (`10m` when the member named
+   * none). `generation` is the move's, raised per request, so a move that failed can be asked for
+   * again.
+   */
+  case StorageMoveRequested(
+      generation: Int,
+      writePauseBound: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 /** What an operator submits to change a service. */
 final case class ApplyService(projectId: String, descriptor: ServiceDescriptor)
 
@@ -362,7 +381,27 @@ final case class ServiceObservation(
     confirmed: Boolean = true,
     database: Option[String] = None,
     broker: Option[String] = None,
-    objectStorage: Option[String] = None
+    objectStorage: Option[String] = None,
+    storage: Option[StorageReport] = None
+)
+
+/**
+ * What the operator reported of a service's bucket beyond its phase (feature 039). The bucket's
+ * name and address are the operator's, as the cloud provider reported them in Google Cloud Storage,
+ * so the control plane shows them rather than deriving them. Never a key.
+ *
+ * @param move
+ *   a move's state, as the operator wrote it: `Requested`, `Copying`, `Pausing`, `Verifying`,
+ *   `Switched` or `Failed`; its detail is the observation's
+ */
+final case class StorageReport(
+    store: Option[String] = None,
+    bucket: Option[String] = None,
+    bucketAddress: Option[String] = None,
+    location: Option[String] = None,
+    softDeleteDays: Option[Int] = None,
+    move: Option[String] = None,
+    moveGeneration: Option[Int] = None
 )
 
 /**

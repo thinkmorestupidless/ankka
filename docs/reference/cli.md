@@ -1459,7 +1459,9 @@ Options and flags:
 ### `ankka services storage`
 
 ```text
-Usage: ankka services storage reissue
+Usage:
+    ankka services storage reissue
+    ankka services storage move
 
 Act on a service's bucket and its credential.
 
@@ -1470,6 +1472,8 @@ Options and flags:
 Subcommands:
     reissue
         Issue the service's storage credential again; the old one ends after the rotation grace.
+    move
+        Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly.
 ```
 
 ### `ankka services storage reissue`
@@ -1482,6 +1486,28 @@ Issue the service's storage credential again; the old one ends after the rotatio
 Options and flags:
     --help
         Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services storage move`
+
+```text
+Usage: ankka services storage move [--write-pause-bound <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly.
+
+Options and flags:
+    --help
+        Display this help text.
+    --write-pause-bound <string>
+        How long the service's writes may be paused, such as 10m or 1h; 10m when not given.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

@@ -54,7 +54,13 @@ object ObjectStoreBackend:
 final case class GcsSettings(prefix: String, softDeleteDays: Int, endpoint: String)
 
 object GcsSettings:
-  val GoogleEndpoint: String          = "https://storage.googleapis.com"
+  val GoogleEndpoint: String = "https://storage.googleapis.com"
+
+  /**
+   * The region a client signs for against Google Cloud Storage's S3-compatible API: `auto`, which
+   * `GcsCompatibilitySuite` holds against a real bucket.
+   */
+  val Region: String                  = "auto"
   val DefaultSoftDeleteDays: Int      = 7
   val SoftDeleteDays: Range.Inclusive = 7 to 90
 

@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   InstanceTopologies,
   PodLogReader,
   PodLogs,
+  ObjectStoreKind,
   ServiceProjection,
   TopologyReader
 }
@@ -231,6 +232,27 @@ final class ServiceEndpoint(
   }
 
   /**
+   * Moves the service's bucket from Garage to Google Cloud Storage (feature 039). Refused when the
+   * installation keeps new buckets in Garage, since there is nothing to move to; the entity refuses
+   * the rest.
+   */
+  postBody("/{projectId}/{name}/storage/move") {
+    (projectId: String, name: String, request: StorageMoveRequest) =>
+      val authorized = authz.project(principal, projectId, write = true)
+      if deploy.objectStore != ObjectStoreKind.Gcs then
+        throw CommandError(
+          "the installation keeps new buckets in Garage; there is nowhere to move a bucket to",
+          ErrorCode.Conflict
+        )
+      withHostname(
+        entity(projectId, name)
+          .call(ServiceEntity.moveStorage)
+          .withMetadata(authz.metadata(authorized))
+          .invoke(request)
+      )
+  }
+
+  /**
    * Exposure (feature 005). Whether the service *may* be exposed is decided here — no HTTP, a label
    * too long, a hostname another service holds, no base domain — because two of those are
    * cross-entity or platform-level, which an entity cannot see. The entity records the answer.
@@ -282,9 +304,12 @@ final class ServiceEndpoint(
 
   private def withHostname(status: ServiceStatus): ServiceStatus =
     val located = status.copy(
-      // Recorded as the bucket's path; the address is the store's, which is configuration.
-      bucketAddress =
-        status.bucketAddress.flatMap(_ => deploy.bucketAddressFor(status.projectId, status.name))
+      // Garage's is recorded as the bucket's path, and the address is the store's, which is
+      // configuration. One in Google Cloud Storage is recorded whole, as the operator reported it.
+      bucketAddress = status.bucketAddress.flatMap(address =>
+        if address.startsWith("/") then deploy.bucketAddressFor(status.projectId, status.name)
+        else Some(address)
+      )
     )
     if status.exposed then
       located.copy(hostname = deploy.hostnameFor(status.projectId, status.name))

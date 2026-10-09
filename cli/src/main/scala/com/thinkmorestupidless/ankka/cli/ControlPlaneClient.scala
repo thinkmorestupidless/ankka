@@ -293,6 +293,16 @@ final class ControlPlaneClient(settings: Settings):
     )
 
   /** Rolls a service back; with no generation, the control plane chooses (feature 033). */
+  /** Moves the service's bucket from Garage to Google Cloud Storage (feature 039). */
+  def moveStorage(projectId: String, name: String, writePauseBound: Option[String]): ServiceStatus =
+    decode[ServiceStatus](
+      send(
+        "POST",
+        s"/services/${segment(projectId)}/${segment(name)}/storage/move",
+        Some(writeToString(StorageMoveRequest(writePauseBound)))
+      )
+    )
+
   def rollbackService(projectId: String, name: String, generation: Option[Long]): RolledBack =
     decode[RolledBack](
       send(

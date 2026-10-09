@@ -103,7 +103,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 confirmed,
                 database,
                 broker,
-                objectStorage
+                objectStorage,
+                storage
               ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself
@@ -128,7 +129,17 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   broker = broker.map(
                     com.thinkmorestupidless.ankka.controlplane.domain.Service.brokerPhrase
                   ),
-                  objectStorage = objectStorage.map(Service.objectStoragePhrase)
+                  objectStorage = objectStorage.map(Service.objectStoragePhrase),
+                  // Feature 039: as the entity's status says it (`Service.toStatus`).
+                  bucket = row.bucket.map(derived => storage.flatMap(_.bucket).getOrElse(derived)),
+                  bucketAddress =
+                    if storage.flatMap(_.store).contains("gcs") then
+                      row.bucketAddress.flatMap(_ => storage.flatMap(_.bucketAddress))
+                    else row.bucketAddress,
+                  objectStore = storage.flatMap(_.store),
+                  bucketLocation = storage.flatMap(_.location),
+                  softDeleteDays = storage.flatMap(_.softDeleteDays),
+                  storageMove = storage.flatMap(_.move).map(Service.storageMovePhrase)
                 )
               )
 
@@ -162,6 +173,7 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
 
           // Nothing a listing shows changes until the operator reports the rollout.
           case _: StorageCredentialReissued => effects.ignore()
+          case _: StorageMoveRequested      => effects.ignore()
 
 object ServiceRows
     extends View.Companion[ServiceRowsView, ServiceEvent, ServiceStatus](

@@ -42,6 +42,13 @@ object Labels:
    */
   val StorageCredentialKey: String = "ankka.thinkmorestupidless.com/storage-credential-generation"
 
+  /**
+   * What a pod that is not one of the service's instances does for it: `storage-mover` on a move's
+   * Job (feature 039). It carries the service's identity labels, so the policies that let the
+   * service reach its stores let it; this tells it apart from an instance.
+   */
+  val RoleKey: String = "ankka.thinkmorestupidless.com/role"
+
   val ManagedByAnkka: String = "ankka"
 
   /**

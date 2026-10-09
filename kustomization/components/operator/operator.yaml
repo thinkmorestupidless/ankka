@@ -79,6 +79,13 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  # The mover's Jobs, which copy a service's objects from Garage to Google Cloud Storage and check
+  # them (feature 039). Owned by the AnkkaService and removed by their own time-to-live, so no
+  # delete; "patch" because the ensure is a server-side apply. A Job names the service's Secrets
+  # and holds no value, and runs as the service's own ServiceAccount, with no permission.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # A service's own identity and its one permission — reading its project's pods, so its nodes
   # can find each other (feature 004). All three are owned by the AnkkaService and go with it, so
   # no delete. "patch" because every ensure is a server-side apply, a PATCH even for a new object.
@@ -202,6 +209,10 @@ spec:
             # same local tag and the same rule as the sidecar's.
             - name: ANKKA_PROXY_IMAGE
               value: ankka-proxy:latest
+            # The program a move of a service's bucket runs as a Job (feature 039). The same local tag
+            # and the same rule as the sidecar's.
+            - name: ANKKA_STORAGE_MOVER_IMAGE
+              value: ankka-storage-mover:latest
             # The port the gateway's HTTPS listener is reached on, so a web-hosted service's proxy
             # can tell the process the address a browser used. Replaced by the overlay from
             # ankka-platform.httpsPort, as the control plane's is.

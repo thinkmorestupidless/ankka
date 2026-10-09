@@ -261,6 +261,16 @@ private[cli] final class AnkkaTools(
       destructive = false,
       idempotent = false
     )(_.reissueStorageCredential(_, _)),
+    serviceAction(
+      "move_storage",
+      "Move a service's bucket to Google Cloud Storage",
+      "Copy every object of the service's bucket in Garage into its bucket in Google Cloud " +
+        "Storage, pause its writes for at most ten minutes while what changed is copied and every " +
+        "object is checked on both sides, then replace its instances onto the new bucket. The " +
+        "bucket in Garage is kept. Read `storageMove` on the service to follow it.",
+      destructive = false,
+      idempotent = false
+    )((client, project, name) => client.moveStorage(project, name, None)),
     Tool(
       "delete_service",
       "Delete a service",

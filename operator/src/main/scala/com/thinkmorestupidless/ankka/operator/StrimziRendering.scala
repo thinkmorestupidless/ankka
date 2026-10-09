@@ -27,6 +27,28 @@ object StrimziRendering:
   /** What a compacted topic's `KafkaTopic` carries (feature 037). */
   val CompactedConfig: Map[String, Object] = Map("cleanup.policy" -> "compact")
 
+  /**
+   * The Kafka configuration a declared topic states (feature 043), from the entry's numbers: every
+   * key, so nothing is left to the broker's defaults. The control plane writes the same keys from
+   * the same settings (`TopicSettings.toKafka`); both are held to
+   * `protocol/fixtures/topics/settings.json`. An entry with no settings, declared before topics
+   * stated them, says what it said before: the compaction alone, or nothing.
+   */
+  def kafkaConfig(entry: ProjectTopicEntry): Option[Map[String, Object]] =
+    entry.retentionMs match
+      case None => Option.when(entry.compacted)(CompactedConfig)
+      case Some(retention) =>
+        val keys: Vector[(String, Option[Any])] = Vector(
+          "retention.ms"          -> Some(retention),
+          "retention.bytes"       -> entry.retentionBytes,
+          "cleanup.policy"        -> entry.cleanupPolicy,
+          "delete.retention.ms"   -> entry.deleteRetentionMs,
+          "min.compaction.lag.ms" -> entry.minCompactionLagMs,
+          "max.compaction.lag.ms" -> entry.maxCompactionLagMs,
+          "min.insync.replicas"   -> entry.minInsyncReplicas
+        )
+        Some(keys.collect { case (key, Some(value)) => key -> (value.toString: Object) }.toMap)
+
   /** Whether a topic's config says the broker keeps the last message under each key. */
   def compacted(config: Option[Map[String, Object]]): Boolean =
     config.exists(
@@ -89,7 +111,8 @@ object StrimziRendering:
       ),
       KafkaTopicSpec(
         partitions = entry.partitions,
-        config = Option.when(entry.compacted)(StrimziRendering.CompactedConfig)
+        replicas = entry.replicas,
+        config = kafkaConfig(entry)
       )
     )
 

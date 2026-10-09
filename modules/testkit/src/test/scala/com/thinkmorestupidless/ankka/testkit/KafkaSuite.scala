@@ -6,9 +6,11 @@ import com.thinkmorestupidless.ankka.runtime.{
   IncomingMessage,
   KafkaPublisher,
   KafkaSubscriber,
+  KeylessPublication,
   MessagePublisher,
   MessageSubscriber,
   ProjectionRuntime,
+  RetentionGap,
   ServiceIdentity,
   TopicSubscription
 }
@@ -414,6 +416,148 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
       kit.stop()
   }
 
+  // ── Topic settings (feature 043) ─────────────────────────────────────────
+
+  // features/broker/cleanup-policy.feature, against a broker that says the topic is compacted
+  for policy <- Seq("compact", "compact,delete") do
+    test(
+      s"a message published under no key to a $policy topic fails in the service before it reaches the broker"
+    ) {
+      val topic = KafkaSuite.createTopic(
+        bootstrap,
+        "deltas",
+        partitions = 1,
+        configs = Map("cleanup.policy" -> policy)
+      )
+      val publisher = KafkaPublisher(bootstrap)
+      try
+        val refused = intercept[KeylessPublication](
+          Await.result(
+            publisher
+              .publish(topic, eventSerializer.toBytes(StockEvent("c1", 1, "w1")), Metadata.empty),
+            30.seconds
+          )
+        )
+        assertEquals(
+          refused.getMessage,
+          s"topic '$topic' is compacted and a message published to it must carry a key or a subject"
+        )
+        val held = Await.result(subscriber.earliestRetained(topic), 30.seconds)
+        assertEquals(held.values.map(_.end).sum, 0L, "nothing reached the broker")
+        // Under a key, or a subject, it is sent.
+        Await.result(
+          publisher.publish(
+            topic,
+            eventSerializer.toBytes(StockEvent("c1", 1, "w1")),
+            Metadata.empty.withSubject("c1")
+          ),
+          30.seconds
+        ): Unit
+        assertEquals(
+          Await.result(subscriber.earliestRetained(topic), 30.seconds).values.map(_.end).sum,
+          1L
+        )
+      finally publisher.close()
+    }
+
+  test("a topic that is not compacted takes a message under no key, as it always has") {
+    val topic     = KafkaSuite.createTopic(bootstrap, "plain", partitions = 1)
+    val publisher = KafkaPublisher(bootstrap)
+    try
+      Await.result(
+        publisher
+          .publish(topic, eventSerializer.toBytes(StockEvent("c1", 1, "w1")), Metadata.empty),
+        30.seconds
+      ): Unit
+      assertEquals(
+        Await.result(subscriber.earliestRetained(topic), 30.seconds).values.map(_.end).sum,
+        1L
+      )
+    finally publisher.close()
+  }
+
+  // features/topics/gap.feature, against a broker that has dropped a partition's oldest messages
+  test("a topic source learns where each partition begins, and that earlier messages are gone") {
+    val topic = KafkaSuite.createTopic(bootstrap, "gap", partitions = 1)
+    publishMany(topic, 5, "g")
+    KafkaSuite.dropBefore(bootstrap, topic, partition = 0, offset = 3)
+    val held = Await.result(subscriber.earliestRetained(topic), 30.seconds)
+    assertEquals(held.view.mapValues(r => (r.beginning, r.end)).toMap, Map(0 -> (3L, 5L)))
+    assert(held(0).earliestAt.isDefined, held.toString)
+    val config = Await.result(subscriber.topicConfig(topic), 30.seconds)
+    assertEquals(config.map(_.compacted), Some(false))
+    assert(RetentionGap.of(held, compacted = false, None, java.time.Instant.now()).gone)
+    // A compacted topic is said to be compacted by the broker, and so not to have a gap.
+    val compacted = KafkaSuite.createTopic(
+      bootstrap,
+      "gap-compacted",
+      partitions = 1,
+      configs = Map("cleanup.policy" -> "compact")
+    )
+    assertEquals(
+      Await.result(subscriber.topicConfig(compacted), 30.seconds).map(_.compacted),
+      Some(true)
+    )
+  }
+
+  // features/broker/copies.feature's acks rule (FR-022)
+  test(
+    "a producer whose acks is below all does not start against a topic that needs two in-sync copies"
+  ) {
+    val needs = KafkaSuite.createTopic(
+      bootstrap,
+      "needs-two",
+      partitions = 1,
+      configs = Map("min.insync.replicas" -> "2")
+    )
+    def fanout(to: String) =
+      new com.thinkmorestupidless.ankka.sdk.Consumer.Companion[StockFanout, StockEvent, FanLine](
+        com.thinkmorestupidless.ankka.core.ComponentId("acks-fanout"),
+        com.thinkmorestupidless.ankka.sdk.ChangeSource
+          .fromTopic("acks-events", eventSerializer, StartFrom.Earliest)
+      ):
+        def create(ctx: com.thinkmorestupidless.ankka.sdk.ConsumerContext) = new StockFanout
+        override val outputSerializer
+            : Option[com.thinkmorestupidless.ankka.core.Serializer[FanLine]] =
+          Some(Codecs.serializer[FanLine]("fan-line"))
+        override val produceTo: Option[String] = Some(to)
+    val acksOne = com.typesafe.config.ConfigFactory
+      .parseString("pekko.kafka.producer.kafka-clients.acks = \"1\"")
+    val refused = intercept[Throwable](
+      AnkkaTestKit
+        .start(
+          Seq(fanout(needs).descriptor),
+          Seq(ProjectionRuntime.withKafka(bootstrap)),
+          settings = acksOne
+        )
+        .stop()
+    )
+    val chain = Iterator
+      .iterate[Throwable](refused)(_.getCause)
+      .takeWhile(_ != null)
+      .map(_.getMessage)
+      .mkString(" / ")
+    assert(
+      chain.contains(
+        s"consumer 'acks-fanout' publishes to topic '$needs', which needs 2 in-sync copies, and the producer's acks is 1; set acks=all"
+      ),
+      chain
+    )
+    // With acks=all, Kafka's own default, the same service starts.
+    AnkkaTestKit
+      .start(Seq(fanout(needs).descriptor), Seq(ProjectionRuntime.withKafka(bootstrap)))
+      .stop()
+    // And acks=1 is nothing to refuse for a topic that needs one copy.
+    val plain = KafkaSuite.createTopic(bootstrap, "needs-one", partitions = 1)
+    AnkkaTestKit
+      .start(
+        Seq(fanout(plain).descriptor),
+        Seq(ProjectionRuntime.withKafka(bootstrap)),
+        settings = acksOne
+      )
+      .stop()
+  }
+
   test("messages under one key reach their partition in the order they were published") {
     // A fresh publisher, so its producer is cold, and no waiting between publications: the shape
     // in which sends handed to a dispatcher one by one overtook each other.
@@ -564,27 +708,55 @@ object KafkaSuite:
    * A topic of its own for one case, with three partitions, so that dividing a topic between a
    * group's members is something a case can see. Unique per call: cases leave their messages.
    */
-  def createTopic(bootstrap: String, prefix: String, partitions: Int = 3): String =
+  def createTopic(
+      bootstrap: String,
+      prefix: String,
+      partitions: Int = 3,
+      configs: Map[String, String] = Map.empty
+  ): String =
     val name = s"$prefix-${java.util.UUID.randomUUID().toString.take(8)}"
     admin(bootstrap)(
-      _.createTopics(java.util.List.of(NewTopic(name, partitions, 1.toShort))).all().get()
+      _.createTopics(
+        java.util.List.of(NewTopic(name, partitions, 1.toShort).configs(configs.asJava))
+      )
+        .all()
+        .get()
     ): Unit
     // Created is not led: a producer whose first send meets a partition with no leader yet retries,
     // and an idempotent one can then meet OUT_OF_ORDER_SEQUENCE_NUMBER on every retry thereafter.
     val deadline = System.nanoTime() + 30_000_000_000L
-    def led = admin(bootstrap)(
-      _.describeTopics(java.util.List.of(name))
-        .allTopicNames()
-        .get()
-        .get(name)
-        .partitions()
-        .asScala
-        .forall(_.leader() != null)
-    )
+    // A topic just created may not be in the broker's metadata yet, which reads as unknown: not led.
+    def led =
+      try
+        admin(bootstrap)(
+          _.describeTopics(java.util.List.of(name))
+            .allTopicNames()
+            .get()
+            .get(name)
+            .partitions()
+            .asScala
+            .forall(_.leader() != null)
+        )
+      catch
+        case e: java.util.concurrent.ExecutionException
+            if e.getCause
+              .isInstanceOf[org.apache.kafka.common.errors.UnknownTopicOrPartitionException] =>
+          false
     while !led do
       if System.nanoTime() > deadline then sys.error(s"topic $name has a partition with no leader")
       Thread.sleep(100)
     name
+
+  /** Drops a partition's messages before `offset`, as retention would. */
+  def dropBefore(bootstrap: String, topic: String, partition: Int, offset: Long): Unit =
+    admin(bootstrap)(
+      _.deleteRecords(
+        java.util.Map.of(
+          org.apache.kafka.common.TopicPartition(topic, partition),
+          org.apache.kafka.clients.admin.RecordsToDelete.beforeOffset(offset)
+        )
+      ).all().get()
+    ): Unit
 
   /** Every consumer group the broker knows. */
   def groups(bootstrap: String): Set[String] =

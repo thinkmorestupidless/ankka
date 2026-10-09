@@ -87,7 +87,17 @@ interface Project {
   topics?: Map<string, TopicRecord>;
   /** Declared brokers beside the installation's, by name. */
   brokers?: Map<string, BrokerRecord>;
+  /** The changes to its topics, newest first. */
+  history?: ProjectHistoryRecord[];
   hidden: boolean;
+}
+
+interface ProjectHistoryRecord {
+  kind: string;
+  topic: string;
+  actor?: { subject: string; display?: string; administrative: boolean };
+  at?: string;
+  changes: { setting: string; from: string; to: string }[];
 }
 
 interface BrokerRecord {
@@ -113,6 +123,13 @@ interface TopicSourceRecord {
   contract?: string;
   lag?: number;
   failing?: string;
+  /** What the broker still holds of the topic, per partition. */
+  gap?: {
+    partitions: { partition: number; beginning: number; earliestRetained?: string }[];
+    compacted?: boolean;
+    gone?: boolean;
+    readAt?: string;
+  };
 }
 
 const topicSourceOnTheWire = (t: TopicSourceRecord) => ({
@@ -128,7 +145,73 @@ const topicSourceOnTheWire = (t: TopicSourceRecord) => ({
   contract: t.contract ?? null,
   lag: t.lag ?? null,
   failing: t.failing ?? null,
+  gap: t.gap ?? null,
 });
+
+/** A topic's settings, in the words a member types, as the control plane keeps them. */
+interface TopicSettingsRecord {
+  retention: string;
+  retentionSize: string;
+  cleanup: string;
+  tombstoneWindow: string;
+  minCompactionLag: string;
+  maxCompactionLag: string;
+  copies?: number;
+  minInSync?: number;
+}
+
+const SettingNames = [
+  "retention",
+  "retentionSize",
+  "cleanup",
+  "tombstoneWindow",
+  "minCompactionLag",
+  "maxCompactionLag",
+  "copies",
+  "minInSync",
+] as const;
+type SettingName = (typeof SettingNames)[number];
+
+/** The installation's shipped defaults and bounds, as the control plane's reference.conf has them. */
+const TopicDefaults: Required<TopicSettingsRecord> = {
+  retention: "7d",
+  retentionSize: "none",
+  cleanup: "delete",
+  tombstoneWindow: "1d",
+  minCompactionLag: "0s",
+  maxCompactionLag: "none",
+  copies: 1,
+  minInSync: 1,
+};
+const MostCopies = 3;
+const WarningThresholdMs = 30 * 86400000;
+
+const DurationUnits: Record<string, number> = { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 };
+/** Milliseconds, Infinity for everything; NaN for words that are not a duration. */
+const millis = (text: string): number => {
+  if (text === "everything" || text === "none") return Infinity;
+  const m = /^([0-9]{1,15})(ms|s|m|h|d)$/.exec(text.trim());
+  return m ? Number(m[1]) * DurationUnits[m[2]] : NaN;
+};
+const SizeUnits: Record<string, number> = { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4 };
+const bytes = (text: string): number => {
+  if (text === "none") return Infinity;
+  const m = /^([0-9]{1,15})(B|KiB|MiB|GiB|TiB)$/.exec(text.trim());
+  return m ? Number(m[1]) * SizeUnits[m[2]] : NaN;
+};
+
+/** What a change removes, in the control plane's words, or nothing. */
+const removalOf = (before: TopicSettingsRecord, after: TopicSettingsRecord): string | undefined => {
+  const deletes = after.cleanup !== "compact";
+  const parts: string[] = [];
+  const shorter = deletes && millis(after.retention) < millis(before.retention);
+  if (shorter) parts.push(`messages older than ${after.retention}`);
+  if (!shorter && deletes && before.cleanup === "compact" && Number.isFinite(millis(after.retention)))
+    parts.push(`messages older than ${after.retention}, which compaction kept`);
+  if (deletes && bytes(after.retentionSize) < bytes(before.retentionSize))
+    parts.push(`messages beyond ${after.retentionSize} on a partition`);
+  return parts.length > 0 ? parts.join("; ") : undefined;
+};
 
 interface TopicRecord {
   partitions: number;
@@ -136,6 +219,11 @@ interface TopicRecord {
   detail?: string;
   compacted?: boolean;
   contract?: { name: string; fingerprint: string; schema: unknown };
+  /** Every setting, and the ones the installation supplied; absent for a topic seeded without them. */
+  settings?: TopicSettingsRecord;
+  defaulted?: SettingName[];
+  /** How many copies the broker holds, as a seed says. */
+  copiesHeld?: number;
 }
 
 /** One side a running service takes on a declared topic with a contract, against it; `topic` is the fake's own, for the project's listing. */
@@ -339,6 +427,8 @@ export interface FakeSeed {
     detail?: string;
     compacted?: boolean;
     contract?: { name: string; schema: unknown };
+    /** Its settings, each the installation's shipped default unless given; none for a topic from before settings. */
+    settings?: Partial<TopicSettingsRecord>;
   }[];
 }
 
@@ -440,6 +530,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       undeclaredTopics: s.undeclaredTopics ?? null,
       topicChecks: s.topicChecks ? s.topicChecks.map(checkOnTheWire) : null,
       topicSources: s.topicSources ? s.topicSources.map(topicSourceOnTheWire) : null,
+      warnings: warningsOf(s),
       objectStorage: s.provisionObjectStorage ? "provisioned" : s.ownObjectStore ? "supplied" : null,
       bucket: s.provisionObjectStorage ? `${s.projectId}.${s.name}` : null,
       bucketAddress:
@@ -470,6 +561,28 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const member = org.members.get(c.subject);
     if (!member && !isAdmin(c)) throw new HttpError(404, `organization '${id}' not found`);
     return { org, role: member?.role };
+  }
+
+  /**
+   * A warning for each view reading a topic its project declares to keep less than the installation's
+   * threshold (feature 043), worked out from the declarations as they are now, as the control plane does.
+   */
+  function warningsOf(s: { projectId: string; topicSources?: TopicSourceRecord[] }) {
+    const topics = projects.get(s.projectId)?.topics;
+    const warnings = (s.topicSources ?? []).flatMap((source) => {
+      const settings = topics?.get(source.topic)?.settings;
+      if (source.kind !== "view" || !settings || settings.cleanup !== "delete") return [];
+      if (!(millis(settings.retention) < WarningThresholdMs)) return [];
+      return [
+        {
+          kind: "retention",
+          component: source.component,
+          topic: source.topic,
+          message: `view '${source.component}' reads topic '${source.topic}', which keeps ${settings.retention}; the installation warns below 30d`,
+        },
+      ];
+    });
+    return warnings.length > 0 ? warnings : null;
   }
 
   function requireWrite(org: Org) {
@@ -859,12 +972,33 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const { project, org } = requireProject(c, p.projectId);
     requireWrite(org);
     const name = p.name;
-    const request = body as { partitions?: number; compacted?: boolean; contract?: { name?: string; schema?: unknown } };
-    const partitions = Number(request.partitions);
+    const request = body as {
+      partitions?: number;
+      compacted?: boolean;
+      contract?: { name?: string; schema?: unknown };
+      removes?: string;
+    } & Partial<TopicSettingsRecord>;
+    project.topics ??= new Map();
+    const current = project.topics.get(name);
+    if (request.partitions === undefined && current === undefined)
+      throw new HttpError(400, `topic '${name}': partitions is required for a new topic`);
+    const partitions = request.partitions === undefined ? current!.partitions : Number(request.partitions);
     const problems: string[] = [];
     if (!TopicName.test(name)) problems.push(`topic '${name}': ${TopicNameRule}`);
     if (!Number.isInteger(partitions) || partitions < 1 || partitions > 1000)
       problems.push(`topic '${name}': partitions ${partitions} is outside the range 1-1000`);
+    // Settings (feature 043): the words, the bounds, fixed copies and an owner's removal.
+    for (const key of ["retention", "tombstoneWindow", "minCompactionLag", "maxCompactionLag"] as const) {
+      const value = request[key];
+      if (value !== undefined && Number.isNaN(millis(value))) problems.push(`topic '${name}': ${key} "${value}" is not a duration`);
+    }
+    if (request.retentionSize !== undefined && Number.isNaN(bytes(request.retentionSize)))
+      problems.push(`topic '${name}': retentionSize "${request.retentionSize}" is not a size`);
+    if (request.cleanup !== undefined && !["delete", "compact", "compact,delete"].includes(request.cleanup))
+      problems.push(`topic '${name}': cleanup "${request.cleanup}" is not "delete", "compact" or "compact,delete"`);
+    if (request.compacted === true && request.cleanup === "delete") problems.push(`topic '${name}': compacted and cleanup disagree`);
+    if (request.copies !== undefined && request.copies > MostCopies)
+      problems.push(`topic '${name}': copies ${request.copies} is more than the installation's most, ${MostCopies}`);
     // A contract's own rules: its name, and a schema that is a JSON document (feature 037).
     if (request.contract !== undefined && request.contract !== null) {
       const contractName = String(request.contract.name ?? "");
@@ -872,15 +1006,65 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       if (request.contract.schema === undefined || request.contract.schema === null) problems.push(`topic '${name}': the contract's schema is missing`);
     }
     if (problems.length > 0) throw new HttpError(400, problems.join("; "));
-    project.topics ??= new Map();
-    const has = project.topics.get(name)?.partitions;
+    const has = current?.partitions;
     if (has !== undefined && has > partitions)
       throw new HttpError(409, `topic '${name}' has ${has} partitions and cannot have fewer; ${partitions} was asked`);
+    const asked: Partial<TopicSettingsRecord> = {};
+    for (const key of SettingNames) if (request[key] !== undefined) (asked as Record<string, unknown>)[key] = request[key];
+    if (request.compacted === true && asked.cleanup === undefined) asked.cleanup = "compact";
+    const before = current?.settings;
+    if (before !== undefined) {
+      const fixed = (key: "copies" | "minInSync") => asked[key] !== undefined && asked[key] !== before[key];
+      if (fixed("copies") || fixed("minInSync"))
+        throw new HttpError(409, `topic '${name}': copies and minimum in-sync copies are fixed when a topic is declared`);
+    }
+    const settings: TopicSettingsRecord = { ...(before ?? TopicDefaults), ...asked };
+    const defaulted = (current?.defaulted ?? (before ? [] : [...SettingNames])).filter((s) => asked[s] === undefined);
+    const removal = before ? removalOf(before, settings) : undefined;
+    if (removal === undefined && request.removes !== undefined)
+      throw new HttpError(400, `topic '${name}': this declaration removes nothing`);
+    if (removal !== undefined) {
+      const { role } = requireOrg(c, org.id);
+      if (role !== "owner" && !isAdmin(c)) throw new HttpError(403, `owner role required: this declaration removes ${removal}`);
+      if (request.removes?.trim() !== removal)
+        throw new HttpError(
+          400,
+          `this declaration removes ${removal}; a declaration that removes messages says so with "removes"`,
+        );
+    }
+    const changes = before
+      ? SettingNames.flatMap((s) =>
+          String(before[s] ?? "the broker's") === String(settings[s] ?? "the broker's")
+            ? []
+            : [{ setting: s, from: String(before[s] ?? "the broker's"), to: String(settings[s] ?? "the broker's") }],
+        )
+      : [];
     const contract = request.contract
       ? { name: String(request.contract.name), schema: request.contract.schema, fingerprint: fakeFingerprint(request.contract.schema) }
       : undefined;
-    project.topics.set(name, { ...(project.topics.get(name) ?? {}), partitions, compacted: request.compacted === true, contract });
+    const same =
+      current !== undefined && current.partitions === partitions && changes.length === 0 &&
+      (current.contract?.fingerprint ?? null) === (contract?.fingerprint ?? null);
+    if (same) return "done";
+    project.topics.set(name, {
+      ...(current ?? {}),
+      partitions,
+      compacted: settings.cleanup !== "delete",
+      contract,
+      settings,
+      defaulted,
+    });
+    project.history = [
+      { kind: current ? "topic-changed" : "topic-declared", topic: name, actor: actor(c), at: now(), changes },
+      ...(project.history ?? []),
+    ].slice(0, 50);
     return "done";
+  });
+
+  // The changes to a project's topics, newest first (feature 043).
+  route("GET", "/projects/{projectId}/history", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return (project.history ?? []).map((h) => ({ ...h, actor: h.actor ?? null, at: h.at ?? null }));
   });
 
   // The schema a topic's contract was declared with (feature 037); 404 without a contract.
@@ -913,6 +1097,16 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         compacted: t.compacted ?? false,
         contract: t.contract ? { name: t.contract.name, fingerprint: t.contract.fingerprint } : null,
         checks: t.contract ? checks.filter((c) => c.topic === name).map(checkOnTheWire) : [],
+        settings: t.settings
+          ? {
+              ...t.settings,
+              copies: t.settings.copies ?? null,
+              minInSync: t.settings.minInSync ?? null,
+              defaulted: (t.defaulted ?? []).filter((s) => SettingNames.includes(s)),
+            }
+          : null,
+        copiesHeld: t.copiesHeld ?? t.settings?.copies ?? null,
+        brokerNodes: null,
       }));
   });
 
@@ -1339,6 +1533,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           detail: t.detail,
           compacted: t.compacted,
           contract: t.contract ? { ...t.contract, fingerprint: fakeFingerprint(t.contract.schema) } : undefined,
+          settings: t.settings ? { ...TopicDefaults, ...t.settings } : undefined,
+          defaulted: t.settings ? SettingNames.filter((s) => t.settings![s] === undefined) : undefined,
         });
       }
     },

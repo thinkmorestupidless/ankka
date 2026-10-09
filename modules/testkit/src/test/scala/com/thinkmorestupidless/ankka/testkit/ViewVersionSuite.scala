@@ -315,8 +315,9 @@ object ViewVersionSuite:
         subscription: TopicSubscription,
         handle: IncomingMessage => Future[Done]
     ): Subscribed = inner.subscribe(subscription, handle)
-    def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]] =
+    def earliestRetained(topic: String): Future[Map[Int, Retained]] =
       if failures.getAndUpdate(n => (n - 1).max(0)) > 0 then
         Future.failed(RuntimeException("the broker is not answering"))
       else inner.earliestRetained(topic)
-    def stop(): Unit = inner.stop()
+    override def topicConfig(topic: String): Future[Option[TopicConfig]] = inner.topicConfig(topic)
+    def stop(): Unit                                                     = inner.stop()

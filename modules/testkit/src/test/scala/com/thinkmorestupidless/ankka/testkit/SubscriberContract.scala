@@ -157,14 +157,19 @@ trait SubscriberContract:
     val empty = freshTopic("empty")
     val none  = Await.result(subscriber.earliestRetained(empty), patience)
     assert(none.nonEmpty, none.toString)
-    assert(none.values.forall(_.isEmpty), none.toString)
+    assert(none.values.forall(_.earliestAt.isEmpty), none.toString)
+    // Feature 043: an empty partition begins where it ends, and nothing was ever dropped from it.
+    assert(none.values.forall(r => r.beginning == 0 && r.end == 0), none.toString)
 
     val topic = freshTopic("retained")
     val sent  = Instant.now().minusSeconds(1)
     send(topic, "one")
     val answer = Await.result(subscriber.earliestRetained(topic), patience)
     assertEquals(answer.keySet, none.keySet, "every partition is answered for")
-    val times = answer.values.flatten
+    val times = answer.values.flatMap(_.earliestAt)
     assertEquals(times.size, 1, answer.toString)
     assert(!times.head.isBefore(sent), s"${times.head} is before $sent")
+    // The partition holding it ends one past its beginning, which nothing has moved.
+    val holding = answer.values.filter(_.earliestAt.isDefined)
+    assertEquals(holding.map(r => (r.beginning, r.end)).toVector, Vector((0L, 1L)), answer.toString)
   }

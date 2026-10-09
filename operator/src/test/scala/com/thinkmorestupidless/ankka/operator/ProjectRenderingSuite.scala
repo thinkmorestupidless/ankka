@@ -111,10 +111,92 @@ class ProjectRenderingSuite extends munit.FunSuite:
     val rendered = topics(actions(spec)).map(t => t.getMetadata.getName -> t.getSpec).toMap
     assertEquals(
       rendered("shop.cart-deltas"),
-      KafkaTopicSpec(3, Some(Map("cleanup.policy" -> "compact")))
+      KafkaTopicSpec(3, config = Some(Map("cleanup.policy" -> "compact")))
     )
     assertEquals(rendered("shop.orders"), KafkaTopicSpec(3))
     assertEquals(rendered("shop.orders").config, None)
+  }
+
+  // features/broker/retention.feature: the broker holds each setting on the topic itself
+  test(
+    "a topic with settings states every one of them and its copies on the KafkaTopic (feature 043)"
+  ) {
+    val spec = AnkkaProjectSpec(
+      "money",
+      List(
+        ProjectTopicEntry(
+          "transactions",
+          12,
+          "2026-10-08T10:00:00Z",
+          retentionMs = Some(7776000000L),
+          retentionBytes = Some(-1L),
+          cleanupPolicy = Some("delete"),
+          deleteRetentionMs = Some(86400000L),
+          minCompactionLagMs = Some(0L),
+          maxCompactionLagMs = Some(Long.MaxValue),
+          replicas = Some(3),
+          minInsyncReplicas = Some(2)
+        ),
+        // Filled by the sweep: settings, but its copies are the broker's.
+        ProjectTopicEntry(
+          "notices",
+          3,
+          "2026-10-08T10:00:00Z",
+          retentionMs = Some(604800000L),
+          retentionBytes = Some(-1L),
+          cleanupPolicy = Some("delete"),
+          deleteRetentionMs = Some(86400000L),
+          minCompactionLagMs = Some(0L),
+          maxCompactionLagMs = Some(Long.MaxValue)
+        ),
+        // Declared before topics stated settings, and not yet filled: rendered as it always was.
+        ProjectTopicEntry("orders", 3, "2026-10-07T10:00:00Z")
+      )
+    )
+    val rendered = topics(actions(spec)).map(t => t.getMetadata.getName -> t.getSpec).toMap
+    val config   = rendered("money.transactions").config.map(_.view.mapValues(_.toString).toMap)
+    assertEquals(rendered("money.transactions").replicas, Some(3))
+    assertEquals(
+      config,
+      Some(
+        Map(
+          "retention.ms"          -> "7776000000",
+          "retention.bytes"       -> "-1",
+          "cleanup.policy"        -> "delete",
+          "delete.retention.ms"   -> "86400000",
+          "min.compaction.lag.ms" -> "0",
+          "max.compaction.lag.ms" -> Long.MaxValue.toString,
+          "min.insync.replicas"   -> "2"
+        )
+      )
+    )
+    assertEquals(rendered("money.notices").replicas, None)
+    assert(!rendered("money.notices").config.exists(_.contains("min.insync.replicas")))
+    assertEquals(rendered("money.orders"), KafkaTopicSpec(3))
+  }
+
+  // features/broker/copies.feature: more copies than broker nodes
+  test(
+    "a topic asking for more copies than the broker has broker nodes is not rendered, and fails"
+  ) {
+    val five = ProjectTopicEntry("transactions", 12, "2026-10-08T10:00:00Z", replicas = Some(5))
+    val spec = AnkkaProjectSpec("money", List(five))
+    val as = ProjectReconciler.actions(
+      ServiceRef("ankka-money", "money"),
+      spec,
+      broker,
+      Map.empty,
+      None,
+      Some(3)
+    )
+    assertEquals(topics(as), Vector.empty)
+    val status = as.collectFirst { case Action.SetProjectStatus(_, _, s) => s }.get
+    assertEquals(status.brokerNodes, Some(3))
+    assertEquals(status.topics.map(_.phase), List("Failed"))
+    assertEquals(
+      status.topics.flatMap(_.detail),
+      List("topic 'money.transactions' asks for 5 copies and the broker has 3 broker nodes")
+    )
   }
 
   test("a project's topics are owned by nothing, and nothing removes one") {

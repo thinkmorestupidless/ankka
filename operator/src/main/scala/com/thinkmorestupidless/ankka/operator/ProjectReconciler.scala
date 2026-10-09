@@ -27,8 +27,10 @@ final class ProjectReconciler(client: KubernetesClient, settings: Settings, exec
         val names = spec.topics.toVector.map(t => BrokerNames.topic(spec.projectId, t.name))
         val observed =
           settings.broker.fold(Map.empty)(b => executor.observeTopics(b.namespace, names))
+        // Feature 043: how many broker nodes there are, which only the operator can read.
+        val nodes = settings.broker.flatMap(b => executor.brokerNodes(b.namespace, b.cluster))
         ProjectReconciler
-          .actions(ref, spec, settings.broker, observed, Option(project.getStatus))
+          .actions(ref, spec, settings.broker, observed, Option(project.getStatus), nodes)
           .foreach(executor.execute)
 
 object ProjectReconciler:
@@ -42,14 +44,15 @@ object ProjectReconciler:
       spec: AnkkaProjectSpec,
       broker: Option[BrokerSettings],
       observed: Map[String, TopicState],
-      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus]
+      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus],
+      brokerNodes: Option[Int] = None
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
-        .topicsToRender(spec, broker, observed)
+        .topicsToRender(spec, broker, observed, brokerNodes)
         .map(t => Action.EnsureKafkaTopic(StrimziRendering.topic(spec.projectId, t, b)))
     )
-    val next = TopicProvisioning.status(spec, broker, observed)
+    val next = TopicProvisioning.status(spec, broker, observed, brokerNodes)
     // The declarations every service of the project reads at start (feature 037), with or without
     // a broker: a contract is checked wherever the topic lives.
     (Action.EnsureProjectConfig(ProjectConfig.configMap(ref.namespace, spec)) +: topics) ++

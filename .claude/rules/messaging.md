@@ -158,3 +158,24 @@ view's projection is named), and every write of such a view is guarded by the re
   `RemoteProjection.consumerMetadata`), and an SDK fails the change rather than answer
   `produce_all` to a request that does not carry `1.3` or later. An SDK sends an empty list as
   `done` and a single un-keyed message as `produce`, so the guard fires only where it must.
+- **The runtime reads a topic's cleanup policy and minimum in-sync copies from the broker, never from
+  the declarations** (feature 043). `TopicConfigs` holds one `Admin` per publisher and per subscriber,
+  made on first use, and answers a stale reading at once while it fetches a new one, so a topic
+  declared compacted while a service runs is known within `TopicConfigs.Interval` and no restart. Only
+  a message with neither key nor subject waits for a reading; it is refused with `KeylessPublication` in
+  `KafkaPublisher.publish` (and the in-memory broker once a test calls `compact`), before anything is
+  sent — in the publisher and not `publishAll`, since a single `Produce` never passes there.
+- **An `Admin` given `default.api.timeout.ms` below `request.timeout.ms` refuses to be created**, and
+  the failure read as "the broker cannot say", which meant no topic was ever known to be compacted and
+  no `acks` refusal ever fired. Every offline suite passed; `KafkaSuite`'s keyless case, against a real
+  broker, was what failed. Set both, and keep the cause in the warning.
+- **The retention gap is merged per partition, never summed.** Every instance of a service reads the
+  same partitions' beginnings, so `ServiceEndpoint.gapOf` keeps one row per partition, `gone` if any
+  instance says so, `compacted` only if all do. The lag beside it is summed over instances, which
+  over-counts: every instance reports every partition. Left as it is; do not copy it.
+- **The gap's time rule reads `ankka_view_versions.built_at`**, which `rebuild` already writes; no DDL
+  file holds that table. A reader of the gap must not claim to know the first offset ever written: a
+  beginning above zero says only that something before it is gone.
+- **A test topic is not in the broker's metadata the moment it is created.** `KafkaSuite.createTopic`
+  waited for leaders with `describeTopics`, which throws `UnknownTopicOrPartitionException` until the
+  metadata has the topic; on a loaded machine every case failed there. It now reads that as not led.

@@ -326,11 +326,28 @@ messages older than it are gone, and a rebuilt view holds only what the window s
 fewer rows than it held before. While a rebuild runs, the view serves an empty or partial table. A view
 rebuilt with a start position of latest is empty until a message is published.
 
-Before a single row is removed, the service asks the broker when the oldest message it holds on each
-partition was published, and logs the answer with the view and both versions — a line beginning
-`view rebuild:`. Until the broker answers the view is left as it is, so a broker that is down does not
-leave a view empty. A rebuild is never refused for what the broker holds; the log line is how a person
-learns what it reached.
+Before a single row is removed, the service asks the broker where each partition begins and when the
+oldest message it holds there was published, and logs the answer with the view and both versions — a line
+beginning `view rebuild:`. Until the broker answers the view is left as it is, so a broker that is down
+does not leave a view empty. A rebuild is never refused for what the broker holds.
+
+What a rebuild reached is shown where a member reads, not only in the log. Every topic source reports its
+**retention gap**: for each partition, the earliest position the broker still holds and when that message
+was published, and whether earlier messages are gone, which is so when a partition begins above 0 or holds
+nothing from before the view's version was built. A compacted topic is reported as compacted rather than as
+having a gap. The report says nothing of what was written first, which the broker does not know. It is made
+when the source subscribes, when its view is rebuilt and every five minutes, and it is in the service's
+metrics, in the local console, and in `ankka services get`:
+
+```text
+topic sources  entries: transactions  group ankka.money.ledger.view-v2.entries  v2
+                 retained: p0 from 1240 (2026-09-01T10:00:00Z), p1 from 0 (2026-06-02T08:15:00Z); earlier messages gone
+```
+
+A view reading a topic that keeps less than the installation's warning threshold, 30 days as shipped, is
+warned in its service's status, naming the topic's retention and the threshold. The warning follows the
+topic's declaration as it is now: lowering the topic's retention below the threshold warns every view that
+reads it, and raising it clears the warning. A topic that keeps everything, or is compacted, draws none.
 
 Old and new instances of a service run side by side during a rolling update. The rows are emptied once,
 however many instances start at the new version, and an instance at a lower version than the one recorded
@@ -440,38 +457,114 @@ A web-hosted service has no components and is given nothing of the broker.
 ### Declaring a topic
 
 A topic on the installation's broker exists because its project declares it, once, with the number of
-partitions it has, whether the broker keeps only the last message under each key, and the contract it
-carries. A member declares it on the project, not in any service's descriptor:
+partitions it has, how long it keeps messages, how it is cleaned, how many copies the broker keeps of it,
+and the contract it carries. A member declares it on the project, not in any service's descriptor:
 
 ```bash
-ankka projects topics set transactions --partitions 12 -p money
-ankka projects topics set cart-deltas --partitions 3 --compacted -p money
+ankka projects topics set transactions --partitions 12 --retention 90d -p money
+ankka projects topics set notices --partitions 3 -p money
+ankka projects topics set cart-deltas --partitions 3 --cleanup compact -p money
 ankka projects topics set orders --partitions 3 --contract order.v1 --schema schemas/order.v1.json -p money
 ankka projects topics list -p money
 ```
 
 The platform makes the topic as soon as it is declared, whether or not the project has a service yet.
 Every service of the project publishes to it and reads it by its name, and none of them declares it, so
-there is one partition count and one place to change it. Declaring the topic again with more partitions
-grows it; with fewer, is refused, since a topic is never made smaller. A name the broker cannot hold, or
-partitions outside 1 to 1000, are refused too, naming the topic. `--compacted` is applied to a topic
-already made as well as to a new one, and a declaration without it makes the topic keep every message
-again; `--contract` and `--schema` go together, and declaring the topic without them removes its contract.
+there is one partition count, one set of settings and one place to change them. Declaring the topic again
+with more partitions grows it; with fewer, is refused, since a topic is never made smaller. A name the
+broker cannot hold, or partitions outside 1 to 1000, are refused too, naming the topic. `--contract` and
+`--schema` go together, and declaring the topic without them removes its contract.
+
+### How long a topic keeps, and how it is cleaned
+
+Every setting of a topic is stated on the broker, so none is the broker's own default and every one can be
+read with `ankka projects topics list`:
+
+| Setting | Flag | Means | Shipped default |
+|---|---|---|---|
+| retention time | `--retention` | How long the topic keeps a message: `90d`, `36h`, or `everything`. | `7d` |
+| retention size | `--retention-size` | How much each partition keeps before its oldest messages go: `50GiB`, or `none`. | `none` |
+| cleanup policy | `--cleanup` | `delete` removes messages by retention time and size; `compact` keeps the last message under each key and removes nothing by age; `compact,delete` does both. | `delete` |
+| tombstone window | `--tombstone-window` | How long a compacted topic keeps a message that marks its key deleted. | `1d` |
+| minimum compaction lag | `--min-compaction-lag` | The soonest a compacted topic may compact a message away. | `0s` |
+| maximum compaction lag | `--max-compaction-lag` | The latest a compacted topic compacts a message, or `none`. | `none` |
+
+Durations are a whole number and `ms`, `s`, `m`, `h` or `d`; sizes a whole number and `B`, `KiB`, `MiB`,
+`GiB` or `TiB`. `--compacted` is the short form of `--cleanup compact`.
+
+A topic's first declaration takes every setting it leaves out from the installation's defaults, and the
+listing marks each with a `*`. A later change to the installation's defaults changes no topic already
+declared: each keeps the value it was given. The shipped defaults are a laptop's. An installation serving
+facts that must outlive a week raises its default retention and its longest retention before its first
+topic is declared, as [the broker page](../platform/broker.md) says. A declaration past the installation's
+longest retention time, largest retention size or most copies is refused before anything is made, naming
+the bound.
+
+A compacted topic keeps a message under its key, so a message published to it must carry a key or a
+subject. One with neither fails in the service before it is sent, naming the topic, and the change that
+published it is handed to its consumer again. The service learns a topic's cleanup policy from the broker
+itself and reads it again every minute, so a topic declared compacted while the service runs is known to
+it within a minute, with no restart. A reader that falls further behind a compacted topic than its
+tombstone window misses the deletion of a key.
+
+### Copies
+
+A topic's copies are how many of the broker's nodes hold each of its messages, and its minimum in-sync
+copies how many must hold a message before the broker acknowledges it. The broker is not backed up, so a
+topic's copies are its only durability: on a broker of one node, every topic has a single copy, and the
+listing says so.
+
+```bash
+ankka projects topics set transactions --partitions 12 --copies 3 --min-in-sync 2 -p money
+```
+
+Both are fixed when the topic is declared, and a declaration that changes either is refused, with nothing
+else in it applied. A topic declared before topics stated their copies keeps the copies the broker gave
+it, and the listing shows them as the broker's. The control plane bounds copies by the installation's most
+copies; only the broker knows how many nodes it has, and a topic asking for more copies than that is made
+nowhere and reported `failed`, naming the broker's node count.
+
+A service whose producer does not wait for every in-sync copy (`acks` below `all`, which a service's own
+configuration can set) does not start when a topic it publishes to needs more than one in-sync copy: its
+status names the topic and the setting. Kafka's own default is `all`.
+
+### Changing a topic
+
+A topic's settings are changed by declaring it again with the settings to change. Every setting left out
+keeps its value, partitions included, and the broker changes the topic in place: no service is deployed
+again or restarted for it.
+
+```bash
+ankka projects topics set transactions --retention 180d -p money
+ankka projects history -p money
+```
+
+A change that removes messages is an owner's: a shorter retention time, a smaller retention size, or a
+compacted topic that starts deleting by age. Before it is sent, the CLI says what it removes and asks; a
+member who is not an owner is refused. A script says what it accepts removing in the control plane's own
+words with `--removes`, and a declaration that removes messages without saying so is refused, naming what
+it would remove. Every other change needs only a member. Once applied, what the shorter retention no
+longer covers is removed at the broker's next cleanup, and is gone.
+
+The project's history records every declaration that changes something, with who made it, when, and each
+setting from what to what; a declaration that changes nothing records nothing. A topic's settings say how
+long the broker keeps messages, never whether a person is forgotten: erasing personal data is done to the
+data, not by shortening a topic's retention.
 
 A component names a topic as the project declared it, `transactions`. The broker holds it under a name
 that carries the project, `money.transactions`, which is what the broker's own tools list. The platform
 adds the project where a topic is handed to the broker and nowhere else, so a component's code, its
 declared connections and the service's logs all use the declared name.
 
-`ankka projects topics list` shows each topic's partitions, whether it is compacted, its contract, how
+`ankka projects topics list` shows each topic's partitions, every setting, its copies, its contract, how
 far the platform has got with it, and the sides every running service takes on its contract:
 
 | Phase | Meaning |
 |---|---|
-| `waiting for broker` | The broker has not yet made the topic, or not yet grown it to the partitions declared, or not yet applied its compaction. |
-| `provisioned` | The topic is ready with its declared partitions and compaction. |
+| `waiting for broker` | The broker has not yet made the topic, or not yet grown it to the partitions declared, or not yet applied its settings. |
+| `provisioned` | The topic is ready with its declared partitions, copies and settings. |
 | `recovered` | The same, and the topic was on the broker before it was declared: declared again after its declaration was removed. |
-| `failed` | Something waiting will not clear, such as a topic that already has more partitions than declared, or an installation with no broker. The detail says which. |
+| `failed` | Something waiting will not clear, such as a topic that already has more partitions than declared, more copies than the broker has nodes, or an installation with no broker. The detail says which. |
 
 `ankka services get` shows the service's own part, its credential, on the `broker` line: `waiting for
 broker`, `provisioned`, `recovered` for a service applied again under its old name, `supplied`, or

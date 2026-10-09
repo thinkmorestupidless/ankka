@@ -278,7 +278,7 @@ sets them on the sidecar and on the process. A descriptor that sets any variable
 as the descriptor says. See [The installation's broker](../platform/broker.md).
 
 - `ANKKA_PROJECT_DECLARATIONS` names the file of the project's declarations — its topics with their
-  partitions, compaction and contract, and its declared brokers — which the platform mounts at
+  partitions, whether they are compacted and their contract, and its declared brokers — which the platform mounts at
   `/var/run/ankka/project/topics.json`. The runtime reads it once when the service starts and refuses a
   component whose stated contract is not the declared one, or that names a broker the project does not
   declare. Unset, nothing is checked. See [Contracts](../build/topics.md#contracts).
@@ -289,6 +289,15 @@ as the descriptor says. See [The installation's broker](../platform/broker.md).
   is mounted at, and its declared name. The platform sets them on the platform's container of every
   service in the project, and never on a process. A component names the broker for one topic; see
   [A topic on another broker](../build/topics.md#a-topic-on-another-broker).
+- `ANKKA_TOPIC_DEFAULT_RETENTION`, `ANKKA_TOPIC_DEFAULT_RETENTION_SIZE`, `ANKKA_TOPIC_DEFAULT_CLEANUP`,
+  `ANKKA_TOPIC_DEFAULT_TOMBSTONE_WINDOW`, `ANKKA_TOPIC_DEFAULT_MIN_COMPACTION_LAG`,
+  `ANKKA_TOPIC_DEFAULT_MAX_COMPACTION_LAG`, `ANKKA_TOPIC_DEFAULT_COPIES`, `ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC`,
+  `ANKKA_TOPIC_LONGEST_RETENTION`, `ANKKA_TOPIC_LARGEST_RETENTION_SIZE`, `ANKKA_TOPIC_MOST_COPIES` and
+  `ANKKA_TOPIC_WARNING_THRESHOLD` are the control plane's, not a service's: what a topic's first
+  declaration is given for a setting it leaves out, the bounds every declaration is held to, and the
+  retention below which a view reading a topic is warned. They are read once when the control plane starts
+  and are set on its Deployment; a value it cannot read stops it. Their shipped values and meanings are on
+  [The installation's broker](../platform/broker.md#topics).
 - `ANKKA_SERVICE_NAME`, or `ankka.service.name`, is a service's name when it runs on a developer's
   machine. Each view or consumer that reads a topic reads under a consumer group named for it, so two
   services on one broker never share one; with no name stated, a group is named for its component alone.

@@ -45,7 +45,8 @@ The overlay lists the same components as the local one, and patches or replaces 
 | Base domain and HTTPS port | `127.0.0.1.sslip.io`, port 8443 | your domain, port 443 |
 | Identity provider admin | a development secret, `admin`/`admin` | the secret deleted; you create one out of band |
 | Images | unqualified names loaded into the node | your registry, at a pinned release tag |
-| The broker's size | one node, 2Gi, a 512MB heap | the values you set in `broker-size.yaml` |
+| The broker's size | one node, 2Gi, a 512MB heap | the values you set in `broker-size.yaml`, and three nodes with every topic copied three times when you list the `broker-three-nodes` component |
+| Topic defaults and bounds | seven days, one copy, any retention allowed | the `ANKKA_TOPIC_*` variables you set on the control plane before the first topic is declared |
 
 Both overlays install the same two authorities the platform issues workload certificates from — one for
 traffic between a service's own instances, one for HTTP between services and from the gateway — as

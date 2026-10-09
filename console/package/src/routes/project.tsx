@@ -19,12 +19,13 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, topics, brokers, page] = await Promise.all([
+    const [project, services, secrets, topics, brokers, history, page] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
       ctx.client.listTopics(id),
       ctx.client.listBrokers(id),
+      ctx.client.projectHistory(id),
       pageData(ctx),
     ]);
     const organization = await ctx.client.getOrganization(project.organizationId);
@@ -37,6 +38,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       secrets,
       topics,
       brokers,
+      history,
       panels: await loadPanels(ctx, "project", project),
     };
   });
@@ -89,10 +91,23 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
           }
           contract = { name: contractName, schema };
         }
+        // Each setting left empty is left out: the installation's default on a new topic, kept on
+        // one already declared. `topicRemoves` is the owner's confirmation of what a change removes.
+        const optional = (field: string) => text(form, field) || undefined;
+        const count = (field: string) => (text(form, field) ? Number(text(form, field)) : undefined);
         await ctx.client.declareTopic(id, text(form, "topicName"), {
-          partitions: Number(text(form, "topicPartitions")),
+          partitions: count("topicPartitions"),
           compacted: form.get("topicCompacted") === "on",
           contract,
+          retention: optional("topicRetention"),
+          retentionSize: optional("topicRetentionSize"),
+          cleanup: optional("topicCleanup"),
+          tombstoneWindow: optional("topicTombstoneWindow"),
+          minCompactionLag: optional("topicMinCompactionLag"),
+          maxCompactionLag: optional("topicMaxCompactionLag"),
+          copies: count("topicCopies"),
+          minInSync: count("topicMinInSync"),
+          removes: optional("topicRemoves"),
         });
         return redirect(self);
       }
@@ -115,7 +130,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 }
 
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, topics, brokers, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, brokers, history, panels } = useLoaderData<typeof loader>();
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
@@ -123,6 +138,8 @@ export default function Project() {
   const registryRefusal = useRefusal("registry-set");
   const secretRefusal = useRefusal("secret-set");
   const topicRefusal = useRefusal("topic-set");
+  // A change that removes messages, refused until an owner says so: what it removes, to confirm.
+  const removal = /this declaration removes (.+); a declaration that removes messages says so with "removes"/.exec(topicRefusal?.reason ?? "")?.[1];
   const brokerRefusal = useRefusal("broker-set");
   const shown = useActionData() as { intent?: string; topic?: string; schema?: unknown } | undefined;
   const shownSchema = shown && shown.intent === "topic-schema" && typeof shown.topic === "string" ? shown : undefined;
@@ -185,7 +202,23 @@ export default function Project() {
             <summary>Declare a topic</summary>
             <ConsoleForm intent="topic-set" className="ac-form">
               <Field label="Topic" name="topicName" required placeholder="transactions" defaultValue={topicRefusal?.values.topicName} />
-              <Field label="Partitions" name="topicPartitions" type="number" required defaultValue={topicRefusal?.values.topicPartitions ?? "3"} hint="A topic can be given more partitions later, never fewer." />
+              <Field label="Partitions" name="topicPartitions" type="number" defaultValue={topicRefusal?.values.topicPartitions ?? "3"} hint="Needed for a new topic. A topic can be given more partitions later, never fewer." />
+              <Field label="Retention" name="topicRetention" placeholder="90d" autoComplete="off" defaultValue={topicRefusal?.values.topicRetention} hint="How long the topic keeps a message: 90d, 36h, or everything. Empty: the installation's default, or what the topic has." />
+              <Field label="Retention size" name="topicRetentionSize" placeholder="50GiB" autoComplete="off" defaultValue={topicRefusal?.values.topicRetentionSize} hint="How much each partition keeps: 50GiB, or none." />
+              <div className="ac-field">
+                <label htmlFor="topicCleanup">Cleanup policy</label>
+                <select id="topicCleanup" name="topicCleanup" defaultValue={topicRefusal?.values.topicCleanup ?? ""}>
+                  <option value="">Unchanged, or the installation's default</option>
+                  <option value="delete">delete</option>
+                  <option value="compact">compact</option>
+                  <option value="compact,delete">compact,delete</option>
+                </select>
+              </div>
+              <Field label="Tombstone window" name="topicTombstoneWindow" placeholder="1d" autoComplete="off" defaultValue={topicRefusal?.values.topicTombstoneWindow} hint="How long a compacted topic keeps a deletion." />
+              <Field label="Minimum compaction lag" name="topicMinCompactionLag" placeholder="0s" autoComplete="off" defaultValue={topicRefusal?.values.topicMinCompactionLag} />
+              <Field label="Maximum compaction lag" name="topicMaxCompactionLag" placeholder="none" autoComplete="off" defaultValue={topicRefusal?.values.topicMaxCompactionLag} />
+              <Field label="Copies" name="topicCopies" type="number" defaultValue={topicRefusal?.values.topicCopies} hint="How many copies the broker keeps; fixed once the topic is declared." />
+              <Field label="Minimum in-sync copies" name="topicMinInSync" type="number" defaultValue={topicRefusal?.values.topicMinInSync} hint="How many copies must hold a message before it is acknowledged; fixed once declared." />
               <div className="ac-field">
                 <label htmlFor="topicCompacted">
                   <input id="topicCompacted" name="topicCompacted" type="checkbox" defaultChecked={topicRefusal?.values.topicCompacted === "on"} /> Compacted
@@ -202,11 +235,28 @@ export default function Project() {
                   The contract's JSON Schema document, held by the project for members to build against.
                 </p>
               </div>
-              <Refused intent="topic-set" />
+              {removal === undefined ? <Refused intent="topic-set" /> : null}
               <div>
                 <Submit intent="topic-set">Declare topic</Submit>
               </div>
             </ConsoleForm>
+            {removal !== undefined && topicRefusal ? (
+              <div className="ac-card" role="alertdialog" aria-labelledby="topic-removal-title" data-removal-dialog>
+                <h3 id="topic-removal-title">This declaration removes messages</h3>
+                <p>
+                  It removes {removal}, and they are gone. Only an owner of the organization may send it.
+                </p>
+                <ConsoleForm intent="topic-set" className="ac-inline">
+                  {Object.entries(topicRefusal.values)
+                    .filter(([k]) => k !== "intent" && k !== "topicRemoves")
+                    .map(([k, v]) => (
+                      <input key={k} type="hidden" name={k} value={v} />
+                    ))}
+                  <input type="hidden" name="topicRemoves" value={removal} />
+                  <Submit intent="topic-set">Remove them</Submit>
+                </ConsoleForm>
+              </div>
+            ) : null}
           </details>
         </section>
       ) : null}
@@ -394,6 +444,10 @@ export default function Project() {
                   <th scope="col" className="ac-num">
                     Partitions
                   </th>
+                  <th scope="col">Retention</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Cleanup</th>
+                  <th scope="col">Copies</th>
                   <th scope="col">Compacted</th>
                   <th scope="col">Contract</th>
                   <th scope="col">Broker</th>
@@ -410,6 +464,17 @@ export default function Project() {
                       <code>{t.name}</code>
                     </td>
                     <td className="ac-num">{t.partitions}</td>
+                    {(["retention", "retentionSize", "cleanup"] as const).map((field) => (
+                      <td key={field} data-setting={field} data-defaulted={t.settings?.defaulted.includes(field) ? "yes" : "no"}>
+                        {t.settings ? t.settings[field] : "—"}
+                        {t.settings?.defaulted.includes(field) ? <span className="ac-hint"> default</span> : null}
+                      </td>
+                    ))}
+                    <td data-setting="copies">
+                      {t.settings?.copies !== undefined && t.settings?.copies !== null
+                        ? `${t.settings.copies}, ${t.settings.minInSync ?? 1} in sync`
+                        : `the broker's${t.copiesHeld ? ` (${t.copiesHeld})` : ""}`}
+                    </td>
                     <td data-compacted={t.compacted ? "yes" : "no"}>{t.compacted ? "yes" : "no"}</td>
                     <td>
                       {t.contract ? (
@@ -468,6 +533,23 @@ export default function Project() {
         ) : null}
         <Refused intent="topic-unset" />
         <Refused intent="topic-schema" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="project-history">
+        <h2 id="project-history">History</h2>
+        {history.length === 0 ? (
+          <p className="ac-empty">No topic has been declared, changed or removed yet.</p>
+        ) : (
+          <ul className="ac-topics">
+            {history.map((h, i) => (
+              <li key={i} data-history={h.kind} data-topic={h.topic}>
+                {h.at ? `${h.at} ` : ""}
+                <code>{h.topic}</code> {h.kind.replace("topic-", "")} by {h.actor ? (h.actor.display ?? h.actor.subject) : "the platform"}
+                {h.changes.length > 0 ? `: ${h.changes.map((c) => `${c.setting} ${c.from} → ${c.to}`).join("; ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="ac-card" aria-labelledby="brokers">

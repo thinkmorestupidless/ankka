@@ -1,0 +1,8 @@
+# Renders the local overlay with the broker-three-nodes component, which no overlay lists, so that
+# it is always rendered by something: BrokerShapeSuite asserts its shape here, value by value.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/local
+components:
+  - ../../components/broker-three-nodes

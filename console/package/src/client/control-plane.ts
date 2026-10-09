@@ -5,6 +5,8 @@ import {
   deployTokenCreatedSchema,
   deployTokenSummarySchema,
   historyEntrySchema,
+  projectHistoryEntrySchema,
+  type ProjectHistoryEntry,
   logsResponseSchema,
   membersResponseSchema,
   organizationSummarySchema,
@@ -253,6 +255,11 @@ export class ControlPlaneClient {
 
   listTopics(id: string): Promise<ProjectTopic[]> {
     return this.#call("GET", `/projects/${segment(id)}/topics`, { schema: arrayOf(projectTopicSchema) });
+  }
+
+  /** The changes to a project's topics, newest first, with who made each. */
+  projectHistory(id: string): Promise<ProjectHistoryEntry[]> {
+    return this.#call("GET", `/projects/${segment(id)}/history`, { schema: arrayOf(projectHistoryEntrySchema) });
   }
 
   /** Declares a broker beside the installation's, or changes where it is; the project secret holds its credential. */

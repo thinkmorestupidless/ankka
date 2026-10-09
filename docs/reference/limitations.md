@@ -39,7 +39,12 @@ feature also says what that feature does not do.
   that lets a service of one project read or publish to another project's topic. A project may declare
   brokers of its own beside the installation's, each named per topic by a component, and those topics are
   the broker owner's: the platform makes nothing on them and checks no contract there. A local platform's
-  broker is a single node.
+  broker is a single node, so every topic on it has a single copy.
+- **A topic's copies cannot change, and a single-node broker is not grown in place.** A topic's copies and
+  minimum in-sync copies are fixed when it is declared, since the broker changes a topic's replication
+  only through a rebalancer the platform does not install. A broker of three nodes is a shape a new
+  installation is installed with; a running single-node broker's node is its controller quorum too, and
+  growing it is the administrator's own procedure, after which every topic made before keeps its copies.
 - **The platform removes nothing from the broker.** Deleting a service or a project leaves its topics,
   what was published to them and its user on the broker. Removing them is a manual task for whoever
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
@@ -186,7 +191,8 @@ feature also says what that feature does not do.
   entity is not: an entity keeps every change it recorded, and the view reads all of them again. Raising a topic-sourced view's
   version empties it and reads its topic again, but a topic's retention is a window, not a record: what
   the broker has dropped is not read, and the rebuilt view holds only what the window still holds. While
-  it runs the view serves an empty or partial table. See
+  it runs the view serves an empty or partial table. What a rebuild reached is shown in the service's
+  status, per partition, but what was dropped cannot be known or read back. See
   [Rebuilding by version](../build/topics.md#rebuilding-by-version).
 - **Topic sources are at least once.** A view or consumer sourced from a topic must tolerate duplicates,
   and a view skips a message with no `ce-subject`. Only Kafka is supported; another broker needs its own
@@ -199,12 +205,16 @@ feature also says what that feature does not do.
   kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
   audit of reads. A project secret reaches a pod as an environment variable, or, when it is the credential
   of a broker the project declares, as files on the platform's container alone.
-- **A topic is made only by declaring it, with its partitions and whether it is compacted.** On the
-  installation's broker a topic exists because its project declares it; publishing to one nobody
-  declared waits. A declaration says how many partitions a topic has and whether the broker keeps only
-  the last message under each key, and nothing more: no retention or other topic setting. A
-  [graph consumer](../build/graph.md#the-topic)'s topic is declared compacted on its project; on a
-  broker a descriptor or a project names, every topic is the broker owner's to create.
+- **A topic is made only by declaring it, with its partitions and its settings.** On the installation's
+  broker a topic exists because its project declares it; publishing to one nobody declared waits. A
+  declaration says a topic's partitions, its retention time and size, its cleanup policy with the
+  tombstone window and compaction lags, and its copies and minimum in-sync copies, and nothing more: no
+  other Kafka topic setting can be declared. A [graph consumer](../build/graph.md#the-topic)'s topic is
+  declared compacted on its project; on a broker a descriptor or a project names, every topic is the
+  broker owner's to create, and its settings are the owner's too.
+- **Retention is not erasure.** How long a topic keeps a message says nothing about whether a person's
+  data is forgotten: a shorter retention removes messages at the broker's next cleanup, from every copy,
+  but is not a way to honour a request to erase someone's data, which is done to the data itself.
 - **A graph consumer's rules are the author's.** That an element has one writing entity, and that an
   element is its whole state, are not checked. A graph consumer writes tombstones and no delete markers,
   so a tombstoned element's record stays in its topic; and there is no source that hands a consumer an

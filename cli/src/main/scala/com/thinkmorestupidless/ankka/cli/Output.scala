@@ -79,17 +79,49 @@ object Output:
           )
         )
 
-  /** A project's declared topics, each with how far the platform has got with it (feature 027). */
+  /**
+   * A project's declared topics, each with how far the platform has got with it (feature 027) and
+   * every setting it has (feature 043), a `*` on each the installation supplied. Copies no
+   * declaration stated read as the broker's, with how many it holds.
+   */
   def projectTopics(rows: Vector[ProjectTopic], format: Format): String =
     format match
       case Format.Json => writeToString(rows)
       case Format.Table =>
-        table(
-          Vector("TOPIC", "PARTITIONS", "COMPACTED", "CONTRACT", "PHASE", "DETAIL", "CHECKS"),
+        def mark(row: ProjectTopic, field: String, value: String) =
+          if row.settings.exists(_.defaulted.contains(field)) then s"$value*" else value
+        def setting(row: ProjectTopic, field: String, read: TopicSettingsView => String) =
+          row.settings.fold("-")(s => mark(row, field, read(s)))
+        def held(row: ProjectTopic) = s"broker (${row.copiesHeld.fold("?")(_.toString)})"
+        def copies(row: ProjectTopic) =
+          row.settings.flatMap(_.copies).fold(held(row))(c => mark(row, "copies", c.toString))
+        def inSync(row: ProjectTopic) =
+          row.settings.flatMap(_.minInSync).fold("-")(m => mark(row, "minInSync", m.toString))
+        val nodes = rows.flatMap(_.brokerNodes).headOption.fold("")(n => s"broker: $n nodes\n")
+        nodes + table(
+          Vector(
+            "TOPIC",
+            "PARTITIONS",
+            "RETENTION",
+            "SIZE",
+            "CLEANUP",
+            "COPIES",
+            "IN-SYNC",
+            "COMPACTED",
+            "CONTRACT",
+            "PHASE",
+            "DETAIL",
+            "CHECKS"
+          ),
           rows.map(row =>
             Vector(
               row.name,
               row.partitions.toString,
+              setting(row, "retention", _.retention),
+              setting(row, "retentionSize", _.retentionSize),
+              setting(row, "cleanup", _.cleanup),
+              copies(row),
+              inSync(row),
               if row.compacted then "yes" else "no",
               row.contract.fold("-")(c => s"${c.name} ${c.fingerprint.take(15)}"),
               row.phase.getOrElse("-"),
@@ -103,6 +135,25 @@ object Output:
                        else "")
                   )
                   .mkString("; ")
+            )
+          )
+        )
+
+  /** The changes to a project's topics, newest first (feature 043). */
+  def projectHistory(rows: Vector[ProjectHistoryEntry], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("AT", "KIND", "TOPIC", "ACTOR", "CHANGES"),
+          rows.map(row =>
+            Vector(
+              row.at.fold("-")(_.toString),
+              row.kind,
+              row.topic,
+              row.actor.fold("the platform")(a => a.display.getOrElse(a.subject)),
+              if row.changes.isEmpty then "-"
+              else row.changes.map(c => s"${c.setting.wire} ${c.from} → ${c.to}").mkString("; ")
             )
           )
         )
@@ -199,7 +250,26 @@ object Output:
     val as    = s.contract.fold("")(c => s" as $c")
     val lag   = s.lag.fold("")(l => s"  lag $l")
     val fail  = s.failing.fold("")(f => s"  failing: $f")
-    s"${s.component}: $where$as  group ${s.group}  v${s.version}$lag$fail"
+    s"${s.component}: $where$as  group ${s.group}  v${s.version}$lag$fail" +
+      s.gap.fold("")(g => s"\n  retained: ${retained(g)}")
+
+  /**
+   * What the broker still holds of a topic source's topic (feature 043): `compacted`, `everything`,
+   * or each partition's beginning and the time of its earliest message, and whether earlier
+   * messages are gone. It never says what was written first, which is not knowable.
+   */
+  def retained(g: RetentionGapReport): String =
+    if g.compacted then "compacted"
+    else if !g.gone && g.partitions.forall(_.beginning == 0) then "everything"
+    else
+      val partitions = g.partitions
+        .map(p =>
+          s"p${p.partition} from ${p.beginning}" + p.earliestRetained.fold(" (holds nothing)")(t =>
+            s" ($t)"
+          )
+        )
+        .mkString(", ")
+      partitions + (if g.gone then "; earlier messages gone" else "")
 
   private def topicCheckLine(c: TopicCheck): String =
     val stated = c.stated.fold("none")(identity)
@@ -232,6 +302,10 @@ object Output:
           row.topicChecks
             .filter(_.nonEmpty)
             .map("topic checks" -> _.map(topicCheckLine).mkString("\n")) ++
+          // Feature 043: what a member should know, worked out from the declarations as they are.
+          row.warnings
+            .filter(_.nonEmpty)
+            .map("warnings" -> _.map(w => s"${w.kind}: ${w.message}").mkString("\n")) ++
           // Feature 034: each only when present, so a service with no bucket reads as before.
           row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
           row.bucketAddress.map("bucket address" -> _) ++

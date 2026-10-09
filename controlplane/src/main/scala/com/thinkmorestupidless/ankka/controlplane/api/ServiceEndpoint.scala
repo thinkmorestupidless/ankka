@@ -36,7 +36,10 @@ final class ServiceEndpoint(
     deploy: DeployConfig = DeployConfig.default,
     logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
     protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
-    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix),
+    /** Feature 043: the warning threshold a view's topic is held to. */
+    topicPolicy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -92,10 +95,14 @@ final class ServiceEndpoint(
             .forEventSourcedEntity(EntityId(status.projectId))
             .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.topics)
             .invoke()
+        val sources = ServiceEndpoint.topicSourcesOf(read)
+        val warnings =
+          ServiceEndpoint.retentionWarnings(sources, declared, topicPolicy.warningThreshold)
         status.copy(
           undeclaredTopics = Some(used.filterNot(declared.keySet)),
           topicChecks = Some(TopicChecks.ofService(declared, status.name, read)),
-          topicSources = Some(ServiceEndpoint.topicSourcesOf(read))
+          topicSources = Some(sources),
+          warnings = Option.when(warnings.nonEmpty)(warnings)
         )
 
   /**
@@ -381,7 +388,8 @@ object ServiceEndpoint:
 
   /**
    * One report per topic source over the instances: lags summed, the first failing reason kept
-   * (feature 037).
+   * (feature 037), and the retention gap merged by partition (feature 043): never summed, since
+   * every instance reads the same partitions' beginnings.
    */
   def topicSourcesOf(documents: Vector[InstanceTopologyDocument]): Vector[TopicSourceReport] =
     documents
@@ -394,9 +402,54 @@ object ServiceEndpoint:
         reports.head.copy(
           lag = Option.when(lags.nonEmpty)(lags.sum),
           failing = reports.flatMap(_.failing).headOption,
-          behind = reports.exists(_.behind)
+          behind = reports.exists(_.behind),
+          gap = gapOf(reports.flatMap(_.gap))
         )
       }
+
+  /**
+   * The instances' gaps as one: each partition once, the first instance's row for it; gone if any
+   * instance says so; compacted only if every one does; read when the latest was.
+   */
+  def gapOf(gaps: Vector[RetentionGapReport]): Option[RetentionGapReport] =
+    Option.when(gaps.nonEmpty) {
+      val partitions = gaps
+        .flatMap(_.partitions)
+        .groupBy(_.partition)
+        .toVector
+        .sortBy(_._1)
+        .map(_._2.head)
+      RetentionGapReport(
+        partitions,
+        compacted = gaps.forall(_.compacted),
+        gone = gaps.exists(_.gone),
+        readAt = gaps.flatMap(_.readAt).maxOption
+      )
+    }
+
+  /**
+   * A warning for each view reading a topic that keeps less than the installation's threshold
+   * (feature 043), worked out from the project's declarations as they are now: a topic that keeps
+   * everything or is compacted draws none, and a topic whose settings are not yet stated none
+   * either.
+   */
+  def retentionWarnings(
+      sources: Vector[TopicSourceReport],
+      declared: Map[String, com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic],
+      threshold: RetentionTime
+  ): Vector[ServiceWarning] =
+    sources.filter(_.kind == "view").flatMap { source =>
+      declared.get(source.topic).flatMap(_.settings).collect {
+        case settings if !settings.compacted && settings.retention.shorterThan(threshold) =>
+          ServiceWarning(
+            "retention",
+            source.component,
+            source.topic,
+            s"view '${source.component}' reads topic '${source.topic}', which keeps " +
+              s"${settings.retention.text}; the installation warns below ${threshold.text}"
+          )
+      }
+    }
 
   /** The hostings whose pods hold the platform's container beside the developer's (R11). */
   val TwoContainerHostings: Set[String] = Set(ServiceSpec.Process, ServiceSpec.Web)

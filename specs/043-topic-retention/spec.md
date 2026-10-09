@@ -38,9 +38,14 @@ What follows from that is three silent defaults.
   `log.retention.*`, so every topic keeps seven days, by Kafka's own default, and nobody on the
   platform can see that number or change it. The limitations page says so: "no retention, compaction
   or other topic setting".
-- **Nothing can be compacted.** A graph consumer's topic must be compacted (`docs/build/graph.md`),
-  so the pipeline that reads it, not ankka, creates it; on the installation's broker, where topics
-  are made only by declaring them (`auto.create.topics.enable: false`), a project cannot make one.
+- **Compaction is one boolean and nothing else is said.** Feature 037, merged after this spec was
+  drafted, let a declaration say `compacted` (rendered as `cleanup.policy: compact`), so a graph
+  consumer's topic is already the project's to declare. The tombstone window, the compaction lags
+  and `compact,delete` are still Kafka's defaults, unseen; this feature generalises the boolean to a
+  cleanup policy and keeps `compacted` as its short form. One thing 037 documented changes: a
+  redeclaration that leaves `compacted` out no longer makes the topic keep every message again, since
+  a setting left out of a redeclaration keeps its value (FR-002), and `compact` to `delete` is a
+  removal an owner acknowledges (FR-007a).
 - **There is one copy.** The broker component is one KRaft node that is both controller and broker,
   with `default.replication.factor: 1`, `min.insync.replicas: 1` and both internal topics at a factor
   of 1. The cloud overlay's `broker-size.yaml` can raise the node count, and its comment says the
@@ -74,10 +79,11 @@ This feature makes the five decisions those facts call for.
   declared*, recorded on the declaration, and shown in the topic's status. Nothing reaches the broker
   unsaid, so no topic inherits a Kafka default, and a later change to the installation's default
   changes no topic already declared, as 039's retention floor changes no existing bucket.
-- **The installation sets defaults and bounds, and a declaration outside them is refused.** The
-  shipping default is seven days, delete, and as many copies as the broker can hold up to three. The
-  bounds are a longest retention time (which may be unbounded), a largest retention size per
-  partition, and a most copies. Refused means refused at the control plane, with the bound named,
+- **The installation sets defaults and bounds, and a declaration outside them is refused.** They are
+  platform variables on the control plane, set by the installation's overlay. The shipping default is
+  seven days, delete, and the copies the overlay states: one with one in sync on the one-node shape,
+  three with two in sync on the three-node overlay. The bounds are a longest retention time (which may
+  be unbounded), a largest retention size per partition, and a most copies. Refused means refused at the control plane, with the bound named,
   before anything is written to the cluster. The one bound the control plane cannot check is the
   broker's node count, which only the operator knows; copies above it are the operator's failure to
   report.
@@ -179,8 +185,50 @@ that does not know a topic keeps seven days cannot know what a rebuild will reac
   `min.compaction.lag.ms` and `max.compaction.lag.ms` are fields of the declaration with installation
   defaults, since a graph sink (037) may need its own.
 - Q: Does the publisher wait for every in-sync copy? → A: By default, yes, since Kafka 3.0; but the
-  connection's properties from the environment could override it. The runtime refuses a connection
+  service's own producer configuration could override it. The runtime refuses to start a producer
   whose `acks` is below `all` when any topic it publishes to has a minimum of in-sync copies above one.
+
+### Session 2026-10-08 (clarify)
+
+- Q: Who fills the settings of a topic declared before this feature, and records that the platform did
+  it? → A: The control plane, in one sweep on its first start after the upgrade: every declaration
+  without settings is filled from the installation's defaults then in force and recorded on the project
+  as the platform's act, not a member's; the operator then writes them onto the topic as for any
+  declaration. Copies are left as the broker holds them (FR-008) and reported by the operator in the
+  status. The operator cannot reach the control plane, so it fills nothing.
+- Q: Does the control plane take part in an owner's confirmation of a change that removes messages, or
+  is the confirmation the CLI's and the console's alone? → A: The route carries it. A declaration that
+  removes messages names what it accepts removing; the control plane refuses one from an owner that
+  does not, naming what would be removed, so a direct call cannot destroy messages by accident. The CLI
+  and the console send the acknowledgement only once the owner has confirmed.
+- Q: Where does a running service learn a topic's cleanup policy and minimum in-sync copies (FR-021,
+  FR-022)? → A: From the broker's own configuration of the topic, read when the service first publishes
+  to it and refreshed on an interval: it is what the broker enforces, it follows an in-place change
+  with no restart, it needs no channel from the control plane, and it holds for a supplied broker. The
+  declaration is what put the configuration there; the runtime never reads the declaration itself.
+- Q: Where do the installation's defaults and bounds live, and how is one changed? → A: As platform
+  variables on the control plane's deployment, set by the installation's overlay, as its issuer and
+  organization-creation settings are today. The one-node shape ships one copy with one in sync and
+  the three-node overlay three with two, so the default copies is the overlay's statement, never a
+  guess at the broker's size. Changing a default or a bound is an overlay change and a control plane
+  rollout; it changes no topic already declared (FR-002).
+- Q: Is a view's retention warning re-evaluated when its topic's retention changes after the view is
+  deployed? → A: Yes. The warning is a function of the topic's current declaration, recomputed whenever
+  the topic is declared again or the service's descriptor is applied: lowering a topic below the
+  threshold warns every view reading it, and raising it clears the warning.
+
+### Session 2026-10-09 (analysis)
+
+- Q: What does a setting left out of a *redeclaration* mean? → A: It keeps its current value. The
+  installation's defaults fill a topic's first declaration only, so growing a topic's partitions, or
+  changing one setting, never resets another to a default; and partitions may be left out of a
+  redeclaration, since they have a value to keep. A default reaches an existing topic only when a
+  member declares it.
+- Q: Can copies be declared later for a topic declared before this feature, whose copies are the
+  broker's? → A: No. Its copies and minimum in-sync copies stay unstated for its life and the listing
+  shows what the broker holds; a declaration that states either is refused by the fixed-copies rule.
+- Q: Is there a least-copies bound? → A: No. The bounds are the longest retention time, the largest
+  retention size and the most copies; a "must be replicated" rule stays an open question.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -207,6 +255,7 @@ setting explicitly.
 - added `features/broker/retention.feature`: a declaration longer than the installation's longest retention time is refused
 - added `features/broker/retention.feature`: a topic keeps everything where the installation sets no longest retention time
 - added `features/broker/retention.feature`: a change to the installation's default changes no topic already declared
+- added `features/broker/retention.feature`: a topic declared before a declaration could say its settings is filled by the control plane when it is upgraded
 
 ---
 
@@ -232,6 +281,7 @@ latest.
 - added `features/broker/cleanup-policy.feature`: a message published under no key to a compacted topic fails in the service before it reaches the broker
 - added `features/broker/cleanup-policy.feature`: a deletion on a compacted topic is read for the topic's tombstone window
 - added `features/broker/cleanup-policy.feature`: no message on a compacted topic is compacted away within its minimum compaction lag
+- changed `features/graph-deltas/store.feature`: a topic its project declares compacted holds only element keys
 
 ---
 
@@ -241,9 +291,7 @@ A platform administrator installs a new cloud installation from the overlay for 
 Every broker setting that counts copies, the two internal topics' included, says three, and the minimum
 in-sync copies says two. A member declares `transactions` with partitions alone; it has three copies,
 two must acknowledge each write, and stopping one broker node loses no acknowledged message and refuses
-no publication. A topic declared on the same installation with one copy is refused only if the
-installation's minimum copies is above one. The topic's copies are what it was declared with for its
-life.
+no publication. The topic's copies are what it was declared with for its life.
 
 **Why this priority**: Kafka is not backed up. One node is one copy, and a real-money installation's
 topics carry money facts between projects. Replication is the only durability the broker has.
@@ -282,9 +330,11 @@ their pods, and that the project's history has one attributed entry per change.
 - added `features/broker/changing.feature`: a topic declared again with a longer retention time is changed on the broker in place
 - added `features/broker/copies.feature`: a topic's copies and minimum in-sync copies are fixed when it is declared
 - added `features/broker/changing.feature`: a change that removes messages is refused to a member who is not an owner
-- added `features/broker/changing.feature`: an owner is told what a shorter retention time removes and confirms before it is sent
+- changed `features/broker/changing.feature`: an owner is told what a shorter retention time removes and confirms before it is sent
+- added `features/broker/changing.feature`: a declaration that removes messages without stating what it accepts removing is refused
 - added `features/broker/changing.feature`: a change that removes no message needs only a member
 - added `features/broker/changing.feature`: a topic declared again with the cleanup policy "compact" is compacted from then on
+- added `features/broker/changing.feature`: a running service learns a topic's new cleanup policy from the broker without a restart
 - added `features/broker/changing.feature`: a declaration that changes nothing records nothing
 
 ---
@@ -313,6 +363,8 @@ a topic declared with two days' retention and assert the view's status carries t
 - added `features/topics/gap.feature`: a view rebuilt from a compacted topic reports the topic as compacted and not as having a retention gap
 - added `features/topics/gap.feature`: the retention gap is shown wherever a service's topic sources are
 - added `features/topics/gap.feature`: a view over a topic that keeps less than the warning threshold is warned in its status
+- added `features/topics/gap.feature`: a topic lowered below the warning threshold warns the views reading it from the change on
+- added `features/topics/gap.feature`: a topic raised above the warning threshold clears the retention warning
 - added `features/topics/gap.feature`: a topic that keeps everything or is compacted draws no retention warning
 
 ---
@@ -320,11 +372,14 @@ a topic declared with two days' retention and assert the view's status carries t
 ### Edge Cases
 
 - **A topic declared before this feature.** It has partitions and nothing else in its declaration and
-  on the broker. On the operator's first pass after the upgrade, its declaration is read as having the
-  broker's current values, which for the shipped broker are Kafka's seven days, delete, and the
-  installation's replication; they are written onto the topic explicitly, which changes nothing the
-  broker does, and its status shows them. The project records that the platform filled them, not a
-  member.
+  on the broker. On the control plane's first start after the upgrade, one sweep fills every such
+  declaration from the installation's defaults then in force (seven days, delete, and the shipped
+  tombstone window and compaction lags, as a declaration made that day would be filled) and records on
+  the project that the platform filled them, not a member (FR-002a). The operator then writes them onto
+  the topic explicitly, as for any declaration, which changes nothing the shipped broker does, and the
+  status shows them marked as defaults. Copies are not filled: the topic keeps the copies it has
+  (FR-008), and the operator reports them in the status from the broker. The operator fills nothing
+  itself, because it cannot reach the control plane.
 - **A broker grown from one node to three.** Out of scope. The node pool's roles are
   `[controller, broker]`, so raising its replicas changes the KRaft controller quorum, and Kafka does
   not raise an existing topic's copies when the default changes. The three-node overlay is a shape for
@@ -339,15 +394,17 @@ a topic declared with two days' retention and assert the view's status carries t
   per partition and the status shows both per partition and the topic's total.
 - **Compact without keys.** The publisher keys a record by the named key, else the message's subject,
   else nothing. A publication with nothing to a topic declared compacted fails in the service, named,
-  before it is sent (FR-021); the runtime knows the topic's cleanup from the declaration it reads with
-  the topic's name. A client outside ankka that writes a keyless record is refused by the broker.
+  before it is sent (FR-021); the runtime knows the topic's cleanup from the broker's configuration of
+  the topic, read when it first publishes there and refreshed on an interval, so a topic declared
+  compacted after the service started is refused keyless messages within that interval. A client
+  outside ankka that writes a keyless record is refused by the broker.
 - **A tombstone on a compacted topic.** It is removed after the topic's tombstone window, a field of
   the declaration filled from the installation's default; a reader that falls further behind than that
   window misses the deletion, and the topics guide says so.
-- **A connection whose properties lower `acks`.** The connection's properties come from the
-  environment and are applied to the producer. A service whose connection sets `acks` below `all`
-  does not become ready when any topic it publishes to has a minimum of in-sync copies above one; the
-  status names the property and the topic (FR-022).
+- **A producer whose `acks` is below `all`.** Kafka's producer default is `acks=all` and the runtime
+  does not change it, but a service's own configuration can. A service whose producer's effective
+  `acks` is below `all` does not become ready when any topic it publishes to has a minimum of in-sync
+  copies above one; the status names the property and the topic (FR-022).
 - **A supplied broker.** A service whose descriptor names its own broker gets nothing from a
   declaration, as in 027; the settings apply to the installation's broker only.
 - **An installation with no broker.** A declaration with settings is recorded and its topic reported
@@ -359,7 +416,9 @@ a topic declared with two days' retention and assert the view's status carries t
 - **Several instances of a view report the gap.** Each partition is read by one instance; the service's
   status merges the instances' reports by partition, as the topology already merges calls.
 - **A retention lowered on a topic a view is reading.** The view is not rebuilt; it has the rows it
-  read. Its topic source's gap changes on the next report.
+  read. Its topic source's gap changes on the next report, and if the new retention is below the
+  warning threshold the view's status carries the retention warning from the change on (FR-020);
+  raising it above the threshold clears the warning.
 
 ## Requirements *(mandatory)*
 
@@ -372,11 +431,18 @@ a topic declared with two days' retention and assert the view's status carries t
   policy (`delete`, `compact`, or `compact,delete`), a tombstone window, a minimum and a maximum
   compaction lag, a replication factor and a minimum of in-sync copies. Each MUST be optional on the
   route and the CLI.
-- **FR-002**: A setting a declaration leaves out MUST be filled from the installation's default when
-  the declaration is accepted, and recorded on the declaration with a mark that it was the default.
-  A later change to the installation's defaults MUST NOT change a topic already declared.
-- **FR-003**: The installation MUST state its defaults and bounds once, as platform settings read by
-  the control plane: default retention time (seven days as shipped), default retention size (none),
+- **FR-002**: A setting a topic's *first* declaration leaves out MUST be filled from the
+  installation's default when the declaration is accepted, and recorded on the declaration with a mark
+  that it was the default. A setting a *redeclaration* leaves out MUST keep its current value, so
+  changing one setting never resets another. A later change to the installation's defaults MUST NOT
+  change a topic already declared; a default reaches an existing topic only when a member declares it.
+- **FR-002a**: On every start, the control plane MUST fill every declaration that has no settings from
+  the installation's defaults then in force, in one sweep, recorded on the project as the platform's
+  act with the time; a start that finds nothing unfilled MUST record nothing; copies MUST NOT be filled
+  (FR-008). The operator MUST NOT fill a declaration, since it cannot reach the control plane.
+- **FR-003**: The installation MUST state its defaults and bounds once, as platform variables on the
+  control plane's deployment that the overlay sets, declared once beside the platform's other
+  variables; changing one is an overlay change and a control plane rollout. They are: default retention time (seven days as shipped), default retention size (none),
   default cleanup (`delete`), default tombstone window and compaction lags, default copies and minimum
   in-sync copies, longest retention time (which may be unbounded), largest retention size per
   partition, most copies, and the retention below which a view is warned (30 days as shipped). The
@@ -398,13 +464,19 @@ a topic declared with two days' retention and assert the view's status carries t
   without redeploying or restarting any service.
 - **FR-007**: Retention time and size and the cleanup policy MUST be changeable in either direction
   within the bounds. A change that removes messages (a shorter retention, a smaller size, or `compact`
-  to `delete`) MUST be refused unless the actor is an owner of the organization, MUST be stated to the
-  owner by the CLI and the console before it is sent, and sent only on the owner's confirmation. Every
-  other change needs only a member.
+  to `delete`) MUST be refused unless the actor is an owner of the organization, and confirmed as
+  FR-007a says. Every other change needs only a member.
+- **FR-007a**: The confirmation MUST reach the control plane: a declaration that removes messages MUST
+  name what it accepts removing, and the control plane MUST refuse one that does not, naming what the
+  change would remove, whoever the actor is. The CLI and the console MUST send the acknowledgement only
+  once the owner has confirmed, and MUST NOT send it on a declaration that removes nothing.
 - **FR-008**: A topic's copies and minimum in-sync copies MUST be fixed at declaration. A declaration
   that changes either MUST be refused at the control plane naming the rule, and MUST apply none of its
-  other settings. A topic declared before this feature keeps the copies it has.
-- **FR-009**: Partitions MUST keep 027's rule: never fewer.
+  other settings. A topic declared before this feature keeps the copies it has, unstated: the
+  listing shows what the broker holds, and a declaration that states copies or minimum in-sync copies
+  for it MUST be refused by the same rule.
+- **FR-009**: Partitions MUST keep 027's rule: never fewer. A redeclaration MAY leave them out, in
+  which case they are unchanged.
 - **FR-010**: Every declaration that changes a setting MUST be recorded on the project with the actor,
   the time, and each setting's old and new value. A declaration that changes nothing MUST record
   nothing.
@@ -417,13 +489,15 @@ a topic declared with two days' retention and assert the view's status carries t
 - **FR-012**: A topic with fewer copies than the installation's current default MUST say so in its
   status, and a topic on a one-node broker MUST say it has a single copy.
 - **FR-013**: A topic granted to another project or a machine (040) MUST show its settings wherever the
-  grant is listed from the grantee's side.
+  grant is listed from the grantee's side. This lands with 040, which does not exist yet; nothing in
+  this feature's plan implements it.
 
 **Broker**
 
 - **FR-014**: An overlay MUST provide a three-node broker for a new installation, in which the default
   replication, the minimum in-sync copies and both internal topics' factors are set for three nodes at
-  install time. Its documentation MUST state that it holds three times the storage of the one-node
+  install time, and the control plane's default copies and minimum in-sync copies (FR-003) are set to
+  three and two by the same overlay; the one-node shape sets both to one. Its documentation MUST state that it holds three times the storage of the one-node
   shape, and that it is not a conversion of a running single-node broker. The operator MUST read the
   broker's node count from the broker's own resources.
 - **FR-015**: Converting a running single-node broker to three nodes is out of scope: a controller
@@ -445,13 +519,19 @@ a topic declared with two days' retention and assert the view's status carries t
 - **FR-020**: A view declared over a topic whose retention time is below the installation's warning
   threshold MUST carry a warning in its status, naming the topic's retention and the threshold, in
   `ankka services get` and the console. A topic that keeps everything, or is compacted, draws none.
+  The warning MUST follow the topic's current declaration: recomputed whenever the topic is declared
+  again or the service's descriptor is applied, so that a retention lowered after the view was deployed
+  warns it and one raised clears the warning.
 
 **Publishing**
 
 - **FR-021**: A publication to a topic declared `compact` or `compact,delete` whose message has neither
   a named key nor a subject MUST fail in the service, before anything is sent to the broker, with an
-  error naming the topic and the rule. The runtime MUST learn a topic's cleanup from its declaration.
-- **FR-022**: A service whose broker connection sets `acks` below `all` MUST NOT become ready when
+  error naming the topic and the rule. The runtime MUST learn a topic's cleanup policy and minimum
+  in-sync copies from the broker's own configuration of the topic, read when it first publishes to the
+  topic and refreshed on an interval, never from the declaration or from platform variables, so that an
+  in-place change (FR-006) reaches a running service without a restart.
+- **FR-022**: A service whose producer's effective `acks` is below `all` MUST NOT become ready when
   any topic it publishes to has a minimum of in-sync copies above one; the status MUST name the
   property and the topic.
 
@@ -471,9 +551,12 @@ a topic declared with two days' retention and assert the view's status carries t
   policy, tombstone window, minimum and maximum compaction lag, copies and minimum in-sync copies,
   each marked as declared or defaulted; copies and the minimum are fixed once declared.
 - **Installation topic defaults and bounds**: the defaults a declaration is filled from, the bounds it
-  is checked against, and the retention below which a view is warned.
+  is checked against, and the retention below which a view is warned; platform variables on the
+  control plane that the installation's overlay sets.
 - **Topic setting change**: an entry in the project's history naming the topic, the actor, the time and
   each changed setting's old and new value.
+- **Removal acknowledgement**: on a declaration that removes messages, the actor's statement of what it
+  accepts removing, which the control plane requires before applying the change.
 - **Retention gap**: per partition of a topic a source reads, the beginning position and the earliest
   retained time, and whether messages were dropped or compacted.
 - **Retention warning**: on a view's status, the topic's retention against the installation's
@@ -490,12 +573,13 @@ a topic declared with two days' retention and assert the view's status carries t
   topic with three copies and a minimum of two, and refuses no publication to it.
 - **SC-004**: Every change to a topic's settings appears in the project's history with its actor, and
   no change restarts a service.
+- **SC-005**: A person who rebuilt a view can learn what the rebuild reached from `ankka services get`
+  or the console, without reading a log.
 - **SC-006**: A publication without a key to a compacted topic never reaches the broker, and the
   service's error names the topic.
 - **SC-007**: A view declared over a topic that keeps less than the installation's threshold shows the
-  warning in `ankka services get` within one report interval of deploying.
-- **SC-005**: A person who rebuilt a view can learn what the rebuild reached from `ankka services get`
-  or the console, without reading a log.
+  warning in `ankka services get` on the first status read after an instance has reported its topic
+  sources.
 
 ## Assumptions
 
@@ -503,8 +587,9 @@ a topic declared with two days' retention and assert the view's status carries t
   topic's replication factor only through Cruise Control, which is why copies are fixed at
   declaration; Cruise Control is not installed by this feature.
 - The runtime's publisher waits for every in-sync copy to acknowledge a write by default (Kafka's
-  producer default since 3.0); the runtime does not override it, but the connection's properties from
-  the environment are applied to the producer and could, which FR-022 refuses.
+  producer default since 3.0); the runtime does not override it, but a service's own producer
+  configuration could, which FR-022 refuses. The connection's variables from the environment carry
+  only the broker's address and credential.
 - `earliestRetained` is the existing call the gap report extends: it reads `beginningOffsets` and
   discards them, and yields the earliest retained time per partition; the report surfaces both.
 - The three-node overlay is installed fresh; growing the shipped combined-role node pool in place is a
@@ -512,7 +597,8 @@ a topic declared with two days' retention and assert the view's status carries t
 - The observe port's topology (019) can carry a topic source's report; the local console already shows
   topic sources.
 - A topic's default copies on the shipped one-node broker is one, and the shipping default for an
-  installation with three nodes is three copies with a minimum of two in sync.
+  installation with three nodes is three copies with a minimum of two in sync; each overlay states its
+  own, as the control plane's platform variables.
 
 ## Dependencies
 

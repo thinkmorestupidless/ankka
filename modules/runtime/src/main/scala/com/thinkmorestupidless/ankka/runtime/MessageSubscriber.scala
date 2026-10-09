@@ -38,6 +38,14 @@ final case class TopicSubscription(
     parallel: Boolean = false
 )
 
+/**
+ * What a broker still holds of one partition of a topic (feature 043): the earliest position it
+ * holds, the position the next message will have, and when the earliest it holds was published,
+ * `None` when it holds nothing. A beginning above zero says something before it is gone; what that
+ * was, and the first position ever written, are not knowable.
+ */
+final case class Retained(beginning: Long, end: Long, earliestAt: Option[Instant])
+
 /** One running subscription. */
 trait Subscribed:
   /** Stops this subscription. Offsets already committed stay committed. */
@@ -69,8 +77,19 @@ trait MessageSubscriber:
       handle: IncomingMessage => Future[Done]
   ): Subscribed
 
-  /** For each partition of `topic`, when its earliest retained message was published. */
-  def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]]
+  /**
+   * For each partition of `topic`, where it begins, where it ends, and when its earliest retained
+   * message was published.
+   */
+  def earliestRetained(topic: String): Future[Map[Int, Retained]]
+
+  /**
+   * What the broker says of `topic`'s configuration (feature 043), when it can say; `None` for a
+   * topic it does not know, or a broker that keeps none.
+   */
+  def topicConfig(topic: String): Future[Option[TopicConfig]] =
+    val _ = topic
+    Future.successful(None)
 
   /**
    * How many messages the topic holds past the last one the subscription's group has handled, over
@@ -91,11 +110,14 @@ trait MessageSubscriber:
  * CloudEvents headers, subject-keyed ordering, decoding, view and consumer dispatch, where a group
  * starts and resumes — is exercised, and only the wire itself is substituted.
  *
- * It keeps every message published to each topic, as one partition that never drops anything, and
- * for each group a position in it. A group takes messages in order, one at a time, its subscribers
- * in turn; a group that starts behind is handed its backlog first. Positions outlive `stop`, so a
- * restarted service resumes where it was, as it would on a broker. Retention, rebalancing and
- * partitions added later cannot be shown with it: that is the Kafka suite's.
+ * It keeps every message published to each topic, as one partition, and for each group a position
+ * in it. A test may say a topic is compacted, which refuses a message with no key, and may drop a
+ * topic's oldest messages, as retention would (feature 043): a group behind what was dropped skips
+ * it, as a group whose committed offset aged out of a topic does. A group takes messages in order,
+ * one at a time, its subscribers in turn; a group that starts behind is handed its backlog first.
+ * Positions outlive `stop`, so a restarted service resumes where it was, as it would on a broker.
+ * Retention, rebalancing and partitions added later cannot be shown with it: that is the Kafka
+ * suite's.
  *
  * A publication's future completes when every group on the topic has caught up with it, and fails
  * with the first handler that failed. A failed message stays at the head of its group, and is
@@ -129,6 +151,7 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
     private def step(): Future[Done] =
       val next = synchronized {
         members.filterInPlace(_.live)
+        position = position.max(droppedOf(topic))
         val log = logOf(topic)
         if members.isEmpty || position >= log.size then None
         else
@@ -166,6 +189,30 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
   private val delivered = CopyOnWriteArrayList[InMemoryBroker.Delivered]()
   // Per topic: how many more publications succeed before one is refused. Absent: none is.
   private val failures = ConcurrentHashMap[String, java.lang.Integer]()
+  // Feature 043: the topics a test says are compacted, and how many of each topic's oldest
+  // messages it says retention has dropped.
+  private val compactedTopics = ConcurrentHashMap.newKeySet[String]()
+  private val dropped         = ConcurrentHashMap[String, java.lang.Integer]()
+
+  private def droppedOf(topic: String): Int = Option(dropped.get(topic)).fold(0)(_.intValue)
+
+  /** Says `topic` is compacted: a message with no key and no subject is refused from now on. */
+  def compact(topic: String): Unit = compactedTopics.add(topic): Unit
+
+  /**
+   * Drops `topic`'s oldest `n` messages still held, as retention would: its beginning moves past
+   * them, and a group that had not read them never will.
+   */
+  def drop(topic: String, n: Int): Unit =
+    dropped.merge(
+      topic,
+      n,
+      (a, b) => Integer.valueOf((a.intValue + b.intValue).min(logOf(topic).size))
+    ): Unit
+
+  override def topicConfig(topic: String): Future[Option[TopicConfig]] =
+    val cleanup = if compactedTopics.contains(topic) then Set("compact") else Set("delete")
+    Future.successful(Some(TopicConfig(cleanup, 1)))
 
   @volatile private var clock: () => Instant = () => Instant.now()
 
@@ -191,6 +238,8 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
   ): Future[Done] =
     if refuses(topic) then
       Future.failed(InMemoryBroker.Refused(s"the broker refused a publication to '$topic'"))
+    else if compactedTopics.contains(topic) && key.orElse(metadata.subject).isEmpty then
+      Future.failed(KeylessPublication(topic))
     else
       val message = IncomingMessage(key.orElse(metadata.subject), payload, metadata)
       delivered.add(InMemoryBroker.Delivered(topic, message)): Unit
@@ -254,14 +303,16 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
   private def startOf(subscription: TopicSubscription): Int =
     val log = logOf(subscription.topic)
     subscription.startFrom match
-      case StartFrom.Earliest => 0
+      case StartFrom.Earliest => droppedOf(subscription.topic)
       case StartFrom.Latest   => log.size
       case StartFrom.At(time) =>
         val first = log.indexWhere(!_.at.isBefore(time))
         if first < 0 then log.size else first
 
-  def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]] =
-    Future.successful(Map(0 -> logOf(topic).headOption.map(_.at)))
+  def earliestRetained(topic: String): Future[Map[Int, Retained]] =
+    val log  = logOf(topic)
+    val from = droppedOf(topic)
+    Future.successful(Map(0 -> Retained(from.toLong, log.size.toLong, log.lift(from).map(_.at))))
 
   override def lag(subscription: TopicSubscription): Future[Option[Long]] =
     val behind =

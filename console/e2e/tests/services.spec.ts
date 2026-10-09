@@ -328,6 +328,55 @@ test("a bucket reachable from the internet shows its address beneath its name", 
 });
 
 
+test("a service shows what each topic source's topic no longer holds, per partition, and warns a view over a topic that keeps too little", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "topic sources are seeded on the fake");
+  const org = unique("gap-org");
+  const project = unique("gap-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    topics: [
+      { projectId: project, name: "transactions", partitions: 2, settings: { retention: "7d" } },
+      { projectId: project, name: "audit", partitions: 1, settings: { retention: "everything" } },
+    ],
+    services: [
+      {
+        projectId: project,
+        name: "ledger",
+        topicSources: [
+          {
+            kind: "view",
+            component: "entries",
+            topic: "transactions",
+            group: "ankka.money.ledger.view-v2.entries",
+            version: 2,
+            gap: {
+              partitions: [
+                { partition: 0, beginning: 1240, earliestRetained: "2026-09-01T10:00:00Z" },
+                { partition: 1, beginning: 0 },
+              ],
+              gone: true,
+            },
+          },
+          { kind: "view", component: "trail", topic: "audit", group: "ankka.money.ledger.view.trail", gap: { partitions: [{ partition: 0, beginning: 0 }] } },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/ledger`);
+  const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+  const entries = fact("Topic sources").locator('tr[data-topic-source="entries"]');
+  await expect(entries.locator("td[data-gap]")).toHaveAttribute("data-gap", "gone");
+  await entries.getByText("earlier messages gone").click();
+  await expect(entries.locator('li[data-partition="0"]')).toContainText("p0 from 1240 (2026-09-01T10:00:00Z)");
+  await expect(entries.locator('li[data-partition="1"]')).toContainText("holds nothing");
+  await expect(fact("Topic sources").locator('tr[data-topic-source="trail"] td[data-gap]')).toHaveText("everything");
+  await expect(fact("Warnings").locator('li[data-warning="retention"]')).toHaveText(
+    "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d",
+  );
+  await expect(fact("Warnings")).not.toContainText("audit");
+  await audit(page);
+});
+
 test("a service shows each topic source with how far behind it is, and what one is failing on", async ({ page, target, signIn, unique, audit }) => {
   test.skip(target.kind !== "fake", "topic sources are seeded on the fake");
   const org = unique("source-org");

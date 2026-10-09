@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectBrokerDeclared,
   ProjectBrokerRemoved,
   ProjectTopicDeclared,
+  ProjectTopicSettingsFilled,
   ProjectTopicRemoved
 }
 import com.thinkmorestupidless.ankka.core.ComponentId
@@ -23,8 +24,8 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
     extends Consumer[ProjectEvent, Nothing]:
 
   def onMessage(event: ProjectEvent): Effect = event match
-    case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectBrokerDeclared |
-        _: ProjectBrokerRemoved =>
+    case _: ProjectTopicDeclared | _: ProjectTopicSettingsFilled | _: ProjectTopicRemoved |
+        _: ProjectBrokerDeclared | _: ProjectBrokerRemoved =>
       projector.projectTopics(messageContext.subject)
       effects.ignore()
     case _ => effects.ignore()

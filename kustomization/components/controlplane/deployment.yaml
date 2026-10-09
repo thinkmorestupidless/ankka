@@ -102,6 +102,34 @@ spec:
             # that works; replaced by the overlay from ankka-platform.httpsPort.
             - name: ANKKA_HTTPS_PORT
               value: "443"
+            # What a topic's first declaration is given for a setting it leaves out, and the bounds
+            # every declaration is checked against. A laptop's values, for a one-node broker; an
+            # installation serving long-lived facts raises the retention default and bound before
+            # its first topic is declared. components/broker-three-nodes sets copies 3, in sync 2.
+            - name: ANKKA_TOPIC_DEFAULT_RETENTION
+              value: "7d"
+            - name: ANKKA_TOPIC_DEFAULT_RETENTION_SIZE
+              value: "none"
+            - name: ANKKA_TOPIC_DEFAULT_CLEANUP
+              value: "delete"
+            - name: ANKKA_TOPIC_DEFAULT_TOMBSTONE_WINDOW
+              value: "1d"
+            - name: ANKKA_TOPIC_DEFAULT_MIN_COMPACTION_LAG
+              value: "0s"
+            - name: ANKKA_TOPIC_DEFAULT_MAX_COMPACTION_LAG
+              value: "none"
+            - name: ANKKA_TOPIC_DEFAULT_COPIES
+              value: "1"
+            - name: ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC
+              value: "1"
+            - name: ANKKA_TOPIC_LONGEST_RETENTION
+              value: "everything"
+            - name: ANKKA_TOPIC_LARGEST_RETENTION_SIZE
+              value: "none"
+            - name: ANKKA_TOPIC_MOST_COPIES
+              value: "3"
+            - name: ANKKA_TOPIC_WARNING_THRESHOLD
+              value: "30d"
             # Where the control plane, an ankka service itself, exports its telemetry, and what
             # it sends with it. The address is replaced by the overlay from
             # ankka-platform.otlpEndpoint; empty names no collector, and nothing is exported. The

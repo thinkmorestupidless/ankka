@@ -5,9 +5,13 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   CreateProject,
   ProjectBrokers,
   ProjectDetail,
+  ProjectHistoryEntry,
   ProjectSecretSummary,
   ProjectTopics,
-  RegistrySummary
+  RegistrySummary,
+  Setting,
+  SettingChange,
+  TopicSettingsRules
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
@@ -38,12 +42,34 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       currentState.onSecretEntriesSet(name, entries, actor, at)
     case ProjectSecretEntryRemoved(name, entry, _, _) =>
       currentState.onSecretEntryRemoved(name, entry)
-    case ProjectTopicDeclared(name, partitions, _, at, compacted, contract) =>
-      currentState.onTopicDeclared(name, partitions, at, compacted, contract)
+    case ProjectTopicDeclared(
+          name,
+          partitions,
+          actor,
+          at,
+          compacted,
+          contract,
+          settings,
+          defaulted,
+          changes
+        ) =>
+      currentState.onTopicDeclared(
+        name,
+        partitions,
+        at,
+        compacted,
+        contract,
+        settings,
+        defaulted,
+        actor,
+        changes
+      )
+    case ProjectTopicSettingsFilled(name, settings, defaulted, at) =>
+      currentState.onTopicSettingsFilled(name, settings, defaulted, at)
     case ProjectBrokerDeclared(name, bootstrap, shape, secretName, _, at) =>
       currentState.onBrokerDeclared(name, DeclaredBroker(bootstrap, shape, secretName, at))
-    case ProjectBrokerRemoved(name, _, _) => currentState.onBrokerRemoved(name)
-    case ProjectTopicRemoved(name, _, _)  => currentState.onTopicRemoved(name)
+    case ProjectBrokerRemoved(name, _, _)     => currentState.onBrokerRemoved(name)
+    case ProjectTopicRemoved(name, actor, at) => currentState.onTopicRemoved(name, actor, at)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -143,39 +169,103 @@ final class ProjectEntity(context: EventSourcedEntityContext)
         .thenReply(_ => Done)
 
   /**
-   * Declare a topic on the project, or raise its partitions (feature 027). Its rules are the
-   * project's own state, so every one is checked here: a name and a count the broker can hold, and
-   * never fewer partitions than the project declares. The same count again records nothing.
+   * Declare a topic on the project, or raise its partitions (feature 027), or change its settings
+   * (feature 043). Its rules are the project's own state, so every one is checked here: a name and
+   * a count the broker can hold, never fewer partitions than the project declares, and copies fixed
+   * once declared. A declaration that changes nothing records nothing. The settings arrive filled
+   * or merged by the endpoint, which knows the installation's defaults and has checked its bounds.
    */
   def declareTopic(request: DeclareTopic): Effect[Done] =
     if !currentState.exists then notFound
     else
-      val problems = ProjectTopics.problems(request.name, request.partitions)
-      if problems.nonEmpty then effects.error(problems.mkString("; "))
-      else
-        currentState.topics.get(request.name) match
-          case Some(has) if has.partitions > request.partitions =>
-            effects.error(
-              ProjectTopics.fewer(request.name, has.partitions, request.partitions),
-              ErrorCode.Conflict
-            )
-          case Some(has)
-              if has.partitions == request.partitions && has.compacted == request.compacted &&
-                has.contract == request.contract =>
-            effects.reply(Done)
-          case _ =>
-            effects
-              .persist(
-                ProjectTopicDeclared(
-                  request.name,
-                  request.partitions,
-                  actor,
-                  at,
-                  request.compacted,
-                  request.contract
+      val has = currentState.topics.get(request.name)
+      request.partitions.orElse(has.map(_.partitions)) match
+        case None =>
+          effects.error(s"topic '${request.name}': ${TopicSettingsRules.PartitionsRequired}")
+        case Some(partitions) =>
+          val problems = ProjectTopics.problems(request.name, partitions) ++
+            request.settings.toVector.flatMap(TopicSettingsRules.coherent(request.name, _))
+          if problems.nonEmpty then effects.error(problems.mkString("; "))
+          else
+            val before = has.flatMap(_.settings)
+            val after  = request.settings.orElse(before)
+            val fixed = (has, request.settings) match
+              case (Some(_), Some(now)) =>
+                now.copies != before.flatMap(_.copies) || now.minInSync != before.flatMap(
+                  _.minInSync
                 )
-              )
-              .thenReply(_ => Done)
+              case _ => false
+            val changes: Vector[SettingChange] = (before, request.settings) match
+              case (Some(b), Some(a)) => TopicSettingsRules.changes(b, a)
+              case (None, Some(a)) if has.isDefined =>
+                Setting.values.toVector.collect {
+                  case setting if setting != Setting.Copies && setting != Setting.MinInSync =>
+                    SettingChange(setting, "unstated", a.valueOf(setting))
+                }
+              case _ => Vector.empty
+            val compacted = after.fold(request.compacted)(_.compacted)
+            has match
+              case Some(had) if had.partitions > partitions =>
+                effects.error(
+                  ProjectTopics.fewer(request.name, had.partitions, partitions),
+                  ErrorCode.Conflict
+                )
+              case Some(_) if fixed =>
+                effects.error(
+                  s"topic '${request.name}': ${TopicSettingsRules.FixedCopies}",
+                  ErrorCode.Conflict
+                )
+              case Some(had)
+                  if had.partitions == partitions && had.compacted == compacted &&
+                    had.contract == request.contract && changes.isEmpty &&
+                    (request.settings.isEmpty || had.defaulted == request.defaulted.toSet) =>
+                effects.reply(Done)
+              case _ =>
+                effects
+                  .persist(
+                    ProjectTopicDeclared(
+                      request.name,
+                      partitions,
+                      actor,
+                      at,
+                      compacted,
+                      request.contract,
+                      request.settings,
+                      request.defaulted,
+                      changes
+                    )
+                  )
+                  .thenReply(_ => Done)
+
+  /**
+   * Fill every topic declared before topics stated their settings (feature 043): the installation's
+   * defaults then in force, compacted if the topic was, its copies left as the broker's. A project
+   * with nothing to fill records nothing, so the control plane's sweep may ask on every start.
+   */
+  def fillTopicSettings(request: FillTopicSettings): Effect[FilledTopics] =
+    if !currentState.exists then effects.reply(FilledTopics(Vector.empty))
+    else
+      val unfilled = currentState.topics.toVector.sortBy(_._1).collect {
+        case (name, t) if t.settings.isEmpty => name -> t
+      }
+      if unfilled.isEmpty then effects.reply(FilledTopics(Vector.empty))
+      else
+        val now = at.orElse(Some(java.time.Instant.now()))
+        val events = unfilled.map { (name, t) =>
+          val filled = TopicSettingsRules.legacy(t.compacted, request.defaults)
+          ProjectTopicSettingsFilled(
+            name,
+            filled.settings,
+            Setting.values.toVector.filter(filled.defaulted),
+            now
+          )
+        }
+        effects.persistAll(events).thenReply(_ => FilledTopics(unfilled.map(_._1)))
+
+  /** The last changes to the project's topics, newest first (feature 043). */
+  def history: ReadOnlyEffect[Vector[ProjectHistoryEntry]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.history)
 
   /** Stop declaring a topic. Nothing on the broker is removed; one not declared is not found. */
   def removeTopic(request: RemoveTopic): Effect[Done] =
@@ -309,6 +399,12 @@ object ProjectEntity
     Codecs.serializer[Vector[ProjectSecretSummary]]("project-secrets")
   given Serializer[DeclareTopic] = Codecs.serializer[DeclareTopic]("declare-topic")
   given Serializer[RemoveTopic]  = Codecs.serializer[RemoveTopic]("remove-topic")
+  given fillTopicSettingsSerializer: Serializer[FillTopicSettings] =
+    Codecs.serializer[FillTopicSettings]("fill-topic-settings")
+  given filledTopicsSerializer: Serializer[FilledTopics] =
+    Codecs.serializer[FilledTopics]("filled-topics")
+  given projectHistorySerializer: Serializer[Vector[ProjectHistoryEntry]] =
+    Codecs.serializer[Vector[ProjectHistoryEntry]]("project-history")
   given Serializer[Map[String, DeclaredTopic]] =
     Codecs.serializer[Map[String, DeclaredTopic]]("declared-topics")
   given declareBrokerSerializer: Serializer[DeclareBroker] =
@@ -338,6 +434,9 @@ object ProjectEntity
   val declareTopic = command("declare-topic")(_.declareTopic)
   val removeTopic  = command("remove-topic")(_.removeTopic)
   val topics       = query("topics")(_.topics)
+
+  val fillTopicSettings = command("fill-topic-settings")(_.fillTopicSettings)
+  val history           = query("history")(_.history)
 
   val declareBroker = command("declare-broker")(_.declareBroker)
   val removeBroker  = command("remove-broker")(_.removeBroker)

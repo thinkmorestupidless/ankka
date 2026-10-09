@@ -310,8 +310,16 @@ final case class DeclaredTopic(
      * Feature 037: the contract every side must state; its document is in the project's schema
      * store.
      */
-    contract: Option[Contract] = None
-)
+    contract: Option[Contract] = None,
+    /**
+     * Feature 043: every setting, `None` for a topic declared before topics stated them until the
+     * control plane's sweep fills it; and which of them the installation supplied.
+     */
+    settings: Option[TopicSettings] = None,
+    defaulted: Set[Setting] = Set.empty
+):
+  /** The settings and their marks, when the topic has any. */
+  def filled: Option[FilledSettings] = settings.map(FilledSettings(_, defaulted))
 
 /**
  * A broker a project declares beside the installation's (feature 037): where it is, the shape of
@@ -336,7 +344,9 @@ final case class Project(
     /** By the topic's name, as the project's components use it (feature 027). */
     topics: Map[String, DeclaredTopic] = Map.empty,
     /** By the broker's name, as a component names it (feature 037). */
-    brokers: Map[String, DeclaredBroker] = Map.empty
+    brokers: Map[String, DeclaredBroker] = Map.empty,
+    /** The last `Project.HistoryLimit` changes to its topics, newest first (feature 043). */
+    history: Vector[ProjectHistoryEntry] = Vector.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -374,12 +384,59 @@ final case class Project(
       partitions: Int,
       at: Option[Instant],
       compacted: Boolean = false,
-      contract: Option[Contract] = None
+      contract: Option[Contract] = None,
+      settings: Option[TopicSettings] = None,
+      defaulted: Vector[Setting] = Vector.empty,
+      actor: Option[Actor] = None,
+      changes: Vector[SettingChange] = Vector.empty
   ): Project =
-    val declaredAt = topics.get(name).fold(at)(_.declaredAt)
-    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt, compacted, contract)))
+    val had        = topics.get(name)
+    val declaredAt = had.fold(at)(_.declaredAt)
+    // A declaration from before settings, or from a node that does not know them, keeps what the
+    // topic had: it said nothing about them.
+    val (kept, marks) = settings match
+      case Some(s) => (Some(s), defaulted.toSet)
+      case None    => (had.flatMap(_.settings), had.fold(Set.empty[Setting])(_.defaulted))
+    val topic = DeclaredTopic(partitions, declaredAt, compacted, contract, kept, marks)
+    val kind  = if had.isEmpty then "topic-declared" else "topic-changed"
+    copy(topics = topics.updated(name, topic)).remember(kind, name, actor, at, changes)
 
-  def onTopicRemoved(name: String): Project = copy(topics = topics - name)
+  def onTopicSettingsFilled(
+      name: String,
+      settings: TopicSettings,
+      defaulted: Vector[Setting],
+      at: Option[Instant]
+  ): Project =
+    topics.get(name) match
+      case None => this
+      case Some(t) =>
+        copy(topics =
+          topics.updated(name, t.copy(settings = Some(settings), defaulted = defaulted.toSet))
+        )
+          .remember("topic-filled", name, None, at)
+
+  def onTopicRemoved(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  ): Project =
+    copy(topics = topics - name).remember("topic-removed", name, actor, at)
+
+  private def remember(
+      kind: String,
+      topic: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      changes: Vector[SettingChange] = Vector.empty
+  ): Project =
+    val entry = ProjectHistoryEntry(
+      kind,
+      topic,
+      actor.map(a => HistoryActor(a.subject, a.display, a.administrative)),
+      at,
+      changes
+    )
+    copy(history = (entry +: history).take(Project.HistoryLimit))
 
   def onBrokerDeclared(name: String, broker: DeclaredBroker): Project =
     val declaredAt = brokers.get(name).fold(broker.declaredAt)(_.declaredAt)
@@ -394,6 +451,10 @@ final case class Project(
         val left = ref.entries - entry
         if left.isEmpty then copy(secrets = secrets - name)
         else copy(secrets = secrets.updated(name, ref.copy(entries = left)))
+
+object Project:
+  /** As many changes as a service's history keeps. */
+  val HistoryLimit: Int = Service.HistoryLimit
 
 /**
  * A service: desired state and observed state side by side.

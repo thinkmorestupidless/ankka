@@ -23,7 +23,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   RemoveTopic,
   SetSecretEntries
 }
-import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
+import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationUsage, TopicPolicy}
 import com.thinkmorestupidless.ankka.core.{CommandError, Contract, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.core.graph.GraphJson
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
@@ -59,14 +59,20 @@ final class ProjectEndpoint(
     /** Where a contract's schema is held (feature 037); `None` refuses a declaration with one. */
     schemaStore: Option[ProjectSchemaStore] = None,
     /** Where each service's instances report what they state about a topic (feature 037). */
-    topology: Option[TopologyReader] = None
+    topology: Option[TopologyReader] = None,
+    /**
+     * The installation's topic defaults and bounds (feature 043), asked for on each request: the
+     * control plane reads them once at start, and a suite may vary them between scenarios.
+     */
+    policy: => TopicPolicy = TopicPolicy.default
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
-  private val projects = clients.viewClient.forView(ProjectRows)
-  private val services = clients.viewClient.forView(ServiceRows)
-  private val authz    = Authorization(clients, clock)
-  private val usage    = OrganizationUsage(clients)
+  private val projects                 = clients.viewClient.forView(ProjectRows)
+  private val services                 = clients.viewClient.forView(ServiceRows)
+  private val authz                    = Authorization(clients, clock)
+  private val usage                    = OrganizationUsage(clients)
+  private def topicPolicy: TopicPolicy = policy
 
   /**
    * `GET /projects?organization=acme` — the filter is optional, and one outside the caller's
@@ -240,15 +246,58 @@ final class ProjectEndpoint(
   }
 
   /**
-   * Declares a topic on the project, or raises its partitions (feature 027). The record first, here
-   * the reverse of a secret's order: a declaration is desired state, which `ProjectTopicsTrigger`
-   * writes to the cluster after it, retrying until the cluster has it.
+   * Declares a topic on the project, or raises its partitions (feature 027), or changes its
+   * settings (feature 043). The record first, here the reverse of a secret's order: a declaration
+   * is desired state, which `ProjectTopicsTrigger` writes to the cluster after it, retrying until
+   * the cluster has it.
+   *
+   * A first declaration takes every setting it leaves out from the installation's defaults; a
+   * redeclaration keeps them. A change that removes messages is an owner's, and its request must
+   * say what it removes in this endpoint's own words, so a client that worked from a stale listing
+   * acknowledges the wrong thing and is refused. Both checks are here, not the entity's: a role is
+   * the organization's, and the removal is worked out against the record the request changes.
    */
   putBody("/{projectId}/topics/{name}") {
     (projectId: String, name: String, request: TopicDeclarationRequest) =>
       val access   = authz.project(principal, projectId, write = true)
       val problems = ProjectTopics.problems(name, request)
       if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      val asked = TopicSettingsRules
+        .parse(name, request)
+        .fold(p => throw CommandError(p.mkString("; "), ErrorCode.BadRequest), identity)
+      val outside = TopicSettingsRules.bounded(name, asked, topicPolicy.bounds)
+      if outside.nonEmpty then throw CommandError(outside.mkString("; "), ErrorCode.BadRequest)
+      val current = entity(projectId).call(ProjectEntity.topics).invoke().get(name)
+      val filled = current match
+        case None =>
+          if request.partitions.isEmpty then
+            throw CommandError(
+              s"topic '$name': ${TopicSettingsRules.PartitionsRequired}",
+              ErrorCode.BadRequest
+            )
+          TopicSettingsRules.fill(asked, topicPolicy.defaults)
+        case Some(topic) =>
+          val held =
+            topic.filled.getOrElse(TopicSettingsRules.legacy(topic.compacted, topicPolicy.defaults))
+          TopicSettingsRules
+            .merge(asked, held)
+            .fold(rule => throw CommandError(s"topic '$name': $rule", ErrorCode.Conflict), identity)
+      val coherence = TopicSettingsRules.coherent(name, filled.settings)
+      if coherence.nonEmpty then throw CommandError(coherence.mkString("; "), ErrorCode.BadRequest)
+      val removal =
+        current.flatMap(_.settings).flatMap(TopicSettingsRules.removal(_, filled.settings))
+      (removal, request.removes) match
+        case (None, Some(_)) =>
+          throw CommandError(
+            s"topic '$name': ${TopicSettingsRules.RemovesNothing}",
+            ErrorCode.BadRequest
+          )
+        case (Some(removes), acknowledged) =>
+          if access.role != Role.Owner && !access.actor.administrative then
+            throw CommandError(TopicSettingsRules.ownerRequired(removes), ErrorCode.Forbidden)
+          if !acknowledged.map(_.trim).contains(removes) then
+            throw CommandError(TopicSettingsRules.unacknowledged(removes), ErrorCode.BadRequest)
+        case (None, None) => ()
       // The schema first, into the project's store, then the record (feature 037): a failure after
       // the write leaves an unused document, never a declaration without its schema.
       val contract = request.contract.map { declared =>
@@ -268,7 +317,22 @@ final class ProjectEndpoint(
       entity(projectId)
         .call(ProjectEntity.declareTopic)
         .withMetadata(authz.metadata(access))
-        .invoke(DeclareTopic(name, request.partitions, request.compacted, contract)): Done
+        .invoke(
+          DeclareTopic(
+            name,
+            request.partitions,
+            filled.settings.compacted,
+            contract,
+            Some(filled.settings),
+            Setting.values.toVector.filter(filled.defaulted)
+          )
+        ): Done
+  }
+
+  /** The changes to the project's topics, newest first, with who made each (feature 043). */
+  get("/{projectId}/history") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    entity(projectId).call(ProjectEntity.history).invoke()
   }
 
   /** The schema a topic's contract was declared with, as a member fetches it to build against. */
@@ -341,16 +405,27 @@ final class ProjectEndpoint(
             )
           catch case NonFatal(_) => Map.empty
         }
+    val brokerNodes =
+      topicsReader.flatMap(reader =>
+        try reader.topicStatus(projectId).flatMap(_.brokerNodes)
+        catch case NonFatal(_) => None
+      )
     declared.toVector.sortBy(_._1).map { (name, topic) =>
       val status = reported.get(name)
+      val held   = status.flatMap(_.replicas)
       ProjectTopic(
         name,
         topic.partitions,
         status.map(s => ProjectEndpoint.topicPhrase(s.phase)),
-        status.flatMap(_.detail),
-        topic.compacted,
+        (status.flatMap(_.detail).toVector ++
+          ProjectEndpoint.copiesNotes(topic.settings, held, topicPolicy.defaults.copies))
+          .reduceOption(_ + "; " + _),
+        topic.settings.fold(topic.compacted)(_.compacted),
         topic.contract,
-        checks.getOrElse(name, Vector.empty)
+        checks.getOrElse(name, Vector.empty),
+        topic.settings.map(_.view(topic.defaulted)),
+        held,
+        brokerNodes
       )
     }
   }
@@ -408,6 +483,23 @@ final class ProjectEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(projectId))
 
 object ProjectEndpoint:
+
+  /**
+   * What a listing says of a topic's copies beside its phase (feature 043): that they are the
+   * broker's when no declaration stated them, that the broker holds fewer than the installation now
+   * asks for, and that it holds a single copy.
+   */
+  def copiesNotes(
+      settings: Option[TopicSettings],
+      held: Option[Int],
+      defaultCopies: Int
+  ): Vector[String] =
+    val unstated = Option.when(settings.exists(_.copies.isEmpty))("copies are the broker's")
+    val below = held.collect {
+      case n if n < defaultCopies => s"below the installation's default of $defaultCopies copies"
+    }
+    val single = held.collect { case 1 => "single copy" }
+    unstated.toVector ++ below.toVector ++ single.toVector
 
   /** The operator's reported phase of a topic, as the phrase `ProjectTopic.phase` documents. */
   def topicPhrase(phase: String): String = phase match

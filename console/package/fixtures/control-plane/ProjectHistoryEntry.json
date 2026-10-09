@@ -1,0 +1,1 @@
+{"type":"ProjectHistoryEntry","json":{"kind":"topic-changed","topic":"transactions","actor":{"subject":"alice","display":"Alice"},"at":"2026-09-28T10:00:00Z","changes":[{"setting":"retention","from":"90d","to":"180d"}]}}

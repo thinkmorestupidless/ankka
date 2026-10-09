@@ -192,7 +192,9 @@ from its delta topic and compare.
 
 - added `features/graph-deltas/store.feature`: carts created, changed and checked out appear in the store
 - added `features/graph-deltas/store.feature`: a deleted cart's elements are marked deleted in the store
-- added `features/graph-deltas/store.feature`: a topic the pipeline declares as its own is compacted and holds only element keys
+
+*Superseded:* a pipeline no longer declares the topic as its own; the project declares it compacted, as `features/graph-deltas/store.feature` says.
+
 - added `features/graph-deltas/store.feature`: a consumer restarted while carts change leaves the store as an uninterrupted run would
 - added `features/graph-deltas/store.feature`: a store is built again from the topic alone
 - added `features/graph-deltas/store.feature`: the same consumer written in another language fills the store the same way

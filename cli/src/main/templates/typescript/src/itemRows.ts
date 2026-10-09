@@ -21,6 +21,8 @@ export class ItemRows extends View<ItemEvent, ItemRow> {
         return this.effects.updateRow({ ...current, name: event.name, count: current.count + event.count })
       case "ItemRemoved":
         return this.effects.updateRow({ ...current, count: current.count - event.count })
+      case "OwnerSet":
+        return this.effects.ignore() // the listing shows no owner, so it keeps nothing personal
     }
   }
 }

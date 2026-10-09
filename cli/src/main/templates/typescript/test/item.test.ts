@@ -2,8 +2,10 @@
 //
 // Inputs, events, state and replies still round-trip through the codecs, so a shape the codec cannot
 // express fails here rather than on first deployment.
+import { randomBytes } from "node:crypto"
 import { test } from "node:test"
 import assert from "node:assert/strict"
+import { FixedKeys, installKeys } from "ankka"
 import { EventSourcedTestKit, ViewTestKit } from "ankka/testkit"
 import { ItemEntity } from "../src/itemEntity.ts"
 import { ItemRows } from "../src/itemRows.ts"
@@ -13,7 +15,7 @@ test("adding persists an event and updates the state", async () => {
   const added = await kit.call(ItemEntity.handlers.addItem, { name: "Widget", count: 2 })
   assert.deepEqual(added.events, [{ type: "ItemAdded", name: "Widget", count: 2 }])
   await kit.call(ItemEntity.handlers.addItem, { name: "Widget", count: 3 })
-  assert.deepEqual((await kit.call(ItemEntity.handlers.getItem)).reply, { id: "i1", name: "Widget", count: 5 })
+  assert.deepEqual((await kit.call(ItemEntity.handlers.getItem)).reply, { id: "i1", name: "Widget", count: 5, owner: null })
 })
 
 test("removing more than there is is refused and persists nothing", async () => {
@@ -30,6 +32,22 @@ test("a count below one is a bad request", async () => {
   const kit = EventSourcedTestKit.of(ItemEntity, "i1")
   const refused = await kit.call(ItemEntity.handlers.addItem, { name: "Widget", count: 0 })
   assert.equal(refused.error?.code, "BAD_REQUEST")
+})
+
+test("the owner's email is read back until its owner is erased", async () => {
+  // Here a fixed key stands in for the keyring the sidecar fetches keys from.
+  const keys = new FixedKeys("local", randomBytes(32))
+  installKeys(keys)
+  try {
+    const kit = EventSourcedTestKit.of(ItemEntity, "i1")
+    await kit.call(ItemEntity.handlers.addItem, { name: "Widget", count: 1 })
+    await kit.call(ItemEntity.handlers.setOwner, { user: "u1", email: "ada@example.com" })
+    assert.equal((await kit.call(ItemEntity.handlers.getItem)).reply?.owner, "ada@example.com")
+    keys.erase("user/u1")
+    assert.equal((await kit.call(ItemEntity.handlers.getItem)).reply?.owner, "erased")
+  } finally {
+    installKeys(undefined)
+  }
 })
 
 test("the view keeps one row per item", async () => {

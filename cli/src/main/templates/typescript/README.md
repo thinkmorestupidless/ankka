@@ -27,19 +27,24 @@ npm run typecheck
 ```
 
 `test/item.test.ts` runs the entity and the view with no sidecar at all, in milliseconds.
-`test/integration.test.ts` starts Postgres and the sidecar in Docker and drives the service over
-HTTP; it needs Docker.
+`test/integration.test.ts` starts Postgres, the sidecar and a keyring in Docker and drives the service
+over HTTP; it needs Docker.
 
 ## Run locally
 
 ```bash
-docker compose up -d                    # Postgres and the sidecar
+docker compose up -d                    # Postgres, the sidecar and the keyring
 npm start                               # your process, on port 9010, where the sidecar finds it
 
 curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
 curl localhost:9000/items/i1
 curl localhost:9000/items/
+curl -XPUT localhost:9000/items/i1/owner -H 'content-type: application/json' -d '{"user":"u1","email":"ada@example.com"}'
 ```
+
+An item's owner email is a **personal field**: it is kept encrypted under a key of its own for the person
+(the data subject `user/u1`), which the keyring holds, and once that person is erased every copy reads as
+erased — `"owner": "erased"` — with no row rewritten.
 
 The listing comes from the view, which follows the journal: a new item appears in it a moment after
 the write, not in the same instant.

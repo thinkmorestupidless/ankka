@@ -24,9 +24,23 @@ test("an item survives a restart and is listed", async () => {
   try {
     assert.ok((await kit.http.post("/items/i1", { name: "Widget", count: 2 })).status < 300)
     await kit.restart() // a new sidecar, the same database: the state is durable, not cached
-    assert.deepEqual((await kit.http.get("/items/i1")).json(), { id: "i1", name: "Widget", count: 2 })
+    assert.deepEqual((await kit.http.get("/items/i1")).json(), { id: "i1", name: "Widget", count: 2, owner: null })
     const rows = await jsonWhen(kit, "/items/", (body) => Array.isArray(body) && body.length === 1)
     assert.deepEqual(rows, [{ id: "i1", name: "Widget", count: 2 }])
+  } finally {
+    await kit.stop()
+  }
+})
+
+test("the owner's email is kept encrypted and read back through the keyring", async () => {
+  // The kit starts a keyring beside the sidecar, as the platform runs one beside every service.
+  const kit = await AnkkaTestKit.start(service())
+  try {
+    assert.ok((await kit.http.post("/items/i2", { name: "Gadget", count: 1 })).status < 300)
+    const set = await kit.http.put("/items/i2/owner", { user: "u2", email: "grace@example.com" })
+    assert.ok(set.status < 300, set.text())
+    await kit.restart() // a new sidecar fetches the subject's key from the keyring again
+    assert.equal(((await kit.http.get("/items/i2")).json() as { owner: unknown }).owner, "grace@example.com")
   } finally {
     await kit.stop()
   }

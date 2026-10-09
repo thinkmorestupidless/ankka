@@ -5,8 +5,8 @@
 // `acl` is required. `Acl.allowAll` is right for a public API and wrong for anything else — and once
 // this service is *exposed* (`ankka services expose`), an `allowAll` endpoint is reachable from the
 // internet. Exposure changes who can reach an endpoint, not who is allowed to; this line does.
-import { Acl, Done, Endpoint, HttpProblem, get, post, s } from "ankka"
-import { AddItem, Item, RemoveItem } from "./domain.ts"
+import { Acl, Done, Endpoint, HttpProblem, get, post, put, s } from "ankka"
+import { AddItem, ItemView, RemoveItem, SetOwner } from "./domain.ts"
 import { ItemEntity } from "./itemEntity.ts"
 import { ItemRow, ItemRows } from "./itemRows.ts"
 
@@ -16,13 +16,16 @@ export class ItemEndpoint extends Endpoint {
 
   static readonly routes = {
     list: get("/", s.list(ItemRow), (ep: ItemEndpoint) => ep.client.views.all(ItemRows.componentId, ItemRow)),
-    get: get("/{id}", Item, (ep: ItemEndpoint, req) => ep.item(req.params.id).call(ItemEntity.handlers.getItem).invoke()),
+    get: get("/{id}", ItemView, (ep: ItemEndpoint, req) => ep.item(req.params.id).call(ItemEntity.handlers.getItem).invoke()),
     add: post("/{id}", AddItem, Done, (ep: ItemEndpoint, req, request) => {
       if (request.name === "") throw new HttpProblem(400, "an item needs a name")
       return ep.item(req.params.id).call(ItemEntity.handlers.addItem).invoke(request)
     }),
     remove: post("/{id}/remove", RemoveItem, Done, (ep: ItemEndpoint, req, request) =>
       ep.item(req.params.id).call(ItemEntity.handlers.removeItem).invoke(request),
+    ),
+    owner: put("/{id}/owner", SetOwner, Done, (ep: ItemEndpoint, req, request) =>
+      ep.item(req.params.id).call(ItemEntity.handlers.setOwner).invoke(request),
     ),
   }
 

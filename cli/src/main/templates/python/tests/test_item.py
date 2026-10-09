@@ -68,12 +68,12 @@ def test_an_owners_email_is_kept_as_a_personal_field() -> None:
     assert ItemDetails.of(kit.call("get-item").reply) == ItemDetails("i1", "Widget", 1, OwnerDetails("u1", "ada@example.com"))
 
 
-def test_an_erased_owners_email_reads_as_null_and_the_item_stays(keys: FixedKeys) -> None:
+def test_an_erased_owners_email_reads_as_erased_and_the_item_stays(keys: FixedKeys) -> None:
     kit = EventSourcedTestKit.of(ItemEntity, "i1")
     kit.call("add-item", AddItem("Widget", 1))
     kit.call("set-owner", SetOwner("u2", "grace@example.com"))
     keys.erase("user/u2")  # as erasing the data subject does: the key is destroyed
-    assert ItemDetails.of(kit.call("get-item").reply) == ItemDetails("i1", "Widget", 1, OwnerDetails("u2", None))
+    assert ItemDetails.of(kit.call("get-item").reply) == ItemDetails("i1", "Widget", 1, OwnerDetails("u2", "erased"))
     # And no new email can be written for that subject: the service answers the request 400.
     with pytest.raises(PersonalFieldError):
         kit.call("set-owner", SetOwner("u2", "again@example.com"))

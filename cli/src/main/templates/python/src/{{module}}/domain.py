@@ -96,15 +96,15 @@ class SetOwner:
 
 @dataclass(frozen=True)
 class OwnerDetails:
-    """An owner as a caller reads one: `email` is null once the owner has been erased."""
+    """An owner as a caller reads one: `email` is `"erased"` once the owner has been erased."""
 
     user: str
-    email: str | None
+    email: str
 
 
 @dataclass(frozen=True)
 class ItemDetails:
-    """An item as a caller reads one, every personal field opened, or null where it reads as erased."""
+    """An item as a caller reads one, every personal field opened, or `"erased"` where it reads as erased."""
 
     id: str
     name: str
@@ -113,5 +113,8 @@ class ItemDetails:
 
     @staticmethod
     def of(item: Item) -> ItemDetails:
-        owner = None if item.owner is None else OwnerDetails(item.owner.user, item.owner.email.value)
+        if item.owner is None:
+            return ItemDetails(item.id, item.name, item.count, None)
+        email = item.owner.email.value
+        owner = OwnerDetails(item.owner.user, "erased" if email is None else email)
         return ItemDetails(item.id, item.name, item.count, owner)

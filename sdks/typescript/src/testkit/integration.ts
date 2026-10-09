@@ -11,6 +11,12 @@
 // published with it, `ghcr.io/thinkmorestupidless/ankka-sidecar:<this SDK's version>` — public, so Docker
 // pulls it on first use — and an unreleased one (version `0.0.0`, a checkout of the ankka repository) uses
 // `ankka-sidecar:latest`, the image `sbt sidecar/Docker/publishLocal` builds.
+//
+// Beside the sidecar it starts a keyring, the platform component a service's personal fields' keys come
+// from, on a Postgres of its own, so a personal field works with no setup. Its image is resolved as the
+// sidecar's is: `$ANKKA_KEYRING_IMAGE`, the published `ankka-keyring` of this SDK's version, or
+// `ankka-keyring:latest` (`sbt keyring/Docker/publishLocal`) for an unreleased one. `keyring: false`
+// starts none, and the service then refuses every personal field.
 
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
@@ -27,6 +33,7 @@ import { VERSION } from "../version.ts"
 const POSTGRES_IMAGE = "postgres:17-alpine"
 const HTTP_PORT = 9000
 const CALLBACK_PORT = 9011
+const KEYRING_PORT = 9020
 
 export interface AnkkaTestKitOptions {
   /** The sidecar image; `sidecarImage()` by default. */
@@ -34,6 +41,10 @@ export interface AnkkaTestKitOptions {
   /** Environment for the sidecar container: `ANKKA_MODEL_SCRIPT` scripts its model. */
   readonly env?: Readonly<Record<string, string>>
   readonly postgresImage?: string
+  /** Whether to start a keyring beside the sidecar; true by default. */
+  readonly keyring?: boolean
+  /** The keyring image; `keyringImage()` by default. */
+  readonly keyringImage?: string
   /** How long to wait for the sidecar to report healthy; 120s by default. */
   readonly readyTimeoutMs?: number
   readonly log?: (message: string) => void
@@ -129,6 +140,15 @@ export function sidecarImage(version: string = VERSION): string {
   return version === "0.0.0" ? "ankka-sidecar:latest" : `${PUBLISHED_SIDECAR}:${version}`
 }
 
+export const PUBLISHED_KEYRING = "ghcr.io/thinkmorestupidless/ankka-keyring"
+
+/** The keyring the testkit starts beside the sidecar, resolved as `sidecarImage` is. */
+export function keyringImage(version: string = VERSION): string {
+  const explicit = process.env.ANKKA_KEYRING_IMAGE
+  if (explicit) return explicit
+  return version === "0.0.0" ? "ankka-keyring:latest" : `${PUBLISHED_KEYRING}:${version}`
+}
+
 /** The DDL as files, from `/opt/docker/ddl` in the sidecar image, without running the image. */
 function copyDdl(image: string, into: string): void {
   const id = execFileSync("docker", ["create", image], { encoding: "utf8" }).trim()
@@ -168,12 +188,15 @@ export class AnkkaTestKit {
   readonly #image: string
   readonly #env: Readonly<Record<string, string>>
   readonly #postgresImage: string
+  readonly #keyringImage: string | undefined
   readonly #readyTimeoutMs: number
   readonly #log: (message: string) => void
   #ddlDir: string | undefined
   #network: StartedNetwork | undefined
   #postgres: StartedPostgreSqlContainer | undefined
   #sidecar: StartedTestContainer | undefined
+  #keyringDb: StartedTestContainer | undefined
+  #keyring: StartedTestContainer | undefined
   #server: Server | undefined
   #processPort = 0
   #http: Http | undefined
@@ -186,6 +209,7 @@ export class AnkkaTestKit {
     this.#image = options.image ?? sidecarImage()
     this.#env = options.env ?? {}
     this.#postgresImage = options.postgresImage ?? POSTGRES_IMAGE
+    this.#keyringImage = options.keyring === false ? undefined : (options.keyringImage ?? keyringImage())
     this.#readyTimeoutMs = options.readyTimeoutMs ?? 120_000
     this.#log = options.log ?? (() => {})
     this.client = service.client
@@ -197,7 +221,7 @@ export class AnkkaTestKit {
     try {
       await kit.#start()
     } catch (e) {
-      const logs = await logsOf(kit.#sidecar)
+      const logs = (await logsOf(kit.#sidecar)) || (await logsOf(kit.#keyring))
       await kit.stop()
       if (logs) throw new Error(`${e instanceof Error ? e.message : String(e)}\n--- sidecar logs ---\n${logs.slice(-4000)}`, { cause: e })
       throw e
@@ -227,18 +251,57 @@ export class AnkkaTestKit {
     this.#ddlDir = mkdtempSync(join(tmpdir(), "ankka-ddl-"))
     copyDdl(this.#image, this.#ddlDir)
     this.#network = await new tc.Network().start()
-    this.#postgres = await new pg.PostgreSqlContainer(this.#postgresImage)
-      .withDatabase("ankka")
-      .withUsername("ankka")
-      .withPassword("ankka")
-      .withNetwork(this.#network)
-      .withNetworkAliases("postgres")
-      .withCopyDirectoriesToContainer([{ source: this.#ddlDir, target: "/docker-entrypoint-initdb.d", mode: 0o755 }])
-      .start()
+    const network = this.#network
+    const ddlDir = this.#ddlDir
+    // The service's Postgres and the keyring at once: the keyring is a JVM with a database of its own,
+    // and started after the rest it added half a minute to every kit. Both settle before anything
+    // throws, so `stop` finds every container either one started.
+    const started = await Promise.allSettled([
+      (async () => {
+        this.#postgres = await new pg.PostgreSqlContainer(this.#postgresImage)
+          .withDatabase("ankka")
+          .withUsername("ankka")
+          .withPassword("ankka")
+          .withNetwork(network)
+          .withNetworkAliases("postgres")
+          .withCopyDirectoriesToContainer([{ source: ddlDir, target: "/docker-entrypoint-initdb.d", mode: 0o755 }])
+          .start()
+      })(),
+      this.#keyringImage ? this.#startKeyring(this.#keyringImage) : Promise.resolve(),
+    ])
+    for (const result of started) if (result.status === "rejected") throw result.reason
     // This process's server, on all interfaces: the sidecar is in a container and dials in.
     this.#server = this.#service.server({ host: "0.0.0.0", port: 0, log: this.#log })
     this.#processPort = (await this.#server.start()).port
     await this.#startSidecar()
+  }
+
+  /** A Postgres of the keyring's own, then the keyring, which applies its own schema; healthy before the sidecar starts. */
+  async #startKeyring(image: string): Promise<void> {
+    const tc = await import("testcontainers")
+    this.#keyringDb = await new tc.GenericContainer(this.#postgresImage)
+      .withNetwork(this.#network!)
+      .withNetworkAliases("keyring-db")
+      .withEnvironment({ POSTGRES_USER: "ankka", POSTGRES_PASSWORD: "ankka", POSTGRES_DB: "ankka" })
+      .withWaitStrategy(tc.Wait.forLogMessage(/database system is ready to accept connections/, 2))
+      .withStartupTimeout(this.#readyTimeoutMs)
+      .start()
+    this.#keyring = await new tc.GenericContainer(image)
+      .withNetwork(this.#network!)
+      .withNetworkAliases("keyring")
+      .withEnvironment({
+        ANKKA_HTTP_PORT: String(KEYRING_PORT),
+        ANKKA_DB_HOST: "keyring-db",
+        ANKKA_DB_PORT: "5432",
+        ANKKA_DB_NAME: "ankka",
+        ANKKA_DB_USER: "ankka",
+        ANKKA_DB_PASSWORD: "ankka",
+        ANKKA_SECRET_KEY: randomBytes(32).toString("base64"),
+      })
+      .withExposedPorts(KEYRING_PORT)
+      .withWaitStrategy(tc.Wait.forHttp("/status", KEYRING_PORT).forStatusCode(200))
+      .withStartupTimeout(this.#readyTimeoutMs)
+      .start()
   }
 
   async #startSidecar(): Promise<void> {
@@ -258,6 +321,7 @@ export class AnkkaTestKit {
         // A fresh secret key per kit, so the secret store works with no setup; the caller's `env`
         // replaces it, and `ANKKA_SECRET_KEY: ""` starts a service with none.
         ANKKA_SECRET_KEY: randomBytes(32).toString("base64"),
+        ...(this.#keyring ? { ANKKA_KEYRING_URL: `http://keyring:${KEYRING_PORT}` } : {}),
         ...this.#env,
       })
       .withExposedPorts(HTTP_PORT, CALLBACK_PORT)
@@ -312,6 +376,11 @@ export class AnkkaTestKit {
     }
   }
 
+  /** The keyring container's log so far; empty when the kit started none. */
+  keyringLogs(): Promise<string> {
+    return logsOf(this.#keyring)
+  }
+
   /** The sidecar container's log so far. */
   sidecarLogs(): Promise<string> {
     return logsOf(this.#sidecar)
@@ -325,6 +394,14 @@ export class AnkkaTestKit {
     if (this.#sidecar) {
       await this.#sidecar.stop().catch(() => undefined)
       this.#sidecar = undefined
+    }
+    if (this.#keyring) {
+      await this.#keyring.stop().catch(() => undefined)
+      this.#keyring = undefined
+    }
+    if (this.#keyringDb) {
+      await this.#keyringDb.stop().catch(() => undefined)
+      this.#keyringDb = undefined
     }
     if (this.#postgres) {
       await this.#postgres.stop().catch(() => undefined)

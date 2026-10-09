@@ -17,4 +17,4 @@ export {
   type ModelCall,
   type GraphChange,
 } from "./kinds.ts"
-export { AnkkaTestKit, PUBLISHED_SIDECAR, sidecarImage, type AnkkaTestKitOptions, type HttpResponse, type Http, type Beside } from "./integration.ts"
+export { AnkkaTestKit, PUBLISHED_SIDECAR, sidecarImage, PUBLISHED_KEYRING, keyringImage, type AnkkaTestKitOptions, type HttpResponse, type Http, type Beside } from "./integration.ts"

@@ -45,6 +45,7 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
     case _: ProjectTopicDeclared | _: ProjectTopicRemoved => effects.ignore()
     // Likewise a project's brokers (feature 037).
     case _: ProjectBrokerDeclared | _: ProjectBrokerRemoved => effects.ignore()
+    case _: ProjectLocationSet                              => effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

@@ -382,6 +382,53 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     assert(restartedBody.contains("\"generation\":3"), restartedBody)
   }
 
+  // --- A storage credential issued again (feature 039)
+
+  test(
+    "a storage credential is issued again for a service with a bucket, and refused for one without"
+  ) {
+    val (none, noneBody) = send("POST", "/services/checkout/cart/storage-credential")
+    assertEquals(none, 409, noneBody)
+    assert(noneBody.contains("no storage credential to reissue"), noneBody)
+
+    val bucket =
+      """{"name":"files","service":{"image":"files:1","provisionObjectStorage":true}}"""
+    val (applied, appliedBody) = send("PUT", "/services/checkout/files", Some(bucket))
+    assertEquals(applied, 200, appliedBody)
+    val (issued, issuedBody) = send("POST", "/services/checkout/files/storage-credential")
+    assertEquals(issued, 200, issuedBody)
+    val (_, history) = send("GET", "/services/checkout/files/history")
+    assert(history.contains("\"kind\":\"storage-credential-reissued\""), history)
+
+    val (unauthenticated, unauthenticatedBody) =
+      send("POST", "/services/checkout/files/storage-credential", token = None)
+    assertEquals(unauthenticated, 401, unauthenticatedBody)
+
+    // The later cases count the project's services: leave it as this case found it.
+    val (deleted, deletedBody) = send("DELETE", "/services/checkout/files")
+    assert(deleted / 100 == 2, deletedBody)
+    eventually("files leaves the listing") {
+      val (_, listing) = send("GET", "/services/checkout")
+      Option.when(!listing.contains("\"name\":\"files\""))(listing)
+    }
+  }
+
+  test("a project's location is refused where the installation keeps new buckets in Garage") {
+    val (status, body) =
+      send("PUT", "/projects/checkout/location", Some("""{"location":"europe-west6"}"""))
+    assertEquals(status, 409, body)
+    assert(body.contains("no location to choose"), body)
+    val (cleared, clearedBody) = send("DELETE", "/projects/checkout/location")
+    assertEquals(cleared, 409, clearedBody)
+  }
+
+  test("a move is refused where the installation keeps new buckets in Garage, saying why") {
+    val (status, body) =
+      send("POST", "/services/checkout/cart/storage/move", Some("""{"writePauseBound":"30m"}"""))
+    assertEquals(status, 409, body)
+    assert(body.contains("nowhere to move a bucket to"), body)
+  }
+
   // --- Exposure (feature 005): contracts/expose-api.md
 
   test("exposing reports the derived URL, is idempotent, and shows on get and list") {

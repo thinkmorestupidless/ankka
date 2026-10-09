@@ -120,7 +120,11 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         undeclaredTopics = Some(Vector("cart-checkouts")),
         objectStorage = Some("provisioned"),
         bucket = Some("shop.cart"),
-        bucketAddress = Some("https://storage.example.com/shop.cart")
+        bucketAddress = Some("https://storage.example.com/shop.cart"),
+        objectStore = Some("gcs"),
+        bucketLocation = Some("europe-west2"),
+        softDeleteDays = Some(7),
+        storageMove = Some("write pause")
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -146,6 +150,12 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       Vector(HistoryEntry("restarted", 1))
     ),
     fixture("RollbackRequest", RollbackRequest(Some(1)), RollbackRequest()),
+    fixture("StorageMoveRequest", StorageMoveRequest(Some("30m")), StorageMoveRequest()),
+    fixture(
+      "SetProjectLocation",
+      SetProjectLocation("europe-west6"),
+      SetProjectLocation("europe-west6")
+    ),
     fixture(
       "RolledBack",
       RolledBack(

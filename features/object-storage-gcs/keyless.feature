@@ -1,6 +1,6 @@
 Feature: A service reaches its bucket in Google Cloud Storage with no storage credential
   On an installation whose object store is Google Cloud Storage, a service's workload identity is
-  its storage account, so a service written with Google's own client reaches its bucket, and no
+  its cloud identity, so a service written with Google's own client reaches its bucket, and no
   other, holding no storage credential at all. A descriptor may decline the storage credential:
   such a service is given none and none is issued for it, and on an installation whose object
   store is Garage it is refused, since there is no other way to reach a bucket there.

@@ -119,7 +119,8 @@ WHEN                      KIND              GEN  IMAGE   DIGEST        BY
 ```
 
 Each row is one change, newest first: `applied`, `rolled-back`, `restarted`, `paused`, `resumed`,
-`exposed`, `unexposed`, `deleted`, `suspended` or `reinstated`. `GEN` is the generation the service had after the
+`exposed`, `unexposed`, `deleted`, `suspended`, `reinstated`, `storage-credential-reissued`,
+`storage-moved` or `storage-settings-reapplied`. `GEN` is the generation the service had after the
 change, and `BY` is who asked, by display name or subject. `(admin)` marks a change that was allowed by
 the platform-admin role rather than by membership of the organization. A service keeps its last 50
 changes. Reports from the cluster are not changes and do not appear.

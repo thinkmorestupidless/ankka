@@ -166,7 +166,10 @@ lazy val commonSettings = Seq(
     "ankka.rendering.pin",
     // The fixture suites (contract fingerprints, graph deltas) rewrite their files instead of
     // refusing a difference, which is only ever right for a change meant to alter them.
-    "ankka.fixtures.regenerate"
+    "ankka.fixtures.regenerate",
+    // GcsCompatibilitySuite (feature 039): `on` makes it fail rather than skip when its bucket's
+    // variables are missing, which is how the `gcs` workflow asks for it.
+    "ankka.gcs.tests"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
@@ -720,6 +723,25 @@ lazy val proxy = project
     Test / javaOptions += "-Dlogback.configurationFile=logback-proxy-test.xml"
   )
 
+/**
+ * The storage mover (feature 039): copies one service's objects from its bucket in Garage to its
+ * bucket in Google Cloud Storage, and checks every object on both sides. The operator runs it as a
+ * Job, holding the service's two storage credentials and nothing else. Its own module and image
+ * because the operator may carry no S3 client; it depends on nothing of ankka's.
+ */
+lazy val storageMover = project
+  .in(file("storage-mover"))
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                 := "ankka-storage-mover",
+    publish / skip       := true,
+    Docker / packageName := "ankka-storage-mover",
+    Compile / mainClass  := Some("com.thinkmorestupidless.ankka.mover.Main"),
+    libraryDependencies ++= Seq(awsS3, logback, testcontainers % Test)
+  )
+
 /** The `ankka` command-line client. */
 lazy val cli = project
   .in(file("cli"))
@@ -947,6 +969,7 @@ lazy val root = project
     sidecar,
     proxyCore,
     proxy,
+    storageMover,
     shoppingCart,
     shoppingCartApi,
     multiAgentPlanner,

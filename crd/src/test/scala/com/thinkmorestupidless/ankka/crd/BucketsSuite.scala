@@ -44,6 +44,25 @@ class BucketsSuite extends munit.FunSuite:
     )
   }
 
+  test(
+    "a credential in Google Cloud Storage has a Secret of its own, ending as every storage credential's does"
+  ) {
+    assertEquals(Buckets.gcsSecret("kyc"), "kyc-gcs-storage")
+    assert(Buckets.gcsSecret("kyc").endsWith(Buckets.SecretSuffix))
+    assertNotEquals(Buckets.gcsSecret("kyc"), Buckets.secret("kyc"))
+  }
+
+  test("a bucket in Google Cloud Storage is at Google's address, then the bucket's reported name") {
+    assertEquals(
+      Buckets.gcsPublicAddress("https://storage.googleapis.com", "ankka-casino-kyc-3f9a1c2e"),
+      "https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"
+    )
+    assertEquals(
+      Buckets.gcsPublicAddress("https://storage.googleapis.com/", "b"),
+      "https://storage.googleapis.com/b"
+    )
+  }
+
   test("the store's hostname is one label with no hyphen, so no service's hostname can be it") {
     assertEquals(Hostnames.StorageLabel, "storage")
     assert(!Hostnames.StorageLabel.contains("-"))

@@ -274,3 +274,66 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     val Right(plain) = ServiceProjection.project(service(), config): @unchecked
     assertEquals(plain.exposeObjectStorage, false)
   }
+
+  // Feature 039.
+
+  private def asking(f: ServiceSpec => ServiceSpec = identity) =
+    descriptor().copy(service = f(descriptor().service.copy(provisionObjectStorage = true)))
+
+  private val gcs =
+    config.copy(
+      objectStore = deploy.ObjectStoreKind.Gcs,
+      objectStorePrefix = Some("ankka"),
+      cloudProvider = Some("gcp")
+    )
+
+  test(
+    "origins, declining a credential and an age for versions are projected as the descriptor says"
+  ) {
+    val says = asking(
+      _.copy(
+        exposeObjectStorage = true,
+        objectStorageOrigins = Vector("https://play.example"),
+        objectStorageCredential = false,
+        objectStorageVersionAgeDays = Some(365)
+      )
+    )
+    val Right(spec) = ServiceProjection.project(service(d = says), gcs): @unchecked
+    assertEquals(spec.objectStorageOrigins, List("https://play.example"))
+    assertEquals(spec.objectStorageCredential, false)
+    assertEquals(spec.objectStorageVersionAgeDays, Some(365))
+    val Right(plain) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(
+      (
+        plain.objectStorageOrigins,
+        plain.objectStorageCredential,
+        plain.objectStorageVersionAgeDays
+      ),
+      (Nil, true, None)
+    )
+  }
+
+  /** A pair whose namespace fits and whose Garage bucket name, `<project>.<service>`, does not. */
+  private def longName(d: ServiceDescriptor) =
+    Service.empty(ServiceKey("p" * 57, "reports-archive")).onApplied(d, 1L)
+
+  test("the bucket name's limit is Garage's alone: a name the provider makes is never too long") {
+    val Left(onGarage) = ServiceProjection.project(longName(asking()), config): @unchecked
+    assert(onGarage.exists(_.contains("63 character limit for a bucket's name")), onGarage)
+    assert(ServiceProjection.project(longName(asking()), gcs).isRight)
+  }
+
+  test(
+    "declining a credential is refused where the store is Garage, and projected where it is not"
+  ) {
+    val declines = asking(_.copy(objectStorageCredential = false))
+    assertEquals(
+      ServiceProjection.project(service(d = declines), config),
+      Left(
+        Vector(
+          "objectStorageCredential: a bucket in Garage is reached only with a storage credential"
+        )
+      )
+    )
+    assert(ServiceProjection.project(service(d = declines), gcs).isRight)
+  }

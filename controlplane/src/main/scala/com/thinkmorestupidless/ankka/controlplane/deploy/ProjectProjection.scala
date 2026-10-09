@@ -13,7 +13,9 @@ object ProjectProjection:
   def spec(
       projectId: String,
       topics: Map[String, DeclaredTopic],
-      brokers: Map[String, DeclaredBroker] = Map.empty
+      brokers: Map[String, DeclaredBroker] = Map.empty,
+      /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+      bucketLocation: Option[String] = None
   ): AnkkaProjectSpec =
     AnkkaProjectSpec(
       projectId,
@@ -35,5 +37,6 @@ object ProjectProjection:
           b.secretName,
           b.declaredAt.fold("")(_.toString)
         )
-      }
+      },
+      bucketLocation
     )

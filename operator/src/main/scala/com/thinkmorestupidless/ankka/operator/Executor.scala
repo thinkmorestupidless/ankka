@@ -63,6 +63,16 @@ trait Executor:
     ObjectStorageObservation.empty
 
   /**
+   * How one phase's Job of a move ended, if it has (feature 039): its counts, and the mover's
+   * report from its pod's termination message. A Job its time-to-live removed is `Absent`, which is
+   * why the move's state is kept in the status rather than read back from the Job.
+   */
+  def observeMoveJob(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused name: String
+  ): StorageMove.JobOutcome = StorageMove.JobOutcome.Absent
+
+  /**
    * What `BrokerProvisioning.decide` needs: the service's user and each of `topics`, by the name
    * the broker holds it under, in the broker's namespace (feature 027).
    */
@@ -119,7 +129,9 @@ trait Executor:
 final class Fabric8Executor(
     client: KubernetesClient,
     telemetryHeaders: Option[Settings.Credential] = None,
-    store: Option[ObjectStore] = None
+    store: Option[ObjectStore] = None,
+    /** How long an old storage credential works after a new one is in place (feature 039). */
+    rotationGrace: scala.concurrent.duration.FiniteDuration = Settings.default.rotationGrace
 ) extends Executor:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.executor")
@@ -445,13 +457,14 @@ final class Fabric8Executor(
           s.createBucket(bucket): Unit
           log.info("made bucket {}", bucket)
         case Some(info) if info.allowedKeys.isEmpty =>
-          // Made again after its service deleted it: the service's keys reach it once more.
-          s.keysNamed(bucket).foreach(s.allow(info.id, _))
+          // Made again after its service deleted it: the service's keys reach it once more, of
+          // whatever generation (feature 039), unless they have ended.
+          s.keysOf(bucket).filterNot(_.expired).foreach(k => s.allow(info.id, k.accessKeyId))
         case Some(_) => ()
 
-    case Action.EnsureStorageCredential(namespace, name, labels, bucket) =>
+    case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation) =>
       requireStore(): Unit
-      storageCredentials.get.ensure(namespace, name, labels, bucket) match
+      storageCredentials.get.ensure(namespace, name, labels, bucket, generation) match
         case StorageCredential.Result.Created =>
           log.info("issued the storage credential {}/{}", namespace, name)
         case StorageCredential.Result.Replaced =>
@@ -462,6 +475,53 @@ final class Fabric8Executor(
             name
           )
         case StorageCredential.Result.Unchanged => ()
+
+    case Action.ReissueStorageCredential(namespace, name, bucket, generation) =>
+      requireStore(): Unit
+      storageCredentials.get.reissue(
+        namespace,
+        name,
+        bucket,
+        generation,
+        java.time.Instant.now().plusSeconds(rotationGrace.toSeconds)
+      )
+      log.info(
+        "issued the storage credential {}/{} again, at generation {}; the old one ends in {}",
+        namespace,
+        name,
+        generation,
+        rotationGrace
+      )
+
+    case Action.DeleteExpiredKeys(bucket) =>
+      requireStore(): Unit
+      storageCredentials.get.deleteExpired(bucket)
+
+    case Action.PauseWrites(bucket, generation) =>
+      requireStore(): Unit
+      storageCredentials.get.pauseWrites(bucket, generation)
+      log.info("paused writes to bucket {}", bucket)
+
+    case Action.ResumeWrites(bucket, generation) =>
+      requireStore(): Unit
+      storageCredentials.get.resumeWrites(bucket, generation)
+      log.info("resumed writes to bucket {}", bucket)
+
+    case Action.EnsureMoveJob(job) =>
+      // A Job's template is immutable once it exists, and the one a pass renders is the same one
+      // the last pass did, so an existing Job is left as it is.
+      val jobs = client.batch().v1().jobs().inNamespace(job.getMetadata.getNamespace)
+      if jobs.withName(job.getMetadata.getName).get() == null then
+        val _ = jobs.resource(job).fieldManager(FieldManager).forceConflicts().serverSideApply()
+        log.info("started {}/{}", job.getMetadata.getNamespace, job.getMetadata.getName)
+
+    case Action.SetBucketCors(bucket, origins) =>
+      val s = requireStore()
+      s.bucket(bucket).foreach { info =>
+        if info.corsOrigins.toSet != origins.toSet then
+          s.setCors(info.id, origins)
+          log.info("set the cors rule of bucket {} to {}", bucket, origins.mkString(", "))
+      }
 
     case Action.EnsureReferenceGrant(grant) =>
       val _ = client.resource(grant).fieldManager(FieldManager).forceConflicts().serverSideApply()
@@ -791,6 +851,49 @@ final class Fabric8Executor(
         case e: ObjectStoreUnavailable =>
           ObjectStorageObservation(unreachable = Some(e.getMessage))
     }
+
+  override def observeMoveJob(namespace: String, name: String): StorageMove.JobOutcome =
+    Option(client.batch().v1().jobs().inNamespace(namespace).withName(name).get()) match
+      case None => StorageMove.JobOutcome.Absent
+      case Some(job) =>
+        val status    = Option(job.getStatus)
+        val succeeded = status.flatMap(s => Option(s.getSucceeded)).exists(_.intValue > 0)
+        val failed = status.flatMap(s => Option(s.getFailed)).exists(_.intValue > 0) ||
+          status
+            .flatMap(s => Option(s.getConditions))
+            .exists(_.asScala.exists(c => c.getType == "Failed" && c.getStatus == "True"))
+        if !succeeded && !failed then StorageMove.JobOutcome.Running
+        else
+          // The mover's report, from its pod's termination message (FallbackToLogsOnError).
+          val message = client
+            .pods()
+            .inNamespace(namespace)
+            .withLabel("job-name", name)
+            .list()
+            .getItems
+            .asScala
+            .flatMap(p => Option(p.getStatus).flatMap(s => Option(s.getContainerStatuses)))
+            .flatMap(_.asScala)
+            .flatMap(c => Option(c.getState).flatMap(s => Option(s.getTerminated)))
+            .flatMap(t => Option(t.getMessage))
+            .lastOption
+          val report = message.flatMap(StorageMove.report)
+          if succeeded then
+            StorageMove.JobOutcome.Succeeded(report.getOrElse(StorageMove.MoveReport()))
+          else
+            val deadline = status
+              .flatMap(s => Option(s.getConditions))
+              .exists(_.asScala.exists(_.getReason == "DeadlineExceeded"))
+            StorageMove.JobOutcome.Failed(
+              report.getOrElse(
+                StorageMove.MoveReport(reason =
+                  Some(
+                    if deadline then "it did not finish within the write pause bound"
+                    else message.getOrElse("it stopped without a report")
+                  )
+                )
+              )
+            )
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =
     Option(client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).get())

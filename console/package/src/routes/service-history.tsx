@@ -89,6 +89,9 @@ const words = {
   exposed: "Exposed",
   unexposed: "Unexposed",
   deleted: "Deleted",
+  "storage-credential-reissued": "Storage credential issued again",
+  "storage-moved": "Bucket move asked for",
+  "storage-settings-reapplied": "Bucket settings reapplied",
 } as Record<string, string>;
 
 export default function ServiceHistory() {

@@ -118,6 +118,84 @@ final class ServiceEntity(context: EventSourcedEntityContext)
         .persist(ServiceRestarted(currentState.generation + 1, actor, at))
         .thenReply(_.toStatus)
 
+  /**
+   * Asks for the service's storage credential to be issued again (feature 039). Refused for a
+   * service the platform made no bucket for: there is no credential of the platform's to replace.
+   */
+  def reissueStorageCredential: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.descriptor.exists(_.service.provisionObjectStorage) then
+      effects.error(
+        s"service '${key.name}' has no storage credential to reissue: its descriptor asks for no bucket",
+        ErrorCode.Conflict
+      )
+    else if moving then
+      effects.error(s"the storage of service '${key.name}' is moving", ErrorCode.Conflict)
+    else
+      effects
+        .persist(
+          StorageCredentialReissued(currentState.storageCredentialGeneration + 1, actor, at)
+        )
+        .thenReply(_.toStatus)
+
+  /**
+   * Whether a move the members asked for has not ended: asked for and not yet reported, or reported
+   * in one of the states before `Switched` and `Failed`.
+   */
+  private def moving: Boolean =
+    currentState.storageMove.exists { asked =>
+      val reported = currentState.storage.flatMap(s => s.moveGeneration.zip(s.move))
+      reported match
+        case Some((generation, state)) if generation == asked.generation =>
+          MoveRequest.InProgress(state)
+        case _ => true
+    }
+
+  /**
+   * Asks for the service's bucket to be moved from Garage to Google Cloud Storage (feature 039).
+   * Whether the installation can move at all is the endpoint's to say, from its configuration.
+   */
+  def moveStorage(request: StorageMoveRequest): Effect[ServiceStatus] =
+    val bound = request.writePauseBound.getOrElse(MoveRequest.DefaultBound)
+    if !currentState.exists then notFound
+    else if !currentState.descriptor.exists(_.service.provisionObjectStorage) then
+      effects.error(
+        s"service '${key.name}' has no bucket to move: its descriptor asks for none",
+        ErrorCode.Conflict
+      )
+    else if moving then
+      effects.error(s"the storage of service '${key.name}' is moving", ErrorCode.Conflict)
+    else if currentState.storage.flatMap(_.store).contains("gcs") then
+      effects.error(
+        s"the bucket of service '${key.name}' is in Google Cloud Storage already",
+        ErrorCode.Conflict
+      )
+    else
+      MoveRequest.boundProblem(bound) match
+        case Some(problem) => effects.error(problem, ErrorCode.BadRequest)
+        case None =>
+          val generation = currentState.storageMove.fold(1)(_.generation + 1)
+          effects
+            .persist(StorageMoveRequested(generation, bound, actor, at))
+            .thenReply(_.toStatus)
+
+  /**
+   * Asks for the installation's current bucket settings to be applied to the service's bucket
+   * (feature 039). Only a bucket in Google Cloud Storage has them.
+   */
+  def reapplyStorageSettings: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.storage.flatMap(_.store).contains("gcs") then
+      effects.error(
+        s"the bucket of service '${key.name}' is not in Google Cloud Storage; settings are " +
+          "reapplied there only",
+        ErrorCode.Conflict
+      )
+    else
+      effects
+        .persist(StorageSettingsReapplied(currentState.storageSettingsGeneration + 1, actor, at))
+        .thenReply(_.toStatus)
+
   def pause: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.isPaused then effects.reply(currentState.toStatus)
@@ -175,7 +253,8 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.confirmed,
       observation.database,
       observation.broker,
-      observation.objectStorage
+      observation.objectStorage,
+      observation.storage
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)
@@ -232,7 +311,9 @@ object ServiceEntity
   given Serializer[ApplyService]    = Codecs.serializer[ApplyService]("apply-service")
   given Serializer[RollbackService] = Codecs.serializer[RollbackService]("rollback-service")
   given Serializer[RollbackRequest] = Codecs.serializer[RollbackRequest]("rollback-request")
-  given Serializer[KeptDescriptor]  = Codecs.serializer[KeptDescriptor]("kept-descriptor")
+  given Serializer[StorageMoveRequest] =
+    Codecs.serializer[StorageMoveRequest]("storage-move-request")
+  given Serializer[KeptDescriptor] = Codecs.serializer[KeptDescriptor]("kept-descriptor")
   given Serializer[ServiceDescriptor] =
     Codecs.serializer[ServiceDescriptor]("service-descriptor")
   given Serializer[ServiceStatus] = Codecs.serializer[ServiceStatus]("service-status")
@@ -249,17 +330,22 @@ object ServiceEntity
 
   val applyDescriptor = command("apply")(_.apply)
   val restart         = command("restart")(_.restart)
-  val rollback        = command("rollback")(_.rollback)
-  val rollbackTarget  = query("rollback-target")(_.rollbackTarget)
-  val descriptorAt    = query("descriptor-at")(_.descriptorAt)
-  val pause           = command("pause")(_.pause)
-  val resume          = command("resume")(_.resume)
-  val expose          = command("expose")(_.expose)
-  val unexpose        = command("unexpose")(_.unexpose)
-  val observe         = command("observe")(_.observe)
-  val delete          = command("delete")(_.delete)
-  val suspend         = command("suspend")(_.suspend)
-  val reinstate       = command("reinstate")(_.reinstate)
-  val get             = query("get")(_.get)
-  val history         = query("history")(_.history)
-  val desiredState    = query("desired")(_.desiredState)
+  val reissueStorageCredential =
+    command("reissue-storage-credential")(_.reissueStorageCredential)
+  val moveStorage = command("move-storage")(_.moveStorage)
+  val reapplyStorageSettings =
+    command("reapply-storage-settings")(_.reapplyStorageSettings)
+  val rollback       = command("rollback")(_.rollback)
+  val rollbackTarget = query("rollback-target")(_.rollbackTarget)
+  val descriptorAt   = query("descriptor-at")(_.descriptorAt)
+  val pause          = command("pause")(_.pause)
+  val resume         = command("resume")(_.resume)
+  val expose         = command("expose")(_.expose)
+  val unexpose       = command("unexpose")(_.unexpose)
+  val observe        = command("observe")(_.observe)
+  val delete         = command("delete")(_.delete)
+  val suspend        = command("suspend")(_.suspend)
+  val reinstate      = command("reinstate")(_.reinstate)
+  val get            = query("get")(_.get)
+  val history        = query("history")(_.history)
+  val desiredState   = query("desired")(_.desiredState)

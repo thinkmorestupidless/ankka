@@ -476,6 +476,46 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assert(operatorDeployment(local, "local").contains("ankka-proxy:latest"))
   }
 
+  test(
+    "both overlays tell the operator and the control plane the same object store, from one place"
+  ) {
+    def envValue(deployment: String, name: String): Option[String] =
+      s"""- name: $name\\s+value: "?([^"\\n]*)"?""".r
+        .findFirstMatchIn(deployment)
+        .map(_.group(1).trim)
+    for (render, overlay) <- Vector(local -> "local", remote -> "cloud") do
+      val operator = operatorDeployment(render, overlay)
+      val controlPlane = documentsOfKind(render, "Deployment")
+        .find(_.contains("name: ankka-controlplane"))
+        .getOrElse(fail(s"$overlay: no control plane Deployment"))
+      for name <- Vector(
+          "ANKKA_OBJECT_STORE_BACKEND",
+          "ANKKA_OBJECT_STORE_PREFIX",
+          "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"
+        )
+      do assertEquals(envValue(operator, name), envValue(controlPlane, name), s"$overlay: $name")
+      assertEquals(envValue(operator, "ANKKA_OBJECT_STORE_BACKEND"), Some("garage"), overlay)
+      assertEquals(envValue(operator, "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"), Some("7"), overlay)
+  }
+
+  test("the operator is told which mover image to run, from the registry, and may run its Jobs") {
+    val remoteOperator = operatorDeployment(remote, "cloud")
+    assert(
+      remoteOperator.contains("ghcr.io/thinkmorestupidless/ankka-storage-mover:"),
+      "the remote operator does not name the registry's mover image"
+    )
+    assertEquals("ANKKA_STORAGE_MOVER_IMAGE".r.findAllIn(remoteOperator).size, 1)
+    assert(!remoteOperator.contains("ankka-storage-mover:latest"), "the local mover image survived")
+    assert(operatorDeployment(local, "local").contains("ankka-storage-mover:latest"))
+    val role = documentsOfKind(remote, "ClusterRole")
+      .find(_.contains("name: ankka-operator"))
+      .getOrElse(fail("no operator ClusterRole"))
+    assert(
+      role.contains("batch") && role.contains("jobs"),
+      "the operator may not run a move's Jobs"
+    )
+  }
+
   private def operatorDeployment(render: String, name: String): String =
     documentsOfKind(render, "Deployment")
       .find(_.contains("name: ankka-operator"))

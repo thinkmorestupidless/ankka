@@ -1,7 +1,11 @@
 package com.thinkmorestupidless.ankka.controlplane.deploy
 
 import com.thinkmorestupidless.ankka.controlplane.api.ServiceLifecycle
-import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceObservation}
+import com.thinkmorestupidless.ankka.controlplane.domain.{
+  Service,
+  ServiceObservation,
+  StorageReport
+}
 import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
 
 /** What the control plane managed to learn about a service this pass. */
@@ -50,7 +54,8 @@ object StatusIngest:
         confirmed = false,
         database = service.database,
         broker = service.broker,
-        objectStorage = service.objectStorage
+        objectStorage = service.objectStorage,
+        storage = service.storage
       )
 
     case ClusterView.Refused(reason) =>
@@ -63,7 +68,8 @@ object StatusIngest:
         confirmed = true,
         database = service.database,
         broker = service.broker,
-        objectStorage = service.objectStorage
+        objectStorage = service.objectStorage,
+        storage = service.storage
       )
 
     case ClusterView.NoReport =>
@@ -76,7 +82,8 @@ object StatusIngest:
         confirmed = false,
         database = service.database,
         broker = service.broker,
-        objectStorage = service.objectStorage
+        objectStorage = service.objectStorage,
+        storage = service.storage
       )
 
     case ClusterView.Reported(status) =>
@@ -94,8 +101,29 @@ object StatusIngest:
         confirmed = true,
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
-        objectStorage = status.objectStorage.map(_.phase)
+        objectStorage = status.objectStorage.map(_.phase),
+        storage = status.objectStorage.flatMap(report)
       )
+
+  /**
+   * What the operator reported of a bucket beyond its phase (feature 039). Absent for a status
+   * written before the feature, which names no store, so a stored observation is not rewritten
+   * until an operator that reports more says something new.
+   */
+  private def report(
+      s: com.thinkmorestupidless.ankka.crd.ObjectStorageStatus
+  ): Option[StorageReport] =
+    Option.when(s.store.nonEmpty || s.move.isDefined)(
+      StorageReport(
+        store = Option(s.store).filter(_.nonEmpty),
+        bucket = Option(s.bucket).filter(_.nonEmpty),
+        bucketAddress = s.publicAddress,
+        location = s.location,
+        softDeleteDays = s.softDeleteDays,
+        move = s.move.map(_.state).filter(_.nonEmpty),
+        moveGeneration = s.move.map(_.generation)
+      )
+    )
 
   /**
    * A route the gateway has not accepted — or has accepted and cannot resolve — is said in the

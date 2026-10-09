@@ -144,21 +144,29 @@ class ObjectStorageSuite extends munit.FunSuite:
       status(ObjectStoragePlan.Supplied, supplies),
       Some(ObjectStorageStatus("Supplied"))
     )
+    // A bucket the platform made names its store (feature 039); one of the service's own does not.
     assertEquals(
       status(ObjectStoragePlan.Waiting(Some("down"))),
-      Some(ObjectStorageStatus("Waiting", "shop.reports", detail = Some("down")))
+      Some(ObjectStorageStatus("Waiting", "shop.reports", detail = Some("down"), store = "garage"))
     )
     assertEquals(
       status(ObjectStoragePlan.Ready(false)),
-      Some(ObjectStorageStatus("Provisioned", "shop.reports"))
+      Some(ObjectStorageStatus("Provisioned", "shop.reports", store = "garage"))
     )
     assertEquals(
       status(ObjectStoragePlan.Ready(true)),
-      Some(ObjectStorageStatus("Recovered", "shop.reports", recovered = true))
+      Some(ObjectStorageStatus("Recovered", "shop.reports", recovered = true, store = "garage"))
     )
     assertEquals(
       status(ObjectStoragePlan.Failed(Vector(ObjectStorage.NoStore))),
-      Some(ObjectStorageStatus("Failed", "shop.reports", detail = Some(ObjectStorage.NoStore)))
+      Some(
+        ObjectStorageStatus(
+          "Failed",
+          "shop.reports",
+          detail = Some(ObjectStorage.NoStore),
+          store = "garage"
+        )
+      )
     )
   }
 

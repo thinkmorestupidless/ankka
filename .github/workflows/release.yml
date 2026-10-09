@@ -138,7 +138,7 @@ jobs:
     env:
       DOCKER_REPOSITORY: ghcr.io/thinkmorestupidless
       GHCR_CACHE: europe-west2-docker.pkg.dev/ankka-ops/ghcr
-      IMAGES: ankka-operator ankka-controlplane ankka-sidecar ankka-proxy sample-shopping-cart ankka-console
+      IMAGES: ankka-operator ankka-controlplane ankka-sidecar ankka-proxy ankka-storage-mover sample-shopping-cart ankka-console
     steps:
       - uses: actions/checkout@v7
         with:
@@ -160,7 +160,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish proxy/Docker/publish
+      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish proxy/Docker/publish storageMover/Docker/publish
       # The console (feature 017) is a Node image built by Docker from console/, tagged exactly as
       # the sbt images are: the release version and `latest`.
       - name: Publish the console image

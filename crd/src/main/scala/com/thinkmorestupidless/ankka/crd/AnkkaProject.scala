@@ -15,7 +15,12 @@ final case class AnkkaProjectSpec(
     projectId: String = "",
     topics: List[ProjectTopicEntry] = Nil,
     /** Brokers the project declares beside the installation's (feature 037). */
-    brokers: List[ProjectBrokerEntry] = Nil
+    brokers: List[ProjectBrokerEntry] = Nil,
+    /**
+     * Where the project's new buckets in Google Cloud Storage are made (feature 039), in the
+     * installation's own words; `None` is the installation's default. A member sets it.
+     */
+    bucketLocation: Option[String] = None
 )
 
 /**

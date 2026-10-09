@@ -35,3 +35,11 @@ data:
   # service's own Secret. The platform installs no collector and no store here: they are the
   # installation's.
   otlpEndpoint: "" # SET to export
+  # The store new buckets are made in: garage, the component this overlay lists, or gcs, Google Cloud
+  # Storage through the installation's cloud provider. With gcs, Garage may stay installed, and a
+  # bucket made there stays there until a member moves it. objectStorePrefix starts every bucket's
+  # name in Google Cloud Storage, whose names are shared with every other customer of Google's; the
+  # window is how many days, 7 to 90, a new bucket keeps a deleted object.
+  objectStoreBackend: garage # SET
+  objectStorePrefix: "" # SET with gcs
+  objectStoreSoftDeleteDays: "7"

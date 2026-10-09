@@ -6,7 +6,7 @@
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { act, applyPrimary, guard, pageData, projectShell, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { ConsoleForm, Submit, useConsole } from "../ui/console.tsx";
+import { ConsoleForm, Field, Submit, useConsole } from "../ui/console.tsx";
 import { Page, SectionTitle, ServiceSections } from "../ui/shell.tsx";
 import { Shape } from "../ui/shape.tsx";
 import { runsAs } from "../ui/hosting.ts";
@@ -15,6 +15,7 @@ import { Lifecycle } from "../ui/status.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
 import type { Operation } from "../extensions/types.ts";
+import type { ServiceStatus } from "../client/schemas.ts";
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [{ title: `${loaderData?.service.name ?? "Service"} · ankka` }];
 
@@ -40,6 +41,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
 }
 
 const serviceOperations = ["pause", "resume", "restart", "expose", "unexpose"] as const;
+const storageOperations = ["storage-credential", "storage-settings"] as const;
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
   const ctx = useConsoleContext(context);
@@ -51,10 +53,74 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       await ctx.client.deleteService(projectId, name);
       return redirect(ctx.href(`projects/${encodeURIComponent(projectId)}`));
     }
+    const self = ctx.href(`projects/${encodeURIComponent(projectId)}/services/${encodeURIComponent(name)}`);
+    if (intent === "storage-credential") {
+      await ctx.client.reissueStorageCredential(projectId, name);
+      return redirect(self);
+    }
+    if (intent === "storage-settings") {
+      await ctx.client.reapplyStorageSettings(projectId, name);
+      return redirect(self);
+    }
+    if (intent === "storage-move") {
+      await ctx.client.moveStorage(projectId, name, text(form, "writePauseBound") || undefined);
+      return redirect(self);
+    }
     if (!(serviceOperations as readonly string[]).includes(intent)) throw new Response(`unknown operation '${intent}'`, { status: 400 });
     await ctx.client.serviceOperation(projectId, name, intent as (typeof serviceOperations)[number]);
-    return redirect(ctx.href(`projects/${encodeURIComponent(projectId)}/services/${encodeURIComponent(name)}`));
+    return redirect(self);
   });
+}
+
+/** The store a bucket is in, as the operator reported it. */
+const stores: Record<string, string> = { garage: "Garage", gcs: "Google Cloud Storage" };
+
+/**
+ * What members can do about a bucket the platform made: issue its credential again, reapply the
+ * installation's settings to one in Google Cloud Storage, or move one from Garage there. Whether the
+ * installation can move at all is the control plane's to say, and its refusal is shown here.
+ */
+function Storage({ s }: { s: ServiceStatus }) {
+  const { shows } = useConsole();
+  const moveRefusal = useRefusal("storage-move");
+  if (!s.bucket) return null;
+  return (
+    <section className="ac-ops" aria-labelledby="storage-title">
+      <SectionTitle>
+        <span id="storage-title">Object storage</span>
+      </SectionTitle>
+      <Operation intent="storage-credential" label="Issue credential again" operation="service.storage-credential" entity={s} />
+      {s.objectStore === "gcs" ? (
+        <Operation intent="storage-settings" label="Reapply bucket settings" operation="service.storage-settings" entity={s} />
+      ) : shows("service.storage-move") ? (
+        <details className="ac-more" open={moveRefusal !== undefined || undefined}>
+          <summary>Move to Google Cloud Storage</summary>
+          <p>
+            Every object is copied while the service goes on writing; then its writes are paused, what changed is copied, every object is checked on
+            both sides, and the service is replaced onto its new bucket. The bucket in Garage is kept.
+          </p>
+          <ConsoleForm intent="storage-move" className="ac-form">
+            <Field
+              label="Write pause bound"
+              name="writePauseBound"
+              placeholder="10m"
+              autoComplete="off"
+              defaultValue={moveRefusal?.values.writePauseBound}
+              hint="How long writes may be paused, from 1m to 24h. A pause that reaches it fails the move and gives the writes back."
+            />
+            <Refused intent="storage-move" />
+            <div>
+              <Submit intent="storage-move">Move bucket</Submit>
+            </div>
+          </ConsoleForm>
+        </details>
+      ) : null}
+      <HostActions operation="service.storage-move" entity={s} />
+      {storageOperations.map((op) => (
+        <Refused key={op} intent={op} />
+      ))}
+    </section>
+  );
 }
 
 /** A service's bucket, that it has a store of its own, or none — and a phrase while it waits or failed. */
@@ -99,6 +165,7 @@ export default function Service() {
       {serviceOperations.map((op) => (
         <Refused key={op} intent={op} />
       ))}
+      <Storage s={s} />
       <details className="ac-more" open={deleteRefused || undefined}>
         <summary>Delete</summary>
         <div className="ac-danger-zone">
@@ -145,6 +212,30 @@ export default function Service() {
             {objectStorage(s)}
             {s.bucketAddress ? <span className="ac-hint" data-bucket-address> {s.bucketAddress}</span> : null}
           </dd>
+          {s.objectStore ? (
+            <>
+              <dt>Object store</dt>
+              <dd data-object-store={s.objectStore}>{stores[s.objectStore] ?? s.objectStore}</dd>
+            </>
+          ) : null}
+          {s.bucketLocation ? (
+            <>
+              <dt>Bucket location</dt>
+              <dd>{s.bucketLocation}</dd>
+            </>
+          ) : null}
+          {s.softDeleteDays !== undefined && s.softDeleteDays !== null ? (
+            <>
+              <dt>Deleted objects</dt>
+              <dd>Recoverable for {s.softDeleteDays} days</dd>
+            </>
+          ) : null}
+          {s.storageMove ? (
+            <>
+              <dt>Bucket move</dt>
+              <dd data-storage-move>{s.storageMove}</dd>
+            </>
+          ) : null}
           {s.broker ? (
             <>
               <dt>Broker</dt>

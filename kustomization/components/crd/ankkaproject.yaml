@@ -72,6 +72,12 @@ spec:
                         description: >-
                           sha256 of the contract's schema document under RFC 8785, as every
                           component states the schema it was built against.
+                bucketLocation:
+                  type: string
+                  description: >-
+                    Where the project's new buckets in Google Cloud Storage are made, in the
+                    installation's own words. Absent means the installation's default. A bucket's
+                    location is fixed when it is made.
                 brokers:
                   type: array
                   description: >-

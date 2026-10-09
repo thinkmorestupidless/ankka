@@ -336,7 +336,12 @@ final case class Project(
     /** By the topic's name, as the project's components use it (feature 027). */
     topics: Map[String, DeclaredTopic] = Map.empty,
     /** By the broker's name, as a component names it (feature 037). */
-    brokers: Map[String, DeclaredBroker] = Map.empty
+    brokers: Map[String, DeclaredBroker] = Map.empty,
+    /**
+     * Where the project's new buckets in Google Cloud Storage are made, in the installation's own
+     * words (feature 039); `None` is the installation's default.
+     */
+    bucketLocation: Option[String] = None
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -386,6 +391,9 @@ final case class Project(
     copy(brokers = brokers.updated(name, broker.copy(declaredAt = declaredAt)))
 
   def onBrokerRemoved(name: String): Project = copy(brokers = brokers - name)
+
+  /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+  def onLocationSet(location: Option[String]): Project = copy(bucketLocation = location)
 
   def onSecretEntryRemoved(name: String, entry: String): Project =
     secrets.get(name) match
@@ -452,6 +460,20 @@ final case class Service(
      * operator derives the same one to render the route.
      */
     exposed: Boolean = false,
+    /**
+     * Desired state: how many times a member has asked for the storage credential to be issued
+     * again (feature 039). Projected to the resource; the operator issues each one.
+     */
+    storageCredentialGeneration: Int = 0,
+    /** What the operator last reported of the bucket beyond its phase (feature 039). */
+    storage: Option[StorageReport] = None,
+    /** Desired state: the last move of the bucket a member asked for (feature 039). */
+    storageMove: Option[MoveRequest] = None,
+    /**
+     * Desired state: how many times a member has asked for the installation's bucket settings to be
+     * applied to the bucket again (feature 039).
+     */
+    storageSettingsGeneration: Int = 0,
     /**
      * Desired state, owned by the *organization*: disabled means every one of its services stops
      * (feature 008). Separate from `paused`, which the members own, so that re-enabling restores
@@ -670,7 +692,8 @@ final case class Service(
         confirmed = event.confirmed,
         database = event.database,
         broker = event.broker,
-        objectStorage = event.objectStorage
+        objectStorage = event.objectStorage,
+        storage = event.storage
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -736,12 +759,55 @@ final case class Service(
       processPort = descriptor.flatMap(_.service.resolvedProcessPort),
       broker = broker.map(Service.brokerPhrase),
       objectStorage = objectStorage.map(Service.objectStoragePhrase),
-      bucket = Service.bucketOf(projectId, name, descriptor),
-      bucketAddress = Service.bucketPathOf(projectId, name, descriptor)
+      // Feature 039: a bucket in Google Cloud Storage is named and placed by the cloud provider, so
+      // its name and address are what the operator reported; Garage's are derived, as before.
+      bucket = Service
+        .bucketOf(projectId, name, descriptor)
+        .map(derived => storage.flatMap(_.bucket).getOrElse(derived)),
+      bucketAddress =
+        if storage.flatMap(_.store).contains("gcs") then
+          Service
+            .bucketPathOf(projectId, name, descriptor)
+            .flatMap(_ => storage.flatMap(_.bucketAddress))
+        else Service.bucketPathOf(projectId, name, descriptor),
+      objectStore = storage.flatMap(_.store),
+      bucketLocation = storage.flatMap(_.location),
+      softDeleteDays = storage.flatMap(_.softDeleteDays),
+      storageMove = storage.flatMap(_.move).map(Service.storageMovePhrase)
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
 final case class KeptDescriptor(generation: Long, descriptor: ServiceDescriptor)
+
+/** A member's request to move a service's bucket to Google Cloud Storage (feature 039). */
+final case class MoveRequest(generation: Int, writePauseBound: String)
+
+object MoveRequest:
+  /** The write pause bound as shipped. */
+  val DefaultBound: String = "10m"
+
+  /** The states of a move that has not ended. */
+  val InProgress: Set[String] = Set("Requested", "Copying", "Pausing", "Verifying")
+
+  /**
+   * Why a bound cannot be one, if it cannot: a whole number of seconds, minutes or hours, from one
+   * minute to a day.
+   */
+  def boundProblem(bound: String): Option[String] =
+    val seconds = bound.lastOption.flatMap { unit =>
+      bound.dropRight(1).toLongOption.flatMap { n =>
+        unit match
+          case 's' => Some(n)
+          case 'm' => Some(n * 60)
+          case 'h' => Some(n * 3600)
+          case _   => None
+      }
+    }
+    seconds match
+      case None => Some(s"writePauseBound '$bound' is not a duration such as 90s, 10m or 2h")
+      case Some(s) if s < 60 || s > 86400 =>
+        Some(s"writePauseBound '$bound' is outside one minute to 24 hours")
+      case _ => None
 
 /** Why a rollback, or a read of a past descriptor, has nothing to give (feature 033). */
 enum RollbackRefusal:
@@ -801,6 +867,18 @@ object Service:
       case ServiceDeleted(actor, at)    => current.onDeleted.remember("deleted", actor, at)
       case ServiceSuspended(actor, at)  => current.onSuspended.remember("suspended", actor, at)
       case ServiceReinstated(actor, at) => current.onReinstated.remember("reinstated", actor, at)
+      case StorageCredentialReissued(generation, actor, at) =>
+        current
+          .copy(storageCredentialGeneration = generation)
+          .remember("storage-credential-reissued", actor, at)
+      case StorageMoveRequested(generation, bound, actor, at) =>
+        current
+          .copy(storageMove = Some(MoveRequest(generation, bound)))
+          .remember("storage-moved", actor, at)
+      case StorageSettingsReapplied(generation, actor, at) =>
+        current
+          .copy(storageSettingsGeneration = generation)
+          .remember("storage-settings-reapplied", actor, at)
 
   /**
    * The operator's reported database phase
@@ -841,6 +919,16 @@ object Service:
     case "Supplied"    => "supplied"
     case "Failed"      => "object storage provisioning failed"
     case other         => other
+
+  /** A move's state as the operator wrote it (feature 039), as the phrase a member reads. */
+  def storageMovePhrase(state: String): String = state match
+    case "Requested" => "waiting for its bucket in Google Cloud Storage"
+    case "Copying"   => "copying"
+    case "Pausing"   => "write pause"
+    case "Verifying" => "verifying"
+    case "Switched"  => "moved"
+    case "Failed"    => "move failed"
+    case other       => other
 
   /** The bucket a descriptor asks for, named as the operator names it. */
   def bucketOf(

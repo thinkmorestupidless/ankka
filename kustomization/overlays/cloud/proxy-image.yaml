@@ -18,3 +18,6 @@ spec:
           env:
             - name: ANKKA_PROXY_IMAGE
               value: ghcr.io/thinkmorestupidless/ankka-proxy:0.0.0 # SET
+            # The program a move of a service's bucket runs as a Job, released with the operator too.
+            - name: ANKKA_STORAGE_MOVER_IMAGE
+              value: ghcr.io/thinkmorestupidless/ankka-storage-mover:0.0.0 # SET

@@ -245,7 +245,25 @@ final case class ServiceSpec(
      * Whether that bucket is reachable from the internet, at the store's hostname, so the service
      * can give a browser URLs it signs (feature 034). Only with `provisionObjectStorage`.
      */
-    exposeObjectStorage: Boolean = false
+    exposeObjectStorage: Boolean = false,
+    /**
+     * The origins a browser may send from to the bucket (feature 039): the platform sets the
+     * bucket's CORS rule from them on either store, so a service's code sets none. The page that
+     * uploads is in general not the service's own, so they are the descriptor's to name. Each is
+     * `scheme://host[:port]`, or `*`. Empty is no rule.
+     */
+    objectStorageOrigins: Vector[String] = Vector.empty,
+    /**
+     * Whether the service is given a storage credential (feature 039). `false` reaches its bucket
+     * in Google Cloud Storage as its workload identity, with no key at all, and cannot sign a URL;
+     * an installation whose store is Garage refuses it. A positive boolean, `true` as shipped.
+     */
+    objectStorageCredential: Boolean = true,
+    /**
+     * After how many days a noncurrent version of an object is deleted (feature 039), on a store
+     * that keeps versions. Accepted, and without effect, on Garage, which keeps one.
+     */
+    objectStorageVersionAgeDays: Option[Int] = None
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -438,7 +456,26 @@ final case class ServiceSpec(
             "be reached from outside the cluster"
         )
         .toVector
-    both ++ exposed
+    // Feature 039: what describes a bucket the platform makes needs one.
+    val needsBucket =
+      if provisionObjectStorage then Vector.empty
+      else
+        Vector(
+          Option.when(objectStorageOrigins.nonEmpty)("objectStorageOrigins"),
+          Option.when(!objectStorageCredential)("objectStorageCredential"),
+          objectStorageVersionAgeDays.map(_ => "objectStorageVersionAgeDays")
+        ).flatten.map(field =>
+          s"$field needs provisionObjectStorage: it describes a bucket the platform makes"
+        )
+    val origins =
+      objectStorageOrigins
+        .filterNot(ServiceSpec.isOrigin)
+        .map(o => s"objectStorageOrigins: '$o' is not an origin")
+    val age = objectStorageVersionAgeDays
+      .filter(_ < 1)
+      .map(d => s"objectStorageVersionAgeDays is $d; it must be one or more")
+      .toVector
+    both ++ exposed ++ needsBucket ++ origins ++ age
 
   /**
    * What only a web-hosted service may say, and what it may not (feature 021). Empty for a service
@@ -551,6 +588,14 @@ object ServiceSpec:
   def isPlatformSecret(name: String): Boolean =
     PlatformSecretSuffixes.exists(name.endsWith) || name == PlatformSecretPrefix ||
       name.startsWith(PlatformSecretPrefix + "-")
+
+  private val Origin = """(https?)://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?""".r
+
+  /**
+   * An origin a bucket's CORS rule can admit (feature 039): `scheme://host[:port]`, with no path,
+   * or `*`. A path or a trailing slash is not an origin, and no browser sends one.
+   */
+  def isOrigin(value: String): Boolean = value == "*" || Origin.matches(value)
 
 /**
  * A container environment variable, either literal or drawn from a secret.
@@ -917,8 +962,30 @@ final case class ServiceStatus(
     /** The bucket the platform gives the service, when its descriptor asks for one. */
     bucket: Option[String] = None,
     /** Where that bucket is on the internet, when its descriptor asks that it be reachable. */
-    bucketAddress: Option[String] = None
+    bucketAddress: Option[String] = None,
+    /**
+     * Which store the bucket is in, `garage` or `gcs`, as the operator reported it (feature 039).
+     */
+    objectStore: Option[String] = None,
+    /** The bucket's location, in Google Cloud Storage. */
+    bucketLocation: Option[String] = None,
+    /** How many days the bucket keeps a deleted object, in Google Cloud Storage. */
+    softDeleteDays: Option[Int] = None,
+    /**
+     * Where a move of the bucket from Garage is, as a phrase: `copying`, `write pause`,
+     * `verifying`, `moved`, `move failed`. Its detail is in `detail`.
+     */
+    storageMove: Option[String] = None
 )
+
+/**
+ * The body of `POST /services/{project}/{name}/storage/move` (feature 039): how long the service's
+ * writes may be paused. No bound is the shipped one, ten minutes.
+ */
+final case class StorageMoveRequest(writePauseBound: Option[String] = None)
+
+/** The body of `PUT /projects/{id}/location` (feature 039). */
+final case class SetProjectLocation(location: String)
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
 final case class HistoryActor(
@@ -1713,6 +1780,10 @@ object Wire:
   given historyCodec: JsonValueCodec[Vector[HistoryEntry]]    = Codecs.make[Vector[HistoryEntry]]
   given rollbackRequestCodec: JsonValueCodec[RollbackRequest] = Codecs.make[RollbackRequest]
   given rolledBackCodec: JsonValueCodec[RolledBack]           = Codecs.make[RolledBack]
+  given storageMoveRequestCodec: JsonValueCodec[StorageMoveRequest] =
+    Codecs.make[StorageMoveRequest]
+  given setProjectLocationCodec: JsonValueCodec[SetProjectLocation] =
+    Codecs.make[SetProjectLocation]
 
   given createTokenCodec: JsonValueCodec[CreateDeployToken]   = Codecs.make[CreateDeployToken]
   given tokenCreatedCodec: JsonValueCodec[DeployTokenCreated] = Codecs.make[DeployTokenCreated]

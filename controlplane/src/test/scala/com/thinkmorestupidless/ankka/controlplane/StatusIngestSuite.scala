@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.controlplane
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.{ClusterView, StatusIngest}
-import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey, StorageReport}
 import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
 
 /**
@@ -184,4 +184,51 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
         Some("Recovered"),
         view.toString
       )
+  }
+
+  // Feature 039: what the operator reported of a bucket beyond its phase.
+
+  test("the store, the bucket as reported, its location, window and a move are carried") {
+    val observed = reported(
+      com.thinkmorestupidless.ankka.crd.ObjectStorageStatus(
+        phase = "Provisioned",
+        bucket = "ankka-casino-kyc-3f9a1c2e",
+        publicAddress = Some("https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"),
+        store = "gcs",
+        location = Some("europe-west2"),
+        softDeleteDays = Some(7),
+        move =
+          Some(com.thinkmorestupidless.ankka.crd.MoveStatus(generation = 1, state = "Switched"))
+      )
+    )
+    assertEquals(
+      observed.storage,
+      Some(
+        StorageReport(
+          store = Some("gcs"),
+          bucket = Some("ankka-casino-kyc-3f9a1c2e"),
+          bucketAddress = Some("https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"),
+          location = Some("europe-west2"),
+          softDeleteDays = Some(7),
+          move = Some("Switched"),
+          moveGeneration = Some(1)
+        )
+      )
+    )
+  }
+
+  test("a status from an operator before feature 039 names no store, and reports none") {
+    val observed =
+      reported(
+        com.thinkmorestupidless.ankka.crd.ObjectStorageStatus("Provisioned", "checkout.cart")
+      )
+    assertEquals(observed.storage, None)
+  }
+
+  test("a cluster that cannot be read restates what was last reported of the bucket") {
+    val report =
+      StorageReport(store = Some("gcs"), move = Some("Copying"), moveGeneration = Some(1))
+    val known = service().copy(storage = Some(report))
+    for view <- Vector(ClusterView.Unreachable("down"), ClusterView.NoReport) do
+      assertEquals(StatusIngest.observe(known, view).storage, Some(report), view.toString)
   }

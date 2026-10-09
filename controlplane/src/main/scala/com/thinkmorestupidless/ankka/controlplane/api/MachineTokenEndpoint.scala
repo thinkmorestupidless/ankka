@@ -145,10 +145,20 @@ object MachineTokenEndpoint:
       )
       .filter(_.contains(':'))
       .map { pair =>
-        val (id, secret) = pair.span(_ != ':')
+        // Encoded, the id has no colon of its own. Raw, as Apache Kafka's client sends it unless
+        // `sasl.oauthbearer.header.urlencode` is set, `machine:<org>/<name>` has one: the pair is
+        // split after the id, not at its first colon. A secret is hex, which decoding leaves alone.
+        val colons = pair.indices.filter(pair(_) == ':')
+        val at = colons
+          .find(i =>
+            com.thinkmorestupidless.ankka.controlplane.auth.MachineSecrets
+              .parseClientId(pair.take(i))
+              .isDefined
+          )
+          .getOrElse(colons.head)
         (
-          URLDecoder.decode(id, StandardCharsets.UTF_8),
-          URLDecoder.decode(secret.drop(1), StandardCharsets.UTF_8)
+          URLDecoder.decode(pair.take(at), StandardCharsets.UTF_8),
+          URLDecoder.decode(pair.drop(at + 1), StandardCharsets.UTF_8)
         )
       }
 

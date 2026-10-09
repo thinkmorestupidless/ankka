@@ -121,6 +121,21 @@ class MachineTokenSuite extends munit.FunSuite with LogCapturing:
       verifier.verify(accessToken(basicBody)),
       Right(Caller.Machine("affiliates", "verified"))
     )
+    // Unencoded, as Apache Kafka's client sends it by default: the id's own colon is not the split.
+    val raw = Base64.getEncoder.encodeToString(
+      s"${machine.clientId}:${machine.clientSecret}".getBytes(StandardCharsets.UTF_8)
+    )
+    val (byRaw, rawBody, _) = cp.raw(
+      "POST",
+      "/oauth/token",
+      Some("grant_type=client_credentials"),
+      headers = Map("Authorization" -> s"Basic $raw")
+    )
+    assertEquals(byRaw, 200, rawBody)
+    assertEquals(
+      verifier.verify(accessToken(rawBody)),
+      Right(Caller.Machine("affiliates", "verified"))
+    )
   }
 
   test("a wrong secret, an unknown machine and a deleted one are all one answer") {

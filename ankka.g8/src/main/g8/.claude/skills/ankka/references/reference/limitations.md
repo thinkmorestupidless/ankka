@@ -51,6 +51,27 @@ feature also says what that feature does not do.
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.
 
+## Personal data
+
+- **A data subject's id stays readable.** Erasure destroys the key a subject's personal fields are
+  encrypted under; the subject id written beside each field, and every field not marked personal, stay as
+  they were. Choose subject ids that say nothing about the person — an opaque id, never an email.
+- **No installation renders grants yet.** Another project reading a producing project's personal fields, a
+  service asking for an erasure, and a machine outside the installation decrypting through the keyring are
+  each admitted only by a grant, and an installation has none to give: each is refused.
+- **A lookup token tells equal values apart from different ones.** A view row's lookup token is a keyed hash
+  of the value under a key of the project's, the same for the same value, so anyone who can read the rows
+  can tell that two rows hold the same email without learning it. It is removed when the subject is erased.
+- **Objects are found by their key's prefix.** An erasure deletes a subject's objects under the prefix the
+  service's handler names; an object kept under any other key is not found.
+- **A local run's data is its own.** A service run outside a project encrypts under the keys of a project
+  named `local`, so what it wrote is unreadable to the same service deployed to a project.
+- **What left the installation stays where it went.** An outside machine that stored a value it decrypted
+  keeps it; erasure reaches what it asks for later, not what it kept.
+- **Restores are proven against a restored copy, not an installation.** A database restored from before an
+  erasure is erased again from the erasure log when its service starts, which the platform's own tests show
+  against a restored copy of a database; installations do not take backups of their databases yet.
+
 ## Web-hosted services
 
 - **No upgraded connections.** The proxy speaks HTTP/1.1 and passes a request asking to upgrade its

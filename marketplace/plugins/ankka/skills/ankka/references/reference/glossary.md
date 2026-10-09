@@ -119,6 +119,12 @@ The service that operates the platform: it records organizations, projects and s
 who may change them, and projects each service's desired state into an AnkkaService resource. It is itself an
 ankka service. The CLI is its client.
 
+### Data subject
+
+The person a personal field is about, named by an opaque id such as `player/8c1f` that stays readable. Each
+data subject has its own key, and erasing the subject destroys it. See
+[Erasing personal data](../platform/erasure.md).
+
 ### Declared topic
 
 A topic a member declares on a project, once, with its partitions, which the platform makes on the
@@ -189,6 +195,16 @@ under an ACL. The runtime serves both.
 The id of one instance of an entity or workflow, such as a cart id. All commands for one id are handled one
 at a time by one instance.
 
+### Erasure certificate
+
+The record of an applied erasure request, for an auditor: the request, the data subject, who asked, each
+service's completion and when the erasure became final. It holds nothing personal.
+
+### Erasure request
+
+A request to erase one data subject in one project, by a member or a granted service, applied at once or
+held until a not-before date. Applying it destroys the subject's key and runs each service's erasure duties.
+
 ### Event
 
 A fact an event sourced entity persisted, such as `ItemAdded`. Events are appended to the journal, never
@@ -246,6 +262,12 @@ The answer to a set of typed questions about a state — a choice, a score, a ye
 model, each answer with the probabilities behind it. An agent's handler can reply with one, and a judged
 guardrail refuses by one.
 
+### Keyring
+
+The installation's component that holds every data subject's key, gives a service the keys of its own
+project's subjects, and destroys a subject's key when an erasure is applied. A key never leaves it in the
+clear except to a service of the project.
+
 ### Key value entity
 
 An entity that stores only its latest state, with no history of how it got there.
@@ -302,6 +324,11 @@ is invisible to non-members.
 
 The organization role that can also rename and delete the organization and manage its members. Whoever creates
 an organization is its first owner.
+
+### Personal field
+
+A field marked as being about a person, kept everywhere only as an envelope: its data subject readable, its
+value encrypted under the subject's key. Once the subject is erased, every copy reads as erased.
 
 ### Partition
 

@@ -1,7 +1,6 @@
 package $package$.api
 
-import $package$.application.{AddItem, ItemEntity, ItemRow, ItemRows}
-import $package$.domain.Item
+import $package$.application.{AddItem, ItemEntity, ItemRow, ItemRows, SetOwner}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
 import com.thinkmorestupidless.ankka.http.*
@@ -17,11 +16,14 @@ import com.thinkmorestupidless.ankka.sdk.ComponentClient
  * `AllowAll` endpoint is reachable from the internet. Exposure changes who can reach an endpoint,
  * not who is allowed to; this line does.
  */
-final class ItemEndpoint(client: ComponentClient, views: com.thinkmorestupidless.ankka.runtime.ViewClient)
-    extends HttpEndpoint("/items"):
+final class ItemEndpoint(
+    client: ComponentClient,
+    views: com.thinkmorestupidless.ankka.runtime.ViewClient
+) extends HttpEndpoint("/items"):
 
-  private given JsonValueCodec[Item]    = Codecs.make[Item]
-  private given JsonValueCodec[AddItem] = Codecs.make[AddItem]
+  private given JsonValueCodec[ItemRead]        = Codecs.make[ItemRead]
+  private given JsonValueCodec[AddItem]         = Codecs.make[AddItem]
+  private given JsonValueCodec[SetOwner]        = Codecs.make[SetOwner]
   private given JsonValueCodec[ItemRow]         = Codecs.make[ItemRow]
   private given JsonValueCodec[Vector[ItemRow]] = Codecs.make[Vector[ItemRow]]
 
@@ -33,8 +35,14 @@ final class ItemEndpoint(client: ComponentClient, views: com.thinkmorestupidless
     rows.ordered(sql"true", order = jsonText("id"))
   }
 
+  /** The item, its owner's email as the value — or `"erased"`, which a reader has to handle. */
   get("/{id}") { (id: String) =>
-    item(id).call(ItemEntity.getItem).invoke()
+    val found = item(id).call(ItemEntity.getItem).invoke()
+    ItemRead(found.id, found.name, found.count, found.owner.map(_.getOrElse("erased")))
+  }
+
+  putBody("/{id}/owner") { (id: String, request: SetOwner) =>
+    item(id).call(ItemEntity.setOwner).invoke(request)
   }
 
   postBody("/{id}") { (id: String, request: AddItem) =>
@@ -42,3 +50,6 @@ final class ItemEndpoint(client: ComponentClient, views: com.thinkmorestupidless
   }
 
   private def item(id: String) = client.forEventSourcedEntity(EntityId(id))
+
+/** What `GET /items/{id}` answers: plain values, never a personal field's stored form. */
+final case class ItemRead(id: String, name: String, count: Int, owner: Option[String])

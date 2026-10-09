@@ -48,6 +48,12 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
+| `ANKKA_KEYRING_URL` | `ankka.erasure.keyring-url` | `""` | every service |
+| `ANKKA_S3_ENDPOINT` | `ankka.erasure.bucket.endpoint` | `""` | every service |
+| `ANKKA_S3_REGION` | `ankka.erasure.bucket.region` | `"garage"` | every service |
+| `ANKKA_S3_BUCKET` | `ankka.erasure.bucket.name` | `""` | every service |
+| `ANKKA_S3_ACCESS_KEY` | `ankka.erasure.bucket.access-key` | `""` | every service |
+| `ANKKA_S3_SECRET_KEY` | `ankka.erasure.bucket.secret-key` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
@@ -84,6 +90,10 @@ Settings with no environment variable, overridable in the service's own `applica
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
 | `ankka.query-resend-after` | `2s` | every service |
+| `ankka.erasure.cache.keys` | `10000` | every service |
+| `ankka.erasure.cache.expiry` | `5m` | every service |
+| `ankka.erasure.cache.outage-bound` | `15m` | every service |
+| `ankka.erasure.handler-timeout` | `5m` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |
@@ -197,6 +207,18 @@ service, so two services sharing a database delete each other's timers and overw
   platform's own program, never to a process or a module. Empty, the default, the service starts and
   keeping or reading a secret fails naming the variable. Set to anything that is not 32 bytes of base64,
   the service does not start. See [Secrets a service keeps](../build/secrets.md).
+
+### Personal data
+
+- `ANKKA_KEYRING_URL` (`ankka.erasure.keyring-url`) is where the service's personal fields' subject keys
+  come from: the installation's keyring, which the operator names on every service, or
+  `http://localhost:9020` beside a local compose file's keyring. Empty, the default, the service starts
+  and every personal field is refused, written or read. See [Erasing personal data](../platform/erasure.md).
+- `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION`, `ANKKA_S3_BUCKET`, `ANKKA_S3_ACCESS_KEY` and
+  `ANKKA_S3_SECRET_KEY` (`ankka.erasure.bucket.*`) are the service's bucket, which the platform gives a
+  service that asked for one; an erasure handler's object erasure deletes a data subject's objects from
+  it. Unset, a handler that asks to erase objects is told the service has no bucket. See
+  [Object storage](../platform/object-storage.md).
 
 ### Local clusters
 
@@ -374,6 +396,13 @@ installation's overlays set both. [The web hosting reference](web-hosting.md) is
 ## Settings without a variable
 
 These are overridden in the service's `application.conf` or with a system property.
+
+- `ankka.erasure.cache.keys`, `ankka.erasure.cache.expiry` and `ankka.erasure.cache.outage-bound` bound
+  the subject keys an instance holds: at most `10000`, each for `5m` after it was fetched — which also
+  bounds how long another project's revoked grant still reads — and, while the keyring cannot be
+  reached, for no longer than `15m`, after which no personal field can be read until it is back.
+- `ankka.erasure.handler-timeout` is how long the service's erasure handler may take for one data
+  subject, `5m` by default, before the erasure is recorded as failed for this service and tried again.
 
 - `ankka.ask-timeout` is how long a component client call waits before failing with the `Timeout` error
   code, `10s` by default. A process-hosted service's sidecar uses it as the time it waits for the process to

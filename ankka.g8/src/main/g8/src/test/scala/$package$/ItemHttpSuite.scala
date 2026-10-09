@@ -69,3 +69,13 @@ class ItemHttpSuite extends munit.FunSuite:
       if !listed.contains("\"id\":\"i3\"") then Thread.sleep(200)
     assert(listed.contains("\"id\":\"i3\""), s"the view never listed i3: \$listed")
   }
+
+  test("an owner set is read back, and kept only as a personal field's encrypted form") {
+    assertEquals(send("POST", "/items/i4", Some("""{"name":"Widget","count":1}"""))._1, 204)
+    val set = send("PUT", "/items/i4/owner", Some("""{"user":"u-1","email":"grace@example.com"}"""))
+    assertEquals(set._1, 204, set._2)
+    val (status, body) = send("GET", "/items/i4")
+    assertEquals(status, 200)
+    assert(body.contains("\"owner\":\"grace@example.com\""), body)
+    testKit.assertNoPersonalValue("grace@example.com")
+  }

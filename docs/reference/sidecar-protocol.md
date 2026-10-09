@@ -78,12 +78,17 @@ The table is generated from the `.proto` files.
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
 | `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
 | `Client` | `ScheduleRecurring` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `client.proto` |
+| `Client` | `FetchSubjectKey` | `KeyFetch` | `KeyAnswer` | `client.proto` |
+| `Client` | `SubjectKeyEvents` | `Empty` | `stream SubjectDestroyed` | `client.proto` |
+| `Client` | `LookupToken` | `LookupTokenRequest` | `LookupTokenReply` | `client.proto` |
+| `Client` | `EraseObjects` | `EraseObjectsRequest` | `EraseObjectsReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
 | `Http` | `Handle` | `HttpRequest` | `HttpReply` | `endpoint.proto` |
 | `Http` | `HandleStream` | `HttpRequest` | `stream StreamFrame` | `endpoint.proto` |
 | `Http` | `HandleSocket` | `stream SocketIn` | `stream SocketOut` | `endpoint.proto` |
+| `Erasure` | `Handle` | `ErasureHandleRequest` | `ErasureHandleReply` | `erasure.proto` |
 | `EventSourced` | `Handle` | `stream EventSourcedIn` | `stream EventSourcedOut` | `event_sourced.proto` |
 | `KeyValue` | `Handle` | `stream KeyValueIn` | `stream KeyValueOut` | `key_value.proto` |
 | `TimedAction` | `Invoke` | `TimedActionRequest` | `TimedActionEffect` | `timed_action.proto` |

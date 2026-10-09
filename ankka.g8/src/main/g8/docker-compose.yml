@@ -22,5 +22,41 @@ services:
       timeout: 5s
       retries: 20
 
+  # The keyring: where the service's personal fields' keys come from, and what applies an erasure.
+  # A database of its own, never the service's, whose schema it applies itself. Run the service
+  # against it with `ANKKA_KEYRING_URL=http://localhost:9020 sbt run`; without that variable every
+  # personal field is refused. Its root key is a development default; set your own with
+  # `export ANKKA_KEYRING_SECRET_KEY=\$(openssl rand -base64 32)` before the first `up`.
+  keyring-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ankka
+      POSTGRES_PASSWORD: ankka
+      POSTGRES_DB: ankka
+    volumes:
+      - keyring-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ankka -d ankka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keyring:
+    image: \${ANKKA_KEYRING_IMAGE:-ghcr.io/thinkmorestupidless/ankka-keyring:$ankka_version$}
+    depends_on:
+      keyring-db:
+        condition: service_healthy
+    environment:
+      ANKKA_HTTP_PORT: "9020"
+      ANKKA_DB_HOST: keyring-db
+      ANKKA_DB_PORT: "5432"
+      ANKKA_DB_NAME: ankka
+      ANKKA_DB_USER: ankka
+      ANKKA_DB_PASSWORD: ankka
+      ANKKA_SECRET_KEY: \${ANKKA_KEYRING_SECRET_KEY:-ZGV2ZWxvcG1lbnQta2V5cmluZy1zZWNyZXQta2V5ISE=}
+    ports:
+      - "127.0.0.1:9020:9020"
+
 volumes:
   pgdata:
+  keyring-pgdata:

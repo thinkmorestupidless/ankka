@@ -26,7 +26,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString
 import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
-import shoppingcart.application.ShoppingCartEntity
+import shoppingcart.application.{CustomerDetails, CustomerEntity, ShoppingCartEntity}
 import shoppingcart.domain.{LineItem, ShoppingCart}
 
 /**
@@ -39,8 +39,9 @@ import shoppingcart.domain.{LineItem, ShoppingCart}
 final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("/carts"):
 
   // Response and request bodies need JSON codecs; derived at compile time.
-  private given JsonValueCodec[ShoppingCart] = Codecs.make[ShoppingCart]
-  private given JsonValueCodec[LineItem]     = Codecs.make[LineItem]
+  private given JsonValueCodec[ShoppingCart]    = Codecs.make[ShoppingCart]
+  private given JsonValueCodec[LineItem]        = Codecs.make[LineItem]
+  private given JsonValueCodec[CustomerDetails] = Codecs.make[CustomerDetails]
 
   /** A public read/write API, stated deliberately rather than defaulted. */
   val acl: Acl = Acl.AllowAll
@@ -61,6 +62,15 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     cart(cartId).call(ShoppingCartEntity.removeItem).invoke(productId)
   }
 
+  // The cart's customer: personal fields, kept by an entity of their own (feature 042).
+  putBody("/{cartId}/customer") { (cartId: String, details: CustomerDetails) =>
+    customer(cartId).call(CustomerEntity.setDetails).invoke(details)
+  }
+
+  get("/{cartId}/customer") { (cartId: String) =>
+    customer(cartId).call(CustomerEntity.getDetails).invoke()
+  }
+
   post("/{cartId}/checkout") { (cartId: String) =>
     cart(cartId).call(ShoppingCartEntity.checkout).invoke()
   }
@@ -79,6 +89,8 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
       case other => socket.send(s"""{"error":"unknown request '$other'; send refresh"}""")
     }
   }
+
+  private def customer(cartId: String) = client.forKeyValueEntity(EntityId(cartId))
 
   private def cart(cartId: String) =
     client.forEventSourcedEntity(EntityId(cartId))

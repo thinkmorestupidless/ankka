@@ -92,6 +92,21 @@ class TemplateSuite extends munit.FunSuite:
     assert(Files.readString(expansion.resolve("build.sbt")).contains(s"\"$Version\""))
   }
 
+  test("the compose file runs the keyring of this version beside Postgres, its variables intact") {
+    val compose = Files.readString(expansion.resolve("docker-compose.yml"))
+    assert(
+      compose.contains(
+        s"$${ANKKA_KEYRING_IMAGE:-ghcr.io/thinkmorestupidless/ankka-keyring:$Version}"
+      ),
+      compose
+    )
+    assert(compose.contains("ANKKA_HTTP_PORT: \"9020\""), compose)
+    assert(compose.contains("${ANKKA_KEYRING_SECRET_KEY:-"), compose)
+    assert(!compose.contains("\\$"), "an escape survived expansion")
+    val readme = Files.readString(expansion.resolve("README.md"))
+    assert(readme.contains("ANKKA_KEYRING_URL=http://localhost:9020 sbt run"), readme)
+  }
+
   test("4. the expansion's own tests pass against the published artifacts") {
     assertEquals(sbt("test"), 0)
   }

@@ -1,12 +1,8 @@
----
-title: Erasing personal data
-description: Marking the fields that are about a person as personal, kept encrypted under a key per data subject, and how an erasure request destroys that key so every copy of them, backups included, becomes unreadable.
-kind: guide
-related: [platform/secrets.md, platform/object-storage.md, platform/databases.md, reference/cli.md, reference/control-plane-api.md, reference/limitations.md]
----
-
 # Erasing personal data
 
+> Marking the fields that are about a person as personal, kept encrypted under a key per data subject, and how an erasure request destroys that key so every copy of them, backups included, becomes unreadable.
+
+Source: https://docs.ankka.cloud/platform/erasure/
 A service built on ankka never deletes what it recorded: an entity's events stay in its journal, a
 topic's messages stay on the broker until its retention removes them, and every backup keeps all of it.
 That is what makes a ledger trustworthy, and it is also what makes "forget this person" hard. The
@@ -59,7 +55,6 @@ no value.
 
 The shopping cart sample keeps a cart's customer this way, in a key value entity of its own:
 
-<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/CustomerEntity.scala#personal-fields -->
 ```scala
 /**
  * The customer a cart belongs to. The name and email are personal fields of the data subject
@@ -71,7 +66,6 @@ final case class Customer(name: Personal[String], email: Personal[String])
 
 It writes both fields under the customer's subject, and reads them back with the erased case handled:
 
-<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/CustomerEntity.scala#personal-write -->
 ```scala
 def setDetails(details: CustomerDetails): Effect[CustomerDetails] =
   val customer = Customer(
@@ -81,7 +75,6 @@ def setDetails(details: CustomerDetails): Effect[CustomerDetails] =
   effects.updateState(Some(customer)).thenReply(_ => details)
 ```
 
-<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/CustomerEntity.scala#personal-read -->
 ```scala
 /** The details, each field the value or "erased": the erased case has to be handled. */
 def getDetails: ReadOnlyEffect[CustomerDetails] =

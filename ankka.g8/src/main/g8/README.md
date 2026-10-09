@@ -19,13 +19,18 @@ sbt test
 
 ```bash
 sbt schema                # ankka's database schema, extracted from the ankka-runtime artifact into target/ddl
-docker compose up -d      # Postgres, initialised from target/ddl
-sbt run                   # http://localhost:9000
+docker compose up -d      # Postgres, initialised from target/ddl, and the keyring on :9020
+ANKKA_KEYRING_URL=http://localhost:9020 sbt run   # http://localhost:9000
 
 curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
+curl -XPUT localhost:9000/items/i1/owner -H 'content-type: application/json' -d '{"user":"u-1","email":"ada@example.com"}'
 curl localhost:9000/items/i1
 curl localhost:9000/items/
 ```
+
+An item's owner email is a *personal field*: kept encrypted under a key the keyring holds for its
+data subject, `user/u-1`, and read as `"erased"` everywhere once that subject is erased. Without
+`ANKKA_KEYRING_URL` the service still runs, and refuses to write the owner.
 
 Postgres applies its init directory only to an empty volume: after `sbt schema` changes anything,
 `docker compose down -v` first.

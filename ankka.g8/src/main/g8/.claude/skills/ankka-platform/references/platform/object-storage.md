@@ -44,9 +44,10 @@ The service's program is given five variables:
 | `ANKKA_S3_SECRET_KEY` | its secret, from the storage credential Secret |
 
 Which program receives them depends on the service's hosting. An embedded service's one container has
-them. A process-hosted or web-hosted service's own program has them and the platform's program beside it —
-the sidecar or the proxy — has none, because nothing of the platform's opens a bucket. A module asks its
-`config` import for them and is told each one.
+them. A process-hosted service's own program has them, and so does the sidecar beside it: the platform
+opens the bucket for one thing only, to delete a data subject's objects when the service's erasure handler
+asks it to (see [Erasure](erasure.md)). A web-hosted service's proxy has none. A module asks its `config`
+import for them and is told each one.
 
 A service with a bucket does not start until its credential exists: an instance is created only once the
 Secret it reads is there.

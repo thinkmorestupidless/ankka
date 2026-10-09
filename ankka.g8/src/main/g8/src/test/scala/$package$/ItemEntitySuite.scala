@@ -1,6 +1,6 @@
 package $package$
 
-import $package$.application.{AddItem, ItemEntity}
+import $package$.application.{AddItem, ItemEntity, SetOwner}
 import $package$.domain.*
 import $package$.domain.ItemEvent.*
 import com.thinkmorestupidless.ankka.core.Done
@@ -29,6 +29,7 @@ class ItemEntitySuite extends munit.FunSuite:
     val _   = kit.call(ItemEntity.addItem)(AddItem("Widget", 3))
     val folded = kit.allEvents.foldLeft(Item.empty("item-1")) {
       case (item, ItemAdded(name, count)) => item.onAdded(name, count)
+      case (item, OwnerSet(owner))        => item.onOwnerSet(owner)
     }
     assertEquals(folded, kit.currentState, "replaying the journal must reproduce the state")
     assertEquals(kit.currentState.count, 5)
@@ -47,4 +48,13 @@ class ItemEntitySuite extends munit.FunSuite:
     val got = kit.call(ItemEntity.getItem)
     assertEquals(got.replyValue, Item("item-1", "Widget", 1))
     assertEquals(got.events, Vector.empty)
+  }
+
+  test("the owner's email is a personal field of the owner, not of the item") {
+    val kit    = newKit
+    val result = kit.call(ItemEntity.setOwner)(SetOwner("u-7", "ada@example.com"))
+    assertEquals(result.events.size, 1)
+    val owner = kit.currentState.owner.getOrElse(fail("no owner kept"))
+    assertEquals(owner.subject, "user/u-7")
+    assertEquals(owner.toOption, Some("ada@example.com"))
   }

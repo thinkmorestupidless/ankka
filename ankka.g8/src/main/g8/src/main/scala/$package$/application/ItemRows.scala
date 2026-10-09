@@ -19,6 +19,9 @@ final class ItemRowsView extends View[ItemEvent, ItemRow]:
     event match
       case ItemAdded(name, count) =>
         effects.updateRow(current.copy(name = name, count = current.count + count))
+      // Nothing personal goes into a row unless it must: a row's personal field is erased with its
+      // subject too, but a listing rarely needs one.
+      case OwnerSet(_) => effects.ignore()
 
 object ItemRows
     extends View.Companion[ItemRowsView, ItemEvent, ItemRow](

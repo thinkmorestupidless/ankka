@@ -232,6 +232,10 @@ final class ServiceBuilder private[ankka] (
         project,
         serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name),
         erasureHandler,
+        handlerTimeout = FiniteDuration(
+          system.settings.config.getDuration("ankka.erasure.handler-timeout").toMillis,
+          java.util.concurrent.TimeUnit.MILLISECONDS
+        ),
         objects = erasure.ObjectErasures.fromConfig(system.settings.config)
       )
     }

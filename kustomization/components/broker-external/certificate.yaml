@@ -12,6 +12,12 @@ spec:
   secretName: ankka-broker-external-tls
   dnsNames:
     - "*.BASE_DOMAIN"
+  # Kafka reads a PEM key only as PKCS#8; cert-manager writes an RSA key as PKCS#1 unless asked.
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
   issuerRef:
     name: PUBLIC_ISSUER
     kind: ClusterIssuer

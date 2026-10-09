@@ -499,6 +499,8 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       .map(yamlOf)
       .find(c => at(c, "metadata", "name") == "ankka-broker-external")
       .getOrElse(fail("no external certificate"))
+    // Kafka loads a PEM key only as PKCS#8: the broker refused a PKCS#1 key at start.
+    assertEquals(at(certificate, "spec", "privateKey", "encoding"), "PKCS8")
     val issuer = at(certificate, "spec", "issuerRef", "name")
     assert(
       documentsOfKind(remote, "ClusterIssuer")

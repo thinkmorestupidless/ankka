@@ -217,6 +217,13 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   with strimzi-kafka-oauth's callback handler and its options as one JAAS line; the API server refuses
   `oauth` by name. A value inside that line cannot be filled by a kustomize delimiter replacement, so
   the broker-external listener reads its base domain through `${strimzienv:ANKKA_BASE_DOMAIN}`.
+- **A certificate a Kafka listener presents must ask cert-manager for `encoding: PKCS8`.** cert-manager
+  writes an RSA key as PKCS#1 by default and Kafka loads a PEM key only as PKCS#8; the broker exits at
+  start with `Invalid PEM keystore configs … algid parse error`. The external listener's certificate
+  forgot it once; `RemoteOverlaySuite` pins it.
+- **A listener setting is a line of a properties file.** Strimzi writes `listenerConfig` there, so a
+  newline inside a value (a blank line in a folded YAML block) ends it: `JAAS config entry not
+  terminated by semi-colon`.
 - **Strimzi replaces the broker's pod whenever its listener certificate changes**, measured within 12s. The
   broker's certificate therefore lives a year, not the day every workload's does.
 - **A custom listener trusts an authority by its certificate; Strimzi's own client authority wants the key.**

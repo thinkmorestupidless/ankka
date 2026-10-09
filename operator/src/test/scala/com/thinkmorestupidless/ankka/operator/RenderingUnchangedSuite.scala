@@ -30,7 +30,9 @@ import java.nio.file.{Files, Path, Paths}
  * every pass, by a `create` an existing Secret refuses, so a ready service's actions gained that
  * one action, and no object changed. And once more, for object storage (feature 034): one action
  * and no object, the removal of a bucket's route if one is owned, rendered for every service so
- * that dropping a bucket leaves no route behind.
+ * that dropping a bucket leaves no route behind. And for personal data erasure (feature 042): one
+ * more table in every service's schema, `ankka_erasures_applied`, so the schema ConfigMap gains its
+ * file and no other object changes.
  */
 class RenderingUnchangedSuite extends munit.FunSuite:
 

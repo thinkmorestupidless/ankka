@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the eighteen it renders") {
+  test("the variables the platform alone sets are exactly the nineteen it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -31,10 +31,15 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_WASM_INSTANCES",
         "ANKKA_WASM_MAX_MEMORY_PAGES",
         "ANKKA_OTLP_ENDPOINT",
-        "ANKKA_OTLP_HEADERS"
+        "ANKKA_OTLP_HEADERS",
+        "ANKKA_KEYRING_URL"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
+    assert(
+      withheldFromModule(KeyringUrl),
+      "a module asks for keys through an import, never the keyring's address"
+    )
     assert(PlatformOnly.contains(GrpcPort))
   }
 

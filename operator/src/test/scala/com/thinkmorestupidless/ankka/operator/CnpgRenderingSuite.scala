@@ -141,11 +141,12 @@ class CnpgRenderingSuite extends munit.FunSuite:
   test("the schema ConfigMap carries all four DDL files, keyed by filename") {
     val configMap = CnpgRendering.schemaConfigMap("ankka-checkout")
     val keys      = configMap.getData.keySet()
-    assertEquals(keys.size, 4, keys.toString)
+    assertEquals(keys.size, 5, keys.toString)
     assert(keys.contains("10-journal-postgres.sql"), keys.toString)
     assert(keys.contains("20-projection-postgres.sql"), keys.toString)
     assert(keys.contains("30-timers-postgres.sql"), keys.toString)
     assert(keys.contains("40-secrets-postgres.sql"), keys.toString)
+    assert(keys.contains("50-erasure-postgres.sql"), keys.toString)
   }
 
   test("the schema ConfigMap is one per project namespace, not per service") {

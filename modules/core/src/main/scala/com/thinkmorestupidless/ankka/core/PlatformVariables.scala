@@ -38,6 +38,15 @@ private[ankka] object PlatformVariables:
   val OtlpHeaders: String = "ANKKA_OTLP_HEADERS"
 
   /**
+   * Where the installation's keyring is, which the platform's program opens one channel to for
+   * every subject key it needs and every erasure it must apply (feature 042). The installation's to
+   * say: the operator renders it when the keyring component has given it the address, and a local
+   * run reads it from compose. A process never holds a subject key's channel, and a module asks
+   * through an import.
+   */
+  val KeyringUrl: String = "ANKKA_KEYRING_URL"
+
+  /**
    * A service's name when it runs on a developer's machine, which names its topic sources' consumer
    * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
    * refused, with a message of its own rather than as one of `PlatformOnly`: the platform does not
@@ -71,7 +80,9 @@ private[ankka] object PlatformVariables:
     "ANKKA_WASM_MAX_MEMORY_PAGES",
     // Where telemetry goes: the installation's, given only to the platform's program.
     OtlpEndpoint,
-    OtlpHeaders
+    OtlpHeaders,
+    // Where the keyring is: the installation's, given only to the platform's program.
+    KeyringUrl
   )
 
   /**

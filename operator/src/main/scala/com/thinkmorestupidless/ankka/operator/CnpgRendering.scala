@@ -41,7 +41,8 @@ object CnpgRendering:
       "10-journal-postgres.sql",
       "20-projection-postgres.sql",
       "30-timers-postgres.sql",
-      "40-secrets-postgres.sql"
+      "40-secrets-postgres.sql",
+      "50-erasure-postgres.sql"
     )
 
   /**

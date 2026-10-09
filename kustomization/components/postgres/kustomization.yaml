@@ -26,6 +26,7 @@ configMapGenerator:
       - ddl/20-projection-postgres.sql
       - ddl/30-timers-postgres.sql
       - ddl/40-secrets-postgres.sql
+      - ddl/50-erasure-postgres.sql
     literals:
       - 99-grants.sql=GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ankka; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ankka;
     options:

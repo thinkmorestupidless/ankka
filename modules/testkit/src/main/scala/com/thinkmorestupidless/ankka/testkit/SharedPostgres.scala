@@ -44,7 +44,8 @@ private[testkit] object SharedPostgres:
     "/ankka/ddl/10-journal-postgres.sql"    -> "/docker-entrypoint-initdb.d/10-journal.sql",
     "/ankka/ddl/20-projection-postgres.sql" -> "/docker-entrypoint-initdb.d/20-projection.sql",
     "/ankka/ddl/30-timers-postgres.sql"     -> "/docker-entrypoint-initdb.d/30-timers.sql",
-    "/ankka/ddl/40-secrets-postgres.sql"    -> "/docker-entrypoint-initdb.d/40-secrets.sql"
+    "/ankka/ddl/40-secrets-postgres.sql"    -> "/docker-entrypoint-initdb.d/40-secrets.sql",
+    "/ankka/ddl/50-erasure-postgres.sql"    -> "/docker-entrypoint-initdb.d/50-erasure.sql"
   )
 
   private var container: AnkkaPostgres                = null

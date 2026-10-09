@@ -335,12 +335,15 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
       s"$dir/ca.crt"
     ) ++ body.toVector.flatMap(b => Vector("-d", b)) :+
       s"https://ankka-controlplane.$Namespace.svc.cluster.local:9000$path"
-    val (_, out) = nodeExec(
+    // The status is curl's last line on stdout; kubectl's own notices go to stderr, which is kept
+    // only to say why there was no answer.
+    val result = k3s.execInContainer(
       (Vector("kubectl", "exec", "-n", Namespace, from.getMetadata.getName, "--") ++ curl)*
     )
-    val lines  = out.linesIterator.toVector
+    val lines  = result.getStdout.linesIterator.toVector
     val status = lines.lastOption.flatMap(_.trim.toIntOption).getOrElse(0)
-    (status, lines.dropRight(1).mkString("\n"))
+    if status == 0 then (0, result.getStdout + result.getStderr)
+    else (status, lines.dropRight(1).mkString("\n"))
 
   /** SQL against the record's database, as its superuser, so ownership can be read too. */
   private def records(sql: String): String =

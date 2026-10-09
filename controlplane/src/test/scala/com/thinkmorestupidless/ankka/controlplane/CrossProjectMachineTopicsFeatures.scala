@@ -268,6 +268,36 @@ class CrossProjectMachineTopicsFeatures
       ).mkString("\n---\n")
       fail(s"${e.getMessage}\n$detail")
     }
+    // The broker rolls onto the new listener after the routes exist: ready again, or why not.
+    val rolled = scala.util.Try(waitFor(600.seconds, "the broker ready on its external listener") {
+      jsonPath("kafka", "-n", Broker, "ankka", "{.status.listeners[*].name}")
+        .split(' ')
+        .contains("external") &&
+      jsonPath(
+        "pod",
+        "-n",
+        Broker,
+        "ankka-dual-0",
+        """{.status.conditions[?(@.type=="Ready")].status}"""
+      ) == "True"
+    })
+    rolled.failed.foreach { e =>
+      val detail = Vector(
+        node("kubectl", "logs", "ankka-dual-0", "-n", Broker, "--previous", "--tail=120"),
+        node("kubectl", "logs", "ankka-dual-0", "-n", Broker, "--tail=60"),
+        node(
+          "kubectl",
+          "get",
+          "kafka",
+          "ankka",
+          "-n",
+          Broker,
+          "-o",
+          "jsonpath={.status.conditions}"
+        )
+      ).mkString("\n---\n")
+      fail(s"${e.getMessage}\n$detail")
+    }
     System.setProperty(
       "org.apache.kafka.sasl.oauthbearer.allowed.urls",
       s"$controlPlaneUrl/oauth/token"
@@ -476,8 +506,14 @@ class CrossProjectMachineTopicsFeatures
     grant
 
   private def accept(grant: GrantDetail): Unit =
-    // Another organization's grant waits for that organization to accept it.
-    ok(ankka("organizations", "grants", "accept", "affiliates", grant.id)): Unit
+    // Another organization's grant waits for that organization to accept it, once it is offered
+    // there: the organization's record of it is written after the grant is made.
+    var last  = ankka("organizations", "grants", "accept", "affiliates", grant.id)
+    val until = 60.seconds.fromNow
+    while last.code != 0 && last.all.contains("is offered to") && until.hasTimeLeft() do
+      Thread.sleep(2000)
+      last = ankka("organizations", "grants", "accept", "affiliates", grant.id)
+    ok(last): Unit
 
   private def userGrants(machineName: String, topic: String, operations: Set[String]): Boolean =
     aclsOf(s"machine.affiliates.$machineName").contains(("topic", topic, "literal", operations))

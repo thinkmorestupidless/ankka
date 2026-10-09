@@ -100,6 +100,28 @@ spec:
                         description: The project secret holding the credential, mounted as a directory.
                       declaredAt:
                         type: string
+                secrets:
+                  type: array
+                  description: >-
+                    The project's secrets by name and entry, never a value: what the cloud provider
+                    keeps the project's secrets in the cluster in step with, on the Secret Manager
+                    backend.
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                      entries:
+                        type: array
+                        items:
+                          type: string
+                secretsFingerprint:
+                  type: string
+                  description: >-
+                    A fingerprint of the secrets and when each entry was last set; a service that
+                    takes a variable from an entry waits until the provider has synced this one.
             status:
               type: object
               properties:

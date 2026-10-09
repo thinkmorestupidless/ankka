@@ -215,6 +215,11 @@ object ControlPlane:
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
+    // Where a project secret's entries go: the project's Secret in the cluster, or Secret Manager.
+    val projectSecrets: ProjectSecretWriter = backend.backend match
+      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres => projector
+      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.SecretManager =>
+        secrets.SecretManagerProjectSecretWriter.from(config, backend)
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
         HttpServer.at(host, bindPort)(
@@ -225,7 +230,7 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector),
+            secrets = Some(projectSecrets),
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),
@@ -241,7 +246,7 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector),
+            secrets = Some(projectSecrets),
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),

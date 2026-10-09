@@ -5,6 +5,8 @@ import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectBrokerDeclared,
   ProjectBrokerRemoved,
+  ProjectSecretEntriesSet,
+  ProjectSecretEntryRemoved,
   ProjectTopicDeclared,
   ProjectTopicRemoved
 }
@@ -12,7 +14,8 @@ import com.thinkmorestupidless.ankka.core.ComponentId
 import com.thinkmorestupidless.ankka.sdk.*
 
 /**
- * Writes a project's declared topics to the cluster when they change (feature 027).
+ * Writes a project's declarations to the cluster when they change: its topics and brokers (feature
+ * 027), and its secrets' names and entries, which the cloud provider's sync reads (feature 038).
  *
  * As `ProjectionTrigger` does for a service: the event says only which project to look at, and the
  * project's current declarations are what is written, so a redelivery writes nothing new. A write
@@ -24,7 +27,7 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
 
   def onMessage(event: ProjectEvent): Effect = event match
     case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectBrokerDeclared |
-        _: ProjectBrokerRemoved =>
+        _: ProjectBrokerRemoved | _: ProjectSecretEntriesSet | _: ProjectSecretEntryRemoved =>
       projector.projectTopics(messageContext.subject)
       effects.ignore()
     case _ => effects.ignore()

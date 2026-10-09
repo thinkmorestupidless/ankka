@@ -15,8 +15,22 @@ final case class AnkkaProjectSpec(
     projectId: String = "",
     topics: List[ProjectTopicEntry] = Nil,
     /** Brokers the project declares beside the installation's (feature 037). */
-    brokers: List[ProjectBrokerEntry] = Nil
+    brokers: List[ProjectBrokerEntry] = Nil,
+    /**
+     * The project's secrets by name and entry, never a value (feature 038): what the cloud provider
+     * keeps the project's secrets in the cluster in step with, on the Secret Manager backend.
+     */
+    secrets: List[ProjectSecretEntry] = Nil,
+    /**
+     * A fingerprint of `secrets` and when each entry was last set: the provider reports the one it
+     * has synced, and a service that takes a variable from an entry waits until the two are equal.
+     */
+    secretsFingerprint: Option[String] = None
 )
+
+/** One project secret: its name and its entries' names. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ProjectSecretEntry(name: String = "", entries: List[String] = Nil)
 
 /**
  * One declared topic: its name as the project's components use it, its partitions, and when the

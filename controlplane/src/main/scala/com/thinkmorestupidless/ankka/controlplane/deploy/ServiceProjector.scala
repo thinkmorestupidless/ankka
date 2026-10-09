@@ -114,7 +114,12 @@ final class ServiceProjector private (
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(projectId, work.topicsOf(projectId), work.brokersOf(projectId))
+          ProjectProjection.spec(
+            projectId,
+            work.topicsOf(projectId),
+            work.brokersOf(projectId),
+            work.secretsOf(projectId)
+          )
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
 
@@ -221,6 +226,15 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.brokers)
+      .invoke()
+
+  /** A project's secrets by name and entry, never a value (feature 038). */
+  def secretsOf(
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.api.ProjectSecretSummary] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.secrets)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =

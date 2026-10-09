@@ -286,12 +286,15 @@ class CrossProjectRouteGrantsFeatures
         Files.writeString(file, s"""{"name":"$service","service":{$body}}"""): Unit
         ok(ankka("services", "apply", "-f", file.toString, "-p", project)): Unit
       finally Files.deleteIfExists(file): Unit
-      waitFor(360.seconds, s"$service of $project being Ready") {
-        statusOf(service, project).exists(s =>
-          s.lifecycle == ServiceLifecycle.Ready && s.readyInstances >= 1 && s.confirmed
-        )
-      }
-      waitFor(120.seconds, s"$service's certificate") {
+      // `pause` answers no readiness probe, so it is never Ready: it is here for the certificate
+      // the suite calls with, which is all the wait below needs. The sample is waited for.
+      if service == "wallet" then
+        waitFor(360.seconds, s"$service of $project being Ready") {
+          statusOf(service, project).exists(s =>
+            s.lifecycle == ServiceLifecycle.Ready && s.readyInstances >= 1 && s.confirmed
+          )
+        }
+      waitFor(240.seconds, s"$service's certificate") {
         k8s.secrets().inNamespace(ns(project)).withName(s"$service-service-tls").get() != null
       }
       deployed += ((service, project))

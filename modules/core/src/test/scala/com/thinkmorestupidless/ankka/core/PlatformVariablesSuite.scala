@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the eighteen it renders") {
+  test("the variables the platform alone sets are exactly the twenty-five it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -31,7 +31,15 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_WASM_INSTANCES",
         "ANKKA_WASM_MAX_MEMORY_PAGES",
         "ANKKA_OTLP_ENDPOINT",
-        "ANKKA_OTLP_HEADERS"
+        "ANKKA_OTLP_HEADERS",
+        // Where the installation keeps its secrets, and its cloud (feature 038).
+        "ANKKA_SECRET_BACKEND",
+        "ANKKA_SECRET_MOVE",
+        "ANKKA_SECRET_RECORDS_URL",
+        "ANKKA_SECRET_VERSIONS_KEPT",
+        "ANKKA_CLOUD_PROVIDER",
+        "ANKKA_CLOUD_ACCOUNT",
+        "ANKKA_CLOUD_LOCATION"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -54,7 +62,21 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_TOPIC_BROKER_"
       )
     )
-    assertEquals(RuntimeOnlyNames, Set(SecretKey, ServiceClientTimeout))
+    // The secret store's settings reach the platform's program alone, which holds the store; the
+    // cloud provider's name is the control plane's and the operator's, not a service's.
+    assertEquals(
+      RuntimeOnlyNames,
+      Set(
+        SecretKey,
+        ServiceClientTimeout,
+        "ANKKA_SECRET_BACKEND",
+        "ANKKA_SECRET_MOVE",
+        "ANKKA_SECRET_RECORDS_URL",
+        "ANKKA_SECRET_VERSIONS_KEPT",
+        "ANKKA_CLOUD_ACCOUNT",
+        "ANKKA_CLOUD_LOCATION"
+      )
+    )
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")
   }
 

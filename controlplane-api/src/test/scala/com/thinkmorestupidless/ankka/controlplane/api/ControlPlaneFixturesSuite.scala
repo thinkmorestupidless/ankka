@@ -120,7 +120,8 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         undeclaredTopics = Some(Vector("cart-checkouts")),
         objectStorage = Some("provisioned"),
         bucket = Some("shop.cart"),
-        bucketAddress = Some("https://storage.example.com/shop.cart")
+        bucketAddress = Some("https://storage.example.com/shop.cart"),
+        grants = Some("mounted")
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -425,7 +426,105 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         Vector.empty
       )
     )
-  ).flatten
+  ).flatten ++ grantFixtures
+
+  private def grantFixtures: Vector[(String, String)] =
+    val route   = GrantTarget.route("wallet", "POST", "/v1/wallets/{player}/{currency}/deposits")
+    val topic   = GrantTarget.topic("casino.players", GrantTarget.Consume, decrypt = true)
+    val ada     = GrantAct(Some("Ada Owner"), Some(at))
+    val bo      = GrantAct(Some("Bo Owner"), Some(later))
+    val rates   = ByteRatesRequest(1048576L, 4194304L, 50)
+    val machine = Grantee.Machine("affiliates", "network")
+    Vector(
+      fixture(
+        "GrantRequest",
+        GrantRequest("service:payments/merchant", route),
+        GrantRequest("service:payments/merchant", GrantTarget.erasure)
+      ),
+      fixture(
+        "GrantDetail",
+        GrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          machine,
+          topic,
+          GrantState.Revoked,
+          "revoked",
+          ada,
+          Some(bo),
+          Some(ada)
+        ),
+        GrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          Grantee.Service("payments", "merchant"),
+          route,
+          GrantState.Accepted,
+          "in effect",
+          GrantAct()
+        )
+      ),
+      fixture(
+        "ReceivedGrantDetail",
+        ReceivedGrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          "spinvibe",
+          "eitheror",
+          machine,
+          topic,
+          GrantState.Accepted,
+          Vector(
+            GrantChangeRecord(GrantChange.Offered, Some("Ada Owner"), Some(at)),
+            GrantChangeRecord(GrantChange.Accepted, Some("Bo Owner"), Some(later))
+          ),
+          Some(TopicSettings(3, compacted = true, Some("7 days"), Some(3)))
+        ),
+        ReceivedGrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          "spinvibe",
+          "eitheror",
+          Grantee.Service("payments", "merchant"),
+          route,
+          GrantState.Pending
+        )
+      ),
+      fixture(
+        "MachineRegistration",
+        MachineRegistration("network"),
+        MachineRegistration("network")
+      ),
+      fixture(
+        "MachineRegistered",
+        MachineRegistered(
+          "network",
+          "machine:affiliates/network",
+          "c0ffee" * 10 + "c0ff",
+          "https://api.example.com/oauth/token",
+          Some("broker.example.com:9094")
+        ),
+        MachineRegistered("network", "machine:affiliates/network", "s", "https://api/oauth/token")
+      ),
+      fixture(
+        "MachineSummary",
+        MachineSummary(
+          "network",
+          "machine:affiliates/network",
+          Some("Bo Owner"),
+          Some(at),
+          Some(rates)
+        ),
+        MachineSummary("network", "machine:affiliates/network")
+      ),
+      fixture("ByteRatesRequest", rates, ByteRatesRequest(1L, 1L, 1)),
+      fixture(
+        "TokenResponse",
+        TokenResponse("eyJ.e30.sig", "Bearer", 900L),
+        TokenResponse("t", "Bearer", 900L)
+      ),
+      fixture(
+        "JsonWebKeySet",
+        JsonWebKeySet(Vector(JsonWebKey("RSA", "sig", "RS256", "20261009000000ab12", "n", "AQAB"))),
+        JsonWebKeySet(Vector.empty)
+      )
+    ).flatten
 
   test("every fixture matches what the wire codecs write") {
     if update then Files.createDirectories(dir): Unit

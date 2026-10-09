@@ -1,0 +1,59 @@
+# The AnkkaMachine custom resource definition.
+#
+# One per machine registered on an organization, cluster-scoped, named <organization>.<name>: what
+# the operator needs to give the machine a user on the installation's broker. The control plane
+# writes it when the machine is registered or its byte rates change, and deletes it with the
+# machine; the operator renders the user and reports how far it has got. No credential is here.
+#
+# This is the single copy, as ankkaservice.yaml is: the k3s suites install this exact file.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ankkamachines.ankka.thinkmorestupidless.com
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  group: ankka.thinkmorestupidless.com
+  scope: Cluster
+  names:
+    kind: AnkkaMachine
+    listKind: AnkkaMachineList
+    plural: ankkamachines
+    singular: ankkamachine
+    shortNames:
+      - amach
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        # The operator may write the status and never the machine.
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                organizationId:
+                  type: string
+                name:
+                  type: string
+                produceBytesPerSecond:
+                  type: integer
+                  format: int64
+                consumeBytesPerSecond:
+                  type: integer
+                  format: int64
+                requestPercentage:
+                  type: integer
+            status:
+              type: object
+              properties:
+                user:
+                  type: string
+                phase:
+                  type: string
+                detail:
+                  type: string

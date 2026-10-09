@@ -67,6 +67,8 @@ export type Source =
       readonly contract?: Contract
       /** The declared broker the topic is on; absent is the installation's. */
       readonly broker?: string
+      /** Another project's topic: the project whose topic it is (1.15). */
+      readonly project?: string
       /** Partitions handled at once, each in order. */
       readonly parallel?: boolean
     }
@@ -396,7 +398,7 @@ function registerWorkflow(cls: WorkflowClass<any, any>, problems: string[]): Reg
   return Object.freeze({ kind: "workflow", id: cls.componentId, cls, stateCodec: codecFor(cls.state), handlers, steps, settings })
 }
 
-type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; version?: unknown; contract?: unknown; broker?: unknown; parallel?: unknown }
+type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; version?: unknown; contract?: unknown; broker?: unknown; parallel?: unknown; project?: unknown }
 
 /**
  * What a view or consumer says about the topic it reads, checked where its other declarations are:
@@ -423,6 +425,9 @@ function topicProblems(cls: Declares, consumer: boolean, fail: Fail): void {
   if ((cls.contract !== undefined || cls.broker !== undefined || cls.parallel !== undefined) && !readsTopic) {
     fail("declares a contract, a broker or parallel, which apply to a topic; it reads a component")
   }
+  if (cls.project !== undefined && (typeof cls.project !== "string" || cls.project.trim() === "")) fail("project must be the id of the project whose topic this is")
+  if (cls.project !== undefined && !readsTopic) fail("names a project, which applies to a topic; it reads a component")
+  if (cls.project !== undefined && cls.broker !== undefined) fail("names a project and a broker; another project's topic is on the installation's broker")
 }
 
 function sourceOf(cls: Declares, fail: Fail, consumer: boolean): Source | undefined {
@@ -444,6 +449,7 @@ function sourceOf(cls: Declares, fail: Fail, consumer: boolean): Source | undefi
       ...(cls.contract instanceof Contract ? { contract: cls.contract } : {}),
       ...(typeof cls.broker === "string" ? { broker: cls.broker } : {}),
       ...(cls.parallel === true ? { parallel: true } : {}),
+      ...(typeof cls.project === "string" ? { project: cls.project } : {}),
     }
   }
   const src = cls.source as ComponentRef
@@ -584,17 +590,20 @@ function publicationOf(declared: unknown, fail: Fail): Publication | undefined {
     if (declared.trim() === "") fail("producesTo must be a topic name")
     return declared.trim() === "" ? undefined : { topic: declared }
   }
-  const p = declared as { topic?: unknown; contract?: unknown; broker?: unknown }
+  const p = declared as { topic?: unknown; contract?: unknown; broker?: unknown; project?: unknown }
   if (typeof p !== "object" || p === null || typeof p.topic !== "string" || p.topic.trim() === "") {
     fail("producesTo must be a topic name, or { topic, contract?, broker? }")
     return undefined
   }
   if (p.contract !== undefined && !(p.contract instanceof Contract)) fail("producesTo.contract must be a Contract: Contract.fromFile(path, name)")
   if (p.broker !== undefined && (typeof p.broker !== "string" || p.broker.trim() === "")) fail("producesTo.broker must be the name of a broker the project declares")
+  if (p.project !== undefined && (typeof p.project !== "string" || p.project.trim() === "")) fail("producesTo.project must be the id of the project whose topic this is")
+  if (p.project !== undefined && p.broker !== undefined) fail("producesTo names a project and a broker; another project's topic is on the installation's broker")
   return {
     topic: p.topic,
     ...(p.contract instanceof Contract ? { contract: p.contract } : {}),
     ...(typeof p.broker === "string" ? { broker: p.broker } : {}),
+    ...(typeof p.project === "string" ? { project: p.project } : {}),
   }
 }
 

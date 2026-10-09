@@ -386,7 +386,7 @@ asks for. `with_service(build())` answers their calls to the service's entities 
 | Must define | `acl() -> Acl` (`Acl::AllowAll`, `Acl::DenyAll`, `Acl::Authenticated` or `Acl::Callers(vec![...])`), `routes() -> Routes<Self>` |
 | Declarations | `Routes::new().get(template, f)`, `.delete(template, f)`, `.post(template, f)`, `.put(...)`, `.patch(...)`; `.with_acl(acl)` after a route replaces the endpoint's for it |
 | Handlers | `get` and `delete`: `fn(&Request) -> Result<R, HttpProblem>`; `post`, `put`, `patch`: `fn(&Request, Body)`, the body decoded as `Body`, `()` for none. `R` is any serializable value or a `Response`; `Done` and `()` answer 204 |
-| Callers | `CallerMatcher::Internet`, `CallerMatcher::service(name)`, `CallerMatcher::Service { name, project }`, `CallerMatcher::AnyInProject`, `CallerMatcher::SelfService` |
+| Callers | `CallerMatcher::Internet`, `CallerMatcher::service(name)`, `CallerMatcher::Service { name, project }`, `CallerMatcher::AnyInProject`, `CallerMatcher::SelfService`, `CallerMatcher::Granted`; a request's `caller()` is `Caller::Gateway`, `Caller::Service`, `Caller::Machine` or `Caller::Local` |
 | In a handler | `request.path(name)`, `query(name)`, `header(name)`, `body_as::<T>()`, `principal()` (`subject`, `name`, `email`, `email_verified`, `roles`, `claims`, `issuer`), `caller()` (`Caller::Gateway`, `Caller::Service { project, name }` or `Caller::Local`), `metadata()`, `client()` |
 | Responses | `Response::json(v)`, `text(s)`, `html(s)`, `bytes(content_type, b)`, `redirect(location)`, `no_content()`, then `.status(n)`, `.header(name, value)` |
 | Errors | `HttpProblem::new(status, message)`; a `CommandError` from a call becomes its code's status with `?` |

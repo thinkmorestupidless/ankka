@@ -45,6 +45,14 @@ final class Operator(
     projects.getOrElse(ProjectReconciler(client, settings))
   private val projectQueue = new WorkQueue(settings, projectReconciler.reconcile)
 
+  /**
+   * Registered machines' broker users (feature 040), on a queue of their own, keyed by the
+   * machine's resource name with no namespace: the resource is cluster-scoped.
+   */
+  private val machineReconciler =
+    new MachineReconciler(client, settings, new Fabric8Executor(client))
+  private val machineQueue = new WorkQueue(settings, machineReconciler.reconcile)
+
   private var informers: Vector[SharedIndexInformer[?]] = Vector.empty
 
   /** Only namespaces this operator is responsible for. */
@@ -79,6 +87,49 @@ final class Operator(
       def onDelete(obj: T, deletedFinalStateUnknown: Boolean): Unit =
         toRef(obj).foreach(target.enqueue)
 
+  /**
+   * A project's resource changed: the project is reconciled, and so is every service of it, whose
+   * declared brokers (feature 037) are mounted from it. So is every service of another project its
+   * topic grants name, before or after the change (feature 040): a grant made or revoked is an
+   * entry on that service's broker user, which must not wait for a resync.
+   */
+  private def projectChanged(old: Option[AnkkaProject], now: AnkkaProject): Unit =
+    Option(now.getMetadata).filter(m => watched(m.getNamespace)).foreach { m =>
+      client
+        .resources(classOf[AnkkaService])
+        .inNamespace(m.getNamespace)
+        .list()
+        .getItems
+        .asScala
+        .foreach(s => queue.enqueue(ServiceRef(m.getNamespace, s.getMetadata.getName)))
+      val grantees = (old.toVector :+ now)
+        .flatMap(p => Option(p.getSpec).toVector)
+        .flatMap(_.grants)
+        .filter(_.kind == "topic")
+        .flatMap(g => Operator.granteeService(g.grantee))
+        .distinct
+      grantees.foreach { (project, service) =>
+        val namespace = Names.namespace(settings.namespacePrefix, project)
+        if watched(namespace) then queue.enqueue(ServiceRef(namespace, service))
+      }
+      // A machine's grants are entries on its broker user too.
+      (old.toVector :+ now)
+        .flatMap(p => Option(p.getSpec).toVector)
+        .flatMap(_.grants)
+        .filter(_.kind == "topic")
+        .flatMap(g => Operator.granteeMachine(g.grantee))
+        .distinct
+        .foreach((organization, name) =>
+          machineQueue.enqueue(
+            ServiceRef(
+              "",
+              com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(organization, name)
+            )
+          )
+        )
+      projectQueue.enqueue(ServiceRef(m.getNamespace, m.getName))
+    }
+
   def start(): Unit =
     val resyncMillis = settings.resyncInterval.toMillis
 
@@ -103,24 +154,13 @@ final class Operator(
             .resources(classOf[AnkkaProject])
             .inAnyNamespace()
             .inform(
-              handler[AnkkaProject](p =>
-                Option(p.getMetadata)
-                  .filter(m => watched(m.getNamespace))
-                  .map { m =>
-                    // A project's declared brokers (feature 037) are mounted on every service of
-                    // the project: each is reconciled again when the project changes.
-                    client
-                      .resources(classOf[AnkkaService])
-                      .inNamespace(m.getNamespace)
-                      .list()
-                      .getItems
-                      .asScala
-                      .foreach(s =>
-                        queue.enqueue(ServiceRef(m.getNamespace, s.getMetadata.getName))
-                      )
-                    ServiceRef(m.getNamespace, m.getName)
-                  }
-              )(using projectQueue),
+              new ResourceEventHandler[AnkkaProject]:
+                def onAdd(obj: AnkkaProject): Unit = projectChanged(None, obj)
+                def onUpdate(old: AnkkaProject, updated: AnkkaProject): Unit =
+                  projectChanged(Some(old), updated)
+                def onDelete(obj: AnkkaProject, deletedFinalStateUnknown: Boolean): Unit =
+                  projectChanged(None, obj)
+              ,
               resyncMillis
             )
         )
@@ -132,9 +172,31 @@ final class Operator(
           )
           None
 
-    informers = Vector(services, deployments) ++ projectInformer
+    // As for AnkkaProject: a cluster without the type has its services reconciled all the same.
+    val machineInformer =
+      try
+        Some(
+          client
+            .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine])
+            .inform(
+              handler[com.thinkmorestupidless.ankka.crd.AnkkaMachine](m =>
+                Option(m.getMetadata).map(meta => ServiceRef("", meta.getName))
+              )(using machineQueue),
+              resyncMillis
+            )
+        )
+      catch
+        case scala.util.control.NonFatal(e) =>
+          log.warn(
+            "no AnkkaMachine type in this cluster; machines are given nothing: {}",
+            e.getMessage
+          )
+          None
+
+    informers = Vector(services, deployments) ++ projectInformer ++ machineInformer
     queue.start()
     projectQueue.start()
+    machineQueue.start()
 
     log.info(
       "operator watching namespaces '{}-*' (resync every {})",
@@ -152,6 +214,25 @@ final class Operator(
     informers = Vector.empty
     queue.stop()
     projectQueue.stop()
+    machineQueue.stop()
 
   /** Test seam. */
   private[operator] def workQueue: WorkQueue = queue
+
+object Operator:
+
+  /** The organization and name a grantee word names, when it names a machine (`machine:o/n`). */
+  def granteeMachine(grantee: String): Option[(String, String)] =
+    grantee.stripPrefix("machine:") match
+      case rest if rest != grantee && rest.count(_ == '/') == 1 =>
+        val (organization, name) = rest.span(_ != '/')
+        Option.when(organization.nonEmpty && name.length > 1)((organization, name.drop(1)))
+      case _ => None
+
+  /** The project and service a grantee word names, when it names a service (`service:p/n`). */
+  def granteeService(grantee: String): Option[(String, String)] =
+    grantee.stripPrefix("service:") match
+      case rest if rest != grantee && rest.count(_ == '/') == 1 =>
+        val (project, service) = rest.span(_ != '/')
+        Option.when(project.nonEmpty && service.length > 1)((project, service.drop(1)))
+      case _ => None

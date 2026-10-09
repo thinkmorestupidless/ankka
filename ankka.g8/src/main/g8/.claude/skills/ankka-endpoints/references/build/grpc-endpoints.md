@@ -251,6 +251,12 @@ reads no request. The refusals are statuses:
 A call to a method the endpoint does not have is judged by the endpoint's ACL before it is answered
 `UNIMPLEMENTED`, so a closed endpoint does not disclose which methods it has.
 
+`Acl.allowCallers(Callers.granted)` admits a service of another project, or a registered machine, that
+this service's project has granted the method being called. A grant names one method as
+`<Service>/<Method>`, such as `WalletService/Deposit`, which opens that method of that service
+definition and no other: a caller granted `Deposit` is refused `GetBalance` with `PERMISSION_DENIED`.
+[Cross-project access](../platform/cross-project-access.md) describes how a project grants a method.
+
 A handler reads `caller`, `principal`, `metadata` and `call` on its own thread, as an HTTP handler reads
 `caller`, `principal` and `request`. In a cluster the caller is read from the client certificate the
 platform issued the calling workload, and nothing the call says about itself is believed; on a developer's

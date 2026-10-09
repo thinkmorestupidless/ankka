@@ -15,7 +15,33 @@ final case class AnkkaProjectSpec(
     projectId: String = "",
     topics: List[ProjectTopicEntry] = Nil,
     /** Brokers the project declares beside the installation's (feature 037). */
-    brokers: List[ProjectBrokerEntry] = Nil
+    brokers: List[ProjectBrokerEntry] = Nil,
+    /**
+     * The project's accepted grants (feature 040), and only those: a pending grant is never here,
+     * so a grant opens nothing in the cluster until it is accepted.
+     */
+    grants: List[ProjectGrantEntry] = Nil
+)
+
+/**
+ * One accepted grant: `grantee` is `service:<project>/<name>` or `machine:<organization>/<name>`;
+ * `kind` is `route` (`service`, `httpMethod`, `path`), `method` (`service`, `method`, a gRPC method
+ * as `Service/Method`), `topic` (`topic`, `right` `consume` or `produce`, `decrypt`) or `erasure`.
+ * Flat, as every entry here is: the schema suite checks one level.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ProjectGrantEntry(
+    id: String = "",
+    grantee: String = "",
+    kind: String = "",
+    service: Option[String] = None,
+    httpMethod: Option[String] = None,
+    path: Option[String] = None,
+    method: Option[String] = None,
+    topic: Option[String] = None,
+    right: Option[String] = None,
+    decrypt: Boolean = false,
+    grantedAt: String = ""
 )
 
 /**

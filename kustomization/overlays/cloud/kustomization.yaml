@@ -73,6 +73,9 @@ components:
   - ../../components/keycloak
   - ../../components/controlplane
   - ../../components/console
+  # The broker exposed to machines outside the cluster, through the Gateway on 9094 (feature 040).
+  # After the broker, the gateway and the control plane, whose objects it patches.
+  - ../../components/broker-external
 
 resources:
   - platform-configmap.yaml
@@ -271,6 +274,74 @@ replacements:
         options:
           delimiter: "."
           index: 1
+      # The broker exposed to machines (feature 040): its listener's hostnames and certificate, and
+      # the issuer every machine token names, which is the control plane's public address.
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.listeners.[name=external].configuration.bootstrap.host
+          - spec.kafka.listeners.[name=external].configuration.hostTemplate
+          - spec.kafka.listeners.[name=external].authentication.validIssuerUri
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Gateway
+          name: ankka
+        fieldPaths:
+          - spec.listeners.[name=broker].hostname
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Certificate
+          name: ankka-broker-external
+        fieldPaths:
+          - spec.dnsNames.0
+        options:
+          delimiter: "."
+          index: 1
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerExternalBootstrap
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_BROKER_EXTERNAL_BOOTSTRAP].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.publicIssuer
+    targets:
+      - select:
+          kind: Certificate
+          name: ankka-broker-external
+        fieldPaths:
+          - spec.issuerRef.name
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerMaxConnectionsPerIp
+    targets:
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.config.max\.connections\.per\.ip
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerExternalConnectionRate
+    targets:
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.config.listener\.name\.external\.max\.connection\.creation\.rate
   - source:
       kind: ConfigMap
       name: ankka-platform

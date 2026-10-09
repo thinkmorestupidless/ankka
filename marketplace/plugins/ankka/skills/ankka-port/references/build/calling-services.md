@@ -10,8 +10,9 @@ nobody else. A route that only a payment adapter should reach admits that adapte
 internet, every other service, and every other caller.
 
 The call is addressed by name, never by an address: a service of the same project by its name, a service
-of another project by project and name. Whether a service of another project admits the caller is that
-service's own access rule's decision.
+of another project by project and name. A service of another project admits the caller only on a route
+its project has granted the calling service, and only where that route's access rule admits granted
+callers; see [Cross-project access](../platform/cross-project-access.md).
 
 ## Who may call another service
 

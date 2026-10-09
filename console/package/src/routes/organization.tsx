@@ -1,14 +1,16 @@
 /**
- * An organization: its projects, and what its owners and the platform administrator may do to it.
+ * An organization: its projects, the grants other organizations' projects offer it (feature 040), and
+ * what its owners and the platform administrator may do to it.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { act, guard, organizationShell, pageData, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { ConsoleForm, ConsoleLink, Field, Submit, useConsole } from "../ui/console.tsx";
+import { ConsoleForm, ConsoleLink, Field, Submit, useConsole, when } from "../ui/console.tsx";
 import { Page } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
-import type { Quota } from "../client/schemas.ts";
+import { targetText } from "../ui/grants.ts";
+import type { Quota, ReceivedGrantDetail } from "../client/schemas.ts";
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [{ title: `${loaderData?.organization.name ?? "Organization"} · ankka` }];
 
@@ -16,7 +18,12 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.organizationId!;
   return guard(ctx, async () => {
-    const [organization, projects, page] = await Promise.all([ctx.client.getOrganization(id), ctx.client.listProjects(), pageData(ctx)]);
+    const [organization, projects, offered, page] = await Promise.all([
+      ctx.client.getOrganization(id),
+      ctx.client.listProjects(),
+      ctx.client.organizationGrants(id),
+      pageData(ctx),
+    ]);
     // An organization whose owners have all left can be given one by an administrator.
     const ownerless = page.principal?.platformAdmin ? !(await ctx.client.members(id)).members.some((m) => m.role === "owner") : false;
     const own = projects.filter((p) => p.organizationId === id);
@@ -28,6 +35,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       }),
       organization,
       projects: own,
+      offered,
       ownerless,
       panels: await loadPanels(ctx, "organization", organization),
     };
@@ -70,6 +78,15 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "repair":
         await ctx.client.repair(id, text(form, "subject"), "owner");
         return redirect(self);
+      case "grant-accept":
+        await ctx.client.answerGrant(id, text(form, "grantId"), "accept");
+        return redirect(self);
+      case "grant-decline":
+        await ctx.client.answerGrant(id, text(form, "grantId"), "decline");
+        return redirect(self);
+      case "grant-relinquish":
+        await ctx.client.answerGrant(id, text(form, "grantId"), "relinquish");
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
@@ -78,8 +95,11 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 
 const limit = (n: number | undefined, what: string) => (n === undefined ? `any number of ${what}` : `${n} ${what}`);
 
+/** A grant in one phrase for a control's accessible name: what it opens, to whom, from where. */
+const grantName = (g: ReceivedGrantDetail) => `${targetText(g.target)} to ${g.grantee} from ${g.grantingProject}`;
+
 export default function Organization() {
-  const { organization: o, projects, ownerless, panels, console: page } = useLoaderData<typeof loader>();
+  const { organization: o, projects, offered, ownerless, panels, console: page } = useLoaderData<typeof loader>();
   const { shows } = useConsole();
   const admin = page.principal?.platformAdmin ?? false;
   const owner = o.role === "owner" || admin;
@@ -216,6 +236,90 @@ export default function Organization() {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="ac-card" aria-labelledby="offered">
+        <h2 id="offered">Offered grants</h2>
+        {offered.length === 0 ? (
+          <p className="ac-empty">
+            No other organization&apos;s project offers this organization&apos;s machines or services anything. A grant from another organization waits here until an owner
+            accepts it.
+          </p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="offered">
+              <thead>
+                <tr>
+                  <th scope="col">From</th>
+                  <th scope="col">Grantee</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Last change</th>
+                  <th scope="col">
+                    <span className="ac-visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {offered.map((g) => {
+                  const last = g.changes[g.changes.length - 1];
+                  return (
+                    <tr key={g.id} data-offered={g.id} data-state={g.state}>
+                      <td>
+                        {g.grantingProject} <span className="ac-hint">of {g.grantingOrganization}</span>
+                      </td>
+                      <td>
+                        <code>{g.grantee}</code>
+                      </td>
+                      <td>{targetText(g.target)}</td>
+                      <td>{g.state}</td>
+                      <td>
+                        {last ? (
+                          <>
+                            {last.change}
+                            {last.at ? ` ${when(last.at)}` : ""}
+                            {last.by ? ` by ${last.by}` : ""}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        {owner && g.state === "pending" && shows("grant.answer") ? (
+                          <div className="ac-ops">
+                            <ConsoleForm intent="grant-accept" className="ac-inline">
+                              <input type="hidden" name="grantId" value={g.id} />
+                              <Submit intent="grant-accept" label={`Accept ${grantName(g)}`}>
+                                Accept
+                              </Submit>
+                            </ConsoleForm>
+                            <ConsoleForm intent="grant-decline" className="ac-inline">
+                              <input type="hidden" name="grantId" value={g.id} />
+                              <Submit intent="grant-decline" label={`Decline ${grantName(g)}`}>
+                                Decline
+                              </Submit>
+                            </ConsoleForm>
+                          </div>
+                        ) : null}
+                        {owner && g.state === "accepted" && shows("grant.relinquish") ? (
+                          <ConsoleForm intent="grant-relinquish" className="ac-inline">
+                            <input type="hidden" name="grantId" value={g.id} />
+                            <Submit intent="grant-relinquish" danger label={`Relinquish ${grantName(g)}`}>
+                              Relinquish
+                            </Submit>
+                          </ConsoleForm>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Refused intent="grant-accept" />
+        <Refused intent="grant-decline" />
+        <Refused intent="grant-relinquish" />
       </section>
 
       <Panels kind="organization" entity={o} loaded={panels} />

@@ -4,7 +4,10 @@ import {
   authDiscoverySchema,
   deployTokenCreatedSchema,
   deployTokenSummarySchema,
+  grantDetailSchema,
   historyEntrySchema,
+  machineRegisteredSchema,
+  machineSummarySchema,
   logsResponseSchema,
   membersResponseSchema,
   organizationSummarySchema,
@@ -13,17 +16,23 @@ import {
   projectSecretSummarySchema,
   projectSummarySchema,
   projectTopicSchema,
+  receivedGrantDetailSchema,
   rolledBackSchema,
   serviceStatusSchema,
   serviceTopologySchema,
   type AuthDiscovery,
   type BrokerDeclarationRequest,
+  type ByteRatesRequest,
   type CreateDeployToken,
   type CreateOrganization,
   type DeployTokenCreated,
   type DeployTokenSummary,
+  type GrantDetail,
+  type GrantRequest,
   type HistoryEntry,
   type LogsResponse,
+  type MachineRegistered,
+  type MachineSummary,
   type MembersResponse,
   type OrganizationSummary,
   type ProjectBroker,
@@ -32,6 +41,7 @@ import {
   type ProjectSummary,
   type ProjectTopic,
   type Quota,
+  type ReceivedGrantDetail,
   type Role,
   type RolledBack,
   type ServiceStatus,
@@ -50,6 +60,9 @@ export type Transport = (url: string, init: RequestInit) => Promise<Response>;
  * refused and a new one must be obtained. `null` means nobody is signed in.
  */
 export type BearerSource = (options: { refresh: boolean }) => Promise<string | null>;
+
+/** What a grantee's organization may do to a grant offered to it, as the route's last segment says it. */
+export type GrantAnswer = "accept" | "decline" | "relinquish";
 
 export interface LogsQuery {
   instance?: string;
@@ -193,6 +206,42 @@ export class ControlPlaneClient {
     return this.#call("DELETE", `/organizations/${segment(id)}/tokens/${segment(tokenId)}`);
   }
 
+  // ── Machines and the grants an organization holds (feature 040) ─────────
+
+  /** The organization's registered machines; never a secret. */
+  machines(id: string): Promise<MachineSummary[]> {
+    return this.#call("GET", `/organizations/${segment(id)}/machines`, { schema: arrayOf(machineSummarySchema) });
+  }
+
+  /** Registers a machine. The reply carries its client secret, the only time it is ever shown. */
+  registerMachine(id: string, name: string): Promise<MachineRegistered> {
+    return this.#call("POST", `/organizations/${segment(id)}/machines`, { body: { name }, schema: machineRegisteredSchema });
+  }
+
+  deleteMachine(id: string, name: string): Promise<void> {
+    return this.#call("DELETE", `/organizations/${segment(id)}/machines/${segment(name)}`);
+  }
+
+  setMachineByteRates(id: string, name: string, rates: ByteRatesRequest): Promise<MachineSummary> {
+    return this.#call("PUT", `/organizations/${segment(id)}/machines/${segment(name)}/byte-rates`, {
+      body: rates,
+      schema: machineSummarySchema,
+    });
+  }
+
+  /** What the organization's machines and its projects' services hold, or are offered, from other projects. */
+  organizationGrants(id: string): Promise<ReceivedGrantDetail[]> {
+    return this.#call("GET", `/organizations/${segment(id)}/grants`, { schema: arrayOf(receivedGrantDetailSchema) });
+  }
+
+  /**
+   * Answers a grant from the grantee's side, as an owner of its organization: accepts or declines a
+   * pending one, or relinquishes an accepted one.
+   */
+  answerGrant(id: string, grantId: string, verb: GrantAnswer): Promise<void> {
+    return this.#call("POST", `/organizations/${segment(id)}/grants/${segment(grantId)}/${verb}`);
+  }
+
   // ── Projects ──────────────────────────────────────────────────────────────
 
   listProjects(): Promise<ProjectSummary[]> {
@@ -267,6 +316,28 @@ export class ControlPlaneClient {
 
   listBrokers(id: string): Promise<ProjectBroker[]> {
     return this.#call("GET", `/projects/${segment(id)}/brokers`, { schema: arrayOf(projectBrokerSchema) });
+  }
+
+  // ── Grants (feature 040) ──────────────────────────────────────────────────
+
+  /** Grants a service of another project, or a machine, one route, method, topic or the erasure. */
+  makeGrant(id: string, request: GrantRequest): Promise<GrantDetail> {
+    return this.#call("POST", `/projects/${segment(id)}/grants`, { body: request, schema: grantDetailSchema });
+  }
+
+  /** The project's grants, live and ended, each with whether it is in effect and why not. */
+  grants(id: string): Promise<GrantDetail[]> {
+    return this.#call("GET", `/projects/${segment(id)}/grants`, { schema: arrayOf(grantDetailSchema) });
+  }
+
+  /** What other projects granted this project's services, and every change to each. */
+  receivedGrants(id: string): Promise<ReceivedGrantDetail[]> {
+    return this.#call("GET", `/projects/${segment(id)}/grants/received`, { schema: arrayOf(receivedGrantDetailSchema) });
+  }
+
+  /** Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. */
+  endGrant(id: string, grantId: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/grants/${segment(grantId)}`);
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

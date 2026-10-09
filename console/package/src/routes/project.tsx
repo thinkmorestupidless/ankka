@@ -1,6 +1,7 @@
 /**
  * A project: its services, kept current while the page is open, its registry credential, its
- * project secrets — by name and entry, never a value — and the topics it declares on the broker.
+ * project secrets — by name and entry, never a value — the topics it declares on the broker, the
+ * grants it makes to other projects' services and to machines, and what other projects grant it.
  */
 import { data, redirect, useActionData, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { ControlPlaneError } from "../client/errors.ts";
@@ -11,6 +12,8 @@ import { Page, SectionTitle } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useProjectStream } from "../ui/use-stream.ts";
+import { targetText } from "../ui/grants.ts";
+import type { GrantTarget } from "../client/schemas.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [{ title: `${loaderData?.project.name ?? "Project"} · ankka` }];
@@ -19,12 +22,14 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, topics, brokers, page] = await Promise.all([
+    const [project, services, secrets, topics, brokers, grants, received, page] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
       ctx.client.listTopics(id),
       ctx.client.listBrokers(id),
+      ctx.client.grants(id),
+      ctx.client.receivedGrants(id),
       pageData(ctx),
     ]);
     const organization = await ctx.client.getOrganization(project.organizationId);
@@ -37,6 +42,8 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       secrets,
       topics,
       brokers,
+      grants,
+      received,
       panels: await loadPanels(ctx, "project", project),
     };
   });
@@ -108,14 +115,45 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "broker-unset":
         await ctx.client.removeBroker(id, text(form, "brokerName"));
         return redirect(self);
+      case "grant-make":
+        await ctx.client.makeGrant(id, { grantee: text(form, "grantee"), target: grantTarget(form) });
+        return redirect(self);
+      case "grant-end":
+        // A pending grant is withdrawn and an accepted one revoked: the control plane decides which.
+        await ctx.client.endGrant(id, text(form, "grantId"));
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
   });
 }
 
+/**
+ * The target the form describes, with only its kind's fields: the control plane refuses a field
+ * another kind would take ("a topic target has no service"), so an empty or foreign one is left out.
+ */
+function grantTarget(form: FormData): GrantTarget {
+  const kind = text(form, "grantKind");
+  const given = (name: string) => text(form, name) || undefined;
+  // Absent fields are left out of the request body, as `JSON.stringify` drops `undefined`.
+  const none = { service: undefined, method: undefined, path: undefined, topic: undefined, right: undefined, decrypt: false };
+  switch (kind) {
+    case "route":
+      return { ...none, kind, service: given("grantService"), method: given("grantMethod")?.toUpperCase(), path: given("grantPath") };
+    case "method":
+      return { ...none, kind, service: given("grantService"), method: given("grantMethod") };
+    case "topic":
+      return { ...none, kind, topic: given("grantTopic"), right: given("grantRight"), decrypt: form.get("grantDecrypt") === "on" };
+    default:
+      return { ...none, kind };
+  }
+}
+
+/** A live grant is ended by withdrawing it while it waits for an answer, by revoking it once accepted. */
+const endVerb = (state: string) => (state === "pending" ? "Withdraw" : "Revoke");
+
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, topics, brokers, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, brokers, grants, received, panels } = useLoaderData<typeof loader>();
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
@@ -124,6 +162,7 @@ export default function Project() {
   const secretRefusal = useRefusal("secret-set");
   const topicRefusal = useRefusal("topic-set");
   const brokerRefusal = useRefusal("broker-set");
+  const grantRefusal = useRefusal("grant-make");
   const shown = useActionData() as { intent?: string; topic?: string; schema?: unknown } | undefined;
   const shownSchema = shown && shown.intent === "topic-schema" && typeof shown.topic === "string" ? shown : undefined;
   const path = `projects/${encodeURIComponent(p.id)}`;
@@ -242,6 +281,77 @@ export default function Project() {
               </div>
             </ConsoleForm>
           </details>
+        </section>
+      ) : null}
+      {shows("grant.make") ? (
+        <section className="ac-form" aria-labelledby="grant-make-title">
+          <SectionTitle>
+            <span id="grant-make-title">Grants</span>
+          </SectionTitle>
+          <details className="ac-more" open={grantRefusal !== undefined || undefined}>
+            <summary>Make a grant</summary>
+            <ConsoleForm intent="grant-make" className="ac-form">
+              <Field
+                label="Grantee"
+                name="grantee"
+                required
+                placeholder="service:payments/merchant"
+                autoComplete="off"
+                defaultValue={grantRefusal?.values.grantee}
+                hint="service:<project>/<service>, or machine:<organization>/<name>. Another organization's grantee must accept first."
+              />
+              <div className="ac-field">
+                <label htmlFor="grantKind">Grant kind</label>
+                <select id="grantKind" name="grantKind" defaultValue={grantRefusal?.values.grantKind ?? "route"} aria-describedby="grantKind-hint">
+                  <option value="route">route</option>
+                  <option value="method">method</option>
+                  <option value="topic">topic</option>
+                  <option value="erasure">erasure</option>
+                </select>
+                <p className="ac-hint" id="grantKind-hint">
+                  route: a service, an HTTP method and a path. method: a service and a gRPC method. topic: a declared topic and a right. erasure: nothing more.
+                </p>
+              </div>
+              <Field label="Granted service" name="grantService" placeholder="wallet" autoComplete="off" defaultValue={grantRefusal?.values.grantService} />
+              <Field
+                label="Granted method"
+                name="grantMethod"
+                placeholder="POST"
+                autoComplete="off"
+                defaultValue={grantRefusal?.values.grantMethod}
+                hint="An HTTP method for a route; Service/Method for a gRPC method."
+              />
+              <Field label="Granted path" name="grantPath" placeholder="/v1/wallets/{player}" autoComplete="off" defaultValue={grantRefusal?.values.grantPath} />
+              <Field label="Granted topic" name="grantTopic" list="grant-topics" autoComplete="off" defaultValue={grantRefusal?.values.grantTopic} />
+              <datalist id="grant-topics">
+                {topics.map((t) => (
+                  <option key={t.name} value={t.name} />
+                ))}
+              </datalist>
+              <div className="ac-field">
+                <label htmlFor="grantRight">Granted right</label>
+                <select id="grantRight" name="grantRight" defaultValue={grantRefusal?.values.grantRight ?? "consume"}>
+                  <option value="consume">consume</option>
+                  <option value="produce">produce</option>
+                </select>
+              </div>
+              <div className="ac-field">
+                <label htmlFor="grantDecrypt">
+                  <input id="grantDecrypt" name="grantDecrypt" type="checkbox" defaultChecked={grantRefusal?.values.grantDecrypt === "on"} /> Allow decryption
+                </label>
+                <p className="ac-hint" id="grantDecrypt-hint">
+                  Only with consume: the grantee may read what the topic's producers encrypted.
+                </p>
+              </div>
+              <Refused intent="grant-make" />
+              <div>
+                <Submit intent="grant-make">Make grant</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+          <div className="ac-ops">
+            <HostActions operation="grant.make" entity={p} />
+          </div>
         </section>
       ) : null}
       {shows("project.rename") || shows("project.delete") ? (
@@ -514,6 +624,119 @@ export default function Project() {
           </div>
         )}
         <Refused intent="broker-unset" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="grants">
+        <h2 id="grants">Grants</h2>
+        {grants.length === 0 ? (
+          <p className="ac-empty">No grants. A grant lets a service of another project, or a machine, reach one route, method or topic of this project.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="grants">
+              <thead>
+                <tr>
+                  <th scope="col">Grantee</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Effect</th>
+                  <th scope="col">Granted</th>
+                  <th scope="col">
+                    <span className="ac-visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {grants.map((g) => (
+                  <tr key={g.id} data-grant={g.id} data-state={g.state}>
+                    <td>
+                      <code>{g.grantee}</code>
+                    </td>
+                    <td>{targetText(g.target)}</td>
+                    <td>{g.state}</td>
+                    <td data-effect>{g.effect}</td>
+                    <td>
+                      {g.granted.at ? when(g.granted.at) : "—"}
+                      {g.granted.by ? ` by ${g.granted.by}` : ""}
+                      {g.ended ? (
+                        <span className="ac-hint">
+                          {" "}
+                          · ended {g.ended.at ? when(g.ended.at) : ""}
+                          {g.ended.by ? ` by ${g.ended.by}` : ""}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      {shows("grant.end") && (g.state === "pending" || g.state === "accepted") ? (
+                        <ConsoleForm intent="grant-end" className="ac-inline">
+                          <input type="hidden" name="grantId" value={g.id} />
+                          <Submit intent="grant-end" label={`${endVerb(g.state)} the grant to ${g.grantee} of ${targetText(g.target)}`}>
+                            {endVerb(g.state)}
+                          </Submit>
+                        </ConsoleForm>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Refused intent="grant-end" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="received">
+        <h2 id="received">Received</h2>
+        {received.length === 0 ? (
+          <p className="ac-empty">No other project grants this project's services anything.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="received">
+              <thead>
+                <tr>
+                  <th scope="col">From</th>
+                  <th scope="col">Grantee</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Changes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {received.map((r) => (
+                  <tr key={r.id} data-received={r.id} data-state={r.state}>
+                    <td>
+                      {r.grantingProject} <span className="ac-hint">of {r.grantingOrganization}</span>
+                    </td>
+                    <td>
+                      <code>{r.grantee}</code>
+                    </td>
+                    <td>
+                      {targetText(r.target)}
+                      {r.topic ? (
+                        <span className="ac-hint">
+                          {" "}
+                          · {r.topic.partitions} partitions{r.topic.compacted ? ", compacted" : ""}
+                          {r.topic.retention ? `, kept ${r.topic.retention}` : ""}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>{r.state}</td>
+                    <td>
+                      <ul className="ac-topics">
+                        {r.changes.map((c, i) => (
+                          <li key={`${c.change}-${i}`}>
+                            {c.change}
+                            {c.at ? ` ${when(c.at)}` : ""}
+                            {c.by ? ` by ${c.by}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <Panels kind="project" entity={p} loaded={panels} />

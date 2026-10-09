@@ -2057,7 +2057,7 @@ writes again when the move ends, on whichever object store it ends on.
 ## Cross-project access
 
 ### grant
-*Proposed.* What a project holds to let one grantee reach one target of its own. An owner of the
+What a project holds to let one grantee reach one target of its own. An owner of the
 project's organization makes it, as data, and no code of either side changes for it. A grant
 within that organization is accepted when it is made; one to a grantee of another organization is
 pending until an owner there accepts it. Only an accepted grant opens anything; an ended grant is
@@ -2067,64 +2067,80 @@ its grantee and its target, so the same one made twice is one grant.
 Avoid: access grant, ACL entry
 
 ### grantor
-*Proposed.* The project that holds a grant, and the owners of its organization, who make,
+The project that holds a grant, and the owners of its organization, who make,
 withdraw and revoke it.
 
 ### grantee
-*Proposed.* Who a grant names: a service of another project, or a registered machine. The
+Who a grant names: a service of another project, or a registered machine. The
 organization it belongs to is the one a cross-organization grant is offered to, and whose owners
 accept, decline or relinquish it. It is not a principal, which is what an authenticator
 established of a request.
 
 ### target
-*Proposed.* What one grant opens: one route or one method of one of the grantor's services, one of
-the grantor's declared topics to consume, to produce to, or both, or the right to ask for the
-erasure of the grantor's data subjects. Never more than one, and never a prefix or a pattern.
+What one grant opens: one route or one method of one of the grantor's services, one of
+the grantor's declared topics to consume or to produce to, or the right to ask for the erasure of
+the grantor's data subjects. Never more than one, and never a prefix or a pattern: a grantee that
+both consumes and produces to one topic holds two grants.
 
 ### consume
-*Proposed.* Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
+Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
 no position: where the grantee starts reading is its own start position.
 
 ### produce
-*Proposed.* Of a topic grant: lets the grantee publish to the topic.
+Of a topic grant: lets the grantee publish to the topic.
 
 ### in effect
-*Proposed.* Of a grant: accepted, and reached where it is read, so that its grantee reaches its
+Of a grant: accepted, and reached where it is read, so that its grantee reaches its
 target. A grant that is not in effect says why: "pending", "declined", "withdrawn", "revoked",
-"relinquished", "route not seen", "route not grantable", "rollout needed" or "broker not exposed".
+"relinquished", "lapsed", "route not seen", "route not grantable", "rollout needed" or "broker not
+exposed".
 
 Avoid: active grant, live grant
 
 ### accept
-*Proposed.* Of an owner of the grantee's organization and a pending grant: take it, so that it is
+Of an owner of the grantee's organization and a pending grant: take it, so that it is
 in effect.
 
 ### decline
-*Proposed.* Of an owner of the grantee's organization and a pending grant: refuse it, so that it
+Of an owner of the grantee's organization and a pending grant: refuse it, so that it
 never takes effect.
 
 ### withdraw
-*Proposed.* Of the grantor and a pending grant: take it back before it is answered, so that it is
+Of the grantor and a pending grant: take it back before it is answered, so that it is
 no longer offered.
 
 ### relinquish
-*Proposed.* Of an owner of the grantee's organization and an accepted grant: give it up, without
+Of an owner of the grantee's organization and an accepted grant: give it up, without
 the grantor, so that it opens nothing again.
 
+### lapsed
+Of a grant: ended because its grantee was deleted, the project or the registered machine, as an
+event on the granting project attributed to the owner who deleted it. A machine registered again
+under the same name is a new grantee and holds nothing. As a verb, lapse.
+
+### external listener
+The installation's broker as registered machines reach it from outside: a listener at
+`broker.<base domain>:9094`, through the gateway, that admits a connection only with a machine token
+the control plane issued. An installation that has not exposed its broker has none.
+
+### keys port
+The control plane's port 7629, which serves inside the cluster only the public keys machine tokens are
+signed with, and asks for no client certificate, so the broker and services can verify a machine token.
+
 ### granted caller
-*Proposed.* A calling workload that holds a grant in effect on the route or the method it is
+A calling workload that holds a grant in effect on the route or the method it is
 calling: a service of another project, or a registered machine. An ACL that admits granted callers
 is what makes a route grantable; it admits no caller without a grant.
 
 Avoid: granted matcher
 
 ### grantable
-*Proposed.* Of a route or a method: its ACL admits granted callers, so that a grant on it opens
+Of a route or a method: its ACL admits granted callers, so that a grant on it opens
 it. A grant on one that is not is accepted and reported as "route not grantable"; a web-hosted
 service's routes are never grantable.
 
 ### registered machine
-*Proposed.* A machine outside the installation that an owner registered on an organization, which
+A machine outside the installation that an owner registered on an organization, which
 proves which machine it is with a machine token. It holds no grant; grants name it. On the broker
 it is a credential of its own, with no topic until a grant gives it one, and it is kept when the
 machine is deleted. It is not a member, and it is not a deploy token.
@@ -2132,16 +2148,16 @@ machine is deleted. It is not a member, and it is not a deploy token.
 Avoid: external machine, outside machine, partner machine
 
 ### client id
-*Proposed.* The name a registered machine gives the token route when it asks for a machine token,
+The name a registered machine gives the token route when it asks for a machine token,
 together with its client secret.
 
 ### client secret
-*Proposed.* What a registered machine proves itself with to the token route: shown once, when the
+What a registered machine proves itself with to the token route: shown once, when the
 machine is registered, and never again; the control plane keeps only a digest of it. It is not a
 secret, which a project keeps for a descriptor, nor a service secret.
 
 ### machine token
-*Proposed.* What the control plane signs for a registered machine, for its client id and client
+What the control plane signs for a registered machine, for its client id and client
 secret: a token that names the machine and nothing else, lives fifteen minutes, and is checked
 against the control plane's keys without asking it. It carries no grant, so a grant changes
 without a new machine token and a revocation never waits for one to expire. On a route it is
@@ -2150,16 +2166,16 @@ sent as any token is; on the broker it is what the registered machine proves its
 Avoid: client credentials token
 
 ### token route
-*Proposed.* Where a registered machine asks the control plane for a machine token. A client id
+Where a registered machine asks the control plane for a machine token. A client id
 that asks more often than the installation allows is refused there for a while.
 
 ### byte rate
-*Proposed.* How many bytes a second the broker lets a registered machine publish, and how many it
+How many bytes a second the broker lets a registered machine publish, and how many it
 lets it read, from the installation's defaults; an owner may set one machine's within the
 installation's ceiling. It is not a quota, which counts projects, services and instances.
 
 ### throttled
-*Proposed.* Of a registered machine: made to wait by the broker because it has reached its byte
+Of a registered machine: made to wait by the broker because it has reached its byte
 rate. What it reads still arrives, later; the installation's services are never throttled for it.
 
 ## Backups and recovery

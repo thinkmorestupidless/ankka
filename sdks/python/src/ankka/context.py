@@ -92,11 +92,22 @@ class ServiceCaller:
 
 
 @dataclass(frozen=True)
+class MachineCaller:
+    """A machine registered on an organization, proven by a token the control plane issued.
+
+    It arrived through the gateway; without its token, the same request is a ``Gateway``.
+    """
+
+    organization: str
+    name: str
+
+
+@dataclass(frozen=True)
 class LocalCaller:
     """Outside a cluster, where there is no certificate to read: every caller is this."""
 
 
-Caller = Gateway | ServiceCaller | LocalCaller
+Caller = Gateway | ServiceCaller | MachineCaller | LocalCaller
 """Which workload sent a request, as the platform established it; never read from the request."""
 
 

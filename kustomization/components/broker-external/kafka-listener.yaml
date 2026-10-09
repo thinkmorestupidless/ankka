@@ -1,0 +1,55 @@
+# The external listener, appended to the installation's Kafka, and the caps on how many connections
+# reach the broker: per client address on every listener, and how fast new ones may open on this one.
+# BASE_DOMAIN and the two caps are replaced by the overlay.
+- op: add
+  path: /spec/kafka/listeners/-
+  value:
+    name: external
+    port: 9094
+    type: tlsroute
+    tls: true
+    authentication:
+      type: oauth
+      # The control plane's keys port: TLS from the service authority, no client certificate.
+      jwksEndpointUri: https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json
+      # The control plane's public address, which every machine token names as its issuer.
+      validIssuerUri: https://api.BASE_DOMAIN
+      userNameClaim: broker_user
+      checkAudience: true
+      clientId: ankka
+      # A token must be renewed within this, or the broker ends the connection.
+      maxSecondsWithoutReauthentication: 900
+      tlsTrustedCertificates:
+        # The service authority's certificate, already in this namespace with the broker's own.
+        - secretName: ankka-broker-tls
+          certificate: ca.crt
+    configuration:
+      bootstrap:
+        host: broker.BASE_DOMAIN
+      hostTemplate: broker-{nodeId}.BASE_DOMAIN
+      advertisedPortTemplate: "9094"
+      parentRefs:
+        - kind: Gateway
+          group: gateway.networking.k8s.io
+          name: ankka
+          namespace: ankka-gateway
+      brokerCertChainAndKey:
+        secretName: ankka-broker-external-tls
+        certificate: tls.crt
+        key: tls.key
+    # Only the Gateway's proxies reach the listener; anything else in the cluster is refused before
+    # TLS begins.
+    networkPolicyPeers:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: envoy-gateway-system
+        podSelector:
+          matchLabels:
+            gateway.envoyproxy.io/owning-gateway-name: ankka
+            gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+- op: add
+  path: /spec/kafka/config/max.connections.per.ip
+  value: "BROKER_MAX_CONNECTIONS_PER_IP"
+- op: add
+  path: /spec/kafka/config/listener.name.external.max.connection.creation.rate
+  value: "BROKER_EXTERNAL_CONNECTION_RATE"

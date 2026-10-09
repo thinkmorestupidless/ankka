@@ -4,7 +4,10 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{
   DeployTokenEntity,
   DeployTokenRows,
+  MachineEntity,
+  MachineRows,
   OrganizationEntity,
+  ProjectEntity,
   ProjectRows,
   ServiceEntity,
   ServiceRows
@@ -12,14 +15,19 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
 import com.thinkmorestupidless.ankka.controlplane.auth.{
   Authorization,
   DeployTokenIndex,
-  DeployTokens
+  DeployTokens,
+  MachineSecrets,
+  MachineSettings
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   AddMember,
   ChangeRole,
   CreateForOwner,
   DeployToken,
+  Machine,
   RecordDeployToken,
+  RegisterMachine,
+  SetMachineByteRates,
   ServiceKey,
   SetQuota
 }
@@ -52,13 +60,16 @@ final class OrganizationEndpoint(
      * suites do — and because the *only* thing lost without it is immediacy on this node: the
      * revocation still reaches every index through the journal.
      */
-    tokenIndex: Option[DeployTokenIndex] = None
+    tokenIndex: Option[DeployTokenIndex] = None,
+    /** Where a machine's token comes from, and the limits on machines (feature 040). */
+    machineSettings: MachineSettings = MachineSettings.local
 ) extends HttpEndpoint("/organizations")
     with Attributing:
 
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)
   private val tokens   = clients.viewClient.forView(DeployTokenRows)
+  private val machines = clients.viewClient.forView(MachineRows)
   private val authz    = Authorization(clients, clock)
 
   get("/") { () =>
@@ -187,6 +198,136 @@ final class OrganizationEndpoint(
         .call(OrganizationEntity.addMember)
         .withMetadata(authz.metadata(access))
         .invoke(AddMember(subject, request.role)): Done
+  }
+
+  // ── grants received (feature 040) ─────────────────────────────────────────
+
+  /**
+   * What the organization's machines and the services of every project it owns hold, or are
+   * offered, from other projects: each with every change to it, and a topic grant with its topic's
+   * settings, read from the granting project. Members only.
+   */
+  get("/{organizationId}/grants") { (organizationId: String) =>
+    authz.requireMember(principal, organizationId, write = false)
+    ProjectEndpoint.receivedDetails(
+      received(organizationId),
+      granting =>
+        clients.componentClient
+          .forEventSourcedEntity(EntityId(granting))
+          .call(ProjectEntity.topics)
+          .invoke()
+    )
+  }
+
+  /** Every grant the organization's machines and its projects' services hold or are offered. */
+  private def received(
+      organizationId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.domain.ReceivedGrant] =
+    val own = entity(organizationId).call(OrganizationEntity.receivedGrants).invoke()
+    val ofProjects = projects
+      .ordered(jsonText("organizationId") ++ sql" = $organizationId", order = jsonText("id"))
+      .flatMap(row =>
+        try
+          clients.componentClient
+            .forEventSourcedEntity(EntityId(row.id))
+            .call(ProjectEntity.receivedGrants)
+            .invoke()
+        catch case _: CommandError => Vector.empty
+      )
+    (own ++ ofProjects).distinctBy(_.id)
+
+  /**
+   * Answers a grant offered to or held by the organization, from the grantee's side: only an owner
+   * of the grantee organization may, and a grant the organization does not hold or was not offered
+   * is not there for it — answered as one that does not exist, so its id discloses nothing.
+   */
+  private def answer(
+      organizationId: String,
+      grantId: String,
+      handle: com.thinkmorestupidless.ankka.sdk.CommandHandle[ProjectEntity, String, Done]
+  ): Done =
+    val access = authz.requireOwner(principal, organizationId, write = true)
+    val grant = received(organizationId)
+      .find(_.id == grantId)
+      .getOrElse(
+        throw CommandError(
+          s"no grant '$grantId' is offered to '$organizationId'",
+          ErrorCode.NotFound
+        )
+      )
+    clients.componentClient
+      .forEventSourcedEntity(EntityId(grant.grantingProject))
+      .call(handle)
+      .withMetadata(authz.metadata(access))
+      .invoke(grantId)
+
+  post("/{organizationId}/grants/{grantId}/accept") { (organizationId: String, grantId: String) =>
+    answer(organizationId, grantId, ProjectEntity.acceptGrant)
+  }
+
+  post("/{organizationId}/grants/{grantId}/decline") { (organizationId: String, grantId: String) =>
+    answer(organizationId, grantId, ProjectEntity.declineGrant)
+  }
+
+  post("/{organizationId}/grants/{grantId}/relinquish") { (organizationId: String, grantId: String) =>
+    answer(organizationId, grantId, ProjectEntity.relinquishGrant)
+  }
+
+  // ── machines (feature 040) ────────────────────────────────────────────────
+  //
+  // An owner registers, limits and deletes; a member lists; a deploy token, which is a member,
+  // does none of the writes. No reply but the registration's carries the secret, and that reply is
+  // the only time it exists outside the machine that holds it.
+
+  get("/{organizationId}/machines") { (organizationId: String) =>
+    authz.requireMember(principal, organizationId, write = false)
+    machines
+      .where(jsonText("organizationId") ++ sql" = $organizationId")
+      .sortBy(_.name)
+      .map(_.summary)
+  }
+
+  postBody("/{organizationId}/machines") { (organizationId: String, request: MachineRegistration) =>
+    val access   = authz.requireOwner(principal, organizationId, write = true)
+    val problems = Machines.nameProblems(request.name)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+    val minted = MachineSecrets.mint()
+    machine(organizationId, request.name)
+      .call(MachineEntity.register)
+      .withMetadata(authz.metadata(access))
+      .invoke(RegisterMachine(organizationId, request.name, minted.digest)): MachineSummary
+    MachineRegistered(
+      name = request.name,
+      clientId = Machines.clientId(organizationId, request.name),
+      clientSecret = minted.secret,
+      tokenUrl = machineSettings.tokenUrl,
+      brokerBootstrap = machineSettings.brokerBootstrap
+    )
+  }
+
+  delete("/{organizationId}/machines/{name}") { (organizationId: String, name: String) =>
+    val access = authz.requireOwner(principal, organizationId, write = true)
+    machine(organizationId, name)
+      .call(MachineEntity.delete)
+      .withMetadata(authz.metadata(access))
+      .invoke()
+  }
+
+  putBody("/{organizationId}/machines/{name}/byte-rates") {
+    (organizationId: String, name: String, request: ByteRatesRequest) =>
+      val access   = authz.requireOwner(principal, organizationId, write = true)
+      val problems = Machines.byteRateProblems(request, machineSettings.byteRateCeiling)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      machine(organizationId, name)
+        .call(MachineEntity.setByteRates)
+        .withMetadata(authz.metadata(access))
+        .invoke(
+          SetMachineByteRates(
+            request.produceBytesPerSecond,
+            request.consumeBytesPerSecond,
+            request.requestPercentage
+          )
+        )
   }
 
   // ── deploy tokens (feature 013) ───────────────────────────────────────────
@@ -380,6 +521,9 @@ final class OrganizationEndpoint(
 
   private def entity(organizationId: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(organizationId))
+
+  private def machine(organizationId: String, name: String) =
+    clients.componentClient.forEventSourcedEntity(EntityId(Machine.key(organizationId, name)))
 
   private def token(tokenId: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(tokenId))

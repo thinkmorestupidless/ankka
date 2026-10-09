@@ -124,6 +124,10 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
 
+### Run the platform
+
+- `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.
+
 ### Reference
 
 - `references/reference/error-codes.md` — The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.

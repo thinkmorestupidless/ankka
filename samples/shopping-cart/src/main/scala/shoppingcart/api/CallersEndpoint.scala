@@ -62,6 +62,7 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
   private def whoIsCalling: String = caller match
     case Caller.Gateway                => "the internet, through the gateway"
     case Caller.Service(project, name) => s"the $name service in project $project"
+    case Caller.Machine(org, name)     => s"the machine $name of organization $org"
     case Caller.Local                  => "this machine"
 
   private def describe(c: Caller): String = c match

@@ -239,6 +239,103 @@ object Main:
       list.orElse(create).orElse(revoke)
     }
 
+    val machines = Opts.subcommand(
+      "machines",
+      "Machines outside the installation that hold a token, and call what a project grants them."
+    ) {
+      val list = Opts.subcommand("list", "List an organization's machines.") {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.machines(ctx.client.listMachines(org), ctx.format)
+        }
+      }
+
+      val register = Opts.subcommand(
+        "register",
+        "Register a machine. Its secret is shown once and cannot be recovered."
+      ) {
+        (Opts.argument[String]("organization"), Opts.argument[String]("name"), contextOpt).mapN {
+          (org, name, ctx) => () =>
+            val problems = Machines.nameProblems(name)
+            if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+            Output.machineRegistered(ctx.client.registerMachine(org, name), ctx.format)
+        }
+      }
+
+      val delete = Opts.subcommand(
+        "delete",
+        "Delete a machine. Its tokens are refused from the next request for one."
+      ) {
+        (Opts.argument[String]("organization"), Opts.argument[String]("name"), contextOpt).mapN {
+          (org, name, ctx) => () =>
+            ctx.client.deleteMachine(org, name)
+            s"deleted machine '$name' of '$org'"
+        }
+      }
+
+      val byteRates = Opts.subcommand(
+        "byte-rates",
+        "Limit what a machine may move through the installation's broker."
+      ) {
+        (
+          Opts.argument[String]("organization"),
+          Opts.argument[String]("name"),
+          Opts.option[String]("produce", "Bytes a second it may publish: 1048576, 512KiB, 1MiB."),
+          Opts.option[String]("consume", "Bytes a second it may read."),
+          Opts.option[Int](
+            "request-percentage",
+            "The share of a broker thread it may use, 1 to 100."
+          ),
+          contextOpt
+        ).mapN { (org, name, produce, consume, percentage, ctx) => () =>
+          val rates =
+            ByteRatesRequest(ByteSizes.bytes(produce), ByteSizes.bytes(consume), percentage)
+          Output.machines(Vector(ctx.client.setMachineByteRates(org, name, rates)), ctx.format)
+        }
+      }
+
+      list.orElse(register).orElse(delete).orElse(byteRates)
+    }
+
+    val grants = Opts.subcommand(
+      "grants",
+      "Grants other projects made to the organization's machines and its projects' services."
+    ) {
+      val list = Opts.subcommand(
+        "list",
+        "List what the organization's machines and services hold or are offered, and every change."
+      ) {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.receivedGrants(ctx.client.organizationGrants(org), ctx.format)
+        }
+      }
+      def answer(verb: String, help: String, done: String) =
+        Opts.subcommand(verb, help) {
+          (Opts.argument[String]("organization"), Opts.argument[String]("grant"), contextOpt).mapN {
+            (org, grant, ctx) => () =>
+              ctx.client.answerGrant(org, grant, verb)
+              s"$done grant $grant"
+          }
+        }
+      list
+        .orElse(
+          answer(
+            "accept",
+            "Accept a grant offered to the organization. It takes effect.",
+            "accepted"
+          )
+        )
+        .orElse(
+          answer("decline", "Decline a grant offered to the organization. It ends.", "declined")
+        )
+        .orElse(
+          answer(
+            "relinquish",
+            "Give up a grant the organization holds, without its grantor.",
+            "relinquished"
+          )
+        )
+    }
+
     val invitations = Opts.subcommand("invitations", "Pending invitations.") {
       Opts.subcommand("revoke", "Withdraw an invitation that has not been claimed.") {
         (Opts.argument[String]("organization"), Opts.argument[String]("email"), contextOpt).mapN {
@@ -309,6 +406,8 @@ object Main:
       .orElse(delete)
       .orElse(members)
       .orElse(tokens)
+      .orElse(machines)
+      .orElse(grants)
       .orElse(invitations)
       .orElse(disable)
       .orElse(enable)
@@ -553,6 +652,61 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val grants = Opts.subcommand(
+      "grants",
+      "Grants: one service of another project, or one registered machine, given one route, gRPC " +
+        "method or topic right of this project's. Owners grant, withdraw and revoke; members list."
+    ) {
+      val make = Opts.subcommand(
+        "make",
+        "Grant one grantee one target. GRANTEE is service:<project>/<service> or " +
+          "machine:<organization>/<name>; TARGET is route <service> <METHOD> <path>, method " +
+          "<service> <Service/Method>, topic <name> consume|produce, or erasure. A grantee of " +
+          "another organization's is pending until an owner there accepts."
+      ) {
+        (
+          Opts.argument[String]("grantee"),
+          Opts.arguments[String]("target"),
+          Opts
+            .flag("decrypt", "With a topic consume grant: the grantee may decrypt personal fields.")
+            .orFalse,
+          contextOpt
+        ).mapN { (grantee, words, decrypt, ctx) => () =>
+          val request = GrantsCommand.request(grantee, words.toList, decrypt)
+          Output.grantMade(ctx.client.makeGrant(ctx.project, request), ctx.project, ctx.format)
+        }
+      }
+
+      def ending(verb: String, help: String) = Opts.subcommand(verb, help) {
+        (Opts.argument[String]("grant"), contextOpt).mapN { (grantId, ctx) => () =>
+          GrantsCommand.end(ctx.client, ctx.project, grantId, verb)
+        }
+      }
+
+      val withdraw =
+        ending("withdraw", "Take back a pending grant before the grantee's organization answers.")
+      val revoke =
+        ending("revoke", "End an accepted grant. The grantee is refused within two minutes.")
+
+      val list = Opts.subcommand(
+        "list",
+        "List the project's grants, live and ended, with whether each is in effect and why not."
+      ) {
+        contextOpt.map(ctx => () => Output.grants(ctx.client.listGrants(ctx.project), ctx.format))
+      }
+
+      val received = Opts.subcommand(
+        "received",
+        "List what other projects granted this project's services, with every change and who made it."
+      ) {
+        contextOpt.map(ctx =>
+          () => Output.receivedGrants(ctx.client.receivedGrants(ctx.project), ctx.format)
+        )
+      }
+
+      make.orElse(withdraw).orElse(revoke).orElse(list).orElse(received)
+    }
+
     list
       .orElse(get)
       .orElse(create)
@@ -562,6 +716,7 @@ object Main:
       .orElse(secrets)
       .orElse(topics)
       .orElse(brokers)
+      .orElse(grants)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -1183,6 +1338,21 @@ private[cli] final case class ExitWith(code: Int) extends RuntimeException(s"exi
  * other spellings: a CLI flag wants one obvious form, and an unrecognised one should say what it
  * wanted rather than guess.
  */
+/** A byte rate as a person writes it: a number of bytes, or one with KiB, MiB or GiB. */
+private object ByteSizes:
+
+  private val Pattern = raw"(\d+)\s*(KiB|MiB|GiB)?".r
+
+  def bytes(value: String): Long = value.trim match
+    case Pattern(n, unit) =>
+      n.toLong * (unit match
+        case "KiB" => 1024L
+        case "MiB" => 1024L * 1024
+        case "GiB" => 1024L * 1024 * 1024
+        case _     => 1L)
+    case other =>
+      throw ApiError(0, s"'$other' is not a byte rate: a number, or one with KiB, MiB or GiB")
+
 private object Durations:
 
   private val Pattern = raw"(\d+)([smhd])".r

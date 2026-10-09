@@ -151,12 +151,14 @@ private[sidecar] object Translate:
     )
 
   private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
-    import ankka.protocol.v1.endpoint.{Caller as PbCaller, ServiceCaller}
+    import ankka.protocol.v1.endpoint.{Caller as PbCaller, MachineCaller, ServiceCaller}
     import ankka.protocol.v1.payload.Empty
     c match
       case RemoteCaller.Gateway => PbCaller(PbCaller.Kind.Gateway(Empty()))
       case RemoteCaller.Service(p, name) =>
         PbCaller(PbCaller.Kind.Service(ServiceCaller(p, name)))
+      case RemoteCaller.Machine(organization, name) =>
+        PbCaller(PbCaller.Kind.Machine(MachineCaller(organization, name)))
       case RemoteCaller.Local => PbCaller(PbCaller.Kind.Local(Empty()))
 
   // ── The stateless calls: what is sent, and what the answer means ──────────

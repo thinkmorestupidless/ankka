@@ -248,7 +248,8 @@ The operations, by name: `organization.create`, `organization.rename`, `organiza
 `member.invite`, `member.role`, `member.remove`, `invitation.withdraw`, `member.repair`, `token.create`,
 `token.revoke`, `project.create`, `project.rename`, `project.delete`, `registry.set`, `registry.clear`,
 `project-secret.set`, `project-secret.unset`, `service.apply`, `service.pause`, `service.resume`, `service.restart`, `service.rollback`, `service.expose`, `service.unexpose`,
-`service.delete`, `service.logs`.
+`service.delete`, `service.logs`, `grant.make`, `grant.end`, `grant.answer`, `grant.relinquish`,
+`machine.register`, `machine.delete`, `machine.byte-rates`.
 
 ## Restyle the pages
 

@@ -4,6 +4,7 @@ description: Write, change or test an ankka HTTP endpoint in Scala, Python, Type
 pages:
   - build/calling-services.md
   - build/http-endpoints.md
+  - platform/cross-project-access.md
   - build/grpc-endpoints.md
   - build/component-client.md
   - build/streaming.md

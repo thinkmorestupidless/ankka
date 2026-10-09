@@ -281,6 +281,28 @@ final class Fabric8AnkkaServiceClient(
         .get()
     ).flatMap(p => Option(p.getStatus))
 
+  def putMachine(spec: com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec): Unit =
+    val name = com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(spec.organizationId, spec.name)
+    val resources =
+      client.resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine]).withName(name)
+    if Option(resources.get()).exists(r => Option(r.getSpec).contains(spec)) then
+      log.debug("machine {} unchanged; no write", name)
+    else
+      // A fresh object, never one read back, for the reason `put` gives.
+      val _ = client
+        .resource(com.thinkmorestupidless.ankka.crd.AnkkaMachine(spec))
+        .fieldManager(FieldManager)
+        .forceConflicts()
+        .serverSideApply()
+      log.debug("projected machine {}", name)
+
+  def deleteMachine(organizationId: String, name: String): Unit =
+    val _ = client
+      .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine])
+      .withName(com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(organizationId, name))
+      .delete()
+    log.debug("deleted machine {}/{}", organizationId, name)
+
   def delete(namespace: String, name: String): Unit =
     val _ = client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).delete()
     log.debug("deleted resource {}/{}", namespace, name)

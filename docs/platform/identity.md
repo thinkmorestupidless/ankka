@@ -152,9 +152,16 @@ and within a second everywhere else; the id is never reused.
 Every change a token makes is recorded under its own identity, so `ankka services history` distinguishes
 a deploy from CI from a deploy by hand. See [Deploy from GitHub Actions](../deploy/ci.md).
 
+A deploy token works the control plane. A system that calls a project's routes or reads its topics from
+outside the installation is a **registered machine** instead, with a client id and secret of its own and
+only the access grants give it; see [Machines](cross-project-access.md#machines).
+
 ### A machine account in Keycloak
 
-The alternative, for an installation that wants every principal in its own identity provider. It needs
+A Keycloak client is for the tools of people who work the control plane, never for a system calling a
+service: services verify machine tokens from the control plane, not Keycloak's. For an installation that
+wants every principal of the control plane in its own identity provider, it is the alternative to a
+deploy token. It needs
 an administrator with access to Keycloak's console, which is why it is not the recommended path:
 
 1. Create a confidential client with **service accounts enabled**.

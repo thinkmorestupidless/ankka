@@ -58,6 +58,11 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
 | `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
 | `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
+| `ANKKA_PROJECT_GRANTS` | `ankka.grants.file` | `""` | every service |
+| `ANKKA_PROJECT_DECLARATIONS` | `ankka.grants.declarations` | `""` | every service |
+| `ANKKA_MACHINE_ISSUER` | `ankka.machines.issuer` | `""` | every service |
+| `ANKKA_MACHINE_JWKS_URL` | `ankka.machines.jwks-url` | `""` | every service |
+| `ANKKA_MACHINE_JWKS_CA` | `ankka.machines.jwks-ca` | `""` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
@@ -94,6 +99,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.observability.max-external-services` | `32` | every service |
 | `ankka.observability.max-external-methods` | `256` | every service |
 | `ankka.http.body-timeout` | `10s` | every service |
+| `ankka.grants.reload-interval` | `10s` | every service |
 | `ankka.grpc.max-message-size` | `4MiB` | a service that serves gRPC |
 | `ankka.grpc.max-connection-age` | `2m` | a service that serves gRPC |
 | `ankka.grpc.shutdown-grace` | `5s` | a service that serves gRPC |
@@ -282,6 +288,18 @@ as the descriptor says. See [The installation's broker](../platform/broker.md).
   `/var/run/ankka/project/topics.json`. The runtime reads it once when the service starts and refuses a
   component whose stated contract is not the declared one, or that names a broker the project does not
   declare. Unset, nothing is checked. See [Contracts](../build/topics.md#contracts).
+- `ANKKA_PROJECT_GRANTS` names the file of the grants the service's project has made, which
+  `Callers.granted` admits by. Unset, the runtime reads `grants.json` beside the declarations file, which
+  is where the platform mounts it, so the platform sets nothing for it. The runtime re-reads the file
+  when it changes, looking every ten seconds: a grant takes effect, and a revoked grant refuses its caller
+  and closes what it admitted, with no restart. With neither variable set no caller holds a grant. See
+  [Cross-project access](../platform/cross-project-access.md).
+- `ANKKA_MACHINE_ISSUER` and `ANKKA_MACHINE_JWKS_URL` say where a registered machine's token comes from
+  and where the keys it is signed with are read; `ANKKA_MACHINE_JWKS_CA` is the authority that address is
+  trusted by, the service certificate's own `ca.crt` when unset. A request through the gateway carrying a
+  valid token from that issuer is that machine. Unset, the runtime reads `machines.json` beside the
+  declarations file, which is where the platform writes them, so the platform sets none of the three; with
+  neither, no token is verified and a bearer leaves the caller as it was.
 - `ANKKA_TOPIC_BROKER_<NAME>_BOOTSTRAP_SERVERS`, `ANKKA_TOPIC_BROKER_<NAME>_SHAPE`,
   `ANKKA_TOPIC_BROKER_<NAME>_SECRET_DIRECTORY` and `ANKKA_TOPIC_BROKER_<NAME>_NAME` are a broker the
   project declares, one set per broker with its name upper-cased and `-` as `_`: its address, the shape

@@ -65,6 +65,8 @@ class Publication:
     topic: str
     contract: Contract | None = None
     broker: str | None = None
+    # Another project's topic (1.15), which that project must grant this service produce on.
+    project: str | None = None
 
     def to_pb(self) -> discovery_pb2.Publication:
         pb = discovery_pb2.Publication(topic=self.topic)
@@ -72,6 +74,8 @@ class Publication:
             pb.contract.CopyFrom(self.contract.to_pb())
         if self.broker is not None:
             pb.broker = self.broker
+        if self.project is not None:
+            pb.project = self.project
         return pb
 
 
@@ -104,7 +108,25 @@ def problems(cls: type) -> list[str]:
     declared = getattr(cls, "produces_to", None)
     if declared is not None and not isinstance(declared, (str, Publication)):
         found.append(f"{name}.produces_to must be a topic name or a Publication")
+    project = getattr(cls, "project", None)
+    if project is not None and not isinstance(project, str):
+        found.append(f"{name}.project must be the id of the project whose topic this is")
+    if project is not None and not reads_topic:
+        found.append(f"{name} names a project, which applies to a topic; it reads a component")
+    if project is not None and broker is not None:
+        found.append(f"{name} names a project and a broker; another project's topic is on the installation's broker")
+    if isinstance(declared, Publication) and declared.project is not None and declared.broker is not None:
+        found.append(f"{name}.produces_to names a project and a broker; another project's topic is on the installation's broker")
     return found
+
+
+def declares_cross_project(cls: type) -> bool:
+    """Whether ``cls`` reads or publishes to another project's topic, which a runtime older than
+    1.15 would read as this project's."""
+    declared = getattr(cls, "produces_to", None)
+    return getattr(cls, "project", None) is not None or (
+        isinstance(declared, Publication) and declared.project is not None
+    )
 
 
 def declares_any(cls: type) -> bool:
@@ -127,4 +149,7 @@ def apply(source: discovery_pb2.Source, cls: type) -> discovery_pb2.Source:
         source.broker = broker
     if getattr(cls, "parallel", False) is True:
         source.parallel = True
+    project: Any = getattr(cls, "project", None)
+    if isinstance(project, str):
+        source.project = project
     return source

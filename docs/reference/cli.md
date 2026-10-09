@@ -218,6 +218,8 @@ Usage:
     ankka organizations delete
     ankka organizations members
     ankka organizations tokens
+    ankka organizations machines
+    ankka organizations grants
     ankka organizations invitations
     ankka organizations disable
     ankka organizations enable
@@ -244,6 +246,10 @@ Subcommands:
         Who belongs to an organization.
     tokens
         Deploy tokens: credentials a machine can hold.
+    machines
+        Machines outside the installation that hold a token, and call what a project grants them.
+    grants
+        Grants other projects made to the organization's machines and its projects' services.
     invitations
         Pending invitations.
     disable
@@ -592,6 +598,224 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka organizations machines`
+
+```text
+Usage:
+    ankka organizations machines list
+    ankka organizations machines register
+    ankka organizations machines delete
+    ankka organizations machines byte-rates
+
+Machines outside the installation that hold a token, and call what a project grants them.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List an organization's machines.
+    register
+        Register a machine. Its secret is shown once and cannot be recovered.
+    delete
+        Delete a machine. Its tokens are refused from the next request for one.
+    byte-rates
+        Limit what a machine may move through the installation's broker.
+```
+
+### `ankka organizations machines list`
+
+```text
+Usage: ankka organizations machines list [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization>
+
+List an organization's machines.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations machines register`
+
+```text
+Usage: ankka organizations machines register [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <name>
+
+Register a machine. Its secret is shown once and cannot be recovered.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations machines delete`
+
+```text
+Usage: ankka organizations machines delete [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <name>
+
+Delete a machine. Its tokens are refused from the next request for one.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations machines byte-rates`
+
+```text
+Usage: ankka organizations machines byte-rates --produce <string> --consume <string> --request-percentage <integer> [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <name>
+
+Limit what a machine may move through the installation's broker.
+
+Options and flags:
+    --help
+        Display this help text.
+    --produce <string>
+        Bytes a second it may publish: 1048576, 512KiB, 1MiB.
+    --consume <string>
+        Bytes a second it may read.
+    --request-percentage <integer>
+        The share of a broker thread it may use, 1 to 100.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations grants`
+
+```text
+Usage:
+    ankka organizations grants list
+    ankka organizations grants accept
+    ankka organizations grants decline
+    ankka organizations grants relinquish
+
+Grants other projects made to the organization's machines and its projects' services.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List what the organization's machines and services hold or are offered, and every change.
+    accept
+        Accept a grant offered to the organization. It takes effect.
+    decline
+        Decline a grant offered to the organization. It ends.
+    relinquish
+        Give up a grant the organization holds, without its grantor.
+```
+
+### `ankka organizations grants list`
+
+```text
+Usage: ankka organizations grants list [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization>
+
+List what the organization's machines and services hold or are offered, and every change.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations grants accept`
+
+```text
+Usage: ankka organizations grants accept [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <grant>
+
+Accept a grant offered to the organization. It takes effect.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations grants decline`
+
+```text
+Usage: ankka organizations grants decline [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <grant>
+
+Decline a grant offered to the organization. It ends.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations grants relinquish`
+
+```text
+Usage: ankka organizations grants relinquish [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <grant>
+
+Give up a grant the organization holds, without its grantor.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka organizations invitations`
 
 ```text
@@ -747,6 +971,7 @@ Usage:
     ankka projects secrets
     ankka projects topics
     ankka projects brokers
+    ankka projects grants
 
 Manage projects.
 
@@ -773,6 +998,8 @@ Subcommands:
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
         Brokers a project declares beside the installation's, which a component may name for one topic; the credential is a project secret, mounted for the platform's program alone.
+    grants
+        Grants: one service of another project, or one registered machine, given one route, gRPC method or topic right of this project's. Owners grant, withdraw and revoke; members list.
 ```
 
 ### `ankka projects list`
@@ -1239,6 +1466,137 @@ Options and flags:
 Usage: ankka projects brokers list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 List a project's declared brokers.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects grants`
+
+```text
+Usage:
+    ankka projects grants make
+    ankka projects grants withdraw
+    ankka projects grants revoke
+    ankka projects grants list
+    ankka projects grants received
+
+Grants: one service of another project, or one registered machine, given one route, gRPC method or topic right of this project's. Owners grant, withdraw and revoke; members list.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    make
+        Grant one grantee one target. GRANTEE is service:<project>/<service> or machine:<organization>/<name>; TARGET is route <service> <METHOD> <path>, method <service> <Service/Method>, topic <name> consume|produce, or erasure. A grantee of another organization's is pending until an owner there accepts.
+    withdraw
+        Take back a pending grant before the grantee's organization answers.
+    revoke
+        End an accepted grant. The grantee is refused within two minutes.
+    list
+        List the project's grants, live and ended, with whether each is in effect and why not.
+    received
+        List what other projects granted this project's services, with every change and who made it.
+```
+
+### `ankka projects grants make`
+
+```text
+Usage: ankka projects grants make [--decrypt] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <grantee> <target>...
+
+Grant one grantee one target. GRANTEE is service:<project>/<service> or machine:<organization>/<name>; TARGET is route <service> <METHOD> <path>, method <service> <Service/Method>, topic <name> consume|produce, or erasure. A grantee of another organization's is pending until an owner there accepts.
+
+Options and flags:
+    --help
+        Display this help text.
+    --decrypt
+        With a topic consume grant: the grantee may decrypt personal fields.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects grants withdraw`
+
+```text
+Usage: ankka projects grants withdraw [--url <string>] [--token <string>] [--project <string>] [--output <string>] <grant>
+
+Take back a pending grant before the grantee's organization answers.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects grants revoke`
+
+```text
+Usage: ankka projects grants revoke [--url <string>] [--token <string>] [--project <string>] [--output <string>] <grant>
+
+End an accepted grant. The grantee is refused within two minutes.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects grants list`
+
+```text
+Usage: ankka projects grants list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List the project's grants, live and ended, with whether each is in effect and why not.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects grants received`
+
+```text
+Usage: ankka projects grants received [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List what other projects granted this project's services, with every change and who made it.
 
 Options and flags:
     --help

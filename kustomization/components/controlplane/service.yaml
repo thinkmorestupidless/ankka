@@ -14,3 +14,7 @@ spec:
     - name: http
       port: 9000
       targetPort: 9000
+    # The keys machine tokens are signed with, for the broker and every service (feature 040).
+    - name: keys
+      port: 7629
+      targetPort: 7629

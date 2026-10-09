@@ -217,6 +217,7 @@ nav:
       - The broker: platform/broker.md
       - Object storage: platform/object-storage.md
       - Secrets on the platform: platform/secrets.md
+      - Cross-project access: platform/cross-project-access.md
       - Networking and TLS: platform/networking.md
   - Reference:
       - CLI: reference/cli.md

@@ -48,6 +48,17 @@ platform setting), the header rule (`OutboundHeaders`, held to the proxy's list 
 loopback) and `ScriptedServices` (a unit double) are the test kit's; `AnkkaTestKit.start(…,
 localServices = …)` sets `ankka.local-services` for one service rather than the whole JVM.
 
+## A granted caller is admitted by a matcher, from a file the platform writes
+
+Feature 040. `Callers.granted` admits a service of another project, or a registered machine
+(`Caller.Machine`, from a token `MachineTokens` verifies against the control plane's keys), on a route or
+gRPC method only while the project's grants name that caller on it. The grants are `Grants`, read by
+`GrantsFile` from `grants.json` beside the project declarations and re-read on an interval; a service
+without the file admits no granted caller. `Caller.Machine` is a new case of `Caller`, so a match over
+`Caller` that was exhaustive is not any more. A topic of another project is `TopicAddress`
+(`<project>/<name>`), carried to `KafkaConnection.qualified` as `<project>.<name>`; a project's own
+broker and another project's topic together are refused at start (`ProjectionRuntime.crossProjectProblems`).
+
 ## Timers: one row each, and the sweeper changes only the row it read
 
 A timer is a row of `ankka_timers` (feature 032). One that fires once has a finite `due_at`; a recurring

@@ -190,3 +190,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Run and deploy
 
 - `references/deploy/graph-sink.md` — Register the graph sink in a service to keep a graph store in step with a delta topic, choose the store it writes to, or deploy a ready sink image from ankka-contrib; rebuild the store from the topic by raising the sink's version.
+
+### Run the platform
+
+- `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.

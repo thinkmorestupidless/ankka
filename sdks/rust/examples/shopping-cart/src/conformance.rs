@@ -623,6 +623,35 @@ impl Consumer for ContractRelay {
 }
 // docs:end contract-relay
 
+// ── partner-relay: another project's topic, read and published to (1.15) ──
+
+// docs:start partner-relay
+/// Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other.
+pub struct PartnerRelay;
+
+impl Consumer for PartnerRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "partner-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-shared").project("partner")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(Publication::to("conformance-shared-relayed").project("partner"))
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
+}
+// docs:end partner-relay
+
 // ── cart-graph and profile-graph: graph consumers over each kind of entity ──
 
 /// The example's cart graph, published to the topic the suite reads.
@@ -1196,6 +1225,7 @@ impl CallersEndpoint {
     fn whoami(request: &Request) -> Result<String, HttpProblem> {
         Ok(match request.caller() {
             Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
             Caller::Gateway => "gateway".to_string(),
             Caller::Local => "local".to_string(),
         })
@@ -1218,6 +1248,8 @@ impl Endpoint for CallersEndpoint {
             .get("/whoami", CallersEndpoint::whoami)
             .get("/self", |_: &Request| Ok("self".to_string()))
             .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
     }
 }
 
@@ -1429,6 +1461,7 @@ pub fn build() -> Service {
             .register(TopicRows)
             .register(TopicRelay)
             .register(ContractRelay)
+            .register(PartnerRelay)
             .register(ConformanceCartGraph)
             .register(ProfileGraph),
         None => service,

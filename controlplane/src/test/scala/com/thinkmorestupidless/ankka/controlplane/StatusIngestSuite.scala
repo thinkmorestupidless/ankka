@@ -185,3 +185,42 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
         view.toString
       )
   }
+
+  // Grants (feature 040).
+
+  test(
+    "an operator that reports the grants mounted is carried to the status; one that predates grants is not"
+  ) {
+    def reportedGrants(grants: Option[String]) =
+      StatusIngest.observe(
+        service(),
+        ClusterView.Reported(
+          AnkkaServiceStatus(
+            generation = 4L,
+            lifecycle = "Ready",
+            readyInstances = 1,
+            desiredInstances = 1,
+            grants = grants
+          )
+        )
+      )
+    val mounted = reportedGrants(Some("mounted"))
+    assertEquals(mounted.grants, Some("mounted"))
+    val status = service()
+      .onObserved(
+        com.thinkmorestupidless.ankka.controlplane.domain.ServiceEvent.ServiceObserved(
+          4L,
+          ServiceLifecycle.Ready,
+          1,
+          1,
+          None,
+          confirmed = true,
+          grants = mounted.grants
+        )
+      )
+    assertEquals(reportedGrants(None).grants, None)
+    // What `services get` shows: mounted, or, for a running service an older operator rendered,
+    // that it must be rolled out before a grant reaches it.
+    assertEquals(status.toStatus.grantsPhrase, Some("mounted"))
+    assertEquals(status.copy(grants = None).toStatus.grantsPhrase, Some("rollout needed"))
+  }

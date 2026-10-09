@@ -98,6 +98,25 @@ owned by the service, at `storage.<base>` with the bucket in the path, naming th
 plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
 limitations. `docs/platform/object-storage.md` is the contract with a service.
 
+## Grants and machines reach the cluster through resources the operator already watches
+
+Feature 040. A project's accepted grants are `AnkkaProject.spec.grants`; `ProjectConfig` writes them as
+`grants.json` in the `ankka-project` ConfigMap every platform container already mounts, and the
+machine issuer and key URL as `machines.json` beside it (operator `Settings.machines`). Neither is an
+environment variable, so a grant changes no pod template and upgrading the operator rolls nothing; the
+runtime finds `grants.json` beside the declarations and re-reads it (`GrantsFile`). A granted topic is a
+literal ACL entry on the grantee service's `KafkaUser` (`GrantedTopic`, `StrimziRendering.grantedRules`),
+and the operator requeues every grantee of an old or new `AnkkaProject` so a revoked grant leaves the
+user at once. A registered machine is a cluster-scoped `AnkkaMachine` (schema `ankkamachine.yaml`), which
+`MachineReconciler` renders as a `KafkaUser` `machine.<org>.<name>` with no authentication of its own,
+its granted topics, groups `ankka.machine.<org>.<name>.` and quotas clamped to the installation's ceiling.
+
+The `broker-external` component exposes the broker to machines: an `external` OAUTHBEARER listener on
+9094 verifying tokens against the control plane's `keys` port, a TLS passthrough Gateway listener
+`broker` with Strimzi's `tlsroute`s, and a certificate from the installation's public issuer, all filled
+from four `ankka-platform` keys. The cloud overlay lists it; the local one does not, and kind publishes
+9094 only on a cluster created with `kind.yaml`'s `30094` mapping, which kind fixes at creation.
+
 ## Deploying locally
 
 ```bash

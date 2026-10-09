@@ -35,3 +35,10 @@ data:
   # service's own Secret. The platform installs no collector and no store here: they are the
   # installation's.
   otlpEndpoint: "" # SET to export
+  # The broker exposed to machines (feature 040): where a machine's client connects, the
+  # ClusterIssuer of the certificate it presents, and the caps on connections — per client address
+  # on each broker, and new connections a second on the external listener.
+  brokerExternalBootstrap: broker.example.com:9094 # SET: broker.<baseDomain>:9094
+  publicIssuer: letsencrypt-production
+  brokerMaxConnectionsPerIp: "64"
+  brokerExternalConnectionRate: "20"

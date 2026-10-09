@@ -165,6 +165,10 @@ final class ProjectionRuntime private (
       // The project's word first: a broker the project does not declare is named as such, not as
       // a publisher nobody configured.
       rejectUndeclared(service.registry.components.toVector)
+      ProjectionRuntime.crossProjectProblems(service.registry.components.toVector) match
+        case Vector() => ()
+        case found =>
+          StartRefusal.refuse(found.mkString("; "), IllegalArgumentException(_))
       rejectUnsupported(views, consumers)
       rejectUnsupportedRemote(remoteViews, remoteConsumers)
 
@@ -317,7 +321,7 @@ final class ProjectionRuntime private (
             case _ => ()
           }
           DeclaredConnections.publicationOf(component).foreach { p =>
-            side(component.componentId, kind, "publishes to", p.topic, p.contract, p.broker)
+            side(component.componentId, kind, "publishes to", p.address, p.contract, p.broker)
           }
         }
         val found = problems.result()
@@ -713,7 +717,9 @@ final class ProjectionRuntime private (
           }
         }
 
-      case ChangeSource.Topic(topic, _, startFrom, options) =>
+      case ChangeSource.Topic(name, _, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           // A view that declares nowhere starts at the earliest message the broker holds.
           startTopicView(
@@ -832,7 +838,9 @@ final class ProjectionRuntime private (
           )
         }
 
-      case ChangeSource.Topic(topic, _, startFrom, options) =>
+      case ChangeSource.Topic(name, _, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           def handler =
             ConsumerTopicHandler(typed, target, client, Observability(system), secrets, services)
@@ -898,7 +906,9 @@ final class ProjectionRuntime private (
           }
         }
 
-      case RemoteSource.Topic(topic, startFrom, options) =>
+      case RemoteSource.Topic(name, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           startTopicView(
             broker,
@@ -996,7 +1006,9 @@ final class ProjectionRuntime private (
           )
         }
 
-      case RemoteSource.Topic(topic, startFrom, options) =>
+      case RemoteSource.Topic(name, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           def handler = RemoteConsumerTopicHandler(consumer())
           if startFrom.isEmpty then
@@ -1110,6 +1122,30 @@ final class ProjectionRuntime private (
     publisher = None
 
 object ProjectionRuntime:
+
+  /**
+   * Feature 040: a topic is another project's or on a broker the project declared, never both. A
+   * declared broker is outside the installation and has no projects; the installation's broker
+   * enforces a grant, and only that broker has another project's topics.
+   */
+  def crossProjectProblems(components: Vector[ComponentDescriptor]): Vector[String] =
+    def refused(id: ComponentId, verb: String, address: String, broker: String) =
+      val (project, name) = TopicAddress.split(address)
+      s"'$id' $verb topic '$name' of project '${project.getOrElse("")}' on broker '$broker': " +
+        "another project's topic is on the installation's broker; name the project or the " +
+        "broker, not both"
+    components.flatMap { component =>
+      val sources = DeclaredConnections.sourcesOf(component).collect {
+        case DeclaredSource.Topic(address, _, Some(broker))
+            if TopicAddress.isCrossProject(address) =>
+          refused(component.componentId, "reads", address, broker)
+      }
+      val publication = DeclaredConnections.publicationOf(component).collect {
+        case p if p.project.isDefined && p.broker.isDefined =>
+          refused(component.componentId, "publishes to", p.address, p.broker.get)
+      }
+      sources ++ publication
+    }
 
   /** Runs views and consumers over entity sources only. */
   def apply(): ProjectionRuntime = new ProjectionRuntime(None, None)

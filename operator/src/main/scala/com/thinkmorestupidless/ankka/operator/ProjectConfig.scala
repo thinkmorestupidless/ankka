@@ -1,6 +1,12 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaProjectSpec, ProjectBrokerEntry, ProjectTopicEntry}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaProjectSpec,
+  ProjectBrokerEntry,
+  ProjectGrantEntry,
+  ProjectTopicEntry
+}
+import scala.jdk.CollectionConverters.*
 import io.fabric8.kubernetes.api.model.{
   ConfigMap,
   ConfigMapBuilder,
@@ -30,7 +36,26 @@ object ProjectConfig:
   val MountPath: String  = "/var/run/ankka/project"
   val EnvVar: String     = "ANKKA_PROJECT_DECLARATIONS"
 
-  def configMap(namespace: String, spec: AnkkaProjectSpec): ConfigMap =
+  /**
+   * The project's accepted grants (feature 040), in the same ConfigMap, so they reach every pod
+   * through the mount it already has: a new volume, or even a new variable, changes the pod and
+   * rolls it, and a grant must not restart one. The runtime finds the file beside the declarations
+   * it is already told of, refreshed in place by the kubelet, and re-reads it when its modification
+   * time changes.
+   */
+  val GrantsKey: String = "grants.json"
+
+  /** Where machines' tokens come from (feature 040), as `MachineTokens` in the runtime reads it. */
+  val MachinesKey: String = "machines.json"
+
+  def renderMachines(machines: Settings.MachineIssuer): String =
+    s"""{"issuer":${quote(machines.issuer)},"jwksUrl":${quote(machines.jwksUrl)}}"""
+
+  def configMap(
+      namespace: String,
+      spec: AnkkaProjectSpec,
+      machines: Option[Settings.MachineIssuer] = None
+  ): ConfigMap =
     new ConfigMapBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
@@ -46,8 +71,35 @@ object ProjectConfig:
           )
           .build()
       )
-      .withData(java.util.Map.of(Key, render(spec)))
+      .withData(
+        (Map(Key -> render(spec), GrantsKey -> renderGrants(spec)) ++
+          machines.map(m => MachinesKey -> renderMachines(m))).asJava
+      )
       .build()
+
+  /**
+   * The grants file, as `GrantsFile` in the runtime reads it: every accepted grant of the project,
+   * sorted by id so equal specs render equal bytes. A service keeps the entries that name its own
+   * routes and methods; the topic and erasure entries are for the platform's components that admit
+   * by grant.
+   */
+  def renderGrants(spec: AnkkaProjectSpec): String =
+    val grants = spec.grants.sortBy(_.id).map(grant).mkString(",")
+    s"""{"project":${quote(spec.projectId)},"grants":[$grants]}"""
+
+  private def grant(g: ProjectGrantEntry): String =
+    val optional = Vector(
+      "service"    -> g.service,
+      "httpMethod" -> g.httpMethod,
+      "path"       -> g.path,
+      "method"     -> g.method,
+      "topic"      -> g.topic,
+      "right"      -> g.right
+    ).collect { case (field, Some(value)) => s""","$field":${quote(value)}""" }.mkString
+    val decrypt = if g.decrypt then ""","decrypt":true""" else ""
+    s"""{"id":${quote(g.id)},"grantee":${quote(g.grantee)},"kind":${quote(
+        g.kind
+      )}$optional$decrypt}"""
 
   def volume(): Volume =
     new VolumeBuilder()

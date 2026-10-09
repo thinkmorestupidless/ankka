@@ -411,6 +411,132 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  // ── cross-project access (feature 040) ─────────────────────────────────────
+
+  private def fieldsOf(json: String): Set[String] =
+    com.fasterxml.jackson.databind.ObjectMapper().readTree(json).fieldNames().asScala.toSet
+
+  test("a grant's events pin their wire form: one grantee as text, one flat target") {
+    import com.thinkmorestupidless.ankka.controlplane.api.{GrantChange, GrantTarget, Grantee}
+    val at       = Some(java.time.Instant.parse("2026-10-08T10:00:00Z"))
+    val ada      = Some(Actor("ada", Some("ada@eitheror.test")))
+    val merchant = Grantee.Service("payments", "merchant")
+    val network  = Grantee.Machine("affiliates", "network")
+    val route    = GrantTarget.route("wallet", "POST", "/v1/wallets/{player}/{currency}/deposits")
+    val topic    = GrantTarget.topic("affiliates.attribution", "consume", decrypt = true)
+    val cases: Vector[(ProjectEvent, Set[String])] =
+      Vector(
+        ProjectEvent.GrantMade("g1", merchant, route, pending = false, ada, at) ->
+          Set("type", "id", "grantee", "target", "pending", "actor", "at"),
+        ProjectEvent.GrantMade("g2", network, topic, pending = true) ->
+          Set("type", "id", "grantee", "target", "pending"),
+        ProjectEvent.GrantMade("g3", merchant, GrantTarget.erasure, pending = false) ->
+          Set("type", "id", "grantee", "target", "pending")
+      ) ++ Vector(
+        ProjectEvent.GrantAccepted("g1", ada, at),
+        ProjectEvent.GrantDeclined("g1", ada, at),
+        ProjectEvent.GrantWithdrawn("g1", ada, at),
+        ProjectEvent.GrantRevoked("g1", ada, at),
+        ProjectEvent.GrantRelinquished("g1", ada, at),
+        ProjectEvent.GrantLapsed("g1", ada, at)
+      ).map(_ -> Set("type", "id", "actor", "at")) ++ Vector(
+        ProjectEvent.GrantRecorded(
+          "g1",
+          "spinvibe",
+          "eitheror",
+          merchant,
+          route,
+          GrantChange.Made,
+          ada,
+          at
+        ) ->
+          Set(
+            "type",
+            "id",
+            "grantingProject",
+            "grantingOrganization",
+            "grantee",
+            "target",
+            "change",
+            "actor",
+            "at"
+          )
+      )
+    for (event, expected) <- cases do
+      val bytes = ProjectEntity.eventSerializer.toBytes(event)
+      val json  = new String(bytes, "UTF-8")
+      assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), event)
+      assertEquals(fieldsOf(json), expected, json)
+    val made = new String(
+      ProjectEntity.eventSerializer.toBytes(
+        ProjectEvent.GrantMade("g2", network, topic, pending = true)
+      ),
+      "UTF-8"
+    )
+    assert(made.contains("\"grantee\":\"machine:affiliates/network\""), made)
+    assert(
+      made.contains(
+        "\"target\":{\"kind\":\"topic\",\"topic\":\"affiliates.attribution\",\"right\":\"consume\",\"decrypt\":true}"
+      ),
+      made
+    )
+    val recorded = OrganizationEvent.GrantRecorded(
+      "g2",
+      "spinvibe",
+      "eitheror",
+      network,
+      topic,
+      GrantChange.Offered
+    )
+    val bytes = OrganizationEntity.eventSerializer.toBytes(recorded)
+    assertEquals(OrganizationEntity.eventSerializer.fromBytes(bytes), recorded)
+    assert(new String(bytes, "UTF-8").contains("\"change\":\"offered\""))
+  }
+
+  test("no event of a grant holds a secret or a token: there is no field that could") {
+    val forbidden = Set("secret", "clientSecret", "token", "password", "digest")
+    for event <- Vector(
+        classOf[ProjectEvent.GrantMade],
+        classOf[ProjectEvent.GrantAccepted],
+        classOf[ProjectEvent.GrantRecorded],
+        classOf[OrganizationEvent.GrantRecorded]
+      )
+    do
+      val names = event.getDeclaredFields.map(_.getName).toSet
+      assertEquals(names.intersect(forbidden), Set.empty[String], event.getName)
+  }
+
+  test("no event of any kind holds a secret, a password or a token's value") {
+    // Every case of every control plane event, found by reflection so a new one is covered unlisted.
+    val forbidden =
+      Set("secret", "clientSecret", "password", "token", "accessToken", "access_token")
+    val cases = Vector(
+      classOf[OrganizationEvent],
+      classOf[ProjectEvent],
+      classOf[MachineEvent]
+    ).flatMap(_.getDeclaredClasses.toVector)
+    assert(
+      cases.exists(_.getSimpleName == "MachineRegistered"),
+      cases.map(_.getSimpleName).toString
+    )
+    assert(cases.size > 20, cases.map(_.getSimpleName).toString)
+    for event <- cases do
+      val names = event.getDeclaredFields.map(_.getName).toSet
+      assertEquals(names.intersect(forbidden), Set.empty[String], event.getName)
+  }
+
+  test("a project and an organization from before grants decode with none held or received") {
+    val project =
+      """{"id":"spinvibe","name":"Spinvibe","organizationId":"eitheror"}"""
+    val decoded = ProjectEntity.stateSerializer.fromBytes(project.getBytes("UTF-8"))
+    assertEquals((decoded.grants, decoded.received), (Map.empty, Map.empty))
+    val organization = """{"id":"affiliates","name":"Affiliates"}"""
+    assertEquals(
+      OrganizationEntity.stateSerializer.fromBytes(organization.getBytes("UTF-8")).received,
+      Map.empty
+    )
+  }
+
 /** `ServiceApplied` as the build before feature 033 declared it: five fields. */
 private object PreRollback:
   import com.thinkmorestupidless.ankka.controlplane.api.Wire.given

@@ -342,3 +342,7 @@ spec:
                       type: boolean
                     detail:
                       type: string
+                grants:
+                  type: string
+                  description: mounted once the service is rendered with the project's ConfigMap,
+                    whose grants file its running instances read. Absent for a web-hosted service.

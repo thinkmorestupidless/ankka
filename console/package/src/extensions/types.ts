@@ -17,6 +17,9 @@ export const operations = [
   "member.repair",
   "token.create",
   "token.revoke",
+  "machine.register",
+  "machine.delete",
+  "machine.byte-rates",
   "project.create",
   "project.rename",
   "project.delete",
@@ -28,6 +31,12 @@ export const operations = [
   "project-topic.unset",
   "project-broker.set",
   "project-broker.unset",
+  "grant.make",
+  "grant.end",
+  // An owner of the grantee's side accepting or declining a pending grant, and giving one up: the
+  // organization page's "Offered grants" card.
+  "grant.answer",
+  "grant.relinquish",
   "service.apply",
   "service.pause",
   "service.resume",

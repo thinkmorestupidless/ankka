@@ -49,6 +49,9 @@ pub struct TopicSource {
     pub broker: Option<String>,
     /// Whether the partitions an instance holds are handled at once.
     pub parallel: bool,
+    /// The project whose topic this is, when it is not this service's own (protocol 1.15): the
+    /// broker serves it only while that project grants this service consume on it.
+    pub project: Option<String>,
 }
 
 impl Source {
@@ -65,7 +68,15 @@ impl Source {
             contract: None,
             broker: None,
             parallel: false,
+            project: None,
         })
+    }
+
+    /// Another project's topic, which that project must grant this service consume on. Applies
+    /// to a topic; a component source is left as it is.
+    pub fn project(self, project: impl Into<String>) -> Source {
+        let project = project.into();
+        self.with_topic(|t| t.project = Some(project))
     }
 
     /// The contract the component expects the topic to carry. Applies to a topic; a component
@@ -109,6 +120,7 @@ impl Source {
                 contract: None,
                 broker: None,
                 parallel: None,
+                project: None,
             },
             Source::Topic(t) => proto::Source {
                 source: Some(proto::source::Source::Topic(t.topic.clone())),
@@ -116,6 +128,7 @@ impl Source {
                 contract: t.contract.as_ref().map(Contract::to_proto),
                 broker: t.broker.clone(),
                 parallel: t.parallel.then_some(true),
+                project: t.project.clone(),
             },
         }
     }

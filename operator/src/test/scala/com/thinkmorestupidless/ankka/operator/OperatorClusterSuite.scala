@@ -796,6 +796,35 @@ class OperatorClusterSuite extends munit.FunSuite:
         s"expected the API server to refuse the read: ${read.getMessage}"
       )
 
+      // A registered machine (feature 040): the operator reads it and writes its status, and may not
+      // delete it, which is the control plane's to do.
+      client
+        .load(getClass.getResourceAsStream("/ankka/crd/ankkamachine.yaml"))
+        .serverSideApply(): Unit
+      val machines = classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine]
+      // The type is served a moment after its definition is applied.
+      waitFor(30.seconds) {
+        scala.util
+          .Try(
+            client
+              .resource(
+                com.thinkmorestupidless.ankka.crd.AnkkaMachine(
+                  com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec("rbac", "probe")
+                )
+              )
+              .serverSideApply()
+          )
+          .isSuccess
+      }
+      assertEquals(
+        restricted.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector,
+        Vector("rbac.probe")
+      )
+      val unmade = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted.resources(machines).withName("rbac.probe").delete(): Unit
+      }
+      assertEquals(unmade.getCode, 403, s"expected the delete refused: ${unmade.getMessage}")
+
       // The other direction, and the only test that can catch a *missing* grant: everything else
       // here runs the operator on the admin kubeconfig, so a ClusterRole with no `services` rule
       // — which is what shipped until feature 003 looked — passes every other case and fails on

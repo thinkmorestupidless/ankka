@@ -1,0 +1,34 @@
+# The installation's broker, exposed to machines outside the cluster (feature 040).
+#
+# A registered machine reads the topics a project grants it with any stock Kafka client, through
+# the Gateway on port 9094. Envoy passes each TLS connection through by its SNI and never sees inside
+# it; the broker terminates TLS with a certificate from the installation's public issuer and
+# authenticates the client by the machine token the control plane issued it (OAUTHBEARER), naming
+# the principal from the token's `broker_user` claim. What the machine may then do is its broker
+# user's, which the operator renders from its grants.
+#
+# List this after `broker`, `gateway`, `operator` and `controlplane`: it patches what they made. The
+# overlay sets four values in its `ankka-platform` ConfigMap and replaces them in here —
+# `brokerExternalBootstrap` (broker.<base>:9094), `publicIssuer` (the ClusterIssuer of the public
+# certificate), `brokerMaxConnectionsPerIp` and `brokerExternalConnectionRate` — and the base
+# domain, as it does for every other component. `overlays/cloud` shows every replacement.
+#
+# A local platform does not list it. kind publishes the listener only on a cluster created with the
+# `30094 -> 9094` mapping (`kustomization/kind.yaml`), and the certificate needs a ClusterIssuer,
+# which the local overlay's self-signed root is not.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - certificate.yaml
+patches:
+  - path: kafka-listener.yaml
+    target:
+      group: kafka.strimzi.io
+      kind: Kafka
+      name: ankka
+  - path: gateway-listener.yaml
+    target:
+      group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ankka
+  - path: settings.yaml

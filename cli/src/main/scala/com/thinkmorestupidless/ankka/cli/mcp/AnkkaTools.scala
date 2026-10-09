@@ -135,7 +135,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag and what it is failing on (topicSources), each side it takes on a declared topic's contract (topicChecks), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag and what it is failing on (topicSources), each side it takes on a declared topic's contract (topicChecks), whether its instances read the project's grants (grants), each other project's topic it reads or publishes to and whether that project grants it (crossProjectTopics), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true

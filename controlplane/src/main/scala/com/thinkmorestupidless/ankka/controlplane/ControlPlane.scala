@@ -4,7 +4,13 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.*
-import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex}
+import com.thinkmorestupidless.ankka.controlplane.auth.{
+  AuthConfig,
+  DeployTokenIndex,
+  MachineKeys,
+  MachineSettings,
+  TokenBucket
+}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   ProjectSecretWriter,
@@ -43,14 +49,24 @@ object ControlPlane:
     // Feature 013. The entity is what every node replays into its own DeployTokenIndex so its acl
     // can verify a token without touching the database; the view is only for listing them.
     DeployTokenEntity.descriptor,
-    DeployTokenRows.descriptor
+    DeployTokenRows.descriptor,
+    // Feature 040. The grantee side's copy of every grant, derived from the granting project's
+    // events, so a request that changes a grant writes one entity.
+    GrantMirror.descriptor,
+    // Feature 040. A machine outside the installation, registered on an organization, and the
+    // listing of an organization's machines.
+    MachineEntity.descriptor,
+    MachineRows.descriptor,
+    // Feature 040. A deleted project lapses the grants its services held.
+    ProjectTrigger.descriptor
   )
 
   /** The full inventory, including the consumer that projects on a desired-state change. */
   def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
     components :+ ProjectionTrigger.companion(projector).descriptor :+
       SuspensionTrigger.companion(projector).descriptor :+
-      ProjectTopicsTrigger.companion(projector).descriptor
+      ProjectTopicsTrigger.companion(projector).descriptor :+
+      MachineLifecycleTrigger.companion(projector).descriptor
 
   /**
    * The endpoints, all but one sharing the ACL. The service endpoint also needs the deployment
@@ -98,15 +114,32 @@ object ControlPlane:
       /** Where a project's topics' phases are read from; the projector, as for the others. */
       topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
-      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None
+      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
+      /**
+       * Machines' settings and signing keys (feature 040). The keys are in memory unless a mounted
+       * directory holds them; a suite passes keys of its own to sign and verify with.
+       */
+      machineSettings: MachineSettings = MachineSettings.local,
+      machineKeys: Option[MachineKeys] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
     Seq[
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
-      clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics, schemas, topology),
+      clients => OrganizationEndpoint(clients, acl, policy, clock, tokens, machineSettings),
+      clients =>
+        ProjectEndpoint(
+          clients,
+          acl,
+          clock,
+          registry,
+          secrets,
+          topics,
+          schemas,
+          topology,
+          brokerExposed = machineSettings.brokerBootstrap.isDefined
+        ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -127,7 +160,17 @@ object ControlPlane:
             )
           case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
       clients => WhoamiEndpoint(clients, acl, clock)
-    ) ++ auth.map(config =>
+    ) ++ {
+      val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
+      val bucket = TokenBucket(machineSettings.tokenRate, clock)
+      Seq[
+        com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
+      ](
+        clients => MachineTokenEndpoint(clients, keys, machineSettings, bucket, clock),
+        _ => MachineKeysEndpoint(keys, machineSettings),
+        _ => MachineKeyRotationEndpoint(keys, acl)
+      )
+    } ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
 
@@ -158,6 +201,15 @@ object ControlPlane:
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
+    // Feature 040: a deployed control plane signs with the keys its Secret holds, mounted, and
+    // writes a new one there; a local one keeps them in memory.
+    val machines = MachineSettings.from(config)
+    val keys = machines.keysDirectory.fold(MachineKeys.inMemory())(directory =>
+      MachineKeys.mounted(
+        java.nio.file.Path.of(directory),
+        projector.machineKeyWriter(machines.namespace, machines.keysSecret)
+      )
+    )
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
         HttpServer.at(host, bindPort)(
@@ -170,7 +222,9 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            machineSettings = machines,
+            machineKeys = Some(keys)
           )*
         )
       case _ =>
@@ -184,15 +238,38 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            machineSettings = machines,
+            machineKeys = Some(keys)
           )*
         )
-    val base = Ankka.service
+    val served = Ankka.service
       .registerAll(componentsWith(projector))
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(server)
-    tokens.fold(base)(base.withExtension)
+    // Keys the Secret holds are replaced every thirty days; keys in memory live with the process.
+    val base =
+      if machines.keysDirectory.isDefined then
+        served.withExtension(
+          com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyRotation(keys)
+        )
+      else served
+    // Feature 040: the keys machine tokens are signed with, on a port of their own that asks for
+    // no client certificate, so the broker and every service read them inside the cluster. Only
+    // where the control plane serves TLS: elsewhere the main port serves them already.
+    val keysPort = config.getInt("ankka.controlplane.machines.keys-port")
+    val tls =
+      config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
+    val withKeys =
+      if tls && keysPort > 0 then
+        base.withExtension(
+          HttpServer
+            .at(interface.getOrElse("0.0.0.0"), keysPort)(_ => MachineKeysEndpoint(keys, machines))
+            .withoutClientCertificates
+        )
+      else base
+    tokens.fold(withKeys)(withKeys.withExtension)
 
   /**
    * The ACL from configuration: verified OpenID Connect tokens from the configured issuer.

@@ -58,9 +58,10 @@ object Names:
    * `local` is reserved because a project's id is also part of the consumer group a deployed
    * service reads a topic under, and a service run on a developer's machine that states its name
    * reads under `ankka.local.<service>.…`. The control plane's list is the same
-   * (`ReservedProjectIdsSuite`).
+   * (`ReservedProjectIdsSuite`). `machine` likewise names a registered machine's group prefix,
+   * `ankka.machine.<organization>.<name>.`.
    */
-  val ReservedProjectIds: Set[String] = Set("platform", "local")
+  val ReservedProjectIds: Set[String] = Set("platform", "local", "machine")
 
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =

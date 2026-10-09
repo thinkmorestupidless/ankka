@@ -103,7 +103,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 confirmed,
                 database,
                 broker,
-                objectStorage
+                objectStorage,
+                _
               ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself

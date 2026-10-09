@@ -114,6 +114,30 @@ Keycloak's `typ: Bearer` check on, and its singular `ANKKA_AUTH_ISSUER`/`_JWKS_U
 not part of the set, which ignores them. Tests mint tokens with the module's `TestIssuer`; the control
 plane's `TestIdentity` extends it.
 
+## Grants and registered machines
+
+Feature 040. A **grant** is held by the granting `Project` entity, the one writer of its state (made,
+pending, accepted, declined, withdrawn, revoked, relinquished, lapsed); the grantee's side — the
+grantee project's or organization's `received-grants` — is a *mirror* written by `GrantMirror` from the
+granting project's events, never decided there, so the two cannot disagree about a state. A grant to
+another organization is pending until an owner there answers through `OrganizationEndpoint`
+(`/organizations/{id}/grants/{grantId}/accept|decline|relinquish`), which finds the grant in that
+organization's mirror first, so a grant not offered to it is a 404, never a 403 that confirms the id.
+A deleted grantee lapses its grants through `GrantLapse`: `ProjectTrigger` on `ProjectDeleted`,
+`MachineLifecycleTrigger` on `MachineDeleted`, with the deleter's attribution. Accepted grants reach the
+cluster as `AnkkaProject.spec.grants` (`ProjectTopicsTrigger`), which the operator renders into the
+project ConfigMap's `grants.json`. A listing's `effect` is computed per request (`GrantEffect.of`) from
+the named service's status and its instances' topology, never stored.
+
+A **registered machine** is a `MachineEntity` (id `<org>/<name>`) holding only the digest of its client
+secret (`MachineSecrets`). `POST /oauth/token` issues an RS256 token for 15 minutes under
+`MachineKeys` — in memory locally, a mounted Secret directory (`<kid>.pem`) in a cluster, replaced every
+thirty days by `MachineKeyRotation` and swept after 31, the newest always kept — and answers each client
+id at most twelve times a minute per instance (`TokenBucket`). The public keys are served at
+`/.well-known/jwks.json` and on a second port, `keys` (7629), which asks for no client certificate
+(`HttpServer.withoutClientCertificates`), so the broker and services read them inside the cluster.
+`MachineLifecycleTrigger` projects each machine as a cluster-scoped `AnkkaMachine`.
+
 ## Traps
 
 - **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system

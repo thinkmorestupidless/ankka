@@ -114,6 +114,33 @@ final class ControlPlaneClient(settings: Settings):
   def revokeDeployToken(id: String, tokenId: String): Unit =
     send("DELETE", s"/organizations/${segment(id)}/tokens/${segment(tokenId)}", None): Unit
 
+  // ── Machines (feature 040) ────────────────────────────────────────────────
+
+  def listMachines(id: String): Vector[MachineSummary] =
+    get[Vector[MachineSummary]](s"/organizations/${segment(id)}/machines")
+
+  /** The reply carries the secret. It is returned, printed once, and never stored. */
+  def registerMachine(id: String, name: String): MachineRegistered =
+    decode[MachineRegistered](
+      send(
+        "POST",
+        s"/organizations/${segment(id)}/machines",
+        Some(writeToString(MachineRegistration(name)))
+      )
+    )
+
+  def deleteMachine(id: String, name: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/machines/${segment(name)}", None): Unit
+
+  def setMachineByteRates(id: String, name: String, rates: ByteRatesRequest): MachineSummary =
+    decode[MachineSummary](
+      send(
+        "PUT",
+        s"/organizations/${segment(id)}/machines/${segment(name)}/byte-rates",
+        Some(writeToString(rates))
+      )
+    )
+
   def disableOrganization(id: String): Unit =
     send("POST", s"/organizations/${segment(id)}/disable", None): Unit
 
@@ -219,6 +246,34 @@ final class ControlPlaneClient(settings: Settings):
 
   def listBrokers(projectId: String): Vector[ProjectBroker] =
     get[Vector[ProjectBroker]](s"/projects/${segment(projectId)}/brokers")
+
+  // ── Grants (feature 040) ──────────────────────────────────────────────────
+
+  def makeGrant(projectId: String, request: GrantRequest): GrantDetail =
+    decode[GrantDetail](
+      send("POST", s"/projects/${segment(projectId)}/grants", Some(writeToString(request)))
+    )
+
+  def listGrants(projectId: String): Vector[GrantDetail] =
+    get[Vector[GrantDetail]](s"/projects/${segment(projectId)}/grants")
+
+  def receivedGrants(projectId: String): Vector[ReceivedGrantDetail] =
+    get[Vector[ReceivedGrantDetail]](s"/projects/${segment(projectId)}/grants/received")
+
+  /** Withdraws a pending grant or revokes an accepted one: the server knows which. */
+  def endGrant(projectId: String, grantId: String): Unit =
+    send("DELETE", s"/projects/${segment(projectId)}/grants/${segment(grantId)}", None): Unit
+
+  def organizationGrants(organizationId: String): Vector[ReceivedGrantDetail] =
+    get[Vector[ReceivedGrantDetail]](s"/organizations/${segment(organizationId)}/grants")
+
+  /** `accept`, `decline` or `relinquish` a grant offered to or held by an organization. */
+  def answerGrant(organizationId: String, grantId: String, verb: String): Unit =
+    send(
+      "POST",
+      s"/organizations/${segment(organizationId)}/grants/${segment(grantId)}/${segment(verb)}",
+      None
+    ): Unit
 
   // ── Services ──────────────────────────────────────────────────────────────
 

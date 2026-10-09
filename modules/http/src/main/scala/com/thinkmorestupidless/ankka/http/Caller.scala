@@ -26,6 +26,13 @@ enum Caller:
   case Service(project: String, name: String)
 
   /**
+   * A machine registered on an organization (feature 040), arrived through the gateway with a token
+   * the control plane issued and this service verified before any ACL ran. Without a token, or with
+   * any other, the same request is `Gateway`.
+   */
+  case Machine(organization: String, name: String)
+
+  /**
    * Outside a cluster — a developer's machine, a test. There is no perimeter there and no
    * certificate to read, so every caller is admitted as this, by every caller-naming ACL.
    */
@@ -60,21 +67,29 @@ object Caller:
             case Some(_) if self.nonEmpty => Left("a request under a mount of another project")
             case _                        => Left("unrecognised caller certificate")
 
-  /** `gateway` | `service:<project>/<name>` | `local` — the local impersonation header's form. */
+  /**
+   * `gateway` | `service:<project>/<name>` | `machine:<organization>/<name>` | `local` — the local
+   * impersonation header's form, and a grant's grantee's.
+   */
   private[ankka] def encode(caller: Caller): String = caller match
     case Gateway                => "gateway"
     case Service(project, name) => s"service:$project/$name"
+    case Machine(org, name)     => s"machine:$org/$name"
     case Local                  => "local"
 
   private[ankka] def decode(text: String): Option[Caller] = text match
     case "gateway" => Some(Gateway)
     case "local"   => Some(Local)
     case s if s.startsWith("service:") =>
-      s.stripPrefix("service:").split('/') match
-        case Array(project, name) if project.nonEmpty && name.nonEmpty =>
-          Some(Service(project, name))
-        case _ => None
+      pair(s.stripPrefix("service:")).map(Service.apply)
+    case s if s.startsWith("machine:") =>
+      pair(s.stripPrefix("machine:")).map(Machine.apply)
     case _ => None
+
+  private def pair(text: String): Option[(String, String)] =
+    text.split('/') match
+      case Array(first, second) if first.nonEmpty && second.nonEmpty => Some(first -> second)
+      case _                                                         => None
 
 /**
  * One kind of caller an ACL admits — Akka's principals, made honest by a certificate.
@@ -93,15 +108,36 @@ enum CallerMatcher:
   /** This service itself — another of its own instances, or itself through its own address. */
   case Self
 
+  /**
+   * A caller holding a grant, made by this service's project, on the route or method being called
+   * (feature 040): a service of another project or a registered machine. The grant is data the
+   * project's owners change; that a route may be granted at all is this matcher, in reviewed code.
+   */
+  case Granted
+
   /** Whether this admits `caller`, for a service whose own identity is `self`. */
-  def admits(caller: Caller, self: RotatingTls.Identity): Boolean = (this, caller) match
+  def admits(caller: Caller, self: RotatingTls.Identity): Boolean =
+    admits(caller, self, None, Grants.none)
+
+  /**
+   * As above, for a call to `target` with `grants` the grants naming this service. A machine is a
+   * request from the internet that proved who it is, so the internet admits it too.
+   */
+  def admits(
+      caller: Caller,
+      self: RotatingTls.Identity,
+      target: Option[GrantTarget],
+      grants: Grants
+  ): Boolean = (this, caller) match
     case (_, Caller.Local)                                  => true
-    case (Internet, Caller.Gateway)                         => true
+    case (Internet, Caller.Gateway | _: Caller.Machine)     => true
     case (NamedService(Some(p), n), Caller.Service(cp, cn)) => p == cp && n == cn
     case (NamedService(None, n), Caller.Service(cp, cn))    => cp == self.project && n == cn
     case (AnyInProject, Caller.Service(cp, _))              => cp == self.project
     case (Self, Caller.Service(cp, cn)) => cp == self.project && cn == self.service
-    case _                              => false
+    case (Granted, Caller.Service(_, _) | Caller.Machine(_, _)) =>
+      target.exists(grants.admits(caller, _))
+    case _ => false
 
 /**
  * The spellings an endpoint uses: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`.
@@ -113,6 +149,12 @@ object Callers:
     CallerMatcher.NamedService(Some(project), name)
   val anyInProject: CallerMatcher = CallerMatcher.AnyInProject
   val self: CallerMatcher         = CallerMatcher.Self
+
+  /**
+   * Whoever this service's project has granted the route or method to (feature 040). A route that
+   * does not name this can never be granted, whatever the project's owners do.
+   */
+  val granted: CallerMatcher = CallerMatcher.Granted
 
 /**
  * How a test names a caller outside a cluster, where there is no certificate to read.

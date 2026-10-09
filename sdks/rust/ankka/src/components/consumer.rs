@@ -75,6 +75,8 @@ pub struct Publication {
     pub contract: Option<Contract>,
     /// The declared broker the topic is on.
     pub broker: Option<String>,
+    /// The project whose topic this is, when it is not this service's own (protocol 1.15).
+    pub project: Option<String>,
 }
 
 impl Publication {
@@ -84,7 +86,14 @@ impl Publication {
             topic: topic.into(),
             contract: None,
             broker: None,
+            project: None,
         }
+    }
+
+    /// Another project's topic, which that project must grant this service produce on.
+    pub fn project(mut self, project: impl Into<String>) -> Publication {
+        self.project = Some(project.into());
+        self
     }
 
     /// The contract the consumer states for the topic.
@@ -104,6 +113,7 @@ impl Publication {
             topic: self.topic.clone(),
             contract: self.contract.as_ref().map(Contract::to_proto),
             broker: self.broker.clone(),
+            project: self.project.clone(),
         }
     }
 }

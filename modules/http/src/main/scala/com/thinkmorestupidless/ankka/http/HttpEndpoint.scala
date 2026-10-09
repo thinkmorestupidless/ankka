@@ -115,6 +115,11 @@ object Acl:
   def allowCallers(first: CallerMatcher, rest: CallerMatcher*): Acl =
     AllowCallers(first +: rest.toVector)
 
+  /** Whether `acl` admits granted callers: what makes a route grantable (feature 040). */
+  def namesGranted(acl: Acl): Boolean = acl match
+    case AllowCallers(matchers) => matchers.contains(CallerMatcher.Granted)
+    case _                      => false
+
 private[ankka] final case class EncodedResponse(
     status: Int,
     contentType: String,

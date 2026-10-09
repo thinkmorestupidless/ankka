@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{
   ProjectEntity,
   ProjectRows,
+  ServiceEntity,
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
@@ -11,6 +12,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   ProjectSchemaStore,
   ProjectSecretWriter,
   ProjectTopicsReader,
+  DeployConfig,
   RegistryWriter,
   TopologyReader
 }
@@ -18,9 +20,11 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   ConfigureRegistry,
   DeclareBroker,
   DeclareTopic,
+  MakeGrant,
   RemoveBroker,
   RemoveSecretEntry,
   RemoveTopic,
+  ServiceKey,
   SetSecretEntries
 }
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
@@ -30,6 +34,8 @@ import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
 
 import java.nio.charset.StandardCharsets.UTF_8
 import com.thinkmorestupidless.ankka.http.*
+// The grant's target as the control plane holds it, not the http module's runtime value.
+import com.thinkmorestupidless.ankka.controlplane.api.GrantTarget
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 
@@ -59,14 +65,29 @@ final class ProjectEndpoint(
     /** Where a contract's schema is held (feature 037); `None` refuses a declaration with one. */
     schemaStore: Option[ProjectSchemaStore] = None,
     /** Where each service's instances report what they state about a topic (feature 037). */
-    topology: Option[TopologyReader] = None
+    topology: Option[TopologyReader] = None,
+    /**
+     * Whether the installation exposes its broker outside the cluster (feature 040): a machine's
+     * topic grant opens nothing until it does.
+     */
+    brokerExposed: Boolean = false
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)
-  private val authz    = Authorization(clients, clock)
-  private val usage    = OrganizationUsage(clients)
+
+  /**
+   * What a grant's effect is read from (feature 040): the scripted reader a suite hands in, else
+   * the instances themselves — built only when a grant names a service with a ready instance.
+   */
+  private lazy val grantTopology: TopologyReader =
+    topology.getOrElse(
+      com.thinkmorestupidless.ankka.controlplane.deploy
+        .InstanceTopologies(DeployConfig.default.namespacePrefix)
+    )
+  private val authz = Authorization(clients, clock)
+  private val usage = OrganizationUsage(clients)
 
   /**
    * `GET /projects?organization=acme` — the filter is optional, and one outside the caller's
@@ -401,6 +422,116 @@ final class ProjectEndpoint(
     entity(projectId).call(ProjectEntity.secrets).invoke()
   }
 
+  // ── grants (feature 040) ──────────────────────────────────────────────────
+
+  /**
+   * Makes a grant. Only an owner of the project's organization may. The checks that read other
+   * entities are here: the grantee's project must exist, and the grantee's organization decides
+   * whether the grant waits for an answer — a grantee of this project's own organization takes
+   * effect at once, any other is pending. The project's own rules are the entity's.
+   */
+  postBody("/{projectId}/grants") { (projectId: String, request: GrantRequest) =>
+    val access   = authz.projectOwner(principal, projectId, write = true)
+    val problems = GrantRules.problems(request)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+    val grantee = Grantee.parse(request.grantee).toOption.get
+    val granteeOrganization = grantee match
+      case Grantee.Service(project, _) =>
+        authz
+          .organizationOf(project)
+          .getOrElse(throw CommandError(s"no such project '$project'", ErrorCode.NotFound))
+      case Grantee.Machine(organization, _) =>
+        val exists = clients.componentClient
+          .forEventSourcedEntity(EntityId(organization))
+          .call(com.thinkmorestupidless.ankka.controlplane.application.OrganizationEntity.exists)
+          .invoke()
+        if !exists then
+          throw CommandError(s"no such organization '$organization'", ErrorCode.NotFound)
+        organization
+    val pending = granteeOrganization != access.organizationId
+    val id      = ProjectEndpoint.grantId()
+    val grant = entity(projectId)
+      .call(ProjectEntity.makeGrant)
+      .withMetadata(authz.metadata(access))
+      .invoke(MakeGrant(id, grantee, request.target, pending))
+    grant.detail(ProjectEndpoint.effectOf(grant.state))
+  }
+
+  /** The project's grants, live and ended, each with whether it is in effect and why not. */
+  get("/{projectId}/grants") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    val grants = entity(projectId).call(ProjectEntity.grants).invoke()
+    // Each named service's status and topology once per listing, and only for accepted grants on a
+    // route or a method: nothing else reads them.
+    val named = grants
+      .filter(g =>
+        g.state == GrantState.Accepted &&
+          (g.target.kind == GrantTarget.Route || g.target.kind == GrantTarget.Method)
+      )
+      .flatMap(_.target.service)
+      .distinct
+    val statuses = named.map { service =>
+      service -> (
+        try
+          Some(
+            clients.componentClient
+              .forEventSourcedEntity(EntityId(ServiceKey(projectId, service).id))
+              .call(ServiceEntity.get)
+              .invoke()
+          )
+        catch case _: CommandError => None
+      )
+    }.toMap
+    val documents = scala.collection.mutable.Map.empty[String, Vector[InstanceTopologyDocument]]
+    def documentsOf(service: String) =
+      documents.getOrElseUpdate(
+        service,
+        if !statuses.get(service).flatten.exists(_.readyInstances > 0) then Vector.empty
+        else
+          try grantTopology.read(projectId, service).flatMap(_._2)
+          catch case NonFatal(_) => Vector.empty
+      )
+    grants.map { g =>
+      val service = g.target.service.filter(named.contains)
+      g.detail(
+        GrantEffect.of(
+          g,
+          service.flatMap(statuses.get).flatten,
+          service.fold(Vector.empty[InstanceTopologyDocument])(documentsOf),
+          brokerExposed
+        )
+      )
+    }
+  }
+
+  /** What other projects granted this project's services, and every change to each. */
+  get("/{projectId}/grants/received") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    ProjectEndpoint.receivedDetails(
+      entity(projectId).call(ProjectEntity.receivedGrants).invoke(),
+      granting => entity(granting).call(ProjectEntity.topics).invoke()
+    )
+  }
+
+  /**
+   * Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. Only
+   * an owner of the project's organization may.
+   */
+  delete("/{projectId}/grants/{grantId}") { (projectId: String, grantId: String) =>
+    val access = authz.projectOwner(principal, projectId, write = true)
+    val grant = entity(projectId)
+      .call(ProjectEntity.grants)
+      .invoke()
+      .find(_.id == grantId)
+      .getOrElse(
+        throw CommandError(s"project '$projectId' has no grant '$grantId'", ErrorCode.NotFound)
+      )
+    val handle =
+      if grant.state == GrantState.Pending then ProjectEntity.withdrawGrant
+      else ProjectEntity.revokeGrant
+    entity(projectId).call(handle).withMetadata(authz.metadata(access)).invoke(grantId): Done
+  }
+
   private def serviceCount(projectId: String): Int =
     services.count(jsonText("projectId") ++ sql" = $projectId").toInt
 
@@ -408,6 +539,63 @@ final class ProjectEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(projectId))
 
 object ProjectEndpoint:
+
+  private val random = java.security.SecureRandom()
+
+  /** A grant's id: 16 hex characters, from 64 random bits. */
+  def grantId(): String =
+    val bytes = new Array[Byte](8)
+    random.nextBytes(bytes)
+    bytes.map(b => f"${b & 0xff}%02x").mkString
+
+  /**
+   * A grant's effect from its state alone: `in effect` for an accepted grant, the state's word for
+   * any other. What the cluster and the service say narrows an accepted grant further
+   * (`GrantEffect`).
+   */
+  def effectOf(state: GrantState): String =
+    if state == GrantState.Accepted then "in effect" else state.word
+
+  /**
+   * The grantee side's record as listed: each change with who made it, and for a topic grant the
+   * topic's settings, read from the granting project — absent when it can no longer be read.
+   */
+  def receivedDetails(
+      received: Vector[com.thinkmorestupidless.ankka.controlplane.domain.ReceivedGrant],
+      topicsOf: String => Map[
+        String,
+        com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic
+      ]
+  ): Vector[ReceivedGrantDetail] =
+    val topics = scala.collection.mutable.Map
+      .empty[String, Map[String, com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic]]
+    received.map { r =>
+      val settings =
+        r.target.topic.filter(_ => r.target.kind == GrantTarget.Topic).flatMap { name =>
+          val declared = topics.getOrElseUpdate(
+            r.grantingProject,
+            try topicsOf(r.grantingProject)
+            catch case NonFatal(_) => Map.empty
+          )
+          declared.get(name).map(t => TopicSettings(t.partitions, t.compacted))
+        }
+      ReceivedGrantDetail(
+        r.id,
+        r.grantingProject,
+        r.grantingOrganization,
+        r.grantee,
+        r.target,
+        r.state,
+        r.changes.map(c =>
+          GrantChangeRecord(
+            c.change,
+            c.actor.flatMap(_.display).orElse(c.actor.map(_.subject)),
+            c.at
+          )
+        ),
+        settings
+      )
+    }
 
   /** The operator's reported phase of a topic, as the phrase `ProjectTopic.phase` documents. */
   def topicPhrase(phase: String): String = phase match

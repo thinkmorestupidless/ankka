@@ -22,6 +22,7 @@ class CartTopologySuite extends munit.FunSuite:
   /** Every component the cart can register, by the name `Main` registers it under. */
   private val components: Map[String, ComponentDescriptor] = Map(
     "ShoppingCartEntity" -> ShoppingCartEntity.descriptor,
+    "CustomerEntity"     -> CustomerEntity.descriptor,
     "CheckoutLog"        -> CheckoutLog.descriptor,
     "CheckoutWorkflow"   -> CheckoutWorkflow.descriptor,
     "CartRows"           -> CartRows.descriptor,

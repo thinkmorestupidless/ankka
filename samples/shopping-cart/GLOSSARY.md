@@ -12,6 +12,16 @@ The person a cart belongs to.
 
 Avoid: user, shopper
 
+### customer's details
+The name and email of a cart's customer: personal fields, kept encrypted under the customer's own
+key.
+
+### erased
+Of a customer: their key destroyed, so every copy of their details — in the service's state, its
+backups and anything that holds them — reads as erased, never as the value.
+
+Avoid: deleted, forgotten
+
 ### product
 Something the shop sells, named in a feature by its quoted name ("Widget").
 

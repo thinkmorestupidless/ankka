@@ -4,7 +4,12 @@ import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
 import com.thinkmorestupidless.ankka.runtime.{InMemoryBroker, ProjectionRuntime}
 import shoppingcart.api.{CheckoutsSeenEndpoint, ShoppingCartEndpoint}
-import shoppingcart.application.{CheckoutNotifier, CheckoutsSeen, ShoppingCartEntity}
+import shoppingcart.application.{
+  CheckoutNotifier,
+  CheckoutsSeen,
+  CustomerEntity,
+  ShoppingCartEntity
+}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest as JdkRequest, HttpResponse as JdkResponse}
@@ -41,7 +46,12 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
     // service does from the installation's broker.
     val broker = InMemoryBroker()
     testKit = AnkkaTestKit.start(
-      Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor, CheckoutsSeen.descriptor),
+      Seq(
+        ShoppingCartEntity.descriptor,
+        CustomerEntity.descriptor,
+        CheckoutNotifier.descriptor,
+        CheckoutsSeen.descriptor
+      ),
       Seq(server, ProjectionRuntime.withBroker(broker, broker))
     )
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
@@ -187,3 +197,20 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
     Then(s"the $change is refused because the cart is checked out") { () =>
       refused(409, "cart is already checked out")
     }
+
+  // ── The customer's details: personal fields (feature 042) ──
+
+  Given("a cart whose customer is {string} at {string}") { (name: String, email: String) =>
+    val set = send("PUT", s"$cart/customer", Some(s"""{"name":"$name","email":"$email"}"""))
+    assertEquals(set._1, 200, set._2)
+  }
+  When("the customer is erased") { () =>
+    testKit.erase(s"customer/$scenarioId"): Unit
+  }
+  Then("the cart's customer reads as erased") { () =>
+    val read = send("GET", s"$cart/customer")
+    assertEquals(read, (200, """{"name":"erased","email":"erased"}"""))
+  }
+  Then("nothing the service keeps reads as {string}") { (value: String) =>
+    testKit.assertNoPersonalValue(value)
+  }

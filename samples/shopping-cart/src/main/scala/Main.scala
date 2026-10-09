@@ -27,6 +27,7 @@ import shoppingcart.application.*
   // docs:start registration
   val base = Ankka.service
     .register(ShoppingCartEntity.descriptor)
+    .register(CustomerEntity.descriptor)
     .register(CheckoutLog.descriptor)
     .register(CheckoutWorkflow.descriptor)
     .register(CartRows.descriptor)

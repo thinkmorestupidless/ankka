@@ -119,6 +119,14 @@ final class KeyCache(
   def isDestroyed(project: String, subject: String): Boolean = erased.contains((project, subject))
 
   /**
+   * Every (project, subject) this instance has been told is erased: what a process that subscribes
+   * late — after a restart, or between two reconnects — is told first, so no notice falls in a gap.
+   */
+  def destroyedSubjects: Vector[(String, String)] =
+    import scala.jdk.CollectionConverters.*
+    erased.asScala.toVector
+
+  /**
    * Everything forgotten — the keyring closed the channel before this instance could confirm a
    * notice.
    */

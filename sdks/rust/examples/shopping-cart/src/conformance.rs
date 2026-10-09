@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use ankka::client::NewTask;
 use ankka::codec::Auto;
 use ankka::effects::{agent, consumer};
+use ankka::personal::Personal;
 use ankka::prelude::*;
 use ankka::serde_json::Value;
 
@@ -353,6 +354,112 @@ impl Endpoint for TreeEndpoint {
             .post("/{nodeId}", TreeEndpoint::root)
             .post("/{nodeId}/under/{parentId}", TreeEndpoint::under)
             .get("/{nodeId}/below", TreeEndpoint::below)
+    }
+}
+
+// ── member, member-rows: a personal field (protocol 1.15) ──
+//
+// The email is a personal field of the data subject `member/<id>`; the row the view keeps marks it
+// for lookup, so a declared query finds a member by email without the table ever holding it.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberJoined {
+    #[serde(rename = "memberId")]
+    pub member_id: String,
+    pub email: Personal<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemberState {
+    pub email: Option<Personal<String>>,
+}
+
+pub struct Member;
+
+impl Member {
+    fn join(_: &MemberState, email: String, ctx: &Context) -> Effect<MemberJoined, String> {
+        let id = ctx.entity_id().to_string();
+        let email = match Personal::lookup(format!("member/{id}"), email) {
+            Ok(email) => email,
+            Err(e) => return effects::error(ErrorCode::BadRequest, e.to_string()).into(),
+        };
+        effects::persist(MemberJoined {
+            member_id: id,
+            email,
+        })
+        .then_reply_value("done".to_string())
+    }
+
+    fn email(state: &MemberState, _: (), _: &Context) -> ReadOnlyEffect<String> {
+        effects::reply(match &state.email {
+            None => "none".to_string(),
+            Some(email) => email
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| "erased".to_string()),
+        })
+    }
+}
+
+impl EventSourcedEntity for Member {
+    type State = MemberState;
+    type Event = MemberJoined;
+    const COMPONENT_ID: &'static str = "member";
+    const STATE_MANIFEST: Option<&'static str> = Some("member-state");
+    const EVENT_MANIFEST: Option<&'static str> = Some("member-event");
+
+    fn empty_state(_: &str) -> MemberState {
+        MemberState::default()
+    }
+
+    fn apply(_: MemberState, event: &MemberJoined) -> MemberState {
+        MemberState {
+            email: Some(event.email.clone()),
+        }
+    }
+
+    fn handlers() -> Handlers<Member> {
+        Handlers::new()
+            .command("join", Member::join)
+            .query("email", Member::email)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberRow {
+    #[serde(rename = "memberId")]
+    pub member_id: String,
+    pub email: Personal<String>,
+}
+
+pub struct MemberRows;
+
+impl View for MemberRows {
+    type Row = MemberRow;
+    type Event = MemberJoined;
+    const COMPONENT_ID: &'static str = "member-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("member-row");
+
+    fn source() -> Source {
+        Source::of(Member)
+    }
+
+    // The journal carries no token: the row marks the email for lookup where it is written.
+    fn on_event(_: Option<MemberRow>, event: MemberJoined, _: &Context) -> ViewEffect<MemberRow> {
+        ViewEffect::UpdateRow(MemberRow {
+            member_id: event.member_id,
+            email: event.email.for_lookup(),
+        })
+    }
+
+    fn declared() -> Vec<DeclaredQuery> {
+        let table = table_of(Self::COMPONENT_ID);
+        vec![query(
+            "by-email",
+            format!(
+                "SELECT payload FROM {table} WHERE payload::jsonb->'email'->>'lookup' = :email ORDER BY row_key"
+            ),
+        )]
     }
 }
 
@@ -1120,6 +1227,28 @@ impl ConformanceEndpoint {
         )?)
     }
 
+    // A personal field: written, read back, and found by its lookup token (protocol 1.15).
+    fn join_member(request: &Request, email: String) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Member, request.path("id"), "join", email)?)
+    }
+
+    fn member_email(request: &Request) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Member, request.path("id"), "email", ())?)
+    }
+
+    fn members_by_email(request: &Request) -> Result<Vec<String>, HttpProblem> {
+        let token = ankka::personal::lookup_token_of(&request.path("email").to_string())?;
+        let rows: Vec<MemberRow> =
+            request
+                .client()
+                .ask(MemberRows, "by-email", &[("email", token.as_str())])?;
+        Ok(rows.into_iter().map(|row| row.member_id).collect())
+    }
+
     fn count(request: &Request) -> Result<i32, HttpProblem> {
         Ok(request
             .client()
@@ -1183,6 +1312,12 @@ impl Endpoint for ConformanceEndpoint {
             .post("/recur-refused/{id}", ConformanceEndpoint::recur_refused)
             .post("/ask/{session}", ConformanceEndpoint::ask)
             .get("/config/{name}", ConformanceEndpoint::config)
+            .post("/members/{id}", ConformanceEndpoint::join_member)
+            .get("/members/{id}", ConformanceEndpoint::member_email)
+            .get(
+                "/members/by-email/{email}",
+                ConformanceEndpoint::members_by_email,
+            )
             .get("/{id}/count", ConformanceEndpoint::count)
             .post("/{id}/no-reply", ConformanceEndpoint::no_reply)
             .post("/{id}/{handler}", ConformanceEndpoint::forward)
@@ -1416,6 +1551,8 @@ pub fn build() -> Service {
         .register_as(Profile, shape)
         .register_as(TreeNode, shape)
         .register(TreeRows)
+        .register_as(Member, shape)
+        .register(MemberRows)
         .register_as(JoinedLeft, shape)
         .register_as(JoinedRight, shape)
         .register(JoinedRows)

@@ -13,6 +13,7 @@ codecs are synchronous, so a key not yet held is fetched with one blocking call 
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 T = TypeVar("T")
+
+_log = logging.getLogger("ankka.personal")
 
 _SUBJECT = re.compile(r"[A-Za-z0-9._\-/:]{1,253}")
 
@@ -72,6 +75,10 @@ class Personal(Generic[T]):
     def is_erased(self) -> bool:
         return self.value is None
 
+    def for_lookup(self) -> Personal[T]:
+        """The same value marked for lookup, for a view's row."""
+        raise NotImplementedError
+
 
 @dataclass(frozen=True, eq=False)
 class Present(Personal[T]):
@@ -90,6 +97,11 @@ class Present(Personal[T]):
             return None
         return self._value
 
+    def for_lookup(self) -> Present[T]:
+        """The same value marked for lookup, for a view's row: the journal carries no token, so a
+        value read from an event is marked again where the row a declared query matches is written."""
+        return Present(self.subject, self._value, True, self.project, self.stored)
+
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Personal):
             return self.subject == other.subject and self.value == other.value
@@ -107,6 +119,9 @@ class Present(Personal[T]):
 class Erased(Personal[T]):
     subject: str
     project: str | None = None
+
+    def for_lookup(self) -> Erased[T]:
+        return self
 
     @property
     def value(self) -> T | None:
@@ -220,7 +235,13 @@ class SidecarKeys:
 
             from ankka._proto.ankka.protocol.v1 import client_pb2_grpc
 
-            self._stub_cache = client_pb2_grpc.ClientStub(grpc.insecure_channel(self._address()))  # type: ignore[no-untyped-call]
+            # The runtime restarts beside the process; a channel left at gRPC's default backoff (up to
+            # two minutes after a refused connection) would hear of no erasure for that long.
+            channel = grpc.insecure_channel(
+                self._address(),
+                options=[("grpc.initial_reconnect_backoff_ms", 100), ("grpc.max_reconnect_backoff_ms", 1000)],
+            )
+            self._stub_cache = client_pb2_grpc.ClientStub(channel)  # type: ignore[no-untyped-call]
         return self._stub_cache
 
     @property
@@ -308,8 +329,8 @@ class SidecarKeys:
                 try:
                     for d in self._stub.SubjectKeyEvents(payload_pb2.Empty()):
                         self.destroyed(d.project, d.subject)
-                except Exception:  # noqa: BLE001 - a closed stream is reopened
-                    pass
+                except Exception as e:  # noqa: BLE001 - a closed stream is reopened
+                    _log.debug("the runtime's stream of erased subjects ended: %s", e)
                 # Whatever was cached while nobody listened may have been erased since.
                 with self._lock:
                     self._keys.clear()

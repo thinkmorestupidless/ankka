@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.14`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.15`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -37,7 +37,11 @@ which answers with `rows`, several row changes by key; and a version on a view t
 `1.14` added what a project must know about a topic source and a publication: `Source.contract`,
 `Source.broker` and `Source.parallel`, `ConsumerDetail.produces` (a `Publication` with its
 contract and broker; `produces_to` stays), and `fixtures/contracts/`, the fingerprints every SDK
-must compute for a schema document.
+must compute for a schema document. `1.15` added personal fields (feature 042): `FetchSubjectKey`,
+`SubjectKeyEvents`, `LookupToken` and `EraseObjects` on `Client`, the `Erasure` service a process
+serves (`erasure.proto`), `Spec.erasure_handler`, the module imports `subject_key`, `lookup_token`
+and `erase_objects` with the export `ankka1_erase`, and `fixtures/personal/`, the envelopes every SDK
+must open and write. The sidecar refuses a spec declaring an erasure handler under an earlier minor.
 
 `MAJOR.MINOR`. Within a major:
 

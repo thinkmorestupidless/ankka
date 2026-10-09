@@ -108,6 +108,27 @@ impl<T> Personal<T> {
         Ok(made)
     }
 
+    /// The same value marked for lookup, for a view's row: the journal carries no token, so a value
+    /// read from an event is marked again where the row a declared query matches is written.
+    pub fn for_lookup(self) -> Personal<T> {
+        match self {
+            Personal::Present {
+                subject,
+                value,
+                project,
+                stored,
+                ..
+            } => Personal::Present {
+                subject,
+                value,
+                lookup: true,
+                project,
+                stored,
+            },
+            erased => erased,
+        }
+    }
+
     /// The data subject.
     pub fn subject(&self) -> &str {
         match self {
@@ -115,17 +136,32 @@ impl<T> Personal<T> {
         }
     }
 
-    /// The value, or `None` when the subject is erased.
+    /// The value, or `None` when the subject is erased — including a value an instance has held
+    /// since before the erasure. A module hears of no erasure by itself, so a stored value asks the
+    /// runtime, whose cache answers at once, whether its subject is still there.
     pub fn as_ref(&self) -> Option<&T> {
         match self {
-            Personal::Present { value, .. } => Some(value),
+            Personal::Present {
+                value,
+                subject,
+                project,
+                stored,
+                ..
+            } => {
+                if stored.get() && matches!(key(project.as_deref(), subject, false), Key::Erased(_))
+                {
+                    None
+                } else {
+                    Some(value)
+                }
+            }
             Personal::Erased { .. } => None,
         }
     }
 
     /// Whether the subject is erased.
     pub fn is_erased(&self) -> bool {
-        matches!(self, Personal::Erased { .. })
+        self.as_ref().is_none()
     }
 }
 
@@ -197,6 +233,15 @@ fn lookup_token(plaintext: &[u8]) -> Result<String, CommandError> {
             "the runtime made no lookup token",
         )),
     }
+}
+
+/// The lookup token of `value`: what a view's declared query compares a personal field marked for
+/// lookup with. Made by the runtime with the project's lookup key, which a module never holds; a
+/// token shows only that two values are equal.
+pub fn lookup_token_of<V: Serialize>(value: &V) -> Result<String, CommandError> {
+    let plaintext = serde_json::to_vec(value)
+        .map_err(|e| CommandError::new(ErrorCode::BadRequest, e.to_string()))?;
+    lookup_token(&plaintext)
 }
 
 thread_local! {

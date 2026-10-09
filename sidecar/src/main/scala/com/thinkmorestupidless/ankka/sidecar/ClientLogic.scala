@@ -536,7 +536,16 @@ final class ClientLogic(
   def onDestroyed(push: SubjectDestroyed => Unit): AutoCloseable =
     service.keyring match
       case k: erasure.ServiceKeyring =>
-        k.cache.onDestroyed((project, subject, id) => push(SubjectDestroyed(subject, project, id)))
+        // Listening first, then what is already known: a notice in between arrives twice, which a
+        // process takes as it takes any repeat, and none falls in a gap.
+        val listening =
+          k.cache.onDestroyed((project, subject, id) =>
+            push(SubjectDestroyed(subject, project, id))
+          )
+        k.cache.destroyedSubjects.foreach((project, subject) =>
+          push(SubjectDestroyed(subject, project, ""))
+        )
+        listening
       case _ => () => ()
 
   def lookupToken(request: LookupTokenRequest): Future[LookupTokenReply] =

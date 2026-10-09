@@ -51,6 +51,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_check_guardrail(ptr, len) -> i64` | `GuardrailRequest` | `GuardrailResult` | |
 | `ankka1_check_task_result(ptr, len) -> i64` | `TaskResultRequest` | `TaskResultVerdict` | an autonomous agent's result: decoded as its task type's, then held to the type's rules |
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
+| `ankka1_erase(ptr, len) -> i64` | `ErasureHandleRequest` | `ErasureHandleReply` | the erasure handler, since 1.15: run on a fresh instance for each application of an erasure; may call `request` and `erase_objects` |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
 `ankka1_alloc`, `ankka1_free`, `ankka1_discover` and the `memory` export are required of every
@@ -59,7 +60,7 @@ workflow, `ankka1_fold` for an event sourced entity, `ankka1_run_step` for a wor
 for a component declared stateful, `ankka1_view`, `ankka1_consumer` and `ankka1_timed_action` for
 those kinds, `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
 `ankka1_check_guardrail` when it declares guardrails), `ankka1_check_task_result` for an autonomous
-agent (with the same two when it declares tools or guardrails), and `ankka1_http` for an endpoint. A module
+agent (with the same two when it declares tools or guardrails), `ankka1_http` for an endpoint, and `ankka1_erase` for a module whose spec declares an erasure handler. A module
 missing one it needs is refused at start, naming the export and what needs it.
 
 The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
@@ -97,12 +98,16 @@ declared.
 | `now() -> i64` | | | the runtime's clock as milliseconds since the Unix epoch, when it is asked; from any export, since 1.10 |
 | `random(ptr, len)` | | | fills the `len` bytes at `ptr`, which the guest owns, from the runtime's secure source; `len` is at most 65,536; from any export, since 1.10 |
 | `log(level: i32, ptr, len)` | UTF-8 text | | to the runtime's log under the logger `ankka.module`; `level` is 0 trace, 1 debug, 2 info, 3 warn, 4 error (anything else is error) |
+| `subject_key(ptr, len) -> i64` | `KeyFetch` | `SubjectKeyReply` | a data subject's key for a personal field, since 1.15; from any export, since a codec runs everywhere. The host holds the keyring's channel and its cache: an erased subject, or one never written asked without `create`, answers `refused` with reason `erased` or `unknown`, and an outage answers `refused` with `unavailable` set — never as erased |
+| `lookup_token(ptr, len) -> i64` | `LookupTokenRequest` | `LookupTokenReply` | the lookup token of a value, made with the project's lookup key, which a module never holds; since 1.15 |
+| `erase_objects(ptr, len) -> i64` | `EraseObjectsRequest` | `EraseObjectsReply` | deletes every object under `subjects/<subject>/` in the service's bucket, since 1.15; only from `ankka1_erase`, and from anything else the call into the module ends there |
 
 The three secret imports answer every refusal and fault in the reply's `Error`, and answer
 `Error(UNAVAILABLE)` before the service has started, as `invoke` does. A module that never calls the
 secret store imports none of them, and so runs on a runtime that predates them. `schedule_recurring`
 is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service has started, and a
-module that never sets a recurring timer does not import it.
+module that never sets a recurring timer does not import it. The three personal-field imports are the
+same again: a module with no personal field imports none of them, and runs on a runtime before 1.15.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

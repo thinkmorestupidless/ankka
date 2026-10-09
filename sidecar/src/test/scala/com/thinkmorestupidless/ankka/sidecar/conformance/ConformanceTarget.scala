@@ -121,6 +121,11 @@ trait ConformanceTarget:
   /** A new service on the same database: every instance is gone from memory. */
   def restart(): Unit
 
+  /**
+   * Erases `subject` in the target's project through its keyring, and waits until it is applied.
+   */
+  def erase(subject: String): Unit
+
   /** True when a service in another language is at the far end: a process, or a module. */
   def isProcess: Boolean
 
@@ -297,12 +302,13 @@ object ConformanceTarget:
       ConformanceTarget.withImpostor,
       localServices = ConformanceTarget.localServices(scripted)
     )
-    def name: String             = "in-process"
-    def baseUrl: String          = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?]   = kit.service.system
-    def restart(): Unit          = kit.restartService()
-    def isProcess: Boolean       = false
-    def problems: Vector[String] = Vector.empty
+    def name: String                 = "in-process"
+    def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?]       = kit.service.system
+    def restart(): Unit              = kit.restartService()
+    def erase(subject: String): Unit = kit.erase(subject): Unit
+    def isProcess: Boolean           = false
+    def problems: Vector[String]     = Vector.empty
     // Minus the agent runtime's own components, which a process target never declares.
     def componentIds: Set[String] =
       kit.service.registry.components.map(_.componentId.toString).toSet --
@@ -419,11 +425,12 @@ object ConformanceTarget:
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted)
     )
-    def name: String           = s"sidecar → $address"
-    def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?] = kit.service.system
-    def restart(): Unit        = kit.restartService()
-    def isProcess: Boolean     = true
+    def name: String                 = s"sidecar → $address"
+    def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?]       = kit.service.system
+    def restart(): Unit              = kit.restartService()
+    def erase(subject: String): Unit = kit.erase(subject): Unit
+    def isProcess: Boolean           = true
     def problems: Vector[String] =
       val client = HttpClient.newHttpClient()
       val r = client.send(
@@ -590,14 +597,15 @@ object ConformanceTarget:
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted)
     )
-    def name: String               = s"module $path ($shape)"
-    def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?]     = kit.service.system
-    def restart(): Unit            = kit.restartService()
-    def isProcess: Boolean         = true
-    override def isModule: Boolean = true
-    def problems: Vector[String]   = lastProblems
-    def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet
+    def name: String                 = s"module $path ($shape)"
+    def baseUrl: String              = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?]       = kit.service.system
+    def restart(): Unit              = kit.restartService()
+    def erase(subject: String): Unit = kit.erase(subject): Unit
+    def isProcess: Boolean           = true
+    override def isModule: Boolean   = true
+    def problems: Vector[String]     = lastProblems
+    def componentIds: Set[String]    = discovered.spec.components.map(_.id).toSet
     def readOnlyHandlers: Set[(String, String)] =
       discovered.spec.components
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))

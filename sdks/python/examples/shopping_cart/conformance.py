@@ -6,6 +6,7 @@ where the two disagree."""
 from __future__ import annotations
 
 from ankka.contract import Contract, Publication
+from ankka.personal import Personal, personal
 
 import asyncio
 import json
@@ -666,6 +667,22 @@ class ConformanceEndpoint(Endpoint):
         async for token in self._scoped().for_agent("assistant", session).call("stream").stream(question):
             yield token
 
+    # A personal field: written, read back, and found by its lookup token (protocol 1.15).
+    @post("/members/{id}")
+    async def join_member(self, id: str, email: str) -> str:
+        return await self._scoped().for_event_sourced_entity("member", id).call("join").invoke(email, reply=str)
+
+    @get("/members/{id}")
+    async def member_email(self, id: str) -> str:
+        return await self._scoped().for_event_sourced_entity("member", id).call("email").invoke(reply=str)
+
+    @get("/members/by-email/{email}")
+    async def members_by_email(self, email: str) -> list[str]:
+        scoped = self._scoped()
+        token = await scoped.lookup_token(email)
+        rows = await scoped.views.ask("member-rows", "by-email", MemberRow, {"email": token})
+        return [row.memberId for row in rows]
+
     @get("/{id}/count")
     async def count(self, id: str) -> int:
         return await self._scoped().for_event_sourced_entity("conformance", id).call("count").invoke(reply=int)
@@ -784,6 +801,68 @@ class AutonomousEndpoint(Endpoint):
         s = await self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).state()
         awaiting = [{"id": r.id, "tool": r.tool} for r in s.awaiting]
         return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task, "awaiting": awaiting})
+
+
+# ── member and member-rows: a personal field (protocol 1.15) ──
+#
+# The email is a personal field of the data subject ``member/<id>``; the row the view keeps marks it
+# for lookup, so a declared query finds a member by email without the table ever holding it.
+
+
+@dataclass(frozen=True)
+class MemberJoined:
+    memberId: str
+    email: Personal[str]
+
+
+@dataclass(frozen=True)
+class MemberState:
+    email: Personal[str] | None = None
+
+
+class Member(EventSourcedEntity[MemberState, MemberJoined]):
+    component_id = "member"
+    state_codec = json_codec(MemberState, "member-state")
+    event_codec = json_codec(MemberJoined, "member-event")
+
+    def empty_state(self) -> MemberState:
+        return MemberState()
+
+    def apply_event(self, state: MemberState, event: MemberJoined) -> MemberState:
+        return MemberState(event.email)
+
+    @command("join")
+    def join(self, email: str) -> EventSourcedEffect[MemberState, MemberJoined, str]:
+        joined = MemberJoined(self.entity_id, personal(f"member/{self.entity_id}", email, lookup=True))
+        return self.effects.persist(joined).then_reply(lambda _: "done")
+
+    @query("email")
+    def email(self) -> ReadOnlyEffect[MemberState, MemberJoined, str]:
+        if self.state.email is None:
+            return self.effects.reply("none")
+        value = self.state.email.value
+        return self.effects.reply("erased" if value is None else value)
+
+
+@dataclass(frozen=True)
+class MemberRow:
+    memberId: str
+    email: Personal[str]
+
+
+class MemberRows(View[MemberJoined, MemberRow]):
+    component_id = "member-rows"
+    source = Member
+    event_codec = Member.event_codec
+    row_codec = json_codec(MemberRow, "member-row")
+    by_email = declare(
+        "by-email",
+        f"SELECT payload FROM {table_of('member-rows')} WHERE payload::jsonb->'email'->>'lookup' = :email ORDER BY row_key",
+    )
+
+    def on_change(self, event: MemberJoined) -> ViewEffect:
+        # The journal carries no token: the row marks the email for lookup where it is written.
+        return self.effects.update_row(MemberRow(event.memberId, event.email.for_lookup()))
 
 
 # ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
@@ -1000,6 +1079,8 @@ def reference_service() -> ServiceBuilder:
         .register(ContractRelay)
         .register(TreeNode)
         .register(TreeRows)
+        .register(Member)
+        .register(MemberRows)
         .register(JoinedLeft)
         .register(JoinedRight)
         .register(JoinedRows)

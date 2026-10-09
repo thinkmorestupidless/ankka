@@ -76,6 +76,23 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `wf.step-calls-client` — `reserve` invoked `shopping-cart/total-quantity` (a step is its own piece of work, so the call is a root span, in both hosting modes).
 - `wf.survives-restart-mid-step` — restart during `charge`'s pause; the pending step resumes.
 
+**Personal fields** (feature 042, protocol 1.15) — `member` (an event sourced entity: `join` takes an
+email and persists `MemberJoined{memberId, email}` with the email a personal field of `member/<id>`
+marked for lookup; `email` answers it, `erased`, or `none`) and `member-rows` (a view whose row marks the
+email for lookup again, with the declared query `by-email` over its token); routes
+`POST /conformance/members/{id}`, `GET /conformance/members/{id}` and
+`GET /conformance/members/by-email/{email}`, which makes the token through the SDK's lookup call.
+- `personal.envelope-written` — the journal row holds the shared envelope (`subject`, `project`,
+  `data`) under `member-event`, no token, and no plaintext.
+- `personal.read-back` — after a restart the entity reads the value it wrote.
+- `personal.erased-read` — after the suite erases `member/<id>` through the target's keyring, the
+  value reads `erased` (a process hears of it on its key stream; a module asks the runtime), still
+  after a restart; a fresh write for the subject is refused and journals nothing.
+- `personal.lookup-token` — the view's row carries a token and no plaintext, and the declared query
+  finds the member by the token the SDK made.
+- `personal.sidecar-uninspected` — nothing the platform's program keeps of the calls (span names, the
+  journal) holds the value.
+
 **View and consumer**
 - `view.row-updated`, `view.query-by-id`, `view.row-marked-on-checkout`, `view.row-removed-with-source` — a checked-out cart is kept and its row marked `checkedOut`; a discarded cart (`DELETE /carts/{id}`) is deleted, and the view's default deletion handler removes its row.
 - `consumer.at-least-once-in-order` — checkouts arrive in order per cart; `conformance/count` matches.

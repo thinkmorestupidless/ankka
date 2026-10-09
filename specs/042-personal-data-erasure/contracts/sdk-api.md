@@ -8,12 +8,13 @@ its row.
 
 | | Scala | Python | TypeScript | Rust |
 |---|---|---|---|---|
-| present | `Personal.present(subject, value)` | `personal(subject, value)` | `present(subject, value)` | `Personal::present(subject, value)` |
+| present | `Personal.present(subject, value)` | `personal(subject, value)` | `present(subject, value)` | `Personal::present(subject, value)?` |
 | for lookup | `Personal.lookup(subject, value)` | `personal(subject, value, lookup=True)` | `present(subject, value, {lookup: true})` | `Personal::lookup(subject, value)` |
 | erased | `Personal.Erased(subject)` | `Erased(subject)` | `erased(subject)` | `Personal::Erased{subject}` |
-| read | `p.toOption`, `p.map`, `match` | `p.value` (None when erased), `match` | `p.kind === "present"` | `match`, `as_ref()` |
+| read | `p.toOption`, `p.map`, `match` | `p.value` (None when erased), `match` | `valueOf(p)` (undefined when erased) | `match`, `as_ref()` |
 | in a type | a field of type `Personal[A]` in a case class whose codec is `Codecs.make` | a dataclass field annotated `Personal[str]` under `json_codec` | `s.personal(s.string())` in a record schema | a field `Personal<String>` under `Json<T>` |
-| subject rule | `Personal.DataSubject.problems` | `DataSubjectError` | `DataSubjectError` | `Error::DataSubject` |
+| subject rule | `Personal.DataSubject.problems` | `DataSubjectError` | `DataSubjectError` | `DataSubjectError` |
+| refused write | `CommandError` | `PersonalFieldError` | `PersonalFieldError` | `personal::take_refusal()` |
 
 A service with no keyring (a route listed by the CLI, a unit test with no test kit) writing a
 present value is answered `Unavailable` naming the keyring; nothing is written.
@@ -29,21 +30,25 @@ Ankka.service
   }
 ```
 
-Python: `service.on_erasure(async def handler(ctx: ErasureContext) -> ErasureOutcome)`;
-TypeScript: `service.onErasure(async (ctx) => …)`; Rust: `#[ankka::erasure_handler] fn erase(ctx: &ErasureContext) -> ErasureOutcome`
-(the `ankka1_erase` export). The handler runs on every application and again on every reapplication;
+Python: `Ankka.service().on_erasure(handler)` with `async def handler(ctx: ErasureContext) -> Done | Failed`;
+TypeScript: `Ankka.service().onErasure(async (ctx) => ErasureOutcomes.done())`; Rust:
+`Service::new(…).on_erasure(erase)` with `fn erase(ctx: &ErasureContext) -> ErasureOutcome`, run by the
+`ankka1_erase` export `service!` always emits. *Amended in implementation:* a builder method rather
+than an attribute macro in Rust, since the crate has no procedural macros. The handler runs on every application and again on every reapplication;
 `ctx.reapply` says which. It is the one callback; a service registers at most one. `ctx.objects.erase()`
 without a bucket is `Refused("no bucket")`, and the completion records it.
 
 ## Lookup tokens
 
-`clients.lookupToken(value)` on `EndpointClients`, `WorkflowContext` (steps only), `ConsumerContext`
-and `AgentContext`; `client.lookup_token(value)` / `clients.lookupToken(value)` / the `lookup_token`
-import. The value is a declared query's parameter:
+`Personal.lookupToken(value)` in Scala, inside any handler of a service (it reads the scope's
+project and the keyring's lookup key); `await client.lookup_token(value)` in Python,
+`await client.lookupToken(schema, value)` in TypeScript, and the `lookup_token` import in a module.
+*Amended in implementation:* a function of the personal type in Scala, not a method on each context,
+since every handler already runs in its service's scope. The value is a declared query's parameter:
 
 ```scala
 val byEmail = query("by-email")("SELECT payload FROM ankka_view_profiles WHERE payload::jsonb->'email'->>'lookup' = :email")
-// endpoint: viewClient.ask(Profiles.byEmail, "email" -> clients.lookupToken(email))
+// endpoint: viewClient.ask(Profiles.byEmail, "email" -> Personal.lookupToken(email))
 ```
 
 `QueryCheck` refuses a declared query that reads a personal field's `data` or compares the field

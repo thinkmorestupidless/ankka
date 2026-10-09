@@ -40,6 +40,17 @@ sealed abstract class Personal[+A]:
 
   def fold[B](ifErased: => B)(f: A => B): B = toOption.fold(ifErased)(f)
 
+  /**
+   * The same value marked for lookup, for a view's row: the journal carries no token, so a value
+   * read from an event is marked again where the row that a declared query matches is written.
+   */
+  def forLookup: Personal[A] = this match
+    case p: Personal.Present[A] =>
+      val marked = p.copy(lookup = true)
+      marked.stored = p.stored
+      marked
+    case e: Personal.Erased => e
+
   def map[B](f: A => B): Personal[B] = this match
     case p: Personal.Present[A] =>
       if isErased then Personal.Erased(p.subject, p.project)

@@ -33,7 +33,7 @@ def _serve(ready: threading.Event, stop: threading.Event) -> None:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
+    logging.basicConfig(level=logging.DEBUG if os.environ.get("ANKKA_DEBUG_PERSONAL") else logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     ready, stop = threading.Event(), threading.Event()
     thread = threading.Thread(target=_serve, args=(ready, stop), daemon=True)
     thread.start()

@@ -87,6 +87,16 @@ export function valueOf<T>(p: Personal<T>): T | undefined {
   return p.value
 }
 
+/**
+ * The same value marked for lookup, for a view's row: the journal carries no token, so a value read
+ * from an event is marked again where the row a declared query matches is written.
+ */
+export function forLookup<T>(p: Personal<T>): Personal<T> {
+  if (p.kind === "erased") return p
+  const marked: Present<T> = { ...p, lookup: true }
+  return marked
+}
+
 export function isErased(p: Personal<unknown>): boolean {
   return valueOf(p) === undefined
 }

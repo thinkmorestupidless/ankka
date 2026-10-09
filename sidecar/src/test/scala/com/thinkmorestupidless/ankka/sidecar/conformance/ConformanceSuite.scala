@@ -303,6 +303,84 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assert(discarded.take(2).forall(_._3.contains("shopping-cart-event")))
   }
 
+  // ── Personal fields (protocol 1.15) ────────────────────────────────────────
+
+  test("personal.envelope-written") {
+    assertEquals(post("/conformance/members/pm1", "ada@example.com").body, "done")
+    val rows = journal("member|pm1")
+    assertEquals(rows.size, 1, rows.toString)
+    // The shared envelope, under the shared manifest: the subject and project readable, the value not.
+    assert(rows.head._3.contains("member-event"), rows.head._3)
+    assert(
+      rows.head._3.contains(""""email":{"subject":"member/pm1","project":"local","data":"""),
+      rows.head._3
+    )
+    assert(!rows.head._3.contains("ada@example.com"), rows.head._3)
+    assert(!rows.head._3.contains(""""lookup""""), "a lookup token outside a view row")
+  }
+
+  test("personal.read-back") {
+    post("/conformance/members/pm2", "byron@example.com")
+    target.restart()
+    assertEquals(get("/conformance/members/pm2").body, "byron@example.com")
+  }
+
+  test("personal.erased-read") {
+    post("/conformance/members/pm3", "gone@example.com")
+    assertEquals(get("/conformance/members/pm3").body, "gone@example.com")
+    target.erase("member/pm3")
+    // A process hears of the erasure on its key stream a moment after the platform applied it, and
+    // a value it holds in memory reads as erased from then on.
+    eventually()(Some(get("/conformance/members/pm3").body).filter(_ == "erased"))
+    target.restart()
+    assertEquals(get("/conformance/members/pm3").body, "erased")
+    // A fresh write for the erased subject is refused, and nothing is journaled.
+    val before = journal("member|pm3")
+    assert(post("/conformance/members/pm3", "again@example.com").status >= 400)
+    assertEquals(journal("member|pm3"), before)
+  }
+
+  test("personal.lookup-token") {
+    post("/conformance/members/pm4", "find-me@example.com")
+    val found = eventually()(
+      Some(get("/conformance/members/by-email/find-me@example.com").body)
+        .filter(_.contains("pm4"))
+    )
+    assertEquals(
+      Json.parse(found).toOption.flatMap(_.asArray).map(_.flatMap(_.asString)),
+      Some(Vector("pm4"))
+    )
+    val row = eventually()(
+      viewRow("ankka_view_member_rows", "pm4")
+    )
+    assert(row.contains(""""lookup":""""), row)
+    assert(!row.contains("find-me@example.com"), row)
+  }
+
+  test("personal.sidecar-uninspected") {
+    post("/conformance/members/pm5", "unseen@example.com")
+    eventually()(viewRow("ankka_view_member_rows", "pm5"))
+    // What the platform's own program keeps of a call — its spans' names, its journal, its rows —
+    // never holds the value: it carries the envelope as bytes and never opens it.
+    val names = Observability(target.system).names
+    val recorded = Observability(target.system).recorder
+      .snapshot()
+      .flatMap(s => names.nameOf(s.componentRef).toList ++ names.nameOf(s.handlerRef).toList)
+    assert(!recorded.exists(_.contains("unseen@example.com")), recorded.toString)
+    assert(!journal("member|pm5").exists(_._3.contains("unseen@example.com")))
+  }
+
+  private def viewRow(table: String, key: String): Option[String] =
+    given ActorSystem[?] = target.system
+    Await
+      .result(
+        Database().query(
+          SqlFragment.raw(s"SELECT payload FROM $table WHERE row_key = '$key'")
+        )(r => r.get("payload", classOf[String])),
+        10.seconds
+      )
+      .headOption
+
   test("kv.set-get") {
     assertEquals(post("/conformance/profile/p1", "Ada").body, "done")
     assertEquals(get("/conformance/profile/p1").body, "Ada")

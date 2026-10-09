@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.sidecar.conformance
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.personal.Personal
 import com.thinkmorestupidless.ankka.core.Serializers.given
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.sdk.*
@@ -237,6 +238,58 @@ object ConformanceReference:
         rowSerializer = Codecs.serializer[CartRow]("cart-row")
       ):
     def create(ctx: ViewComponentContext) = new CartRowsView
+
+  // ── member, member-rows: a personal field (protocol 1.15) ──
+  //
+  // The email is a personal field of the data subject `member/<id>`, marked for lookup, so the row
+  // the view keeps carries its token and a declared query finds a member by email without the
+  // table ever holding it.
+
+  final case class MemberJoined(memberId: String, email: Personal[String])
+  final case class MemberState(email: Option[Personal[String]])
+
+  final class Member(context: EventSourcedEntityContext)
+      extends EventSourcedEntity[MemberState, MemberJoined]:
+    def emptyState: MemberState                      = MemberState(None)
+    def applyEvent(event: MemberJoined): MemberState = MemberState(Some(event.email))
+    def join(email: String): Effect[String] =
+      val id = context.entityId.toString
+      effects
+        .persist(MemberJoined(id, Personal.lookup(s"member/$id", email)))
+        .thenReply(_ => "done")
+    def email: ReadOnlyEffect[String] =
+      effects.reply(currentState.email.fold("none")(_.toOption.getOrElse("erased")))
+
+  object Member
+      extends EventSourcedEntity.Companion[Member, MemberState, MemberJoined](
+        componentId = ComponentId("member"),
+        stateSerializer = Codecs.serializer[MemberState]("member-state"),
+        eventSerializer = Codecs.serializer[MemberJoined]("member-event")
+      ):
+    def create(context: EventSourcedEntityContext) = new Member(context)
+    val join                                       = command("join")(_.join)
+    val email                                      = query("email")(_.email)
+
+  final case class MemberRow(memberId: String, email: Personal[String])
+
+  final class MemberRowsView extends View[MemberJoined, MemberRow]:
+    // The journal carries no token: the row marks the email for lookup where it is written.
+    def onChange(event: MemberJoined): Effect =
+      effects.updateRow(MemberRow(event.memberId, event.email.forLookup))
+
+  object MemberRows
+      extends View.Companion[MemberRowsView, MemberJoined, MemberRow](
+        componentId = ComponentId("member-rows"),
+        source = ChangeSource.eventsOf(Member),
+        rowSerializer = Codecs.serializer[MemberRow]("member-row")
+      ):
+    /**
+     * The members whose email is the one a lookup token was made of: the same statement everywhere.
+     */
+    val byEmail = query("by-email")(
+      s"SELECT payload FROM $table WHERE payload::jsonb->'email'->>'lookup' = :email ORDER BY row_key"
+    )
+    def create(ctx: ViewComponentContext) = new MemberRowsView
 
   // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
 
@@ -982,6 +1035,19 @@ object ConformanceReference:
     sse("/stream-ask/{session}") { (session: String) =>
       agent(session).stream(Assistant.streamAsk)(query.raw("q").getOrElse(""))
     }
+    // A personal field: written, read back, and found by its lookup token (protocol 1.15).
+    postBody("/members/{id}") { (id: String, email: String) =>
+      clients.componentClient.forEventSourcedEntity(EntityId(id)).call(Member.join).invoke(email)
+    }
+    get("/members/{id}") { (id: String) =>
+      clients.componentClient.forEventSourcedEntity(EntityId(id)).call(Member.email).invoke()
+    }
+    get("/members/by-email/{email}") { (email: String) =>
+      clients.viewClient
+        .forView(MemberRows)
+        .ask(MemberRows.byEmail, "email" -> Personal.lookupToken(email))
+        .map(_.memberId)
+    }
     get("/{id}/count")((id: String) => entity(id).call(Conformance.count).invoke())
     post[String, Done]("/{id}/no-reply") { (id: String) =>
       // A handler that answers nothing: the ask is never awaited, and the route says so with 204.
@@ -1131,6 +1197,8 @@ object ConformanceReference:
     "contract-relay",
     "tree-node",
     "tree-rows",
+    "member",
+    "member-rows",
     "joined-left",
     "joined-right",
     "joined-rows",
@@ -1145,6 +1213,8 @@ object ConformanceReference:
   def descriptors: Seq[ComponentDescriptor] = Seq(
     ShoppingCartEntity.descriptor,
     Conformance.descriptor,
+    Member.descriptor,
+    MemberRows.descriptor,
     Profile.descriptor,
     Checkout.descriptor,
     CartRows.descriptor,

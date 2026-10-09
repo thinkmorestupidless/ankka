@@ -10,42 +10,45 @@ under 1.14.
 ```proto
 service Client {
   // 1.15
-  rpc SubjectKeys(stream KeyChannelIn) returns (stream KeyChannelOut);
-  rpc LookupToken(LookupTokenRequest) returns (LookupTokenReply);
-  rpc EraseObjects(EraseObjectsRequest) returns (EraseObjectsReply);
+  rpc FetchSubjectKey  (KeyFetch) returns (KeyAnswer);
+  rpc SubjectKeyEvents (Empty)    returns (stream SubjectDestroyed);
+  rpc LookupToken      (LookupTokenRequest)  returns (LookupTokenReply);
+  rpc EraseObjects     (EraseObjectsRequest) returns (EraseObjectsReply);
 }
-message KeyChannelIn  { oneof in  { Fetch fetch = 1; Ack ack = 2; Completed completed = 3; } }
-message KeyChannelOut { oneof out { Key key = 1; Destroyed destroyed = 2; Refused refused = 3; Apply apply = 4; Closed closed = 5; } }
-message Fetch     { string subject = 1; string project = 2; bool create = 3; }
-message Key       { string subject = 1; string project = 2; bytes key = 3; int64 expires_millis = 4; }
-message Destroyed { string subject = 1; string project = 2; string erasure_id = 3; }
-message Refused   { string subject = 1; string project = 2; string reason = 3; }
-message Apply     { string erasure_id = 1; string subject = 2; bool reapply = 3; }
-message Ack       { string erasure_id = 1; }
-message Completed { string erasure_id = 1; ErasureHandleReply handler = 2; }
-message Closed    { string reason = 1; }
+message KeyAnswer { oneof out { SubjectKey key = 1; SubjectDestroyed destroyed = 2; SubjectRefused refused = 3; } }
+message KeyFetch         { string subject = 1; string project = 2; bool create = 3; }
+message SubjectKey       { string subject = 1; string project = 2; bytes key = 3; int64 expires_millis = 4; }
+message SubjectDestroyed { string subject = 1; string project = 2; string erasure_id = 3; }
+message SubjectRefused   { string subject = 1; string project = 2; string reason = 3; bool unavailable = 4; }
 message LookupTokenRequest { bytes plaintext = 1; }
-message LookupTokenReply   { string token = 1; }
+message LookupTokenReply   { oneof result { string token = 1; Error error = 2; } }
 message EraseObjectsRequest { string subject = 1; }
-message EraseObjectsReply   { oneof result { Erased erased = 1; Error error = 2; } }
-message Erased { int64 count = 1; int64 final_at_millis = 2; }
+message EraseObjectsReply   { oneof result { ErasedObjects erased = 1; Error error = 2; } }
+message ErasedObjects { int64 count = 1; int64 final_at_millis = 2; }
 ```
 
-- One `SubjectKeys` stream per process for its life; the sidecar's `KeyringClient` is the cache and
-  the channel; `Key.expires_millis` is the sidecar's cache expiry so the process's mirror expires
-  with it.
-- `Apply` is pushed only to a process whose `Spec` declared `erasure_handler`; the sidecar does the
-  platform's duties itself and sends `Completed` after the process's `Handle` answers (or at once
-  when the process has no handler).
+- *Amended in implementation:* the bidirectional `SubjectKeys` stream of the plan became a unary
+  `FetchSubjectKey` and a server stream `SubjectKeyEvents`. A codec is synchronous in every SDK, so
+  a key it lacks is fetched with one blocking call (Python a synchronous gRPC stub, TypeScript a
+  worker thread under `Atomics.wait`, a module the `subject_key` import); a stream cannot be read
+  that way. An erasure reaches a process only through `Erasure.Handle`, so `Apply`, `Ack` and
+  `Completed` were dropped: the sidecar does the platform's duties itself, calls the handler, and
+  reports the completion on its own channel.
+- An empty `project` in a fetch means the process's own; the answer names it, which is how a
+  process learns its project. `create` is honoured only for the process's own project.
+- `SubjectKey.expires_millis` is the sidecar's cache expiry, so the process's copy expires with it.
+- `SubjectRefused.reason` is `unknown` for a subject never written asked without `create` (written
+  as erased, never created by a read), a grant's refusal otherwise; `unavailable` marks an outage,
+  which a codec reports as one and never as an erasure.
 
 ## `erasure.proto` (the process serves the sidecar)
 
 ```proto
 service Erasure { rpc Handle(ErasureHandleRequest) returns (ErasureHandleReply); }
 message ErasureHandleRequest { string subject = 1; string erasure_id = 2; bool reapply = 3; map<string,string> metadata = 4; }
-message ErasureHandleReply   { oneof outcome { Done done = 1; Failed failed = 2; } }
-message Done   { string detail = 1; Erased objects = 2; }
-message Failed { string reason = 1; }
+message ErasureHandleReply   { oneof outcome { ErasureDone done = 1; ErasureFailed failed = 2; } }
+message ErasureDone   { string detail = 1; ErasedObjects objects = 2; }
+message ErasureFailed { string reason = 1; }
 ```
 
 `discovery.proto`: `Spec.erasure_handler = 30` (bool). A reply is one `Handle` per application; a
@@ -55,7 +58,7 @@ on the next sweep.
 ## WASM-ABI (modules)
 
 Imports, each `(ptr, len) -> i64` carrying the protobuf messages above, each in its own `extern`
-block in the crate: `subject_key` (`Fetch` → `Key | Refused`; the host holds the channel and the
+block in the crate: `subject_key` (`KeyFetch` → `SubjectKeyReply`, `key | refused`; the host holds the channel and the
 cache, so a destroyed subject answers `Refused("erased")`), `lookup_token`, `erase_objects`.
 Export: `ankka1_erase(ptr, len) -> i64` (`ErasureHandleRequest` → `ErasureHandleReply`), listed in
 `ModuleLoader.Exports` and called on the blocking pool with a `CallSite` that permits `request`.

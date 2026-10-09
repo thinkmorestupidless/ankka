@@ -54,6 +54,9 @@ import {
   declaredQuery,
   tableOf,
   type Infer,
+  present,
+  valueOf,
+  forLookup,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
@@ -286,6 +289,54 @@ export class TreeEndpoint extends Endpoint {
     below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
       (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
     ),
+  }
+}
+
+// ── member and member-rows: a personal field (protocol 1.15) ──
+//
+// The email is a personal field of the data subject `member/<id>`; the row the view keeps marks it
+// for lookup, so a declared query finds a member by email without the table ever holding it.
+
+export const MemberJoined = s.record("MemberJoined", { memberId: s.string, email: s.personal(s.string) })
+export const MemberState = s.record("MemberState", { email: s.option(s.personal(s.string)) })
+export const MemberRow = s.record("MemberRow", { memberId: s.string, email: s.personal(s.string) })
+type MemberJoined = Infer<typeof MemberJoined>
+type MemberState = Infer<typeof MemberState>
+type MemberRow = Infer<typeof MemberRow>
+
+export class Member extends EventSourcedEntity<MemberState, MemberJoined> {
+  static readonly componentId = "member"
+  static readonly state = jsonCodec(MemberState, "member-state")
+  static readonly events = jsonCodec(MemberJoined, "member-event")
+
+  static readonly handlers = {
+    join: command("join", s.string, s.string, (m: Member, email) =>
+      m.effects.persist({ memberId: m.entityId, email: present(`member/${m.entityId}`, email, { lookup: true }) }).thenReply(() => "done"),
+    ),
+    email: query("email", s.string, (m: Member) => m.effects.reply(m.state.email === null ? "none" : (valueOf(m.state.email) ?? "erased"))),
+  }
+
+  emptyState(): MemberState {
+    return { email: null }
+  }
+
+  applyEvent(_state: MemberState, event: MemberJoined): MemberState {
+    return { email: event.email }
+  }
+}
+
+export class MemberRows extends View<MemberJoined, MemberRow> {
+  static readonly componentId = "member-rows"
+  static readonly source = Member
+  static readonly events = jsonCodec(MemberJoined, "member-event")
+  static readonly row = jsonCodec(MemberRow, "member-row")
+  static readonly declared = [
+    declaredQuery("by-email", `SELECT payload FROM ${tableOf("member-rows")} WHERE payload::jsonb->'email'->>'lookup' = :email ORDER BY row_key`),
+  ]
+
+  // The journal carries no token: the row marks the email for lookup where it is written.
+  onChange(event: MemberJoined) {
+    return this.effects.updateRow({ memberId: event.memberId, email: forLookup(event.email) })
   }
 }
 
@@ -676,6 +727,15 @@ export class ConformanceEndpoint extends Endpoint {
     streamAsk: sse("/stream-ask/{session}", (ep: ConformanceEndpoint, req) =>
       ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.stream).stream(req.query.get("q") ?? ""),
     ),
+    // A personal field: written, read back, and found by its lookup token (protocol 1.15).
+    joinMember: post("/members/{id}", s.string, s.string, (ep: ConformanceEndpoint, req, email) =>
+      ep.client.of(Member, req.params.id).call(Member.handlers.join).invoke(email),
+    ),
+    memberEmail: get("/members/{id}", s.string, (ep: ConformanceEndpoint, req) => ep.client.of(Member, req.params.id).call(Member.handlers.email).invoke()),
+    membersByEmail: get("/members/by-email/{email}", s.list(s.string), async (ep: ConformanceEndpoint, req) => {
+      const token = await ep.client.lookupToken(s.string, req.params.email)
+      return (await ep.client.views.ask(MemberRows.componentId, "by-email", { email: token }, MemberRow)).map((row) => row.memberId)
+    }),
     count: get("/{id}/count", s.int, (ep: ConformanceEndpoint, req) => ep.client.of(Conformance, req.params.id).call(Conformance.handlers.count).invoke()),
     noReply: post("/{id}/no-reply", Done, (ep: ConformanceEndpoint, req) => {
       // A handler that answers nothing: the call is never awaited, and the route says so with 204.
@@ -837,6 +897,8 @@ export function referenceService() {
     .register(ContractRelay)
     .register(TreeNode)
     .register(TreeRows)
+    .register(Member)
+    .register(MemberRows)
     .register(JoinedLeft)
     .register(JoinedRight)
     .register(JoinedRows)

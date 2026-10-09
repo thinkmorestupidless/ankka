@@ -87,6 +87,7 @@ export {
   erased,
   valueOf,
   isErased,
+  forLookup,
   checkSubject,
   allowingLookup,
   installKeys,

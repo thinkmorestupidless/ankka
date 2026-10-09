@@ -114,23 +114,44 @@ final class GrantsHarness(
           com.thinkmorestupidless.ankka.controlplane.domain.ServiceKey(project, service).id
         )
       )
-    // At the generation the service is at: a report of an earlier one is dropped as superseded.
-    val generation =
-      entity
-        .call(com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity.get)
-        .invoke()
-        .generation
-    entity
-      .call(com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity.observe)
-      .invoke(
-        com.thinkmorestupidless.ankka.controlplane.domain.ServiceObservation(
-          generation = generation,
-          lifecycle = com.thinkmorestupidless.ankka.controlplane.api.ServiceLifecycle.Ready,
-          readyInstances = ready,
-          desiredInstances = ready.max(1),
-          grants = grants
+    def current =
+      entity.call(com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity.get).invoke()
+    val namespace = s"${deployConfig.namespacePrefix}-$project"
+    // As the operator reports it: on the resource, which the projector folds into the service, and
+    // on the service at once. Only the resource's report survives the projector's next pass, which
+    // would otherwise read a resource nothing has reported on.
+    eventually(s"$service of $project reported ready", 60.seconds) {
+      val generation = current.generation
+      if cluster.current(namespace, service).isDefined then
+        cluster.setStatus(
+          namespace,
+          service,
+          com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus(
+            generation = generation,
+            observedGeneration = generation,
+            lifecycle = "Ready",
+            readyInstances = ready,
+            desiredInstances = ready.max(1),
+            grants = grants
+          )
         )
-      ): Unit
+      entity
+        .call(com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity.observe)
+        .invoke(
+          com.thinkmorestupidless.ankka.controlplane.domain.ServiceObservation(
+            generation = generation,
+            lifecycle = com.thinkmorestupidless.ankka.controlplane.api.ServiceLifecycle.Ready,
+            readyInstances = ready,
+            desiredInstances = ready.max(1),
+            grants = grants
+          )
+        ): Unit
+      val now = current
+      Option.when(
+        cluster.current(namespace, service).exists(_.status.exists(_.readyInstances == ready)) &&
+          now.readyInstances == ready && now.grants == grants
+      )(())
+    }
 
   /**
    * A request with its own content type and headers, answering the response's headers too: the

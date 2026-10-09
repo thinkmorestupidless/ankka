@@ -112,17 +112,22 @@ spec:
             - name: ANKKA_OTLP_HEADERS
               valueFrom:
                 secretKeyRef: { name: ankka-telemetry, key: headers, optional: true }
-            # The installation's secret store and cloud settings (feature 038), replaced by the overlay
+            # The installation's secret store settings (feature 038), replaced by the overlay
             # from ankka-platform; empty is the default.
             - name: ANKKA_SECRET_BACKEND
               value: ""
             - name: ANKKA_SECRET_RECORD_RETENTION
               value: ""
+            # The installation's cloud (feature 044): shown on GET /installation, and the reason a
+            # choice that needs a cloud provider is refused when there is none. Replaced by the
+            # overlay from ankka-platform.
             - name: ANKKA_CLOUD_PROVIDER
-              value: ""
+              value: "none"
             - name: ANKKA_CLOUD_ACCOUNT
               value: ""
             - name: ANKKA_CLOUD_LOCATION
+              value: ""
+            - name: ANKKA_CLOUD_KMS_KEY
               value: ""
             # How this pod finds its peers — the same five variables the operator injects into
             # every service (feature 004). ANKKA_CLUSTER_MODE selects the Kubernetes overlay.

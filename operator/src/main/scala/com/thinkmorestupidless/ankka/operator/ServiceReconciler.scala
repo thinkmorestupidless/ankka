@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.crd.{
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.time.{Clock, Instant}
+import scala.concurrent.duration.FiniteDuration
 
 /**
  * One pass for one service: read, render, act, report.
@@ -26,6 +27,10 @@ final class ServiceReconciler(
 ) extends Reconciler:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.reconciler")
+
+  @volatile private var later: (ServiceRef, FiniteDuration) => Unit = (_, _) => ()
+
+  override def requeueWith(f: (ServiceRef, FiniteDuration) => Unit): Unit = later = f
 
   def reconcile(ref: ServiceRef): Unit =
     val resources =
@@ -57,12 +62,21 @@ final class ServiceReconciler(
     val databasePlan = decideDatabasePlan(ref, spec)
     val brokerSeen   = observeBroker(ref, spec)
     val brokerPlan   = BrokerProvisioning.decide(spec, settings.broker, brokerSeen)
-    val storagePlan  = decideObjectStoragePlan(ref, spec)
+    val cloudBucket  = decideCloudBucket(ref, resource, spec)
+    val storagePlan  = decideObjectStoragePlan(ref, spec, cloudBucket.map(_.plans))
+    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings)
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
         resource: AnkkaService
-    ) = this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan, storagePlan)
+    ) =
+      val observed =
+        this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan, storagePlan)
+      // A Deployment held back for a cloud bucket's answer is an update in progress, saying why;
+      // a failure found by rendering or a foreign Deployment says more and is kept.
+      withheld
+        .filter(_ => problems.isEmpty)
+        .fold(observed)(why => observed.copy(lifecycle = "UpdateInProgress", detail = Some(why)))
 
     Rendering.render(
       resource,
@@ -70,7 +84,8 @@ final class ServiceReconciler(
       databasePlan,
       BrokerProvisioning.known(spec, settings.broker),
       storagePlan,
-      executor.projectBrokers(ref.namespace, spec.projectId)
+      executor.projectBrokers(ref.namespace, spec.projectId),
+      cloudBucket.map(_.requests).getOrElse(Vector.empty)
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -115,6 +130,12 @@ final class ServiceReconciler(
             )
           else
             actions.foreach(executor.execute)
+            // A request nobody has acknowledged yet: look again when the bound passes, so its
+            // absence is reported then, not at the next resync (feature 044, SC-004).
+            for
+              seen  <- cloudBucket if seen.unacknowledged
+              cloud <- settings.cloud
+            do later(ref, cloud.acknowledgementBound)
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
@@ -142,14 +163,53 @@ final class ServiceReconciler(
    * Asks the store about this service's bucket, only when the service asks for one and the
    * installation has a store, and decides (feature 034).
    */
-  private def decideObjectStoragePlan(ref: ServiceRef, spec: AnkkaServiceSpec): ObjectStoragePlan =
+  private def decideObjectStoragePlan(
+      ref: ServiceRef,
+      spec: AnkkaServiceSpec,
+      cloud: Option[CloudBucketPlans]
+  ): ObjectStoragePlan =
     val observed =
       if ObjectStorage.observes(spec, settings) then
         executor
           .observeObjectStorage(Buckets.name(spec.projectId, spec.serviceName))
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
       else ObjectStorageObservation.empty
-    ObjectStorage.decide(spec, settings, observed)
+    ObjectStorage.decide(spec, settings, observed, cloud)
+
+  /**
+   * A bucket in the installation's cloud account (feature 044): the requests it takes, what the
+   * provider has answered of each, and whether any is still unacknowledged. Read only for a service
+   * on that path; every other service makes no read of a cloud request at all.
+   */
+  private[operator] def decideCloudBucket(
+      ref: ServiceRef,
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec
+  ): Option[ServiceReconciler.CloudBucketPass] =
+    for cloud <- settings.cloud if ObjectStorage.takesCloudPath(spec, settings)
+    yield
+      val now = Instant.now(clock)
+      def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
+        val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
+        seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
+      def output(plan: CloudPlan, key: String) = plan match
+        case CloudPlan.Ready(outputs, _, _) => outputs.get(key)
+        case _                              => None
+      val first = ObjectStorage.cloudRequests(resource, cloud, None, None)
+      val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
+      val requests = ObjectStorage.cloudRequests(
+        resource,
+        cloud,
+        output(idPlan, CloudRequests.Keys.Identity),
+        output(bucketPlan, CloudRequests.Keys.Bucket)
+      )
+      val credential = requests.drop(2).headOption.map(answered)
+      ServiceReconciler.CloudBucketPass(
+        requests = requests,
+        plans = CloudBucketPlans(idPlan, bucketPlan, credential.map(_._2)),
+        unacknowledged =
+          (Vector(idSeen, bucketSeen) ++ credential.map(_._1)).exists(!_.exists(_.acknowledged))
+      )
 
   /**
    * What the broker has for this service (feature 027), read only when the service is known to an
@@ -233,6 +293,13 @@ final class ServiceReconciler(
     else executor.execute(Action.SetStatus(ref.namespace, ref.name, next))
 
 object ServiceReconciler:
+
+  /** One pass's view of a cloud bucket's three requests. */
+  final case class CloudBucketPass(
+      requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
+      plans: CloudBucketPlans,
+      unacknowledged: Boolean
+  )
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
     new ServiceReconciler(
       client,

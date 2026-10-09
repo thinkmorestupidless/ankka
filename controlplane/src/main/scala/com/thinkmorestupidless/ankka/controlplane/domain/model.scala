@@ -473,7 +473,11 @@ final case class Service(
      * The operator's last-reported object storage phase, verbatim (feature 034). The bucket's name
      * and address are not stored: both are derived when a status is built.
      */
-    objectStorage: Option[String] = None
+    objectStorage: Option[String] = None,
+    /**
+     * The bucket's name as the operator last reported it (feature 044); see `Service.bucketNamed`.
+     */
+    reportedBucket: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -670,7 +674,8 @@ final case class Service(
         confirmed = event.confirmed,
         database = event.database,
         broker = event.broker,
-        objectStorage = event.objectStorage
+        objectStorage = event.objectStorage,
+        reportedBucket = event.bucket
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -736,7 +741,7 @@ final case class Service(
       processPort = descriptor.flatMap(_.service.resolvedProcessPort),
       broker = broker.map(Service.brokerPhrase),
       objectStorage = objectStorage.map(Service.objectStoragePhrase),
-      bucket = Service.bucketOf(projectId, name, descriptor),
+      bucket = Service.bucketNamed(Service.bucketOf(projectId, name, descriptor), reportedBucket),
       bucketAddress = Service.bucketPathOf(projectId, name, descriptor)
     )
 
@@ -841,6 +846,20 @@ object Service:
     case "Supplied"    => "supplied"
     case "Failed"      => "object storage provisioning failed"
     case other         => other
+
+  /**
+   * The bucket's name as a member reads it: what the operator reported when it reported one — the
+   * cloud provider's name for a bucket in the installation's cloud account (feature 044) — none
+   * while that is not known yet, and the derived name otherwise, as before the operator reported
+   * names. Only for a service whose descriptor asks for a bucket.
+   */
+  def bucketNamed(derived: Option[String], reported: Option[String]): Option[String] =
+    derived.flatMap(name =>
+      reported match
+        case Some("")    => None
+        case Some(named) => Some(named)
+        case None        => Some(name)
+    )
 
   /** The bucket a descriptor asks for, named as the operator names it. */
   def bucketOf(

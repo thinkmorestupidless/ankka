@@ -1,0 +1,132 @@
+# The CloudResource custom resource definition (feature 044).
+#
+# One request to the installation's cloud provider: a need of a platform feature, in the
+# platform's words. The operator writes the spec by server-side apply and never the status; the
+# provider writes the status through the subresource and never the spec. Owned by the AnkkaService
+# or AnkkaProject it serves, so it goes with it; nothing in a cloud goes with it.
+#
+# This is the single copy, as ankkaservice.yaml is: the k3s suites install this exact file, and
+# docs/platform/cloud-provider.md is the contract a provider is written against.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cloudresources.ankka.thinkmorestupidless.com
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  group: ankka.thinkmorestupidless.com
+  scope: Namespaced
+  names:
+    kind: CloudResource
+    listKind: CloudResourceList
+    plural: cloudresources
+    singular: cloudresource
+    shortNames:
+      - cres
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        # The provider's grant is on the status alone, and a status write does not raise
+        # metadata.generation: observedGeneration means what it says.
+        status: {}
+      additionalPrinterColumns:
+        - name: Kind
+          type: string
+          jsonPath: .spec.kind
+        - name: Provider
+          type: string
+          jsonPath: .spec.provider
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - provider
+                - kind
+                - subject
+              properties:
+                provider:
+                  type: string
+                  description: >-
+                    The installation's cloud provider, copied from ANKKA_CLOUD_PROVIDER. A provider
+                    fulfils only the requests that name it.
+                kind:
+                  type: string
+                  enum:
+                    - identity
+                    - secret-access
+                    - secret-sync
+                    - bucket
+                    - bucket-credential
+                    - wrapping-key
+                subject:
+                  type: object
+                  required:
+                    - project
+                  properties:
+                    project:
+                      type: string
+                    service:
+                      type: string
+                      description: Empty for a project's own request.
+                credentialGeneration:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    A count on a bucket-credential; raising it asks for a new credential in the
+                    same Secret. Absent on every other kind.
+                parameters:
+                  type: object
+                  description: >-
+                    The kind's fields, in the platform's words. A list is comma-separated, a
+                    boolean "true" or "false", a number its decimal text.
+                  additionalProperties:
+                    type: string
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  description: >-
+                    The metadata.generation the rest of the status describes. Absent until a
+                    provider has read the request once.
+                phase:
+                  type: string
+                  enum:
+                    - Waiting
+                    - Ready
+                    - Recovered
+                    - Failed
+                detail:
+                  type: string
+                  description: Why it waits or failed, in the provider's words. Never a secret.
+                account:
+                  type: string
+                location:
+                  type: string
+                credentialGeneration:
+                  type: integer
+                  description: The generation of the credential now in the Secret.
+                credentialReportedAt:
+                  type: string
+                  description: >-
+                    When that generation was reported in place, RFC 3339. The rotation grace
+                    counts from here, so a provider that restarts still ends the old credential.
+                recovered:
+                  type: boolean
+                providerVersion:
+                  type: string
+                outputs:
+                  type: object
+                  additionalProperties:
+                    type: string

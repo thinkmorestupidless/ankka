@@ -317,7 +317,14 @@ enum ServiceEvent:
        * The operator's reported object storage phase, verbatim (feature 034). `None` for a service
        * with none and for events from before it existed.
        */
-      objectStorage: Option[String] = None
+      objectStorage: Option[String] = None,
+      /**
+       * The bucket's name as the operator reported it (feature 044): the cloud provider's, for a
+       * bucket in the installation's cloud account, and empty while it has not answered. `None` for
+       * a service with no bucket and for events from before the field existed, when the name is
+       * derived as it always was.
+       */
+      bucket: Option[String] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -350,7 +357,9 @@ final case class ServiceObservation(
     confirmed: Boolean = true,
     database: Option[String] = None,
     broker: Option[String] = None,
-    objectStorage: Option[String] = None
+    objectStorage: Option[String] = None,
+    /** The bucket's name as the operator reported it (feature 044); empty while not yet known. */
+    bucket: Option[String] = None
 )
 
 /**

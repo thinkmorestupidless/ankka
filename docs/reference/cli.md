@@ -116,6 +116,7 @@ Usage:
     ankka logout
     ankka whoami
     ankka platform
+    ankka installation
     ankka organizations
     ankka projects
     ankka services
@@ -140,6 +141,8 @@ Subcommands:
         Show who the control plane thinks you are.
     platform
         The installation itself.
+    installation
+        Show the installation: its version, and its cloud provider, account and location.
     organizations
         Manage organizations.
     projects
@@ -232,6 +235,26 @@ Subcommands:
 Usage: ankka platform status [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Where the installation keeps its secrets, its cloud, and how long the record of reads is kept.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka installation`
+
+```text
+Usage: ankka installation [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Show the installation: its version, and its cloud provider, account and location.
 
 Options and flags:
     --help

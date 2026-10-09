@@ -185,3 +185,132 @@ class ObjectStorageSuite extends munit.FunSuite:
     assert(!ObjectStorage.observes(supplies, withStore))
     assert(!ObjectStorage.observes(asks.copy(serviceName = "s" * 70), withStore))
   }
+
+  // A bucket in the installation's cloud account (feature 044).
+
+  private val cloud = CloudSettings(
+    "gcp",
+    "acct",
+    "europe-west2",
+    None,
+    scala.concurrent.duration.Duration(2, "minutes"),
+    scala.concurrent.duration.Duration(1, "hour")
+  )
+  private val withCloud = Settings.default.copy(cloud = Some(cloud))
+
+  private val bucketOutputs = Map(
+    "bucket"   -> "acct-shop-reports",
+    "endpoint" -> "https://storage.scripted.invalid",
+    "region"   -> "europe-west2"
+  )
+  private val identityReady =
+    CloudPlan.Ready(Map("identity" -> "reports@acct.scripted"), false, None)
+  private val bucketReady: CloudPlan.Ready = CloudPlan.Ready(bucketOutputs, false, None)
+  private val credReady = CloudPlan.Ready(Map("secretName" -> "reports-storage"), false, Some(2L))
+
+  private def cloudDecide(plans: CloudBucketPlans) =
+    ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, Some(plans))
+
+  test("cloud: all three answered is a bucket, named and placed as the provider answered") {
+    assertEquals(
+      cloudDecide(CloudBucketPlans(identityReady, bucketReady, Some(credReady))),
+      ObjectStoragePlan.Ready(
+        recovered = false,
+        Some(
+          CloudBucket("acct-shop-reports", "https://storage.scripted.invalid", "europe-west2", 2L)
+        )
+      )
+    )
+  }
+
+  test("cloud: a recovered bucket is recovered") {
+    val plan = cloudDecide(
+      CloudBucketPlans(identityReady, bucketReady.copy(recovered = true), Some(credReady))
+    )
+    assertEquals(plan.reportedPhase, Some("Recovered"))
+  }
+
+  test("cloud: any refusal fails the bucket with the provider's words") {
+    for plans <- Vector(
+        CloudBucketPlans(CloudPlan.Failed("no"), bucketReady, None),
+        CloudBucketPlans(identityReady, CloudPlan.Failed("no"), None),
+        CloudBucketPlans(identityReady, bucketReady, Some(CloudPlan.Failed("no")))
+      )
+    do assertEquals(cloudDecide(plans), ObjectStoragePlan.Failed(Vector("no")))
+  }
+
+  test("cloud: anything unanswered waits, saying the first thing said") {
+    assertEquals(
+      cloudDecide(CloudBucketPlans(CloudPlan.Waiting(None), bucketReady, None)),
+      ObjectStoragePlan.Waiting(None)
+    )
+    assertEquals(
+      cloudDecide(
+        CloudBucketPlans(
+          identityReady,
+          CloudPlan.Waiting(Some("no provider for gcp has answered")),
+          None
+        )
+      ),
+      ObjectStoragePlan.Waiting(Some("no provider for gcp has answered"))
+    )
+    assertEquals(
+      cloudDecide(CloudBucketPlans(identityReady, bucketReady, None)),
+      ObjectStoragePlan.Waiting(None),
+      "the credential is asked for once both are answered, and until then the bucket waits"
+    )
+  }
+
+  test("cloud: nothing decided yet is waiting, and a cloud bucket waiting holds its Deployment") {
+    assertEquals(
+      ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, None),
+      ObjectStoragePlan.Waiting(None)
+    )
+    assertEquals(
+      ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withCloud),
+      Some(ObjectStorage.WaitingOnProvider)
+    )
+    assertEquals(
+      ObjectStorage.withheld(ObjectStoragePlan.Waiting(Some("why")), asks, withCloud),
+      Some("why")
+    )
+    assertEquals(ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withStore), None)
+    assertEquals(
+      ObjectStorage.withheld(ObjectStoragePlan.Failed(Vector("x")), asks, withCloud),
+      None
+    )
+  }
+
+  test("cloud: an installation with its own store keeps it, whatever cloud it names") {
+    val both = withStore.copy(cloud = Some(cloud))
+    assert(!ObjectStorage.takesCloudPath(asks, both))
+    assertEquals(
+      ObjectStorage.decide(
+        asks,
+        both,
+        ready,
+        Some(CloudBucketPlans(CloudPlan.Failed("no"), bucketReady, None))
+      ),
+      ObjectStoragePlan.Ready(recovered = false)
+    )
+  }
+
+  test("cloud: the status names the provider's bucket, and none until it has answered") {
+    val ok = ObjectStorage.status(
+      cloudDecide(CloudBucketPlans(identityReady, bucketReady, Some(credReady))),
+      asks,
+      withCloud
+    )
+    assertEquals(ok.map(_.bucket), Some("acct-shop-reports"))
+    assertEquals(ok.map(_.phase), Some("Provisioned"))
+    val waiting = ObjectStorage.status(ObjectStoragePlan.Waiting(Some("w")), asks, withCloud)
+    assertEquals(waiting.map(_.bucket), Some(""))
+    assertEquals(waiting.flatMap(_.detail), Some("w"))
+    val failed = ObjectStorage.status(
+      ObjectStoragePlan.Failed(Vector("the location is refused")),
+      asks,
+      withCloud
+    )
+    assertEquals(failed.flatMap(_.detail), Some("the location is refused"))
+    assertEquals(failed.map(_.publicAddress), Some(None))
+  }

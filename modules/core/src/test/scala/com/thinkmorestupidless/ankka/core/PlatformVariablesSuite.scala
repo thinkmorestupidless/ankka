@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the twenty-five it renders") {
+  test("the variables the platform alone sets are exactly the twenty-eight it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -32,18 +32,49 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_WASM_MAX_MEMORY_PAGES",
         "ANKKA_OTLP_ENDPOINT",
         "ANKKA_OTLP_HEADERS",
-        // Where the installation keeps its secrets, and its cloud (feature 038).
+        // Where the installation keeps its secrets (feature 038).
         "ANKKA_SECRET_BACKEND",
         "ANKKA_SECRET_MOVE",
         "ANKKA_SECRET_RECORDS_URL",
         "ANKKA_SECRET_VERSIONS_KEPT",
+        // The installation's cloud (feature 044).
         "ANKKA_CLOUD_PROVIDER",
         "ANKKA_CLOUD_ACCOUNT",
-        "ANKKA_CLOUD_LOCATION"
+        "ANKKA_CLOUD_LOCATION",
+        "ANKKA_CLOUD_KMS_KEY",
+        "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND",
+        "ANKKA_CLOUD_ROTATION_GRACE"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
     assert(PlatformOnly.contains(GrpcPort))
+  }
+
+  test("the installation's cloud is the platform's to name, and no program's to read for itself") {
+    val cloud = Vector(
+      CloudProvider,
+      CloudAccount,
+      CloudLocation,
+      CloudKmsKey,
+      CloudAcknowledgementBound,
+      CloudRotationGrace
+    )
+    assertEquals(cloud.distinct.size, 6)
+    cloud.foreach { name =>
+      assert(name.startsWith("ANKKA_CLOUD_"), name)
+      assert(platformOnly(name), name)
+      assert(withheldFromModule(name), name)
+    }
+    // The account and the location are what a service's secret store names its secrets under on
+    // Secret Manager (feature 038), so they reach the platform's program — never a process or a
+    // module. The rest are the operator's, the control plane's and the provider's alone.
+    assertEquals(cloud.filter(runtimeOnly).toSet, Set(CloudAccount, CloudLocation))
+  }
+
+  test("the cloud providers the platform knows by name are gcp alone, and none means none") {
+    assertEquals(CloudProviders, Set("gcp"))
+    assertEquals(CloudProviderNone, "none")
+    assert(!CloudProviders.contains(CloudProviderNone))
   }
 
   test(

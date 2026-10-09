@@ -46,8 +46,13 @@ data:
   secretVersionsKept: "2"
   # How long the record of each read of a secret is kept before it is removed.
   secretRecordRetention: 365d
-  # The installation's cloud provider (none, or gcp) and the cloud account and default location
-  # its resources live in. secret-manager is refused while the provider is none.
-  cloudProvider: none # SET
-  cloudAccount: "" # SET
-  cloudLocation: ""
+  # The installation's cloud (feature 044). "none" writes no cloud request and serves everything from
+  # the installation itself; a provider's name ("gcp") needs the account and location beside it and
+  # a provider deployed into ankka-cloud-provider (docs/platform/cloud-provider.md). One account
+  # per installation: a brand that needs its own is a second installation.
+  cloudProvider: none # SET to a provider's name, with the three below
+  cloudAccount: "" # SET: the cloud account the installation's cloud resources are made in
+  cloudLocation: "" # SET: where they are made unless a project says otherwise
+  cloudKmsKey: "" # SET to wrap the keyring and encrypt buckets with a key of the account's
+  cloudAcknowledgementBound: 2m
+  cloudRotationGrace: 1h

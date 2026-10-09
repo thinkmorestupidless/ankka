@@ -203,6 +203,11 @@ kubectl -n ankka-auth create secret generic ankka-keycloak-admin ...   # see abo
 kubectl apply -k kustomization/overlays/<your-overlay> --server-side --force-conflicts
 ```
 
+The overlay carries the `cloud-provider` component and the installation's cloud settings in its
+`ankka-platform` ConfigMap, with no provider named. To name one, set `cloudProvider`, `cloudAccount` and
+`cloudLocation` there, and install the provider's own Deployment into `ankka-cloud-provider` after the
+overlay; see [The cloud provider](cloud-provider.md).
+
 The controllers go first because each brings custom resource definitions that the overlay's resources
 are instances of, and a single `kubectl apply -k` gives no ordering guarantee between a definition and a
 resource of that kind. Apply with `--server-side`: CloudNativePG's definitions are too large for

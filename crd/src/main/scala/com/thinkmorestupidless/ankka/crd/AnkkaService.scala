@@ -188,7 +188,15 @@ final case class AnkkaServiceSpec(
      * `provisionObjectStorage`; the control plane refuses it otherwise. The bucket's name and
      * address are never in the resource: the operator derives them (`Buckets`).
      */
-    exposeObjectStorage: Boolean = false
+    exposeObjectStorage: Boolean = false,
+    /**
+     * The generation of the storage credential a cloud provider issues for that bucket (feature
+     * 044): raising it asks for a new credential in the same Secret. Absent means 1. An `Option` so
+     * that the control plane, which does not set it, writes nothing here and never owns the field:
+     * a value raised on the resource is not reverted by the next projection.
+     */
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    storageCredentialGeneration: Option[Long] = None
 )
 
 /** One mount of a web-hosted service: a path, and the service of its project that answers it. */

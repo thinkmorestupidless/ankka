@@ -894,6 +894,14 @@ object Main:
       }
     }
 
+  private val installationCommand =
+    Opts.subcommand(
+      "installation",
+      "Show the installation: its version, and its cloud provider, account and location."
+    ) {
+      contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
+    }
+
   private val whoamiCommand =
     Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
       contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
@@ -1157,6 +1165,7 @@ object Main:
       .orElse(logoutCommand)
       .orElse(whoamiCommand)
       .orElse(platformCommand)
+      .orElse(installationCommand)
       .orElse(organizationsCommand)
       .orElse(projectsCommand)
       .orElse(servicesCommand)

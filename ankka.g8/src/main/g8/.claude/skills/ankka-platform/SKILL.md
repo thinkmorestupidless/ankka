@@ -106,6 +106,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
 - `references/platform/broker.md` — The Kafka an installation provides for every project — what the component installs, how a service is known by its certificate, why a project's topics are its own, what is kept, sizing it, and running without it.
 - `references/platform/object-storage.md` — How the platform gives a service a bucket of its own, the variables any S3 client needs to reach it, why buckets are never deleted, how a bucket is made reachable for signed URLs, and how to bring your own store.
+- `references/platform/cloud-provider.md` — How an installation names its one cloud account, the provider process that makes buckets, identities and keys there so the operator never holds that power, the six cloud requests, and how a credential is written once.
 - `references/platform/secrets.md` — Where an installation keeps secrets (each service's database or Google Secret Manager), the secret key, project secrets a descriptor takes by secretKeyRef, the record of every read, and moving to Secret Manager.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 

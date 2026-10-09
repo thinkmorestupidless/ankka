@@ -107,7 +107,9 @@ object ControlPlane:
         com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore
       ] = None,
       /** The installation's status, as `GET /platform` answers it. */
-      platform: () => PlatformStatus = () => ControlPlane.defaultPlatformStatus
+      platform: () => PlatformStatus = () => ControlPlane.defaultPlatformStatus,
+      /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
+      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -148,7 +150,8 @@ object ControlPlane:
               topology = reader
             )
           case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
-      clients => WhoamiEndpoint(clients, acl, clock)
+      clients => WhoamiEndpoint(clients, acl, clock),
+      clients => InstallationEndpoint(clients, acl, cloud, deploy.platformVersion, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
@@ -212,6 +215,8 @@ object ControlPlane:
     val recordsConfig = secrets.SecretRecordsConfig.from(config)
     val records       = secrets.SecretRecords.postgres(recordsConfig)
     val platform      = () => ControlPlane.platformStatus(backend, recordsConfig)
+    val cloud =
+      com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
@@ -234,7 +239,8 @@ object ControlPlane:
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),
-            platform = platform
+            platform = platform,
+            cloud = cloud
           )*
         )
       case _ =>
@@ -250,7 +256,8 @@ object ControlPlane:
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),
-            platform = platform
+            platform = platform,
+            cloud = cloud
           )*
         )
     val base = Ankka.service

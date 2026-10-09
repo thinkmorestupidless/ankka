@@ -81,7 +81,12 @@ final case class Settings(
      * the `ankka-platform` ConfigMap's, given to the platform's program of every service. A setting
      * left unset, or at its default, renders nothing, so a Deployment is what it was before.
      */
-    secretStore: Settings.SecretStore = Settings.SecretStore()
+    secretStore: Settings.SecretStore = Settings.SecretStore(),
+    /**
+     * The installation's cloud provider and account (feature 044). `None` when it has none: no
+     * cloud request is written, and everything is served by the installation itself.
+     */
+    cloud: Option[CloudSettings] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -194,7 +199,8 @@ object Settings:
           raw("ankka.operator.secret-versions-kept", PlatformVariables.SecretVersionsKept),
         cloudAccount = raw("ankka.operator.cloud-account", PlatformVariables.CloudAccount),
         cloudLocation = raw("ankka.operator.cloud-location", PlatformVariables.CloudLocation)
-      )
+      ),
+      cloud = CloudSettings.read(raw)
     )
 
   /**

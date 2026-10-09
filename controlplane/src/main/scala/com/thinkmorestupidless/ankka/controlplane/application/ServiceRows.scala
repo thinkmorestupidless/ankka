@@ -103,7 +103,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 confirmed,
                 database,
                 broker,
-                objectStorage
+                objectStorage,
+                reported
               ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself
@@ -128,7 +129,13 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   broker = broker.map(
                     com.thinkmorestupidless.ankka.controlplane.domain.Service.brokerPhrase
                   ),
-                  objectStorage = objectStorage.map(Service.objectStoragePhrase)
+                  objectStorage = objectStorage.map(Service.objectStoragePhrase),
+                  // The operator's name for the bucket when it reported one (feature 044); with
+                  // no report, what the last apply derived.
+                  bucket = reported match
+                    case Some("")    => None
+                    case Some(named) => Some(named)
+                    case None        => row.bucket
                 )
               )
 

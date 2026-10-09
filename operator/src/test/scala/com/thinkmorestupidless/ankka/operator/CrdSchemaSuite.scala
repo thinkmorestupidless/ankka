@@ -6,6 +6,10 @@ import com.thinkmorestupidless.ankka.crd.{
   AnkkaProjectStatus,
   AnkkaServiceSpec,
   AnkkaServiceStatus,
+  CloudKinds,
+  CloudResourceSpec,
+  CloudResourceStatus,
+  CloudSubject,
   ObjectStorageStatus,
   ProjectTopicEntry,
   ProjectTopicStatus
@@ -37,6 +41,7 @@ class CrdSchemaSuite extends munit.FunSuite:
 
   private val crd: CustomResourceDefinition        = load("ankkaservice.yaml")
   private val projectCrd: CustomResourceDefinition = load("ankkaproject.yaml")
+  private val cloudCrd: CustomResourceDefinition   = load("cloudresource.yaml")
 
   /** The property names one object in the service's schema declares. */
   private def declared(path: String*): Set[String] = declaredIn(crd, path*)
@@ -150,4 +155,34 @@ class CrdSchemaSuite extends munit.FunSuite:
         .map(_.asText)
         .toSet
     assertEquals(phases("objectStorage"), phases("database"))
+  }
+
+  test("a cloud request and its schema declare the same fields, at every level, both ways") {
+    // Feature 044. The operator applies the spec and a provider writes the status; a field either
+    // side carries that the schema does not declare is refused on every write, and only a real API
+    // server would say so.
+    def same(clazz: Class[?], path: String*) =
+      val inSchema = declaredIn(cloudCrd, path*)
+      val inClass  = fieldsOf(clazz)
+      assertEquals(inClass -- inSchema, Set.empty[String], s"${path.mkString(".")}: undeclared")
+      assertEquals(inSchema -- inClass, Set.empty[String], s"${path.mkString(".")}: uncarried")
+    same(classOf[CloudResourceSpec], "spec")
+    same(classOf[CloudSubject], "spec", "subject")
+    same(classOf[CloudResourceStatus], "status")
+  }
+
+  test("a cloud request's kinds and phases are the contract's, exactly") {
+    def enumOf(path: String*) =
+      var schema = cloudCrd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema
+      path.foreach(name => schema = schema.getProperties.get(name))
+      schema.getEnum.asScala.map(_.asText).toVector
+    assertEquals(enumOf("spec", "kind"), CloudKinds.all)
+    assertEquals(enumOf("status", "phase"), CloudKinds.phases)
+  }
+
+  test("a cloud request has a status subresource, so a provider's write leaves the spec alone") {
+    val version = cloudCrd.getSpec.getVersions.asScala.head
+    assert(version.getSubresources != null && version.getSubresources.getStatus != null)
+    assertEquals(cloudCrd.getSpec.getScope, "Namespaced")
+    assertEquals(cloudCrd.getSpec.getNames.getPlural, "cloudresources")
   }

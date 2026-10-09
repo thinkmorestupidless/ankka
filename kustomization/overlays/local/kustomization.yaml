@@ -19,6 +19,9 @@ components:
   - ../../components/crd
   - ../../components/gateway
   - ../../components/operator
+  # The identity and settings an installation's cloud provider runs under (feature 044). Carried
+  # whether or not a provider is named; with "none" nothing uses it.
+  - ../../components/cloud-provider
   # After the operator: its patch tells the operator where the broker is.
   - ../../components/broker
   - ../../components/garage
@@ -176,7 +179,7 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
-  # The installation's secret store and cloud settings (feature 038): the operator passes them
+  # The installation's secret store settings (feature 038): the operator passes them
   # to each service's platform program, the control plane chooses its project secret writer and
   # refuses secret-manager without a cloud provider. Unset or default renders nothing.
   - source:
@@ -224,6 +227,9 @@ replacements:
           name: ankka-controlplane
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_SECRET_RECORD_RETENTION].value
+  # The installation's cloud (feature 044), written once in ankka-platform and copied onto the
+  # operator, the control plane and the provider's settings, so the three cannot disagree about the
+  # account they work in. The control plane has no use for the two durations.
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -234,6 +240,16 @@ replacements:
           name: ankka-controlplane
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_CLOUD_PROVIDER].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_PROVIDER].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_PROVIDER
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -249,6 +265,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_ACCOUNT].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_ACCOUNT
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -264,3 +285,58 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_LOCATION].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_LOCATION
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudKmsKey
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_CLOUD_KMS_KEY].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_KMS_KEY].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_KMS_KEY
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudAcknowledgementBound
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudRotationGrace
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_ROTATION_GRACE].value
+      - select:
+          kind: ConfigMap
+          name: ankka-cloud
+        fieldPaths:
+          - data.ANKKA_CLOUD_ROTATION_GRACE

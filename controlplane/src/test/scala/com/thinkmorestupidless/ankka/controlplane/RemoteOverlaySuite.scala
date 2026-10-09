@@ -778,14 +778,11 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     ("secretBackend", "ANKKA_SECRET_BACKEND", Vector("ankka-controlplane", "ankka-operator")),
     ("secretMove", "ANKKA_SECRET_MOVE", Vector("ankka-operator")),
     ("secretVersionsKept", "ANKKA_SECRET_VERSIONS_KEPT", Vector("ankka-operator")),
-    ("secretRecordRetention", "ANKKA_SECRET_RECORD_RETENTION", Vector("ankka-controlplane")),
-    ("cloudProvider", "ANKKA_CLOUD_PROVIDER", Vector("ankka-controlplane")),
-    ("cloudAccount", "ANKKA_CLOUD_ACCOUNT", Vector("ankka-controlplane", "ankka-operator")),
-    ("cloudLocation", "ANKKA_CLOUD_LOCATION", Vector("ankka-controlplane", "ankka-operator"))
+    ("secretRecordRetention", "ANKKA_SECRET_RECORD_RETENTION", Vector("ankka-controlplane"))
   )
 
   test(
-    "the secret store and cloud settings reach the operator and the control plane once each, from the ConfigMap"
+    "the secret store's settings reach the operator and the control plane once each, from the ConfigMap"
   ) {
     for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
       val data = platformData(render)
@@ -802,7 +799,6 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
           s"$name: $deployment's $variable is the ConfigMap's $key"
         )
     assertEquals(platformData(local)("secretBackend"), "postgres")
-    assertEquals(platformData(local)("cloudProvider"), "none")
   }
 
   test(
@@ -832,4 +828,135 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
         1,
         s"$name: the patch added a container"
       )
+  }
+
+  // ── The installation's cloud (feature 044) ────────────────────────────────
+
+  private val CloudVariables = Vector(
+    "cloudProvider"             -> "ANKKA_CLOUD_PROVIDER",
+    "cloudAccount"              -> "ANKKA_CLOUD_ACCOUNT",
+    "cloudLocation"             -> "ANKKA_CLOUD_LOCATION",
+    "cloudKmsKey"               -> "ANKKA_CLOUD_KMS_KEY",
+    "cloudAcknowledgementBound" -> "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND",
+    "cloudRotationGrace"        -> "ANKKA_CLOUD_ROTATION_GRACE"
+  )
+
+  /** The control plane reads the four that say where; the two durations are not its to use. */
+  private val ControlPlaneCloudVariables = CloudVariables.take(4).map(_._2)
+
+  private def containerEnv(render: String, deployment: String): Map[String, String] =
+    deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+      .flatMap(_.getEnv.asScala)
+      .filter(_.getValue != null)
+      .map(e => e.getName -> e.getValue)
+      .toMap
+
+  private def cloudSettingsData(render: String, name: String): Map[String, String] =
+    io.fabric8.kubernetes.client.utils.Serialization
+      .unmarshal(
+        documentsOfKind(render, "ConfigMap")
+          .find(_.linesIterator.exists(_.trim == "name: ankka-cloud"))
+          .getOrElse(fail(s"$name: no ankka-cloud ConfigMap")),
+        classOf[io.fabric8.kubernetes.api.model.ConfigMap]
+      )
+      .getData
+      .asScala
+      .toMap
+
+  test("both overlays name each cloud setting once on the operator and the control plane") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val operator = operatorDeployment(render, name)
+      for (_, variable) <- CloudVariables do
+        assertEquals(s"- name: $variable\\b".r.findAllIn(operator).size, 1, s"$name: $variable")
+      val controlPlane = documentsOfKind(render, "Deployment")
+        .find(_.linesIterator.exists(_.trim == "name: ankka-controlplane"))
+        .getOrElse(fail(s"$name: no control plane"))
+      for variable <- ControlPlaneCloudVariables do
+        assertEquals(
+          s"- name: $variable\\b".r.findAllIn(controlPlane).size,
+          1,
+          s"$name: $variable"
+        )
+      assertEquals(
+        cloudSettingsData(render, name).keySet,
+        CloudVariables.map(_._2).toSet,
+        s"$name: the provider's settings"
+      )
+  }
+
+  test("both overlays ship no cloud provider, so an installation names one on purpose") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      assertEquals(containerEnv(render, "ankka-operator")("ANKKA_CLOUD_PROVIDER"), "none", name)
+      assertEquals(cloudSettingsData(render, name)("ANKKA_CLOUD_PROVIDER"), "none", name)
+  }
+
+  test("a cloud setting written once in ankka-platform reaches every process that reads it") {
+    // The defaults agree with the components' literals, so a render of the overlays as shipped
+    // would pass with every replacement missing. A copy of the local overlay beside it, so its
+    // relative paths still resolve, says something else in each key, and each must arrive.
+    val probe =
+      repoRoot.resolve(s"kustomization/overlays/.cloud-probe-${ProcessHandle.current.pid}")
+    val source = repoRoot.resolve("kustomization/overlays/local")
+    Files.createDirectories(probe)
+    try
+      Files.list(source).iterator.asScala.foreach(f => Files.copy(f, probe.resolve(f.getFileName)))
+      val distinct = CloudVariables.map((key, _) => key -> s"probe-$key").toMap +
+        ("cloudProvider"      -> "gcp") + ("cloudAcknowledgementBound" -> "17s") +
+        ("cloudRotationGrace" -> "19s")
+      val configMap = probe.resolve("platform-configmap.yaml")
+      val rewritten = Files.readString(configMap).linesIterator.map { line =>
+        distinct
+          .collectFirst { case (k, v) if line.startsWith(s"  $k:") => s"  $k: \"$v\"" }
+          .getOrElse(line)
+      }
+      Files.writeString(configMap, rewritten.mkString("\n") + "\n")
+      val rendered = Process(Seq("kubectl", "kustomize", probe.toString)).!!
+      val operator = containerEnv(rendered, "ankka-operator")
+      val cp       = containerEnv(rendered, "ankka-controlplane")
+      val provider = cloudSettingsData(rendered, "probe")
+      for (key, variable) <- CloudVariables do
+        assertEquals(operator(variable), distinct(key), s"operator: $variable")
+        assertEquals(provider(variable), distinct(key), s"provider: $variable")
+      for variable <- ControlPlaneCloudVariables do
+        val key = CloudVariables.find(_._2 == variable).get._1
+        assertEquals(cp(variable), distinct(key), s"control plane: $variable")
+    finally
+      Files.list(probe).iterator.asScala.foreach(Files.delete)
+      Files.delete(probe)
+  }
+
+  test("the cloud provider's grant has no delete and cannot read a Secret") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val role = documentsOfKind(render, "ClusterRole")
+        .find(_.linesIterator.exists(_.trim == "name: ankka-cloud-provider"))
+        .getOrElse(fail(s"$name: no ClusterRole for the cloud provider"))
+      val parsed = io.fabric8.kubernetes.client.utils.Serialization
+        .unmarshal(role, classOf[io.fabric8.kubernetes.api.model.rbac.ClusterRole])
+      val rules = parsed.getRules.asScala.toVector
+      assert(rules.forall(!_.getVerbs.contains("delete")), s"$name: a delete in $role")
+      val onSecrets = rules.filter(_.getResources.contains("secrets")).flatMap(_.getVerbs.asScala)
+      assertEquals(onSecrets.toSet, Set("create", "patch"), name)
+      val onRequests =
+        rules.filter(_.getResources.contains("cloudresources")).flatMap(_.getVerbs.asScala)
+      assertEquals(onRequests.toSet, Set("get", "list", "watch"), s"$name: the request is not its")
+      assertEquals(
+        rules.flatMap(_.getResources.asScala).toSet,
+        Set("cloudresources", "cloudresources/status", "secrets"),
+        s"$name: nothing else"
+      )
+  }
+
+  test("the operator writes a cloud request and never its answer, and deletes none") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val role = documentsOfKind(render, "ClusterRole")
+        .find(_.linesIterator.exists(_.trim == "name: ankka-operator"))
+        .getOrElse(fail(s"$name: no operator ClusterRole"))
+      val rules = io.fabric8.kubernetes.client.utils.Serialization
+        .unmarshal(role, classOf[io.fabric8.kubernetes.api.model.rbac.ClusterRole])
+        .getRules
+        .asScala
+      def verbs(resource: String) =
+        rules.filter(_.getResources.contains(resource)).flatMap(_.getVerbs.asScala).toSet
+      assertEquals(verbs("cloudresources"), Set("get", "list", "watch", "create", "patch"), name)
+      assertEquals(verbs("cloudresources/status"), Set("get"), name)
   }

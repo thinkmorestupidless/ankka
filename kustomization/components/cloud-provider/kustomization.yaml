@@ -1,0 +1,18 @@
+# The identity an installation's cloud provider runs under (feature 044), and its settings.
+#
+# A cloud provider is a process outside the platform that fulfils the installation's cloud
+# requests (CloudResource) with power over the cloud account the operator never holds. This
+# component ships everything the provider needs from the platform but its workload: its namespace,
+# its ServiceAccount, the one grant every provider runs under, and the installation's cloud
+# settings. A provider's own install (ankka-gcp's, or the scripted provider a k3s suite starts)
+# adds only its Deployment here and, on GKE, the annotation binding the ServiceAccount to its
+# cloud identity.
+#
+# An installation whose cloud provider is "none" carries the component all the same: nothing
+# watches, no request is written, and the identity is never used.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - settings.yaml

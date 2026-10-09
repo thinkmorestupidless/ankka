@@ -141,6 +141,7 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/services/{projectId}/{name}/history` | |
 | `DELETE` | `/services/{projectId}/{name}` | |
 | `GET` | `/auth/whoami` | |
+| `GET` | `/installation` | |
 | `GET` | `/auth` | |
 <!-- generated:end control-plane-routes -->
 
@@ -189,6 +190,20 @@ The caller as the control plane sees them. Response:
 | `organizations` | array | `{ "id", "name", "role" }` for every organization the caller belongs to. |
 
 Calling it also claims any pending invitation addressed to the caller's verified email.
+
+### `GET /installation`
+
+What the installation is: its version, and its cloud when it names a
+[cloud provider](../platform/cloud-provider.md). Any caller with a token may read it. Response:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `platformVersion` | string | The version of the platform the control plane runs. |
+| `cloud` | object, optional | Absent when the installation names no cloud provider. |
+| `cloud.provider` | string | The installation's cloud provider, such as `gcp`. |
+| `cloud.account` | string | The one cloud account the installation's cloud resources are made in. |
+| `cloud.location` | string | Where they are made unless a project says otherwise. |
+| `cloud.kmsKey` | string, optional | The key the installation wraps with; shown only to an owner of an organization or a platform administrator. |
 
 ## Organizations
 

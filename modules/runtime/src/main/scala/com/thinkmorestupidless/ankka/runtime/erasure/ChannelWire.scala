@@ -68,7 +68,10 @@ object ChannelWire:
       c.handler.flatMap(_.objectsFinalAt).map(_.toEpochMilli)
     )
 
-  def write(out: Out): String    = writeToString(out)
-  def readIn(text: String): In   = readFromString[In](text)
-  def writeIn(in: In): String    = writeToString(in)
-  def readOut(text: String): Out = readFromString[Out](text)
+  // Reentrant, every one: a key is fetched from inside a personal field's codec, which is itself in
+  // the middle of a jsoniter read or write on this thread, and the plain calls share that thread's
+  // buffer — the outer value came back as this channel's message.
+  def write(out: Out): String    = writeToStringReentrant(out)
+  def readIn(text: String): In   = readFromStringReentrant[In](text)
+  def writeIn(in: In): String    = writeToStringReentrant(in)
+  def readOut(text: String): Out = readFromStringReentrant[Out](text)

@@ -28,7 +28,7 @@ import scala.jdk.CollectionConverters.*
  * classpath — so a test can never pass against a schema that local development does not have.
  */
 final class AnkkaTestKit private (
-    descriptors: Seq[ComponentDescriptor],
+    private var descriptors: Seq[ComponentDescriptor],
     private var extensions: Seq[RuntimeExtension],
     configure: ServiceBuilder => ServiceBuilder,
     config: Config,
@@ -233,12 +233,14 @@ final class AnkkaTestKit private (
        * Run between the stop and the start: what happens while the service is down, as moving a
        * clock.
        */
-      whileStopped: => Unit = ()
+      whileStopped: => Unit = (),
+      /** The components the fresh service hosts: a view declared at a higher version, say. */
+      descriptors: Seq[ComponentDescriptor] = this.descriptors
   ): Unit =
     stopService()
     if downFor > scala.concurrent.duration.Duration.Zero then Thread.sleep(downFor.toMillis)
     whileStopped
-    startService(extensions, secretKey)
+    startService(extensions, secretKey, descriptors)
 
   /**
    * Terminates the service and leaves it stopped, as an outage does; `startService` ends it. The
@@ -251,8 +253,10 @@ final class AnkkaTestKit private (
   /** Starts a fresh service against the same database, after `stopService`. */
   def startService(
       extensions: Seq[RuntimeExtension] = this.extensions,
-      secretKey: Option[String] = currentKey
+      secretKey: Option[String] = currentKey,
+      descriptors: Seq[ComponentDescriptor] = this.descriptors
   ): Unit =
+    this.descriptors = descriptors
     this.extensions = extensions
     currentKey = secretKey
     current = AnkkaTestKit.hostService(

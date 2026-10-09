@@ -106,7 +106,19 @@ final class ErasureRuntime(
           service.system.log.warn("erasure: applying failed and will be applied again", failure)
     }
 
+  /**
+   * What this instance completed, by erasure: a first application sent again — the control plane
+   * asks until it hears, and a channel that reconnects replays the log — is answered with it, and
+   * nothing runs twice. A reapplication always runs.
+   */
+  private val completed = java.util.concurrent.ConcurrentHashMap[String, Completion]()
+
   private def applyOne(database: Option[Database], order: ErasureOrder): Unit =
+    Option(completed.get(order.erasureId)).filterNot(_ => order.reapply) match
+      case Some(done) => connection.completed(done)
+      case None       => applyFully(database, order)
+
+  private def applyFully(database: Option[Database], order: ErasureOrder): Unit =
     val system = service.system
     keyring.cache.destroyed(project, order.subject, order.erasureId)
     val (viewsRedacted, rows) =
@@ -136,6 +148,8 @@ final class ErasureRuntime(
       viewsRedacted.size,
       outcome.fold("")(o => s"; handler ${if o.ok then "done" else "failed"}")
     )
+    // A failed handler is not complete: the next order of the same erasure runs it again.
+    if outcome.forall(_.ok) then completed.put(order.erasureId, completion): Unit
     connection.completed(completion)
 
   private def run(handler: ErasureHandler, order: ErasureOrder): HandlerOutcome =

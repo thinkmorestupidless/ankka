@@ -180,22 +180,28 @@ class PersonalFieldsFeatures
     val text = row(subject.stripPrefix("player/")).get
     assert(text.contains(s""""$field":{"subject":"$subject","project":"local","data":"""), text)
   }
+  // Both reads wait for the row this scenario wrote: one kit runs every scenario, and an earlier
+  // one wrote this player too.
   Then("a read of the row by its row key is told the email {string}") { (email: String) =>
-    assertEquals(
-      kit.service.viewClient.forView(Profiles).get("8c1f").flatMap(_.email.toOption),
-      Some(email)
-    )
+    kit.eventually("the row read by key")(
+      kit.service.viewClient
+        .forView(Profiles)
+        .get("8c1f")
+        .flatMap(_.email.toOption)
+        .filter(_ == email)
+    ): Unit
   }
   Then("a declared query of {string} that reads the row is told the email {string}") {
     (_: String, email: String) =>
       val token = Personal.lookupToken(email)
-      assertEquals(
+      kit.eventually("the row found by its token")(
         kit.service.viewClient
           .forView(Profiles)
           .ask(Profiles.byEmail, "email" -> token)
-          .flatMap(_.email.toOption),
-        Vector(email)
-      )
+          .filter(_.playerId == "8c1f")
+          .flatMap(_.email.toOption)
+          .find(_ == email)
+      ): Unit
   }
 
   Given("a consumer of {string} that publishes {string} to the topic {string}") {

@@ -321,7 +321,8 @@ mod host {
 use native as host;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{
-    NativeHost, with_native_clock, with_native_host, with_native_random, with_native_services,
+    NativeHost, with_native_clock, with_native_host, with_native_keys, with_native_random,
+    with_native_services,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -376,6 +377,8 @@ mod native {
         static CLOCK: Cell<Option<i64>> = const { Cell::new(None) };
         /// The bytes a test fixed, and how many of them have been handed out.
         static RANDOM: RefCell<Option<(Vec<u8>, usize)>> = const { RefCell::new(None) };
+        /// What answers `subject_key` and `lookup_token` in a test: a keyring in memory.
+        static KEYS: RefCell<Option<Rc<dyn NativeHost>>> = const { RefCell::new(None) };
     }
 
     /// Puts a thread-local back as it was when the scope that changed it ends, however it ends.
@@ -395,6 +398,19 @@ mod native {
         let mut previous = SERVICES.with(|s| s.replace(Some(Rc::new(services))));
         let _restore = Restore(|| SERVICES.with(|s| *s.borrow_mut() = previous.take()));
         f()
+    }
+
+    /// Runs `f` with `keys` answering every `subject_key` and `lookup_token` made on this thread.
+    /// Like the services, it is apart from the [`NativeHost`], so it works beside whichever host a
+    /// testkit installs.
+    pub fn with_native_keys<T>(keys: impl NativeHost + 'static, f: impl FnOnce() -> T) -> T {
+        let mut previous = KEYS.with(|k| k.replace(Some(Rc::new(keys))));
+        let _restore = Restore(|| KEYS.with(|k| *k.borrow_mut() = previous.take()));
+        f()
+    }
+
+    fn keys() -> Option<Rc<dyn NativeHost>> {
+        KEYS.with(|k| k.borrow().clone())
     }
 
     /// Runs `f` with [`now`](super::now) answering `millis` on this thread.
@@ -559,6 +575,9 @@ mod native {
     }
 
     pub(super) fn call_subject_key(request: &[u8]) -> Vec<u8> {
+        if let Some(keys) = keys() {
+            return keys.call(Import::SubjectKey, request);
+        }
         if let Some(host) = installed() {
             return host.call(Import::SubjectKey, request);
         }
@@ -577,6 +596,9 @@ mod native {
     }
 
     pub(super) fn call_lookup_token(request: &[u8]) -> Vec<u8> {
+        if let Some(keys) = keys() {
+            return keys.call(Import::LookupToken, request);
+        }
         if let Some(host) = installed() {
             return host.call(Import::LookupToken, request);
         }

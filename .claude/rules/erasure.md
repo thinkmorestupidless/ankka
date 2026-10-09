@@ -9,6 +9,9 @@ paths:
   - "kustomization/components/keyring/**"
   - "modules/testkit/src/main/scala/**/InMemoryKeyring.scala"
   - "protocol/fixtures/personal/**"
+  - "modules/sdk/src/main/scala/**/Erasure.scala"
+  - "modules/agent/src/main/scala/**/SubjectIndexEntity.scala"
+  - "kustomization/components/postgres/ddl/50-erasure-postgres.sql"
 ---
 
 # Personal data erasure: the personal type, the keyring and erasure requests
@@ -44,6 +47,25 @@ every one already known when a process subscribes**, so a notice sent while the 
 reconnects is not lost. A module hears nothing, so a stored Rust value asks the runtime whether its
 subject is erased each time it is read. The sidecar never opens an envelope; it fetches, caches and
 forwards. An erasure reaches a process only through `Erasure.Handle`, after the platform's duties.
+
+## Grants admit everything that crosses a project, and an installation has none yet
+
+Another project's fetch of a key (the keyring's `Grants`, asked **at each fetch**, never captured at
+`hello`), a service asking for an erasure (`GrantReader.allows(…, "erasure")` in the control plane's ask
+route, which admits a `Caller.Service` by an `Acl.Authenticate` of its own and records a refusal as a
+`Refused` request the project's history shows), and a machine outside decrypting (`POST /decrypt` on the
+keyring, a token's `machine` claim, `GrantReader` with `decrypt`) are each admitted by a grant.
+`GrantReader.fromFile` answers `none` with a `TODO(040)` until spec 040 renders grants, so every one of
+them is refused on an installation and admitted only by a test's own reader. The other blocked seams:
+backups and restores of the keyring and services on k3s wait on 041; the k3s suites' machine token on 040.
+
+## The keyring's channel
+
+One WebSocket per service instance (`/channel`, admitted by the certificate's project). It sends the
+project's erasure log on `hello`, every destroyed notice and apply order as they happen, and closes with
+`Close("not-admitted")` on a `hello` for another project and `Close("unacknowledged")` to a channel that
+has not acknowledged a destroyed notice within `ackWithin` (60s): the instance reconnects and replays
+the log from its `appliedUpTo`, so a closed channel is a retried one, never a lost erasure.
 
 ## Traps
 
@@ -84,6 +106,14 @@ forwards. An erasure reaches a process only through `Erasure.Handle`, after the 
   restrictor stops its component reading `postgres/ddl`, and a copy would be a second schema.
 - **`protocol/fixtures/personal/` is not compared byte for byte** — the nonce is random — so
   `PersonalFixturesSuite` pins the rows and checks every stored envelope decodes as its row says.
+- **A new DDL file is named in seven lists** (`kubernetes.md`, Schema). `50-erasure-postgres.sql`
+  (`ankka_erasures_applied`) is; the keyring's own database applies the same files itself (`Schema`).
+- **`ankka.erasure.handler-timeout` is read in two places**: the sidecar for a process's handler and
+  `Ankka.host` for a JVM service's. The JVM one was missed once and ran on the class default.
+- **The SDK test kits start a keyring too.** Python's, TypeScript's and Rust's integration kits run
+  `ankka-keyring` and its own Postgres beside the sidecar (image like the sidecar's: a released SDK's
+  version, `ankka-keyring:latest` unreleased, `ANKKA_KEYRING_IMAGE` over both), so a generated project's
+  personal field is written in its own tests. Build `keyring/Docker/publishLocal` before them.
 - **Every test kit runs the JVM's `InMemoryKeyring` by default.** A suite that runs the keyring, or a
   service with its own channel, passes `keyring = None` to every other kit, or the JVM default scope sees
   two projects and fails closed.

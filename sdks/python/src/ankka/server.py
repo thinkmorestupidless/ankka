@@ -988,6 +988,7 @@ class Server:
         self.registry = registry
         self.client = client or ComponentClient()
         self._server: grpc.aio.Server | None = None
+        self._keys: personal.SidecarKeys | None = None
         self.port = 0
 
     def add_servicers(self, server: grpc.aio.Server) -> None:
@@ -1007,7 +1008,8 @@ class Server:
         if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
             raise ValueError("the process server binds loopback only")
         # The process's keys come from the runtime it serves: fetched on a miss, dropped on an erasure.
-        personal.install_if_absent(personal.SidecarKeys(lambda: self.client.address))
+        keys = personal.SidecarKeys(lambda: self.client.address)
+        self._keys = keys if personal.install_if_absent(keys) else None
         server = grpc.aio.server()
         self.add_servicers(server)
         self.port = server.add_insecure_port(f"{host}:{port}")
@@ -1024,6 +1026,11 @@ class Server:
         if self._server is not None:
             await self._server.stop(grace)
             self._server = None
+        keys = self._keys
+        if keys is not None:
+            keys.close()
+            personal.uninstall(keys)
+            self._keys = None
         await self.client.close()
 
 

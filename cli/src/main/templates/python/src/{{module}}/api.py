@@ -9,10 +9,10 @@ allowed to; this line does.
 
 from __future__ import annotations
 
-from ankka import Acl, Done, Endpoint, HttpProblem, get, post
+from ankka import Acl, Done, Endpoint, HttpProblem, get, post, put
 from ankka.client import Calls, ComponentClient
 
-from {{module}}.domain import AddItem, Item, RemoveItem
+from {{module}}.domain import AddItem, Item, ItemDetails, RemoveItem, SetOwner
 from {{module}}.item_rows import ItemRow, ItemRows
 
 
@@ -33,8 +33,8 @@ class ItemEndpoint(Endpoint):
         return await self.client.views.all(ItemRows.component_id, ItemRow)
 
     @get("/{id}")
-    async def get_item(self, id: str) -> Item:
-        return await self._item(id).call("get-item").invoke(reply=Item)
+    async def get_item(self, id: str) -> ItemDetails:
+        return ItemDetails.of(await self._item(id).call("get-item").invoke(reply=Item))
 
     @post("/{id}")
     async def add_item(self, id: str, request: AddItem) -> Done:
@@ -45,3 +45,7 @@ class ItemEndpoint(Endpoint):
     @post("/{id}/remove")
     async def remove_item(self, id: str, request: RemoveItem) -> Done:
         return await self._item(id).call("remove-item").invoke(request, reply=Done)
+
+    @put("/{id}/owner")
+    async def set_owner(self, id: str, request: SetOwner) -> Done:
+        return await self._item(id).call("set-owner").invoke(request, reply=Done)

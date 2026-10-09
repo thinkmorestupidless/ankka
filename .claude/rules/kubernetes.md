@@ -98,6 +98,18 @@ owned by the service, at `storage.<base>` with the bucket in the path, naming th
 plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
 limitations. `docs/platform/object-storage.md` is the contract with a service.
 
+## The keyring is a platform component, and the platform has a bucket of its own
+
+`kustomization/components/keyring` (feature 042) runs `ankka-keyring` in its own namespace with its own
+CNPG `Cluster` (`bootstrap.initdb`, as `components/postgres`), a certificate `ankka://platform/keyring`
+from both authorities, a network policy admitting every managed namespace and the control plane on 9020,
+and an operator patch giving the operator its own `ANKKA_KEYRING_URL` (`KeyringSettings`), which it renders
+on the platform container of every hosting but web — an installation without the component renders
+exactly what it did. With object store settings the operator also ensures the **platform bucket** for the
+erasure log (`EnsurePlatformBucket`) and writes its credential, create-only, as
+`ankka-platform-erasure-log` in `ankka-controlplane` and `ankka-keyring`. A service's bucket variables
+(`ANKKA_S3_*`) now reach the sidecar too, so a process's handler can erase objects through it.
+
 ## Deploying locally
 
 ```bash

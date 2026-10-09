@@ -75,6 +75,13 @@ turns the declarations into the Scala agent's, the process answers `CheckGuardra
 `Decide` on `Client` (protocol 1.9) carries a decision; the process is never asked to run an MCP tool nor
 a call that awaits a decision. `TestMcpServer` (agent module, main scope) is the scripted server.
 
+A session or a task can be **about a data subject** (feature 042): `AgentCalls.withSubject` assigns the
+session's subject (its messages are then kept as `Protected` events under the subject's key) and
+`TaskBuilder.withSubject` tags a task (`CreatedFor`). Both are recorded on `SubjectIndexEntity` (id = the
+subject), which is how `AgentRuntime`, an `ErasureDuty`, finds what to do when the subject is erased: it
+forgets each session (`Forgotten`, read back as one summary note) and cancels each open task, terminating
+its instance. New event cases go at the end of their enums, which `EventCompatibilitySuite` pins.
+
 ## Traps
 
 - **One `TestModelProvider` cannot serve both an agent and an async consumer.** The

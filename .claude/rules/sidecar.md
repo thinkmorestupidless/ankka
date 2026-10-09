@@ -8,6 +8,15 @@ paths:
 
 # The polyglot sidecar and the Python SDK
 
+## Personal fields and erasure (protocol 1.15)
+
+`Client` gained `FetchSubjectKey`, `SubjectKeyEvents`, `LookupToken` and `EraseObjects`, and a process
+that declares an erasure handler (`Spec.erasure_handler`) serves `Erasure.Handle`; discovery refuses a
+handler from a process below 1.15. The sidecar fetches and caches keys and never opens an envelope.
+`SubjectKeyEvents` replays every subject already known on subscribe. A module has the imports
+`subject_key`, `lookup_token`, `erase_objects` and the export `ankka1_erase` (`WASM-ABI.md`).
+`.claude/rules/erasure.md` holds the rest.
+
 ## Traps
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the

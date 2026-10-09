@@ -4,7 +4,9 @@
 
 use ankka::prelude::*;
 
-use crate::domain::{AddItem, Item, ItemEvent, RemoveItem};
+use ankka::personal::Personal;
+
+use crate::domain::{AddItem, Item, ItemEvent, RemoveItem, SetOwner};
 
 pub struct ItemEntity;
 
@@ -15,7 +17,10 @@ impl ItemEntity {
             let message = format!("count must be greater than zero, was {}", request.count);
             return effects::error(ErrorCode::BadRequest, message).into();
         }
-        let event = ItemEvent::ItemAdded { name: request.name, count: request.count };
+        let event = ItemEvent::ItemAdded {
+            name: request.name,
+            count: request.count,
+        };
         effects::persist(event).then_reply_value(Done)
     }
 
@@ -28,7 +33,18 @@ impl ItemEntity {
             let message = format!("only {} to remove", item.count);
             return effects::error(ErrorCode::Conflict, message).into();
         }
-        effects::persist(ItemEvent::ItemRemoved { count: request.count }).then_reply_value(Done)
+        effects::persist(ItemEvent::ItemRemoved {
+            count: request.count,
+        })
+        .then_reply_value(Done)
+    }
+
+    /// The owner's email, kept as a personal field of the data subject `user/<user>`.
+    fn set_owner(_: &Item, request: SetOwner, _: &Context) -> Effect<ItemEvent, Done> {
+        match Personal::present(format!("user/{}", request.user), request.email) {
+            Ok(owner) => effects::persist(ItemEvent::OwnerSet { owner }).then_reply_value(Done),
+            Err(e) => effects::error(ErrorCode::BadRequest, e.0).into(),
+        }
     }
 
     /// A query can only return a read-only effect: one that persists does not compile.
@@ -45,15 +61,29 @@ impl EventSourcedEntity for ItemEntity {
     const EVENT_MANIFEST: Option<&'static str> = Some("item-event");
 
     fn empty_state(id: &str) -> Item {
-        Item { id: id.to_string(), name: String::new(), count: 0 }
+        Item {
+            id: id.to_string(),
+            name: String::new(),
+            count: 0,
+            owner: None,
+        }
     }
 
     fn apply(item: Item, event: &ItemEvent) -> Item {
         match event {
-            ItemEvent::ItemAdded { name, count } => {
-                Item { name: name.clone(), count: item.count + count, ..item }
-            }
-            ItemEvent::ItemRemoved { count } => Item { count: item.count - count, ..item },
+            ItemEvent::ItemAdded { name, count } => Item {
+                name: name.clone(),
+                count: item.count + count,
+                ..item
+            },
+            ItemEvent::ItemRemoved { count } => Item {
+                count: item.count - count,
+                ..item
+            },
+            ItemEvent::OwnerSet { owner } => Item {
+                owner: Some(owner.clone()),
+                ..item
+            },
         }
     }
 
@@ -63,6 +93,7 @@ impl EventSourcedEntity for ItemEntity {
         Handlers::new()
             .command("add-item", ItemEntity::add_item)
             .command("remove-item", ItemEntity::remove_item)
+            .command("set-owner", ItemEntity::set_owner)
             .query("get-item", ItemEntity::get_item)
     }
 }

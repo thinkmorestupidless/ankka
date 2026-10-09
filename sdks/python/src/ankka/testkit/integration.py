@@ -10,6 +10,13 @@ Needs Docker. The image is ``$ANKKA_SIDECAR_IMAGE`` when that is set. Otherwise 
 sidecar published with it, ``ghcr.io/thinkmorestupidless/ankka-sidecar:<this SDK's version>`` — public,
 so Docker pulls it on first use — and an unreleased one (version ``0.0.0``, a checkout of the ankka
 repository) uses ``ankka-sidecar:latest``, the image ``sbt sidecar/Docker/publishLocal`` builds.
+
+A keyring runs beside the sidecar by default, so a service's personal fields are written and read with no
+setup: the ``ankka-keyring`` image on a Postgres of its own (it applies its own schema, and is never the
+service's database), and ``ANKKA_KEYRING_URL`` on the sidecar. Its image is ``$ANKKA_KEYRING_IMAGE`` when
+that is set, otherwise chosen as the sidecar's is: ``ghcr.io/thinkmorestupidless/ankka-keyring:<version>``
+for a released SDK, ``ankka-keyring:latest`` (``sbt keyring/Docker/publishLocal``) for an unreleased one.
+``keyring=False`` starts a service with none, which refuses every personal field.
 """
 
 from __future__ import annotations
@@ -43,6 +50,8 @@ CALLBACK_PORT = 9011
 
 
 PUBLISHED_SIDECAR = "ghcr.io/thinkmorestupidless/ankka-sidecar"
+PUBLISHED_KEYRING = "ghcr.io/thinkmorestupidless/ankka-keyring"
+KEYRING_PORT = 9020
 
 
 def sidecar_image(version: str | None = None) -> str:
@@ -54,6 +63,16 @@ def sidecar_image(version: str | None = None) -> str:
     if version is None:
         from ankka import __version__ as version
     return "ankka-sidecar:latest" if version == "0.0.0" else f"{PUBLISHED_SIDECAR}:{version}"
+
+
+def keyring_image(version: str | None = None) -> str:
+    """The keyring this testkit starts beside the sidecar: see the module's docstring."""
+    explicit = os.environ.get("ANKKA_KEYRING_IMAGE")
+    if explicit:
+        return explicit
+    if version is None:
+        from ankka import __version__ as version
+    return "ankka-keyring:latest" if version == "0.0.0" else f"{PUBLISHED_KEYRING}:{version}"
 
 
 def _copy_ddl(image: str, into: Path) -> None:
@@ -83,11 +102,26 @@ def _start_or_explain(container: DockerContainer, what: str) -> None:
         raise RuntimeError(f"{what} did not start: {failure}\n--- container logs ---\n{logs}") from failure
 
 
+def _reaper() -> None:
+    """testcontainers starts its reaper with the first container, and two containers started at once
+    both try to create it (a 409 for the second). Started here, before any start runs in parallel."""
+    from testcontainers.core.config import testcontainers_config
+    from testcontainers.core.container import Reaper
+
+    if not testcontainers_config.ryuk_disabled:
+        Reaper.get_instance()
+
+
 class AnkkaTestKit:
-    def __init__(self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None, keyring: bool = True
+    ) -> None:
         self.service = service
         self.image = image
         self.env = env or {}
+        self.keyring = keyring
+        self._keyring_db: PostgresContainer | None = None
+        self._keyring: DockerContainer | None = None
         self._network: Network | None = None
         self._postgres: PostgresContainer | None = None
         self._sidecar: DockerContainer | None = None
@@ -99,10 +133,16 @@ class AnkkaTestKit:
 
     @classmethod
     async def start(
-        cls, service: ServiceBuilder, image: str | None = None, ready_timeout: float = 90.0, env: dict[str, str] | None = None
+        cls,
+        service: ServiceBuilder,
+        image: str | None = None,
+        ready_timeout: float = 90.0,
+        env: dict[str, str] | None = None,
+        keyring: bool = True,
     ) -> AnkkaTestKit:
-        """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model."""
-        kit = cls(service, image or sidecar_image(), env)
+        """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model.
+        ``keyring=False`` starts no keyring, and the service refuses every personal field."""
+        kit = cls(service, image or sidecar_image(), env, keyring)
         try:
             await kit._start(ready_timeout)
         except BaseException:
@@ -140,11 +180,64 @@ class AnkkaTestKit:
             .with_network_aliases("postgres")
             .with_volume_mapping(str(self._ddl_dir), "/docker-entrypoint-initdb.d", "ro")
         )
-        _start_or_explain(self._postgres, "postgres")
+        # The keyring and its database start while the service's Postgres does: each is a container
+        # start and a JVM's, and in sequence they were most of a kit's start.
+        if self.keyring:
+            _reaper()
+            await asyncio.gather(
+                asyncio.to_thread(_start_or_explain, self._postgres, "postgres"), self._start_keyring(ready_timeout)
+            )
+        else:
+            _start_or_explain(self._postgres, "postgres")
         # This process's server, on all interfaces: the sidecar is in a container and dials in.
         self._server = Server(self.service.validate(), client=self.client)
         self.process_port = await self._server.start("0.0.0.0", 0)
         await self._start_sidecar(ready_timeout)
+
+    async def _start_keyring(self, ready_timeout: float) -> None:
+        """The keyring, on a database of its own, answering ``ready`` before the sidecar starts: a
+        sidecar that dialled a keyring still starting would open its channel late, and a service's
+        first personal field would be refused."""
+        assert self._network is not None
+        self._keyring_db = (
+            PostgresContainer(POSTGRES_IMAGE, username="ankka", password="ankka", dbname="ankka")
+            .with_network(self._network)
+            .with_network_aliases("keyring-db")
+        )
+        await asyncio.to_thread(_start_or_explain, self._keyring_db, "the keyring's postgres")
+        keyring = (
+            DockerContainer(keyring_image())
+            .with_network(self._network)
+            .with_network_aliases("keyring")
+            .with_env("ANKKA_HTTP_PORT", str(KEYRING_PORT))
+            .with_env("ANKKA_DB_HOST", "keyring-db")
+            .with_env("ANKKA_DB_PORT", "5432")
+            .with_env("ANKKA_DB_NAME", "ankka")
+            .with_env("ANKKA_DB_USER", "ankka")
+            .with_env("ANKKA_DB_PASSWORD", "ankka")
+            .with_env("ANKKA_SECRET_KEY", base64.b64encode(os.urandom(32)).decode("ascii"))
+            .with_exposed_ports(KEYRING_PORT)
+        )
+        await asyncio.to_thread(_start_or_explain, keyring, "the keyring")
+        self._keyring = keyring
+        status = f"http://127.0.0.1:{keyring.get_exposed_port(KEYRING_PORT)}/status"
+        deadline = time.monotonic() + ready_timeout
+        last = "no answer yet"
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            while time.monotonic() < deadline:
+                try:
+                    r = await http.get(status)
+                    if r.status_code == 200 and r.json().get("ready") is True:
+                        return
+                    last = f"HTTP {r.status_code} {r.text[:200]}"
+                except Exception as e:  # not up yet
+                    last = str(e)
+                await asyncio.sleep(0.5)
+        out, err = keyring.get_logs()
+        raise TimeoutError(
+            f"the keyring was not ready within {ready_timeout}s ({last}); its log:\n"
+            + (out + err).decode(errors="replace")[-4000:]
+        )
 
     async def _start_sidecar(self, ready_timeout: float) -> None:
         assert self._network is not None
@@ -165,6 +258,8 @@ class AnkkaTestKit:
             .with_exposed_ports(HTTP_PORT, CALLBACK_PORT)
             .with_kwargs(extra_hosts={"host.docker.internal": "host-gateway"})
         )
+        if self._keyring is not None:
+            sidecar = sidecar.with_env("ANKKA_KEYRING_URL", f"http://keyring:{KEYRING_PORT}")
         for key, value in self.env.items():
             sidecar = sidecar.with_env(key, value)
         _start_or_explain(sidecar, "the sidecar")
@@ -230,6 +325,12 @@ class AnkkaTestKit:
         if self._sidecar is not None:
             self._sidecar.stop()
             self._sidecar = None
+        if self._keyring is not None:
+            self._keyring.stop()
+            self._keyring = None
+        if self._keyring_db is not None:
+            self._keyring_db.stop()
+            self._keyring_db = None
         if self._postgres is not None:
             self._postgres.stop()
             self._postgres = None

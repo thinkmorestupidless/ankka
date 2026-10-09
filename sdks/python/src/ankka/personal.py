@@ -219,6 +219,8 @@ class SidecarKeys:
         # sidecar's port only after starting it.
         self._address = address if callable(address) else (lambda: address)
         self._stub_cache: Any = None
+        self._stub_address: str | None = None
+        self._closed = False
         self._lock = threading.Lock()
         self._keys: OrderedDict[tuple[str, str], tuple[KeyAnswer, float]] = OrderedDict()
         self._tokens: OrderedDict[bytes, str] = OrderedDict()
@@ -230,7 +232,11 @@ class SidecarKeys:
 
     @property
     def _stub(self) -> Any:
-        if self._stub_cache is None:
+        # Dialled again when the address changes: a runtime replaced beside the process — the
+        # integration testkit's restart — answers on a new port, and the old channel would dial a
+        # closed one for ever.
+        address = self._address()
+        if self._stub_cache is None or address != self._stub_address:
             import grpc
 
             from ankka._proto.ankka.protocol.v1 import client_pb2_grpc
@@ -238,11 +244,16 @@ class SidecarKeys:
             # The runtime restarts beside the process; a channel left at gRPC's default backoff (up to
             # two minutes after a refused connection) would hear of no erasure for that long.
             channel = grpc.insecure_channel(
-                self._address(),
+                address,
                 options=[("grpc.initial_reconnect_backoff_ms", 100), ("grpc.max_reconnect_backoff_ms", 1000)],
             )
             self._stub_cache = client_pb2_grpc.ClientStub(channel)  # type: ignore[no-untyped-call]
+            self._stub_address = address
         return self._stub_cache
+
+    def close(self) -> None:
+        """Stops listening for erased subjects: the server that installed these keys has stopped."""
+        self._closed = True
 
     @property
     def own_project(self) -> str | None:
@@ -325,7 +336,7 @@ class SidecarKeys:
         def run() -> None:
             from ankka._proto.ankka.protocol.v1 import payload_pb2
 
-            while True:
+            while not self._closed:
                 try:
                     for d in self._stub.SubjectKeyEvents(payload_pb2.Empty()):
                         self.destroyed(d.project, d.subject)
@@ -339,10 +350,20 @@ class SidecarKeys:
         threading.Thread(target=run, name="ankka-subject-key-events", daemon=True).start()
 
 
-def install_if_absent(keys: KeySource) -> None:
-    """What the server does at start: the runtime's keys, unless a test installed its own."""
+def install_if_absent(keys: KeySource) -> bool:
+    """What the server does at start: the runtime's keys, unless a test installed its own. Whether
+    these were installed."""
     if _source is None:
         install(keys)
+        return True
+    return False
+
+
+def uninstall(keys: KeySource) -> None:
+    """What the server does at stop: its keys removed, if they are still the process's, so a server
+    started next in the same process — a second testkit — installs its own."""
+    if _source is keys:
+        install(None)
 
 
 class FixedKeys:

@@ -535,6 +535,8 @@ lazy val controlPlane = project
           (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
           // The proxy the operator runs beside every web-hosted process (feature 021).
           (proxy / Docker / publishLocal).value
+          // The keyring (feature 042), which ErasureClusterFeatures installs from its component.
+          (keyring / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built = scala.sys.process

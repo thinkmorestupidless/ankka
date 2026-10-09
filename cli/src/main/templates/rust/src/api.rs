@@ -8,7 +8,7 @@
 
 use ankka::prelude::*;
 
-use crate::domain::{AddItem, Item, RemoveItem};
+use crate::domain::{AddItem, Item, ItemRead, RemoveItem, SetOwner};
 use crate::item_entity::ItemEntity;
 use crate::item_rows::{ItemRow, ItemRows};
 
@@ -19,19 +19,32 @@ impl ItemApi {
         Ok(request.client().query(ItemRows, "all", ())?)
     }
 
-    fn get(request: &Request) -> Result<Item, HttpProblem> {
-        Ok(request.client().invoke(ItemEntity, request.path("id"), "get-item", ())?)
+    fn get(request: &Request) -> Result<ItemRead, HttpProblem> {
+        let item: Item = request
+            .client()
+            .invoke(ItemEntity, request.path("id"), "get-item", ())?;
+        Ok(item.into())
+    }
+
+    fn set_owner(request: &Request, body: SetOwner) -> Result<Done, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(ItemEntity, request.path("id"), "set-owner", body)?)
     }
 
     fn add(request: &Request, body: AddItem) -> Result<Done, HttpProblem> {
         if body.name.is_empty() {
             return Err(HttpProblem::new(400, "an item needs a name"));
         }
-        Ok(request.client().invoke(ItemEntity, request.path("id"), "add-item", body)?)
+        Ok(request
+            .client()
+            .invoke(ItemEntity, request.path("id"), "add-item", body)?)
     }
 
     fn remove(request: &Request, body: RemoveItem) -> Result<Done, HttpProblem> {
-        Ok(request.client().invoke(ItemEntity, request.path("id"), "remove-item", body)?)
+        Ok(request
+            .client()
+            .invoke(ItemEntity, request.path("id"), "remove-item", body)?)
     }
 }
 
@@ -49,5 +62,6 @@ impl Endpoint for ItemApi {
             .get("/{id}", ItemApi::get)
             .post("/{id}", ItemApi::add)
             .post("/{id}/remove", ItemApi::remove)
+            .put("/{id}/owner", ItemApi::set_owner)
     }
 }

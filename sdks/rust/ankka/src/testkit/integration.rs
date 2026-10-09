@@ -13,6 +13,12 @@
 //! version>`, and an unreleased one (version `0.0.0`, a checkout of the ankka repository) uses
 //! `ankka-sidecar:latest`, the image `sbt sidecar/Docker/publishLocal` builds.
 //!
+//! Beside the runtime the kit starts a keyring — its own Postgres and the keyring image, chosen as
+//! the runtime's is (`$ANKKA_KEYRING_IMAGE`, the published `ankka-keyring` of the crate's version, or
+//! `ankka-keyring:latest`) — and names it to the runtime as `ANKKA_KEYRING_URL`, so a personal field
+//! works with no setup. A caller's `env` naming `ANKKA_KEYRING_URL` (empty for none) replaces it and
+//! starts no keyring, as `ANKKA_TESTKIT_KEYRING=off` in the environment does.
+//!
 //! ```ignore
 //! let mut rt = AnkkaTestKit::start(Module::build()?)?;
 //! let r = rt.http().post("/carts/cart-1/items").json(&item).send()?;
@@ -41,6 +47,10 @@ pub const HTTP_PORT: u16 = 9000;
 pub const MODULE_PATH: &str = "/module/service.wasm";
 
 const PUBLISHED_RUNTIME: &str = "ghcr.io/thinkmorestupidless/ankka-sidecar";
+const PUBLISHED_KEYRING: &str = "ghcr.io/thinkmorestupidless/ankka-keyring";
+
+/// The port the keyring serves inside its container.
+pub const KEYRING_PORT: u16 = 9020;
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Why the kit could not do what it was asked, with whatever explains it attached.
@@ -68,6 +78,17 @@ pub fn runtime_image() -> String {
         _ => match env!("CARGO_PKG_VERSION") {
             "0.0.0" => "ankka-sidecar:latest".to_string(),
             version => format!("{PUBLISHED_RUNTIME}:{version}"),
+        },
+    }
+}
+
+/// The keyring image the kit starts beside the runtime, chosen as [`runtime_image`] is.
+pub fn keyring_image() -> String {
+    match std::env::var("ANKKA_KEYRING_IMAGE") {
+        Ok(image) if !image.is_empty() => image,
+        _ => match env!("CARGO_PKG_VERSION") {
+            "0.0.0" => "ankka-keyring:latest".to_string(),
+            version => format!("{PUBLISHED_KEYRING}:{version}"),
         },
     }
 }
@@ -245,6 +266,7 @@ pub struct AnkkaTestKit {
     env: Vec<(String, String)>,
     ddl: PathBuf,
     postgres: Option<Container<GenericImage>>,
+    keyring: Option<(Container<GenericImage>, Container<GenericImage>)>,
     runtime: Option<Beside>,
 }
 
@@ -273,12 +295,103 @@ impl AnkkaTestKit {
             env,
             ddl,
             postgres: None,
+            keyring: None,
             runtime: None,
         };
         copy_ddl(&kit.image, &kit.ddl)?;
         kit.start_postgres()?;
+        let named = kit.env.iter().any(|(k, _)| k == "ANKKA_KEYRING_URL");
+        let off = std::env::var("ANKKA_TESTKIT_KEYRING").is_ok_and(|v| v == "off");
+        if !named && !off {
+            kit.start_keyring()?;
+        }
         kit.start_runtime()?;
         Ok(kit)
+    }
+
+    /// Postgres of its own and the keyring image on the kit's network; the runtime is told where it
+    /// is through `ANKKA_KEYRING_URL`, ahead of the caller's `env`.
+    fn start_keyring(&mut self) -> Result<(), TestkitError> {
+        let database = unique("ankka-keyring-db");
+        let (name, tag) = split_image(POSTGRES_IMAGE);
+        let ready = "database system is ready to accept connections";
+        let postgres = GenericImage::new(name, tag)
+            .with_wait_for(WaitFor::message_on_either_std(ready))
+            .with_network(self.network.clone())
+            .with_container_name(database.clone())
+            .with_env_var("POSTGRES_USER", "ankka")
+            .with_env_var("POSTGRES_PASSWORD", "ankka")
+            .with_env_var("POSTGRES_DB", "ankka")
+            .start()
+            .map_err(|e| error(format!("the keyring's postgres did not start: {e}")))?;
+        let deadline = Instant::now() + READY_TIMEOUT;
+        while logs(&postgres).matches(ready).count() < 2 {
+            if Instant::now() > deadline {
+                return Err(error(format!(
+                    "the keyring's postgres was not ready:\n{}",
+                    logs(&postgres)
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        let image = keyring_image();
+        let host = unique("ankka-keyring");
+        let (name, tag) = split_image(&image);
+        let keyring = GenericImage::new(name, tag)
+            .with_exposed_port(KEYRING_PORT.tcp())
+            .with_network(self.network.clone())
+            .with_container_name(host.clone())
+            .with_env_var("ANKKA_HTTP_PORT", KEYRING_PORT.to_string())
+            .with_env_var("ANKKA_DB_HOST", database)
+            .with_env_var("ANKKA_DB_PORT", "5432")
+            .with_env_var("ANKKA_DB_NAME", "ankka")
+            .with_env_var("ANKKA_DB_USER", "ankka")
+            .with_env_var("ANKKA_DB_PASSWORD", "ankka")
+            .with_env_var("ANKKA_SECRET_KEY", generated_secret_key())
+            .start()
+            .map_err(|e| error(format!("{image} did not start: {e}")))?;
+        let port = keyring
+            .get_host_port_ipv4(KEYRING_PORT.tcp())
+            .map_err(|e| error(format!("{image} published no port {KEYRING_PORT}: {e}")))?;
+        let http = Http::new(format!("http://127.0.0.1:{port}"));
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            let last = match http.get("/status").send() {
+                Ok(r)
+                    if r.status == 200
+                        && String::from_utf8_lossy(&r.body).contains("\"ready\":true") =>
+                {
+                    break;
+                }
+                Ok(r) => format!("HTTP {} {}", r.status, String::from_utf8_lossy(&r.body)),
+                Err(e) => e.0,
+            };
+            if Instant::now() > deadline || !keyring.is_running().unwrap_or(false) {
+                return Err(error(format!(
+                    "{image} was not ready within {}s ({last}); its log:\n{}",
+                    READY_TIMEOUT.as_secs(),
+                    logs(&keyring)
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        self.env.insert(
+            0,
+            (
+                "ANKKA_KEYRING_URL".to_string(),
+                format!("http://{host}:{KEYRING_PORT}"),
+            ),
+        );
+        self.keyring = Some((postgres, keyring));
+        Ok(())
+    }
+
+    /// The keyring's log so far; empty when the kit started none.
+    pub fn keyring_logs(&self) -> String {
+        self.keyring
+            .as_ref()
+            .map(|(_, k)| logs(k))
+            .unwrap_or_default()
     }
 
     fn start_postgres(&mut self) -> Result<(), TestkitError> {
@@ -440,6 +553,7 @@ impl AnkkaTestKit {
 impl Drop for AnkkaTestKit {
     fn drop(&mut self) {
         self.runtime = None;
+        self.keyring = None;
         self.postgres = None;
         let _ = std::fs::remove_dir_all(&self.ddl);
     }

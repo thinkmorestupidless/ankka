@@ -29,15 +29,23 @@ impl View for ItemRows {
 
     fn on_event(row: Option<ItemRow>, event: ItemEvent, ctx: &Context) -> ViewEffect<ItemRow> {
         let id = ctx.metadata().subject().unwrap_or_default();
-        let current =
-            row.unwrap_or_else(|| ItemRow { id: id.to_string(), name: String::new(), count: 0 });
+        let current = row.unwrap_or_else(|| ItemRow {
+            id: id.to_string(),
+            name: String::new(),
+            count: 0,
+        });
         match event {
-            ItemEvent::ItemAdded { name, count } => {
-                view::update_row(ItemRow { name, count: current.count + count, ..current })
-            }
-            ItemEvent::ItemRemoved { count } => {
-                view::update_row(ItemRow { count: current.count - count, ..current })
-            }
+            ItemEvent::ItemAdded { name, count } => view::update_row(ItemRow {
+                name,
+                count: current.count + count,
+                ..current
+            }),
+            ItemEvent::ItemRemoved { count } => view::update_row(ItemRow {
+                count: current.count - count,
+                ..current
+            }),
+            // The row keeps no personal field: the list never shows an owner.
+            ItemEvent::OwnerSet { .. } => view::ignore(),
         }
     }
 

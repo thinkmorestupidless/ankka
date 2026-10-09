@@ -376,7 +376,10 @@ cluster, where the caller comes from a certificate and the header is not read.
 
 The Python and TypeScript integration testkits read `ANKKA_SIDECAR_IMAGE` to choose the sidecar image they
 start. Without it, a released SDK starts `ghcr.io/thinkmorestupidless/ankka-sidecar` at its own version, and an
-unreleased one (version `0.0.0`, from a checkout of the repository) starts `ankka-sidecar:latest`.
+unreleased one (version `0.0.0`, from a checkout of the repository) starts `ankka-sidecar:latest`. Every
+integration testkit, the Rust crate's too, also starts a keyring beside the sidecar, with a Postgres of its
+own, so a personal field works in a test: `ANKKA_KEYRING_IMAGE` names its image, chosen otherwise the same
+way (`ghcr.io/thinkmorestupidless/ankka-keyring` at the SDK's version, or `ankka-keyring:latest`).
 
 ### Web-hosted services
 

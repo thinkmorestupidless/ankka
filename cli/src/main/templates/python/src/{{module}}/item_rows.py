@@ -9,7 +9,7 @@ from ankka import json_codec
 from ankka.effects.view import ViewEffect
 from ankka.view import View
 
-from {{module}}.domain import ItemAdded, ItemEvent, ItemRemoved
+from {{module}}.domain import ItemAdded, ItemEvent, ItemRemoved, OwnerSet
 from {{module}}.item_entity import ItemEntity
 
 
@@ -34,4 +34,7 @@ class ItemRows(View[ItemEvent, ItemRow]):
                 return self.effects.update_row(replace(current, name=name, count=current.count + count))
             case ItemRemoved(count):
                 return self.effects.update_row(replace(current, count=current.count - count))
+            case OwnerSet():
+                # The listing holds nothing personal, so there is nothing of the owner's to erase in it.
+                return self.effects.ignore()
         raise AssertionError(event)

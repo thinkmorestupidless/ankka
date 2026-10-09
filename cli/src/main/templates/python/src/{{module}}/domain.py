@@ -10,12 +10,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from ankka.personal import Personal
+
+
+@dataclass(frozen=True)
+class Owner:
+    """Who owns an item. `user` is an opaque id, never a name or an address: it is what identifies the
+    data subject, and it stays readable when everything personal about them is gone."""
+
+    user: str
+    # A personal field: stored encrypted under the key of the data subject `user/<user>`, and read as
+    # erased once that subject is erased — in the journal, in every snapshot, wherever it was kept.
+    email: Personal[str]
+
 
 @dataclass(frozen=True)
 class Item:
     id: str
     name: str
     count: int
+    owner: Owner | None = None
 
     @staticmethod
     def empty(item_id: str) -> Item:
@@ -26,6 +40,9 @@ class Item:
 
     def on_removed(self, count: int) -> Item:
         return replace(self, count=self.count - count)
+
+    def on_owner_set(self, owner: Owner) -> Item:
+        return replace(self, owner=owner)
 
 
 # What has happened to an item. Events are the durable record; state is derived from them.
@@ -42,10 +59,16 @@ class ItemRemoved:
     count: int
 
 
+@dataclass(frozen=True)
+class OwnerSet:
+    user: str
+    email: Personal[str]
+
+
 # A union, even while it is small: the codec writes a union's members with a "type" field and a lone
 # dataclass without one, so an event type that started as one class would change its stored format
 # the day a second event arrived — and the journal already holds the first.
-ItemEvent = ItemAdded | ItemRemoved
+ItemEvent = ItemAdded | ItemRemoved | OwnerSet
 
 
 @dataclass(frozen=True)
@@ -61,3 +84,34 @@ class RemoveItem:
     """The request body of `remove-item`."""
 
     count: int
+
+
+@dataclass(frozen=True)
+class SetOwner:
+    """The request body of `set-owner`: plain values. The entity knows whose they are."""
+
+    user: str
+    email: str
+
+
+@dataclass(frozen=True)
+class OwnerDetails:
+    """An owner as a caller reads one: `email` is null once the owner has been erased."""
+
+    user: str
+    email: str | None
+
+
+@dataclass(frozen=True)
+class ItemDetails:
+    """An item as a caller reads one, every personal field opened, or null where it reads as erased."""
+
+    id: str
+    name: str
+    count: int
+    owner: OwnerDetails | None = None
+
+    @staticmethod
+    def of(item: Item) -> ItemDetails:
+        owner = None if item.owner is None else OwnerDetails(item.owner.user, item.owner.email.value)
+        return ItemDetails(item.id, item.name, item.count, owner)

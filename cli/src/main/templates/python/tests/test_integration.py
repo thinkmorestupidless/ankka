@@ -27,6 +27,17 @@ async def test_an_item_survives_a_restart_and_is_listed() -> None:
     async with await AnkkaTestKit.start(service()) as kit:
         assert (await kit.http.post("/items/i1", json={"name": "Widget", "count": 2})).status_code < 300
         await kit.restart()  # a new sidecar, the same database: the state is durable, not cached
-        assert (await kit.http.get("/items/i1")).json() == {"id": "i1", "name": "Widget", "count": 2}
+        assert (await kit.http.get("/items/i1")).json() == {"id": "i1", "name": "Widget", "count": 2, "owner": None}
         rows = await _json_when(kit, "/items/", lambda body: len(body) == 1)
         assert rows == [{"id": "i1", "name": "Widget", "count": 2}]
+
+
+async def test_an_owners_email_is_written_through_the_keyring_and_read_back() -> None:
+    # The kit runs a keyring beside the sidecar; the email is encrypted under the owner's key in the
+    # journal, and read back after a restart from that key, not from memory.
+    async with await AnkkaTestKit.start(service()) as kit:
+        assert (await kit.http.post("/items/i2", json={"name": "Gadget", "count": 1})).status_code < 300
+        assert (await kit.http.put("/items/i2/owner", json={"user": "u1", "email": "ada@example.com"})).status_code < 300
+        await kit.restart()
+        item = (await kit.http.get("/items/i2")).json()
+        assert item["owner"] == {"user": "u1", "email": "ada@example.com"}

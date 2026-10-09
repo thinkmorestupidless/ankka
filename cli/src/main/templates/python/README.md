@@ -1,7 +1,7 @@
 # {{name}}
 
 An [ankka](https://docs.ankka.cloud/) service in Python. The stub domain is an `Item` with a name and a
-count: one event sourced entity (`src/{{module}}/item_entity.py`), one view for listing
+count, and an owner whose email is a *personal field*: one event sourced entity (`src/{{module}}/item_entity.py`), one view for listing
 (`item_rows.py`), one HTTP endpoint (`api.py`), and tests at two levels. Replace the domain; keep the
 shape.
 
@@ -27,22 +27,28 @@ uv run mypy
 ```
 
 `tests/test_item.py` runs the entity and the view with no sidecar at all, in milliseconds.
-`tests/test_integration.py` starts Postgres and the sidecar in Docker and drives the service over
+`tests/test_integration.py` starts Postgres, a keyring and the sidecar in Docker and drives the service over
 HTTP; it needs Docker.
 
 ## Run locally
 
 ```bash
-docker compose up -d                    # Postgres and the sidecar
+docker compose up -d                    # Postgres, the keyring and the sidecar
 uv run python -m {{module}}.main        # your process, on port 9010, where the sidecar finds it
 
 curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
+curl -XPUT localhost:9000/items/i1/owner -H 'content-type: application/json' -d '{"user":"u1","email":"ada@example.com"}'
 curl localhost:9000/items/i1
 curl localhost:9000/items/
 ```
 
 The listing comes from the view, which follows the journal: a new item appears in it a moment after
 the write, not in the same instant.
+
+The owner's email is stored encrypted under a key of the data subject `user/u1`, which the compose
+file's **keyring** holds; erasing that subject destroys the key, and the email then reads as `null`
+everywhere it was kept, while the item and its history stay. The `user` id itself stays readable, so
+it must never be a name or an address.
 
 The database schema comes out of the sidecar image, so it always matches the sidecar. Postgres applies
 it only to an empty volume: after changing the sidecar's version, `docker compose down -v` first.

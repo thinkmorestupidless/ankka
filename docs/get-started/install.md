@@ -141,7 +141,9 @@ SDKs released after 0.6.4 start that image in the integration testkit by default
 pull it on first use; a project made by `ankka init` does the same in its `docker-compose.yml`. Earlier SDKs
 start `ankka-sidecar:latest` unless `ANKKA_SIDECAR_IMAGE` names the published one. An SDK installed from a
 checkout of the repository is version `0.0.0` and starts `ankka-sidecar:latest`, built from the same checkout
-with `sbt sidecar/Docker/publishLocal`.
+with `sbt sidecar/Docker/publishLocal`. Beside the sidecar the testkit starts the keyring a personal field's
+keys come from, chosen the same way: `ANKKA_KEYRING_IMAGE`, else `ankka-keyring` at the SDK's version, or
+`ankka-keyring:latest` from `sbt keyring/Docker/publishLocal` for a checkout.
 
 ## Install the TypeScript SDK
 

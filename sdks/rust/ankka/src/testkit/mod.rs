@@ -8,6 +8,8 @@
 #[cfg(all(feature = "testkit", not(target_arch = "wasm32")))]
 pub mod integration;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod keyring;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod kinds;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod services;
@@ -16,6 +18,8 @@ pub mod unit;
 
 #[cfg(all(feature = "testkit", not(target_arch = "wasm32")))]
 pub use integration::{AnkkaTestKit, Http, Module, TestkitError};
+#[cfg(not(target_arch = "wasm32"))]
+pub use keyring::{InMemoryKeyring, with_keyring};
 #[cfg(not(target_arch = "wasm32"))]
 pub use kinds::{
     AgentReply, AgentTestKit, Answered, AutonomousAgentTestKit, ConsumerTestKit,

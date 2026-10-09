@@ -75,7 +75,13 @@ final case class Settings(
      * asked of anything. Set by the object store's component, not the operator's own manifest, so
      * an overlay without the component renders an operator without a store.
      */
-    objectStore: Option[ObjectStoreSettings] = None
+    objectStore: Option[ObjectStoreSettings] = None,
+    /**
+     * Where the installation keeps its secrets, and its cloud account and location (feature 038):
+     * the `ankka-platform` ConfigMap's, given to the platform's program of every service. A setting
+     * left unset, or at its default, renders nothing, so a Deployment is what it was before.
+     */
+    secretStore: Settings.SecretStore = Settings.SecretStore()
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -91,6 +97,27 @@ final case class Settings(
     if doubled > retryMaxBackoff then retryMaxBackoff else doubled
 
 object Settings:
+
+  /** The installation's secret store settings, as the operator passes them on. */
+  final case class SecretStore(
+      backend: Option[String] = None,
+      move: Option[String] = None,
+      versionsKept: Option[String] = None,
+      cloudAccount: Option[String] = None,
+      cloudLocation: Option[String] = None
+  ):
+    /**
+     * The literals the platform's program is given: only what is set and not the runtime's own
+     * default, so an installation that says nothing renders exactly what it rendered before.
+     */
+    def env: Vector[(String, String)] =
+      Vector(
+        backend.filter(_ != "postgres").map(PlatformVariables.SecretBackend -> _),
+        move.map(PlatformVariables.SecretMove -> _),
+        versionsKept.filter(_ != "2").map(PlatformVariables.SecretVersionsKept -> _),
+        cloudAccount.map(PlatformVariables.CloudAccount -> _),
+        cloudLocation.map(PlatformVariables.CloudLocation -> _)
+      ).flatten
 
   /** A value that is a credential: kept, passed on, and never printed by `toString`. */
   final case class Credential(value: String):
@@ -159,7 +186,15 @@ object Settings:
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
-      objectStore = objectStore()
+      objectStore = objectStore(),
+      secretStore = SecretStore(
+        backend = raw("ankka.operator.secret-backend", PlatformVariables.SecretBackend),
+        move = raw("ankka.operator.secret-move", PlatformVariables.SecretMove),
+        versionsKept =
+          raw("ankka.operator.secret-versions-kept", PlatformVariables.SecretVersionsKept),
+        cloudAccount = raw("ankka.operator.cloud-account", PlatformVariables.CloudAccount),
+        cloudLocation = raw("ankka.operator.cloud-location", PlatformVariables.CloudLocation)
+      )
     )
 
   /**

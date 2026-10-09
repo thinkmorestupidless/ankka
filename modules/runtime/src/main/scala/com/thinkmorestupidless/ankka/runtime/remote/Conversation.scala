@@ -267,7 +267,20 @@ final case class HttpResult(
  * Declared here, implemented by the sidecar over gRPC. A remote host never sees a stub or a
  * channel; it sees this. `reachable` is read by readiness at most once a second.
  */
+object Conversation:
+  /** A service whose components run in the runtime's own JVM: no conversation at all. */
+  val Embedded: String = "embedded"
+  val Process: String  = "process"
+  val Module: String   = "module"
+
 trait Conversation:
+
+  /**
+   * How the developer's program is hosted, as the record of a secret's read names it: `process` for
+   * a process beside the sidecar, `module` for a WebAssembly module the runtime loaded.
+   */
+  def hosting: String = Conversation.Process
+
   def open(init: Init): InstanceSession
 
   def handleView(request: ViewRequest): Future[ViewOutcome]

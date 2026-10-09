@@ -174,3 +174,91 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+  # The installation's secret store and cloud settings (feature 038): the operator passes them
+  # to each service's platform program, the control plane chooses its project secret writer and
+  # refuses secret-manager without a cloud provider. Unset or default renders nothing.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretBackend
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_SECRET_BACKEND].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_BACKEND].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretMove
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_MOVE].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretVersionsKept
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_VERSIONS_KEPT].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretRecordRetention
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_SECRET_RECORD_RETENTION].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudProvider
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_CLOUD_PROVIDER].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudAccount
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_CLOUD_ACCOUNT].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_ACCOUNT].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.cloudLocation
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_CLOUD_LOCATION].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_CLOUD_LOCATION].value

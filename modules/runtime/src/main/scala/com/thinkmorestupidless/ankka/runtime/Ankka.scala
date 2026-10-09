@@ -4,6 +4,7 @@ import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.runtime.secrets.SecretStores
 import org.apache.pekko.Done
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
@@ -251,11 +252,23 @@ final class ServiceBuilder private[ankka] (
         Some(
           SecretKey.parse(text).fold(problem => throw IllegalArgumentException(problem), identity)
         )
-    // A service with no database (feature 037) keeps no secrets and opens no connection for them.
-    val noDatabase = NoDatabase.declared(system.settings.config)
-    val secrets: SecretStore =
-      if noDatabase then SecretStore.unavailable
-      else DatabaseSecretStore(Database()(using system), secretKey)
+    // Resolved here and not refused: only a topic source and the Secret Manager backend need it,
+    // and a service with neither must start as it always has. ProjectionRuntime refuses a topic
+    // source when this is a Left; the secret store says why it cannot know whose secrets it holds.
+    val serviceIdentity =
+      identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+
+    // The installation's backend: the service's own database (no store at all for a service with
+    // no database, feature 037) or Secret Manager. A wrong setting stops the start, naming it.
+    val secrets: SecretStore = SecretStores.build(
+      SecretStores.Inputs(
+        system.settings.config,
+        serviceIdentity,
+        secretKey,
+        NoDatabase.declared(system.settings.config),
+        () => Database()(using system)
+      )
+    )
 
     // And the one client for other services that every component which may call one is given.
     val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))
@@ -305,11 +318,6 @@ final class ServiceBuilder private[ankka] (
       com.thinkmorestupidless.ankka.core.BuildInfo.version,
       if registry.isEmpty then "no components registered" else registry.toString
     )
-
-    // Resolved here and not refused: only a topic source needs it, and a service with none must
-    // start as it always has. ProjectionRuntime refuses a topic source when this is a Left.
-    val serviceIdentity =
-      identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
 
     val service = AnkkaService(
       system,

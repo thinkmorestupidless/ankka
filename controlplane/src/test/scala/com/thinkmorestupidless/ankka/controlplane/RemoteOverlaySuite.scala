@@ -758,3 +758,49 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assertEquals("- apiGroups:".r.findAllIn(role).size, 1, role)
     assert(!role.contains("delete") && !role.contains("list") && !role.contains("watch"), role)
   }
+
+  // ── The secret store (feature 038) ────────────────────────────────────────
+
+  /**
+   * The `ankka-platform` ConfigMap's `data`, parsed: a value may be empty, which no regex reads.
+   */
+  private def platformData(render: String): Map[String, String] =
+    val document = documentsOfKind(render, "ConfigMap")
+      .find(_.contains("name: ankka-platform"))
+      .getOrElse(fail("no ankka-platform ConfigMap"))
+    at(yamlOf(document), "data")
+      .asInstanceOf[java.util.Map[String, Any]]
+      .asScala
+      .map((k, v) => k -> Option(v).fold("")(_.toString))
+      .toMap
+
+  private val secretSettings = Vector(
+    ("secretBackend", "ANKKA_SECRET_BACKEND", Vector("ankka-controlplane", "ankka-operator")),
+    ("secretMove", "ANKKA_SECRET_MOVE", Vector("ankka-operator")),
+    ("secretVersionsKept", "ANKKA_SECRET_VERSIONS_KEPT", Vector("ankka-operator")),
+    ("secretRecordRetention", "ANKKA_SECRET_RECORD_RETENTION", Vector("ankka-controlplane")),
+    ("cloudProvider", "ANKKA_CLOUD_PROVIDER", Vector("ankka-controlplane")),
+    ("cloudAccount", "ANKKA_CLOUD_ACCOUNT", Vector("ankka-controlplane", "ankka-operator")),
+    ("cloudLocation", "ANKKA_CLOUD_LOCATION", Vector("ankka-controlplane", "ankka-operator"))
+  )
+
+  test(
+    "the secret store and cloud settings reach the operator and the control plane once each, from the ConfigMap"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val data = platformData(render)
+      for (key, variable, deployments) <- secretSettings; deployment <- deployments do
+        val container =
+          deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+            .find(_.getName == deployment)
+            .getOrElse(fail(s"$name: $deployment has no container of its own name"))
+        val set = container.getEnv.asScala.filter(_.getName == variable).toVector
+        assertEquals(set.size, 1, s"$name: $deployment sets $variable once")
+        assertEquals(
+          Option(set.head.getValue).getOrElse(""),
+          data.getOrElse(key, fail(s"$name: ankka-platform has no $key")),
+          s"$name: $deployment's $variable is the ConfigMap's $key"
+        )
+    assertEquals(platformData(local)("secretBackend"), "postgres")
+    assertEquals(platformData(local)("cloudProvider"), "none")
+  }

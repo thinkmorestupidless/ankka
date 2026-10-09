@@ -218,6 +218,18 @@ spec:
             - name: ANKKA_OTLP_HEADERS
               valueFrom:
                 secretKeyRef: { name: ankka-telemetry, key: headers, optional: true }
+            # The installation's secret store and cloud settings (feature 038), replaced by the overlay
+            # from ankka-platform; empty is the default.
+            - name: ANKKA_SECRET_BACKEND
+              value: ""
+            - name: ANKKA_SECRET_MOVE
+              value: ""
+            - name: ANKKA_SECRET_VERSIONS_KEPT
+              value: ""
+            - name: ANKKA_CLOUD_ACCOUNT
+              value: ""
+            - name: ANKKA_CLOUD_LOCATION
+              value: ""
           resources:
             requests:
               cpu: "100m"

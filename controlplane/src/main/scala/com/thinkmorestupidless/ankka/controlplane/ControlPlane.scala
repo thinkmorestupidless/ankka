@@ -155,6 +155,9 @@ object ControlPlane:
   ): ServiceBuilder =
     val deploy = DeployConfig.from(config)
     val policy = OrganizationPolicy.from(config)
+    // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
+    // naming what is missing, rather than accepted and found out at the first project secret.
+    val _ = secrets.SecretBackendConfig.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)

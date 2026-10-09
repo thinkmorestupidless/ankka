@@ -266,7 +266,8 @@ object Rendering:
                 settings.httpsPort,
                 settings.otlpEndpoint,
                 settings.otlpHeaders.isDefined,
-                storageEnv(spec, settings)
+                storageEnv(spec, settings),
+                settings.secretStore.env
               ),
               deployed,
               declaredBrokers
@@ -1007,7 +1008,9 @@ object Rendering:
       httpsPort: Int = Settings.default.httpsPort,
       otlpEndpoint: Option[String] = None,
       otlpHeaders: Boolean = false,
-      storage: Option[StorageEnv] = None
+      storage: Option[StorageEnv] = None,
+      /** The installation's secret store settings, as literals for the platform's program. */
+      secretStore: Vector[(String, String)] = Vector.empty
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -1032,7 +1035,8 @@ object Rendering:
         proxyImage,
         baseDomain,
         httpsPort,
-        telemetryEnv(spec, otlpEndpoint, otlpHeaders)
+        telemetryEnv(spec, otlpEndpoint, otlpHeaders) ++
+          secretStore.map((name, value) => literal(name, value))
       ),
       storage
     )

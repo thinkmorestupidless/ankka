@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
 import com.thinkmorestupidless.ankka.testkit.TestSocket
+import com.thinkmorestupidless.ankka.runtime.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
@@ -38,9 +39,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
 
   override def beforeAll(): Unit =
     target = ConformanceTarget.fromProperty(model)
-    println(s"conformance target: ${target.name}")
+    println(
+      s"conformance target: ${target.name}, secrets on " +
+        ConformanceTarget.secretManager.fold("postgres")(_ => "secret-manager")
+    )
 
-  override def afterAll(): Unit = if target != null then target.stop()
+  override def afterAll(): Unit =
+    if target != null then target.stop()
+    ConformanceTarget.secretManager.foreach(_.stop())
 
   override def beforeEach(context: BeforeEach): Unit = model.reset()
 
@@ -1496,11 +1502,30 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   private def secretRows(name: String): Vector[String] =
     everyRow().collect { case ("ankka_secrets", row) if row.contains(s""""name":"$name"""") => row }
 
+  /**
+   * How many copies of `name` the backend holds where it keeps secrets: rows of `ankka_secrets`,
+   * or, on the Secret Manager backend, 1 when the fake holds the secret — and then never a row.
+   */
+  private def heldCopies(name: String): Int =
+    ConformanceTarget.secretManager match
+      case None => secretRows(name).size
+      case Some(fake) =>
+        assertEquals(secretRows(name), Vector.empty, s"the database holds '$name'")
+        val id =
+          DerivedIds.service(ConformanceTarget.SecretProject, ConformanceTarget.SecretService, name)
+        if fake.snapshot.get(id).exists(_ > 0) then 1 else 0
+
   test("secret.put-then-get") {
     assertEquals(post(secretPath("acme"), "sk-acme-1").status, 204)
     val r = get(secretPath("acme"))
     assertEquals(r.status, 200)
     assertEquals(r.body, "sk-acme-1")
+    // The switch that ran Postgres would be green above; this is what says it did not.
+    ConformanceTarget.secretManager.foreach { fake =>
+      val id =
+        DerivedIds.service(ConformanceTarget.SecretProject, ConformanceTarget.SecretService, "acme")
+      assertEquals(fake.latestValue(id), Some("sk-acme-1"))
+    }
   }
 
   test("secret.absent") {
@@ -1519,14 +1544,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     post(secretPath("overwritten"), "sk-old"): Unit
     assertEquals(post(secretPath("overwritten"), "sk-new").status, 204)
     assertEquals(get(secretPath("overwritten")).body, "sk-new")
-    assertEquals(secretRows("overwritten").size, 1)
+    assertEquals(heldCopies("overwritten"), 1)
   }
 
   test("secret.delete") {
     post(secretPath("removed"), "sk-gone"): Unit
     assertEquals(delete(secretPath("removed")).status, 204)
     assertEquals(get(secretPath("removed")).status, 404)
-    assertEquals(secretRows("removed"), Vector.empty)
+    assertEquals(heldCopies("removed"), 0)
   }
 
   test("secret.stored-encrypted") {
@@ -1535,7 +1560,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     val hex   = value.getBytes("UTF-8").map(b => f"${b & 0xff}%02x").mkString
     val leaks = everyRow().filter((_, row) => row.contains(value) || row.contains(hex))
     assertEquals(leaks.map(_._1).distinct, Vector.empty)
-    assertEquals(secretRows("encrypted").size, 1)
+    assertEquals(heldCopies("encrypted"), 1)
   }
 
   test("secret.refuses-bad-name") {

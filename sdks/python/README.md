@@ -24,4 +24,5 @@ Developing the SDK itself, from this directory:
 
 ```bash
 uv sync && uv run python scripts/proto.py && uv run pytest -q && uv run mypy && uv run conformance
+ANKKA_CONFORMANCE_SECRETS=secret-manager uv run conformance   # the secret cases on the Secret Manager backend
 ```

@@ -38,7 +38,12 @@ import com.thinkmorestupidless.ankka.sidecar.wasm.{
   WasmConversation,
   WasmDiscovery
 }
-import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, ScriptedService}
+import com.thinkmorestupidless.ankka.testkit.{
+  AnkkaTestKit,
+  FakeSecretManager,
+  ScriptedService,
+  SecretBackendChoice
+}
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 import org.apache.pekko.actor.typed.ActorSystem
 
@@ -221,6 +226,26 @@ object ConformanceTarget:
 
   lazy val authenticated: Acl = Oidc.authenticate(auth)
 
+  /**
+   * The secret backend the target keeps its secrets on: the Postgres backend, or, under
+   * `-Dankka.conformance.secrets=secret-manager`, a Secret Manager fake — so every language's
+   * secret cases are run on both backends against the one definition of compatible.
+   */
+  lazy val secretManager: Option[FakeSecretManager] =
+    sys.props
+      .get("ankka.conformance.secrets")
+      .filter(_ == "secret-manager")
+      .map(_ => FakeSecretManager.start())
+
+  /** Whose secrets the target's are, in Secret Manager. */
+  val SecretProject: String = "conformance"
+  val SecretService: String = "reference"
+
+  def secretBackend: SecretBackendChoice =
+    secretManager.fold(SecretBackendChoice.postgres)(fake =>
+      SecretBackendChoice.secretManager(fake, SecretProject, SecretService)
+    )
+
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match
       case Some(module) if module.startsWith("wasm:") =>
@@ -295,7 +320,8 @@ object ConformanceTarget:
       ),
       60.seconds,
       ConformanceTarget.withImpostor,
-      localServices = ConformanceTarget.localServices(scripted)
+      localServices = ConformanceTarget.localServices(scripted),
+      secretBackend = ConformanceTarget.secretBackend
     )
     def name: String             = "in-process"
     def baseUrl: String          = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -417,7 +443,8 @@ object ConformanceTarget:
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
-      localServices = ConformanceTarget.localServices(scripted)
+      localServices = ConformanceTarget.localServices(scripted),
+      secretBackend = ConformanceTarget.secretBackend
     )
     def name: String           = s"sidecar → $address"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -588,7 +615,8 @@ object ConformanceTarget:
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
-      localServices = ConformanceTarget.localServices(scripted)
+      localServices = ConformanceTarget.localServices(scripted),
+      secretBackend = ConformanceTarget.secretBackend
     )
     def name: String               = s"module $path ($shape)"
     def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get

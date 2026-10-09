@@ -44,6 +44,9 @@ def main() -> int:
         "sbt",
         f"-Dankka.conformance.target=127.0.0.1:{PORT}",
         *(["-Dankka.benchmarks=on"] if os.environ.get("ANKKA_BENCHMARKS") else []),
+        # The secret backend the secret cases run on: `secret-manager` runs them against the
+        # platform's Secret Manager fake rather than the database.
+        *([f"-Dankka.conformance.secrets={secrets}"] if (secrets := os.environ.get("ANKKA_CONFORMANCE_SECRETS")) else []),
         "-Dankka.cluster.tests=off",
         "-Dankka.template.tests=off",
         "sidecar/testOnly *ConformanceSuite" + (f" -- {only}" if (only := os.environ.get("ANKKA_CONFORMANCE_ONLY")) else ""),

@@ -1234,7 +1234,13 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     )
   }
 
-  Then("the credential may do nothing else on the broker") { () =>
+  Then("the credential may do nothing else on the broker")(() => mayDoNothingElse())
+
+  /**
+   * A service's credential, as the broker lists it; a suite whose credential is a machine's says
+   * its own.
+   */
+  protected def mayDoNothingElse(): Unit =
     val (s, p) = listedFor.getOrElse(fail("nothing was listed"))
     val acls   = aclsOf(s"$p.$s")
     assertEquals(
@@ -1250,7 +1256,6 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     assert(listed.messages.forall(_.startsWith(s"$p.")), listed.output)
     val foreign = probe(s, p).read(s"$p.anything", "somebody-else", waitMs = 10000)
     assert(foreign.output.contains("GroupAuthorizationException"), foreign.output)
-  }
 
   Then("the installation's broker still has the topic {string} of {string}") {
     (t: String, p: String) =>

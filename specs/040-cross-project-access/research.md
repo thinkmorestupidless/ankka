@@ -18,7 +18,7 @@ numbers are that commit's. `CP` is `controlplane/src/main/scala/com/thinkmorestu
 installation pins 1.2.0, `kustomization/components/broker/strimzi/kustomization.yaml:12`). Strimzi
 creates the bootstrap `Service` and `TLSRoute` and one of each per broker node, with
 `configuration.parentRefs` naming the installation's `Gateway` (`ankka` in `ankka-gateway`),
-`bootstrap.host: broker.<base>`, `hostTemplate: broker-{nodeId}.<base>` and
+`bootstrap.host: broker.<base>`, `hostTemplate: broker{nodeId}.<base>` and
 `advertisedPortTemplate: "9094"`. The Gateway gains one listener, `broker`, `protocol: TLS`,
 `tls.mode: Passthrough`, port 9094, `hostname: "*.<base>"`, `allowedRoutes.namespaces` by selector
 `kubernetes.io/metadata.name: ankka-broker` and `kinds: [TLSRoute]`. The EnvoyProxy's `NodePort`
@@ -475,7 +475,7 @@ plane, the sample as `spinvibe/wallet`, `payments/merchant`, `payments/psp-gatew
 `CrossProjectTopicGrantsFeatures` (the broker stack, `BrokerProbe` holding a service's certificate),
 `CrossProjectMachinesFeatures` (gateway, `curl` from the host for the token route and the granted
 route), `CrossProjectMachineTopicsFeatures` (gateway, broker, the `broker-external` component with
-base domain `127.0.0.1.sslip.io` so `broker-0.<base>` resolves on the host, the k3s container's
+base domain `127.0.0.1.sslip.io` so `broker0.<base>` resolves on the host, the k3s container's
 30094 bound to the host's 9094 because the advertised port is fixed, and the Apache Kafka Java client
 in the test JVM as the stock client — the console consumer's library, driven from the host outside
 every policy); `CrossProjectAcceptanceFeatures` and `CrossProjectListingFeatures` offline against an
@@ -554,4 +554,12 @@ Recorded during implementation, before any k3s run; the k3s runs (T089) may add 
 - The other failures were the suites' own: the `AnkkaMachine` CRD not applied, a revocation not
   waited for before the next scenario reused the machine's name, a produce grant's topic read with the
   producer's credential, and a `pause` service waited on for readiness it can never report.
+- **A broker's own hostname was `broker-{nodeId}.<base>`, which sslip.io resolves wrongly.** It reads
+  `broker-0.127.0.0.1.sslip.io` as the dash-separated address `0.127.0.0`, so a client bootstrapped
+  (`broker.<base>` resolves) and then timed out connecting to the broker it was handed. The template is
+  `broker{nodeId}.<base>`.
+- **Apache Kafka's client sends client credentials as HTTP Basic without form-encoding them** unless
+  `sasl.oauthbearer.header.urlencode` is set, so the token route split `machine:<org>/<name>:<secret>`
+  at its first colon. It now splits after a well-formed client id.
+- **A Kafka listener's certificate must be PKCS#8**, which the external one did not ask cert-manager for.
 

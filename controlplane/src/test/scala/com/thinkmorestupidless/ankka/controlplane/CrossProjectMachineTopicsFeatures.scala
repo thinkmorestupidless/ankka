@@ -679,6 +679,8 @@ class CrossProjectMachineTopicsFeatures
   When("{string} deletes the registered machine {string}") { (_: String, name: String) =>
     ok(ankka("organizations", "machines", "delete", "affiliates", name)): Unit
     revokedAt = Some(Deadline.now)
+    // Registered again by the next scenario that names it, whatever this one goes on to assert.
+    machines -= name
   }
 
   When(
@@ -832,7 +834,7 @@ class CrossProjectMachineTopicsFeatures
     assertEquals(groups, Vector(("group", prefix, "prefix", Set("Read"))))
   }
 
-  Then("the credential may do nothing else on the broker") { () =>
+  override protected def mayDoNothingElse(): Unit =
     val name = listedMachine.getOrElse(fail("nothing was listed"))
     val acls = aclsOf(s"machine.affiliates.$name")
     assert(
@@ -840,7 +842,6 @@ class CrossProjectMachineTopicsFeatures
       acls.toString
     )
     assert(!acls.exists(_._4.exists(Set("Create", "Delete", "Alter", "All"))), acls.toString)
-  }
 
   Then("within {string} seconds the broker refuses the next read by the client of {string}") {
     (seconds: String, name: String) =>

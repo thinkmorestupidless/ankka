@@ -14,7 +14,8 @@ Feature: A bucket made by the installation's cloud provider
   Scenario: a descriptor that asks for a bucket becomes a bucket request and a bucket credential request
     Given a descriptor for a service "reports" in the project "shop" that asks for a bucket
     When a member applies the descriptor
-    Then the operator writes a bucket request for "reports" with the purpose "service", naming the project "shop", the location of "shop" or else the installation's, and what the descriptor asks of the bucket
+    Then the operator writes an identity request for "reports"
+    And the operator writes a bucket request for "reports" with the purpose "service", naming the project "shop", the location of "shop" or else the installation's, and what the descriptor asks of the bucket
     And the operator writes a bucket credential request for "reports" naming that bucket, the cloud identity of "reports" and the secret "reports-storage"
 
   Scenario: a service is given its bucket when the cloud provider fulfils the requests
@@ -41,7 +42,7 @@ Feature: A bucket made by the installation's cloud provider
     Given a deployed service "reports" with a bucket the cloud provider made
     And "reports" has since been deleted
     When a member applies the descriptor for "reports" again
-    Then the operator writes the same bucket request and the same bucket credential request again
+    Then the operator writes the same identity request, the same bucket request and the same bucket credential request again
     And the cloud provider finds the bucket it made before and says "Recovered"
     And the cloud provider offers a storage credential, is told that one is already there, and names the secret that holds it
     And the status says that "reports" was given the bucket it had before

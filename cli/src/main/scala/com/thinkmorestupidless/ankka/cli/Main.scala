@@ -646,6 +646,15 @@ object Main:
         .orElse(certificate)
     }
 
+    val history = Opts.subcommand(
+      "history",
+      "What has happened to the project, newest first: its erasures asked for, applied, failed."
+    ) {
+      contextOpt.map(ctx =>
+        () => Output.projectHistory(ctx.client.projectHistory(ctx.project), ctx.format)
+      )
+    }
+
     list
       .orElse(get)
       .orElse(create)
@@ -654,6 +663,7 @@ object Main:
       .orElse(registry)
       .orElse(secrets)
       .orElse(erasures)
+      .orElse(history)
       .orElse(topics)
       .orElse(brokers)
   }

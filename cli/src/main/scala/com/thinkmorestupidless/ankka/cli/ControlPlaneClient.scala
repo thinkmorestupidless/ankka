@@ -237,6 +237,11 @@ final class ControlPlaneClient(settings: Settings):
       ErasureWire.erasureRequestCodec
     )
 
+  def projectHistory(projectId: String): Vector[ProjectHistoryEntry] =
+    get[Vector[ProjectHistoryEntry]](s"/projects/${segment(projectId)}/history")(using
+      ErasureWire.projectHistoryCodec
+    )
+
   def erasureCertificate(projectId: String, id: String): ErasureCertificate =
     get[ErasureCertificate](s"/projects/${segment(projectId)}/erasures/${segment(id)}/certificate")(
       using ErasureWire.certificateCodec

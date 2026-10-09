@@ -108,6 +108,7 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/organizations/{organizationId}/quota` | |
 | `POST` | `/projects/{projectId}/erasures` | |
 | `GET` | `/projects/{projectId}/erasures` | |
+| `GET` | `/projects/{projectId}/history` | |
 | `GET` | `/projects/{projectId}/erasures/{id}` | |
 | `DELETE` | `/projects/{projectId}/erasures/{id}` | |
 | `POST` | `/projects/{projectId}/erasures/{id}/override` | |
@@ -546,6 +547,13 @@ write under the subject's prefix, say. A request not yet applied is `409`.
 The erasure certificate of an applied request, to give the data subject: the request, the subject, who
 asked, each service's completion, when the key was destroyed and when the erasure became final. `404`
 until the request is applied.
+
+### `GET /projects/{projectId}/history`
+
+What has happened to a project, newest first, at most 50 entries: each erasure request asked for,
+overridden, withdrawn, failed and applied, with who acted and the erasure request it belongs to. An entry
+names the data subject by its pseudonymous id and holds no personal field. Any member of the project may
+read it; `ankka projects history` prints it.
 
 ### `GET /erasures/log`
 

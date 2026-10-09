@@ -138,6 +138,65 @@ object ErasureRequests:
         .map(_ => s"a correlation id is 1 to $MaxCorrelation characters")
     ).flatten
 
+/**
+ * One thing that happened to a project, newest first, for `GET /projects/{id}/history` (FR-016): an
+ * erasure asked for, withdrawn, applied or failed. `subject` is the pseudonymous id the domain
+ * chose, never a personal field.
+ */
+final case class ProjectHistoryEntry(
+    at: Instant,
+    kind: String,
+    erasureId: String,
+    subject: String,
+    by: Option[ErasureWho] = None,
+    detail: Option[String] = None
+)
+
+object ProjectHistory:
+  val Limit: Int = 50
+
+  private val Steps = Vector(
+    "erasure-requested",
+    "erasure-overridden",
+    "erasure-withdrawn",
+    "erasure-failed",
+    "erasure-applied"
+  )
+
+  /** A project's history, read from its erasure requests: the newest `Limit` entries. */
+  def of(requests: Seq[ErasureRequest]): Vector[ProjectHistoryEntry] =
+    requests
+      .flatMap { r =>
+        Vector(
+          Some(
+            ProjectHistoryEntry(r.askedAt, "erasure-requested", r.id, r.subject, Some(r.askedBy))
+          ),
+          r.overridden.map(o =>
+            ProjectHistoryEntry(
+              o.at,
+              "erasure-overridden",
+              r.id,
+              r.subject,
+              Some(o.by),
+              Some(o.reason)
+            )
+          ),
+          r.withdrawnBy.map(by =>
+            ProjectHistoryEntry(r.askedAt, "erasure-withdrawn", r.id, r.subject, Some(by))
+          ),
+          r.appliedAt.map(at => ProjectHistoryEntry(at, "erasure-applied", r.id, r.subject)),
+          r.failure.map(reason =>
+            ProjectHistoryEntry(r.askedAt, "erasure-failed", r.id, r.subject, detail = Some(reason))
+          )
+        ).flatten
+      }
+      // Newest first; at one instant, the later step of a request's life first.
+      .sortBy(e => (e.at, Steps.indexOf(e.kind)))(using
+        Ordering[(Instant, Int)].reverse
+      )
+      .take(Limit)
+      .toVector
+
 object ErasureWire:
   given requestErasureCodec: JsonValueCodec[RequestErasure] = Codecs.make[RequestErasure]
   given overrideHoldCodec: JsonValueCodec[OverrideHold]     = Codecs.make[OverrideHold]
@@ -145,3 +204,5 @@ object ErasureWire:
   given erasureRequestsCodec: JsonValueCodec[Vector[ErasureRequest]] =
     Codecs.make[Vector[ErasureRequest]]
   given certificateCodec: JsonValueCodec[ErasureCertificate] = Codecs.make[ErasureCertificate]
+  given projectHistoryCodec: JsonValueCodec[Vector[ProjectHistoryEntry]] =
+    Codecs.make[Vector[ProjectHistoryEntry]]

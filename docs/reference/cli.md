@@ -746,6 +746,7 @@ Usage:
     ankka projects registry
     ankka projects secrets
     ankka projects erasures
+    ankka projects history
     ankka projects topics
     ankka projects brokers
 
@@ -772,6 +773,8 @@ Subcommands:
         Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
     erasures
         Erasure requests: erase a data subject's personal data in every service of the project, at once or when a legal hold ends.
+    history
+        What has happened to the project, newest first: its erasures asked for, applied, failed.
     topics
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
@@ -1214,6 +1217,26 @@ Options and flags:
 Usage: ankka projects erasures certificate [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
 
 The certificate of an applied erasure request.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects history`
+
+```text
+Usage: ankka projects history [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+What has happened to the project, newest first: its erasures asked for, applied, failed.
 
 Options and flags:
     --help

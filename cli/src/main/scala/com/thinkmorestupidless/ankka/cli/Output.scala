@@ -178,6 +178,24 @@ object Output:
         )
         lines.map((k, v) => f"$k%-15s $v").mkString("\n")
 
+  def projectHistory(rows: Vector[ProjectHistoryEntry], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)(using ErasureWire.projectHistoryCodec)
+      case Format.Table =>
+        table(
+          Vector("AT", "WHAT", "SUBJECT", "ERASURE", "BY", "DETAIL"),
+          rows.map(e =>
+            Vector(
+              e.at.toString,
+              e.kind,
+              e.subject,
+              e.erasureId,
+              e.by.fold("-")(w => s"${w.kind} ${w.display.getOrElse(w.subject)}"),
+              e.detail.getOrElse("-")
+            )
+          )
+        )
+
   def certificate(c: ErasureCertificate, format: Format): String =
     format match
       case Format.Json =>

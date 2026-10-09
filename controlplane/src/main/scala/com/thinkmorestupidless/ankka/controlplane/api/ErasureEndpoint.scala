@@ -96,6 +96,12 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
     rows.where(condition).sortBy(_.askedAt)
   }
 
+  /** What has happened to the project, newest first: its erasures asked for, applied, failed. */
+  get("/{projectId}/history") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    ProjectHistory.of(rows.where(jsonText("projectId") ++ sql" = $projectId"))
+  }
+
   get("/{projectId}/erasures/{id}") { (projectId: String, id: String) =>
     authz.project(principal, projectId, write = false): Unit
     read(projectId, id)

@@ -299,6 +299,23 @@ class ErasureSuite extends munit.FunSuite with LogCapturing:
     assert(withdrawn.forall(_.state == ErasureState.Withdrawn))
   }
 
+  test("the project's history says what happened to it, newest first, and nothing personal") {
+    customer("p9").call(CustomerEntity.register).invoke("History Person"): Unit
+    val asked = request("player/p9")
+    swept(asked.id, _.state == ErasureState.Final): Unit
+    val history = controlPlane.eventually("the history has the request") {
+      val (status, body) = send("GET", "/projects/brand/history", alice)
+      assertEquals(status, 200, body)
+      Some(readFromString[Vector[ProjectHistoryEntry]](body))
+        .filter(_.exists(e => e.erasureId == asked.id && e.kind == "erasure-applied"))
+    }
+    val ours = history.filter(_.erasureId == asked.id).map(_.kind)
+    assertEquals(ours, Vector("erasure-applied", "erasure-requested"))
+    assertEquals(history.map(_.at), history.map(_.at).sorted.reverse, "newest first")
+    assert(history.size <= ProjectHistory.Limit)
+    assert(!send("GET", "/projects/brand/history", alice)._2.contains("History Person"))
+  }
+
   test("the erasure log holds every applied erasure in order, for the keyring to replay") {
     val (status, body) = send("GET", "/erasures/log", alice)
     assertEquals(status, 200, body)

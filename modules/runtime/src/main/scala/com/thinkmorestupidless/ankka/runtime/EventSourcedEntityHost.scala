@@ -158,6 +158,12 @@ private[ankka] object EventSourcedEntityHost:
                 )(interpret(binding, entity, invoke))
               outcome = handlerOutcome
               effect
+            catch
+              // A refusal thrown rather than returned — a personal field for an erased subject,
+              // refused where it is made — is answered as the refusal it is, not left to time out.
+              case error: CommandError =>
+                outcome = SpanOutcome.Refused
+                PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
             finally
               observability.recorder.complete(span, outcome)
               // The same ending, counted as a call from whoever the metadata names: only this

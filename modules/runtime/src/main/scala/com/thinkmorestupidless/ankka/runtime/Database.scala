@@ -200,6 +200,7 @@ private[ankka] object Database:
   /** Binds a fragment's parameters positionally. r2dbc indexes from zero. */
   def bind(statement: Statement, fragment: SqlFragment): Statement =
     fragment.params.zipWithIndex.foreach { (param, index) =>
-      statement.bind(index, param.value): Unit
+      if param.value == null then statement.bindNull(index, param.javaType): Unit
+      else statement.bind(index, param.value): Unit
     }
     statement

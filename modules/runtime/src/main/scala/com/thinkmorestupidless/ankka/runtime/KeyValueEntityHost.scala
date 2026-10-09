@@ -141,6 +141,11 @@ private[ankka] object KeyValueEntityHost:
                 )(interpret(binding, entity, invoke, visible, empty))
               spanOutcome = handlerOutcome
               effect
+            catch
+              // As in EventSourcedEntityHost: a thrown refusal is answered, not left to time out.
+              case error: CommandError =>
+                spanOutcome = SpanOutcome.Refused
+                PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
             finally
               observability.recorder.complete(span, spanOutcome)
               observability.handled(

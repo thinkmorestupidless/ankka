@@ -14,6 +14,10 @@ import java.util.Base64
  * sidecar and the journal see ordinary JSON and never look inside. A handler that reads one decides
  * what an erased value means; nothing throws on replay.
  *
+ * Read the value through `toOption`, `getOrElse`, `fold`, `map` or `isErased`: they answer erased
+ * the moment this JVM learns the subject's key was destroyed, even for a value an entity still
+ * holds in memory. A pattern match on `Present` sees the value as it was decoded.
+ *
  * `project` is the project whose key the value is under: `None` until it has been written, when the
  * writing service's own is used, and the envelope's once it has been read, so a value another
  * project published is written again under that project's key. `lookup` asks for a lookup token
@@ -21,43 +25,67 @@ import java.util.Base64
  *
  * There is no `get`: the erased case must be handled.
  */
-enum Personal[+A]:
-  case Present(subject: String, value: A, project: Option[String] = None, lookup: Boolean = false)
-  case Erased(subject: String, project: Option[String] = None)
-
+sealed abstract class Personal[+A]:
   def subject: String
 
-  def toOption: Option[A] = this match
-    case Present(_, value, _, _) => Some(value)
-    case Erased(_, _)            => None
-
   def isErased: Boolean = this match
-    case Erased(_, _) => true
-    case _            => false
+    case p: Personal.Present[?] => PersonalScope.isDestroyed(p.project, p.subject)
+    case _: Personal.Erased     => true
+
+  def toOption: Option[A] = this match
+    case p: Personal.Present[A] => if isErased then None else Some(p.value)
+    case _: Personal.Erased     => None
 
   def getOrElse[B >: A](default: => B): B = toOption.getOrElse(default)
 
+  def fold[B](ifErased: => B)(f: A => B): B = toOption.fold(ifErased)(f)
+
   def map[B](f: A => B): Personal[B] = this match
-    case Present(s, value, p, l) => Present(s, f(value), p, l)
-    case Erased(s, p)            => Erased(s, p)
-
-  /** `Personal(<subject>)`, so an event interpolated into a log line prints no value. */
-  override def toString: String = s"Personal($subject)"
-
-  override def equals(other: Any): Boolean = (this, other) match
-    case (Present(s1, v1, _, _), Present(s2, v2, _, _)) => s1 == s2 && v1 == v2
-    case (Erased(s1, _), Erased(s2, _))                 => s1 == s2
-    case _                                              => false
-
-  override def hashCode: Int = this match
-    case Present(s, v, _, _) => (s, v).##
-    case Erased(s, _)        => s.## * 31
+    case p: Personal.Present[A] =>
+      if isErased then Personal.Erased(p.subject, p.project)
+      else Personal.Present(p.subject, f(p.value), p.project, p.lookup)
+    case e: Personal.Erased => e
 
 object Personal:
 
-  /** A present value of `subject`, refusing a subject outside the data subject rule. */
+  final case class Present[+A](
+      subject: String,
+      value: A,
+      project: Option[String] = None,
+      lookup: Boolean = false
+  ) extends Personal[A]:
+
+    /**
+     * Set once the value has been written to a store or read from one. A stored value whose subject
+     * is erased is written again as erased — in the snapshot or the state that carries it — where a
+     * fresh one is refused.
+     */
+    @volatile @transient private[personal] var stored: Boolean = false
+
+    override def equals(other: Any): Boolean = other match
+      case Present(s, v, _, _) => s == subject && v == value
+      case _                   => false
+    override def hashCode: Int = (subject, value).##
+
+    /** `Personal(<subject>)`, so an event interpolated into a log line prints no value. */
+    override def toString: String = s"Personal($subject)"
+
+  final case class Erased(subject: String, project: Option[String] = None)
+      extends Personal[Nothing]:
+    override def equals(other: Any): Boolean = other match
+      case Erased(s, _) => s == subject
+      case _            => false
+    override def hashCode: Int    = subject.## * 31
+    override def toString: String = s"Personal($subject)"
+
+  /**
+   * A present value of `subject`, refusing a subject outside the data subject rule — and, inside a
+   * service, a subject that has been erased: that refusal reaches the handler, which answers its
+   * caller with it, rather than the write that would follow.
+   */
   def present[A](subject: String, value: A): Personal[A] =
     DataSubject.require(subject)
+    PersonalScope.refuseErased(subject)
     Present(subject, value)
 
   /**
@@ -65,6 +93,7 @@ object Personal:
    */
   def lookup[A](subject: String, value: A): Personal[A] =
     DataSubject.require(subject)
+    PersonalScope.refuseErased(subject)
     Present(subject, value, lookup = true)
 
   def erased(subject: String): Personal[Nothing] =
@@ -103,44 +132,57 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
   def nullValue: Personal[A] = null
 
   def encodeValue(x: Personal[A], out: JsonWriter): Unit = x match
-    case Personal.Present(subject, value, valueProject, lookup) =>
-      val scope   = PersonalScope.current.getOrElse(throw PersonalScope.unavailable())
-      val project = valueProject.getOrElse(scope.project)
-      val key = scope.keyring.key(project, subject, create = project == scope.project) match
-        case KeyResult.Available(k) => k
-        case KeyResult.Destroyed(_) =>
-          throw CommandError(
-            s"data subject $subject is erased in project $project: no personal field can be written for it",
-            ErrorCode.BadRequest
-          )
-        case KeyResult.Refused(reason) =>
-          throw CommandError(
-            s"the keyring refused data subject $subject of project $project: $reason",
-            ErrorCode.Forbidden
-          )
-      val plaintext = writeToArrayReentrant(value)(using inner)
-      val data = PersonalCipher.encrypt(key, PersonalCipher.associated(subject, project), plaintext)
-      out.writeObjectStart()
-      out.writeKey("subject")
-      out.writeVal(subject)
-      out.writeKey("project")
-      out.writeVal(project)
-      out.writeKey("data")
-      out.writeVal(Base64.getEncoder.encodeToString(data))
-      if lookup && scope.lookupAllowed then
-        out.writeKey("lookup")
-        out.writeVal(LookupTokens.token(scope.keyring.lookupKey(project), plaintext))
-      out.writeObjectEnd()
+    case present: Personal.Present[A] => encodePresent(present, out)
     case Personal.Erased(subject, valueProject) =>
       val project = valueProject
         .orElse(PersonalScope.current.map(_.project))
         .getOrElse(throw PersonalScope.unavailable())
-      out.writeObjectStart()
-      out.writeKey("subject")
-      out.writeVal(subject)
-      out.writeKey("project")
-      out.writeVal(project)
-      out.writeObjectEnd()
+      writeErased(out, subject, project)
+
+  private def encodePresent(present: Personal.Present[A], out: JsonWriter): Unit =
+    val subject = present.subject
+    val scope   = PersonalScope.current.getOrElse(throw PersonalScope.unavailable())
+    val project = present.project.getOrElse(scope.project)
+    val result =
+      if PersonalScope.isDestroyed(Some(project), subject) then KeyResult.Destroyed("")
+      else scope.keyring.key(project, subject, create = project == scope.project)
+    result match
+      case KeyResult.Available(key) =>
+        val plaintext = writeToArrayReentrant(present.value)(using inner)
+        val data =
+          PersonalCipher.encrypt(key, PersonalCipher.associated(subject, project), plaintext)
+        out.writeObjectStart()
+        out.writeKey("subject")
+        out.writeVal(subject)
+        out.writeKey("project")
+        out.writeVal(project)
+        out.writeKey("data")
+        out.writeVal(Base64.getEncoder.encodeToString(data))
+        if present.lookup && scope.lookupAllowed then
+          out.writeKey("lookup")
+          out.writeVal(LookupTokens.token(scope.keyring.lookupKey(project), plaintext))
+        out.writeObjectEnd()
+        present.stored = true
+      // Carried, not new: a snapshot or a state holding what was stored before the erasure.
+      case KeyResult.Destroyed(_) if present.stored => writeErased(out, subject, project)
+      case KeyResult.Destroyed(_) | KeyResult.Unknown =>
+        throw CommandError(
+          s"data subject $subject is erased in project $project: no personal field can be written for it",
+          ErrorCode.BadRequest
+        )
+      case KeyResult.Refused(reason) =>
+        throw CommandError(
+          s"the keyring refused data subject $subject of project $project: $reason",
+          ErrorCode.Forbidden
+        )
+
+  private def writeErased(out: JsonWriter, subject: String, project: String): Unit =
+    out.writeObjectStart()
+    out.writeKey("subject")
+    out.writeVal(subject)
+    out.writeKey("project")
+    out.writeVal(project)
+    out.writeObjectEnd()
 
   def decodeValue(in: JsonReader, default: Personal[A]): Personal[A] =
     if !in.isNextToken('{') then in.decodeError("expected a personal envelope")
@@ -176,13 +218,15 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
                 in.decodeError("personal envelope corrupt: data is not base64")
           PersonalCipher.decrypt(key, PersonalCipher.associated(subject, project), stored) match
             case Some(plaintext) =>
-              Personal.Present(
+              val read = Personal.Present(
                 subject,
                 readFromArrayReentrant(plaintext)(using inner),
                 Some(project),
                 lookup != null
               )
+              read.stored = true
+              read
             case None =>
               in.decodeError(s"personal envelope corrupt: it does not open as $subject of $project")
-        case KeyResult.Destroyed(_) | KeyResult.Refused(_) =>
+        case KeyResult.Destroyed(_) | KeyResult.Refused(_) | KeyResult.Unknown =>
           Personal.Erased(subject, Some(project))

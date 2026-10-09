@@ -19,7 +19,7 @@ final class TestKeyring extends KeyringHandle:
             KeyResult.Available(
               keys.getOrElseUpdate((project, subject), { created += 1; PersonalCipher.newKey() })
             )
-          case None => KeyResult.Destroyed("never-written")
+          case None => KeyResult.Unknown
 
   def lookupKey(project: String): Array[Byte] =
     lookups.getOrElseUpdate(project, PersonalCipher.newKey())

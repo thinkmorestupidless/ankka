@@ -222,3 +222,24 @@ class PersonalCodecSuite extends munit.FunSuite:
     assertNotEquals(Personal.present("s", 1), Personal.present("t", 1))
     assertEquals(Personal.Erased("s", Some("brand")), Personal.Erased("s"))
   }
+
+  test("the JVM's default scope is the one keyring and project every running service registered") {
+    val keyring = TestKeyring()
+    val one     = PersonalScope.register(keyring, "brand")
+    val two     = PersonalScope.register(keyring, "brand")
+    try
+      val bytes = serializer.toBytes(registered())
+      assertEquals(serializer.fromBytes(bytes), registered())
+      val other = PersonalScope.register(TestKeyring(), "payments")
+      try
+        assertEquals(PersonalScope.default, None)
+        assertEquals(
+          intercept[CommandError](serializer.toBytes(registered())).code,
+          ErrorCode.Unavailable
+        )
+      finally other.withdraw()
+    finally
+      one.withdraw()
+      two.withdraw()
+    assertEquals(PersonalScope.default, None)
+  }

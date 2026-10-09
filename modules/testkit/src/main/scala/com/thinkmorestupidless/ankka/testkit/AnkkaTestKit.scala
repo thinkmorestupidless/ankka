@@ -36,8 +36,66 @@ final class AnkkaTestKit private (
     readyTimeout: FiniteDuration,
     private var current: AnkkaService,
     /** The secret key the running service was started with, or `None` for none. */
-    private var currentKey: Option[String]
+    private var currentKey: Option[String],
+    /** The keyring the service reads its subject keys from, if any. */
+    val keyring: Option[InMemoryKeyring]
 ):
+
+  /**
+   * Erases `subject` in this service's project, as an applied erasure request does, and waits until
+   * this service has applied it: the key destroyed, every view redacted, the erasure handler run.
+   * Answers the erasure's id.
+   */
+  def erase(subject: String, within: FiniteDuration = 30.seconds): String =
+    val ring = keyring.getOrElse(throw IllegalStateException("this kit runs no keyring"))
+    val id   = ring.erase(current.project, subject)
+    awaitApplied(id, within)
+    id
+
+  /** Waits until this service has applied `erasureId` to its own tables. */
+  def awaitApplied(erasureId: String, within: FiniteDuration = 30.seconds): Unit =
+    val ring = keyring.getOrElse(throw IllegalStateException("this kit runs no keyring"))
+    eventually(s"$erasureId applied by this service", within)(
+      ring
+        .completionsOf(erasureId)
+        .find(_._2.erasureId == erasureId)
+        .filter(_ => appliedHere(erasureId))
+    ): Unit
+
+  private def appliedHere(erasureId: String): Boolean =
+    import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}
+    import com.thinkmorestupidless.ankka.runtime.SqlSyntax.sql
+    given org.apache.pekko.actor.typed.ActorSystem[?] = current.system
+    scala.concurrent.Await
+      .result(
+        Database().queryOne(
+          SqlFragment.raw(
+            "SELECT erasure_id FROM ankka_erasures_applied WHERE erasure_id = "
+          ) ++ sql"$erasureId"
+        )(_.get(0, classOf[String])),
+        10.seconds
+      )
+      .isDefined
+
+  /** Runs `body` with the keyring answering nothing, as an outage of it does. */
+  def keyringOutage[A](body: => A): A =
+    val ring = keyring.getOrElse(throw IllegalStateException("this kit runs no keyring"))
+    ring.outage = true
+    try body
+    finally ring.outage = false
+
+  /**
+   * Fails when any table of this service's database holds one of `values` — as written, as base64
+   * or as hex — in any column. How a test shows a personal value was never stored readable.
+   */
+  def assertNoPersonalValue(values: String*): Unit =
+    val found = PersonalValues.find(current, values)
+    if found.nonEmpty then
+      throw AssertionError(
+        found
+          .map((table, value) => s"table $table holds '$value'")
+          .mkString("personal values stored readable: ", "; ", "")
+      )
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
@@ -266,13 +324,23 @@ object AnkkaTestKit:
        * `ankka.telemetry.endpoint` for a test of telemetry export, say. Without it a test's service
        * names no collector, whatever the developer's own `ANKKA_OTLP_ENDPOINT` says.
        */
-      settings: Config = ConfigFactory.empty()
+      settings: Config = ConfigFactory.empty(),
+      /**
+       * The keyring the service's personal fields' keys come from (feature 042): the JVM's
+       * in-memory one by default, so a personal field works with no setup and every kit of one
+       * project reads the others'; `None` for a service with no keyring, which refuses every
+       * personal field.
+       */
+      keyring: Option[InMemoryKeyring] = Some(InMemoryKeyring.shared)
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
-    // identity that could not be read, which only ankka's own tests have reason to.
+    // identity that could not be read, which only ankka's own tests have reason to. A fresh channel
+    // to the keyring on each, as a restarted instance opens one.
     val configured: ServiceBuilder => ServiceBuilder =
-      builder => configure(builder.withIdentity(Right(serviceIdentity)))
+      builder =>
+        val identified = builder.withIdentity(Right(serviceIdentity))
+        configure(keyring.fold(identified)(k => identified.withKeyring(k.connect())))
     val database = SharedPostgres.acquire()
 
     // Keep the service registry out of the developer's home directory. A service announces itself
@@ -310,7 +378,8 @@ object AnkkaTestKit:
       database,
       readyTimeout,
       service,
-      secretKey
+      secretKey,
+      keyring
     )
 
   /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */

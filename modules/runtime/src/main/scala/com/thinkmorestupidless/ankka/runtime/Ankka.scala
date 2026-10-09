@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.runtime
 
 import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.personal.{KeyringHandle, PersonalScope}
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.Done
@@ -99,37 +100,60 @@ final class ServiceBuilder private[ankka] (
     private val extensions: Vector[RuntimeExtension] = Vector.empty,
     private val conversation: Option[remote.Conversation] = None,
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
-    private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity
+    private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
+    private val keyringOverride: Option[erasure.KeyringConnection] = None,
+    private val erasureHandler: Option[ErasureHandler] = None
 ):
 
-  def register(descriptor: ComponentDescriptor): ServiceBuilder =
+  private def copy(
+      descriptors: Vector[ComponentDescriptor] = descriptors,
+      extensions: Vector[RuntimeExtension] = extensions,
+      conversation: Option[remote.Conversation] = conversation,
+      identityOverride: Option[Either[String, ServiceIdentity]] = identityOverride,
+      wrapServices: ServiceClients => ServiceClients = wrapServices,
+      keyringOverride: Option[erasure.KeyringConnection] = keyringOverride,
+      erasureHandler: Option[ErasureHandler] = erasureHandler
+  ): ServiceBuilder =
     ServiceBuilder(
-      descriptors :+ descriptor,
+      descriptors,
       extensions,
       conversation,
       identityOverride,
-      wrapServices
+      wrapServices,
+      keyringOverride,
+      erasureHandler
     )
 
+  /**
+   * The one handler this service runs for its own part of every erasure in its project (feature
+   * 042): what the platform cannot see, such as the data subject's objects. See `ErasureHandler`.
+   */
+  def withErasureHandler(handler: ErasureHandler): ServiceBuilder =
+    copy(erasureHandler = Some(handler))
+
+  /**
+   * The keyring this service reaches, given outright rather than read from `ANKKA_KEYRING_URL`. For
+   * the test kit, whose keyring is in memory.
+   */
+  private[ankka] def withKeyring(connection: erasure.KeyringConnection): ServiceBuilder =
+    copy(keyringOverride = Some(connection))
+
+  def register(descriptor: ComponentDescriptor): ServiceBuilder =
+    copy(descriptors = descriptors :+ descriptor)
+
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
-    ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride, wrapServices)
+    copy(descriptors = descriptors ++ more)
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
-    ServiceBuilder(
-      descriptors,
-      extensions :+ extension,
-      conversation,
-      identityOverride,
-      wrapServices
-    )
+    copy(extensions = extensions :+ extension)
 
   /**
    * Who the service is, stated outright rather than read from where it runs. For tests: a test kit
    * plays a deployed service, or a local one with a name, without a certificate or a variable.
    */
   private[ankka] def withIdentity(identity: Either[String, ServiceIdentity]): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, conversation, Some(identity), wrapServices)
+    copy(identityOverride = Some(identity))
 
   /**
    * How remote descriptors (feature 009) reach the developer's process. Supplied by the sidecar; an
@@ -137,7 +161,7 @@ final class ServiceBuilder private[ankka] (
    * validation error, not a hang at first command.
    */
   def withConversation(conversation: remote.Conversation): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, Some(conversation), identityOverride, wrapServices)
+    copy(conversation = Some(conversation))
 
   /**
    * Wraps the service's client for other services before anything receives it. For a test that
@@ -145,13 +169,7 @@ final class ServiceBuilder private[ankka] (
    * nothing else.
    */
   private[ankka] def withServices(wrap: ServiceClients => ServiceClients): ServiceBuilder =
-    ServiceBuilder(
-      descriptors,
-      extensions,
-      conversation,
-      identityOverride,
-      wrapServices.andThen(wrap)
-    )
+    copy(wrapServices = wrapServices.andThen(wrap))
 
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
@@ -195,8 +213,33 @@ final class ServiceBuilder private[ankka] (
     // Any a module on its classpath provides, then the service's own: started first and stopped
     // last. Stopped first, the telemetry exporter's final flush held every server open behind it
     // while the pod's other containers were already stopping, and a rolling restart refused requests.
+    // Who the service is, before anything: the project names the keys its personal fields are under.
+    val serviceIdentity =
+      identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+    val project = ServiceBuilder.projectOf(serviceIdentity)
+    // Its keyring (feature 042): the test kit's, or the installation's at ANKKA_KEYRING_URL, or none.
+    val keyringConnection = keyringOverride.orElse(erasure.KeyringClient.fromConfig(system))
+    val keyring = keyringConnection.map(c =>
+      erasure.ServiceKeyring(
+        c,
+        erasure.KeyCache(erasure.KeyCacheSettings.from(system.settings.config))
+      )
+    )
+    val erasureRuntime = keyring.map { k =>
+      erasure.ErasureRuntime(
+        k.connection,
+        k,
+        project,
+        serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name),
+        erasureHandler,
+        objects = erasure.ObjectErasures.fromConfig(system.settings.config)
+      )
+    }
     val extensions =
-      RuntimeExtensionProvider.provided(system.settings.config) ++ this.extensions
+      RuntimeExtensionProvider.provided(system.settings.config) ++ this.extensions ++ erasureRuntime
+    // Every serialization this JVM does without a scope of its own uses the project of the services
+    // running in it, when they agree.
+    val personalRegistration = keyring.map(k => PersonalScope.register(k, project))
     // Before anything runs a handler: every line a handler writes names its trace from here on.
     TraceLogging.install()
     val registry = validate.fold(
@@ -306,10 +349,8 @@ final class ServiceBuilder private[ankka] (
       if registry.isEmpty then "no components registered" else registry.toString
     )
 
-    // Resolved here and not refused: only a topic source needs it, and a service with none must
-    // start as it always has. ProjectionRuntime refuses a topic source when this is a Left.
-    val serviceIdentity =
-      identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+    // `serviceIdentity`, resolved above, is not refused: only a topic source needs it, and a service
+    // with none must start as it always has. ProjectionRuntime refuses a topic source when it is a Left.
 
     val service = AnkkaService(
       system,
@@ -321,7 +362,10 @@ final class ServiceBuilder private[ankka] (
       conversation,
       secrets,
       serviceIdentity,
-      services
+      services,
+      keyring.getOrElse(KeyringHandle.unavailable),
+      project,
+      personalRegistration
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -464,7 +508,15 @@ final class AnkkaService private[ankka] (
      * process is given this same one. Nothing behind it is built until the first call, since only a
      * service that calls another needs it, and in a cluster it reads the service's certificate.
      */
-    val services: ServiceClients = ServiceBuilder.noServices
+    val services: ServiceClients = ServiceBuilder.noServices,
+    /**
+     * Where this service's personal fields' keys come from (feature 042): the installation's
+     * keyring through this service's channel and cache, or `unavailable` where it has none.
+     */
+    val keyring: KeyringHandle = KeyringHandle.unavailable,
+    /** The project this service's data subjects are of: its certificate's, or `local`. */
+    val project: String = ServiceIdentity.LocalProject,
+    private val personalRegistration: Option[PersonalScope.Registration] = None
 ):
 
   /**
@@ -480,6 +532,12 @@ final class AnkkaService private[ankka] (
    */
   def extension[E <: RuntimeExtension](using tag: scala.reflect.ClassTag[E]): Option[E] =
     extensions.collectFirst { case e: E => e }
+
+  /**
+   * Every extension that is also an `E` — an `ErasureDuty`, say, which is not an extension type.
+   */
+  def extensionsOf[E](using tag: scala.reflect.ClassTag[E]): Vector[E] =
+    extensions.collect { case e: E => e }
 
   /**
    * Blocks until this node is a cluster member.
@@ -564,6 +622,7 @@ final class AnkkaService private[ankka] (
           case failure: Throwable =>
             system.log.warn(s"extension '${extension.name}' failed to stop", failure)
       }
+      personalRegistration.foreach(_.withdraw())
       Done
     }(using AnkkaExecutors.virtual)
 
@@ -598,6 +657,12 @@ final class AnkkaService private[ankka] (
     if ownsSystem then system.terminate()
 
 object ServiceBuilder:
+
+  /**
+   * The project a service's data subjects are of: its certificate's, or `local` for a local run.
+   */
+  private[ankka] def projectOf(identity: Either[String, ServiceIdentity]): String =
+    identity.toOption.flatMap(_.project).getOrElse(ServiceIdentity.LocalProject)
 
   /**
    * The service's client for other services, built on its first call: `HttpServiceClients` reads

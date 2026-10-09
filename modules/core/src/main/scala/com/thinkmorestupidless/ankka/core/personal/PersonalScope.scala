@@ -27,7 +27,13 @@ trait KeyringHandle:
 
 enum KeyResult:
   case Available(key: Array[Byte])
+
+  /** Destroyed by an erasure: the subject is erased, and no key will ever be made for it again. */
   case Destroyed(erasureId: String)
+
+  /** No key and no tombstone: a subject never written, asked about without `create`. */
+  case Unknown
+
   case Refused(reason: String)
 
 object KeyringHandle:
@@ -53,6 +59,11 @@ object KeyringHandle:
  *
  * `lookupAllowed` is true only around a view's row writes, so a lookup token reaches a row and
  * never a journal or a topic.
+ *
+ * Where no site set a scope, the JVM's default applies: every running service registers its keyring
+ * and project when it starts, and when they all agree — one service per JVM, as on the platform, or
+ * several services of one project, as in most suites — that pair is the default. When they disagree
+ * (two projects in one test JVM) there is no default, and a site that set no scope fails closed.
  */
 final case class PersonalScope(keyring: KeyringHandle, project: String, lookupAllowed: Boolean)
 
@@ -60,7 +71,87 @@ object PersonalScope:
 
   private val local = ThreadLocal[PersonalScope]()
 
-  def current: Option[PersonalScope] = Option(local.get())
+  /** A running service's keyring and project, until it withdraws them. */
+  final class Registration private[PersonalScope] (
+      val keyring: KeyringHandle,
+      val project: String
+  ):
+    def withdraw(): Unit = PersonalScope.withdraw(this)
+
+  @volatile private var registered: Vector[Registration] = Vector.empty
+
+  def register(keyring: KeyringHandle, project: String): Registration = synchronized {
+    val registration = Registration(keyring, project)
+    registered = registered :+ registration
+    registration
+  }
+
+  private def withdraw(registration: Registration): Unit = synchronized {
+    registered = registered.filterNot(_ eq registration)
+  }
+
+  /**
+   * The JVM's default: the project every running service registered, if they agree, with the first
+   * one's keyring. Agreement is by project alone: each service holds its own handle on the one
+   * keyring of an installation (or of a test JVM), and any of them answers the same keys.
+   */
+  def default: Option[PersonalScope] =
+    val now = registered
+    now.headOption.flatMap { first =>
+      Option.when(now.forall(_.project == first.project))(
+        PersonalScope(first.keyring, first.project, lookupAllowed = false)
+      )
+    }
+
+  def current: Option[PersonalScope] = Option(local.get()).orElse(default)
+
+  /**
+   * Every (project, subject) this JVM has been told is erased: what a value held in memory
+   * consults.
+   */
+  private val destroyed = java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
+
+  /**
+   * Told by a service's keyring channel: `subject` of `project` is erased, everywhere in this JVM.
+   */
+  def markDestroyed(project: String, subject: String): Unit =
+    destroyed.add((project, subject)): Unit
+
+  /**
+   * Whether `subject` is known erased here, in `project` or, when that is not known, the current
+   * one.
+   */
+  def isDestroyed(project: Option[String], subject: String): Boolean =
+    project.orElse(current.map(_.project)).exists(p => destroyed.contains((p, subject)))
+
+  /**
+   * Inside a service, refuses a subject that is erased: known here, or answered destroyed by the
+   * keyring. Outside one — a unit test building values — there is nothing to ask, and nothing is
+   * refused; the write would be.
+   */
+  private[personal] def refuseErased(subject: String): Unit =
+    current.foreach { scope =>
+      val erased =
+        destroyed.contains((scope.project, subject)) ||
+          (try
+            scope.keyring
+              .key(scope.project, subject, create = false)
+              .isInstanceOf[KeyResult.Destroyed]
+          catch case _: CommandError => false)
+      if erased then
+        throw CommandError(
+          s"data subject $subject is erased in project ${scope.project}: no personal field can be written for it",
+          ErrorCode.BadRequest
+        )
+    }
+
+  /** This thread's scope, to hand to work another thread does. */
+  def capture: Option[PersonalScope] = Option(local.get())
+
+  def restoring[T](scope: Option[PersonalScope])(body: => T): T =
+    scope match
+      case Some(s) => within(s.keyring, s.project, s.lookupAllowed)(body)
+      case None    => body
 
   def within[T](keyring: KeyringHandle, project: String, lookupAllowed: Boolean = false)(
       body: => T

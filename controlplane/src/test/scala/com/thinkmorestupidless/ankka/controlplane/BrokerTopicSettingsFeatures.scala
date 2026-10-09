@@ -253,13 +253,53 @@ class BrokerCopiesFeatures extends BrokerTopicSettingsFeatures("copies.feature")
 
   private val Pool = s"${com.thinkmorestupidless.ankka.operator.BrokerStack.Cluster}-dual"
 
+  private val Quota    = "broker-node-down"
+  private var nodeDown = false
+
+  /**
+   * The third broker node, stopped and kept stopped while Strimzi runs. Stopping Strimzi to keep it
+   * from starting the node again left a cluster operator, started again with a node missing, that
+   * made neither the node nor its entity operator in five minutes. A quota of one pod fewer than
+   * the broker's namespace holds keeps the pod from being made again, and Strimzi never stops.
+   */
   private def stopNode(): Unit =
-    // Strimzi first, or its pod set controller starts the node again at once.
-    stopStrimzi()
+    val running = node(
+      "kubectl",
+      "get",
+      "pods",
+      "-n",
+      Broker,
+      "--field-selector=status.phase!=Succeeded,status.phase!=Failed",
+      "-o",
+      "name"
+    ).linesIterator.count(_.startsWith("pod/"))
+    nodeDown = true
+    node("kubectl", "create", "quota", Quota, "-n", Broker, s"--hard=pods=${running - 1}"): Unit
+    waitFor(60.seconds, "the broker's pod quota being counted")(
+      jsonPath(
+        "resourcequota",
+        "-n",
+        Broker,
+        Quota,
+        "{.status.hard.pods}"
+      ) == (running - 1).toString
+    )
     node("kubectl", "delete", "pod", "-n", Broker, s"$Pool-2", "--wait=true"): Unit
 
   private def nodeBack(): Unit =
-    startStrimzi()
+    node("kubectl", "delete", "resourcequota", "-n", Broker, Quota, "--ignore-not-found"): Unit
+    // The pod set's controller gave up making the pod while the quota held; a change to its pod
+    // set has it try again at once.
+    node(
+      "kubectl",
+      "annotate",
+      "strimzipodset",
+      "-n",
+      Broker,
+      Pool,
+      s"ankka.test/node-back=${System.nanoTime()}",
+      "--overwrite"
+    ): Unit
     waitFor(300.seconds, "the third broker node being ready again") {
       jsonPath(
         "pod",
@@ -269,6 +309,11 @@ class BrokerCopiesFeatures extends BrokerTopicSettingsFeatures("copies.feature")
         """{.status.conditions[?(@.type=="Ready")].status}"""
       ) == "True"
     }
+    nodeDown = false
+
+  override def afterEach(context: AfterEach): Unit =
+    try if nodeDown then nodeBack()
+    finally super.afterEach(context)
 
   Given("the platform as it is installed in a cluster with three broker nodes")(() => ())
   When("the installation starts")(() => ())
@@ -390,9 +435,13 @@ class BrokerCopiesFeatures extends BrokerTopicSettingsFeatures("copies.feature")
     "publishing to {string} is refused until the broker node returns, and the log of {string} names the topic and the reason"
   ) { (t: String, s: String) =>
     checkout(a(s), lastProject): Unit
-    waitFor(180.seconds, s"${a(s)}'s log naming $t and the missing copies") {
+    // The broker refuses each attempt NOT_ENOUGH_REPLICAS, which the Kafka client logs as it
+    // retries; the runtime's own line follows when the producer's delivery timeout (two minutes)
+    // runs out, after the broker has dropped the stopped node from the in-sync copies (thirty seconds).
+    waitFor(300.seconds, s"${a(s)}'s log naming $t and the missing copies") {
       val log = logsOf(a(s), lastProject)
-      log.contains(s"could not publish to topic '$t'") && log.contains("NotEnoughReplicas")
+      log.contains(s"could not publish to topic '$t'") &&
+      (log.contains("NOT_ENOUGH_REPLICAS") || log.contains("NotEnoughReplicas"))
     }
     nodeBack()
   }

@@ -1000,10 +1000,15 @@ final case class OrganizationMembership(id: String, name: String, role: Role)
 
 /** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
 /**
- * What the installation is (feature 044, `GET /installation`): its version, and its cloud when it
- * names a provider.
+ * What the installation is (feature 044, `GET /installation`): its version, its cloud when it names
+ * a provider, and where it keeps its secrets (feature 038). `secrets` is absent from a control
+ * plane older than 038.
  */
-final case class Installation(platformVersion: String, cloud: Option[CloudInstallation] = None)
+final case class Installation(
+    platformVersion: String,
+    cloud: Option[CloudInstallation] = None,
+    secrets: Option[InstallationSecrets] = None
+)
 
 /**
  * The installation's cloud: its provider, the one account its cloud resources are made in, the
@@ -1736,20 +1741,17 @@ final case class SecretReadsPage(
 )
 
 /**
- * The installation's status (`GET /platform`): where its secrets are kept, its cloud, how long the
- * record of secret reads is kept, and whether Google Cloud's own access log is on — `unknown` until
- * the installation's cloud provider reports it. Never the encryption key's name.
+ * Where the installation keeps its secrets (feature 038), on `GET /installation`: the backend, how
+ * long the record of secret reads is kept, and whether the cloud's own access log is on — `unknown`
+ * until the installation's cloud provider reports it.
  */
-final case class PlatformStatus(
-    secretBackend: String,
-    cloudProvider: String,
-    cloudAccount: Option[String] = None,
-    cloudLocation: Option[String] = None,
-    secretRecordRetention: String,
-    auditLog: String = PlatformStatus.AuditLogUnknown
+final case class InstallationSecrets(
+    backend: String,
+    recordRetention: String,
+    auditLog: String = InstallationSecrets.AuditLogUnknown
 )
 
-object PlatformStatus:
+object InstallationSecrets:
   val AuditLogOn: String      = "on"
   val AuditLogOff: String     = "off"
   val AuditLogUnknown: String = "unknown"
@@ -1819,6 +1821,5 @@ object Wire:
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
   given secretReadsPageCodec: JsonValueCodec[SecretReadsPage]    = Codecs.make[SecretReadsPage]
-  given platformStatusCodec: JsonValueCodec[PlatformStatus]      = Codecs.make[PlatformStatus]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
     Codecs.make[Vector[ProjectSecretSummary]]

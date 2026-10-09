@@ -205,7 +205,6 @@ final class ControlPlaneClient(settings: Settings):
     get[SecretReadsPage](s"/projects/${segment(projectId)}/secret-reads$query")
 
   /** The installation's status: its secret backend, its cloud, the record's retention. */
-  def platformStatus(): PlatformStatus = get[PlatformStatus]("/platform")
 
   /**
    * Declares a topic on a project, or raises its partitions (feature 027); its compaction and

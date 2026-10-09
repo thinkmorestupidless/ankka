@@ -46,7 +46,6 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SECRET_RECORDS_URL` | `ankka.secrets.records-url` | `""` | every service |
 | `ANKKA_SECRET_MOVE` | `ankka.secrets.move` | `""` | every service |
 | `ANKKA_SECRET_VERSIONS_KEPT` | `ankka.secrets.versions-kept` | `2` | every service |
-| `ANKKA_CLOUD_PROVIDER` | `ankka.cloud.provider` | `"none"` | every service |
 | `ANKKA_CLOUD_ACCOUNT` | `ankka.cloud.account` | `""` | every service |
 | `ANKKA_CLOUD_LOCATION` | `ankka.cloud.location` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |

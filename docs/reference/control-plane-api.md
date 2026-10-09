@@ -125,7 +125,6 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/projects/{projectId}/secret-reads` | |
 | `POST` | `/secret-reads` | |
-| `GET` | `/platform` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -151,15 +150,6 @@ is at most 57 characters. The project id `platform` is reserved for the platform
 creating a project with it answers `400`.
 
 ## Identity
-
-### `GET /platform`
-
-The installation's status, for any signed-in caller. Response: `{ "secretBackend": "postgres",
-"cloudProvider": "none", "cloudAccount": "…", "cloudLocation": "…", "secretRecordRetention": "365d",
-"auditLog": "unknown" }` — where the installation keeps its secrets, its cloud provider, account and
-default location (absent when not set), how long the record of secret reads is kept, and whether Google
-Cloud's own access log for Secret Manager is on (`on`, `off`, or `unknown` until the installation's cloud
-provider reports it). The name of an encryption key is never in it.
 
 ### `POST /secret-reads`
 
@@ -204,6 +194,10 @@ What the installation is: its version, and its cloud when it names a
 | `cloud.account` | string | The one cloud account the installation's cloud resources are made in. |
 | `cloud.location` | string | Where they are made unless a project says otherwise. |
 | `cloud.kmsKey` | string, optional | The key the installation wraps with; shown only to an owner of an organization or a platform administrator. |
+| `secrets` | object, optional | Where the installation keeps its secrets; absent from an older control plane. |
+| `secrets.backend` | string | `postgres` (each service's own database and the cluster's Secrets) or `secret-manager`. |
+| `secrets.recordRetention` | string | How long the record of secret reads is kept, such as `365d`. |
+| `secrets.auditLog` | string | Whether the cloud's own access log for its secrets is on: `on`, `off`, or `unknown` until the cloud provider reports it. |
 
 ## Organizations
 
@@ -484,7 +478,7 @@ omitted). Response: `{ "records": [ … ] }`, each record:
 | `component`, `componentKind` | string, optional | The component that asked, when the runtime ran it; never for a process or a module. |
 | `latestSkipped` | boolean | On Secret Manager: a newer version had been disabled, and was not the one read. |
 
-Records older than the installation's retention are removed; `GET /platform` says how long that is.
+Records older than the installation's retention are removed; `GET /installation` says how long that is.
 
 ### `PUT /projects/{projectId}/topics/{name}`
 

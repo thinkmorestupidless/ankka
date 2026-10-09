@@ -42,7 +42,6 @@ object SecretBackendChoice:
           "ankka.secrets.secret-manager.endpoint" -> fake.endpoint,
           "ankka.secrets.secret-manager.token"    -> FakeSecretManager.tokenFor(project, service),
           "ankka.secrets.secret-manager.identity" -> s"$project/$service",
-          "ankka.cloud.provider"                  -> "gcp",
           "ankka.cloud.account"                   -> fake.account,
           "ankka.cloud.location"                  -> ""
         )

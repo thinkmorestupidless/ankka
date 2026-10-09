@@ -897,7 +897,7 @@ object Main:
   private val installationCommand =
     Opts.subcommand(
       "installation",
-      "Show the installation: its version, and its cloud provider, account and location."
+      "Show the installation: its version, its cloud, and where it keeps its secrets."
     ) {
       contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
     }
@@ -906,15 +906,6 @@ object Main:
     Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
       contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
     }
-
-  private val platformCommand = Opts.subcommand("platform", "The installation itself.") {
-    Opts.subcommand(
-      "status",
-      "Where the installation keeps its secrets, its cloud, and how long the record of reads is kept."
-    ) {
-      contextOpt.map(ctx => () => Output.platformStatus(ctx.client.platformStatus(), ctx.format))
-    }
-  }
 
   private val versionCommand = Opts.subcommand("version", "Print the ankka version of this CLI.") {
     Opts.unit.map(_ => () => com.thinkmorestupidless.ankka.core.BuildInfo.version)
@@ -1164,7 +1155,6 @@ object Main:
     loginCommand
       .orElse(logoutCommand)
       .orElse(whoamiCommand)
-      .orElse(platformCommand)
       .orElse(installationCommand)
       .orElse(organizationsCommand)
       .orElse(projectsCommand)

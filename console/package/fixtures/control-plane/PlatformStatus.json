@@ -1,1 +1,0 @@
-{"type":"PlatformStatus","json":{"secretBackend":"secret-manager","cloudProvider":"gcp","cloudAccount":"spinvibe-prod","cloudLocation":"europe-west2","secretRecordRetention":"365d","auditLog":"on"}}

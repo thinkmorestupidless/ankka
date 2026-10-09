@@ -520,9 +520,9 @@ environment; assert they pass on both backends, the Secret Manager one through t
   service's secret reads depend on the record's keeper being reachable.
 - **FR-014**: On the Secret Manager backend the platform MUST report, in the installation's status,
   whether Data Access audit logging is on for Secret Manager. The installation's status is one
-  control plane route (`GET /platform`, shown by `ankka platform status`) that this feature
-  introduces with the backend, the retention and the audit-log state (`unknown` until the cloud
-  provider of 044 reports it), and that 044 extends with its settings.
+  control plane route, 044's `GET /installation` (shown by `ankka installation`), which carries
+  this feature's `secrets` — the backend, the retention and the audit-log state (`unknown` until the
+  cloud provider of 044 reports it) — beside 044's cloud.
 
 **Project secrets on Secret Manager**
 

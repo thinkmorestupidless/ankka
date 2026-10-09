@@ -69,7 +69,8 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       "Installation",
       Installation(
         "0.12.0",
-        Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka")))
+        Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka"))),
+        Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn))
       ),
       Installation("0.12.0")
     ),
@@ -168,18 +169,6 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         )
       ),
       SecretReadsPage(Vector.empty)
-    ),
-    fixture(
-      "PlatformStatus",
-      PlatformStatus(
-        "secret-manager",
-        "gcp",
-        Some("spinvibe-prod"),
-        Some("europe-west2"),
-        "365d",
-        PlatformStatus.AuditLogOn
-      ),
-      PlatformStatus("postgres", "none", secretRecordRetention = "365d")
     ),
     fixture(
       "MountStatus",

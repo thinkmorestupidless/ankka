@@ -53,21 +53,23 @@ ankka projects secret-reads list -p <project> [--service <name>] [--name <secret
 Table columns: `AT`, `SERVICE`, `COMPONENT`, `NAME`, `OPERATION`, `OUTCOME`, `TRACE`. Never a value
 column, because the record has none.
 
-## `GET /platform` — the installation's status
+## `GET /installation` — where the installation keeps its secrets (044's route)
 
 **Caller**: any authenticated principal (a member, a deploy token, a platform administrator).
 
-**Response** (`PlatformStatus`):
+**Response** (`Installation`; `cloud` is 044's, `secrets` this feature's):
 
 ```json
 {
-  "secretBackend": "secret-manager", "cloudProvider": "gcp", "cloudAccount": "spinvibe-prod",
-  "cloudLocation": "europe-west2", "secretRecordRetention": "365d", "auditLog": "unknown"
+  "platformVersion": "0.12.0",
+  "cloud": { "provider": "gcp", "account": "spinvibe-prod", "location": "europe-west2" },
+  "secrets": { "backend": "secret-manager", "recordRetention": "365d", "auditLog": "unknown" }
 }
 ```
 
-`auditLog` is `on`, `off` or `unknown` (no provider has reported it). The KMS key is never shown
-here; 044 FR-019 adds what an owner may see. CLI: `ankka platform status [-o json|table]`.
+`auditLog` is `on`, `off` or `unknown` (no provider has reported it). `secrets` is absent from a
+control plane older than this feature. CLI: `ankka installation [-o json|table]`. First built as a
+route of its own, `GET /platform`; folded into 044's route when 044 was merged in.
 
 ## Existing routes whose behaviour changes on the Secret Manager backend
 

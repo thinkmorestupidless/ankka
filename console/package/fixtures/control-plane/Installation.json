@@ -1,1 +1,1 @@
-{"type":"Installation","json":{"platformVersion":"0.12.0","cloud":{"provider":"gcp","account":"acme-production","location":"europe-west2","kmsKey":"keys/ankka"}}}
+{"type":"Installation","json":{"platformVersion":"0.12.0","cloud":{"provider":"gcp","account":"acme-production","location":"europe-west2","kmsKey":"keys/ankka"},"secrets":{"backend":"secret-manager","recordRetention":"365d","auditLog":"on"}}}

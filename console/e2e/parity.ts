@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 const notThroughTheConsole: Record<string, string> = {
   "POST /secret-reads": "a service writes the record of its own reads, by its certificate; never a person",
   "GET /projects/{projectId}/secret-reads": "the record of reads is listed with the CLI; showing it in the console is an open question",
-  "GET /platform": "the installation's status is read with `ankka platform status`; a console page for it is not built yet",
 };
 
 export default async function parity() {

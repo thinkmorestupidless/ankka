@@ -173,8 +173,8 @@ AT                    SERVICE   COMPONENT  NAME              OPERATION  OUTCOME 
 ```
 
 A member who is not an owner, and a deploy token, are refused. Records older than `secretRecordRetention`
-are removed each day. `ankka platform status` shows the backend, the cloud, the retention, and whether
-Google Cloud's own access log is on (`unknown` until the cloud provider reports it). On Secret Manager,
+are removed each day. `ankka installation` shows the backend and the retention beside the installation's
+cloud, and whether Google Cloud's own access log is on (`unknown` until the cloud provider reports it). On Secret Manager,
 Google Cloud's audit log records each access beside the platform's record.
 
 ## Moving an installation to Secret Manager

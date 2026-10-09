@@ -3,7 +3,8 @@ package com.thinkmorestupidless.ankka.controlplane
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
 import com.thinkmorestupidless.ankka.controlplane.api.{
   ControlPlaneAcl,
-  PlatformStatus,
+  Installation,
+  InstallationSecrets,
   SecretReadsPage
 }
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
@@ -58,8 +59,8 @@ abstract class SecretReadsBehaviours extends munit.FunSuite with LogCapturing:
         clock = identity.clock,
         tokens = Some(tokens),
         secretRecords = Some(kept),
-        platform = () =>
-          ControlPlane.defaultPlatformStatus.copy(secretRecordRetention = config.retentionText)
+        installationSecrets = () =>
+          Some(ControlPlane.defaultInstallationSecrets.copy(recordRetention = config.retentionText))
       )*
     )
     testKit = AnkkaTestKit.start(
@@ -188,9 +189,9 @@ abstract class SecretReadsBehaviours extends munit.FunSuite with LogCapturing:
     assertEquals(listing("?name=ancient")._2.size, 1)
     assert(kept.sweep() >= 1)
     assertEquals(listing("?name=ancient")._2, Vector.empty)
-    val (status, body) = send("GET", "/platform", token = Some(Owner))
+    val (status, body) = send("GET", "/installation", token = Some(Owner))
     assertEquals(status, 200, body)
-    assertEquals(readFromString[PlatformStatus](body).secretRecordRetention, "365d")
+    assertEquals(readFromString[Installation](body).secrets.map(_.recordRetention), Some("365d"))
   }
 
   /** Runs the real CLI against this control plane, with a config file of its own. */
@@ -223,19 +224,23 @@ abstract class SecretReadsBehaviours extends munit.FunSuite with LogCapturing:
       cli("projects", "secret-reads", "list", "-p", "reads-shop", "--name", "via-cli", "-o", "json")
     assertEquals(jsonCode, 0, json)
     assertEquals(readFromString[SecretReadsPage](json.trim).records.map(_.name), Vector("via-cli"))
-    val (statusCode, status) = cli("platform", "status")
+    val (statusCode, status) = cli("installation")
     assertEquals(statusCode, 0, status)
-    assert(status.contains("secret backend") && status.contains("365d"), status)
+    assert(status.contains("secrets    postgres") && status.contains("365d"), status)
   }
 
-  test("the installation's status needs a caller who is signed in, and names no key") {
-    assertEquals(send("GET", "/platform")._1, 401)
-    val (_, body) = send("GET", "/platform", token = Some(Outsider))
-    val status    = readFromString[PlatformStatus](body)
+  test(
+    "where the installation keeps its secrets needs a caller who is signed in, and names no key"
+  ) {
+    assertEquals(send("GET", "/installation")._1, 401)
+    val (status, body) = send("GET", "/installation", token = Some(Owner))
+    assertEquals(status, 200, body)
+    val installation = readFromString[Installation](body)
     assertEquals(
-      (status.secretBackend, status.cloudProvider, status.auditLog),
-      ("postgres", "none", "unknown")
+      installation.secrets.map(s => (s.backend, s.auditLog)),
+      Some(("postgres", InstallationSecrets.AuditLogUnknown))
     )
+    assertEquals(installation.cloud, None)
     assert(!body.toLowerCase.contains("kms"), body)
   }
 

@@ -66,10 +66,19 @@ export const cloudInstallationSchema = z.object({
 });
 export type CloudInstallation = z.infer<typeof cloudInstallationSchema>;
 
-/** `GET /installation`: the platform's version, and its cloud when it names a provider. */
+/** Where the installation keeps its secrets, and how long the record of reads is kept (feature 038). */
+export const installationSecretsSchema = z.object({
+  backend: z.string(),
+  recordRetention: z.string(),
+  auditLog: z.string().default("unknown"),
+});
+export type InstallationSecrets = z.infer<typeof installationSecretsSchema>;
+
+/** `GET /installation`: the platform's version, its cloud when it names a provider, and its secrets. */
 export const installationSchema = z.object({
   platformVersion: z.string(),
   cloud: optional(cloudInstallationSchema),
+  secrets: optional(installationSecretsSchema),
 });
 export type Installation = z.infer<typeof installationSchema>;
 
@@ -522,17 +531,6 @@ export type ReadRecord = z.infer<typeof readRecordSchema>;
 export const secretReadsPageSchema = z.object({ records: z.array(readRecordSchema).default([]) });
 export type SecretReadsPage = z.infer<typeof secretReadsPageSchema>;
 
-/** The installation's status: where it keeps its secrets, its cloud, the record's retention. */
-export const platformStatusSchema = z.object({
-  secretBackend: z.string(),
-  cloudProvider: z.string(),
-  cloudAccount: optional(z.string()),
-  cloudLocation: optional(z.string()),
-  secretRecordRetention: z.string(),
-  auditLog: z.string().default("unknown"),
-});
-export type PlatformStatus = z.infer<typeof platformStatusSchema>;
-
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -580,5 +578,4 @@ export const schemasByType: Record<string, z.ZodType> = {
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,
   SecretReadsPage: secretReadsPageSchema,
-  PlatformStatus: platformStatusSchema,
 };

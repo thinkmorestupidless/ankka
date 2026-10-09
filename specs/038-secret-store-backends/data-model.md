@@ -137,15 +137,18 @@ access request (`Waiting`, `Ready`, `Failed`), is spec 044's work and comes with
 phase and outcome are not on the resource: `services get` reads them from the instances' topology
 document (`secretStore`) through the control plane.
 
-## Installation status (control plane `GET /platform`)
+## Installation secrets (control plane `GET /installation`, 044's route)
 
 ```
-PlatformStatus(secretBackend, cloudProvider, cloudAccount: Option, cloudLocation: Option,
-               secretRecordRetention, auditLog: on | off | unknown)
+Installation(platformVersion, cloud: Option[CloudInstallation],     # 044
+             secrets: Option[InstallationSecrets])                  # 038
+InstallationSecrets(backend, recordRetention, auditLog: on | off | unknown)
 ```
 
-Read by any authenticated principal; the KMS key is never in it (044 FR-019 adds what an owner may
-see). `auditLog` is `unknown` until 044's provider reports it.
+The cloud (provider, account, location, and the KMS key for an owner alone) is 044's section; the
+secret store is 038's, absent from a control plane older than 038. `auditLog` is `unknown` until 044's
+provider reports it. (First built as a route of its own, `GET /platform`, and folded into 044's route
+when 044 was merged in: the two said the same cloud twice.)
 
 ## AnkkaProject spec (crd) — Group A projection, Group B consumer
 

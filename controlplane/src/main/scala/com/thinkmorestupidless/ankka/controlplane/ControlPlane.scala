@@ -106,8 +106,11 @@ object ControlPlane:
       secretRecords: Option[
         com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore
       ] = None,
-      /** The installation's status, as `GET /platform` answers it. */
-      platform: () => PlatformStatus = () => ControlPlane.defaultPlatformStatus,
+      /**
+       * Where the installation keeps its secrets, as `GET /installation` shows it (feature 038).
+       */
+      installationSecrets: () => Option[InstallationSecrets] = () =>
+        Some(ControlPlane.defaultInstallationSecrets),
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
       cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
   ): Seq[
@@ -130,7 +133,6 @@ object ControlPlane:
           secretRecords
         ),
       _ => SecretReadsEndpoint(secretRecords),
-      _ => PlatformEndpoint(acl, platform),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -151,35 +153,37 @@ object ControlPlane:
             )
           case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
       clients => WhoamiEndpoint(clients, acl, clock),
-      clients => InstallationEndpoint(clients, acl, cloud, deploy.platformVersion, clock)
+      clients =>
+        InstallationEndpoint(
+          clients,
+          acl,
+          cloud,
+          deploy.platformVersion,
+          clock,
+          installationSecrets
+        )
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
 
-  /** The installation's status from its settings: what `GET /platform` answers. */
-  def platformStatus(
+  /**
+   * Where the installation keeps its secrets, from its settings: `GET /installation`'s `secrets`.
+   */
+  def installationSecrets(
       backend: secrets.SecretBackendConfig,
       records: secrets.SecretRecordsConfig
-  ): PlatformStatus =
-    PlatformStatus(
-      secretBackend = backend.backend.word,
-      cloudProvider = backend.cloudProvider,
-      cloudAccount = backend.cloudAccount,
-      cloudLocation = backend.cloudLocation,
-      secretRecordRetention = records.retentionText
-    )
+  ): InstallationSecrets =
+    InstallationSecrets(backend = backend.backend.word, recordRetention = records.retentionText)
 
-  /** An installation that has said nothing: Postgres, no cloud, a year's records. */
-  lazy val defaultPlatformStatus: PlatformStatus =
-    platformStatus(
+  /** An installation that has said nothing: Postgres, a year's records. */
+  lazy val defaultInstallationSecrets: InstallationSecrets =
+    installationSecrets(
       secrets.SecretBackendConfig(
         com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres,
-        "none",
-        None,
         None
       ),
       secrets.SecretRecordsConfig(
-        scala.concurrent.duration.FiniteDuration(365, "days"),
+        secrets.SecretRecordsConfig.DefaultRetention,
         scala.concurrent.duration.FiniteDuration(1, "day")
       )
     )
@@ -214,9 +218,8 @@ object ControlPlane:
     // The record of every secret read, in a database of its own, opened when the service starts.
     val recordsConfig = secrets.SecretRecordsConfig.from(config)
     val records       = secrets.SecretRecords.postgres(recordsConfig)
-    val platform      = () => ControlPlane.platformStatus(backend, recordsConfig)
-    val cloud =
-      com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
+    val installation  = ControlPlane.installationSecrets(backend, recordsConfig)
+    val cloud         = backend.cloud
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
@@ -239,7 +242,7 @@ object ControlPlane:
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),
-            platform = platform,
+            installationSecrets = () => Some(installation),
             cloud = cloud
           )*
         )
@@ -256,7 +259,7 @@ object ControlPlane:
             topics = Some(projector),
             schemas = Some(projector),
             secretRecords = Some(records),
-            platform = platform,
+            installationSecrets = () => Some(installation),
             cloud = cloud
           )*
         )

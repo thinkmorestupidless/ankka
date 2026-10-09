@@ -144,7 +144,7 @@ controlplane-api/src/main/scala/.../api/
 controlplane/src/main/scala/.../controlplane/
 ├── ControlPlane.scala               # choose ProjectSecretWriter by backend; register the record store and sweeper
 ├── api/SecretReadsEndpoint.scala    # POST /secret-reads (AnyService caller), GET /projects/{id}/secret-reads (owner)
-├── api/PlatformEndpoint.scala       # GET /platform: the installation's status (044 FR-019 extends it)
+├── (api/InstallationEndpoint.scala  # 044's GET /installation, which carries 038's `secrets`)
 ├── secrets/ReadRecordStore.scala    # trait; PostgresReadRecordStore (second pool); InMemory for suites
 ├── secrets/ReadRecordSweeper.scala  # ClusterSingleton, daily, by retention
 ├── secrets/SecretManagerProjectSecretWriter.scala   # setEntries → create+addVersion; removeEntry → disable
@@ -237,10 +237,9 @@ Each item names the spec requirement it answers and the research entry it rests 
   (`ankka-cluster-kubernetes.conf`) and overridden by `ANKKA_SECRET_RECORDS_URL`; the operator
   renders nothing for it. `LocalRecorder` when the URL is unset (the local overlay): an info line
   `secret-read name=… outcome=…` and `RecordedReads` in the test kit.
-- `GET /platform` (`PlatformEndpoint`): the installation's status for any authenticated principal —
-  `secretBackend`, `cloudProvider`, `cloudAccount`, `cloudLocation`, `secretRecordRetention`,
-  `auditLog: on|off|unknown` (`unknown` until 044's provider reports it); never the KMS key. CLI
-  `ankka platform status`. 044 FR-019 extends this route.
+- `GET /installation` (044's `InstallationEndpoint`) carries `secrets`: `backend`, `recordRetention`,
+  `auditLog: on|off|unknown` (`unknown` until 044's provider reports it), beside 044's `cloud`. CLI
+  `ankka installation`. First built as `GET /platform`, folded into 044's route at the merge.
 - Control plane: `POST /secret-reads` with `Acl.allowCallers(Callers.anyService)`; the body's
   `project`/`service` must equal `caller`'s or `403`; `Caller.Local` admitted (local and tests).
   `PostgresReadRecordStore.insert` over the second pool; `GET /projects/{id}/secret-reads` owner-only,

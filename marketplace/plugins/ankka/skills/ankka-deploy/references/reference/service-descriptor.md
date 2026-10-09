@@ -98,6 +98,9 @@ settings, so one descriptor can be applied to several projects.
 | `processPort` | integer | `8080` | With `web` hosting only: the port the process listens on, told to it as `PORT`. |
 | `provisionObjectStorage` | boolean | `false` | Whether the platform gives the service a bucket and a credential that reaches it. See [object storage](#object-storage). |
 | `exposeObjectStorage` | boolean | `false` | Whether that bucket is reachable from the internet, for URLs the service signs. Only with `provisionObjectStorage`. |
+| `objectStorageOrigins` | array of string | `[]` | The origins a browser may upload from while the bucket is reachable; the platform sets the bucket's CORS rule from them. Each is `scheme://host[:port]`, or `*`. |
+| `objectStorageCredential` | boolean | `true` | `false` gives the service no storage credential, for a program that reaches its bucket by the identity it runs as. Refused where the installation keeps its buckets in Garage, which needs a credential. |
+| `objectStorageVersionAgeDays` | integer | — | After how many days an object's earlier versions are deleted, in a store that keeps them. No effect in Garage, which keeps one version. |
 
 ### image
 
@@ -308,6 +311,10 @@ get` reports `supplied`. See [Object storage](../platform/object-storage.md).
 |---|---|
 | sets `provisionObjectStorage` and declares `ANKKA_S3_X` | `provisionObjectStorage cannot be combined with env var 'ANKKA_S3_X', which supplies an object store of the service's own` |
 | sets `exposeObjectStorage` without `provisionObjectStorage` | `exposeObjectStorage needs provisionObjectStorage: only a bucket the platform made can be reached from outside the cluster` |
+| sets `objectStorageOrigins`, `objectStorageCredential` or `objectStorageVersionAgeDays` without `provisionObjectStorage` | `<field> needs provisionObjectStorage: it describes a bucket the platform makes` |
+| names an origin that is not `scheme://host[:port]` or `*` | `objectStorageOrigins: '<value>' is not an origin` |
+| sets `objectStorageVersionAgeDays` below one | `objectStorageVersionAgeDays is N; it must be one or more` |
+| sets `objectStorageCredential` to `false` where the installation keeps its buckets in Garage | `objectStorageCredential: a bucket in Garage is reached only with a storage credential` |
 | asks for a bucket whose name, `<project>.<service>`, would be over 63 characters | `bucket name '<name>' is N characters, over the 63 character limit for a bucket's name; a shorter service name or project id is the only fix` |
 | takes a variable from a Secret named `<service>-storage` | `env var '<name>': secret '<secret>' is issued by the platform and cannot be read by a service` |
 

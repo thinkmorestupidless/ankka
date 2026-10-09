@@ -108,13 +108,23 @@ The service itself owns its bucket, so it can delete objects, and can delete the
 A bucket deleted that way is made again, empty, on the platform's next pass, and the service's credential
 reaches it.
 
-## A credential is made once
+## A credential is made once, and replaced only when a member asks
 
-The credential is issued once, when the bucket is first made, and never rotated or replaced. Applying the
-descriptor again, restarting the service or upgrading the platform leaves it as it is. The platform's
-operator writes the Secret and cannot read it back; the control plane never holds it. The operator does
-hold the object store's administrator token, as it administers each project's database, and whoever holds
-that token can reach every bucket.
+The credential is issued once, when the bucket is first made. Applying the descriptor again, restarting the
+service or upgrading the platform leaves it as it is. The platform's operator writes the Secret and cannot
+read it back; the control plane never holds it. The operator does hold the object store's administrator
+token, as it administers each project's database, and whoever holds that token can reach every bucket.
+
+A member can have the credential issued again — for a credential that has leaked, or a rotation policy:
+
+```bash
+ankka services storage reissue reports -p shop
+```
+
+A new credential is written where the service's instances read it, and the instances are replaced by a
+rolling update once it is there. The old credential goes on working for the rotation grace, an hour as
+shipped, so an instance not yet replaced keeps working; after it, the store refuses it. The history
+records `storage-credential-reissued`.
 
 A credential rotated by hand in the store is not seen by the platform: the Secret keeps the old one, and a
 service using it is refused. If the store loses a key, the operator issues a new one into the same Secret
@@ -130,7 +140,8 @@ A bucket is reached only from inside the installation until its descriptor asks 
   "service": {
     "image": "registry.example.com/acme/reports:1.0.0",
     "provisionObjectStorage": true,
-    "exposeObjectStorage": true
+    "exposeObjectStorage": true,
+    "objectStorageOrigins": ["https://app.example.com"]
   }
 }
 ```
@@ -147,9 +158,12 @@ that lets whoever holds it read or upload that object until it expires, without 
   was made for, so a URL signed for the address inside the cluster is refused from a browser. Read and
   write the service's own objects through `ANKKA_S3_ENDPOINT`.
 - **Nothing is read without a signature.** A request with none is refused by the store.
-- **An upload from a page needs a CORS rule on the bucket.** A browser sending a file from a page to the
-  store's hostname asks first, and is refused unless the bucket allows the page's origin. The service sets
-  its own bucket's CORS rule with its S3 client (`PutBucketCors`); the platform sets none.
+- **An upload from a page needs its origin named.** A browser sending a file from a page to the store's
+  hostname asks first, and is refused unless the bucket admits the page's origin. The descriptor names the
+  origins in `objectStorageOrigins` — each `https://host` or `https://host:port`, or `*` — and the platform
+  sets the bucket's CORS rule from them; the service sets none. Name the page's origin, which is in general
+  not the service's own hostname: a page served by another service, or by a site of its own, uploads from
+  there. No origins is no rule, and a bucket that is not reachable has none whatever the list says.
 - **Turning it off revokes every URL.** Applying the descriptor without `exposeObjectStorage` removes the
   bucket's route, and a URL signed before stops working, whatever its expiry. Only the bucket that asked is
   reachable: every other bucket's path answers nothing at the store's hostname.

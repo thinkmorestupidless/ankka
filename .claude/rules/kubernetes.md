@@ -497,6 +497,18 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   it as `Invalid payload signature`.** Configure a client with `requestChecksumCalculation(WHEN_REQUIRED)`
   and `responseChecksumValidation(WHEN_REQUIRED)`; the docs' object storage page says so for every client,
   since other SDKs changed the same default.
+- **A Garage key carries its generation in its name** (feature 039): `<bucket>` is generation 0 — every
+  key made before re-issue existed — and `<bucket>#<n>` after. `StorageCredential.ensure` takes the
+  generation in place from the status and looks for *that* key; looking for the bare bucket name after a
+  re-issue, once generation 0 has expired, read as "the store lost the key" and patched the Secret back
+  to a fresh generation-0 key. An old key ends by Garage's own clock (`UpdateKey.expiration`), set once
+  and never moved, so the operator keeps no timer.
+- **A write pause is `DenyBucketKey` on the key in place, not a new read-only key.** Every instance holds
+  the same key, so taking write from it pauses them all at once with no rollout; a new key rolled out
+  left the old one writing until each pod was replaced, and writes during the pause escaped the verify.
+- **The storage-credential annotation is rendered only above generation 0**, as the route's removal is
+  the one exception to "nothing changes for a service that does not ask": an annotation of `0` on every
+  service with a bucket would have rolled them all on upgrade.
 - **The route's removal for a bucket is rendered for every service**, asked or not, so dropping
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a

@@ -178,8 +178,16 @@ class CrossProjectMachineTopicsFeatures
         "oauth.jwks.endpoint.uri=\"https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json\"",
         s"oauth.jwks.endpoint.uri=\"$JwksUrl\""
       )
+      // The suite's key set is plain HTTP, and strimzi-kafka-oauth refuses a truststore for one.
+      .replace("oauth.ssl.truststore.location=\"/mnt/ankka-service-ca/ca.crt\"", "")
+      .replace("oauth.ssl.truststore.type=\"PEM\"", "")
       .replace("connections.max.reauth.ms: 900000", "connections.max.reauth.ms: 60000")
-    assert(listener.contains(JwksUrl) && listener.contains("reauth.ms: 60000"), listener)
+    assert(
+      listener.contains(JwksUrl) && listener.contains("reauth.ms: 60000") && !listener.contains(
+        "truststore"
+      ),
+      listener
+    )
     patch(
       "kafkanodepool",
       "dual",

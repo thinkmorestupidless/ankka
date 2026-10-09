@@ -114,6 +114,20 @@ the log from its `appliedUpTo`, so a closed channel is a retried one, never a lo
   `ankka-keyring` and its own Postgres beside the sidecar (image like the sidecar's: a released SDK's
   version, `ankka-keyring:latest` unreleased, `ANKKA_KEYRING_IMAGE` over both), so a generated project's
   personal field is written in its own tests. Build `keyring/Docker/publishLocal` before them.
+- **A platform `Main` must load `ClusterConfig.load()`, never `ConfigFactory.load()`.** Only the former
+  carries the cluster overlay, so with the latter `ankka.tls.service-directory` is empty in a cluster: the
+  keyring read the control plane's log trusting the JDK's authorities (`PKIX path building failed`) and was
+  never ready. Found only by `ErasureClusterFeatures`; offline nothing has certificates.
+- **The control plane is an ankka application, so `ANKKA_KEYRING_URL` made its runtime open a channel**,
+  which the keyring refuses the platform's identity — and the control plane was never ready. It builds with
+  `ServiceBuilder.withoutKeyring`; any other platform application that calls the keyring must too.
+- **The keyring replays on a thread of its own and is not ready until both copies answered.** Throwing from
+  `start` put it in a crash loop whose back-off outlasted the control plane's start. Until the replay is done
+  a channel is closed `replaying`, and readiness resets on every start (`ReplaySuite`).
+- **A token decides who asks for an erasure.** A member's request can arrive from inside the cluster on a
+  workload's certificate; only a request with no `Authorization` is taken as the service's own.
+- **A descriptor's instance count is `service.resources.autoscaling.minInstances`**, and an unknown field
+  is ignored, not refused: a suite that put it elsewhere ran one instance and waited ten minutes for two.
 - **Every test kit runs the JVM's `InMemoryKeyring` by default.** A suite that runs the keyring, or a
   service with its own channel, passes `keyring = None` to every other kit, or the JVM default scope sees
   two projects and fails closed.

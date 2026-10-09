@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.effect.*
 import com.thinkmorestupidless.ankka.sdk.*
@@ -85,11 +86,13 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
 
   /** Invokes a one-argument handler. */
   def call[I, O](handle: CommandHandle[C, I, O])(input: I): CommandResult[S, E, O] =
-    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, Metadata.empty)
+    scoped(
+      run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, Metadata.empty)
+    )
 
   /** Invokes a no-argument handler. */
   def call[O](handle: NoArgHandle[C, O]): CommandResult[S, E, O] =
-    run(handle, Array.emptyByteArray, handle.outputSerializer, Metadata.empty)
+    scoped(run(handle, Array.emptyByteArray, handle.outputSerializer, Metadata.empty))
 
   /**
    * Invokes a handler with command metadata, as a caller using `withMetadata` would.
@@ -100,10 +103,10 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
   def call[I, O](handle: CommandHandle[C, I, O], metadata: Metadata)(
       input: I
   ): CommandResult[S, E, O] =
-    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, metadata)
+    scoped(run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, metadata))
 
   def call[O](handle: NoArgHandle[C, O], metadata: Metadata): CommandResult[S, E, O] =
-    run(handle, Array.emptyByteArray, handle.outputSerializer, metadata)
+    scoped(run(handle, Array.emptyByteArray, handle.outputSerializer, metadata))
 
   /**
    * Runs a handler named on the wire, from and to bytes — what a test transport routing real calls
@@ -118,8 +121,17 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
         Left(CommandError(s"no handler '$name' on '${companion.componentId}'", ErrorCode.NotFound))
       case Some(binding) =>
         // The identity serializer makes `run`'s reply round-trip yield the encoded reply itself.
-        run(binding, payload, Serializer.bytes, Metadata.empty).reply
+        scoped(run(binding, payload, Serializer.bytes, Metadata.empty)).reply
           .map(_.getOrElse(Array.emptyByteArray))
+
+  /**
+   * Inside the shared in-memory keyring's scope, project `local`, unless the test set its own: a
+   * personal field in an input or a reply round-trips as it would in a service.
+   */
+  private def scoped[T](body: => T): T =
+    PersonalScope.capture match
+      case Some(_) => body
+      case None    => PersonalScope.within(InMemoryKeyring.shared.handle, "local")(body)
 
   private def run[O](
       binding: HandlerBinding[C],

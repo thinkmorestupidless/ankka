@@ -49,7 +49,56 @@ final class AgentRuntime private (
     judgments: Judgments,
     variables: String => Option[String] = sys.env.get,
     blueprintsBuilder: Option[blueprint.BlueprintContext => blueprint.BlueprintRegistry] = None
-) extends RuntimeExtension:
+) extends RuntimeExtension
+    with com.thinkmorestupidless.ankka.runtime.erasure.ErasureDuty:
+
+  @volatile private var erasureClient: Option[com.thinkmorestupidless.ankka.sdk.ComponentClient] =
+    None
+
+  /**
+   * The erasure's duty in a service's agents (feature 042): every session started with the subject
+   * forgets what it held of them, and every task started with them that has not ended is cancelled,
+   * the instance working on it terminated. Found through the subject's index, written as each was
+   * tagged.
+   */
+  def eraseSubject(
+      project: String,
+      subject: String
+  ): com.thinkmorestupidless.ankka.runtime.erasure.ErasureDuty.Result =
+    val _ = project
+    erasureClient.fold(com.thinkmorestupidless.ankka.runtime.erasure.ErasureDuty.Result()) {
+      client =>
+        val index = client
+          .forEventSourcedEntity(EntityId(subject))
+          .call(SubjectIndexEntity.get)
+          .invoke()
+        index.sessions.foreach(session =>
+          client
+            .forEventSourcedEntity(EntityId(session))
+            .call(SessionMemoryEntity.forget)
+            .invoke(subject): Unit
+        )
+        val stopped = index.tasks.flatMap { taskId =>
+          val task = client
+            .forEventSourcedEntity(EntityId(taskId))
+            .call(autonomous.TaskEntity.get)
+            .invoke()
+          if task.status.terminal then None
+          else
+            client
+              .forEventSourcedEntity(EntityId(taskId))
+              .call(autonomous.TaskEntity.cancel)
+              .invoke(autonomous.TaskEntity.Cancel(s"data subject $subject was erased")): Unit
+            task.assignee
+        }
+        stopped.distinct.foreach(a =>
+          autonomous
+            .forAutonomousAgent(client)(ComponentId(a.componentId), a.instanceId)
+            .terminate(): Unit
+        )
+        com.thinkmorestupidless.ankka.runtime.erasure.ErasureDuty
+          .Result(sessionsMarked = index.sessions.size, instancesStopped = stopped.distinct.size)
+    }
 
   @volatile private var blueprintCalls: Option[blueprint.BlueprintCalls] = None
   @volatile private var runCalls: Option[blueprint.RunCalls]             = None
@@ -152,6 +201,7 @@ final class AgentRuntime private (
 
   def start(service: AnkkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
+    erasureClient = Some(service.componentClient)
 
     judgments.default.foreach { provider =>
       system.log.info(
@@ -513,6 +563,7 @@ object AgentRuntime:
   def descriptors: Seq[ComponentDescriptor] =
     Seq(
       SessionMemoryEntity.descriptor,
+      SubjectIndexEntity.descriptor,
       autonomous.TaskEntity.descriptor,
       autonomous.InstanceEntity.descriptor,
       autonomous.TaskCascade.descriptor,
@@ -1001,6 +1052,16 @@ final class AgentCalls private[agent] (
           MethodName("assign-subject"),
           SessionMemoryEntity.assignSubject.inputSerializer.toBytes(subject),
           Metadata.empty
+        )
+        .flatMap(_ =>
+          // Indexed under the subject, so its erasure finds this session among the others.
+          transport.ask(
+            SubjectIndexEntity.componentId,
+            EntityId(subject),
+            MethodName("add-session"),
+            SubjectIndexEntity.addSession.inputSerializer.toBytes(sessionId),
+            Metadata.empty
+          )
         )
         .map(_ => ()),
       transport.askTimeout

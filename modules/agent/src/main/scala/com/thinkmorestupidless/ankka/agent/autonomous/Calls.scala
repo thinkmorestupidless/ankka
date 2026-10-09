@@ -159,9 +159,19 @@ final case class TaskBuilder[R] private[autonomous] (
     id: Option[String],
     attachments: Vector[Attachment],
     dependencies: Vector[String],
-    definition: Option[TaskDefinition] = None
+    definition: Option[TaskDefinition] = None,
+    subject: Option[String] = None
 ):
   def withId(taskId: String): TaskBuilder[R] = copy(id = Some(taskId))
+
+  /**
+   * The data subject the task is about (feature 042): its instructions, attachments and result are
+   * kept under the subject's key, and an erasure of the subject cancels the task and terminates the
+   * instance working on it.
+   */
+  def withSubject(subject: String): TaskBuilder[R] =
+    com.thinkmorestupidless.ankka.core.personal.DataSubject.require(subject)
+    copy(subject = Some(subject))
 
   /**
    * The agent's definition for this task alone; the platform's blueprints give their work steps
@@ -197,8 +207,21 @@ final case class TaskBuilder[R] private[autonomous] (
       .forEventSourcedEntity(EntityId(taskId))
       .call(TaskEntity.createTask)
       .invoke(
-        TaskEntity.Create(task.name, instructions, attachments, dependencies.distinct, definition)
+        TaskEntity.Create(
+          task.name,
+          instructions,
+          attachments,
+          dependencies.distinct,
+          definition,
+          subject
+        )
       )
+    subject.foreach(s =>
+      client
+        .forEventSourcedEntity(EntityId(s))
+        .call(com.thinkmorestupidless.ankka.agent.SubjectIndexEntity.addTask)
+        .invoke(taskId): Unit
+    )
     val ended = dependencies.distinct.iterator
       .map(dep =>
         dep -> client

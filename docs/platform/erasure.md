@@ -166,8 +166,22 @@ componentClient.forAgent(sessionId).withSubject("player/8c1f").call(Support.chat
 ```
 
 Every turn of a tagged session is kept under the subject's key. After the subject is erased the session's
-history reads as nothing, and a new turn starts with only a note that the earlier conversation was erased.
-What a session sent to its model provider is beyond the installation and beyond an erasure.
+history reads as nothing, and a new turn starts with only a note that the earlier conversation was erased;
+the turns after it are kept as a session's with no data subject.
+
+A task for an autonomous agent is tagged the same way, when it is created:
+
+```scala
+componentClient.tasks.create(Tasks.resolve, instructions).withSubject("player/8c1f").create()
+```
+
+Its instructions, attachments and result are kept under the subject's key. An erasure of the subject
+cancels each of its tasks that has not ended and terminates the agent instance working on it; the tasks'
+instructions and results read as nothing from then on.
+
+A session started with no data subject cannot be erased: nothing ties its conversation to a person, so no
+erasure reaches it. Tag every session that is about someone. What a session sent to its model provider is
+beyond the installation and beyond an erasure.
 
 ## Other projects and machines outside
 

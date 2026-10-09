@@ -37,7 +37,23 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       ResultRejected("sources must not be empty", 2, usage, 5L),
       Completed("""{"answer":"3"}""", 3, usage, 6L),
       Failed("iteration budget of 5 exhausted", 5, usage, 7L),
-      Cancelled("cancelled by caller", 8L)
+      Cancelled("cancelled by caller", 8L),
+      // A task started with a data subject: pinned erased, the one form of a personal field with
+      // no random nonce in it.
+      CreatedFor(
+        "t-3",
+        "answer",
+        "player/8c1f",
+        com.thinkmorestupidless.ankka.core.personal.Personal.Erased("player/8c1f", Some("local")),
+        Vector.empty,
+        9L
+      ),
+      CompletedFor(
+        com.thinkmorestupidless.ankka.core.personal.Personal.Erased("player/8c1f", Some("local")),
+        3,
+        usage,
+        10L
+      )
     )
 
   private val instanceEvents: Vector[InstanceEvent] =
@@ -108,7 +124,13 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       taskEvents.map(_.ordinal).distinct.sorted,
       taskEvents.map(_.ordinal).distinct.sorted.indices.toVector
     )
-    assertEquals(TaskEvent.Cancelled("", 0L).ordinal, taskEvents.map(_.ordinal).max)
+    val lastTask = TaskEvent.CompletedFor(
+      com.thinkmorestupidless.ankka.core.personal.Personal.Erased("x"),
+      0,
+      usage,
+      0L
+    )
+    assertEquals(lastTask.ordinal, taskEvents.map(_.ordinal).max)
     val last = InstanceEvent.ApprovalDecided("", Decision("", approved = true, by = "x", at = 0L))
     assertEquals(last.ordinal, instanceEvents.map(_.ordinal).max)
     assertEquals(instanceEvents.map(_.ordinal).distinct.size, last.ordinal + 1)

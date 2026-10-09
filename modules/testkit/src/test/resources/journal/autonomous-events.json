@@ -7,6 +7,8 @@ task-event {"type":"ResultRejected","reason":"sources must not be empty","iterat
 task-event {"type":"Completed","result":"{\"answer\":\"3\"}","iterations":3,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":6}
 task-event {"type":"Failed","reason":"iteration budget of 5 exhausted","iterations":5,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":7}
 task-event {"type":"Cancelled","reason":"cancelled by caller","at":8}
+task-event {"type":"CreatedFor","id":"t-3","typeName":"answer","subject":"player/8c1f","input":{"subject":"player/8c1f","project":"local"},"dependencies":[],"at":9}
+task-event {"type":"CompletedFor","result":{"subject":"player/8c1f","project":"local"},"iterations":3,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":10}
 agent-instance-event {"type":"Created","terminateWhenDone":true,"at":1}
 agent-instance-event {"type":"TasksAssigned","taskIds":["t-1","t-2"],"at":2}
 agent-instance-event {"type":"TaskDequeued","taskId":"t-2","reason":"cancelled by caller","at":3}

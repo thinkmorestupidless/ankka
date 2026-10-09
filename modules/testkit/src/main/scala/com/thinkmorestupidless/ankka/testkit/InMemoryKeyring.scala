@@ -161,6 +161,19 @@ final class InMemoryKeyring:
       channels = channels.filterNot(_ eq this)
     }
 
+  /**
+   * This keyring as one service's handle with no channel: what an entity's unit test kit serializes
+   * personal fields under, outside any running service. Every project's subjects, no grants asked.
+   */
+  lazy val handle: com.thinkmorestupidless.ankka.core.personal.KeyringHandle =
+    val direct = Channel()
+    new com.thinkmorestupidless.ankka.core.personal.KeyringHandle:
+      def key(project: String, subject: String, create: Boolean): KeyResult =
+        direct.fetch(project, subject, create)
+      def lookupKey(project: String): Array[Byte] = direct.lookupKey(project)
+      override def isDestroyed(project: String, subject: String): Boolean =
+        InMemoryKeyring.this.synchronized(tombstones.contains((project, subject)))
+
   private def fresh(): Array[Byte] =
     val key = new Array[Byte](32)
     random.nextBytes(key)

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.effect.*
 import com.thinkmorestupidless.ankka.sdk.*
@@ -26,10 +27,19 @@ final class KeyValueEntityTestKit[C <: KeyValueEntity[S], S] private (
   def lastRetention: Option[Retention] = retention
 
   def call[I, O](handle: CommandHandle[C, I, O])(input: I): StateResult[S, O] =
-    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer)
+    scoped(run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer))
 
   def call[O](handle: NoArgHandle[C, O]): StateResult[S, O] =
-    run(handle, Array.emptyByteArray, handle.outputSerializer)
+    scoped(run(handle, Array.emptyByteArray, handle.outputSerializer))
+
+  /**
+   * Inside the shared in-memory keyring's scope, project `local`, unless the test set its own: a
+   * personal field in an input, the state or a reply round-trips as it would in a service.
+   */
+  private def scoped[T](body: => T): T =
+    PersonalScope.capture match
+      case Some(_) => body
+      case None    => PersonalScope.within(InMemoryKeyring.shared.handle, "local")(body)
 
   private def run[O](
       binding: HandlerBinding[C],

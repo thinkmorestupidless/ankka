@@ -4,6 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, J
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.core.personal.{Personal, PersonalScope}
 import com.thinkmorestupidless.ankka.sdk.*
 
 /** Where a task is in its life. Completed, failed and cancelled are final. */
@@ -61,9 +62,23 @@ final case class TaskRecord(
     startedAt: Option[Long],
     endedAt: Option[Long],
     /** The agent's definition for this task alone, when the task carries one. */
-    definition: Option[TaskDefinition] = None
+    definition: Option[TaskDefinition] = None,
+    /**
+     * The data subject the task was started with (feature 042): its instructions, attachments and
+     * result are kept under the subject's key.
+     */
+    subject: Option[String] = None,
+    /** The subject is erased: the instructions, attachments and result read as nothing. */
+    erased: Boolean = false
 ):
   def exists: Boolean = createdAt > 0L
+
+  /** As read once the subject is erased: what was the person's is gone, the rest stays. */
+  def forgotten: TaskRecord =
+    copy(instructions = "", attachments = Vector.empty, result = None, erased = true)
+
+/** What a task started with a data subject keeps under the subject's key. */
+final case class TaskInput(instructions: String, attachments: Vector[Attachment])
 
 object TaskRecord:
   val empty: TaskRecord = TaskRecord(
@@ -104,6 +119,20 @@ enum TaskEvent:
   case Failed(reason: String, iterations: Int, usage: TokenUsage, at: Long)
   case Cancelled(reason: String, at: Long)
 
+  /** A task started with a data subject (feature 042): what was asked is under its key. */
+  case CreatedFor(
+      id: String,
+      typeName: String,
+      subject: String,
+      input: Personal[TaskInput],
+      dependencies: Vector[String],
+      at: Long,
+      definition: Option[TaskDefinition] = None
+  )
+
+  /** Such a task's result, under the same key. */
+  case CompletedFor(result: Personal[String], iterations: Int, usage: TokenUsage, at: Long)
+
 /**
  * The record of one task. The platform registers it; nothing in a service writes to it directly.
  *
@@ -134,6 +163,28 @@ final class TaskEntity(context: EventSourcedEntityContext)
           dependencies = dependencies,
           createdAt = at,
           definition = definition
+        )
+      case E.CreatedFor(id, typeName, subject, input, dependencies, at, definition) =>
+        val created = TaskRecord.empty.copy(
+          id = id,
+          typeName = typeName,
+          dependencies = dependencies,
+          createdAt = at,
+          definition = definition,
+          subject = Some(subject)
+        )
+        input.toOption.fold(created.forgotten)(i =>
+          created.copy(instructions = i.instructions, attachments = i.attachments)
+        )
+      case E.CompletedFor(result, iterations, usage, at) =>
+        s.copy(
+          status = Completed,
+          result = result.toOption,
+          reason = None,
+          iterations = iterations,
+          usage = usage,
+          endedAt = Some(at),
+          erased = s.erased || result.isErased
         )
       case E.DependentAdded(id) =>
         if s.dependents.contains(id) then s else s.copy(dependents = s.dependents :+ id)
@@ -178,8 +229,8 @@ final class TaskEntity(context: EventSourcedEntityContext)
     else if request.dependencies.contains(taskId) then
       effects.error(s"task '$taskId' cannot depend on itself")
     else
-      effects
-        .persist(
+      val created = request.subject match
+        case None =>
           E.Created(
             taskId,
             request.typeName,
@@ -189,8 +240,17 @@ final class TaskEntity(context: EventSourcedEntityContext)
             now(),
             request.definition
           )
-        )
-        .thenReply(_ => Done)
+        case Some(subject) =>
+          E.CreatedFor(
+            taskId,
+            request.typeName,
+            subject,
+            Personal.present(subject, TaskInput(request.instructions, request.attachments)),
+            request.dependencies.distinct,
+            now(),
+            request.definition
+          )
+      effects.persist(created).thenReply(_ => Done)
 
   /**
    * Records that another task depends on this one.
@@ -246,9 +306,19 @@ final class TaskEntity(context: EventSourcedEntityContext)
     withTask { s =>
       s.status match
         case InProgress | ResultRejected =>
-          effects
-            .persist(E.Completed(request.result, request.iterations, request.usage, now()))
-            .thenReply(_ => Done)
+          val completed = s.subject match
+            case None => E.Completed(request.result, request.iterations, request.usage, now())
+            // Erased while the task ran: its result is the person's too, and is not kept.
+            case Some(subject) if subjectErased =>
+              E.Cancelled(s"data subject $subject was erased", now())
+            case Some(subject) =>
+              E.CompletedFor(
+                Personal.present(subject, request.result),
+                request.iterations,
+                request.usage,
+                now()
+              )
+          effects.persist(completed).thenReply(_ => Done)
         case other => refuse(s"cannot complete a task that is ${other.wire}")
     }
 
@@ -269,8 +339,13 @@ final class TaskEntity(context: EventSourcedEntityContext)
     }
 
   def get: ReadOnlyEffect[TaskRecord] =
-    if currentState.exists then effects.reply(currentState)
-    else effects.error(s"no task '$taskId'", ErrorCode.NotFound)
+    if !currentState.exists then effects.error(s"no task '$taskId'", ErrorCode.NotFound)
+    // Erased since this instance read it: nothing of the person's is answered.
+    else if subjectErased then effects.reply(currentState.forgotten)
+    else effects.reply(currentState)
+
+  private def subjectErased: Boolean =
+    currentState.subject.exists(s => PersonalScope.isDestroyed(None, s))
 
   private def withTask[R](f: TaskRecord => Effect[R]): Effect[R] =
     if currentState.exists then f(currentState)
@@ -297,7 +372,9 @@ object TaskEntity
       instructions: String,
       attachments: Vector[Attachment] = Vector.empty,
       dependencies: Vector[String] = Vector.empty,
-      definition: Option[TaskDefinition] = None
+      definition: Option[TaskDefinition] = None,
+      /** The data subject the task is about (feature 042), whose key keeps what it is asked. */
+      subject: Option[String] = None
   )
   final case class AddDependent(taskId: String)
 

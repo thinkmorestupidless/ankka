@@ -109,10 +109,41 @@ final class KeyringRuntime(state: KeyringState) extends RuntimeExtension:
   override def readiness: Option[() => Boolean] = Some(() => state.ready)
 
   def start(service: AnkkaService): Unit =
+    // Not ready until this start's replay has run, whatever an earlier start of the same state
+    // reached: a restored database must be erased again before anything is answered from it.
+    state.ready = false
     if state.applySchema then Schema(service.system)
     state.attach(service)
     state.channels.start(service.system)
     state.keys.rootKey: Unit
+    // A copy that cannot be read yet — the control plane still starting beside it — is asked again
+    // until it answers; meanwhile the keyring is not ready and answers nothing. Exiting instead put
+    // it in a crash loop whose back-off outlasted the control plane's start.
+    replayThread = Some(
+      Thread
+        .ofPlatform()
+        .daemon()
+        .name("ankka-keyring-replay")
+        .start(() =>
+          var done = false
+          while !done && !Thread.currentThread().isInterrupted do
+            try
+              replay(service)
+              done = true
+            catch
+              case scala.util.control.NonFatal(e) =>
+                service.system.log.warn(
+                  "keyring replay: a copy of the erasure log cannot be read yet, trying again: {}",
+                  e.getMessage
+                )
+                try Thread.sleep(5000)
+                catch case _: InterruptedException => Thread.currentThread().interrupt()
+        )
+    )
+
+  @volatile private var replayThread: Option[Thread] = None
+
+  private def replay(service: AnkkaService): Unit =
     val fromControlPlane = state.logSources.controlPlane
     val fromBucket       = state.logSources.bucket
     val union = (fromControlPlane.getOrElse(Vector.empty) ++ fromBucket.getOrElse(Vector.empty))
@@ -134,7 +165,9 @@ final class KeyringRuntime(state: KeyringState) extends RuntimeExtension:
     )
     state.ready = true
 
-  override def stop(): Unit = state.channels.stop()
+  override def stop(): Unit =
+    replayThread.foreach(_.interrupt())
+    state.channels.stop()
 
 object Keyring:
   val components: Vector[ComponentDescriptor] =

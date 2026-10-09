@@ -43,7 +43,19 @@ object ConformanceBucket:
       secretKey: String
   )
 
-  private lazy val started: Started =
+  // Started on first use and again after a stop: a target stops it when it stops, and the suite runs
+  // more than once in one JVM, so a second run must not be handed the first run's stopped container.
+  private var current: Option[Started] = None
+
+  private def started: Started = synchronized {
+    current.filter(_.container.isRunning).getOrElse {
+      val fresh = start()
+      current = Some(fresh)
+      fresh
+    }
+  }
+
+  private def start(): Started =
     val c = new GenericContainer(DockerImageName.parse(Image))
     c.withCopyToContainer(Transferable.of(garageConfig.getBytes(UTF_8)), "/etc/garage.toml")
     c.withEnv("GARAGE_RPC_SECRET", "0" * 64)
@@ -84,4 +96,7 @@ object ConformanceBucket:
       started.secretKey
     )
 
-  def stop(): Unit = if started.container.isRunning then started.container.stop()
+  def stop(): Unit = synchronized {
+    current.filter(_.container.isRunning).foreach(_.container.stop())
+    current = None
+  }

@@ -167,6 +167,11 @@ final class KeyringEndpoint(clients: EndpointClients, state: KeyringState) exten
             if !callerProject.exists(p => p == "*" || p == project) then
               socket.send(ChannelWire.writeIn(ChannelWire.In.Close("not-admitted")))
               next = None
+            else if !state.ready then
+              // Not a key before the log is replayed: one might be a destroyed subject's. The
+              // instance reconnects, as it does after any close.
+              socket.send(ChannelWire.writeIn(ChannelWire.In.Close("replaying")))
+              next = None
             else
               val readable = reads.toSet.filter(other => state.grants.allows(project, other))
               val open = OpenChannel(

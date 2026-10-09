@@ -110,9 +110,22 @@ final class KeyringClient(
   private val sending = new Object
 
   private def send(out: Out): Unit =
-    socket match
+    awaitOpen() match
       case Some(ws) => sending.synchronized(ws.sendText(write(out), true).join()): Unit
       case None     => throw KeyringClient.unavailable("the channel to the keyring is not open")
+
+  /**
+   * The channel, waiting for it as long as an answer is waited for: one that is opening — a service
+   * just started, or reconnecting after the keyring closed it — is moments away, and a write in
+   * that moment is not a keyring outage.
+   */
+  private def awaitOpen(): Option[WebSocket] =
+    val deadline = System.nanoTime() + answerWithin.toNanos
+    var current  = socket
+    while current.isEmpty && !closed && System.nanoTime() < deadline do
+      Thread.sleep(50)
+      current = socket
+    current
 
   private def ask(make: Long => Out): In =
     val id     = ids.incrementAndGet()

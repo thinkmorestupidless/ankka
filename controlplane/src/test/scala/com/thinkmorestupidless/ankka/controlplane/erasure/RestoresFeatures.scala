@@ -272,8 +272,10 @@ class RestoresFeatures
   }
   Then("the keyring answers no request for a subject key until it has applied the erasure log") {
     () =>
-      // Ready only after the replay: `restoreDatabase` returned on readiness, and it replayed.
-      assert(keyringState.ready && keyringState.replayed >= 1, keyringState.replayed.toString)
+      // Ready only after the replay, which runs on a thread of its own once the keyring starts; a
+      // channel opened before then is closed "replaying" (KeyringSuite).
+      keyringKit.eventually("the keyring's replay")(Option.when(keyringState.ready)(())): Unit
+      assert(keyringState.replayed >= 1, keyringState.replayed.toString)
   }
   Then("afterwards the keyring holds no subject key for {string}") { (named: String) =>
     val key = keyringKit.componentClient
@@ -302,7 +304,10 @@ class RestoresFeatures
     unionState = KeyringState(Grants.none, behind, ackWithin = 10.seconds, applySchema = false)
   }
   When("the keyring applies the erasure log") { () =>
-    AnkkaTestKit.start(Keyring.components, Seq(KeyringRuntime(unionState)), keyring = None).stop()
+    val kit =
+      AnkkaTestKit.start(Keyring.components, Seq(KeyringRuntime(unionState)), keyring = None)
+    try kit.eventually("the keyring's replay")(Option.when(unionState.ready)(()))
+    finally kit.stop()
   }
   Then("it applies every entry that either copy holds") { () =>
     assertEquals(unionState.replayed, logEntries(controlPlane).size)

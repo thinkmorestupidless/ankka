@@ -31,7 +31,9 @@ final class ComponentDescriptorsSuite extends FunSuite:
         "ankka-blueprint-ask",
         "ankka-blueprint-worker",
         "ankka-blueprint-runs",
-        "ankka-blueprint-schedule"
+        "ankka-blueprint-schedule",
+        // Erasure (feature 042): which sessions and tasks are about each data subject.
+        "ankka-subject-index"
       )
     )
     descriptors.foreach(d => assert(d.platform, s"$d should be a platform component"))
@@ -40,7 +42,7 @@ final class ComponentDescriptorsSuite extends FunSuite:
   test("the session compactor, registered only with compaction, is the platform's too") {
     val descriptors =
       AgentRuntime().withCompaction(CompactionSettings(), Some(_ => "summary")).descriptors
-    assertEquals(descriptors.size, 12, descriptors.toString)
+    assertEquals(descriptors.size, 13, descriptors.toString)
     descriptors.foreach(d => assert(d.platform, s"$d should be a platform component"))
   }
 

@@ -2055,7 +2055,9 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("topic-relay", "topic:conformance-topic-relayed", "topic-publication"),
         // A topic on a declared broker is named with it (feature 037).
         ("topic:legacy/conformance-contracts", "contract-relay", "topic-subscription"),
-        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication")
+        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication"),
+        // Personal fields (feature 042): the member's email, kept by a row for lookup.
+        ("member", "member-rows", "events")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap

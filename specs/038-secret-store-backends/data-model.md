@@ -116,22 +116,26 @@ rows left. The report is held in memory and served in the observe document until
 `move` is absent when no phase is set. Values never appear; names do (they are what `services get`
 shows today for a `secretKeyRef` problem, which the lifecycle rules already permit).
 
-## AnkkaService spec and status (crd) — Group A fields, Group B phases
+## The move's ledger (the service's own database)
 
 ```
-AnkkaServiceSpec.secretsRemoved: Boolean                 // desired state: the control plane projects it
-SecretStoreStatus(phase: String, detail: Option[String])
-AnkkaServiceStatus.secretStore: Option[SecretStoreStatus]
+ankka_secret_moves(name TEXT PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now())
 ```
 
-`secretsRemoved` is projected by the control plane once an instance of the service reported the
-removal step (`Removed` in the observe document → `SecretsMoved` event on the `Service` entity →
-`ServiceProjection`); the operator refuses to render a service with it set on the Postgres backend
-(FR-021). The move's phase and outcome are not on the resource: `services get` reads them from the
-observe document through the control plane. `status.secretStore.phase`: `Waiting` (secret access
-requested, not ready), `Ready`, `Failed` (the provider's reason), `Supplied` (Postgres backend:
-nothing requested) — Group B. Declared in `ankkaservice.yaml`; `CrdSchemaSuite` holds both to each
-other.
+Made by the move when it first runs, as the role the service connects as; names only, never a value.
+A row per service secret kept on the Secret Manager backend during a move that the database does not
+hold (reported as `only-in-secret-manager` by a service set back to Postgres), and the row
+`*removed*` — a name no secret can have — once the removal step has run. An instance on the Postgres
+backend that finds `*removed*` refuses to start through `StartRefusal`, naming the time and the
+setting to change (FR-021); the operator reports it as the service's detail, as any start refusal.
+Not in the service schema's seven-list DDL: it exists only in a database that has moved.
+
+## AnkkaService status (crd) — Group B
+
+`SecretStoreStatus(phase, detail)` on `AnkkaServiceStatus`, for the provider's answer to a secret
+access request (`Waiting`, `Ready`, `Failed`), is spec 044's work and comes with T065. The move's
+phase and outcome are not on the resource: `services get` reads them from the instances' topology
+document (`secretStore`) through the control plane.
 
 ## Installation status (control plane `GET /platform`)
 

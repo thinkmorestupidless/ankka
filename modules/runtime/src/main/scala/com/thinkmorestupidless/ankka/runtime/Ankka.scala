@@ -263,22 +263,34 @@ final class ServiceBuilder private[ankka] (
     // Every read, keep and removal is recorded before it returns: with the control plane in a
     // cluster, in the log and in memory on a developer's machine.
     val readRecorder = ReadRecorder.from(system.settings.config)
-    val builtSecrets = SecretStores.build(
-      SecretStores.Inputs(
-        system.settings.config,
-        serviceIdentity,
-        secretKey,
-        NoDatabase.declared(system.settings.config),
-        () => Database()(using system),
-        readRecorder,
-        conversation.fold(remote.Conversation.Embedded)(_.hosting),
-        id =>
-          registry.components
-            .find(_.componentId.toString == id)
-            .map(d => SecretStores.kindWord(d.kind.toString))
-      )
-    )
+    // A start the secret store refuses — a service on the Postgres backend whose rows a move
+    // removed — is written where the operator reads why the pod stopped.
+    val builtSecrets =
+      try
+        SecretStores.build(
+          SecretStores.Inputs(
+            system.settings.config,
+            serviceIdentity,
+            secretKey,
+            NoDatabase.declared(system.settings.config),
+            () => Database()(using system),
+            readRecorder,
+            conversation.fold(remote.Conversation.Embedded)(_.hosting),
+            id =>
+              registry.components
+                .find(_.componentId.toString == id)
+                .map(d => SecretStores.kindWord(d.kind.toString))
+          )
+        )
+      catch
+        case refused: IllegalStateException =>
+          StartRefusal.refuse(refused.getMessage, IllegalStateException(_))
     val secrets: SecretStore = builtSecrets.recorded
+    // A move of the service's secrets holds readiness until its phase has run to its end.
+    builtSecrets.move.foreach { move =>
+      ExtensionsReadiness(system).registerExplained(move.readiness)
+      move.start()
+    }
 
     // And the one client for other services that every component which may call one is given.
     val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))

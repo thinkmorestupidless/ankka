@@ -42,6 +42,14 @@ private[ankka] final class DatabaseSecretStore(
     run(name)(database.execute(SecretStoreSql.delete(name))): Unit
     log.debug("removed the secret '{}'", name)
 
+  /** Every name the table holds: what a move copies and checks. */
+  private[ankka] def names(): Vector[String] =
+    run("*")(database.query(SecretStoreSql.names)(_.get(0, classOf[String])))
+
+  /** Removes every row: the last step of a move, once every name has been checked equal. */
+  private[ankka] def deleteAll(): Long =
+    run("*")(database.execute(SecretStoreSql.deleteAll))
+
   private def required: SecretKey =
     key.getOrElse(
       throw CommandError(
@@ -83,3 +91,6 @@ private[ankka] object SecretStoreSql:
 
   def delete(name: String): SqlFragment =
     SqlFragment.raw("DELETE FROM ankka_secrets WHERE name = ") ++ sql"$name"
+
+  val names: SqlFragment     = SqlFragment.raw("SELECT name FROM ankka_secrets ORDER BY name")
+  val deleteAll: SqlFragment = SqlFragment.raw("DELETE FROM ankka_secrets")

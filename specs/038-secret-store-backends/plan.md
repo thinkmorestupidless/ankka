@@ -157,7 +157,7 @@ cli/src/main/scala/.../cli/
 └── Output.scala                     # secretReads(rows, format)
 
 crd/src/main/scala/.../crd/
-└── AnkkaService.scala               # + secretsRemoved on the spec (Group A); SecretStoreStatus (phase, detail) on the status (Group B)
+└── AnkkaService.scala               # SecretStoreStatus (phase, detail) on the status (Group B, with 044)
 kustomization/components/crd/ankkaservice.yaml       # + status.secretStore (CrdSchemaSuite)
 
 operator/src/main/scala/.../operator/
@@ -260,14 +260,12 @@ Each item names the spec requirement it answers and the research entry it rests 
 - `remove`: `CopyCheck` first; all equal → `DELETE FROM ankka_secrets`; else leave rows.
 - The observe document gains `secretStore: {backend, move: {phase, outcome, names: [{name,
   state}]}, keyRead: Boolean}`; the control plane folds it into `services get` under `secretStore`.
-- Switching back (FR-021): the setting is the ConfigMap's, so the refusal is the operator's at
-  render time. The control plane learns `Removed` from the observe document (`StatusIngest`),
-  records it on the `Service` entity (`SecretsMoved` event, a name and a time, no value) and
-  projects it as **desired state**, `AnkkaServiceSpec.secretsRemoved: true` — the control plane
-  owns the spec and holds no write on the status. The operator's `Rendering.render` answers
-  `Left("secrets of <service> live only in Secret Manager")` for `settings.secretBackend ==
-  Postgres && spec.secretsRemoved`, and the service is `Failed` with that detail, naming the
-  service. `status.secretStore` carries the provider's phase only.
+- Switching back (FR-021): the removal step leaves a mark in the service's own database (the
+  ledger, `ankka_secret_moves`), and an instance on the Postgres backend that finds it refuses to
+  start through `StartRefusal`. The rollout stops at that service with the reason as its detail,
+  whoever changed the setting, and nothing outside the service has to learn of the removal.
+  (Decided in implementation: the earlier design projected the removal from `services get`, a read,
+  into desired state; the mark is simpler and holds even with the control plane away.)
 
 ### 5. Project secrets (FR-015–FR-016b; R9)
 

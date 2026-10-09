@@ -40,8 +40,14 @@ private[ankka] object SecretStores:
       underlying: SecretStore,
       backend: SecretBackend,
       project: String,
-      service: String
-  )
+      service: String,
+      /** A move of the service's secrets, when one is set: started by the host, ready when done. */
+      move: Option[SecretMove] = None,
+      /** On the Postgres backend after a move set back: the names only Secret Manager holds. */
+      rolledBack: Option[MoveReport] = None
+  ):
+    /** What the instance reports of its move: the move's, or the set-back one. */
+    def moveReport: Option[MoveReport] = move.map(_.report).orElse(rolledBack)
 
   /** A component kind as a record names it: `EventSourcedEntity` is `event-sourced-entity`. */
   def kindWord(kind: String): String =
@@ -54,17 +60,37 @@ private[ankka] object SecretStores:
   def build(inputs: Inputs): Built =
     val config  = inputs.config
     val backend = SecretBackend.from(config).fold(p => throw IllegalArgumentException(p), b => b)
-    val (underlying, project, service) = backend match
+    val phase = MovePhase
+      .parse(config.getString(MovePhase.Key))
+      .fold(p => throw IllegalArgumentException(p), p => p)
+    lazy val database = inputs.database()
+    lazy val ledger   = MoveLedger(database, timeout(config))
+    val (underlying, project, service, move, rolledBack) = backend match
       case SecretBackend.Postgres =>
         val (project, service) = recordedAs(inputs.identity)
         // A service with no database (feature 037) keeps no secrets on this backend.
-        val store =
-          if inputs.noDatabase then SecretStore.unavailable
-          else DatabaseSecretStore(inputs.database(), inputs.secretKey, timeout(config))
-        (store, project, service)
+        if inputs.noDatabase then (SecretStore.unavailable, project, service, None, None)
+        else
+          val store = DatabaseSecretStore(database, inputs.secretKey, timeout(config))
+          // A service whose rows were removed by a move must not start where nothing holds them.
+          val rolledBack = SecretStores.afterMove(ledger, s"$project/$service")
+          (store, project, service, None, rolledBack)
       case SecretBackend.SecretManager =>
         val (project, service) = whose(config, inputs.identity)
-        (secretManager(config, project, service), project, service)
+        val target             = secretManager(config, project, service)
+        phase match
+          case None => (target, project, service, None, None)
+          case Some(p) =>
+            if inputs.noDatabase then
+              throw IllegalArgumentException(
+                s"${PlatformVariables.SecretMove} is ${p.word}, and this service declares no " +
+                  "database, so it has no secrets to move"
+              )
+            val rows = DatabaseSecretStore(database, inputs.secretKey, timeout(config))
+            val move = SecretMove(p, rows, target, ledger, retryEvery(config))
+            // Until the removal step, a secret kept in Secret Manager alone is remembered by name.
+            val store = if p == MovePhase.Remove then target else MovingStore(target, rows, ledger)
+            (store, project, service, Some(move), None)
     val recorded =
       if underlying eq SecretStore.unavailable then underlying
       else
@@ -77,7 +103,27 @@ private[ankka] object SecretStores:
           backend,
           inputs.kindOf
         )
-    Built(recorded, underlying, backend, project, service)
+    Built(recorded, underlying, backend, project, service, move, rolledBack)
+
+  private def retryEvery(config: Config): FiniteDuration =
+    val key = "ankka.secrets.move-retry"
+    if config.hasPath(key) then FiniteDuration(config.getDuration(key).toMillis, "ms")
+    else FiniteDuration(5, "s")
+
+  /**
+   * On the Postgres backend: refuses the start after a removal step; reports the names only Secret
+   * Manager holds after a move set back before one. A database that cannot be asked is not a reason
+   * to refuse a service that has never moved, so only the removal mark stops a start.
+   */
+  private def afterMove(ledger: => MoveLedger, service: String): Option[MoveReport] =
+    try Some(SecretMove.onPostgres(ledger, service)).filter(_.names.nonEmpty)
+    catch
+      case refused: IllegalStateException => throw refused
+      case scala.util.control.NonFatal(e) =>
+        org.slf4j.LoggerFactory
+          .getLogger(SecretStores.getClass)
+          .warn("could not ask whether this service's secrets were moved: {}", e.getMessage)
+        None
 
   /** Whose reads a record names on the Postgres backend, where a local run may have no project. */
   private def recordedAs(identity: Either[String, ServiceIdentity]): (String, String) =

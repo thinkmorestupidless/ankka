@@ -95,7 +95,8 @@ final class ServiceEndpoint(
         status.copy(
           undeclaredTopics = Some(used.filterNot(declared.keySet)),
           topicChecks = Some(TopicChecks.ofService(declared, status.name, read)),
-          topicSources = Some(ServiceEndpoint.topicSourcesOf(read))
+          topicSources = Some(ServiceEndpoint.topicSourcesOf(read)),
+          secretStore = read.flatMap(_.secretStore).headOption
         )
 
   /**

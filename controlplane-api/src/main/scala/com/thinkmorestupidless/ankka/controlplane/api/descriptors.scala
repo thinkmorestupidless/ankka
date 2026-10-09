@@ -895,6 +895,11 @@ final case class ServiceStatus(
      */
     undeclaredTopics: Option[Vector[String]] = None,
     /**
+     * Where the service keeps its secrets, and what a move of them did, as an instance reports it
+     * (feature 038): `None` when none answered, and on a listing row.
+     */
+    secretStore: Option[SecretStoreReport] = None,
+    /**
      * Each side this service's components take on a declared topic with a contract (feature 037):
      * whether what the component states is the declared contract. From the running instances, as
      * `undeclaredTopics` is: `None` when none answered, and on a listing row.
@@ -1268,8 +1273,39 @@ final case class InstanceTopologyDocument(
     declared: Vector[DeclaredEdge],
     calls: Vector[CallEdge],
     /** Feature 037: each topic source of the instance, with how far behind it is. */
-    topicSources: Vector[TopicSourceReport] = Vector.empty
+    topicSources: Vector[TopicSourceReport] = Vector.empty,
+    /** Feature 038: where the instance keeps its secrets, and what a move of them did. */
+    secretStore: Option[SecretStoreReport] = None
 )
+
+/**
+ * Where a service's instance keeps its secrets (feature 038): the backend, whether its secret key
+ * is read, and — during a move to Secret Manager — the phase it ran, its outcome and each name's
+ * state. Names and states only; never a value.
+ */
+final case class SecretStoreReport(
+    backend: String,
+    keyRead: Boolean,
+    move: Option[SecretMoveReport] = None
+)
+
+/**
+ * What a move of a service's secrets did when the instance started: `copied`, `checked`, `removed`,
+ * `refused` (a removal held back by a difference, named in `detail`), `unreachable`, `running`, or
+ * `rolled-back` (set back to the Postgres backend, naming what only Secret Manager holds).
+ */
+final case class SecretMoveReport(
+    phase: String,
+    outcome: String,
+    names: Vector[SecretMoveName] = Vector.empty,
+    detail: Option[String] = None
+)
+
+/**
+ * One name in a move: `equal`, `different`, `missing-in-secret-manager` or
+ * `only-in-secret-manager`.
+ */
+final case class SecretMoveName(name: String, state: String)
 
 /**
  * A topic source as an instance reports it (feature 037): what reads which topic under which group,

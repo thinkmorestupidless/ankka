@@ -118,11 +118,60 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         processPort = Some(3000),
         broker = Some("provisioned"),
         undeclaredTopics = Some(Vector("cart-checkouts")),
+        secretStore = Some(
+          SecretStoreReport(
+            "secret-manager",
+            keyRead = true,
+            Some(
+              SecretMoveReport(
+                "remove",
+                "refused",
+                Vector(SecretMoveName("acme", "equal"), SecretMoveName("stripe", "different")),
+                Some("not removed: stripe differs from Secret Manager")
+              )
+            )
+          )
+        ),
         objectStorage = Some("provisioned"),
         bucket = Some("shop.cart"),
         bucketAddress = Some("https://storage.example.com/shop.cart")
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
+    ),
+    fixture(
+      "SecretReadsPage",
+      SecretReadsPage(
+        Vector(
+          com.thinkmorestupidless.ankka.core.secrets.ReadRecord(
+            at,
+            "shop",
+            "cart",
+            "embedded",
+            "psp/acme/api-key",
+            "get",
+            "read",
+            "secret-manager",
+            Some("4bf92f3577b34da6a3ce929d0e0e4736"),
+            Some("00f067aa0ba902b7"),
+            Some("charge"),
+            Some("workflow"),
+            latestSkipped = true
+          )
+        )
+      ),
+      SecretReadsPage(Vector.empty)
+    ),
+    fixture(
+      "PlatformStatus",
+      PlatformStatus(
+        "secret-manager",
+        "gcp",
+        Some("spinvibe-prod"),
+        Some("europe-west2"),
+        "365d",
+        PlatformStatus.AuditLogOn
+      ),
+      PlatformStatus("postgres", "none", secretRecordRetention = "365d")
     ),
     fixture(
       "MountStatus",

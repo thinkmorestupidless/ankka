@@ -178,3 +178,57 @@ class TopologyWireSuite extends munit.FunSuite with LogCapturing:
     assertEquals(TopologyMerge.percentile(add.histogram, 0.99), add.durationMillis.p99)
     assertEquals(TopologyMerge.max(add.histogram), add.durationMillis.max)
   }
+
+  private def renderWith(secretStore: Option[String]): String =
+    TopologyJson.render(
+      "cart",
+      "4242",
+      "2026-10-01T10:00:00Z",
+      ComponentRegistry.fromOrThrow(Vector.empty),
+      Vector.empty,
+      CallCounts(600_000L, 60, 0L).snapshot(1L),
+      _ => None,
+      secretStore = secretStore
+    )
+
+  test(
+    "an instance's secret store, and what a move of its secrets did, arrive as the runtime wrote them"
+  ) {
+    import com.thinkmorestupidless.ankka.runtime.secrets.{MoveReport, SecretBackend, SecretStores}
+    val built = SecretStores.Built(
+      SecretStore.unavailable,
+      SecretStore.unavailable,
+      SecretBackend.SecretManager,
+      "shop",
+      "cart",
+      rolledBack = Some(
+        MoveReport(
+          "remove",
+          MoveReport.Refused,
+          Vector("acme" -> "equal", "stripe" -> "different"),
+          Some("not removed: stripe differs from Secret Manager")
+        )
+      )
+    )
+    val json   = renderWith(Some(TopologyJson.secretStore(built)))
+    val report = readFromString[InstanceTopologyDocument](json).secretStore.getOrElse(fail(json))
+    assertEquals(report.backend, "secret-manager")
+    assertEquals(report.keyRead, false)
+    assertEquals(
+      report.move,
+      Some(
+        SecretMoveReport(
+          "remove",
+          "refused",
+          Vector(SecretMoveName("acme", "equal"), SecretMoveName("stripe", "different")),
+          Some("not removed: stripe differs from Secret Manager")
+        )
+      )
+    )
+  }
+
+  test("an instance with nothing to say of its secrets says nothing, as an older one did") {
+    val json = renderWith(None)
+    assertEquals(readFromString[InstanceTopologyDocument](json).secretStore, None)
+    assert(!json.contains("secretStore"), json)
+  }

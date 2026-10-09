@@ -125,6 +125,25 @@ export const mountStatusSchema = z.object({
 });
 export type MountStatus = z.infer<typeof mountStatusSchema>;
 
+/** One name in a move of a service's secrets to Secret Manager, and how the two compare. */
+export const secretMoveNameSchema = z.object({ name: z.string(), state: z.string() });
+
+/** What a move of a service's secrets did when its instance started; names and states, never a value. */
+export const secretMoveReportSchema = z.object({
+  phase: z.string(),
+  outcome: z.string(),
+  names: z.array(secretMoveNameSchema).default([]),
+  detail: optional(z.string()),
+});
+
+/** Where a service's instance keeps its secrets, and what a move of them did. */
+export const secretStoreReportSchema = z.object({
+  backend: z.string(),
+  keyRead: z.boolean(),
+  move: optional(secretMoveReportSchema),
+});
+export type SecretStoreReport = z.infer<typeof secretStoreReportSchema>;
+
 export const serviceStatusSchema = z.object({
   name: z.string(),
   projectId: z.string(),
@@ -148,6 +167,8 @@ export const serviceStatusSchema = z.object({
   broker: optional(z.string()),
   /** Topics the service's components use that its project does not declare; absent when not read. */
   undeclaredTopics: optional(z.array(z.string())),
+  /** Where the service keeps its secrets, and what a move of them did, from its instances; absent when not read. */
+  secretStore: optional(secretStoreReportSchema),
   /** Each side the service takes on a declared topic with a contract, checked against it; absent when not read. */
   topicChecks: optional(z.array(z.lazy(() => topicCheckSchema))),
   /** Each topic source of the service with how far behind it is, from its instances; absent when not read. */
@@ -463,6 +484,39 @@ export const projectSecretSummarySchema = z.object({
 });
 export type ProjectSecretSummary = z.infer<typeof projectSecretSummarySchema>;
 
+/** The record of one read, keep or removal of a service secret: never its value. */
+export const readRecordSchema = z.object({
+  at: z.string(),
+  project: z.string(),
+  service: z.string(),
+  hosting: z.string(),
+  name: z.string(),
+  operation: z.string(),
+  outcome: z.string(),
+  backend: z.string(),
+  traceId: optional(z.string()),
+  spanId: optional(z.string()),
+  component: optional(z.string()),
+  componentKind: optional(z.string()),
+  latestSkipped: z.boolean().default(false),
+});
+export type ReadRecord = z.infer<typeof readRecordSchema>;
+
+/** The record of a project's secret reads, newest first, as an owner reads it. */
+export const secretReadsPageSchema = z.object({ records: z.array(readRecordSchema).default([]) });
+export type SecretReadsPage = z.infer<typeof secretReadsPageSchema>;
+
+/** The installation's status: where it keeps its secrets, its cloud, the record's retention. */
+export const platformStatusSchema = z.object({
+  secretBackend: z.string(),
+  cloudProvider: z.string(),
+  cloudAccount: optional(z.string()),
+  cloudLocation: optional(z.string()),
+  secretRecordRetention: z.string(),
+  auditLog: z.string().default("unknown"),
+});
+export type PlatformStatus = z.infer<typeof platformStatusSchema>;
+
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -508,4 +562,6 @@ export const schemasByType: Record<string, z.ZodType> = {
   Contract: contractSchema,
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,
+  SecretReadsPage: secretReadsPageSchema,
+  PlatformStatus: platformStatusSchema,
 };

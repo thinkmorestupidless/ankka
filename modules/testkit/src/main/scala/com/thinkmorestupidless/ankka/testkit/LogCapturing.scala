@@ -142,6 +142,18 @@ private[testkit] object LogCapture:
     dropped = 0
   }
 
+  /**
+   * Every line captured so far in this test, with any exception's message: what a suite searches to
+   * show a value was never logged. Empty when capture is off (`ankka.test.logs=all`).
+   */
+  def capturedText: String = lock.synchronized {
+    events.asScala
+      .map(e =>
+        e.getFormattedMessage + Option(e.getThrowableProxy).fold("")(t => " " + t.getMessage)
+      )
+      .mkString("\n")
+  }
+
   /** Replays what was captured to the appenders it was taken from, under a header. */
   def print(header: String): Unit =
     val (captured, lost, targets) = lock.synchronized {

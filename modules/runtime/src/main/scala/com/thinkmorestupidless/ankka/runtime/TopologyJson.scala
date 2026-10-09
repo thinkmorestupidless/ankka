@@ -56,8 +56,26 @@ object TopologyJson:
       service.routes,
       observability.calls.snapshot(System.currentTimeMillis()),
       observability.names.nameOf,
-      TopicSources(service.system).all
+      TopicSources(service.system).all,
+      service.secretStores.map(secretStore)
     )
+
+  /**
+   * Where the instance keeps its secrets and, during a move, what the move did: the backend,
+   * whether the secret key is read, the phase, the outcome and each name's state. Names and states,
+   * never a value.
+   */
+  private[ankka] def secretStore(built: secrets.SecretStores.Built): String =
+    val keyRead = built.backend == secrets.SecretBackend.Postgres ||
+      built.move.exists(m => m.report.outcome != secrets.MoveReport.Removed)
+    val move = built.moveReport.fold("") { report =>
+      val names = report.names
+        .map((name, state) => s"""{"name":${Json.str(name)},"state":${Json.str(state)}}""")
+        .mkString("[", ",", "]")
+      s""","move":{"phase":${Json.str(report.phase)},"outcome":${Json.str(report.outcome)},""" +
+        s""""names":$names""" + report.detail.fold("")(d => s""","detail":${Json.str(d)}""") + "}"
+    }
+    s"""{"backend":${Json.str(built.backend.word)},"keyRead":$keyRead$move}"""
 
   /** Who a call is from when nobody can say. A node of its own, and never a guess at one. */
   val UnknownNode: String = "unknown"
@@ -78,7 +96,9 @@ object TopologyJson:
       routes: Vector[ServedRoute],
       calls: CallCounts.Snapshot,
       nameOf: Int => Option[String],
-      topicSources: Vector[TopicSourceStatus] = Vector.empty
+      topicSources: Vector[TopicSourceStatus] = Vector.empty,
+      /** The instance's secret store, as `secretStore` renders it (feature 038). */
+      secretStore: Option[String] = None
   ): String =
     // An endpoint is drawn from the routes it serves. A remote one is also in the registry, by the
     // id it was declared with; listing it from there as well would draw it twice.
@@ -122,7 +142,9 @@ object TopologyJson:
       s""""calls":${observed.edges.mkString("[", ",", "]")},""" +
       // Feature 037: each topic source with how far behind it is, read by the control plane with
       // the rest of the document.
-      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}}"""
+      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}""" +
+      // Feature 038: where the instance keeps its secrets, and what a move of them did.
+      secretStore.fold("")(s => s""","secretStore":$s""") + "}"
 
   private def topicSource(s: TopicSourceStatus): String =
     s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +

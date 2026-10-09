@@ -568,9 +568,10 @@ environment; assert they pass on both backends, the Secret Manager one through t
   plane's record of the project secret MUST be unchanged by the move.
 - **FR-021**: The platform MUST refuse to switch an installation's backend while any service has
   completed its removal step, naming the services, since its database then holds no copy. The
-  control plane records a service's removal step from the status its instances report and projects
-  it as desired state, so the operator — which never reads an instance — can refuse to render that
-  service on the Postgres backend. Before a
+  service records its removal step in its own database, by a mark and no value, and an instance
+  that finds the mark on the Postgres backend refuses to start, saying so where the platform reports
+  why a service is not ready — so the rollout of the switch stops at each such service, named, whoever
+  changed the setting. Before a
   service's removal step a switch back to Postgres is a rollback: the service MUST read its rows
   again, and its status MUST name each service secret kept since its copy, which Secret Manager
   alone holds.

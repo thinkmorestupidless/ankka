@@ -38,8 +38,28 @@ final class AnkkaTestKit private (
     /** The secret key the running service was started with, or `None` for none. */
     private var currentKey: Option[String],
     /** Where the service keeps its service secrets. */
-    val secretBackend: SecretBackendChoice
+    private var backendChoice: SecretBackendChoice
 ):
+
+  /** Configuration laid over the kit's for every start from now on, by `restartOn`. */
+  private var overlay: Config = ConfigFactory.empty()
+
+  /** Where the service keeps its service secrets now. */
+  def secretBackend: SecretBackendChoice = backendChoice
+
+  /**
+   * Stops the service and starts it again on `secretBackend`, with `settings` above everything — a
+   * move's phase, say — as an installation whose settings changed would restart it. The database is
+   * the same one, so what the service kept there is still there.
+   */
+  def restartOn(
+      secretBackend: SecretBackendChoice,
+      settings: Config = ConfigFactory.empty()
+  ): Unit =
+    stopService()
+    backendChoice = secretBackend
+    overlay = settings.withFallback(SecretBackendChoice.settings(secretBackend))
+    startService()
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
@@ -96,7 +116,8 @@ final class AnkkaTestKit private (
   private[testkit] def databaseLog: String = SharedPostgres.logs
 
   /** The configuration the service runs with, for a suite that starts a second one beside it. */
-  private[testkit] def serviceConfig: Config = AnkkaTestKit.withSecretKey(config, currentKey)
+  private[testkit] def serviceConfig: Config =
+    AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), currentKey)
 
   /**
    * Opens a socket to `path` on the service's HTTP server, which must be one of its extensions. A
@@ -164,7 +185,7 @@ final class AnkkaTestKit private (
           "pekko.remote.artery.canonical.port"     -> "0"
         ).asJava
       )
-      .withFallback(AnkkaTestKit.withSecretKey(config, currentKey))
+      .withFallback(AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), currentKey))
       .resolve()
     AnkkaTestKit.Peer(
       AnkkaTestKit.hostService(descriptors, extensions, configure, peerConfig, readyTimeout)
@@ -219,7 +240,7 @@ final class AnkkaTestKit private (
       descriptors,
       extensions,
       configure,
-      AnkkaTestKit.withSecretKey(config, secretKey),
+      AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), secretKey),
       readyTimeout
     )
 

@@ -123,3 +123,94 @@ class ObjectStorageDescriptorSuite extends munit.FunSuite:
         spec.hosting
       )
   }
+
+  // Feature 039: origins, declining a credential, and an age for noncurrent versions.
+
+  private val asking = base.copy(provisionObjectStorage = true)
+
+  test(
+    "a descriptor that says nothing of them names no origins, takes a credential and keeps every version"
+  ) {
+    val spec = decode("""{"image":"reports:1","provisionObjectStorage":true}""")
+    assertEquals(spec.objectStorageOrigins, Vector.empty[String])
+    assertEquals(spec.objectStorageCredential, true)
+    assertEquals(spec.objectStorageVersionAgeDays, None)
+  }
+
+  test("the three round-trip, and each is omitted from the wire at its default") {
+    val says = ServiceDescriptor(
+      "reports",
+      asking.copy(
+        objectStorageOrigins = Vector("https://play.example"),
+        objectStorageCredential = false,
+        objectStorageVersionAgeDays = Some(365)
+      )
+    )
+    val json = writeToString(says)
+    assertEquals(readFromString[ServiceDescriptor](json), says)
+    assert(json.contains("\"objectStorageCredential\":false"), json)
+    val plain = writeToString(ServiceDescriptor("reports", asking))
+    assert(!plain.contains("objectStorageOrigins"), plain)
+    assert(!plain.contains("objectStorageCredential"), plain)
+    assert(!plain.contains("objectStorageVersionAgeDays"), plain)
+  }
+
+  test("each needs provisionObjectStorage, and the refusal names the field") {
+    val cases = Vector(
+      "objectStorageOrigins"    -> base.copy(objectStorageOrigins = Vector("https://play.example")),
+      "objectStorageCredential" -> base.copy(objectStorageCredential = false),
+      "objectStorageVersionAgeDays" -> base.copy(objectStorageVersionAgeDays = Some(30))
+    )
+    for (field, spec) <- cases do
+      assertEquals(
+        problems(spec),
+        Vector(s"$field needs provisionObjectStorage: it describes a bucket the platform makes"),
+        field
+      )
+  }
+
+  test(
+    "an origin is a scheme, a host and perhaps a port, or *; anything else is refused naming it"
+  ) {
+    val good = Vector(
+      "https://play.example",
+      "http://localhost:3000",
+      "https://play.example:8443",
+      "https://a-b.c.example",
+      "*"
+    )
+    assertEquals(problems(asking.copy(objectStorageOrigins = good)), Vector.empty)
+    for bad <- Vector(
+        "play.example",
+        "https://play.example/",
+        "https://play.example/kyc",
+        "ftp://x",
+        ""
+      )
+    do
+      assertEquals(
+        problems(asking.copy(objectStorageOrigins = Vector(bad))),
+        Vector(s"objectStorageOrigins: '$bad' is not an origin"),
+        bad
+      )
+  }
+
+  test("an age for noncurrent versions is a whole number of days, one or more") {
+    assertEquals(problems(asking.copy(objectStorageVersionAgeDays = Some(1))), Vector.empty)
+    for bad <- Vector(0, -1) do
+      assertEquals(
+        problems(asking.copy(objectStorageVersionAgeDays = Some(bad))),
+        Vector(s"objectStorageVersionAgeDays is $bad; it must be one or more"),
+        bad.toString
+      )
+  }
+
+  test("declining a credential is valid for every hosting, in the descriptor's own rules") {
+    // Whether the installation's store allows it is the control plane's to say, at apply.
+    for spec <- Hostings do
+      assertEquals(
+        problems(spec.copy(provisionObjectStorage = true, objectStorageCredential = false)),
+        Vector.empty,
+        spec.hosting
+      )
+  }

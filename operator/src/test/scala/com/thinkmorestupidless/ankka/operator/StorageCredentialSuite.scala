@@ -23,13 +23,18 @@ class StorageCredentialSuite extends munit.FunSuite:
 
   /** The calls made, in order, by both doubles. */
   private class World:
-    val calls        = mutable.ArrayBuffer.empty[String]
-    val keys         = mutable.LinkedHashMap.empty[String, String] // id -> name
-    val allowed      = mutable.Set.empty[String]
-    val secrets      = mutable.Map.empty[(String, String), Map[String, String]]
-    var created      = Option.empty[Secret]
-    var failing      = false
-    private var next = 0
+    val calls                        = mutable.ArrayBuffer.empty[String]
+    val keys                         = mutable.LinkedHashMap.empty[String, String] // id -> name
+    val allowed                      = mutable.Set.empty[String]
+    val secrets                      = mutable.Map.empty[(String, String), Map[String, String]]
+    var created                      = Option.empty[Secret]
+    var failing                      = false
+    val writers                      = mutable.Set.empty[String]
+    val expiries                     = mutable.Map.empty[String, Instant]
+    var cors                         = Seq.empty[String]
+    var now                          = Instant.parse("2026-10-09T10:00:00Z")
+    def expired(id: String): Boolean = expiries.get(id).exists(!_.isAfter(now))
+    private var next                 = 0
 
     val store: ObjectStore = new ObjectStore:
       def bucket(name: String): Option[BucketInfo] =
@@ -46,8 +51,16 @@ class StorageCredentialSuite extends munit.FunSuite:
         IssuedKey(id, s"secret-$next")
       def deleteKey(accessKeyId: String): Unit =
         calls += s"deleteKey $accessKeyId"; keys -= accessKeyId: Unit
-      def allow(bucketId: String, accessKeyId: String): Unit =
-        calls += s"allow $accessKeyId"; allowed += accessKeyId: Unit
+      def allow(bucketId: String, accessKeyId: String, write: Boolean): Unit =
+        calls += (if write then s"allow $accessKeyId" else s"allow-read $accessKeyId")
+        allowed += accessKeyId
+        if write then writers += accessKeyId: Unit
+      def setCors(bucketId: String, origins: Seq[String]): Unit =
+        calls += s"cors ${origins.mkString(",")}"; cors = origins
+      def expire(accessKeyId: String, at: Instant): Unit =
+        calls += s"expire $accessKeyId"; expiries(accessKeyId) = at
+      def keyInfo(accessKeyId: String): Option[KeyInfo] =
+        keys.get(accessKeyId).map(name => KeyInfo(accessKeyId, name, expired(accessKeyId)))
 
     val writer: SecretWriter = new SecretWriter:
       def create(secret: Secret): SecretWriter.Outcome =

@@ -76,6 +76,8 @@ jobs:
               - 'cli/**'
               - 'crd/**'
               - 'operator/**'
+              # The image the operator runs to move a service's objects (feature 039).
+              - 'storage-mover/**'
               - 'kustomization/**'
               - 'docs/**'
               - 'homebrew/**'

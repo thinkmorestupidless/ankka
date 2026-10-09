@@ -159,6 +159,7 @@ object Dependencies {
   val testcontainersPg    = "org.testcontainers" % "postgresql"           % V.testcontainers
   val testcontainersKafka = "org.testcontainers" % "kafka"                % V.testcontainers
   val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
+  val testcontainers      = "org.testcontainers" % "testcontainers"       % V.testcontainers
 
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8" % "kubernetes-client" % V.fabric8

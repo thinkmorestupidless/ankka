@@ -7,12 +7,13 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   InstanceTopologies,
   PodLogReader,
   PodLogs,
+  ServiceProjection,
   TopologyReader
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, RollbackService, ServiceKey}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
-import com.thinkmorestupidless.ankka.crd.{Buckets, Hostnames}
+import com.thinkmorestupidless.ankka.crd.Hostnames
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 
@@ -113,10 +114,10 @@ final class ServiceEndpoint(
           s"descriptor names service '${descriptor.name}' but was applied to '$name'",
           ErrorCode.BadRequest
         )
-      // The bucket's name needs the project, which the descriptor's own rules cannot see.
+      // What the installation's store cannot give needs the project and the installation, which
+      // the descriptor's own rules cannot see; the projection says the same words.
       val problems = descriptor.problems ++
-        (if descriptor.service.provisionObjectStorage then Buckets.problems(projectId, name)
-         else Vector.empty)
+        ServiceProjection.objectStorageProblems(projectId, name, descriptor.service, deploy)
       if problems.nonEmpty then
         throw CommandError(
           problems.mkString("invalid descriptor: ", "; ", ""),

@@ -74,8 +74,10 @@ val ObjectStorePrefix: String = "ANKKA_OBJECT_STORE_PREFIX"
 val ObjectStoreSoftDeleteDays: String = "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"
 ```
 
-All three in `PlatformOnly`: a descriptor may not set them. `ANKKA_S3_` stays declared as 034
-left it.
+In none of the lists: they are the installation's settings, read from the operator's and the
+control plane's own environment, and `PlatformOnly` is exactly what the operator renders on a pod
+(`PlatformVariablesSuite` pins it). A descriptor that gives one gives its program a variable
+nothing reads. `ANKKA_S3_` stays declared as 034 left it.
 
 ## The status a member reads (`ServiceStatus`)
 

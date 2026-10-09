@@ -130,3 +130,111 @@ class SettingsSuite extends munit.FunSuite:
         assert(e.getMessage.contains(bad), e.getMessage)
       }
   }
+
+  // Feature 039: the store new buckets are made in.
+
+  private val gcs = Vector(
+    "ankka.operator.object-store.backend" -> "gcs",
+    "ankka.operator.object-store.prefix"  -> "ankka",
+    "ankka.operator.cloud-provider"       -> "gcp"
+  )
+
+  test("an installation with Garage makes new buckets in Garage, and one with no store in none") {
+    assertEquals(Settings.fromEnvironment().objectStoreBackend, None)
+    withProperties(store*) {
+      assertEquals(Settings.fromEnvironment().objectStoreBackend, Some(ObjectStoreBackend.Garage))
+      assertEquals(Settings.fromEnvironment().gcs, None)
+    }
+  }
+
+  test(
+    "Google Cloud Storage is read with its prefix, a soft-delete window of 7 days, and Google's address"
+  ) {
+    withProperties(gcs*) {
+      val settings = Settings.fromEnvironment()
+      assertEquals(settings.objectStoreBackend, Some(ObjectStoreBackend.Gcs))
+      assertEquals(
+        settings.gcs,
+        Some(GcsSettings("ankka", softDeleteDays = 7, "https://storage.googleapis.com"))
+      )
+      assertEquals(settings.objectStore, None)
+    }
+  }
+
+  test(
+    "Google Cloud Storage beside Garage keeps both: the store a move goes from, and the one it goes to"
+  ) {
+    withProperties((store ++ gcs)*) {
+      val settings = Settings.fromEnvironment()
+      assertEquals(settings.objectStoreBackend, Some(ObjectStoreBackend.Gcs))
+      assert(settings.objectStore.isDefined)
+      assert(settings.gcs.isDefined)
+    }
+  }
+
+  test("the soft-delete window and the address of Google Cloud Storage are read when given") {
+    withProperties(
+      (gcs ++ Vector(
+        "ankka.operator.object-store.soft-delete-days" -> "30",
+        "ankka.operator.object-store.gcs-endpoint"     -> "http://garage.garage-system.svc:3900"
+      ))*
+    ) {
+      assertEquals(
+        Settings.fromEnvironment().gcs,
+        Some(GcsSettings("ankka", 30, "http://garage.garage-system.svc:3900"))
+      )
+    }
+  }
+
+  test("Google Cloud Storage with no cloud provider, or none, fails naming the setting") {
+    for provider <- Vector(None, Some("none")) do
+      withProperties(
+        (gcs.filterNot(_._1 == "ankka.operator.cloud-provider") ++
+          provider.map("ankka.operator.cloud-provider" -> _))*
+      ) {
+        val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+        assert(e.getMessage.contains("ANKKA_CLOUD_PROVIDER"), e.getMessage)
+      }
+  }
+
+  test("Google Cloud Storage with no prefix fails naming the setting") {
+    withProperties(gcs.filterNot(_._1.endsWith("prefix"))*) {
+      val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_OBJECT_STORE_PREFIX"), e.getMessage)
+    }
+  }
+
+  test("a soft-delete window outside 7 to 90 days fails naming the setting and the value") {
+    for bad <- Vector("6", "91", "seven") do
+      withProperties((gcs :+ ("ankka.operator.object-store.soft-delete-days" -> bad))*) {
+        val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+        assert(e.getMessage.contains("ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"), e.getMessage)
+        assert(e.getMessage.contains(bad), e.getMessage)
+      }
+  }
+
+  test("a backend that is neither garage nor gcs fails naming it, and garage needs a store") {
+    withProperties("ankka.operator.object-store.backend" -> "s3") {
+      val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_OBJECT_STORE_BACKEND"), e.getMessage)
+      assert(e.getMessage.contains("s3"), e.getMessage)
+    }
+    withProperties("ankka.operator.object-store.backend" -> "garage") {
+      val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_OBJECT_STORE_ADMIN_URL"), e.getMessage)
+    }
+  }
+
+  test(
+    "the mover's image defaults to the locally built tag, as the sidecar's does, and is read when given"
+  ) {
+    assertEquals(Settings.fromEnvironment().storageMoverImage, "ankka-storage-mover:latest")
+    withProperties(
+      "ankka.operator.storage-mover-image" -> "ghcr.io/example/ankka-storage-mover:1.2.3"
+    ) {
+      assertEquals(
+        Settings.fromEnvironment().storageMoverImage,
+        "ghcr.io/example/ankka-storage-mover:1.2.3"
+      )
+    }
+  }

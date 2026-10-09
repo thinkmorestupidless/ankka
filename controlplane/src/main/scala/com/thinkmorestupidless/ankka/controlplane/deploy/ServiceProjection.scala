@@ -32,6 +32,45 @@ import com.thinkmorestupidless.ankka.crd.{
 object ServiceProjection:
 
   /**
+   * What the installation's object store cannot give a descriptor that asks for a bucket (features
+   * 034 and 039). The descriptor's own rules cannot see the project or the installation; the
+   * control plane's apply says the same words (`objectStorageProblems` there calls this).
+   *
+   * A bucket's name in Garage is `<project>.<service>` and may be too long; one in Google Cloud
+   * Storage is the cloud provider's to make and always fits. Declining a credential needs a store a
+   * service can reach without one, which Garage is not.
+   */
+  def objectStorageProblems(
+      projectId: String,
+      serviceName: String,
+      spec: com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec,
+      config: DeployConfig
+  ): Vector[String] =
+    if !spec.provisionObjectStorage then Vector.empty
+    else
+      config.objectStore match
+        case ObjectStoreKind.Garage =>
+          Buckets.problems(projectId, serviceName) ++
+            Option
+              .when(!spec.objectStorageCredential)(
+                "objectStorageCredential: a bucket in Garage is reached only with a storage credential"
+              )
+              .toVector
+        case ObjectStoreKind.Gcs =>
+          Option
+            .when(config.cloudProvider.isEmpty)(
+              "object storage 'gcs' needs a cloud provider, and the installation names none"
+            )
+            .toVector
+
+  private def objectStorageProblems(
+      service: Service,
+      descriptor: ServiceDescriptor,
+      config: DeployConfig
+  ): Vector[String] =
+    objectStorageProblems(service.projectId, service.name, descriptor.service, config)
+
+  /**
    * A declared runtime outside the platform's supported range refuses the projection: the service
    * is reported `Unavailable` naming both versions and no resource is written, so no pod ever
    * starts against a schema it may not match. Undeclared means unchecked (feature 006).
@@ -84,10 +123,7 @@ object ServiceProjection:
             descriptor.problems ++
             runtimeProblems(descriptor, config) ++
             protocolProblems(descriptor) ++
-            // The bucket's name needs the project, which the descriptor's own rules cannot see.
-            (if descriptor.service.provisionObjectStorage then
-               Buckets.problems(service.projectId, service.name)
-             else Vector.empty)
+            objectStorageProblems(service, descriptor, config)
 
         if problems.nonEmpty then Left(problems)
         else
@@ -170,6 +206,10 @@ object ServiceProjection:
               provisionBroker =
                 !descriptor.service.isWebHosted && !descriptor.service.suppliesBroker,
               provisionObjectStorage = descriptor.service.provisionObjectStorage,
-              exposeObjectStorage = descriptor.service.exposeObjectStorage
+              exposeObjectStorage = descriptor.service.exposeObjectStorage,
+              // Feature 039: what the descriptor says of its bucket, as it says it.
+              objectStorageOrigins = descriptor.service.objectStorageOrigins.toList,
+              objectStorageCredential = descriptor.service.objectStorageCredential,
+              objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays
             )
           )

@@ -25,6 +25,39 @@ final case class ObjectStoreSettings(
   override def toString: String =
     s"ObjectStoreSettings($adminUrl, <token>, $endpoint, $region, $service)"
 
+/** The store an installation makes new buckets in (feature 039). */
+enum ObjectStoreBackend:
+  case Garage, Gcs
+
+object ObjectStoreBackend:
+  /** `garage` or `gcs`, or the value as given when it is neither. */
+  def parse(value: String): Either[String, ObjectStoreBackend] =
+    value.toLowerCase match
+      case "garage" => Right(Garage)
+      case "gcs"    => Right(Gcs)
+      case _        => Left(value)
+
+/**
+ * Google Cloud Storage, as the operator renders a service's bucket in it (feature 039). The bucket
+ * itself, its account and its key are the cloud provider's to make (feature 044); these are what
+ * the operator asks for and tells a workload.
+ *
+ * @param prefix
+ *   the installation's prefix for a bucket's name, which names are shared with every other customer
+ *   of Google's
+ * @param softDeleteDays
+ *   how long a new bucket keeps a deleted object, 7 to 90 days
+ * @param endpoint
+ *   what a workload is given as `ANKKA_S3_ENDPOINT`. Google's address as shipped; a suite points it
+ *   at a store of its own
+ */
+final case class GcsSettings(prefix: String, softDeleteDays: Int, endpoint: String)
+
+object GcsSettings:
+  val GoogleEndpoint: String          = "https://storage.googleapis.com"
+  val DefaultSoftDeleteDays: Int      = 7
+  val SoftDeleteDays: Range.Inclusive = 7 to 90
+
 object ObjectStoreSettings:
 
   /** A Service in another namespace, as a route's backend names it. */

@@ -155,8 +155,24 @@ export const serviceStatusSchema = z.object({
   objectStorage: optional(z.string()),
   bucket: optional(z.string()),
   bucketAddress: optional(z.string()),
+  /** Which store the bucket is in, `garage` or `gcs`, as the operator reported it. */
+  objectStore: optional(z.string()),
+  /** The bucket's location, in Google Cloud Storage. */
+  bucketLocation: optional(z.string()),
+  /** How many days the bucket keeps a deleted object, in Google Cloud Storage. */
+  softDeleteDays: optional(z.number().int()),
+  /** Where a move of the bucket from Garage is, as a phrase; its detail is in `detail`. */
+  storageMove: optional(z.string()),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
+
+/** `POST /services/{project}/{name}/storage/move`: how long the service's writes may be paused. */
+export const storageMoveRequestSchema = z.object({ writePauseBound: optional(z.string()) });
+export type StorageMoveRequest = z.infer<typeof storageMoveRequestSchema>;
+
+/** `PUT /projects/{id}/location`. */
+export const setProjectLocationSchema = z.object({ location: z.string() });
+export type SetProjectLocation = z.infer<typeof setProjectLocationSchema>;
 
 export const historyActorSchema = z.object({
   subject: z.string(),
@@ -480,6 +496,8 @@ export const schemasByType: Record<string, z.ZodType> = {
   HistoryActor: historyActorSchema,
   HistoryEntry: historyEntrySchema,
   RollbackRequest: rollbackRequestSchema,
+  StorageMoveRequest: storageMoveRequestSchema,
+  SetProjectLocation: setProjectLocationSchema,
   RolledBack: rolledBackSchema,
   InstanceLogs: instanceLogsSchema,
   LogsResponse: logsResponseSchema,

@@ -1,0 +1,12 @@
+<configuration>
+  <!-- The mover's standard output ends with its report; logs go to standard error, quietly. -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <root level="WARN">
+    <appender-ref ref="STDERR"/>
+  </root>
+</configuration>

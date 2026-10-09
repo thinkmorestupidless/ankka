@@ -67,6 +67,17 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
    */
   protected def ranElsewhere: Map[String, String] = Map.empty
 
+  /**
+   * Scenarios of this feature that no suite of this repository can run, by name, each with why and
+   * what proves it instead (feature 039: what only a real cloud account can answer, which the cloud
+   * provider's own suite runs against one).
+   *
+   * Reported as ignored with the reason in the test's name, never as passed and never silently: a
+   * skipped check is visible in every run, which is what keeps it from becoming a forgotten one. A
+   * name here that is no scenario of the feature fails the suite, as for `ranElsewhere`.
+   */
+  protected def ranOutside: Map[String, String] = Map.empty
+
   final protected def Given[F](expression: String)(body: F)(using StepBody[F]): Unit =
     define("Given", expression, body)
 
@@ -109,14 +120,22 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
       test(s"$features holds every scenario this suite leaves to another") {
         fail(s"no scenario named ${stale.toVector.sorted.mkString("'", "', '", "'")}")
       }
+    val staleOutside = ranOutside.keySet.diff(scenarios)
+    if staleOutside.nonEmpty then
+      test(s"$features holds every scenario this suite says is run outside it") {
+        fail(s"no scenario named ${staleOutside.toVector.sorted.mkString("'", "', '", "'")}")
+      }
   }
 
   parsed.pickles.foreach { case Located(pickle, uri, line, stepLines) =>
     val elsewhere = ranElsewhere.get(pickle.getName)
-    val name = elsewhere.fold(s"${pickle.getName} ($uri:$line)")(suite =>
-      s"${pickle.getName} ($uri:$line) is run by $suite"
-    )
-    val ignored = elsewhere.isDefined || pickle.getTags.asScala.exists(_.getName == "@ignore")
+    val outside   = ranOutside.get(pickle.getName)
+    val name = (elsewhere, outside) match
+      case (Some(suite), _) => s"${pickle.getName} ($uri:$line) is run by $suite"
+      case (_, Some(why)) => s"${pickle.getName} ($uri:$line) is run outside this repository: $why"
+      case _              => s"${pickle.getName} ($uri:$line)"
+    val ignored = elsewhere.isDefined || outside.isDefined ||
+      pickle.getTags.asScala.exists(_.getName == "@ignore")
     val options = if ignored then name.ignore else munit.TestOptions(name)
     test(options) {
       running = Some(slug(s"$uri-$line"))

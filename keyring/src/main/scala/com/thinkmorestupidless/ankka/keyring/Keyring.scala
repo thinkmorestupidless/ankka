@@ -27,7 +27,16 @@ final class KeyringState(
     val logSources: LogSources,
     ackWithin: scala.concurrent.duration.FiniteDuration =
       scala.concurrent.duration.DurationInt(60).seconds,
-    val applySchema: Boolean = true
+    val applySchema: Boolean = true,
+    /**
+     * The grants machines outside the installation hold (`machine:<org>/<name>`, attribute
+     * `decrypt`): none until spec 040 renders them.
+     */
+    val machines: com.thinkmorestupidless.ankka.runtime.erasure.GrantReader =
+      com.thinkmorestupidless.ankka.runtime.erasure.GrantReader.none,
+    /** Who may call `POST /decrypt`: the machines' issuers' tokens, nobody without them. */
+    val machineAcl: com.thinkmorestupidless.ankka.http.Acl =
+      com.thinkmorestupidless.ankka.http.Acl.DenyAll
 ):
   @volatile private var service: AnkkaService = scala.compiletime.uninitialized
   @volatile var ready: Boolean                = false

@@ -26,7 +26,7 @@ class OtherProjectsFeatures
   override val munitTimeout = 3.minutes
 
   override protected def ranElsewhere: Map[String, String] =
-    val machines = "the machine-token suite of spec 040 (outside machines have no token before it)"
+    val machines = "keyring's DecryptRouteSuite, against the keyring's own route and a test issuer"
     Map(
       "a machine outside the installation with a grant that does not allow decryption reads every personal field as erased" -> machines,
       "a machine outside the installation with a grant that allows decryption asks the keyring to decrypt each field" -> machines,

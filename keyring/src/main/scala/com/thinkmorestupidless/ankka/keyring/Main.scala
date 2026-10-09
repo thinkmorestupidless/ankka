@@ -8,8 +8,14 @@ import com.typesafe.config.ConfigFactory
  * installation, the erasure log's two copies (`ANKKA_ERASURE_LOG_URL`, `ANKKA_S3_*`).
  */
 @main def runKeyring(): Unit =
-  val config  = ConfigFactory.load()
-  val state   = KeyringState(Grants.none, Keyring.logSources(config))
+  val config = ConfigFactory.load()
+  // Machines outside the installation are let in by their issuers' tokens, when the installation
+  // lists any (`ANKKA_AUTH_ISSUERS`); and are let do nothing until spec 040 renders their grants.
+  val machineAcl =
+    if sys.env.get("ANKKA_AUTH_ISSUERS").exists(_.nonEmpty) then
+      com.thinkmorestupidless.ankka.auth.oidc.Oidc.authenticate()
+    else com.thinkmorestupidless.ankka.http.Acl.DenyAll
+  val state   = KeyringState(Grants.none, Keyring.logSources(config), machineAcl = machineAcl)
   val service = Keyring.builder(state).start()
   sys.addShutdownHook(service.terminate())
   scala.concurrent.Await

@@ -113,11 +113,26 @@ destroy, say — and the erasure is then applied at once. An applied request can
 
 The domain decides the date; the platform keeps it.
 
+### A service asking
+
+A service asks for an erasure as code, through the client it calls other services with, and the control
+plane knows it by its certificate and names it as who asked:
+
+```scala
+Erasures.ask(context.services, "brand", "player/8c1f", correlationId = Some("dsar-2031-118"))
+```
+
+It is admitted only by a grant of the `erasure` right in the project it asks in, its own project
+included: a service holds no right to erase merely by being deployed. A request it is not granted is
+refused, and the refusal is kept in the project's history (`ankka projects history -p brand`) beside the
+erasures asked for, applied and failed.
+
 ### A person in two projects
 
 A person known to two projects is two data subjects, and erasing one does not erase the other. The domain
-asks for an erasure in each project, and may give both requests one correlation id so an auditor reading
-either finds the other.
+asks for an erasure in each project, and may give both requests one correlation id. Listing a project's
+erasure requests by correlation id answers the requests of every project the member may read, each with
+where it stands.
 
 ## What a service does of its own
 
@@ -189,6 +204,30 @@ A message published to a topic carries its personal fields encrypted under the p
 and a consumer in another project reads them only under a grant that allows decryption; whatever it keeps
 of them stays encrypted under the producing project's keys, so an erasure there reaches it with no
 request of its own. A consumer without that grant reads every personal field as erased.
+
+The keyring asks the grants at every fetch of a key, not once when a service connects: a grant revoked
+refuses the next fetch, and what a consumer's instances already hold expires from their caches within
+`ankka.erasure.cache.expiry` (5 minutes by default). A grantee is never made a key of the producing
+project; a refused fetch is counted on the subject's key.
+
+### An outside machine
+
+A machine outside the installation never holds a key. With a grant that allows decryption, it asks the
+keyring for one field's value at a time, presenting a token from one of the installation's issuers that
+names it (`machine: <org>/<name>`):
+
+```text
+POST /decrypt
+Authorization: Bearer <token>
+
+{"subject": "player/8c1f", "project": "brand", "data": "<the envelope's data>"}
+```
+
+The keyring answers the value, as the JSON it was written as, and counts the decryption on the subject's
+key. It refuses a machine whose grant does not allow decryption, whose grant was revoked, or whose subject
+has been erased — from the next request on — and counts each refusal. Erasure reaches what the machine
+asks for later; what the machine itself stored of an earlier answer is beyond the platform's reach, and
+erasing it is the machine owner's duty.
 
 ## Backups and restores
 

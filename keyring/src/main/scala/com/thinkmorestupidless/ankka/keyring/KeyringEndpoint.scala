@@ -41,6 +41,41 @@ final class KeyringEndpoint(clients: EndpointClients, state: KeyringState) exten
     if !state.ready then
       throw CommandError("the keyring is replaying its erasure log", ErrorCode.Unavailable)
 
+  /**
+   * A machine outside the installation asks for one personal field's value (FR-028): it presents a
+   * token its issuer signed, naming it `machine` (`<org>/<name>`, the claim spec 040 gives a
+   * machine), and holds a grant of `decrypt` in the envelope's project. The key never leaves; the
+   * value does, once, and every answer and refusal is counted on the subject's key. An erased
+   * subject and a revoked grant are refused alike, from the next request on.
+   */
+  withAcl(state.machineAcl) {
+    postBody[KeyringApi.DecryptRequest, KeyringApi.DecryptReply]("/decrypt") { request =>
+      requireReady()
+      val machine = principal.claims
+        .get("machine")
+        .filter(_.nonEmpty)
+        .getOrElse(throw CommandError("the token names no machine", ErrorCode.Forbidden))
+      val owner  = s"${request.project}/${request.subject}"
+      val entity = client.forKeyValueEntity(EntityId(owner))
+      def refuse(why: String): Nothing =
+        entity.call(SubjectKeyEntity.refused).invoke(): Unit
+        throw CommandError(why, ErrorCode.Forbidden)
+      if !state.machines.allows(s"machine:$machine", request.project, "decrypt") then
+        refuse(s"machine $machine holds no grant to decrypt in project ${request.project}")
+      state.keys.subject(request.project, request.subject, create = false) match
+        case KeyResult.Available(key) =>
+          val stored = Base64.getDecoder.decode(request.data)
+          val aad = com.thinkmorestupidless.ankka.core.personal.PersonalCipher
+            .associated(request.subject, request.project)
+          com.thinkmorestupidless.ankka.core.personal.PersonalCipher.decrypt(key, aad, stored) match
+            case Some(plaintext) =>
+              entity.call(SubjectKeyEntity.decrypted).invoke(): Unit
+              KeyringApi.DecryptReply(String(plaintext, java.nio.charset.StandardCharsets.UTF_8))
+            case None => throw CommandError("the envelope does not open", ErrorCode.BadRequest)
+        case _ => refuse(s"data subject ${request.subject} is erased in project ${request.project}")
+    }
+  }
+
   get("/status") { () =>
     KeyringApi.KeyringStatus(
       state.ready,
@@ -158,8 +193,9 @@ final class KeyringEndpoint(clients: EndpointClients, state: KeyringState) exten
               )
           case ChannelWire.Out.Fetch(id, project, subject, create) =>
             channel.foreach { open =>
-              val admitted = project == open.project || open
-                .reads(project) || state.grants.allows(open.project, project)
+              // The grants as they are now, not as they were at `hello`: a revoked grant refuses the
+              // next fetch, and the service's cache expiry bounds what it still holds (FR-026).
+              val admitted = project == open.project || state.grants.allows(open.project, project)
               val answer =
                 if !admitted then
                   state.refused(project, subject)

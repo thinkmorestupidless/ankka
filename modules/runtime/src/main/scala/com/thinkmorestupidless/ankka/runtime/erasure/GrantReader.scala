@@ -34,5 +34,14 @@ object GrantReader:
   /** These grants and no others: for a test, and for a local run. */
   def of(granted: Grant*): GrantReader = principal => granted.filter(_.principal == principal).toSet
 
+  /**
+   * The grants rendered into `path` (`contracts/grants.md`), re-read when the file changes. Spec
+   * 040 renders them; until it does, no installation has the file and this answers no grant.
+   */
+  def fromFile(path: java.nio.file.Path): GrantReader =
+    // TODO(040): read the rendered grants volume, re-read by mtime, in the shape contracts/grants.md gives.
+    val _ = path
+    none
+
   /** The principal a service is known by in a grant. */
   def service(project: String, name: String): String = s"service:$project/$name"

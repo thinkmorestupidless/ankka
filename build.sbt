@@ -569,7 +569,15 @@ lazy val controlPlane = project
  */
 lazy val keyring = project
   .in(file("keyring"))
-  .dependsOn(sdk, runtime, http, telemetryOtlp, testkit % Test, testPki % Test)
+  .dependsOn(
+    sdk,
+    runtime,
+    http,
+    authOidc % "compile;test->test",
+    telemetryOtlp,
+    testkit % Test,
+    testPki % Test
+  )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

@@ -63,6 +63,12 @@ object KeyringApi:
   )
 
   /** One entry of the erasure log, as the control plane keeps it and the keyring replays it. */
+  /** A personal envelope a machine outside the installation asks the keyring to open. */
+  final case class DecryptRequest(subject: String, project: String, data: String)
+
+  /** Its value, as the JSON the field was written as. */
+  final case class DecryptReply(value: String)
+
   final case class LogEntry(
       erasureId: String,
       project: String,
@@ -71,8 +77,10 @@ object KeyringApi:
       destroyedAt: Long
   )
 
-  given applyCodec: JsonValueCodec[ApplyErasure]          = Codecs.make[ApplyErasure]
-  given statusCodec: JsonValueCodec[ErasureStatus]        = Codecs.make[ErasureStatus]
-  given keyringStatusCodec: JsonValueCodec[KeyringStatus] = Codecs.make[KeyringStatus]
-  given logCodec: JsonValueCodec[Vector[LogEntry]]        = Codecs.make[Vector[LogEntry]]
-  given logEntryCodec: JsonValueCodec[LogEntry]           = Codecs.make[LogEntry]
+  given applyCodec: JsonValueCodec[ApplyErasure]            = Codecs.make[ApplyErasure]
+  given statusCodec: JsonValueCodec[ErasureStatus]          = Codecs.make[ErasureStatus]
+  given keyringStatusCodec: JsonValueCodec[KeyringStatus]   = Codecs.make[KeyringStatus]
+  given logCodec: JsonValueCodec[Vector[LogEntry]]          = Codecs.make[Vector[LogEntry]]
+  given logEntryCodec: JsonValueCodec[LogEntry]             = Codecs.make[LogEntry]
+  given decryptRequestCodec: JsonValueCodec[DecryptRequest] = Codecs.make[DecryptRequest]
+  given decryptReplyCodec: JsonValueCodec[DecryptReply]     = Codecs.make[DecryptReply]

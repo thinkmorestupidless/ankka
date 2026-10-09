@@ -231,7 +231,7 @@ nightly in `ankka-gcp` (named in `ranElsewhere` as not run here).
 - [X] T067 [P] Add a section "A cloud request is rendered like a `KafkaTopic` and answered by a provider" to `.claude/rules/kubernetes.md` (the resource, the two grants, the informer, the withheld Deployment, the dotted project name, the `enqueueAfter`), and every trap T030, T042, T048, T057 taught
 - [X] T068 `just docs` and `just features` green; `sbt scalafmtAll scalafmtSbt`; `sbt -Dankka.cluster.tests=off test` green on the laptop
 - [ ] T069 `gh workflow run cluster --ref 044-cloud-provider-impl` (every suite) green, in particular `OperatorClusterSuite`, `CloudProviderClusterFeatures`, `ObjectStorageClusterFeatures` (Garage unchanged) and `EndToEndClusterSuite`; move every row of research's "Verify first, gathered" to "Verified during implementation"
-- [ ] T070 Review `spec.md` against what was built: the checklist's stale notes (the marker, the hook), SC-003 as reworded (no cloud SDK in any module's compile scope, image or main source; the S3 test client stays), SC-005's claim stays a claim on 038/039/041/042 until they are amended; open the pull request with the summary of plan.md and the attribution lines
+- [X] T070 Review `spec.md` against what was built: the checklist's stale notes (the marker, the hook), SC-003 as reworded (no cloud SDK in any module's compile scope, image or main source; the S3 test client stays), SC-005's claim stays a claim on 038/039/041/042 until they are amended; open the pull request with the summary of plan.md and the attribution lines
 
 ---
 

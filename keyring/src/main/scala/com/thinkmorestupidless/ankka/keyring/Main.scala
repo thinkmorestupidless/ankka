@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.keyring
 
-import com.typesafe.config.ConfigFactory
+import com.thinkmorestupidless.ankka.runtime.ClusterConfig
 
 /**
  * Runs the keyring: `ANKKA_HTTP_PORT` (9020 in its manifest and compose), its own database
@@ -8,7 +8,9 @@ import com.typesafe.config.ConfigFactory
  * installation, the erasure log's two copies (`ANKKA_ERASURE_LOG_URL`, `ANKKA_S3_*`).
  */
 @main def runKeyring(): Unit =
-  val config = ConfigFactory.load()
+  // Layered as the runtime layers it: the overlay is where a cluster's certificate directories are,
+  // and without it the log reader trusted the JDK's authorities, not the installation's.
+  val config = ClusterConfig.load()
   // Machines outside the installation are let in by their issuers' tokens, when the installation
   // lists any (`ANKKA_AUTH_ISSUERS`); and are let do nothing until spec 040 renders their grants.
   val machineAcl =

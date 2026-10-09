@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.controlplane.auth.AuthConfig
-import com.typesafe.config.ConfigFactory
+import com.thinkmorestupidless.ankka.runtime.ClusterConfig
 
 /**
  * Runs the control plane.
@@ -11,7 +11,9 @@ import com.typesafe.config.ConfigFactory
  * http://localhost:8081/realms/ankka), and a reachable Kubernetes cluster to deploy anything.
  */
 @main def runControlPlane(): Unit =
-  val config = ConfigFactory.load()
+  // Layered as the runtime layers it: in a cluster the overlay names the certificate directories,
+  // which the keyring caller presents and trusts.
+  val config = ClusterConfig.load()
   val auth   = AuthConfig.from(config)
   // Both halves together: the acl answers deploy tokens from the index, and the index only fills
   // because it is registered as an extension here. Taking one without the other is the bug this

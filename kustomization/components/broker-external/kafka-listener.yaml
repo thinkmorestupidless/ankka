@@ -37,7 +37,9 @@
     configuration:
       bootstrap:
         host: broker.BASE_DOMAIN
-      hostTemplate: broker-{nodeId}.BASE_DOMAIN
+      # No dash before the node id: sslip.io-style resolvers read `broker-0.127.0.0.1` as the address
+      # 0.127.0.0, which no client reaches.
+      hostTemplate: broker{nodeId}.BASE_DOMAIN
       advertisedPortTemplate: "9094"
       parentRefs:
         - kind: Gateway

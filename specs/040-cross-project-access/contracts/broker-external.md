@@ -31,7 +31,7 @@ Held by `features/cross-project/machine-topics.feature`.
   configuration:
     bootstrap:
       host: broker.<base>
-    hostTemplate: broker-{nodeId}.<base>
+    hostTemplate: broker{nodeId}.<base>
     advertisedPortTemplate: "9094"
     parentRefs:
       - kind: Gateway

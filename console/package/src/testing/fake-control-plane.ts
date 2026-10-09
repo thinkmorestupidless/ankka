@@ -87,6 +87,8 @@ interface Project {
   topics?: Map<string, TopicRecord>;
   /** Declared brokers beside the installation's, by name. */
   brokers?: Map<string, BrokerRecord>;
+  /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+  location?: string;
   hidden: boolean;
 }
 
@@ -210,6 +212,12 @@ interface Service {
   ownObjectStore?: boolean;
   /** The descriptor asked that the bucket be reachable from the internet. */
   exposeObjectStorage?: boolean;
+  /** The store the bucket is in, `garage` or `gcs`, as the operator reports it (feature 039). */
+  objectStore?: string;
+  /** Where its bucket in Google Cloud Storage is. */
+  bucketLocation?: string;
+  /** Where a move of its bucket from Garage is, as the control plane phrases it. */
+  storageMove?: string;
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -303,6 +311,8 @@ export interface FakeControlPlane {
 }
 
 export interface FakeSeed {
+  /** Where the installation keeps new buckets (feature 039); Garage until a suite says otherwise. */
+  objectStore?: "garage" | "gcs";
   organizations?: { id: string; name: string; owners?: string[]; members?: string[]; disabled?: boolean }[];
   projects?: { id: string; name: string; organizationId: string }[];
   services?: {
@@ -325,6 +335,9 @@ export interface FakeSeed {
     provisionObjectStorage?: boolean;
     exposeObjectStorage?: boolean;
     ownObjectStore?: boolean;
+    /** The store its bucket is in, `garage` or `gcs`. */
+    objectStore?: string;
+    bucketLocation?: string;
   }[];
   /** Project secrets, by name and entry: a value each, never listed. */
   secrets?: { projectId: string; name: string; entries: Record<string, string> }[];
@@ -354,6 +367,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   const scripted = new Map<string, { status: number; error: string }[]>();
   let hideNew = false;
   let base = "";
+  let objectStore: "garage" | "gcs" = "garage";
 
   const serviceKey = (p: string, n: string) => `${p}/${n}`;
 
@@ -398,6 +412,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     s.provisionObjectStorage = d.service?.provisionObjectStorage ?? false;
     s.exposeObjectStorage = d.service?.exposeObjectStorage ?? false;
     s.ownObjectStore = (d.service?.env ?? []).some((e) => e.name.startsWith("ANKKA_S3_"));
+    if (s.provisionObjectStorage && !s.objectStore) {
+      s.objectStore = objectStore;
+      if (objectStore === "gcs") s.bucketLocation = projects.get(s.projectId)?.location ?? "europe-west2";
+    }
     s.desiredInstances = d.service?.resources?.autoscaling?.minInstances ?? 1;
     s.lifecycle = s.paused ? "Paused" : "UpdateInProgress";
     s.descriptor = descriptor;
@@ -446,6 +464,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         s.provisionObjectStorage && s.exposeObjectStorage
           ? `https://storage.${options.baseDomain ?? "example.test"}/${s.projectId}.${s.name}`
           : null,
+      objectStore: s.provisionObjectStorage ? (s.objectStore ?? "garage") : null,
+      bucketLocation: s.provisionObjectStorage && s.objectStore === "gcs" ? (s.bucketLocation ?? null) : null,
+      softDeleteDays: s.provisionObjectStorage && s.objectStore === "gcs" ? 7 : null,
+      storageMove: s.storageMove ?? null,
     };
   };
 
@@ -800,6 +822,29 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return "done";
   });
 
+  // A project's bucket location (feature 039): only where new buckets are made in Google Cloud Storage.
+  const requireGcs = () => {
+    if (objectStore !== "gcs") throw new HttpError(409, "the installation keeps new buckets in Garage, which has no location to choose");
+  };
+
+  route("PUT", "/projects/{projectId}/location", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const location = ((body as { location?: string }).location ?? "").trim();
+    if (location === "") throw new HttpError(400, "a location must name something");
+    requireGcs();
+    project.location = location;
+    return "done";
+  });
+
+  route("DELETE", "/projects/{projectId}/location", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    requireGcs();
+    project.location = undefined;
+    return "done";
+  });
+
   // Project secrets: the control plane's rules, its merge, and names only in what it answers.
   const SecretName = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
   const EntryName = /^[A-Za-z0-9._-]{1,253}$/;
@@ -1074,6 +1119,44 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     route("POST", `/services/{projectId}/{name}/${op}`, operation(op));
   }
 
+  // A service's storage (feature 039): the control plane's refusals, and the history it records.
+  const moving = (s: Service) => s.storageMove !== undefined && s.storageMove !== "moved" && s.storageMove !== "move failed";
+
+  route("POST", "/services/{projectId}/{name}/storage-credential", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    if (!s.provisionObjectStorage) throw new HttpError(409, `service '${s.name}' has no storage credential to reissue: its descriptor asks for no bucket`);
+    if (moving(s)) throw new HttpError(409, `the storage of service '${s.name}' is moving`);
+    s.history.push({ kind: "storage-credential-reissued", generation: s.generation, actor: actor(c), at: now() });
+    return serviceStatus(s);
+  });
+
+  route("POST", "/services/{projectId}/{name}/storage/settings", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    if (!s.provisionObjectStorage || s.objectStore !== "gcs")
+      throw new HttpError(409, `the bucket of service '${s.name}' is not in Google Cloud Storage; settings are reapplied there only`);
+    s.history.push({ kind: "storage-settings-reapplied", generation: s.generation, actor: actor(c), at: now() });
+    return serviceStatus(s);
+  });
+
+  route("POST", "/services/{projectId}/{name}/storage/move", (c, p, body) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    if (objectStore !== "gcs") throw new HttpError(409, "the installation keeps new buckets in Garage; there is nowhere to move a bucket to");
+    if (!s.provisionObjectStorage) throw new HttpError(409, `service '${s.name}' has no bucket to move: its descriptor asks for none`);
+    if (moving(s)) throw new HttpError(409, `the storage of service '${s.name}' is moving`);
+    if (s.objectStore === "gcs") throw new HttpError(409, `the bucket of service '${s.name}' is in Google Cloud Storage already`);
+    const bound = (body as { writePauseBound?: string } | undefined)?.writePauseBound ?? "10m";
+    const m = /^(\d+)([smh])$/.exec(bound);
+    if (!m) throw new HttpError(400, `writePauseBound '${bound}' is not a duration such as 90s, 10m or 2h`);
+    const seconds = Number(m[1]) * (m[2] === "s" ? 1 : m[2] === "m" ? 60 : 3600);
+    if (seconds < 60 || seconds > 86400) throw new HttpError(400, `writePauseBound '${bound}' is outside one minute to 24 hours`);
+    s.storageMove = "waiting for its bucket in Google Cloud Storage";
+    s.history.push({ kind: "storage-moved", generation: s.generation, actor: actor(c), at: now() });
+    return serviceStatus(s);
+  });
+
   route("GET", "/services/{projectId}/{name}/logs", (c, p, _body, url) => {
     const { service: s } = requireService(c, p.projectId, p.name);
     if (s.paused || s.readyInstances === 0 && s.logs.size === 0) throw new HttpError(404, `service '${s.name}' has no running instance`);
@@ -1267,6 +1350,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     },
     state: { organizations, projects, services, tokens, tombstones },
     seed(seed) {
+      if (seed.objectStore) objectStore = seed.objectStore;
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
         for (const s of o.owners ?? []) members.set(s, { role: "owner", since: now() });
@@ -1313,6 +1397,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           provisionObjectStorage: s.provisionObjectStorage,
           exposeObjectStorage: s.exposeObjectStorage,
           ownObjectStore: s.ownObjectStore,
+          objectStore: s.objectStore,
+          bucketLocation: s.bucketLocation,
         });
       }
       for (const sec of seed.secrets ?? []) {

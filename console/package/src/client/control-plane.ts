@@ -223,6 +223,16 @@ export class ControlPlaneClient {
     return this.#call("DELETE", `/projects/${segment(id)}/registry`);
   }
 
+  /** Where the project's new buckets in Google Cloud Storage are made; moves no bucket. */
+  setProjectLocation(id: string, location: string): Promise<void> {
+    return this.#call("PUT", `/projects/${segment(id)}/location`, { body: { location } });
+  }
+
+  /** The installation's default location for the project's new buckets again. */
+  clearProjectLocation(id: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/location`);
+  }
+
   /** Entries of a project secret, merged into what it holds. The values are never read back. */
   setProjectSecret(id: string, name: string, entries: Record<string, string>): Promise<void> {
     return this.#call("PUT", `/projects/${segment(id)}/secrets/${segment(name)}`, { body: { entries } });
@@ -293,6 +303,24 @@ export class ControlPlaneClient {
     operation: "pause" | "resume" | "restart" | "expose" | "unexpose",
   ): Promise<void> {
     return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/${operation}`);
+  }
+
+  /** Issues the service's storage credential again; the old one works for the rotation grace. */
+  reissueStorageCredential(projectId: string, name: string): Promise<ServiceStatus> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/storage-credential`, { schema: serviceStatusSchema });
+  }
+
+  /** Applies the installation's current bucket settings to the service's bucket in Google Cloud Storage. */
+  reapplyStorageSettings(projectId: string, name: string): Promise<ServiceStatus> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/storage/settings`, { schema: serviceStatusSchema });
+  }
+
+  /** Moves the service's bucket from Garage to Google Cloud Storage; an omitted bound is the control plane's default. */
+  moveStorage(projectId: string, name: string, writePauseBound?: string): Promise<ServiceStatus> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/storage/move`, {
+      body: writePauseBound ? { writePauseBound } : {},
+      schema: serviceStatusSchema,
+    });
   }
 
   deleteService(projectId: string, name: string): Promise<void> {

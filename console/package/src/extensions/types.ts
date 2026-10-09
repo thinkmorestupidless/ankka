@@ -37,6 +37,11 @@ export const operations = [
   "service.unexpose",
   "service.delete",
   "service.logs",
+  "service.storage-credential",
+  "service.storage-move",
+  "service.storage-settings",
+  "project-location.set",
+  "project-location.clear",
 ] as const;
 export type Operation = (typeof operations)[number];
 

@@ -64,7 +64,9 @@ names are DNS labels, so a prefix can never begin another's, and access is condi
 (`fake:<project>/<service>`, `fake:controlplane`, `fake:provider`). A move (`ANKKA_SECRET_MOVE`) runs at start
 and gates readiness; its ledger, `ankka_secret_moves`, is in the service's own database, and its `*removed*`
 mark makes a Postgres-backend start refuse (`StartRefusal`). Group B — the secret access request, the sync,
-the rollout hold, the audit-log state — waits for spec 044's `CloudResource`.
+the rollout hold, the audit-log state — waits for spec 044's `CloudResource`. `SecretsClusterSuite` (k3s)
+proves the record's path from a pod — the overlay's address, mutual TLS, both network policies — through the
+shopping cart sample's `/secrets` route, which admits only the sample itself and never answers a value.
 
 ## Traps
 

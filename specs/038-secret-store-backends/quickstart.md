@@ -93,15 +93,19 @@ asserts each replacement sets the variable once. Red on a second `PlatformVariab
 ## 8. Kubernetes (k3s), on the `cluster` workflow — never on a pull request
 
 ```bash
-gh workflow run cluster --ref 038-secret-store-backends-impl -f suite=SecretsClusterFeatures
+gh workflow run cluster --ref 038-secret-store-backends-impl -f suite=SecretsClusterSuite
 ```
 
-`controlplane`'s `SecretsClusterFeatures` deploys the sample on the Postgres backend with the
-record's CNPG cluster installed, and asserts: a `get` inside the pod leaves a row in
-`ankka-secret-reads-db`; `ankka projects secret-reads list` shows it to an owner and refuses a deploy
-token; the row survives `services delete`; the control plane refuses a record whose body names
-another service (a probe pod with its own certificate posts it). Group B adds the fake provider
-cases (the hold, the grant's phase in `services get`).
+`controlplane`'s `SecretsClusterSuite` deploys the control plane into k3s with the `secret-reads`
+component, and the sample on the Postgres backend, and asserts: the record's table is made in
+`ankka-secret-reads-db` as the role that owns it; a `get` through the sample's `/secrets` route inside
+the cluster leaves a row; the owner listing (`GET /projects/{id}/secret-reads`, what `ankka projects
+secret-reads list` calls) shows it to an owner and refuses a deploy token; the control plane refuses a
+record whose body names another service (a probe pod with the sample's certificate posts it); a read
+while the control plane is scaled to zero is `503` and leaves no record; the row survives `services
+delete`. A plain munit suite, not a Gherkin one: its cases are named after the scenarios they show.
+Group B adds the fake provider cases (the hold, the grant's phase in `services get`), named in the
+suite and ignored until 044.
 
 ## 9. GKE (outside this repository)
 

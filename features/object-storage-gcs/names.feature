@@ -1,6 +1,6 @@
 Feature: The name of a bucket in Google Cloud Storage
   A bucket's name in Google Cloud Storage is shared with every other customer of Google's and may
-  hold no dot, so it cannot be the project and the service joined by one, as in Garage. The
+  hold no dot, so it cannot be the project and the service joined by one, as in Garage. The cloud
   provider names the bucket from the installation's prefix, the project, the service and a digest
   of the two, and reports the name; nothing else derives it. Two services whose project and name
   would join to the same name without the dot are still given buckets of their own.

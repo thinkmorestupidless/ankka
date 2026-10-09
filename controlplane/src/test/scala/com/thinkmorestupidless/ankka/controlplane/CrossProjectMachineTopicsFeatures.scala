@@ -165,28 +165,31 @@ class CrossProjectMachineTopicsFeatures
     def filled(file: String) =
       Files
         .readString(component.resolve(file))
-        .replace("BASE_DOMAIN", BaseDomain)
+        // Not the variable that carries it: `ANKKA_BASE_DOMAIN` keeps its name.
+        .replaceAll("(?<!ANKKA_)BASE_DOMAIN", BaseDomain)
         .replace("PUBLIC_ISSUER", "ankka-public")
         .replace("\"BROKER_MAX_CONNECTIONS_PER_IP\"", "\"64\"")
         .replace("\"BROKER_EXTERNAL_CONNECTION_RATE\"", "\"20\"")
-        .replace("https://api." + BaseDomain, Issuer)
     apply(filled("certificate.yaml"), "external-certificate")
     // The listener as the component writes it, but for where the keys are read and how soon a token
     // must be renewed: this suite's control plane runs outside the cluster.
     val listener = filled("kafka-listener.yaml")
       .replace(
-        "jwksEndpointUri: https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json",
-        s"jwksEndpointUri: $JwksUrl"
+        "oauth.jwks.endpoint.uri=\"https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json\"",
+        s"oauth.jwks.endpoint.uri=\"$JwksUrl\""
       )
-      .replace("maxSecondsWithoutReauthentication: 900", "maxSecondsWithoutReauthentication: 60")
-      .replace(
-        """      tlsTrustedCertificates:
-          |        # The service authority's certificate, already in this namespace with the broker's own.
-          |        - secretName: ankka-broker-tls
-          |          certificate: ca.crt
-          |""".stripMargin,
-        ""
-      )
+      .replace("connections.max.reauth.ms: 900000", "connections.max.reauth.ms: 60000")
+    assert(listener.contains(JwksUrl) && listener.contains("reauth.ms: 60000"), listener)
+    patch(
+      "kafkanodepool",
+      "dual",
+      Broker,
+      filled("nodepool-options.yaml").replace(
+        "https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json",
+        JwksUrl
+      ),
+      "nodepool-options"
+    ): Unit
     val patched = patch("kafka", "ankka", Broker, listener, "listener")
     // The listener in the broker's spec, or the suite says what kubectl answered.
     val listeners = jsonPath("kafka", "-n", Broker, "ankka", "{.spec.kafka.listeners[*].name}")
@@ -818,9 +821,9 @@ class CrossProjectMachineTopicsFeatures
         "-n",
         Broker,
         "ankka",
-        """{.spec.kafka.listeners[?(@.name=="external")].authentication.maxSecondsWithoutReauthentication}"""
+        """{.spec.kafka.listeners[?(@.name=="external")].authentication.listenerConfig.connections\.max\.reauth\.ms}"""
       )
-      assert(reauth.toIntOption.exists(_ <= minutes.toInt * 60), reauth)
+      assert(reauth.toLongOption.exists(_ <= minutes.toLong * 60 * 1000), reauth)
   }
 
   Then(

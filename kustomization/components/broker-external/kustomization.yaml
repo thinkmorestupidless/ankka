@@ -26,6 +26,11 @@ patches:
       group: kafka.strimzi.io
       kind: Kafka
       name: ankka
+  - path: nodepool-options.yaml
+    target:
+      group: kafka.strimzi.io
+      kind: KafkaNodePool
+      name: dual
   - path: gateway-listener.yaml
     target:
       group: gateway.networking.k8s.io

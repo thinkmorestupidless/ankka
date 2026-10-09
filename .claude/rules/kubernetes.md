@@ -213,6 +213,10 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service
   certificate carries a common name on an installation with a broker — and only there, so nothing else's
   rendering changed.
+- **Strimzi 1.x has no `oauth` listener authentication.** OAUTHBEARER is `type: custom`, `sasl: true`,
+  with strimzi-kafka-oauth's callback handler and its options as one JAAS line; the API server refuses
+  `oauth` by name. A value inside that line cannot be filled by a kustomize delimiter replacement, so
+  the broker-external listener reads its base domain through `${strimzienv:ANKKA_BASE_DOMAIN}`.
 - **Strimzi replaces the broker's pod whenever its listener certificate changes**, measured within 12s. The
   broker's certificate therefore lives a year, not the day every workload's does.
 - **A custom listener trusts an authority by its certificate; Strimzi's own client authority wants the key.**

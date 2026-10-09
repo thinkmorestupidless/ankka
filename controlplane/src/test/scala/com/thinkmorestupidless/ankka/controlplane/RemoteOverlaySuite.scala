@@ -264,9 +264,10 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   test("every base-domain placeholder is substituted") {
     // `BASE_DOMAIN` is the literal the components carry; `ANKKA_BASE_DOMAIN` is an environment
     // variable's *name* and legitimately contains it, so match the placeholder on its own.
+    // A variable's name may appear anywhere (`${strimzienv:ANKKA_BASE_DOMAIN}` reads one).
+    val placeholder = "(?<!ANKKA_)BASE_DOMAIN".r
     val unreplaced = remote.linesIterator
-      .filter(_.contains("BASE_DOMAIN"))
-      .filterNot(_.contains("name: ANKKA_BASE_DOMAIN"))
+      .filter(line => placeholder.findFirstIn(line).isDefined)
       .toVector
     assertEquals(unreplaced, Vector.empty, "a placeholder reached the remote render")
   }
@@ -455,9 +456,23 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       listeners(remote).find(_.get("name") == "external").getOrElse(fail("no external listener"))
     assertEquals(external.get("type"), "tlsroute")
     assertEquals(at(external, "port"), 9094)
-    assertEquals(at(external, "authentication", "type"), "oauth")
-    assertEquals(at(external, "authentication", "userNameClaim"), "broker_user")
-    assertEquals(at(external, "authentication", "validIssuerUri"), "https://api.example.com")
+    // Strimzi 1.x has no `oauth` type: OAUTHBEARER is a custom listener over strimzi-kafka-oauth.
+    assertEquals(at(external, "authentication", "type"), "custom")
+    assertEquals(at(external, "authentication", "sasl"), true)
+    val listenerConfig = at(external, "authentication", "listenerConfig") match
+      case m: java.util.Map[?, ?] => m.asScala.map((k, v) => k.toString -> v.toString).toMap
+      case other                  => fail(s"no listenerConfig: $other")
+    assertEquals(listenerConfig.get("sasl.enabled.mechanisms"), Some("OAUTHBEARER"))
+    val jaas = listenerConfig.getOrElse("oauthbearer.sasl.jaas.config", fail("no JAAS line"))
+    for option <- Seq(
+        "oauth.valid.issuer.uri=\"https://api.${strimzienv:ANKKA_BASE_DOMAIN}\"",
+        "oauth.username.claim=\"broker_user\"",
+        "oauth.jwks.endpoint.uri=\"https://ankka-controlplane.ankka-controlplane.svc:7629/"
+      )
+    do assert(jaas.contains(option), jaas)
+    // The issuer's base domain, filled whole by the overlay: the token names `https://api.<base>`.
+    val env = at(kafka(remote), "spec", "kafka", "template", "kafkaContainer", "env").toString
+    assert(env.contains("name=ANKKA_BASE_DOMAIN") && env.contains("value=example.com"), env)
     assertEquals(at(external, "configuration", "bootstrap", "host"), "broker.example.com")
     val peers = at(external, "networkPolicyPeers").toString
     assert(

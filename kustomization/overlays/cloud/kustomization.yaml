@@ -274,18 +274,22 @@ replacements:
         options:
           delimiter: "."
           index: 1
-      # The broker exposed to machines (feature 040): its listener's hostnames and certificate, and
-      # the issuer every machine token names, which is the control plane's public address.
+      # The broker exposed to machines (feature 040): its listener's hostnames and certificate.
       - select:
           kind: Kafka
           name: ankka
         fieldPaths:
           - spec.kafka.listeners.[name=external].configuration.bootstrap.host
           - spec.kafka.listeners.[name=external].configuration.hostTemplate
-          - spec.kafka.listeners.[name=external].authentication.validIssuerUri
         options:
           delimiter: "."
           index: 1
+      # The base domain the external listener's issuer is read from, as a whole value.
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.template.kafkaContainer.env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: Gateway
           name: ankka

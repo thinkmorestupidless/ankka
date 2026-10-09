@@ -281,7 +281,9 @@ account it needs.
 - **FR-005**: The contract MUST define exactly these kinds, and a provider MUST implement all six or
   report `Failed` naming the kind: `identity` (a cloud principal bound to a Kubernetes
   ServiceAccount: `serviceAccount`; output `principal`), `secret-access` (a principal's access to
-  secret ids: `principal`, `own: [ids]`, `read: [ids]`), `secret-sync` (a Kubernetes Secret kept in
+  secret ids by *prefix*: `principal`, `own: [prefixes]`, `read: [prefixes]` — a create cannot be
+  limited by a name, so `own` is create on the account and everything else under the prefix; 038's
+  clarify session of 2026-10-08), `secret-sync` (a Kubernetes Secret kept in
   step with a project's entries: `secretName`, `entries: [name → id]`; output the entry generation
   synced), `bucket` (`purpose: service | backup`, `location`, `versioning`, `softDeleteDays`,
   `corsOrigins`, `kmsKey`; output `bucket`), `bucket-credential` (`bucket`, `principal`,
@@ -306,7 +308,9 @@ account it needs.
   changes.
 - **FR-010**: A `secret-sync` request MUST be fulfilled by `patch` of the named Secret within one
   minute of a change to any entry it names, and its status MUST say the entry generation synced, so
-  the operator can hold a rollout until it matches (038 FR-016a).
+  the operator can hold a rollout until it matches (038 FR-016a). An entry the named Secret holds and
+  the cloud account has no version of MUST be copied into the account as that entry's first version
+  before anything is synced down (038 FR-020: the move of a project secret).
 
 **Settings**
 
@@ -325,8 +329,11 @@ account it needs.
 **The provider's power and the platform's innocence**
 
 - **FR-014**: ankka MUST carry no cloud client library and no cloud-specific code in any module,
-  image or kustomization component; the only cloud-specific artefact in the repository MUST be the
-  list of known provider names.
+  image or kustomization component, with one exception: the Secret Manager store of 038, in
+  `runtime`, which speaks Secret Manager's REST API over the JDK's HTTP client with no library,
+  because the sidecar image is the platform's and a process or module could reach nothing shipped
+  outside it. The only other cloud-specific artefact in the repository MUST be the list of known
+  provider names.
 - **FR-015**: `ankka-gcp` MUST run under Workload Identity on GKE, MUST be given no key file, and its
   documentation MUST state plainly that its cloud roles are owner-equivalent on the account and that
   this is why the operator does not hold them.

@@ -49,11 +49,15 @@ credentials."
   power (`crd` only, no client it does not need). The power goes in one process built to hold it.
 - Q: Where is the backend named? → A: Once, in 044's installation settings, beside the Secret
   Manager project and any KMS key. This feature reads the setting; it does not define its own.
+  *(Superseded in the clarify session below: 044 declares the cloud settings, and the backend
+  choice is this feature's own setting.)*
 - Q: Where does the read record live? → A: In the control plane's store, written by the runtime or
   the sidecar over the service's own identity — never in the service's database, where a
   `database: none` service could not record, a compromised service could delete its own audit, and a
   041 restore would rewind it. Kept for a retention the installation sets (default one year),
-  listable by an owner, and listed by 041 among the things a restore leaves alone.
+  listable by an owner, and listed by 041 among the things a restore leaves alone. *(Refined in
+  the clarify session below: a database of its own, which the control plane keeps, and a read is
+  refused when the record is not acknowledged.)*
 - Q: What can the record name for a polyglot service? → A: The sidecar cannot tell which component
   called (`secrets.md`), so the record names the service, the kind of hosting, and the request and
   trace where known; the component and its kind only when known, which is every Scala call.
@@ -73,6 +77,46 @@ credentials."
 - Q: Is `ANKKA_SECRET_KEY` ignored on Secret Manager? → A: Not until the removal step. The key is
   rendered and required through the move, since the service decrypts its rows with it; after the
   removal step it is still rendered and no longer read.
+
+### Session 2026-10-08 (clarify)
+
+- Q: A service set back to the Postgres backend before its removal step, with a secret kept since
+  the copy in Secret Manager only: refused, or a rollback? → A: A rollback. FR-021 refuses a switch
+  only while a service has completed its removal step, since its database then holds no copy;
+  before it the service reads its rows again and its status names each secret held in Secret
+  Manager alone.
+- Q: A service reads a service secret and the read record cannot be written: does the read
+  proceed? → A: No. The record is written before the value is returned, and a read whose record is
+  not acknowledged within the store's timeout is refused as `Unavailable`, so every read that
+  returned a value left a record. Secret reads therefore depend on the record's keeper, which the
+  documentation states. The record is kept by the control plane in a database of its own, which 041
+  backs up as a store in its own right.
+- Q: Can an IAM condition on `resource.name` limit `secretmanager.secrets.create` to a service's
+  derived ids? → A: No, verified: the secret does not exist when a create is authorised, so a name
+  condition has nothing to match; conditions do limit access, adding a version and delete to names
+  under a prefix. A service's secret access is therefore create on the installation's Google Cloud
+  project with no condition, and everything else conditioned on the service's own derived prefix. A
+  service can create a secret under another service's prefix and never read or write its versions,
+  so a squatted name is at worst an `AlreadyExists` the owning service's `put` steps over by adding
+  a version. `put` stays synchronous; SC-007 holds; User Story 2 gains the squat as a scenario.
+- Q: Who drives the move: how does an administrator trigger a service's copy check and removal
+  step, and who copies project secrets up? → A: The move is one platform setting naming a phase,
+  `copy`, `check` or `remove`, which the operator gives every service as it rolls; a service
+  performs its phase when it starts and reports the result in its status, so no new call path into
+  a service exists. Project secrets are moved by the cloud provider's secret sync: an entry the
+  project's Kubernetes Secret holds and Secret Manager has no version of is copied up as its first
+  version before anything is synced down. 044's secret sync request gains that clause.
+- Q: Does 044 declare the secret backend setting, as FR-003 said, or does this feature? *(settled
+  from 044's text, not asked)* → A: This feature: 044 declares the provider, the account, the location and the key, and says each
+  feature's backend choice (`secret-manager`, `gcs`) is its own and is refused when the provider
+  cannot fulfil it (044 FR-012). `ANKKA_SECRET_BACKEND` and the move's phase, `ANKKA_SECRET_MOVE`,
+  are declared here, in `PlatformVariables`, beside 044's `ANKKA_CLOUD_*`.
+- Q: Are the fourteen Secrets terms proposed in `GLOSSARY.md` right? → A: Yes, settled as written
+  with the answers above folded in: **secret access** gains the unconditioned create; **read
+  record** is kept by the control plane in a database of its own and acknowledged before a value is
+  returned; **copy check** and **removal step** are what a service does in the move phases "check"
+  and "remove"; **move phase** ("copy", "check", "remove") is added, and the moving feature names
+  it instead of "the move turned on". The refused synonyms stay.
 
 ## Context
 
@@ -133,18 +177,22 @@ Five decisions shape this feature.
   `put` on one instance is seen by the next `get` on every instance. A `put` adds a version; a
   `delete` removes the secret and every version.
 - **Every read leaves a record a person can find.** On Secret Manager the record is Cloud Audit
-  Logs. On both backends the platform keeps a record of its own of every read, in the control
-  plane's store and never in the service's database, so a service cannot erase the audit of its own
-  reads and a restore of its database does not rewind it. Moving backends adds Google's record; it
-  does not change whether there is one.
+  Logs. On both backends the platform keeps a record of its own of every read, kept by the control
+  plane in a database of its own and never in the service's database, so a service cannot erase the
+  audit of its own reads and a restore of its database does not rewind it. The record is written
+  before the value is returned, and a read whose record cannot be written is refused: a value is
+  never returned unrecorded. Moving backends adds Google's record; it does not change whether there
+  is one.
 - **Versions are kept to a count.** A `put` adds a version and Secret Manager destroys none on its
   own, so an installation would keep every PSP key it ever held, readable and billed. The platform
   destroys versions beyond a kept count the installation sets, and never disables a service secret's
   version, so `latest` always resolves.
 - **Moving is a supported operation.** An installation on Postgres can move to Secret Manager
   service by service, by the platform, with the values copied by the service that already holds
-  them and the project secrets copied by the platform that already writes them. No person sees a
-  value, and the copy can be checked before the old copy is removed.
+  them and the project secrets copied up by the cloud provider's sync, which already holds the
+  identities the copy needs. The move is a platform setting naming a phase, which each service
+  performs when it starts and reports in its status: no person sees a value, no new path into a
+  service exists, and the copy is checked before the old copy is removed.
 
 What this feature is not: the cloud provider itself and its contract, which are 044's; rotation of
 the Postgres backend's secret key (still its own feature); another cloud's secret manager, though
@@ -207,6 +255,7 @@ secret in the Google Cloud project is refused.
 - added `features/secrets/grants.feature`: a service reads an entry of a project secret of its own project
 - added `features/secrets/grants.feature`: a service is refused a write to an entry of a project secret of its own project
 - added `features/secrets/grants.feature`: a service cannot list the secrets Google Cloud holds for the installation
+- added `features/secrets/grants.feature`: a service that creates a secret under another service's name can neither read nor write it, and the other service keeps over it
 - added `features/secrets/grants.feature`: a service deleted and deployed again reads the service secrets it kept in Secret Manager
 
 ---
@@ -223,7 +272,7 @@ for does not pass a PSP's or a licensing body's security review, and this is the
 eitheror plan names.
 
 **Independent Test**: With the backend set to each in turn, get a service secret three times from two
-components and assert three read records exist in the control plane's store, each with the secret's
+components and assert three read records exist in the read record's database, each with the secret's
 name, the service, the hosting, the time and the trace, the component where the caller is Scala, and
 none with the value; drop the service's database and assert the records remain. On GKE, assert the
 Data Access entries in Cloud Audit Logs for the same reads.
@@ -273,28 +322,32 @@ entry and assert the variable's value inside the pod.
 
 ### User Story 5 - An installation moves from Postgres to Secret Manager (Priority: P2)
 
-eitheror's installation began on the Postgres backend. The platform administrator turns on
-Secret Manager. Each service, as it is rolled to the new setting, copies its own service secrets
-from its table into Secret Manager, using the key it already has. The platform copies each project
-secret's entries. A check compares what each backend holds, by name and by a digest of each value,
-and only then are the Postgres rows removed. No person, log or event sees a value.
+eitheror's installation began on the Postgres backend. The platform administrator sets the backend
+to Secret Manager and the move's phase to `copy`. Each service, as it is rolled to the new setting,
+copies its own service secrets from its table into Secret Manager, using the key it already has,
+and reports in its status. The cloud provider's sync copies each project secret's entries up. The
+administrator sets the phase to `check`: each service, as it rolls, compares what each backend
+holds, by name and by a digest of each value, and reports each name in its status. Only when every
+service reports every name equal does the administrator set the phase to `remove`, and each service
+removes its Postgres rows as it rolls. No person, log or event sees a value.
 
 **Why this priority**: eitheror's casino is live; there is no starting again on the new backend.
 
 **Independent Test**: Start a service on Postgres with ten service secrets and a project with two
-project secrets, switch the installation to the Secret Manager fake, roll the service, and assert:
-every name reads the same value through the store; the copy check reports equal; the Postgres rows
-remain until the removal step runs and are gone after it; no log line, event or status holds a
-value.
+project secrets, switch the installation to the Secret Manager fake with the phase `copy`, restart
+the service, and assert: every name reads the same value through the store; restarted in `check`,
+the status reports every name equal; the Postgres rows remain until a restart in `remove` and are
+gone after it; the scripted cloud provider's sync was given each project secret entry to copy up;
+no log line, event or status holds a value.
 
 **Acceptance Scenarios**:
 
-- added `features/secrets/moving.feature`: a service started on the Secret Manager backend with the move turned on copies its service secrets before it is ready
+- added `features/secrets/moving.feature`: a service started on the Secret Manager backend in the move phase "copy" copies its service secrets before it is ready
 - added `features/secrets/moving.feature`: the copy check reports for each name whether the database and Secret Manager hold the same value
 - added `features/secrets/moving.feature`: the removal step refuses while a copy check reports a difference
 - added `features/secrets/moving.feature`: the removal step removes the rows once every name is equal
 - added `features/secrets/moving.feature`: a service that cannot reach Secret Manager during the move does not become ready and leaves its rows
-- added `features/secrets/moving.feature`: the platform moves a project secret into Secret Manager with its values and its record unchanged
+- added `features/secrets/moving.feature`: the cloud provider moves a project secret into Secret Manager with its values and its record unchanged
 - added `features/secrets/moving.feature`: a moved service set back to the Postgres backend before the removal step reads its secrets from its database
 
 ---
@@ -338,6 +391,11 @@ environment; assert they pass on both backends, the Secret Manager one through t
 - **Reads exceed Secret Manager's quota.** `get` reads every time, and Secret Manager limits access
   requests per Google Cloud project per minute. A refusal for quota is `Unavailable`, and the read
   record counts it. A service that reads a secret per request is warned in the documentation.
+- **A service creates a secret under another service's prefix.** Google Cloud admits the create, since
+  create cannot be conditioned on a name, and refuses the creator every read, version and delete on
+  it. The owning service's `put` finds the secret existing and adds a version, as it would to its
+  own; nothing is lost and nothing is read. The create appears in the audit log under the creator's
+  identity.
 - **Two instances put the same name at once.** Each adds a version; the latest wins, as the upsert
   does on Postgres.
 - **A secret is put more times than the kept count.** The platform destroys the versions beyond the
@@ -347,16 +405,27 @@ environment; assert they pass on both backends, the Secret Manager one through t
   platform, and `get` reads the latest *enabled* version, so a version disabled by hand is skipped;
   the read record notes that the latest was not the one read.
 - **A deleted secret is put again.** It is created again; its old versions are gone.
-- **The installation is switched back to Postgres after the removal step.** Every service secret is in
-  Secret Manager only, so every get reads none. The platform refuses to switch an installation's
-  backend while a service's secrets live only in the other one, naming the services.
+- **The installation is switched back to Postgres.** Before a service's removal step the switch is a
+  rollback: its rows are intact and read again, and a secret kept since the copy is in Secret
+  Manager only, which its status names. After the removal step every service secret is in Secret
+  Manager only and every get would read none, so the platform refuses the switch while any service
+  has completed its removal step, naming the services.
 - **A service supplies its own `ANKKA_SECRET_KEY` on a Secret Manager installation.** The descriptor
   is accepted. Through a move the key is read, to decrypt the rows being copied; after the removal
   step it is no longer read, and the status says so. The operator keeps rendering
   `<service>-secret-key` either way, since `EnsureSecretKey` creates and never reads.
-- **The cloud provider is absent or has not answered.** A service whose grant request has no status
+- **A service starts in the `remove` phase without having been in `check`.** It runs the copy check
+  first, as FR-019 says, so a phase skipped costs nothing and removes nothing unequal.
+- **A project secret's entry is set in the cluster and in Secret Manager with different values when
+  the move begins.** Secret Manager holds a version, so the provider does not copy up; it syncs
+  down, and the cluster's value is replaced. The provider's status names the entry it did not copy.
+- **The cloud provider is absent or has not answered.** A service whose secret access request has no status
   does not roll out; its status names the request it waits on. The operator never makes the grant
   itself.
+- **The read record's keeper is unreachable.** A `get` is refused as `Unavailable` within the store's
+  timeout, as a database failure is, and the value is not returned; `put` and `delete` are refused
+  the same way. The service's status says that its read record cannot be written. Nothing is
+  buffered and retried later, so the record never has a gap it cannot name.
 - **Data Access audit logging is turned off later.** Reads still succeed, and the platform's own
   read record still holds them; the installation's status reports that Google Cloud's record is off.
 - **A project secret's name is one the platform uses.** Refused, as 023's FR-016 refuses it, on both
@@ -374,10 +443,13 @@ environment; assert they pass on both backends, the Secret Manager one through t
   `GetSecret`/`PutSecret`/`DeleteSecret` and the module imports stay as they are.
 - **FR-002**: Both backends MUST pass one set of secret store scenarios, run against each, covering
   every service secret scenario of feature 023 that does not name the database or the secret key.
-- **FR-003**: The backend setting MUST be the installation's: one of the cloud settings
-  044-cloud-provider declares (with the Secret Manager project and any KMS key), the operator MUST
-  give it to every service it renders, a descriptor MUST NOT set it, and this feature MUST NOT
-  declare a setting of its own for it.
+- **FR-003**: The backend setting, `ANKKA_SECRET_BACKEND`, MUST be the installation's: declared in
+  `core`'s `PlatformVariables` beside 044's `ANKKA_CLOUD_*` and set once with them; the operator
+  MUST give it to every service it renders, or leave it unset where the value is the default so a
+  service rendered before this feature is rendered the same; a descriptor MUST NOT set it; and `secret-manager` MUST
+  be refused when the installation's cloud provider cannot fulfil it (044 FR-012). The Secret
+  Manager project, the location and any KMS key are 044's settings, which this feature reads and
+  does not declare.
 - **FR-004**: The control plane MUST choose its `ProjectSecretWriter` implementation from the same
   installation setting.
 
@@ -392,11 +464,14 @@ environment; assert they pass on both backends, the Secret Manager one through t
   the installation sets (default 2), oldest first, once the new version is readable.
 - **FR-006**: The secret id MUST be derived from the project, the service and the name by one rule
   that is deterministic and injective, using only characters Secret Manager accepts, and the original
-  name MUST be kept on the secret as an annotation.
+  name MUST be kept on the secret as an annotation. The id MUST begin with a prefix derived from the
+  project and the service alone, on which the service's secret access is conditioned, and no other
+  service's or project secret's prefix MUST be a prefix of it.
 - **FR-007**: Errors MUST map to the store's existing codes: refused by IAM → `Internal` naming the
   grant; unreachable, timed out or over quota → `Unavailable`; not found → `get` reads none.
-- **FR-008**: The secret's replication and location MUST be the installation's setting, so an
-  installation can keep its secrets in named regions.
+- **FR-008**: The secret's replication and location MUST be the installation's setting — 044's
+  `ANKKA_CLOUD_LOCATION`: automatic replication when it is unset, user-managed replication in that
+  location when it is set — so an installation can keep its secrets in named regions.
 
 **Identity and grants**
 
@@ -404,9 +479,13 @@ environment; assert they pass on both backends, the Secret Manager one through t
   ServiceAccount through Workload Identity Federation for GKE. No Google service account key, key
   file or long-lived credential MUST exist in the service's pod, its descriptor, its Secrets or the
   operator's.
-- **FR-010**: The cloud provider (044) MUST grant each service the right to create, add versions to,
-  read and delete only the secrets derived for that service, and to read only the secrets derived
-  for its project's project secrets. It MUST NOT grant list on the Google Cloud project's secrets.
+- **FR-010**: The cloud provider (044) MUST grant each service the right to create secrets on the
+  installation's Google Cloud project with no condition, since a condition on a name cannot limit a
+  create; and the right to add versions to, read and delete secrets conditioned on the service's own
+  derived prefix, and to read conditioned on the prefix derived for its project's project secrets.
+  It MUST NOT grant list on the Google Cloud project's secrets. A secret a service creates under
+  another's prefix is one it can neither read nor write, and the owning service's `put` MUST add a
+  version to it as to any existing secret.
 - **FR-010a**: The operator MUST express a service's grant as a 044 request rendered with the
   service's identity and its derived ids, and MUST NOT roll the service out until the provider's
   status reports the grant made. Neither the operator nor the control plane MUST hold
@@ -423,18 +502,27 @@ environment; assert they pass on both backends, the Secret Manager one through t
 
 - **FR-013**: On both backends, every `get` MUST produce a read record holding the secret's name, the
   project, the service, the kind of hosting, the outcome (read, none, refused, unavailable), the
-  time, the request and trace ids where known, and the component and its kind where the caller can
+  time, the trace id and the request — the handler's span id within it — where known, and the
+  component and its kind where the caller can
   be known (every Scala call; never through the sidecar, which cannot tell which component called),
   and never the value. `put` and `delete` MUST produce a record of the same shape.
-- **FR-013a**: The record MUST be written to the control plane's store by the runtime or the sidecar
-  over the service's own identity, MUST NOT be kept in the service's database, and MUST survive the
+- **FR-013a**: The record MUST be written by the runtime or the sidecar over the service's own
+  identity to the read record's database, which the control plane keeps apart from its own database
+  and from every service's (041 backs it up as a store in its own right), and MUST survive the
   service's deletion and a restore of its database (041 lists it among the things a restore leaves
   alone). It MUST be listable by an owner by secret name, service and time range, on both backends,
   and MUST be kept for a retention the installation sets (default one year) and then removed. On
   Postgres it is the platform's audit of record, and a real-money installation MAY run its money
   services on that backend.
+- **FR-013b**: The record of a `get` MUST be acknowledged before the value is returned. A `get` whose
+  record is not acknowledged within the store's timeout MUST be refused as `Unavailable`, on both
+  backends, so that no value is ever returned without a record; the documentation MUST state that a
+  service's secret reads depend on the record's keeper being reachable.
 - **FR-014**: On the Secret Manager backend the platform MUST report, in the installation's status,
-  whether Data Access audit logging is on for Secret Manager.
+  whether Data Access audit logging is on for Secret Manager. The installation's status is one
+  control plane route (`GET /platform`, shown by `ankka platform status`) that this feature
+  introduces with the backend, the retention and the audit-log state (`unknown` until the cloud
+  provider of 044 reports it), and that 044 extends with its settings.
 
 **Project secrets on Secret Manager**
 
@@ -457,19 +545,35 @@ environment; assert they pass on both backends, the Secret Manager one through t
 
 **Moving an installation**
 
-- **FR-017**: A service started on the Secret Manager backend with the move turned on MUST copy every
-  row of its `ankka_secrets` table into Secret Manager, decrypting with its own secret key, before it
-  reports ready, and MUST NOT overwrite a secret already in Secret Manager.
-- **FR-018**: The platform MUST offer a copy check per service and per project that compares each
-  name's value across the backends by a digest and reports equal, different or missing, and never a
-  value.
-- **FR-019**: The platform MUST offer a removal step that deletes a service's `ankka_secrets` rows only
-  when its last copy check reported every name equal.
-- **FR-020**: The platform MUST copy every entry of every project secret from Kubernetes Secrets into
-  Secret Manager without the value passing through the control plane's journal, logs, responses or a
-  person's terminal.
-- **FR-021**: The platform MUST refuse to switch an installation's backend while any service's service
-  secrets are held only in the backend being left, naming the services.
+- **FR-017**: The move MUST be one platform setting, `ANKKA_SECRET_MOVE`, naming a phase — `copy`,
+  `check` or `remove`, unset for no move — which the operator gives every service as it rolls; a
+  service MUST perform its phase when it starts and MUST NOT report ready until the phase has run
+  to its end, in every phase; a Secret Manager it cannot reach holds readiness in every phase, with
+  the reason, and changes nothing. The result is reported in its status. No route, command or call
+  into a service MUST exist for the move. A service started on
+  the Secret Manager backend in the `copy` phase MUST copy every row of its `ankka_secrets` table
+  into Secret Manager, decrypting with its own secret key, and MUST NOT overwrite a secret already
+  in Secret Manager.
+- **FR-018**: In the `check` phase, and after a copy, a service MUST run the copy check: it compares
+  each name's value across the backends by a digest and reports each as equal, different or missing
+  in its status, and never a value. A project's copy check is the cloud provider's sync status, per
+  entry.
+- **FR-019**: In the `remove` phase a service MUST run the copy check again and delete its
+  `ankka_secrets` rows only when every name is equal; otherwise it MUST leave the rows, report ready,
+  and name the differing names in its status.
+- **FR-020**: The cloud provider's secret sync (044) MUST copy an entry the project's Kubernetes
+  Secret holds and Secret Manager has no version of into Secret Manager as the entry's first version
+  before it syncs anything down, so every entry of every project secret moves without the value
+  passing through the control plane's journal, logs, responses or a person's terminal. The control
+  plane's record of the project secret MUST be unchanged by the move.
+- **FR-021**: The platform MUST refuse to switch an installation's backend while any service has
+  completed its removal step, naming the services, since its database then holds no copy. The
+  control plane records a service's removal step from the status its instances report and projects
+  it as desired state, so the operator — which never reads an instance — can refuse to render that
+  service on the Postgres backend. Before a
+  service's removal step a switch back to Postgres is a rollback: the service MUST read its rows
+  again, and its status MUST name each service secret kept since its copy, which Secret Manager
+  alone holds.
 
 **Local and test**
 
@@ -491,14 +595,18 @@ environment; assert they pass on both backends, the Secret Manager one through t
   (feature 023) or `secret-manager`. One per installation.
 - **Derived secret id**: the Secret Manager id of one service secret or one project secret entry,
   from the project, the service or project secret, and the name; the original name kept on it.
-- **Grant**: the right of one service's identity, or the control plane's, to act on the derived ids
-  of that service or project; requested by the operator, written by the cloud provider (044).
+- **Secret access**: the right of one service's identity, or the control plane's, to act on the
+  derived ids of that service or project; requested by the operator, written by the cloud provider
+  (044). Not a grant, which 040 makes between projects.
 - **Read record**: one read, write or removal of a secret: name, project, service, hosting, outcome,
-  time, request and trace ids where known, component where known; never a value. In the control
-  plane's store, kept for the installation's retention, listable by an owner.
+  time, request and trace ids where known, component where known; never a value. Kept by the control
+  plane in a database of its own, acknowledged before a read's value is returned, kept for the
+  installation's retention, listable by an owner.
 - **Kept count**: how many versions of a service secret the platform keeps; the rest are destroyed.
 - **Project secret sync**: the cloud provider's copy of a project secret's entries from Secret Manager
   into the project's Kubernetes Secret, so `secretKeyRef` resolves unchanged.
+- **Move phase**: what the installation's move setting names, `copy`, `check` or `remove`; a service
+  performs it when it starts and reports in its status.
 - **Copy check**: per service or project, each name and whether the two backends hold equal values.
 
 ## Success Criteria *(mandatory)*
@@ -513,9 +621,10 @@ environment; assert they pass on both backends, the Secret Manager one through t
 - **SC-003**: A search of a Secret Manager service's pod, its namespace's Secrets, its descriptor and
   the operator's Secrets finds zero Google credentials or key files, and the operator's and the
   control plane's Google identities hold no `setIamPolicy` on the Google Cloud project.
-- **SC-004**: For every read in a test run, exactly one read record exists in the control plane's
-  store, it is still there after the service's database is dropped, and a search of every record,
-  log line and event for every value used finds it zero times.
+- **SC-004**: For every read in a test run that returned a value, exactly one read record exists in
+  the read record's database, it is still there after the service's database is dropped, and a
+  search of every record, log line and event for every value used finds it zero times. With the
+  record's keeper unreachable, zero reads return a value.
 - **SC-008**: A secret put 100 times holds no more than the kept count of versions one minute later,
   and every read in that minute returned the newest value.
 - **SC-005**: A service with 100 service secrets moves to Secret Manager with every copy check equal,
@@ -533,12 +642,12 @@ environment; assert they pass on both backends, the Secret Manager one through t
   by nothing else. The power to write them, `setIamPolicy` on the Google Cloud project, is
   owner-equivalent; this feature does not pretend it is narrower, which is why it is not the
   operator's. 044 defines the request, its status and the provider's own identity.
-- **Research before planning**: whether an IAM condition on `resource.name` limits
-  `secretmanager.secrets.create` and `secretmanager.versions.access` to a service's own derived ids
-  — including for a secret that does not exist yet — is the whole isolation design and is not yet
-  verified. If it does not hold, the fallback is one secret prefix per service that the provider
-  enforces when it creates the secret, with the service granted only on secrets the provider created
-  for it, and User Story 2 is re-read against that.
+- An IAM condition on `resource.name` limits `secretmanager.versions.access`,
+  `secretmanager.versions.add` and `secretmanager.secrets.delete` to secrets under a prefix, and
+  cannot limit `secretmanager.secrets.create`, which is authorised on the project before the secret
+  exists (verified before planning; the condition names the secret by the Google Cloud project's
+  *number*, not its id). The isolation design is therefore unconditioned create and a conditioned
+  rest, and a service can create a name it cannot use.
 - Secret Manager's access quota per Google Cloud project is high enough for a service that reads a
   credential per outbound call; an installation that exceeds it is a sizing problem, not a reason
   to cache.
@@ -559,8 +668,10 @@ environment; assert they pass on both backends, the Secret Manager one through t
 
 - Builds on 023-secret-store (the trait, the rules, project secrets, `ProjectSecretWriter`) and
   022-service-identity (a service's identity in the cluster).
-- Depends on 044-cloud-provider for the installation's cloud settings, the grant request and its
-  status, the provider's identity, and the project secret sync.
+- Depends on 044-cloud-provider for the installation's cloud settings, the secret access request and
+  its status, the provider's identity, and the project secret sync, whose request gains one clause
+  from this feature: an entry the cluster holds and Secret Manager has no version of is copied up
+  first.
 - Shares the "one per installation, a second implementation of a seam" shape with
   039-gcs-object-storage, written alongside it; both hand their Google provisioning to 044.
 - Named by 041-postgres-backup-recovery: a Postgres-backend restore rolls service secrets back and

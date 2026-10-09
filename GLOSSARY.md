@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Secrets*, *Topic sources*, the retention terms
+still to be settled by `/speckit-clarify`: those under *Topic sources*, the retention terms
 under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery*, *Erasure*
 and *Cloud provider*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
@@ -831,7 +831,7 @@ Avoid: static secret
 One named value of a project secret. A descriptor's variable is taken from one entry.
 
 ### secret backend
-*Proposed.* Where an installation keeps service secrets and project secrets: the Postgres backend
+Where an installation keeps service secrets and project secrets: the Postgres backend
 or the Secret Manager backend. It is the installation's to say, once, as a platform setting the
 platform alone sets; a descriptor may not give it, and a service's code, descriptor and components
 are the same on either.
@@ -839,30 +839,31 @@ are the same on either.
 Avoid: secret provider, vault backend
 
 ### Postgres backend
-*Proposed.* The secret backend an installation is on unless it says otherwise: each service's
+The secret backend an installation is on unless it says otherwise: each service's
 secret store in its own database, encrypted with its secret key, and a project secret's entries in
 the project's secret in the cluster.
 
 ### Secret Manager
-*Proposed.* Google Cloud's keeper of secrets, outside the cluster. It holds each service secret
+Google Cloud's keeper of secrets, outside the cluster. It holds each service secret
 and each entry under a name the platform derives from the project, the service and the secret's
 own name, so that two never share one, as versions of which the newest is read; it refuses whoever
 has no grant on it; and the access log records every access to it.
 
 ### Secret Manager backend
-*Proposed.* The secret backend on which service secrets and project secrets are kept in Secret
+The secret backend on which service secrets and project secrets are kept in Secret
 Manager, each service reaching it as its own identity and nothing in the cluster holding a
 credential for Google Cloud.
 
 ### Google Cloud
-*Proposed.* The cloud Secret Manager is part of, which decides by the grants what each identity
+The cloud Secret Manager is part of, which decides by the grants what each identity
 may do there, and keeps the access log.
 
 ### secret access
-*Proposed.* What a cloud identity may do to which secrets in Secret Manager, as Google Cloud
-enforces it: a service may keep, read and remove its own service secrets and read its project's
-entries, and list nothing; the control plane may add and disable versions of entries and read
-none; the cloud provider may read entries and no service secret. The operator asks for it with a
+What a cloud identity may do to which secrets in Secret Manager, as Google Cloud
+enforces it: a service may create a secret under any name, since Google Cloud cannot limit a
+create by its name, but keep, read and remove only its own service secrets and read only its
+project's entries, and list nothing; the control plane may add and disable versions of entries and
+read none; the cloud provider may read entries and no service secret. The operator asks for it with a
 secret access request and the cloud provider writes it; nothing else can. It follows a service's
 name, so a service deleted and deployed again has the one it had. It is not a grant, which a
 project makes for a grantee.
@@ -870,47 +871,57 @@ project makes for a grantee.
 Avoid: IAM binding, role binding, IAM grant
 
 ### access log
-*Proposed.* Google Cloud's own record of every access to a secret in Secret Manager, naming the
+Google Cloud's own record of every access to a secret in Secret Manager, naming the
 identity that made it and the secret. An installation turns it on, and the platform reports
 whether it is on. It is not the read record, which the platform keeps on either secret backend,
 and it is not a history.
 
 ### read record
-*Proposed.* What the platform records of every read, keep and removal of a service secret, on
+What the platform records of every read, keep and removal of a service secret, on
 either secret backend: the secret's name, the project, the service, its hosting, the outcome, the
 time, the trace id and the request where known, and the component and its kind where the caller
 can be known, which it cannot be through a process or a module; never the value. The control plane
-keeps it, never the service's database, so a restore of the database does not rewind it; an owner
-may list it; it is kept for the installation's retention.
+keeps it in a database of its own, never the service's, so a restore of the service's database does
+not rewind it. It is acknowledged before a read's value is returned, and a read whose record is not
+acknowledged is refused; an owner may list it; it is kept for the installation's retention.
 
 Avoid: audit trail
 
 ### retention
-*Proposed.* How long an installation keeps a read record before removing it: a year unless the
+How long an installation keeps a read record before removing it: a year unless the
 installation says otherwise.
 
 ### kept count
-*Proposed.* How many versions of a service secret Secret Manager keeps for an installation: 2
+How many versions of a service secret Secret Manager keeps for an installation: 2
 unless it says otherwise. After a keep, the versions beyond it are removed, oldest first, once the
 new one can be read; a version is never disabled, so the newest can always be read.
 
 ### synced
-*Proposed.* Of an entry on the Secret Manager backend: copied by the cloud provider from Secret
+Of an entry on the Secret Manager backend: copied by the cloud provider from Secret
 Manager into the project's secret in the cluster, within a minute of being set or removed, so that
 a starting instance is given it as before. A service of the project is not started until each
 entry it takes a variable from is synced.
 
 ### copy check
-*Proposed.* What a move offers for a service or a project: for each name, whether its database and
-Secret Manager hold the same value, by digest, as equal, different or missing; never a value.
+What a service reports in its status in the move phase "check", and after a copy: for each name,
+whether its database and Secret Manager hold the same value, by digest, as equal, different or
+missing; never a value. A project's is the cloud provider's sync status, per entry.
 
 ### removal step
-*Proposed.* The last step of a service's move: removing its service secrets from its database,
-which the platform does only when the service's last copy check reported every name equal. From
-then on the service's secret key is given to it and not read.
+What a service does in the move phase "remove": it runs the copy check again and removes its
+service secrets from its database only when every name is equal, and otherwise leaves them and
+names the difference in its status. From then on the service's secret key is given to it and not
+read.
+
+### move phase
+What the installation's move setting names, once, for every service: "copy", "check" or "remove".
+A service performs its phase when it starts, before it is ready, and reports the result in its
+status; nothing calls into a service for it.
+
+Avoid: migration step, move step
 
 ### Secret Manager fake
-*Proposed.* What the test kit gives a test that asks for the Secret Manager backend: a Secret
+What the test kit gives a test that asks for the Secret Manager backend: a Secret
 Manager of its own, with no network and no Google Cloud, that refuses what Google Cloud's grants
 would refuse.
 

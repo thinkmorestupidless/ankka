@@ -22,10 +22,19 @@ final case class SecretRecordsConfig(retention: FiniteDuration, sweepInterval: F
     if retention == FiniteDuration(days, "days") then s"${days}d" else retention.toString
 
 object SecretRecordsConfig:
+
+  /**
+   * What a retention left blank means: the manifest's placeholder is `""`, as for every setting.
+   */
+  val DefaultRetention: FiniteDuration = FiniteDuration(365, "days")
+
   def from(config: Config): SecretRecordsConfig =
     def duration(key: String) =
       FiniteDuration(config.getDuration(s"ankka.controlplane.secret-records.$key").toMillis, "ms")
-    val retention = duration("retention")
+    val retention =
+      if config.getString("ankka.controlplane.secret-records.retention").trim.isEmpty then
+        DefaultRetention
+      else duration("retention")
     if retention.toMillis <= 0 then
       throw IllegalArgumentException("ANKKA_SECRET_RECORD_RETENTION must be a positive duration")
     SecretRecordsConfig(retention, duration("sweep-interval"))

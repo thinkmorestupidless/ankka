@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.controlplane.secrets.SecretBackendConfig
+import com.thinkmorestupidless.ankka.controlplane.secrets.{SecretBackendConfig, SecretRecordsConfig}
 import com.thinkmorestupidless.ankka.http.Acl
 import com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend
 import com.typesafe.config.ConfigFactory
@@ -18,6 +18,15 @@ final class ControlPlaneSettingsSuite extends munit.FunSuite:
     intercept[IllegalArgumentException](
       ControlPlane.builder(Acl.DenyAll, config = settings(hocon))
     ).getMessage
+
+  test("a retention left blank, as the control plane's manifest leaves it, is the default") {
+    // The shipped Deployment's placeholder is `""`, which the overlays replace; a control plane
+    // applied without that replacement must start, as it does for every other setting left blank.
+    val read =
+      SecretRecordsConfig.from(settings("ankka.controlplane.secret-records.retention = \"\""))
+    assertEquals(read.retention, SecretRecordsConfig.DefaultRetention)
+    assertEquals(read.retentionText, "365d")
+  }
 
   test("an installation that says nothing is on the Postgres backend with no cloud") {
     val read = SecretBackendConfig.from(settings(""))

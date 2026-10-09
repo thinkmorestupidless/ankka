@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
-import com.thinkmorestupidless.ankka.runtime.secrets.DerivedIds
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 
 import java.net.{InetAddress, InetSocketAddress, URLDecoder}
 import java.nio.charset.StandardCharsets

@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime.secrets
 
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
+
 import com.thinkmorestupidless.ankka.sdk.SecretRules
 
 import scala.util.Random

@@ -1,4 +1,4 @@
-package com.thinkmorestupidless.ankka.runtime.secrets
+package com.thinkmorestupidless.ankka.core.secrets
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest

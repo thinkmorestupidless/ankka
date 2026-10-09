@@ -1,7 +1,8 @@
 package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.runtime.{Database, ExtensionsReadiness, SqlFragment}
-import com.thinkmorestupidless.ankka.runtime.secrets.{DerivedIds, MoveReport}
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
+import com.thinkmorestupidless.ankka.runtime.secrets.MoveReport
 import com.typesafe.config.ConfigFactory
 
 import scala.concurrent.Await

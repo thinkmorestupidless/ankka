@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime.secrets
 
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import com.thinkmorestupidless.ankka.sdk.{SecretRules, SecretStore}
 import org.slf4j.LoggerFactory

@@ -2,9 +2,9 @@ package com.thinkmorestupidless.ankka.controlplane.secrets
 
 import com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSecretWriter
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.runtime.secrets.{
   AccessTokens,
-  DerivedIds,
   SecretManager,
   SecretManagerException
 }

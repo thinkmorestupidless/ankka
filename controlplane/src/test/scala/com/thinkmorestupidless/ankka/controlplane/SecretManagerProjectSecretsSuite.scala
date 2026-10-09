@@ -6,7 +6,8 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.ProjectProjection
 import com.thinkmorestupidless.ankka.controlplane.secrets.SecretManagerProjectSecretWriter
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
-import com.thinkmorestupidless.ankka.runtime.secrets.{AccessTokens, DerivedIds, SecretManager}
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
+import com.thinkmorestupidless.ankka.runtime.secrets.{AccessTokens, SecretManager}
 import com.thinkmorestupidless.ankka.testkit.FakeSecretManager.Identity
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, FakeSecretManager, LogCapturing}
 

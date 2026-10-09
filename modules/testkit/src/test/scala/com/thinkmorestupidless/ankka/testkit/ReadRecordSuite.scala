@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromArray, writeToString}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.core.secrets.ReadRecord
-import com.thinkmorestupidless.ankka.runtime.secrets.DerivedIds
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.testkit.FakeSecretManager.Identity
 import com.typesafe.config.ConfigFactory

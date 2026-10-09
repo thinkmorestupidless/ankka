@@ -124,7 +124,10 @@ object CloudRequests:
       Map(Keys.ServiceAccount -> serviceAccount)
     )
 
-  /** What a cloud identity may own and read of the cloud account's secrets, each by id. */
+  /**
+   * What a cloud identity may own and read of the cloud account's secrets, each by id prefix: a
+   * service names its secrets as it runs, and a create cannot be limited by a name (feature 038).
+   */
   def secretAccess(
       cloud: CloudSettings,
       by: Requester,

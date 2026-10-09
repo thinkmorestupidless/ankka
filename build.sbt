@@ -456,6 +456,10 @@ lazy val operator = project
     // file imports nothing outside the standard library; `PlatformDeclarationSuite` holds both.
     Compile / unmanagedSources += (core / Compile / scalaSource).value /
       "com/thinkmorestupidless/ankka/core/PlatformVariables.scala",
+    // The one derivation of a secret's id in Secret Manager (feature 038), the same way: the operator
+    // asks the cloud provider for access by the prefixes the runtime names its secrets under.
+    Compile / unmanagedSources += (core / Compile / scalaSource).value /
+      "com/thinkmorestupidless/ankka/core/secrets/DerivedIds.scala",
     // Named, not discovered: the control plane and the sidecar take this module's test classes, and
     // a logback-test.xml here would be a second one beside ankka-testkit's in both.
     Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",

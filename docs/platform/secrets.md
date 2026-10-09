@@ -135,6 +135,13 @@ creates a secret under another service's prefix can neither read it, add to it n
 owning service's next keep adds its version to that secret as to its own. The create is in Google Cloud's
 audit log, under the creator's identity.
 
+The operator asks the installation's cloud provider for each service's access: a cloud identity for
+the service's ServiceAccount, then the access above for that identity. Until the provider has granted
+it, the service is not rolled out, and `ankka services get` says it is waiting on the cloud provider for
+access to its secrets; access the provider refuses fails the service, with the provider's reason. An
+installation with no cloud provider makes these grants itself, and its services roll out without
+waiting.
+
 A service whose access has not been written yet is refused by Google Cloud, and its store says so —
 naming the prefix its access must admit — never that the secret does not exist.
 

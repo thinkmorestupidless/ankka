@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
 import com.thinkmorestupidless.ankka.testkit.TestSocket
-import com.thinkmorestupidless.ankka.runtime.secrets.DerivedIds
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}

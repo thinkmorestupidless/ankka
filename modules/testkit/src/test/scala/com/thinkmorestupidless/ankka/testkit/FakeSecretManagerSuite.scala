@@ -1,8 +1,8 @@
 package com.thinkmorestupidless.ankka.testkit
 
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.runtime.secrets.{
   AccessTokens,
-  DerivedIds,
   SecretManager,
   SecretManagerException
 }

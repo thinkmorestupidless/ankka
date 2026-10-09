@@ -1,9 +1,9 @@
 package com.thinkmorestupidless.ankka.testkit.secrets
 
 import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}
+import com.thinkmorestupidless.ankka.core.secrets.DerivedIds
 import com.thinkmorestupidless.ankka.runtime.secrets.{
   AccessTokens,
-  DerivedIds,
   SecretBackend,
   SecretManager,
   SecretManagerException

@@ -212,7 +212,10 @@ object Rendering:
       declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty,
       // The requests to the installation's cloud provider this service needs (feature 044), already
       // rendered by the caller, which observes their answers to decide `objectStoragePlan`.
-      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
+      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty,
+      // Why the service's access to its secrets holds its Deployment back (feature 038), decided by
+      // the caller from the provider's answers; `None` when it is granted or never asked.
+      secretHold: Option[SecretAccess.Hold] = None
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -257,9 +260,14 @@ object Rendering:
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
-          // provider's to say, and an instance started without them would be started wrong.
+          // provider's to say, and an instance started without them would be started wrong. Nor
+          // while its access to its secrets is not granted: every read would be refused.
           Option
-            .when(ObjectStorage.withheld(objectStoragePlan, spec, settings).isEmpty)(
+            .when(
+              ObjectStorage
+                .withheld(objectStoragePlan, spec, settings)
+                .isEmpty && secretHold.isEmpty
+            )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
                   deployment(

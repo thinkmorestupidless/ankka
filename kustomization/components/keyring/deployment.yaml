@@ -77,19 +77,19 @@ spec:
               value: "https://ankka-controlplane.ankka-controlplane.svc:9000"
             - name: ANKKA_S3_ENDPOINT
               valueFrom:
-                secretKeyRef: { name: ankka-platform-erasure-log, key: endpoint, optional: true }
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_ENDPOINT, optional: true }
             - name: ANKKA_S3_BUCKET
               valueFrom:
-                secretKeyRef: { name: ankka-platform-erasure-log, key: bucket, optional: true }
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_BUCKET, optional: true }
             - name: ANKKA_S3_REGION
               valueFrom:
-                secretKeyRef: { name: ankka-platform-erasure-log, key: region, optional: true }
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_REGION, optional: true }
             - name: ANKKA_S3_ACCESS_KEY
               valueFrom:
-                secretKeyRef: { name: ankka-platform-erasure-log, key: accessKey, optional: true }
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_ACCESS_KEY, optional: true }
             - name: ANKKA_S3_SECRET_KEY
               valueFrom:
-                secretKeyRef: { name: ankka-platform-erasure-log, key: secretKey, optional: true }
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_SECRET_KEY, optional: true }
             # Keeps the keyring's own secret store, which keeps the root key.
             - name: ANKKA_SECRET_KEY
               valueFrom:

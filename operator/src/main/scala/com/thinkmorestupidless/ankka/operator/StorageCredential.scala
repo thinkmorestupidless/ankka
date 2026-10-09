@@ -19,6 +19,28 @@ object SecretWriter:
   enum Outcome:
     case Created, Exists
 
+  /** Over the cluster: a 409 on `create` is `Exists`, and a patch is a JSON merge patch. */
+  def fabric8(client: io.fabric8.kubernetes.client.KubernetesClient): SecretWriter =
+    new SecretWriter:
+      def create(secret: Secret): Outcome =
+        try
+          client.resource(secret).create(): Unit
+          Outcome.Created
+        catch
+          case e: io.fabric8.kubernetes.client.KubernetesClientException if e.getCode == 409 =>
+            Outcome.Exists
+      def patch(namespace: String, name: String, entries: Map[String, String]): Unit =
+        val body = new SecretBuilder().withStringData(entries.asJava).build()
+        client
+          .secrets()
+          .inNamespace(namespace)
+          .withName(name)
+          .patch(
+            io.fabric8.kubernetes.client.dsl.base.PatchContext
+              .of(io.fabric8.kubernetes.client.dsl.base.PatchType.JSON_MERGE),
+            body
+          ): Unit
+
 /**
  * Issues a service's storage credential once (feature 034, research R6).
  *
@@ -47,23 +69,34 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
 
   private val ensured = ConcurrentHashMap.newKeySet[(String, String)]()
 
+  /**
+   * @param keyName
+   *   what the store names the keys issued for this Secret: the bucket, for a service's one Secret;
+   *   one name per Secret where several hold keys to one bucket, so issuing one never deletes
+   *   another's as "earlier"
+   * @param extra
+   *   entries written beside the key that are not secret: where the bucket is
+   */
   def ensure(
       namespace: String,
       secretName: String,
       labels: Map[String, String],
-      bucket: String
+      bucket: String,
+      keyName: Option[String] = None,
+      extra: Map[String, String] = Map.empty
   ): StorageCredential.Result =
+    val named = keyName.getOrElse(bucket)
     val info = store
       .bucket(bucket)
       .getOrElse(throw new IllegalStateException(s"the bucket $bucket has not been made"))
     if ensured.contains((namespace, secretName)) then
-      reallow(info, bucket)
+      reallow(info, named)
       StorageCredential.Result.Unchanged
     else
-      val earlier = store.keysNamed(bucket)
-      val issued  = store.createKey(bucket)
+      val earlier = store.keysNamed(named)
+      val issued  = store.createKey(named)
       store.allow(info.id, issued.accessKeyId)
-      val result = secrets.create(secret(namespace, secretName, labels, issued)) match
+      val result = secrets.create(secret(namespace, secretName, labels, issued, extra)) match
         case SecretWriter.Outcome.Created =>
           earlier.foreach(store.deleteKey)
           StorageCredential.Result.Created
@@ -78,14 +111,15 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       result
 
   /** A bucket made again shows no key allowed; the service's keys are allowed on it once more. */
-  private def reallow(info: BucketInfo, bucket: String): Unit =
-    if info.allowedKeys.isEmpty then store.keysNamed(bucket).foreach(store.allow(info.id, _))
+  private def reallow(info: BucketInfo, keyName: String): Unit =
+    if info.allowedKeys.isEmpty then store.keysNamed(keyName).foreach(store.allow(info.id, _))
 
   private def secret(
       namespace: String,
       name: String,
       labels: Map[String, String],
-      key: IssuedKey
+      key: IssuedKey,
+      extra: Map[String, String]
   ): Secret =
     new SecretBuilder()
       .withMetadata(
@@ -96,7 +130,7 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
           .build()
       )
       .withType("Opaque")
-      .withStringData(StorageCredential.entries(key).asJava)
+      .withStringData((extra ++ StorageCredential.entries(key)).asJava)
       .build()
 
 object StorageCredential:

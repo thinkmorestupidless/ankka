@@ -39,6 +39,20 @@ object Main:
         client.close()
       ))
 
+      settings.objectStore.foreach { objects =>
+        val store       = GarageStore(objects.adminUrl, objects.adminToken)
+        val credentials = StorageCredential(store, SecretWriter.fabric8(client))
+        PlatformBucket.keepTrying(
+          () =>
+            PlatformBucket.ensure(
+              store,
+              credentials,
+              objects,
+              namespace => client.namespaces().withName(namespace).get() != null
+            ),
+          java.time.Duration.ofSeconds(30)
+        ): Unit
+      }
       operator.start()
       operator.awaitTermination()
       0

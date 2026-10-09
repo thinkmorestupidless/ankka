@@ -148,30 +148,8 @@ final class Fabric8Executor(
    * The storage credentials this process has issued or found issued (feature 034). Only the
    * `create` of a Secret is ever sent; whether it met one is the only thing learned about it.
    */
-  private val storageCredentials = store.map(s =>
-    StorageCredential(
-      s,
-      new SecretWriter:
-        def create(secret: io.fabric8.kubernetes.api.model.Secret): SecretWriter.Outcome =
-          try
-            client.resource(secret).create(): Unit
-            SecretWriter.Outcome.Created
-          catch case e: KubernetesClientException if e.getCode == 409 => SecretWriter.Outcome.Exists
-        def patch(namespace: String, name: String, entries: Map[String, String]): Unit =
-          val body = new io.fabric8.kubernetes.api.model.SecretBuilder()
-            .withStringData(entries.asJava)
-            .build()
-          client
-            .secrets()
-            .inNamespace(namespace)
-            .withName(name)
-            .patch(
-              io.fabric8.kubernetes.client.dsl.base.PatchContext
-                .of(io.fabric8.kubernetes.client.dsl.base.PatchType.JSON_MERGE),
-              body
-            ): Unit
-    )
-  )
+  private val storageCredentials =
+    store.map(s => StorageCredential(s, SecretWriter.fabric8(client)))
 
   private def requireStore(): ObjectStore =
     store.getOrElse(

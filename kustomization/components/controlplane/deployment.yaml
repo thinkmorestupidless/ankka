@@ -79,6 +79,24 @@ spec:
             - name: probe
               containerPort: 7627
           env:
+            # The erasure log's second copy, in the platform bucket the operator makes when the
+            # installation has an object store, and whose credential it writes here; absent, the
+            # log is kept once, in the control plane's own database.
+            - name: ANKKA_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_ENDPOINT, optional: true }
+            - name: ANKKA_S3_REGION
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_REGION, optional: true }
+            - name: ANKKA_S3_BUCKET
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_BUCKET, optional: true }
+            - name: ANKKA_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_ACCESS_KEY, optional: true }
+            - name: ANKKA_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: ANKKA_S3_SECRET_KEY, optional: true }
             # Identity (feature 008). The issuer tokens must name is derived in-process from
             # ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT below — https://auth.<base>[:port]/realms/ankka
             # — so nothing here has to be replaced by the overlay a second time. Keys are read over

@@ -54,21 +54,19 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
     )
 
   /**
-   * Asks for an erasure. A second request for a subject already erased is answered with the applied
-   * one; a request from whoever has a held one for the subject replaces it, the history keeping
-   * both; a held one from someone else must be withdrawn first.
-   */
-  /**
-   * Who may ask: a member, by their token, or a service of the installation, by its certificate —
-   * admitted here and authorized by its grants in the handler, so that a refusal is recorded.
+   * Who may ask: a member, by the token they present, or — presenting none — a service of the
+   * installation, by its certificate, admitted here and authorized by its grants in the handler so
+   * that a refusal is recorded. A token decides: a member's request may well arrive from inside the
+   * cluster, carried by a workload that holds a certificate of its own.
    */
   private def memberOrService: Acl = Acl.Authenticate(context =>
-    context.caller match
-      case Caller.Service(project, name) =>
+    (context.header("Authorization"), context.caller) match
+      case (None, Caller.Service(project, name)) =>
         AuthDecision.Allow(
           Principal(
             com.thinkmorestupidless.ankka.runtime.erasure.GrantReader.service(project, name),
-            name = Some(s"$project/$name")
+            name = Some(s"$project/$name"),
+            claims = Map(ServiceAsking -> s"$project/$name")
           )
         )
       case _ =>
@@ -77,13 +75,17 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
           case _                        => AuthDecision.Forbidden("members only")
   )
 
+  /** Marks a principal the ask route admitted as a service, never a claim a token can carry. */
+  private val ServiceAsking = "ankka:erasure-service"
+
   withAcl(memberOrService) {
     postBody("/{projectId}/erasures") { (projectId: String, request: RequestErasure) =>
       val problems = ErasureRequests.problems(request, today)
       if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
-      caller match
-        case Caller.Service(project, name) => askAsService(projectId, request, project, name)
-        case _                             => askAsMember(projectId, request)
+      (principal.claims.get(ServiceAsking), caller) match
+        case (Some(_), Caller.Service(project, name)) =>
+          askAsService(projectId, request, project, name)
+        case _ => askAsMember(projectId, request)
     }
   }
 
@@ -112,6 +114,11 @@ private[api] trait ErasureRoutes extends HttpEndpoint with Attributing:
   private val Done =
     Set(ErasureState.Applying, ErasureState.Applied, ErasureState.Final, ErasureState.Settled)
 
+  /**
+   * A member asks for an erasure. A second request for a subject already erased is answered with
+   * the applied one; a request from whoever has a held one for the subject replaces it, the history
+   * keeping both; a held one from someone else must be withdrawn first.
+   */
   private def askAsMember(projectId: String, request: RequestErasure): Respond[ErasureRequest] =
     val access = authz.project(principal, projectId, write = true)
     val prior  = ofSubject(projectId, request.subject)

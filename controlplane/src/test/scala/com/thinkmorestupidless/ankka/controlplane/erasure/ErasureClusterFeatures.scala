@@ -506,19 +506,23 @@ class ErasureClusterFeatures extends munit.FunSuite with LogCapturing:
       val hello =
         ChannelWire.write(ChannelWire.Out.Hello(project, "probe", "probe-1", Vector.empty, None))
       given ActorSystem = system
+      // Gathered as they arrive: an admitted channel stays open, so its stream never completes.
+      val seen = java.util.concurrent.ConcurrentLinkedQueue[String]()
       val flow = Flow.fromSinkAndSourceMat(
-        Sink.seq[Message],
+        Sink.foreach[Message] {
+          case t: TextMessage.Strict => seen.add(t.text): Unit
+          case _                     => ()
+        },
         Source.single(TextMessage(hello)).concat(Source.maybe[Message])
       )(Keep.left)
-      val (_, received) = Http().singleWebSocketRequest(
+      val (_, done) = Http().singleWebSocketRequest(
         WebSocketRequest(s"wss://127.0.0.1:${forward.getLocalPort}/channel"),
         flow,
         context
       )
-      val frames =
-        try Await.result(received, within)
-        catch case _: java.util.concurrent.TimeoutException => Seq.empty
-      frames.toVector.collect { case t: TextMessage.Strict => t.text }
+      try Await.ready(done, within): Unit
+      catch case _: java.util.concurrent.TimeoutException => ()
+      seen.asScala.toVector
     finally forward.close()
 
   // ── the cases ──────────────────────────────────────────────────────────────

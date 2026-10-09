@@ -47,7 +47,9 @@ object ProjectProjection:
           b.declaredAt.fold("")(_.toString)
         )
       },
-      sortedSecrets.toList.map(s => ProjectSecretEntry(s.name, s.entries.toList)),
+      sortedSecrets.toList.map(s =>
+        ProjectSecretEntry(s.name, s.entries.toList, s.setAt.fold(0L)(_.toEpochMilli))
+      ),
       Option.when(sortedSecrets.nonEmpty)(fingerprint(sortedSecrets))
     )
 

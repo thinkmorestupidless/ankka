@@ -61,7 +61,7 @@ string, comma-separated, and an entry of `secret-sync` is `NAME=id`. A boolean i
 | a service | `secret-access` | `<service>-secret-access` |
 | a service | `bucket` (`purpose: service`) | `<service>-bucket` |
 | a service | `bucket-credential` | `<service>-storage-credential` |
-| a project | `secret-sync` | `<project>.secret-sync` |
+| a project | `secret-sync` | `<project>.secret-sync.<secret>`, one per project secret |
 | a project | `bucket` (`purpose: backup`) | `<project>.backup-bucket` |
 | a project | `bucket-credential` (for the backup bucket) | `<project>.backup-credential` |
 | a project or the platform | `wrapping-key` | `<project>.wrapping-key` |

@@ -294,7 +294,9 @@ provider keeps the project's Secret in the cluster in step with Secret Manager, 
 change. **The value is therefore also held in the cluster's Secret store**, and a pod's read of it at
 start is the kubelet's, which Secret Manager does not record per read; the record of reads covers service
 secrets. A service of the project that takes a variable from an entry does not start until the provider
-has synced that entry.
+has synced that entry: `ankka services get` says it is waiting on the cloud provider to sync the project
+secret, or, when the provider could not, says why. A value set again is synced again, though no name
+changed. A service that takes nothing from a project secret never waits on one.
 
 ### Names
 

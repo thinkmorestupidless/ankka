@@ -173,7 +173,7 @@ class CloudRequestsSuite extends munit.FunSuite:
       Map("WEBHOOK_KEY" -> "shop-checkout-webhook", "STRIPE_KEY" -> "shop-checkout-stripe"),
       entryGeneration = 3L
     )
-    assertEquals(r.getMetadata.getName, "shop.secret-sync")
+    assertEquals(r.getMetadata.getName, "shop.secret-sync.checkout")
     assertEquals(r.getSpec.subject, CloudSubject("shop"))
     assertEquals(
       r.getSpec.parameters,

@@ -90,6 +90,14 @@ trait Executor:
     val _ = (namespace, projectId)
     Vector.empty
 
+  /** The project's secrets by name, entry and generation (feature 038), from its `AnkkaProject`. */
+  def projectSecrets(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectSecretEntry] =
+    val _ = (namespace, projectId)
+    Vector.empty
+
   /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
@@ -780,6 +788,18 @@ final class Fabric8Executor(
         .withName(projectId)
         .get()
     ).flatMap(p => Option(p.getSpec)).map(_.brokers.toVector).getOrElse(Vector.empty)
+
+  override def projectSecrets(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectSecretEntry] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec)).map(_.secrets.toVector).getOrElse(Vector.empty)
 
   override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
     val topicClient = client

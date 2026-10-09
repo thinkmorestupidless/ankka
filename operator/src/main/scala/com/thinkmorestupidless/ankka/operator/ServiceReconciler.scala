@@ -66,7 +66,12 @@ final class ServiceReconciler(
     val storagePlan  = decideObjectStoragePlan(ref, spec, cloudBucket.map(_.plans))
     val withheld     = ObjectStorage.withheld(storagePlan, spec, settings)
     val secretAccess = decideSecretAccess(ref, resource, spec, cloudBucket)
-    val secretHold   = secretAccess.flatMap(_.hold)
+    val secretSyncs  = decideProjectSecrets(ref, spec)
+    // A refusal says more than a wait, whichever of the two it comes from.
+    val secretHold = (secretAccess.flatMap(_.hold).toVector ++ secretSyncs.holds).sortBy {
+      case _: SecretAccess.Hold.Refused => 0
+      case _                            => 1
+    }.headOption
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
@@ -146,8 +151,9 @@ final class ServiceReconciler(
             actions.foreach(executor.execute)
             // A request nobody has acknowledged yet: look again when the bound passes, so its
             // absence is reported then, not at the next resync (feature 044, SC-004).
-            if cloudBucket.exists(_.unacknowledged) || secretAccess.exists(_.unacknowledged) then
-              settings.cloud.foreach(cloud => later(ref, cloud.acknowledgementBound))
+            if cloudBucket.exists(_.unacknowledged) || secretAccess.exists(_.unacknowledged) ||
+              secretSyncs.unacknowledged
+            then settings.cloud.foreach(cloud => later(ref, cloud.acknowledgementBound))
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
@@ -259,6 +265,39 @@ final class ServiceReconciler(
       )
 
   /**
+   * The project secrets this service takes a variable from, and whether the cloud provider has each
+   * in step (feature 038). Read only when project secrets are kept in the cloud account, and only
+   * for the secrets the descriptor names: a service that names none waits on none.
+   */
+  private[operator] def decideProjectSecrets(
+      ref: ServiceRef,
+      spec: AnkkaServiceSpec
+  ): ServiceReconciler.ProjectSecretsPass =
+    settings.cloud.filter(_ => ProjectSecretSync.takesCloudPath(settings)) match
+      case None => ServiceReconciler.ProjectSecretsPass(Vector.empty, unacknowledged = false)
+      case Some(cloud) =>
+        val now = Instant.now(clock)
+        val seen = ProjectSecretSync
+          .referenced(spec, executor.projectSecrets(ref.namespace, spec.projectId))
+          .map { secret =>
+            val observed = executor.observeCloudResource(
+              ref.namespace,
+              ProjectSecretSync.requestName(spec.projectId, secret.name)
+            )
+            val plan = CloudProvisioning.decide(
+              ProjectSecretSync.provider(cloud),
+              observed,
+              now,
+              cloud.acknowledgementBound
+            )
+            (ProjectSecretSync.hold(secret, plan), observed.exists(_.acknowledged))
+          }
+        ServiceReconciler.ProjectSecretsPass(
+          holds = seen.flatMap(_._1),
+          unacknowledged = seen.exists(!_._2)
+        )
+
+  /**
    * What the broker has for this service (feature 027), read only when the service is known to an
    * installation's broker: no Strimzi read is made for any other.
    */
@@ -340,6 +379,9 @@ final class ServiceReconciler(
     else executor.execute(Action.SetStatus(ref.namespace, ref.name, next))
 
 object ServiceReconciler:
+
+  /** What holds a service for the project secrets it takes variables from, one per secret. */
+  final case class ProjectSecretsPass(holds: Vector[SecretAccess.Hold], unacknowledged: Boolean)
 
   /** One pass's view of a service's access to its secrets: two requests, and what holds it. */
   final case class SecretAccessPass(

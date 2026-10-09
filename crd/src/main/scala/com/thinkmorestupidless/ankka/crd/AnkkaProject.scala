@@ -30,7 +30,15 @@ final case class AnkkaProjectSpec(
 
 /** One project secret: its name and its entries' names. */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
-final case class ProjectSecretEntry(name: String = "", entries: List[String] = Nil)
+final case class ProjectSecretEntry(
+    name: String = "",
+    entries: List[String] = Nil,
+    /**
+     * When the secret was last set, in epoch milliseconds: the generation the cloud provider keeps
+     * the Secret in step with, so a value set again is synced again though no name changed.
+     */
+    entryGeneration: Long = 0L
+)
 
 /**
  * One declared topic: its name as the project's components use it, its partitions, and when the

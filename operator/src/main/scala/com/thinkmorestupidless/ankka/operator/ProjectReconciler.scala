@@ -28,7 +28,14 @@ final class ProjectReconciler(client: KubernetesClient, settings: Settings, exec
         val observed =
           settings.broker.fold(Map.empty)(b => executor.observeTopics(b.namespace, names))
         ProjectReconciler
-          .actions(ref, spec, settings.broker, observed, Option(project.getStatus))
+          .actions(
+            ref,
+            spec,
+            settings.broker,
+            observed,
+            Option(project.getStatus),
+            ProjectSecretSync.requests(project, settings)
+          )
           .foreach(executor.execute)
 
 object ProjectReconciler:
@@ -42,7 +49,9 @@ object ProjectReconciler:
       spec: AnkkaProjectSpec,
       broker: Option[BrokerSettings],
       observed: Map[String, TopicState],
-      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus]
+      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus],
+      // One request per project secret kept in the cloud account (feature 038), already rendered.
+      secretSyncs: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
@@ -53,6 +62,7 @@ object ProjectReconciler:
     // The declarations every service of the project reads at start (feature 037), with or without
     // a broker: a contract is checked wherever the topic lives.
     (Action.EnsureProjectConfig(ProjectConfig.configMap(ref.namespace, spec)) +: topics) ++
+      secretSyncs.map(Action.EnsureCloudResource(_)) ++
       Option.unless(current.contains(next))(
         Action.SetProjectStatus(ref.namespace, ref.name, next)
       )

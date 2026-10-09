@@ -117,6 +117,12 @@ spec:
                         type: array
                         items:
                           type: string
+                      entryGeneration:
+                        type: integer
+                        format: int64
+                        description: >-
+                          When the secret was last set, in epoch milliseconds: the generation the
+                          cloud provider keeps the Secret in step with.
                 secretsFingerprint:
                   type: string
                   description: >-

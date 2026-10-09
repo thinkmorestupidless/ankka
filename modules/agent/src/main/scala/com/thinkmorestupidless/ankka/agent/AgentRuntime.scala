@@ -986,6 +986,27 @@ final class AgentCalls private[agent] (
   private given ExecutionContext = ExecutionContext.parasitic
   private val entity             = EntityId(sessionId)
 
+  /**
+   * Tags the session with the data subject the conversation is about (feature 042), before the
+   * call: every turn from then on is kept under the subject's key, and after an erasure of the
+   * subject the session reads as nothing. Refused for a subject already erased, or a session about
+   * another.
+   */
+  def withSubject(subject: String): AgentCalls =
+    ComponentClient.await(
+      transport
+        .ask(
+          SessionMemoryEntity.componentId,
+          entity,
+          MethodName("assign-subject"),
+          SessionMemoryEntity.assignSubject.inputSerializer.toBytes(subject),
+          Metadata.empty
+        )
+        .map(_ => ()),
+      transport.askTimeout
+    )
+    this
+
   /** Calls a handler for its value; throws `ApprovalAwaited` when the turn waits for approval. */
   def call[A <: Agent, I, O](handle: CommandHandle[A, I, O]): AgentInvocation[I, O] =
     AgentInvocation(

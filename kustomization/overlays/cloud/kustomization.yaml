@@ -72,6 +72,7 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  - ../../components/keyring
   - ../../components/console
 
 resources:
@@ -84,6 +85,9 @@ images:
   - name: ankka-controlplane
     newName: ghcr.io/thinkmorestupidless/ankka-controlplane
     newTag: "0.0.0" # SET: the release you run
+  - name: ankka-keyring
+    newName: ghcr.io/thinkmorestupidless/ankka-keyring
+    newTag: "0.0.0" # SET
   - name: ankka-operator
     newName: ghcr.io/thinkmorestupidless/ankka-operator
     newTag: "0.0.0" # SET
@@ -183,6 +187,19 @@ patches:
       metadata:
         name: ankka-object-store-admin
         namespace: ankka-operator
+
+  # The keyring's development secret key goes the same way: it keeps the installation's root key, so
+  # it must be the installation's own. Create it out of band before the keyring starts:
+  #
+  #   kubectl -n ankka-keyring create secret generic ankka-keyring-secret-key \
+  #     --from-literal=key="$(openssl rand -base64 32)"
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ankka-keyring-secret-key
+        namespace: ankka-keyring
 
   # The console's realm client, without the development secret and without the address a laptop's
   # console signs in from. With no secret in the import, Keycloak generates one; nothing secret is

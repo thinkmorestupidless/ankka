@@ -59,9 +59,16 @@ final class ProjectEndpoint(
     /** Where a contract's schema is held (feature 037); `None` refuses a declaration with one. */
     schemaStore: Option[ProjectSchemaStore] = None,
     /** Where each service's instances report what they state about a topic (feature 037). */
-    topology: Option[TopologyReader] = None
+    topology: Option[TopologyReader] = None,
+    /** What applies erasure requests (feature 042); requests are recorded without one. */
+    erasures: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = None
 ) extends HttpEndpoint("/projects")
-    with Attributing:
+    with Attributing
+    with ErasureRoutes:
+
+  protected def erasureClients: EndpointClients = clients
+  protected def erasureSweeper
+      : Option[com.thinkmorestupidless.ankka.controlplane.deploy.ErasureSweeper] = erasures
 
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)

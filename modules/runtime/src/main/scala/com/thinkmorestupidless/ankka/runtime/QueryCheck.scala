@@ -124,6 +124,9 @@ private[ankka] object QueryCheck:
       check(view, table, query).fold(problem => throw IllegalStateException(problem), identity)
     )
 
+  /** A statement reaching into a personal envelope's ciphertext, which nothing can match. */
+  private val PersonalData = "(?s).*->>?\\s*'data'.*".r
+
   /** One declared query: refused with the first rule it breaks, or ready to run. */
   def check(view: ComponentId, table: String, query: DeclaredQuery): Either[String, CheckedQuery] =
     def refused(what: String) = Left(s"view '$view' declares the query '${query.name}', $what")
@@ -136,6 +139,11 @@ private[ankka] object QueryCheck:
         s"whose name is a fixed way of asking a view (${FixedWays.mkString(", ")}); give it another"
       )
     else if query.statement.trim.isEmpty then refused("which holds no statement")
+    else if PersonalData.matches(query.statement) then
+      refused(
+        "which reads a personal field's ciphertext ('data'); match a personal field by its lookup " +
+          "token ('lookup') with a value from Personal.lookupToken"
+      )
     else
       Values.scan(query.statement) match
         case Left(why) => refused(why)

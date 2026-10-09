@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
+
 import com.thinkmorestupidless.ankka.core.effect.{KeyedViewEffect, RowChanges}
 import com.thinkmorestupidless.ankka.core.ComponentId
 import com.thinkmorestupidless.ankka.sdk.*
@@ -150,7 +152,11 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
   private def encode(effect: KeyedViewEffect[Row]): Vector[(String, Option[String])] =
     RowChanges
       .reduce(effect.changes)
-      .map((key, row) => key -> row.map(r => String(descriptor.rowSerializer.toBytes(r), "UTF-8")))
+      .map((key, row) =>
+        key -> row.map(r =>
+          String(PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(r)), "UTF-8")
+        )
+      )
 
 /**
  * Applies one change of an event sourced source to a keyed view, exactly once: the lock, the rows

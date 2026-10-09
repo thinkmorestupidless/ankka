@@ -1,0 +1,31 @@
+# The keyring's identity in the cluster: it reads the pods of its own namespace so its instances find
+# each other (Cluster Bootstrap), and nothing else. It holds no grant on any Secret or workload.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ankka-keyring-discovery
+  namespace: ankka-keyring
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ankka-keyring-discovery
+  namespace: ankka-keyring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ankka-keyring-discovery
+subjects:
+  - kind: ServiceAccount
+    name: ankka-keyring
+    namespace: ankka-keyring

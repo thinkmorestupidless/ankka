@@ -94,6 +94,9 @@ object PlayerEntity
     ):
   def create(context: EventSourcedEntityContext) = new PlayerEntity(context)
 
+  /** A snapshot every second event, so a scenario can see one kept. */
+  override def snapshotEvery: Option[Int] = Some(2)
+
   given registrationSerializer: Serializer[Registration] =
     Codecs.serializer[Registration]("registration")
   given readSerializer: Serializer[PlayerRead] = Codecs.serializer[PlayerRead]("player-read")
@@ -120,3 +123,69 @@ object Profiles
       rowSerializer = Codecs.serializer[ProfileRow]("profile-row")
     ):
   def create(ctx: ViewComponentContext) = new ProfilesView
+
+  /**
+   * A player by email, matched by the email's lookup token: nothing else can match a ciphertext.
+   */
+  val byEmail = query("by-email")(
+    "SELECT payload FROM ankka_view_profiles WHERE payload::jsonb->'email'->>'lookup' = :email"
+  )
+
+/** A player's settings: a key value entity's state with a personal field. */
+final case class Settings(email: Option[Personal[String]], theme: String)
+
+final class SettingsEntity(context: KeyValueEntityContext) extends KeyValueEntity[Settings]:
+  def emptyState: Settings = Settings(None, "light")
+  def setEmail(email: String): Effect[Done] =
+    effects
+      .updateState(
+        currentState.copy(email = Some(Personal.present(s"player/${context.entityId}", email)))
+      )
+      .thenReply(_ => Done)
+  def setTheme(theme: String): Effect[Done] =
+    effects.updateState(currentState.copy(theme = theme)).thenReply(_ => Done)
+  def email: ReadOnlyEffect[String] =
+    effects.reply(currentState.email.flatMap(_.toOption).getOrElse("<erased>"))
+
+object SettingsEntity
+    extends KeyValueEntity.Companion[SettingsEntity, Settings](
+      componentId = ComponentId("player-settings"),
+      stateSerializer = Codecs.serializer[Settings]("player-settings")
+    ):
+  def create(context: KeyValueEntityContext) = new SettingsEntity(context)
+  val setEmail                               = command("set-email")(_.setEmail)
+  val setTheme                               = command("set-theme")(_.setTheme)
+  val email                                  = query("email")(_.email)
+
+/** Publishes every registration to the topic `players`, as written: personal fields encrypted. */
+final class PlayersPublisher extends Consumer[PlayerEvent, PlayerEvent]:
+  def onMessage(event: PlayerEvent): Effect = event match
+    case registered: PlayerEvent.Registered => effects.produce(registered)
+    case _                                  => effects.ignore()
+
+object PlayersPublisher
+    extends Consumer.Companion[PlayersPublisher, PlayerEvent, PlayerEvent](
+      componentId = ComponentId("players-publisher"),
+      source = ChangeSource.eventsOf(PlayerEntity)
+    ):
+  def create(ctx: ConsumerContext) = new PlayersPublisher
+  override val outputSerializer: Option[Serializer[PlayerEvent]] = Some(
+    PlayerEntity.eventSerializer
+  )
+  override val produceTo: Option[String] = Some("players")
+
+/** A consumer of the topic `players`, keeping what it was handed. */
+final class Engagement extends Consumer[PlayerEvent, Nothing]:
+  def onMessage(event: PlayerEvent): Effect =
+    event match
+      case PlayerEvent.Registered(id, email, _, _, _, _) => Engagement.seen.put(id, email): Unit
+      case _                                             => ()
+    effects.done()
+
+object Engagement
+    extends Consumer.Companion[Engagement, PlayerEvent, Nothing](
+      componentId = ComponentId("engagement"),
+      source = ChangeSource.fromTopic("players", PlayerEntity.eventSerializer, StartFrom.Earliest)
+    ):
+  def create(ctx: ConsumerContext) = new Engagement
+  val seen = java.util.concurrent.ConcurrentHashMap[String, Personal[String]]()

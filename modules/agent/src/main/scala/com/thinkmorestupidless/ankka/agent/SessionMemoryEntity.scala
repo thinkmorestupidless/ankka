@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.agent
 
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.core.personal.{Personal, PersonalScope}
 import com.thinkmorestupidless.ankka.sdk.*
 
 /**
@@ -16,7 +17,13 @@ final case class SessionHistory(
     usage: TokenUsage,
     sizeInBytes: Int,
     judgmentUsage: TokenUsage = TokenUsage.zero,
-    suspended: Option[SuspendedTurn] = None
+    suspended: Option[SuspendedTurn] = None,
+    /**
+     * The data subject the conversation is about (feature 042): its turns are kept under its key.
+     */
+    subject: Option[String] = None,
+    /** The subject has been erased: what the session held of it reads as nothing. */
+    erased: Boolean = false
 ):
   def isEmpty: Boolean = messages.isEmpty && suspended.isEmpty
 
@@ -86,6 +93,45 @@ enum SessionMemoryEvent:
   /** The suspended turn is over: answered, failed, or cut off. */
   case TurnEnded
 
+  /**
+   * The conversation is about this data subject (feature 042): every later turn is kept under its
+   * key.
+   */
+  case SubjectAssigned(subject: String)
+
+  /**
+   * A turn's content kept under the session's data subject's key; read as nothing once it is
+   * erased.
+   */
+  case Protected(content: Personal[SessionContent])
+
+/**
+ * What a session keeps of a person's words, when it is about a data subject: the events that carry
+ * messages, apart from the ones that carry none, so each can be kept under the subject's key.
+ */
+enum SessionContent:
+  case User(message: SessionMessage.UserMessage)
+  case Ai(message: SessionMessage.AiMessage, usage: TokenUsage)
+  case ToolResult(message: SessionMessage.ToolResultMessage)
+  case Compacted(summary: SessionMessage.SummaryMessage, droppedCount: Int)
+  case Suspended(turn: SuspendedTurn)
+
+  def event: SessionMemoryEvent = this match
+    case User(m)               => SessionMemoryEvent.UserMessageAdded(m)
+    case Ai(m, u)              => SessionMemoryEvent.AiMessageAdded(m, u)
+    case ToolResult(m)         => SessionMemoryEvent.ToolResultAdded(m)
+    case Compacted(summary, n) => SessionMemoryEvent.HistoryCompacted(summary, n)
+    case Suspended(turn)       => SessionMemoryEvent.TurnSuspended(turn)
+
+object SessionContent:
+  def of(event: SessionMemoryEvent): Option[SessionContent] = event match
+    case SessionMemoryEvent.UserMessageAdded(m)    => Some(User(m))
+    case SessionMemoryEvent.AiMessageAdded(m, u)   => Some(Ai(m, u))
+    case SessionMemoryEvent.ToolResultAdded(m)     => Some(ToolResult(m))
+    case SessionMemoryEvent.HistoryCompacted(s, n) => Some(Compacted(s, n))
+    case SessionMemoryEvent.TurnSuspended(turn)    => Some(Suspended(turn))
+    case _                                         => None
+
 /**
  * A conversation, as an event sourced entity.
  *
@@ -136,16 +182,60 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     case SessionMemoryEvent.TurnEnded =>
       currentState.copy(suspended = None)
 
+    case SessionMemoryEvent.SubjectAssigned(subject) =>
+      currentState.copy(subject = Some(subject))
+
+    case SessionMemoryEvent.Protected(content) =>
+      content.toOption match
+        case Some(inner) => applyEvent(inner.event)
+        // The subject's key is destroyed: what this held is gone, and the session says so.
+        case None =>
+          currentState.copy(
+            messages = Vector.empty,
+            sizeInBytes = 0,
+            suspended = None,
+            erased = true
+          )
+
+  /**
+   * Keeps a turn's content under the session's data subject's key when it has one. A subject that
+   * has been erased is refused here, so a new turn about it is answered with the refusal.
+   */
+  private def kept(events: Vector[SessionMemoryEvent]): Vector[SessionMemoryEvent] =
+    currentState.subject match
+      case None => events
+      case Some(subject) =>
+        events.map(e =>
+          SessionContent
+            .of(e)
+            .fold(e)(c => SessionMemoryEvent.Protected(Personal.present(subject, c)))
+        )
+
+  private def keep(event: SessionMemoryEvent): SessionMemoryEvent = kept(Vector(event)).head
+
+  /** Tags the conversation with the data subject it is about; refused for one already erased. */
+  def assignSubject(subject: String): Effect[Done] =
+    currentState.subject match
+      case Some(`subject`) => effects.reply(Done)
+      case Some(other) =>
+        effects.error(
+          s"session '$theSessionId' is about data subject $other, not $subject",
+          ErrorCode.Conflict
+        )
+      case None =>
+        Personal.present(subject, ()): Unit
+        effects.persist(SessionMemoryEvent.SubjectAssigned(subject)).thenReply(_ => Done)
+
   def addUserMessage(message: SessionMessage.UserMessage): Effect[Done] =
-    effects.persist(SessionMemoryEvent.UserMessageAdded(message)).thenReply(_ => Done)
+    effects.persist(keep(SessionMemoryEvent.UserMessageAdded(message))).thenReply(_ => Done)
 
   def addAiMessage(request: SessionMemoryEntity.AddAiMessage): Effect[Done] =
     effects
-      .persist(SessionMemoryEvent.AiMessageAdded(request.message, request.usage))
+      .persist(keep(SessionMemoryEvent.AiMessageAdded(request.message, request.usage)))
       .thenReply(_ => Done)
 
   def addToolResult(message: SessionMessage.ToolResultMessage): Effect[Done] =
-    effects.persist(SessionMemoryEvent.ToolResultAdded(message)).thenReply(_ => Done)
+    effects.persist(keep(SessionMemoryEvent.ToolResultAdded(message))).thenReply(_ => Done)
 
   /**
    * Writes several messages in one go.
@@ -171,7 +261,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     // answer with the turn still waiting, or the turn gone with no answer.
     val ended =
       Option.when(batch.endsTurn && currentState.suspended.isDefined)(SessionMemoryEvent.TurnEnded)
-    val all = events ++ judged ++ ended
+    val all = kept(events) ++ judged ++ ended
     if all.isEmpty then effects.reply(Done)
     else effects.persistAll(all).thenReply(_ => Done)
 
@@ -188,7 +278,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
         s"session '$theSessionId' already has an approval request awaiting a decision",
         ErrorCode.Conflict
       )
-    else effects.persist(SessionMemoryEvent.TurnSuspended(turn)).thenReply(_ => Done)
+    else effects.persist(keep(SessionMemoryEvent.TurnSuspended(turn))).thenReply(_ => Done)
 
   /**
    * Records a decision, answering with the suspended turn as it then stands.
@@ -245,13 +335,15 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     else
       effects
         .persist(
-          SessionMemoryEvent.HistoryCompacted(
-            SessionMessage.SummaryMessage(
-              System.currentTimeMillis(),
-              request.summary,
-              request.agentId
-            ),
-            request.droppedCount
+          keep(
+            SessionMemoryEvent.HistoryCompacted(
+              SessionMessage.SummaryMessage(
+                System.currentTimeMillis(),
+                request.summary,
+                request.agentId
+              ),
+              request.droppedCount
+            )
           )
         )
         .thenReply(_ => Done)
@@ -259,7 +351,27 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
   def clear: Effect[Done] =
     effects.persist(SessionMemoryEvent.Cleared).thenReply(_ => Done)
 
-  def history: ReadOnlyEffect[SessionHistory] = effects.reply(currentState)
+  /**
+   * The history. A session whose data subject is erased — known here, though this instance still
+   * holds what it read before — answers with nothing but a note saying so, which is all the model
+   * is told.
+   */
+  def history: ReadOnlyEffect[SessionHistory] =
+    val erased =
+      currentState.erased || currentState.subject.exists(s => PersonalScope.isDestroyed(None, s))
+    if !erased then effects.reply(currentState)
+    else
+      effects.reply(
+        SessionHistory(
+          Vector(SessionMessage.SummaryMessage(0L, SessionMemoryEntity.ErasedNote, "ankka")),
+          currentState.usage,
+          SessionMemoryEntity.ErasedNote.length,
+          currentState.judgmentUsage,
+          None,
+          currentState.subject,
+          erased = true
+        )
+      )
 
   private def appended(message: SessionMessage): SessionHistory =
     val messages = currentState.messages :+ message
@@ -299,6 +411,10 @@ object SessionMemoryEntity
   )
   final case class Compact(summary: String, droppedCount: Int, agentId: String)
 
+  /** What an erased session's history says, and so what the model is told of the turns before. */
+  val ErasedNote: String =
+    "The earlier conversation in this session was erased at the data subject's request."
+
   given Serializer[SessionMessage.UserMessage] =
     Codecs.serializer[SessionMessage.UserMessage]("session-user-message")
   given Serializer[SessionMessage.ToolResultMessage] =
@@ -322,3 +438,4 @@ object SessionMemoryEntity
   val suspendTurn    = command("suspend-turn")(_.suspendTurn)
   val decideApproval = command("decide-approval")(_.decideApproval)
   val endTurn        = command("end-turn")(_.endTurn)
+  val assignSubject  = command("assign-subject")(_.assignSubject)

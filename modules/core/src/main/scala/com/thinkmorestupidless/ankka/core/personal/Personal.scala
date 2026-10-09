@@ -96,6 +96,15 @@ object Personal:
     PersonalScope.refuseErased(subject)
     Present(subject, value, lookup = true)
 
+  /**
+   * The lookup token of a text value, in the project of the service asking: what a declared query
+   * matches a personal field marked for lookup by (`payload::jsonb->'email'->>'lookup' = :email`).
+   * Inside a service only; it reads the project's lookup key from the keyring.
+   */
+  def lookupToken(value: String): String =
+    val scope = PersonalScope.current.getOrElse(throw PersonalScope.unavailable())
+    LookupTokens.forText(scope.keyring.lookupKey(scope.project), value)
+
   def erased(subject: String): Personal[Nothing] =
     DataSubject.require(subject)
     Erased(subject)

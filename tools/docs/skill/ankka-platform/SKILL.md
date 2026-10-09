@@ -12,6 +12,7 @@ pages:
   - platform/broker.md
   - platform/object-storage.md
   - platform/secrets.md
+  - platform/erasure.md
   - platform/networking.md
   - concepts/tenancy-and-access.md
   - concepts/control-plane.md

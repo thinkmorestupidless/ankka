@@ -502,7 +502,9 @@ lazy val controlPlane = project
     testPki  % Test,
     // GrpcClusterSuite calls the deployed sample over gRPC from the host, through the gateway.
     grpc            % Test,
-    shoppingCartApi % Test
+    shoppingCartApi % Test,
+    // ErasureSuite applies erasures through a real keyring, in-process (feature 042).
+    keyring % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
@@ -557,6 +559,25 @@ lazy val controlPlane = project
     // different dynver timestamp on a dirty tree) is not the one they ask for.
     Test / test     := (Test / test).dependsOn(sampleImageForClusterTests).value,
     Test / testOnly := (Test / testOnly).dependsOn(sampleImageForClusterTests).evaluated
+  )
+
+/**
+ * The keyring (feature 042): a platform component that keeps every subject key and lookup key of an
+ * installation, wrapped, outside every project's database and backup, and drives each erasure
+ * through every service's channel. An ankka application of its own, deployed beside the control
+ * plane; never published.
+ */
+lazy val keyring = project
+  .in(file("keyring"))
+  .dependsOn(sdk, runtime, http, telemetryOtlp, testkit % Test, testPki % Test)
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                := "ankka-keyring",
+    publish / skip      := true,
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.keyring.runKeyring"),
+    dockerExposedPorts  := Seq(9020)
   )
 
 /**
@@ -942,6 +963,7 @@ lazy val root = project
     crd,
     operator,
     controlPlane,
+    keyring,
     cli,
     protocol,
     sidecar,

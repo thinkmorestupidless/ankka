@@ -553,6 +553,99 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val erasures = Opts.subcommand(
+      "erasures",
+      "Erasure requests: erase a data subject's personal data in every service of the project, at once " +
+        "or when a legal hold ends."
+    ) {
+      val request =
+        Opts.subcommand("request", "Ask for the erasure of one data subject in the project.") {
+          (
+            Opts.argument[String]("subject"),
+            Opts.option[String]("not-before", "Hold until this date (YYYY-MM-DD).").orNone,
+            Opts.option[String]("reason", "Why it is held: required with --not-before.").orNone,
+            Opts
+              .option[String](
+                "correlation",
+                "An id joining this request to others for the same person."
+              )
+              .orNone,
+            Opts
+              .option[String](
+                "keyring",
+                "Ask a local keyring directly, with no control plane (project local)."
+              )
+              .orNone,
+            contextOpt
+          ).mapN { (subject, notBefore, reason, correlation, keyring, ctx) => () =>
+            keyring match
+              case Some(url) => ErasuresCommand.local(url, subject)
+              case None =>
+                val body = RequestErasure(
+                  subject,
+                  notBefore.map(java.time.LocalDate.parse),
+                  reason,
+                  correlation
+                )
+                val problems =
+                  ErasureRequests.problems(body, java.time.LocalDate.now(java.time.ZoneOffset.UTC))
+                if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+                Output.erasure(ctx.client.requestErasure(ctx.project, body), ctx.format)
+          }
+        }
+      val list = Opts.subcommand("list", "List the project's erasure requests.") {
+        (
+          Opts.option[String]("subject", "Only this data subject's.").orNone,
+          Opts.option[String]("state", "Only those in this state.").orNone,
+          Opts.option[String]("correlation", "Only those with this correlation id.").orNone,
+          contextOpt
+        ).mapN { (subject, state, correlation, ctx) => () =>
+          Output.erasures(
+            ctx.client.listErasures(ctx.project, subject, state, correlation),
+            ctx.format
+          )
+        }
+      }
+      val get = Opts.subcommand("get", "Show one erasure request, with each service's completion.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.erasure(ctx.client.getErasure(ctx.project, id), ctx.format)
+        }
+      }
+      val withdraw = Opts.subcommand("withdraw", "Withdraw a held erasure request.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.erasure(ctx.client.withdrawErasure(ctx.project, id), ctx.format)
+        }
+      }
+      val overrideHold =
+        Opts.subcommand("override", "Apply a held erasure request now (an owner, with a reason).") {
+          (
+            Opts.argument[String]("id"),
+            Opts.option[String]("reason", "Why the hold is overridden."),
+            contextOpt
+          ).mapN { (id, reason, ctx) => () =>
+            Output.erasure(ctx.client.overrideErasure(ctx.project, id, reason), ctx.format)
+          }
+        }
+      val reapply = Opts.subcommand("reapply", "Run every service's erasure handler again.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.erasure(ctx.client.reapplyErasure(ctx.project, id), ctx.format)
+        }
+      }
+      val certificate =
+        Opts.subcommand("certificate", "The certificate of an applied erasure request.") {
+          (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+            Output.certificate(ctx.client.erasureCertificate(ctx.project, id), ctx.format)
+          }
+        }
+      request
+        .orElse(list)
+        .orElse(get)
+        .orElse(withdraw)
+        .orElse(overrideHold)
+        .orElse(reapply)
+        .orElse(certificate)
+    }
+
     list
       .orElse(get)
       .orElse(create)
@@ -560,6 +653,7 @@ object Main:
       .orElse(delete)
       .orElse(registry)
       .orElse(secrets)
+      .orElse(erasures)
       .orElse(topics)
       .orElse(brokers)
   }

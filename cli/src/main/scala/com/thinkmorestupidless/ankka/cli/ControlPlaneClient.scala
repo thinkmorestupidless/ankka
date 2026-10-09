@@ -182,6 +182,66 @@ final class ControlPlaneClient(settings: Settings):
   def listProjectSecrets(projectId: String): Vector[ProjectSecretSummary] =
     get[Vector[ProjectSecretSummary]](s"/projects/${segment(projectId)}/secrets")
 
+  // ── erasures (feature 042) ────────────────────────────────────────────────
+
+  def requestErasure(projectId: String, request: RequestErasure): ErasureRequest =
+    decode[ErasureRequest](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/erasures",
+        Some(writeToString(request)(using ErasureWire.requestErasureCodec))
+      )
+    )(using ErasureWire.erasureRequestCodec)
+
+  def listErasures(
+      projectId: String,
+      subject: Option[String],
+      state: Option[String],
+      correlation: Option[String]
+  ): Vector[ErasureRequest] =
+    val filters =
+      Vector("subject" -> subject, "state" -> state, "correlation" -> correlation).collect {
+        case (k, Some(v)) =>
+          s"$k=${URLEncoder.encode(v, StandardCharsets.UTF_8)}"
+      }
+    val query = if filters.isEmpty then "" else filters.mkString("?", "&", "")
+    get[Vector[ErasureRequest]](s"/projects/${segment(projectId)}/erasures$query")(using
+      ErasureWire.erasureRequestsCodec
+    )
+
+  def getErasure(projectId: String, id: String): ErasureRequest =
+    get[ErasureRequest](s"/projects/${segment(projectId)}/erasures/${segment(id)}")(using
+      ErasureWire.erasureRequestCodec
+    )
+
+  def withdrawErasure(projectId: String, id: String): ErasureRequest =
+    decode[ErasureRequest](
+      send("DELETE", s"/projects/${segment(projectId)}/erasures/${segment(id)}", None)
+    )(using
+      ErasureWire.erasureRequestCodec
+    )
+
+  def overrideErasure(projectId: String, id: String, reason: String): ErasureRequest =
+    decode[ErasureRequest](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/erasures/${segment(id)}/override",
+        Some(writeToString(OverrideHold(reason))(using ErasureWire.overrideHoldCodec))
+      )
+    )(using ErasureWire.erasureRequestCodec)
+
+  def reapplyErasure(projectId: String, id: String): ErasureRequest =
+    decode[ErasureRequest](
+      send("POST", s"/projects/${segment(projectId)}/erasures/${segment(id)}/reapply", None)
+    )(using
+      ErasureWire.erasureRequestCodec
+    )
+
+  def erasureCertificate(projectId: String, id: String): ErasureCertificate =
+    get[ErasureCertificate](s"/projects/${segment(projectId)}/erasures/${segment(id)}/certificate")(
+      using ErasureWire.certificateCodec
+    )
+
   /**
    * Declares a topic on a project, or raises its partitions (feature 027); its compaction and
    * contract (feature 037).

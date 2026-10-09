@@ -1,0 +1,19 @@
+# Tells the operator where the keyring is, so it renders ANKKA_KEYRING_URL on every service's
+# platform container. In this component rather than the operator's own manifest, so an installation
+# without the keyring renders exactly what it rendered before.
+#
+# The container's name must be the operator's own, `ankka-operator`: a strategic merge patch that
+# names a container the Deployment lacks adds a second container instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_KEYRING_URL
+              value: "https://ankka-keyring.ankka-keyring.svc:9020"

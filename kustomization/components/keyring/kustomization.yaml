@@ -1,0 +1,23 @@
+# The installation's keyring (feature 042): every subject key and lookup key of every project,
+# wrapped, in a database of its own that is no project's and in no project's backup. Every service
+# holds one channel to it for the keys its personal fields are under and for the erasures it must
+# apply; the control plane asks it to apply each erasure, and is never given a key.
+#
+# Two instances forming one cluster, as the control plane's three do. Its schema is applied by the
+# keyring itself at start, from the runtime's own DDL, because a component cannot read the postgres
+# component's copy (kustomize's load restrictor) and a second copy here would be a second schema.
+#
+# secrets.yaml holds a development secret key, public in this repository: it keeps the keyring's
+# root key, so on a real installation it must be the installation's own. The cloud overlay deletes it.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - secrets.yaml
+  - cluster.yaml
+  - deployment.yaml
+  - service.yaml
+  - zero-trust.yaml
+patches:
+  - path: operator-patch.yaml

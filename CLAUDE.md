@@ -28,6 +28,7 @@ yourself** — a plan made before any matching file is opened has not seen it ye
 | `build-and-release.md` | sbt build traps, templates (`ankka.g8`, `ankka init`), every publishing channel, compatibility |
 | `docs.md` | the `docs/` tree, `tools/docs`, generated reference, skills, marketplace |
 | `testing.md` | living features (speckit-bdd), `LogCapturing`, long suites |
+| `erasure.md` | `Personal` and the envelope, the scope a codec reads keys from, the keyring, erasure requests |
 
 When you learn a trap worth keeping, add it to the rule file for its area, not here. Only a rule that
 bites anywhere in the tree belongs in this file.

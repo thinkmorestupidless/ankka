@@ -745,6 +745,7 @@ Usage:
     ankka projects delete
     ankka projects registry
     ankka projects secrets
+    ankka projects erasures
     ankka projects topics
     ankka projects brokers
 
@@ -769,6 +770,8 @@ Subcommands:
         Credentials the cluster pulls this project's private images with.
     secrets
         Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
+    erasures
+        Erasure requests: erase a data subject's personal data in every service of the project, at once or when a legal hold ends.
     topics
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
@@ -1020,6 +1023,197 @@ Options and flags:
 Usage: ankka projects secrets list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 List a project's secrets: names and entries, never values.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures`
+
+```text
+Usage:
+    ankka projects erasures request
+    ankka projects erasures list
+    ankka projects erasures get
+    ankka projects erasures withdraw
+    ankka projects erasures override
+    ankka projects erasures reapply
+    ankka projects erasures certificate
+
+Erasure requests: erase a data subject's personal data in every service of the project, at once or when a legal hold ends.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    request
+        Ask for the erasure of one data subject in the project.
+    list
+        List the project's erasure requests.
+    get
+        Show one erasure request, with each service's completion.
+    withdraw
+        Withdraw a held erasure request.
+    override
+        Apply a held erasure request now (an owner, with a reason).
+    reapply
+        Run every service's erasure handler again.
+    certificate
+        The certificate of an applied erasure request.
+```
+
+### `ankka projects erasures request`
+
+```text
+Usage: ankka projects erasures request [--not-before <string>] [--reason <string>] [--correlation <string>] [--keyring <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <subject>
+
+Ask for the erasure of one data subject in the project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --not-before <string>
+        Hold until this date (YYYY-MM-DD).
+    --reason <string>
+        Why it is held: required with --not-before.
+    --correlation <string>
+        An id joining this request to others for the same person.
+    --keyring <string>
+        Ask a local keyring directly, with no control plane (project local).
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures list`
+
+```text
+Usage: ankka projects erasures list [--subject <string>] [--state <string>] [--correlation <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List the project's erasure requests.
+
+Options and flags:
+    --help
+        Display this help text.
+    --subject <string>
+        Only this data subject's.
+    --state <string>
+        Only those in this state.
+    --correlation <string>
+        Only those with this correlation id.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures get`
+
+```text
+Usage: ankka projects erasures get [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Show one erasure request, with each service's completion.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures withdraw`
+
+```text
+Usage: ankka projects erasures withdraw [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Withdraw a held erasure request.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures override`
+
+```text
+Usage: ankka projects erasures override --reason <string> [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Apply a held erasure request now (an owner, with a reason).
+
+Options and flags:
+    --help
+        Display this help text.
+    --reason <string>
+        Why the hold is overridden.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures reapply`
+
+```text
+Usage: ankka projects erasures reapply [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Run every service's erasure handler again.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects erasures certificate`
+
+```text
+Usage: ankka projects erasures certificate [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+The certificate of an applied erasure request.
 
 Options and flags:
     --help

@@ -106,6 +106,13 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/organizations/{organizationId}/enable` | |
 | `PUT` | `/organizations/{organizationId}/quota` | |
 | `DELETE` | `/organizations/{organizationId}/quota` | |
+| `POST` | `/projects/{projectId}/erasures` | |
+| `GET` | `/projects/{projectId}/erasures` | |
+| `GET` | `/projects/{projectId}/erasures/{id}` | |
+| `DELETE` | `/projects/{projectId}/erasures/{id}` | |
+| `POST` | `/projects/{projectId}/erasures/{id}/override` | |
+| `POST` | `/projects/{projectId}/erasures/{id}/reapply` | |
+| `GET` | `/projects/{projectId}/erasures/{id}/certificate` | |
 | `GET` | `/projects` | |
 | `GET` | `/projects/{projectId}` | |
 | `POST` | `/projects/{projectId}` | |
@@ -138,6 +145,7 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/services/{projectId}/{name}/history` | |
 | `DELETE` | `/services/{projectId}/{name}` | |
 | `GET` | `/auth/whoami` | |
+| `GET` | `/erasures/log` | |
 | `GET` | `/auth` | |
 <!-- generated:end control-plane-routes -->
 
@@ -491,6 +499,58 @@ service whose component names the broker is refused at its next start.
 
 The project's declared brokers, by name: `[{ "name": "legacy", "bootstrap": "kafka.legacy:9094",
 "shape": "sasl", "secret": "legacy-credential", "declaredAt": "…" }]`. Never a credential.
+
+## Erasure requests
+
+An erasure request erases one data subject's personal data in every service of the project, at once or
+when a legal hold ends: the platform writes it to the erasure log, destroys the subject's key in the
+keyring and records each service's completion. See [Erasing personal data](../platform/erasure.md). A
+member may ask for, read, list, withdraw and apply one again; only an owner may override a hold. A request
+names its data subject and holds nothing personal.
+
+### `POST /projects/{projectId}/erasures`
+
+Asks for an erasure: `{"subject": "player/8c1f"}`, and for a held one `"notBefore": "2031-10-08"` with a
+`"reason"`; `"correlationId"` joins requests for one person across projects. Answers `201` with the request,
+`applying` or `held`. A subject already erased is answered `200` with the applied request; a request from
+whoever has a held one for the subject replaces it, and one held by someone else is `409`. A date that has
+passed, a hold with no reason or a subject outside the rule is `400`.
+
+### `GET /projects/{projectId}/erasures`
+
+The project's erasure requests, filtered by any of `?subject=`, `?state=` (`held`, `withdrawn`, `replaced`,
+`applying`, `applied`, `final`, `settled`, `failed`) and `?correlation=`.
+
+### `GET /projects/{projectId}/erasures/{id}`
+
+One request: who asked and when, its hold, the sequence it has in the erasure log, when the key was
+destroyed, each service's completion and what its erasure handler reported, and when it became final.
+
+### `DELETE /projects/{projectId}/erasures/{id}`
+
+Withdraws a held request, by whoever asked for it or any member; nothing has been destroyed. A request that
+is not held is `409`.
+
+### `POST /projects/{projectId}/erasures/{id}/override`
+
+Applies a held request now: `{"reason": "regulator order 2028/41"}`, recorded with the owner who gave it.
+A member who is not an owner is `403`; a request that is not held is `409`.
+
+### `POST /projects/{projectId}/erasures/{id}/reapply`
+
+Runs every service's erasure handler for an applied request again, a settled one included — after a late
+write under the subject's prefix, say. A request not yet applied is `409`.
+
+### `GET /projects/{projectId}/erasures/{id}/certificate`
+
+The erasure certificate of an applied request, to give the data subject: the request, the subject, who
+asked, each service's completion, when the key was destroyed and when the erasure became final. `404`
+until the request is applied.
+
+### `GET /erasures/log`
+
+The installation's erasure log, every applied erasure in order, `?after=` a sequence. The keyring alone
+may read it, by its certificate: it replays the log after its own database is restored.
 
 ## Services
 

@@ -217,6 +217,7 @@ nav:
       - The broker: platform/broker.md
       - Object storage: platform/object-storage.md
       - Secrets on the platform: platform/secrets.md
+      - Erasing personal data: platform/erasure.md
       - Networking and TLS: platform/networking.md
   - Reference:
       - CLI: reference/cli.md

@@ -103,9 +103,15 @@ final class KeyringClient(
     listener.foreach(_.closed(reason))
     retry()
 
+  /**
+   * One frame at a time: the JDK's WebSocket refuses a send while another is pending ("Send
+   * pending"), and an acknowledgement from the notice thread meets a fetch from a handler's.
+   */
+  private val sending = new Object
+
   private def send(out: Out): Unit =
     socket match
-      case Some(ws) => ws.sendText(write(out), true).join(): Unit
+      case Some(ws) => sending.synchronized(ws.sendText(write(out), true).join()): Unit
       case None     => throw KeyringClient.unavailable("the channel to the keyring is not open")
 
   private def ask(make: Long => Out): In =

@@ -46,6 +46,28 @@ class PersonalKitSuite extends munit.FunSuite with LogCapturing:
     kit.assertNoPersonalValue("ada@example.com", "Ada Byron", "1815-12-10")
   }
 
+  test("a view's row carries the lookup token of a field marked for lookup, and the journal none") {
+    val token = com.thinkmorestupidless.ankka.core.personal.LookupTokens
+      .forText(kit.service.keyring.lookupKey("local"), "ada@example.com")
+    assert(rowText("8c1f").contains(s""""lookup":"$token""""), rowText("8c1f"))
+    assert(
+      !journalText.contains("lookup"),
+      "a lookup token is written to a view's rows, never the journal"
+    )
+    assert(journalText.contains("\"subject\":\"player/8c1f\""), "the journal holds the envelopes")
+  }
+
+  test("a declared query finds a row by a personal field's lookup token, and by nothing else") {
+    val token = kit.eventually("a token")(
+      Some(
+        com.thinkmorestupidless.ankka.core.personal.LookupTokens
+          .forText(kit.service.keyring.lookupKey("local"), "ada@example.com")
+      )
+    )
+    assertEquals(profiles.ask(Profiles.byEmail, "email" -> token).map(_.playerId), Vector("8c1f"))
+    assertEquals(profiles.ask(Profiles.byEmail, "email" -> "ada@example.com").size, 0)
+  }
+
   test("the check that no table holds a personal value fails when one does") {
     val failure = Try(kit.assertNoPersonalValue("GBP")).failed.get
     assert(failure.getMessage.contains("GBP"), failure.getMessage)
@@ -82,6 +104,18 @@ class PersonalKitSuite extends munit.FunSuite with LogCapturing:
     assert(stored.contains("""{"subject":"player/8c1f","project":"local"}"""), stored)
     assert(!stored.contains("\"data\""), stored)
   }
+
+  private def journalText: String =
+    import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}
+    given org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
+    scala.concurrent.Await
+      .result(
+        Database().query(
+          SqlFragment.raw("SELECT encode(event_payload, 'escape') FROM event_journal")
+        )(_.get(0, classOf[String])),
+        scala.concurrent.duration.Duration(10, "s")
+      )
+      .mkString("\n")
 
   private def rowText(key: String): String =
     import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}

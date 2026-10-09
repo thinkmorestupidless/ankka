@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-keyring
+spec:
+  # Two, so a keyring instance's restart is no outage for the services reading keys through it.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ankka-keyring
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: ankka
+        app.kubernetes.io/name: ankka-keyring
+        ankka.thinkmorestupidless.com/formation: bootstrap
+        ankka.thinkmorestupidless.com/transport: tls
+    spec:
+      serviceAccountName: ankka-keyring
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:17-alpine
+          env:
+            - name: ANKKA_DB_HOST
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: host }
+            - name: ANKKA_DB_PORT
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: port }
+            - name: ANKKA_DB_USER
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: username }
+          command:
+            - sh
+            - -c
+            - until pg_isready -h "$ANKKA_DB_HOST" -p "$ANKKA_DB_PORT" -U "$ANKKA_DB_USER"; do sleep 1; done
+      containers:
+        - name: ankka-keyring
+          image: ankka-keyring:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9020
+            - name: management
+              containerPort: 7626
+            - name: remoting
+              containerPort: 17355
+            - name: probe
+              containerPort: 7627
+          env:
+            - name: ANKKA_HTTP_PORT
+              value: "9020"
+            - name: ANKKA_CLUSTER_MODE
+              value: kubernetes
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: ANKKA_CLUSTER_SERVICE
+              value: ankka-keyring
+            - name: ANKKA_CLUSTER_POD_SELECTOR
+              value: "app.kubernetes.io/name=ankka-keyring,ankka.thinkmorestupidless.com/formation=bootstrap,ankka.thinkmorestupidless.com/transport=tls"
+            - name: ANKKA_CLUSTER_CONTACT_POINTS
+              value: "2"
+            # The erasure log's first copy, read after a restore of this database before anything is
+            # answered (FR-021). The second copy is the platform bucket, when the installation has an
+            # object store (the operator writes its credential as ankka-platform-erasure-log).
+            - name: ANKKA_ERASURE_LOG_URL
+              value: "https://ankka-controlplane.ankka-controlplane.svc:9000"
+            - name: ANKKA_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: endpoint, optional: true }
+            - name: ANKKA_S3_BUCKET
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: bucket, optional: true }
+            - name: ANKKA_S3_REGION
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: region, optional: true }
+            - name: ANKKA_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: accessKey, optional: true }
+            - name: ANKKA_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-platform-erasure-log, key: secretKey, optional: true }
+            # Keeps the keyring's own secret store, which keeps the root key.
+            - name: ANKKA_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-secret-key, key: key }
+            - name: ANKKA_DB_HOST
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: host }
+            - name: ANKKA_DB_PORT
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: port }
+            - name: ANKKA_DB_NAME
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: dbname }
+            - name: ANKKA_DB_USER
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: username }
+            - name: ANKKA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-db-app, key: password }
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: probe
+            periodSeconds: 5
+          volumeMounts:
+            - name: ankka-cluster-tls
+              mountPath: /var/run/secrets/ankka/cluster
+              readOnly: true
+            - name: ankka-service-tls
+              mountPath: /var/run/secrets/ankka/service
+              readOnly: true
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "384Mi"
+            limits:
+              cpu: "1"
+              memory: "640Mi"
+      volumes:
+        - name: ankka-cluster-tls
+          secret:
+            secretName: ankka-keyring-cluster-tls
+        - name: ankka-service-tls
+          secret:
+            secretName: ankka-keyring-service-tls

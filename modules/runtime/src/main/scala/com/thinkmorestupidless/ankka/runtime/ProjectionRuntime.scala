@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
+
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
 import com.thinkmorestupidless.ankka.core.{
   ComponentDescriptor,
@@ -1256,7 +1258,8 @@ private final class ViewStateHandler(
           )
         effect match
           case ViewEffect.UpdateRow(row) =>
-            val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
+            val json =
+              String(PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)), "UTF-8")
             write(ViewStore.upsert(table, subject, json))
           case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
           case ViewEffect.Ignore =>

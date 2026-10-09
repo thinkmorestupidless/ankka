@@ -1,0 +1,17 @@
+# The keyring's own database, never a project's: it is not in any project's backup, which is what
+# stops a restored project from bringing a destroyed key back. Its backups are its own (feature 041).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ankka-keyring-db
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: ankka
+      owner: ankka

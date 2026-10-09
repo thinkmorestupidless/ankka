@@ -1,0 +1,73 @@
+# The keyring under the same guarantees as every workload (feature 014): a cluster certificate for its
+# own instances, a service certificate for the channel and its routes, and network policies that admit
+# ankka's own workloads — every service and the control plane — and nothing else. There is no route
+# through the gateway: a machine outside the installation reaches nothing here until feature 040.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-keyring-cluster
+  namespace: ankka-keyring
+spec:
+  secretName: ankka-keyring-cluster-tls
+  uris:
+    - ankka://platform/keyring
+  dnsNames:
+    - ankka-keyring.ankka-keyring.svc
+  usages: [server auth, client auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-cluster, kind: ClusterIssuer, group: cert-manager.io }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-keyring-service
+  namespace: ankka-keyring
+spec:
+  secretName: ankka-keyring-service-tls
+  uris:
+    - ankka://platform/keyring
+  dnsNames:
+    - ankka-keyring
+    - ankka-keyring.ankka-keyring.svc
+    - ankka-keyring.ankka-keyring.svc.cluster.local
+  usages: [server auth, client auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-service, kind: ClusterIssuer, group: cert-manager.io }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-keyring-cluster
+  namespace: ankka-keyring
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-keyring }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 17355 }, { protocol: TCP, port: 7626 }]
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-keyring }
+    - ports: [{ protocol: TCP, port: 7627 }]
+---
+# The channel and the erasure routes: ankka workloads, which present a platform identity.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-keyring-http
+  namespace: ankka-keyring
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-keyring }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 9020 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }

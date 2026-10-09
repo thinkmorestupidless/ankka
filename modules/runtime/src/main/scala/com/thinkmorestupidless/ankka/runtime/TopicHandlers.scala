@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
+
 import com.thinkmorestupidless.ankka.core.effect.ViewEffect
 import com.thinkmorestupidless.ankka.sdk.*
 import org.apache.pekko.Done
@@ -68,7 +70,10 @@ private[ankka] final class ViewTopicHandler(
 
             effect match
               case ViewEffect.UpdateRow(row) =>
-                val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
+                val json = String(
+                  PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)),
+                  "UTF-8"
+                )
                 guard.write(ViewStore.upsert(table, subject, json))
               case ViewEffect.DeleteRow =>
                 guard.write(ViewStore.delete(table, subject))

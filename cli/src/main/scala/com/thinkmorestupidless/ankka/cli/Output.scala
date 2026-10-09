@@ -135,6 +135,56 @@ object Output:
           )
         )
 
+  def erasures(rows: Vector[ErasureRequest], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)(using ErasureWire.erasureRequestsCodec)
+      case Format.Table =>
+        table(
+          Vector("ID", "SUBJECT", "STATE", "NOT BEFORE", "ASKED BY", "CORRELATION"),
+          rows.map(r =>
+            Vector(
+              r.id,
+              r.subject,
+              r.state.toString.toLowerCase,
+              r.notBefore.fold("-")(_.toString),
+              s"${r.askedBy.kind} ${r.askedBy.display.getOrElse(r.askedBy.subject)}",
+              r.correlationId.getOrElse("-")
+            )
+          )
+        )
+
+  def erasure(r: ErasureRequest, format: Format): String =
+    format match
+      case Format.Json => writeToString(r)(using ErasureWire.erasureRequestCodec)
+      case Format.Table =>
+        val lines = Vector(
+          "id"      -> r.id,
+          "subject" -> r.subject,
+          "state"   -> r.state.toString.toLowerCase,
+          "asked by" -> s"${r.askedBy.kind} ${r.askedBy.display.getOrElse(r.askedBy.subject)} at ${r.askedAt}",
+          "not before"  -> r.notBefore.fold("-")(d => s"$d (${r.reason.getOrElse("")})"),
+          "correlation" -> r.correlationId.getOrElse("-"),
+          "overridden" -> r.overridden.fold("-")(o =>
+            s"by ${o.by.display.getOrElse(o.by.subject)}: ${o.reason}"
+          ),
+          "key destroyed" -> r.keyDestroyedAt.fold("-")(_.toString),
+          "final"         -> r.finalAt.fold("-")(_.toString),
+          "failure"       -> r.failure.getOrElse("-")
+        ) ++ r.completions.map(c =>
+          s"completed ${c.service}" -> (c.completedAt.toString + c.handler.fold("")(h => s"; $h") +
+            c.objectsErased.fold("")(n => s"; $n objects") + (if c.byAbsence then
+                                                                "; no instance running"
+                                                              else ""))
+        )
+        lines.map((k, v) => f"$k%-15s $v").mkString("\n")
+
+  def certificate(c: ErasureCertificate, format: Format): String =
+    format match
+      case Format.Json =>
+        writeToString(c, WriterConfig.withIndentionStep(2))(using ErasureWire.certificateCodec)
+      case Format.Table =>
+        s"${erasure(c.request, Format.Table)}\nissued          ${c.issuedAt}\n\n${c.statement}"
+
   def project(row: ProjectSummary, format: Format): String =
     format match
       case Format.Json  => writeToString(row)

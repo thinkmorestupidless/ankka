@@ -26,6 +26,9 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  # After the operator, whose Deployment it patches with the keyring's address, and the control plane,
+  # whose erasure log it reads.
+  - ../../components/keyring
   - ../../components/console
   # Where a developer reads their services' traces, metrics and logs: https://grafana.<base domain>.
   # Not the otel-collector component, which keeps nothing; the two make one namespace.

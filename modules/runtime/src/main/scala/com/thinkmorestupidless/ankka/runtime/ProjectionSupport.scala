@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.core.personal.PersonalScope
+
 import com.thinkmorestupidless.ankka.core.{ComponentId, Contract, Metadata, Serializer}
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
 import com.thinkmorestupidless.ankka.sdk.*
@@ -134,7 +136,13 @@ private[ankka] object ProjectionSupport:
 
     effect match
       case ViewEffect.UpdateRow(row) =>
-        run(ViewStore.upsert(table, subject, String(serializer.toBytes(row), "UTF-8")))
+        run(
+          ViewStore.upsert(
+            table,
+            subject,
+            String(PersonalScope.allowingLookup(serializer.toBytes(row)), "UTF-8")
+          )
+        )
       case ViewEffect.DeleteRow => run(ViewStore.delete(table, subject))
       case ViewEffect.Ignore    => Future.successful(Done)
 

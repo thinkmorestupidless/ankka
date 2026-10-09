@@ -171,7 +171,11 @@ final class ScriptedFulfilment(
           .map(_.split("=", 2))
           .collect { case Array(k, id) => k -> s"scripted-value-of-$id" }
           .toMap
-        secrets.patch(namespace, p(Keys.SecretName), entries)
+        // The project's Secret may not exist yet: on Secret Manager nothing but the provider writes
+        // it. Created, or patched once a create learns it is there, as the control plane writes one.
+        secrets.create(namespace, p(Keys.SecretName), entries) match
+          case SecretWrites.Outcome.Created => ()
+          case SecretWrites.Outcome.Exists  => secrets.patch(namespace, p(Keys.SecretName), entries)
         Right(Map(Keys.EntryGeneration -> p(Keys.EntryGeneration)) -> None)
       case CloudKinds.Bucket =>
         val bucket = before.flatMap(_.get(Keys.Bucket)).getOrElse(bucketName(spec))

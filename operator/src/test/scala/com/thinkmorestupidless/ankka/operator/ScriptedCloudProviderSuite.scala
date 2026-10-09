@@ -119,11 +119,21 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     assertEquals(fx.fulfil("k", everyKind(5)).outputs, Map("key" -> "keys/ankka"))
   }
 
-  test("a secret sync patches the named Secret and says which entries it kept in step") {
+  test("a secret sync creates the named Secret and says which entries it kept in step") {
     val fx     = Fixture()
     val status = fx.fulfil("shop.secret-sync", everyKind(2))
     assertEquals(status.outputs, Map("entryGeneration" -> "4"))
     assertEquals(fx.secrets.held("ankka-shop" -> "checkout"), Map("A" -> "scripted-value-of-a"))
+    assertEquals(fx.secrets.patches.toVector, Vector.empty)
+  }
+
+  test("a secret sync of a Secret that is already there patches it") {
+    // On Secret Manager nothing but the provider writes the project's Secret, so the first sync
+    // finds none and must create it; every later one finds it and patches.
+    val fx = Fixture()
+    fx.fulfil("shop.secret-sync", everyKind(2)): Unit
+    fx.fulfil("shop.secret-sync", everyKind(2)): Unit
+    assertEquals(fx.secrets.patches.toVector, Vector("checkout"))
   }
 
   test("a second request for what it made before is recovered") {

@@ -95,6 +95,18 @@ class CrossProjectMachineTopicsFeatures
   /** The Gateway, the key set inside the cluster, and the broker exposed through it. */
   override protected def installed(): Unit =
     GatewayStack.install(k3s, k8s, PkiStack.repoRoot, BaseDomain)
+    // Strimzi was started before the Gateway API's types existed here. Restarted, so a `tlsroute`
+    // listener finds `TLSRoute` served, whether or not its operator reads the API at start only.
+    node("kubectl", "rollout", "restart", "deployment/strimzi-cluster-operator", "-n", Broker): Unit
+    node(
+      "kubectl",
+      "rollout",
+      "status",
+      "deployment/strimzi-cluster-operator",
+      "-n",
+      Broker,
+      "--timeout=180s"
+    ): Unit
     machineKeys.rotate(): Unit
     val jwks = writeToString(machineKeys.jwks)
     apply(
@@ -187,24 +199,65 @@ class CrossProjectMachineTopicsFeatures
         |""".stripMargin,
       "envoy-port"
     )
-    waitFor(300.seconds, "the broker listener Programmed and the bootstrap route Accepted") {
-      jsonPath(
-        "gateway",
-        "-n",
-        "ankka-gateway",
-        "ankka",
-        """{.status.listeners[?(@.name=="broker")].conditions[?(@.type=="Programmed")].status}"""
-      ) == "True" &&
-      node(
-        "kubectl",
-        "get",
-        "tlsroute",
-        "-n",
-        Broker,
-        "-o",
-        "jsonpath={.items[*].status.parents[*].conditions[?(@.type==\"Accepted\")].status}"
-      )
-        .contains("True")
+    val listening = scala.util.Try(
+      waitFor(420.seconds, "the broker listener Programmed and the bootstrap route Accepted") {
+        jsonPath(
+          "gateway",
+          "-n",
+          "ankka-gateway",
+          "ankka",
+          """{.status.listeners[?(@.name=="broker")].conditions[?(@.type=="Programmed")].status}"""
+        ) == "True" &&
+        node(
+          "kubectl",
+          "get",
+          "tlsroute",
+          "-n",
+          Broker,
+          "-o",
+          "jsonpath={.items[*].status.parents[*].conditions[?(@.type==\"Accepted\")].status}"
+        )
+          .contains("True")
+      }
+    )
+    // What decides it, printed when it did not happen: the broker's conditions, the Gateway's
+    // listener, the routes and the cluster operator's own complaints.
+    listening.failed.foreach { e =>
+      val detail = Vector(
+        node(
+          "kubectl",
+          "get",
+          "kafka",
+          "ankka",
+          "-n",
+          Broker,
+          "-o",
+          "jsonpath={.status.conditions}"
+        ),
+        node(
+          "kubectl",
+          "get",
+          "kafka",
+          "ankka",
+          "-n",
+          Broker,
+          "-o",
+          "jsonpath={.status.listeners}"
+        ),
+        node(
+          "kubectl",
+          "get",
+          "gateway",
+          "ankka",
+          "-n",
+          "ankka-gateway",
+          "-o",
+          "jsonpath={.status.listeners}"
+        ),
+        node("kubectl", "get", "tlsroute", "-A", "-o", "wide"),
+        node("kubectl", "logs", "deployment/strimzi-cluster-operator", "-n", Broker, "--tail=60")
+      ).mkString("\n---\n")
+      fail(s"${e.getMessage}\n$detail")
     }
     System.setProperty(
       "org.apache.kafka.sasl.oauthbearer.allowed.urls",

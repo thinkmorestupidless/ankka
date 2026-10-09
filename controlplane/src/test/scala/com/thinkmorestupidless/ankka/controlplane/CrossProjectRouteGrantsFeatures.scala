@@ -115,7 +115,7 @@ class CrossProjectRouteGrantsFeatures
         .build()
       // Both resources: without `AnkkaProject` no grant reaches the operator, whose informer for it
       // is skipped quietly on a cluster that lacks the type.
-      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml") do
+      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml", "ankkamachine.yaml") do
         k8s.load(getClass.getResourceAsStream(s"/ankka/crd/$crd")).serverSideApply(): Unit
       PkiStack.install(k3s, k8s)
       k8s

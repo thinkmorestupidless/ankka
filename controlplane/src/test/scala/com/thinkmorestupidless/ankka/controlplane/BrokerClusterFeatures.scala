@@ -139,7 +139,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         .build()
       // Both of the platform's resources: without `AnkkaProject` no declaration reaches the operator,
       // whose informer for it is skipped quietly on a cluster that lacks the type.
-      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml") do
+      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml", "ankkamachine.yaml") do
         k8s.load(getClass.getResourceAsStream(s"/ankka/crd/$crd")).serverSideApply(): Unit
       PkiStack.install(k3s, k8s)
       k8s
@@ -288,7 +288,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       val resources = namespaces.map(ns =>
         node("kubectl", "get", "ankkaservices", "-n", ns, "-o", "jsonpath={.items[*].status}")
       )
-      s"\n${pods.mkString("\n")}\n$broker\n${resources.mkString("\n")}"
+      val probed =
+        lastProbe.fold("")(r => s"\nthe last probe answered ${r.code}:\n${r.output.take(4000)}")
+      s"\n${pods.mkString("\n")}\n$broker\n${resources.mkString("\n")}$probed"
 
   protected def ns(project: String) = s"$Prefix-$project"
 
@@ -584,9 +586,19 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
 
   /** Reads `topic` as `service` until `cart` is on it, or fails naming what was read. */
   protected def readUntil(service: String, p: String, topic: String, cart: String): Unit =
+    // Read with a credential that may read the topic: the publisher's, for its own project's, and a
+    // service of the owning project's for another's — a grant to produce does not let it read.
+    val owner = topic.takeWhile(_ != '.')
+    val (reader, rp) =
+      if owner == p then (service, p)
+      else
+        appliedAs.keys
+          .find(_._2 == owner)
+          .getOrElse(fail(s"no service of $owner is deployed to read $topic with"))
     var last: BrokerProbe.Result = BrokerProbe.Result(0, "")
     waitFor(120.seconds, s"$cart being read from $topic") {
-      last = probe(service, p).read(topic, groupOf(service, p), waitMs = 15000)
+      last = probe(reader, rp).read(topic, groupOf(reader, rp), waitMs = 15000)
+      lastProbe = Some(last)
       last.output.contains(cart)
     }
 

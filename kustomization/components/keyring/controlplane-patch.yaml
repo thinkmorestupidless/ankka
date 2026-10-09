@@ -1,0 +1,20 @@
+# Tells the control plane where the keyring is, so it can apply an erasure request: write it to the
+# log, then ask the keyring to destroy the subject's key. Without it the control plane records
+# requests and applies none. In this component, as the operator's patch is, so an installation
+# without the keyring renders exactly what it rendered before.
+#
+# The container's name must be the control plane's own, `ankka-controlplane`: a strategic merge
+# patch that names a container the Deployment lacks adds a second container instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_KEYRING_URL
+              value: "https://ankka-keyring.ankka-keyring.svc:9020"

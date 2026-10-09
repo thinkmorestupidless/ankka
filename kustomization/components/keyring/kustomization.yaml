@@ -21,3 +21,4 @@ resources:
   - zero-trust.yaml
 patches:
   - path: operator-patch.yaml
+  - path: controlplane-patch.yaml

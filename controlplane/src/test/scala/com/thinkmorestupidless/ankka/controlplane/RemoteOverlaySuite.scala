@@ -622,6 +622,30 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   private def namespaceOf(document: String) =
     """(?m)^  namespace: (\S+)$""".r.findFirstMatchIn(document).map(_.group(1))
 
+  test(
+    "the keyring's address is given once to the operator and the control plane, in both overlays"
+  ) {
+    // Patched in by the keyring's component: without the control plane's, every erasure request is
+    // recorded and none applied; a patch naming the wrong container would add a second one.
+    for
+      (name, render) <- Vector(("local", local), ("cloud", remote));
+      deployment <- Vector(
+        "ankka-operator",
+        "ankka-controlplane"
+      )
+    do
+      val parsed     = deploymentNamed(render, deployment)
+      val containers = parsed.getSpec.getTemplate.getSpec.getContainers.asScala
+      assertEquals(containers.map(_.getName).toVector, Vector(deployment), s"$name $deployment")
+      val values =
+        containers.head.getEnv.asScala.filter(_.getName == "ANKKA_KEYRING_URL").map(_.getValue)
+      assertEquals(
+        values.toVector,
+        Vector("https://ankka-keyring.ankka-keyring.svc:9020"),
+        s"$name $deployment"
+      )
+  }
+
   test("an installation that is not a local platform names a collector of its own") {
     for deployment <- Vector("ankka-operator", "ankka-controlplane") do
       val (endpoint, headers) = telemetryOn(remote, deployment)

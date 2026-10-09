@@ -22,3 +22,8 @@ data:
   # Where every workload exports its spans and metrics: the telemetry store this overlay lists,
   # which a developer reads at https://grafana.<baseDomain>.
   otlpEndpoint: http://lgtm.ankka-telemetry.svc.cluster.local:4318
+  # The installation's object store: Garage, the component this overlay lists. A machine has no
+  # Google Cloud Storage; the prefix and the window are Google Cloud Storage's and unused here.
+  objectStoreBackend: garage
+  objectStorePrefix: ""
+  objectStoreSoftDeleteDays: "7"

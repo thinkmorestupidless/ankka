@@ -80,9 +80,10 @@ object DeployConfig:
       Option(config.getString("ankka.controlplane.cloud-provider"))
         .map(_.trim)
         .filter(p => p.nonEmpty && p != "none")
+    // Empty is what a manifest renders when its overlay names no store: Garage, as before.
     val backend = store.getString("backend").trim match
-      case "garage" => ObjectStoreKind.Garage
-      case "gcs"    => ObjectStoreKind.Gcs
+      case "garage" | "" => ObjectStoreKind.Garage
+      case "gcs"         => ObjectStoreKind.Gcs
       case other =>
         throw new IllegalArgumentException(
           s"ANKKA_OBJECT_STORE_BACKEND is '$other'; it must be garage or gcs"

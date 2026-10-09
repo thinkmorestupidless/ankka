@@ -538,13 +538,17 @@ class ErasureClusterFeatures extends munit.FunSuite with LogCapturing:
     val (code, out) = api(
       "PUT",
       s"/services/$Project/$Service",
-      Some(s"""{"name":"$Service","service":{"image":"$SampleImage","minInstances":2}}""")
+      Some(
+        s"""{"name":"$Service","service":{"image":"$SampleImage","resources":{"autoscaling":{"minInstances":2}}}}"""
+      )
     )
     assertEquals(code, 0, out)
-    waitFor(600.seconds, "the sample's two instances") {
-      servicePods.size == 2 && api("GET", s"/services/$Project/$Service")._2
-        .contains("\"lifecycle\":\"Ready\"")
-    }
+    explained(ServiceNamespace, Service)(
+      waitFor(600.seconds, "the sample's two instances") {
+        servicePods.size == 2 && api("GET", s"/services/$Project/$Service")._2
+          .contains("\"lifecycle\":\"Ready\"")
+      }
+    )
     val env = servicePods.head.getSpec.getContainers.asScala
       .find(_.getName == Service)
       .toVector

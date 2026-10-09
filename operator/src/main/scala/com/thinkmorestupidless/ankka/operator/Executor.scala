@@ -83,6 +83,14 @@ trait Executor:
     Vector.empty
 
   /**
+   * Other projects' topics granted to `service` of `projectId` (feature 040), from every
+   * `AnkkaProject` the cluster holds; none without the type.
+   */
+  def grantsNaming(projectId: String, service: String): Vector[GrantedTopic] =
+    val _ = (projectId, service)
+    Vector.empty
+
+  /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
    */
@@ -301,6 +309,19 @@ final class Fabric8Executor(
         log.debug("removed httproute {}/{}: the service is no longer exposed", namespace, name)
       else if existing.isDefined then
         log.debug("left httproute {}/{} alone: not owned by this resource", namespace, name)
+
+    case Action.SetMachineStatus(name, status) =>
+      val resources = client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine])
+        .withName(name)
+      if resources.get() == null then
+        log.debug("machine {} vanished before its status could be written", name)
+      else
+        val _ = resources.editStatus { (current: com.thinkmorestupidless.ankka.crd.AnkkaMachine) =>
+          current.setStatus(status)
+          current
+        }
+        log.debug("set machine status {}", name)
 
     case Action.SetProjectStatus(namespace, name, status) =>
       val resources = client
@@ -762,6 +783,20 @@ final class Fabric8Executor(
         .withName(projectId)
         .get()
     ).flatMap(p => Option(p.getSpec)).map(_.brokers.toVector).getOrElse(Vector.empty)
+
+  override def grantsNaming(projectId: String, service: String): Vector[GrantedTopic] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inAnyNamespace()
+        .list()
+    ).map(list =>
+      GrantedTopic.naming(
+        list.getItems.asScala.flatMap(p => Option(p.getSpec)),
+        projectId,
+        service
+      )
+    ).getOrElse(Vector.empty)
 
   override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
     val topicClient = client

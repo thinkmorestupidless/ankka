@@ -19,3 +19,10 @@ nodes:
       - containerPort: 30443
         hostPort: 8443
         protocol: TCP
+      # The broker exposed to registered machines (components/broker-external): the gateway's
+      # passthrough listener's NodePort, on the port a broker advertises, so a Kafka client on the
+      # host reaches broker.<base>:9094. A cluster made before this mapping must be recreated to
+      # reach an exposed broker from the host; nothing else needs it.
+      - containerPort: 30094
+        hostPort: 9094
+        protocol: TCP

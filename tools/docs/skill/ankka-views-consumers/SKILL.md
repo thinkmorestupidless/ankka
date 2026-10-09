@@ -5,6 +5,7 @@ pages:
   - build/views.md
   - build/consumers.md
   - build/topics.md
+  - platform/cross-project-access.md
   - build/graph.md
   - deploy/graph-sink.md
   - concepts/consistency.md

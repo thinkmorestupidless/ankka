@@ -60,6 +60,7 @@ export function consoleRoutes(options: ConsoleRoutesOptions = {}): RouteConfigEn
     page("organizations/:organizationId", "organization"),
     page("organizations/:organizationId/members", "members"),
     page("organizations/:organizationId/tokens", "tokens"),
+    page("organizations/:organizationId/machines", "machines"),
     page("organizations/:organizationId/projects/new", "project-new"),
     page("projects/:projectId", "project"),
     page("projects/:projectId/services/apply", "service-apply"),

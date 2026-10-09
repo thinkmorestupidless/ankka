@@ -209,7 +209,10 @@ object Rendering:
       objectStoragePlan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
       // The project's declared brokers (feature 037), read by the caller from `AnkkaProject` as
       // `databasePlan` is decided by it: `render` stays a pure function of its arguments.
-      declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty
+      declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty,
+      // Other projects' topics granted to this service (feature 040), read by the caller from
+      // every `AnkkaProject`: entries on its broker user, and nothing else.
+      granted: Vector[GrantedTopic] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -251,7 +254,7 @@ object Rendering:
           telemetryAction(resource, spec, namespace, settings) ++
           objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
-          brokerActions(spec, broker) :+
+          brokerActions(spec, broker, granted) :+
           Action.ApplyDeployment(
             BrokerMounts.attach(
               deployment(
@@ -523,9 +526,12 @@ object Rendering:
    */
   private def brokerActions(
       spec: AnkkaServiceSpec,
-      broker: Option[BrokerSettings]
+      broker: Option[BrokerSettings],
+      granted: Vector[GrantedTopic]
   ): Vector[Action] =
-    broker.toVector.map(settings => Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)))
+    broker.toVector.map(settings =>
+      Action.EnsureKafkaUser(StrimziRendering.user(spec, settings, granted))
+    )
 
   private def zeroTrustActions(
       resource: AnkkaService,

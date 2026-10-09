@@ -230,7 +230,7 @@ result against its task type and rules. See [Autonomous agents](../build/autonom
 | Decorators | `@get`, `@post`, `@put`, `@patch`, `@delete`, `@sse`, `@socket`, each with a path template and an optional `acl=` for that route alone |
 | A socket | the handler's parameter annotated `Socket`: `async for text in socket`, `await socket.receive()` (`None` once closed), `await socket.send(text)`, which raises `SocketClosed` once closed; testing, `EndpointTestKit.socket(path, frames)` answers what the handler sent and how it ended |
 | Handlers | `async` methods; path parameters bind by name, one further typed parameter is the body, the return value is encoded by its type |
-| Callers | `Callers.internet`, `Callers.service(name, project=None)`, `Callers.any_in_project`, `Callers.self_` |
+| Callers | `Callers.internet`, `Callers.service(name, project=None)`, `Callers.any_in_project`, `Callers.self_`, `Callers.granted`; a request's `caller` is `Gateway`, `ServiceCaller`, `MachineCaller` or `LocalCaller` |
 | In a handler | `self.request`: `query_param`, `query_params`, `header`, `principal` (`subject`, `name`, `email`, `email_verified`, `roles`, `claims`, `issuer`), `metadata`, `caller` — a `Gateway`, `ServiceCaller(project, name)` or `LocalCaller` |
 | Errors | raise `HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 

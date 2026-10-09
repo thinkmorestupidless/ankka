@@ -1,0 +1,7 @@
+# Kafka 4 reads an OAuth URL only when it is allowed by name. The broker reads one: the control
+# plane's key set, on its keys port.
+- op: add
+  path: /spec/jvmOptions/javaSystemProperties
+  value:
+    - name: org.apache.kafka.sasl.oauthbearer.allowed.urls
+      value: https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json

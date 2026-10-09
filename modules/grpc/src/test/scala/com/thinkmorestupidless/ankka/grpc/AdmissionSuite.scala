@@ -32,6 +32,32 @@ class AdmissionSuite extends munit.FunSuite:
   private def code(result: Either[(Status, Metadata), RequestContext]): Status.Code =
     result.fold(_._1.getCode, _ => Status.Code.OK)
 
+  // Feature 040: a grant on a gRPC method opens that method, by the full name the call carries.
+  test("granted callers are admitted on the method their grant names, and on no other") {
+    val merchant = Caller.Service("payments", "merchant")
+    val granted = Admission.local.withGrants(
+      Grants.of(GrantEntry(merchant, GrantTarget.Method("CartService/GetCart")))
+    )
+    val acl = Acl.allowCallers(Callers.granted)
+    def as(caller: Caller, path: String) =
+      code(granted.decide(acl, context().copy(caller = caller, path = path)))
+    assertEquals(as(merchant, "/ankka.fixtures.v1.CartService/GetCart"), Status.Code.OK)
+    assertEquals(
+      as(merchant, "/ankka.fixtures.v1.CartService/AddItem"),
+      Status.Code.PERMISSION_DENIED
+    )
+    assertEquals(
+      as(Caller.Service("payments", "other"), "/ankka.fixtures.v1.CartService/GetCart"),
+      Status.Code.PERMISSION_DENIED
+    )
+    assertEquals(
+      code(admission.decide(acl, context().copy(caller = merchant))),
+      Status.Code.PERMISSION_DENIED,
+      "with no grants a granted-callers acl admits nobody but Local"
+    )
+    assertEquals(code(admission.decide(acl, context())), Status.Code.OK)
+  }
+
   test("deny all refuses, allow all admits") {
     assertEquals(code(admission.decide(Acl.DenyAll, context())), Status.Code.PERMISSION_DENIED)
     assertEquals(code(admission.decide(Acl.AllowAll, context())), Status.Code.OK)

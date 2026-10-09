@@ -854,7 +854,17 @@ lazy val shoppingCart = project
   // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
   // samples are one service written three times, and a component missing from one makes its
   // documentation page unable to show all three.
-  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, telemetryOtlp, testkit % Test)
+  .dependsOn(
+    sdk,
+    runtime,
+    http,
+    grpc,
+    authOidc,
+    shoppingCartApi,
+    agent,
+    telemetryOtlp,
+    testkit % Test
+  )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

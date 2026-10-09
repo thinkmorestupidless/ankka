@@ -36,7 +36,10 @@ final class HttpServer private (
     factories: Seq[EndpointClients => HttpEndpoint],
     interface: Option[String],
     port: Option[Int],
-    tlsDirectory: Option[java.nio.file.Path] = None
+    tlsDirectory: Option[java.nio.file.Path] = None,
+    configuredGrants: Option[Grants] = None,
+    configuredMachines: Option[MachineTokens] = None,
+    clientCertificates: Boolean = true
 ) extends RuntimeExtension:
 
   /**
@@ -44,12 +47,67 @@ final class HttpServer private (
    * suite that measures one server with TLS beside one without, in one service.
    */
   private[ankka] def withTls(directory: java.nio.file.Path): HttpServer =
-    new HttpServer(factories, interface, port, Some(directory))
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      Some(directory),
+      configuredGrants,
+      configuredMachines,
+      clientCertificates
+    )
 
-  @volatile private var binding: Option[Http.ServerBinding] = None
-  @volatile private var served: Vector[ServedRoute]         = Vector.empty
-  @volatile private var scheme: String                      = "http"
-  private val sockets                                       = OpenSockets()
+  /**
+   * The grants `Callers.granted` reads, in place of the file a deployed service is given (feature
+   * 040): how a test presents a caller holding a grant, or one that has just lost it.
+   */
+  def withGrants(grants: Grants): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      Some(grants),
+      configuredMachines,
+      clientCertificates
+    )
+
+  /**
+   * The verifier of machines' tokens, in place of the one the platform's settings name (feature
+   * 040): how a test presents a machine through the gateway with keys of its own.
+   */
+  private[ankka] def withMachines(machines: MachineTokens): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      Some(machines),
+      clientCertificates
+    )
+
+  /**
+   * Under TLS, serves without asking the client for a certificate (feature 040): for a port whose
+   * content is public, read by a client that holds none. Every request on it is the internet's.
+   * Used by the control plane's `keys` port and nothing else.
+   */
+  private[ankka] def withoutClientCertificates: HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates = false
+    )
+
+  @volatile private var binding: Option[Http.ServerBinding]                     = None
+  @volatile private var served: Vector[ServedRoute]                             = Vector.empty
+  @volatile private var scheme: String                                          = "http"
+  private val sockets                                                           = OpenSockets()
+  @volatile private var grantsCheck: Option[org.apache.pekko.actor.Cancellable] = None
 
   def name: String = "http-server"
 
@@ -88,13 +146,32 @@ final class HttpServer private (
     validate(endpoints)
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap { endpoint =>
-      val id = ServedRoute.endpointId(endpoint.prefix)
+      val id                          = ServedRoute.endpointId(endpoint.prefix)
+      def grantable(acl: Option[Acl]) = Acl.namesGranted(acl.getOrElse(endpoint.acl))
       endpoint.routes.map(r =>
-        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = false, id)
+        ServedRoute(
+          r.method,
+          s"${endpoint.prefix}${r.template.render}",
+          streaming = false,
+          id,
+          grantable(r.acl)
+        )
       ) ++ endpoint.streamRoutes.map(r =>
-        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = true, id)
+        ServedRoute(
+          r.method,
+          s"${endpoint.prefix}${r.template.render}",
+          streaming = true,
+          id,
+          grantable(r.acl)
+        )
       ) ++ endpoint.socketRoutes.map(r =>
-        ServedRoute("SOCKET", s"${endpoint.prefix}${r.template.render}", streaming = true, id)
+        ServedRoute(
+          "SOCKET",
+          s"${endpoint.prefix}${r.template.render}",
+          streaming = true,
+          id,
+          grantable(r.acl)
+        )
       )
     }
 
@@ -124,9 +201,28 @@ final class HttpServer private (
 
     val upgrades = SocketUpgrades.from(system, sockets)
 
-    val tls     = serviceTls(config)
-    val callers = CallerSource(tls)
-    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades)).handle
+    val tls = serviceTls(config)
+    // A machine's token is read only under TLS, where the gateway's certificate says the request
+    // came from outside: the keys are fetched now, so the first token finds them held.
+    val machines = configuredMachines.orElse(
+      tls.flatMap(t => MachineTokens.fromConfig(config, Some(t.directory)))
+    )
+    machines.foreach(_.start())
+    val callers = CallerSource(tls, machines, clientCertificates)
+    val grants = configuredGrants
+      .orElse(GrantsFile.fromConfig(config, callers.self.service))
+      .getOrElse(Grants.none)
+    // A file is otherwise looked at only when a request asks: checked on a timer too, so a
+    // revocation ends a socket or a stream that nothing else is asking about.
+    grants match
+      case file: GrantsFile =>
+        val every = FiniteDuration(
+          config.getDuration("ankka.grants.reload-interval").toMillis,
+          java.util.concurrent.TimeUnit.MILLISECONDS
+        )
+        grantsCheck = Some(system.scheduler.scheduleAtFixedRate(every, every)(() => file.check()))
+      case _ => ()
+    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades), grants).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(
@@ -143,7 +239,9 @@ final class HttpServer private (
                 settings.parserSettings.withIncludeTlsSessionInfoHeader(true)
               )
             )
-            .enableHttps(ConnectionContext.httpsServer(() => identity.serverEngine()))
+            .enableHttps(
+              ConnectionContext.httpsServer(() => identity.serverEngine(clientCertificates))
+            )
             .bind(handler)
         case None => server.bind(handler)
       ,
@@ -175,6 +273,8 @@ final class HttpServer private (
    * `terminate`'s deadline would cut every socket off.
    */
   override def stop(): Unit =
+    grantsCheck.foreach(_.cancel(): Unit)
+    grantsCheck = None
     binding.foreach { b =>
       Await.ready(b.unbind(), 10.seconds)
       sockets.closeAll(CloseReason.GoingAway, 2.seconds)
@@ -284,13 +384,61 @@ private enum Matched:
     case Streaming(route, _) => route.acl
     case Socket(route, _)    => route.acl
 
+  /** The route as its span names it. */
+  def describe: String = this match
+    case Plain(route, _)     => route.describe
+    case Streaming(route, _) => route.describe
+    case Socket(route, _)    => route.describe
+
+  /**
+   * What a grant on this route opens, under `prefix`: its method and its whole path as a template.
+   * A socket is opened by a `GET`.
+   */
+  def grantTarget(prefix: String): GrantTarget = this match
+    case Plain(route, _)     => GrantTarget.Route(route.method, s"$prefix${route.template.render}")
+    case Streaming(route, _) => GrantTarget.Route(route.method, s"$prefix${route.template.render}")
+    case Socket(route, _)    => GrantTarget.Route("GET", s"$prefix${route.template.render}")
+
+/**
+ * What a grant admitted and is still open: a socket or a server-sent event stream (feature 040). A
+ * change to the grants asks each whether it is still admitted, and closes the ones that are not.
+ */
+private[http] final class Revocable(val stillAdmitted: () => Boolean, val close: () => Unit)
+
 /** Matches requests to routes and turns handler outcomes into responses. */
 private final class Router(
     endpoints: Vector[HttpEndpoint],
     bodyTimeout: FiniteDuration,
     callers: CallerSource = CallerSource.local,
-    configuredUpgrades: Option[SocketUpgrades] = None
+    configuredUpgrades: Option[SocketUpgrades] = None,
+    grants: Grants = Grants.none
 ):
+
+  private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
+
+  grants.onChange { () =>
+    revocable.forEach { open =>
+      if !open.stillAdmitted() then
+        revocable.remove(open)
+        open.close()
+    }
+  }
+
+  /**
+   * Whether `acl` might admit `context` by grant alone, so that a revocation must be able to end
+   * what it admitted. A local caller is admitted by every matcher, grant or none.
+   */
+  private def admittedByGrant(acl: Acl, context: RequestContext): Boolean = acl match
+    case Acl.AllowCallers(matchers) =>
+      matchers.contains(CallerMatcher.Granted) && context.caller != Caller.Local
+    case _ => false
+
+  private def stillAdmits(acl: Acl, context: RequestContext, target: GrantTarget): () => Boolean =
+    () =>
+      acl match
+        case Acl.AllowCallers(matchers) =>
+          matchers.exists(_.admits(context.caller, callers.self, Some(target), grants))
+        case _ => true
 
   // Sorted once at startup: most specific template first, so a literal segment is never
   // shadowed by a parameter that happened to be declared earlier.
@@ -361,19 +509,35 @@ private final class Router(
     val context = found match
       case Some(Matched.Socket(_, _)) => forSocket(request, contextFor(request, caller))
       case _                          => contextFor(request, caller)
-    admit(effective, context) match
-      case Left(refused) => Future.successful(refused)
+    val target = found.map(_.grantTarget(endpoint.prefix))
+    admit(effective, context, target) match
+      case Left(refused) =>
+        // A refusal is the callee's answer, not its fault: recorded as one (feature 040), so the
+        // topology counts it apart from a failure. Nothing matched has no route to name.
+        found.foreach { matched =>
+          val origin = matched match
+            case Matched.Socket(route, _) => originOf(endpoint, "SOCKET", route.template)
+            case Matched.Plain(route, _)  => originOf(endpoint, route.method, route.template)
+            case Matched.Streaming(route, _) =>
+              originOf(endpoint, route.method, route.template)
+          RequestScope.withContext(context)(Tracing.refused(matched.describe, origin))
+        }
+        request.discardEntityBytes()
+        Future.successful(refused)
       case Right(context) =>
+        val revoke = target.filter(_ => admittedByGrant(effective, context)).map { t =>
+          stillAdmits(effective, context, t)
+        }
         found match
           case Some(Matched.Plain(route, args)) =>
             val origin = originOf(endpoint, route.method, route.template)
             dispatch(route, request, context, args, origin)
           case Some(Matched.Streaming(route, args)) =>
             val origin = originOf(endpoint, route.method, route.template)
-            dispatchStream(route, request, context, args, origin)
+            dispatchStream(route, request, context, args, origin, revoke)
           case Some(Matched.Socket(route, args)) =>
             val origin = originOf(endpoint, "SOCKET", route.template)
-            dispatchSocket(route, request, context, args, origin)
+            dispatchSocket(route, request, context, args, origin, revoke)
           case None => unmatched(endpoint, request, remaining)
 
   /**
@@ -475,7 +639,8 @@ private final class Router(
    */
   private def admit(
       acl: Acl,
-      context: SimpleRequestContext
+      context: SimpleRequestContext,
+      target: Option[GrantTarget]
   ): Either[HttpResponse, RequestContext] =
     def forbidden(reason: String) = Left(problem(HttpProblem.forbidden(reason)))
     acl match
@@ -486,8 +651,10 @@ private final class Router(
         else forbidden("not permitted by this endpoint's acl")
       case Acl.AllowCallers(matchers) =>
         // The same refusal text as every other ACL: naming the callers that would have been
-        // admitted tells an unauthorised caller whose certificate to go looking for.
-        if matchers.exists(_.admits(context.caller, callers.self)) then Right(context)
+        // admitted tells an unauthorised caller whose certificate to go looking for — and says
+        // nothing of which grants exist.
+        if matchers.exists(_.admits(context.caller, callers.self, target, grants)) then
+          Right(context)
         else forbidden("not permitted by this endpoint's acl")
       case Acl.Authenticate(decide) =>
         decide(context) match
@@ -568,7 +735,8 @@ private final class Router(
       request: HttpRequest,
       context: RequestContext,
       args: Vector[String],
-      origin: CallOrigin
+      origin: CallOrigin,
+      revoke: Option[() => Boolean]
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val bodyBytes =
       if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
@@ -592,8 +760,27 @@ private final class Router(
         )(using AnkkaExecutors.virtual)
       }
       .flatMap { source =>
+        val events = source.map(event => ServerSentEvent(event.data, event.name))
+        // A stream a grant admitted ends when the grant does (feature 040): a kill switch the
+        // router holds while the stream is open, completing it as if it had ended on its own.
+        val served = revoke match
+          case None => events
+          case Some(stillAdmitted) =>
+            events
+              .viaMat(org.apache.pekko.stream.KillSwitches.single)(
+                org.apache.pekko.stream.scaladsl.Keep.right
+              )
+              .mapMaterializedValue { switch =>
+                val open = Revocable(stillAdmitted, () => switch.shutdown())
+                revocable.add(open)
+                open
+              }
+              .watchTermination() { (open, done) =>
+                done.onComplete(_ => revocable.remove(open))
+                open
+              }
         // JSON per event, named or not: see SseEvent for why raw text is not safe here.
-        Marshal(source.map(event => ServerSentEvent(event.data, event.name))).to[HttpResponse]
+        Marshal(served).to[HttpResponse]
       }
       .recover {
         case failure: HttpProblem => problem(failure)
@@ -633,7 +820,8 @@ private final class Router(
       request: HttpRequest,
       context: RequestContext,
       args: Vector[String],
-      origin: CallOrigin
+      origin: CallOrigin,
+      revoke: Option[() => Boolean]
   )(using system: ActorSystem[?]): Future[HttpResponse] =
     AnkkaSocketUpgrade.of(request) match
       case None =>
@@ -651,16 +839,22 @@ private final class Router(
           case Right(run) =>
             val upgrades = configuredUpgrades.getOrElse(SocketUpgrades.from(system, OpenSockets()))
             val socket   = upgrades.open()
+            // A socket a grant admitted is closed when the grant ends (feature 040).
+            val open =
+              revoke.map(still => Revocable(still, () => socket.close(CloseReason.Revoked)))
+            open.foreach(revocable.add(_): Unit)
             val flow = socket.flow { opened =>
               Future(
                 RequestScope.withContext(context)(
                   Tracing.socket(route.describe, origin)(run(opened))
                 )
-              )(using AnkkaExecutors.virtual).onComplete {
-                case scala.util.Success(_) => opened.close(CloseReason.Finished)
-                case scala.util.Failure(failure) =>
-                  system.log.error(s"unhandled failure in ${route.describe}", failure)
-                  opened.close(CloseReason.Failed)
+              )(using AnkkaExecutors.virtual).onComplete { outcome =>
+                open.foreach(revocable.remove(_): Unit)
+                outcome match
+                  case scala.util.Success(_) => opened.close(CloseReason.Finished)
+                  case scala.util.Failure(failure) =>
+                    system.log.error(s"unhandled failure in ${route.describe}", failure)
+                    opened.close(CloseReason.Failed)
               }(using AnkkaExecutors.virtual)
             }
             val protocol =
@@ -701,16 +895,28 @@ private object Rejection:
  * Under TLS a connection without a client certificate never reaches here — the handshake requires
  * one — so `Left` is a certificate the authority issued that names no caller the platform knows.
  */
-private[http] final class CallerSource(val self: RotatingTls.Identity, tls: Boolean):
+private[http] final class CallerSource(
+    val self: RotatingTls.Identity,
+    tls: Boolean,
+    machines: Option[MachineTokens] = None,
+    clientCertificates: Boolean = true
+):
   def callerOf(request: HttpRequest): Either[String, Caller] =
     if tls then
       request.header[headers.`Tls-Session-Info`] match
         case Some(info) =>
           info.peerCertificates.headOption match
             case Some(certificate: java.security.cert.X509Certificate) =>
-              Caller.fromCertificate(certificate, Some(self))
-            case _ => Left("no client certificate")
-        case None => Left("no client certificate")
+              Caller.fromCertificate(certificate, Some(self)).map {
+                // Only a request from outside, through the gateway, may say which machine it is:
+                // over a connection between services the certificate is the caller (feature 040).
+                case Caller.Gateway => machineOf(request).getOrElse(Caller.Gateway)
+                case other          => other
+              }
+            case _ if !clientCertificates => Right(Caller.Gateway)
+            case _                        => Left("no client certificate")
+        case None if !clientCertificates => Right(Caller.Gateway)
+        case None                        => Left("no client certificate")
     else
       Right(
         request.headers
@@ -719,7 +925,25 @@ private[http] final class CallerSource(val self: RotatingTls.Identity, tls: Bool
           .getOrElse(Caller.Local)
       )
 
+  /** The machine a bearer token from this installation's issuer proves, if it proves one. */
+  private def machineOf(request: HttpRequest): Option[Caller] =
+    for
+      tokens <- machines
+      bearer <- CallerSource.bearer(request.headers.find(_.is("authorization")).map(_.value))
+      if tokens.issuerOf(bearer).contains(tokens.issuer)
+      machine <- tokens.verify(bearer).toOption
+    yield machine
+
 private[http] object CallerSource:
+
+  /** The token of an `Authorization: Bearer <token>` header. */
+  def bearer(authorization: Option[String]): Option[String] =
+    authorization
+      .map(_.trim)
+      .filter(_.regionMatches(true, 0, "Bearer ", 0, 7))
+      .map(_.drop(7).trim)
+      .filter(_.nonEmpty)
+
   /**
    * Outside a cluster this service has no certificate and so no identity of its own; `local/local`
    * is what `Callers.self` and `Callers.anyInProject` compare against, and only a test naming a
@@ -729,15 +953,20 @@ private[http] object CallerSource:
 
   val local: CallerSource = new CallerSource(LocalIdentity, tls = false)
 
-  def apply(tls: Option[RotatingTls]): CallerSource = tls match
-    case None => local
-    case Some(identity) =>
-      val self = identity.identity.getOrElse(
-        throw IllegalStateException(
-          s"the service certificate in ${identity.directory} names no ankka:// identity"
+  def apply(
+      tls: Option[RotatingTls],
+      machines: Option[MachineTokens] = None,
+      clientCertificates: Boolean = true
+  ): CallerSource =
+    tls match
+      case None => local
+      case Some(identity) =>
+        val self = identity.identity.getOrElse(
+          throw IllegalStateException(
+            s"the service certificate in ${identity.directory} names no ankka:// identity"
+          )
         )
-      )
-      new CallerSource(self, tls = true)
+        new CallerSource(self, tls = true, machines, clientCertificates)
 
 /**
  * The request's own span: what every component invocation it causes hangs from.
@@ -781,6 +1010,31 @@ private[ankka] object Tracing:
       catch case _: SocketClosed => ()
       outcome = SpanOutcome.Ok
     finally recorder.record(span, continued.fold(0L)(_.spanId), SpanKind.Server, outcome)
+
+  /**
+   * A request its ACL refused: a span of its own, recorded `Refused` at once, so a refusal is
+   * counted as the callee's answer and never as its failure. Continues the caller's trace when the
+   * request carried one, as a served request does.
+   */
+  def refused(describe: String, origin: CallOrigin)(using system: ActorSystem[?]): Unit =
+    val observability = Observability(system)
+    val componentRef  = observability.names.intern("http")
+    val handlerRef    = observability.names.intern(describe)
+    val continued =
+      RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
+    val span = continued match
+      case Some(parent) =>
+        observability.recorder.begin(
+          parent.traceIdHigh,
+          parent.traceId,
+          parent.spanId,
+          componentRef,
+          handlerRef,
+          SpanKind.Server
+        )
+      case None => observability.recorder.beginRoot(componentRef, handlerRef, SpanKind.Server)
+    Trace.within(span, origin)(())
+    observability.recorder.complete(span, SpanOutcome.Refused)
 
   def request[A](describe: String, origin: CallOrigin)(body: => A)(using
       system: ActorSystem[?]

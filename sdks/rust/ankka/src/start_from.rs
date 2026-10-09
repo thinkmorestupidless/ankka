@@ -74,6 +74,14 @@ pub(crate) fn older_than_contracts(protocol_version: &str) -> bool {
     older_than(protocol_version, CONTRACT_PROTOCOL)
 }
 
+/// The first protocol whose runtimes admit granted callers.
+pub(crate) const GRANTS_PROTOCOL: (u32, u32) = (1, 15);
+
+/// Whether a host speaking `protocol_version` predates granted callers.
+pub(crate) fn older_than_grants(protocol_version: &str) -> bool {
+    older_than(protocol_version, GRANTS_PROTOCOL)
+}
+
 /// Whether a discovered component states what a host older than 1.14 would not know.
 pub(crate) fn declares_contracts(component: &proto::Component) -> bool {
     let states =

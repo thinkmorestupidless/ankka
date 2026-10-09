@@ -78,6 +78,10 @@ spec:
             # certificate, which the kubelet does not hold (feature 014).
             - name: probe
               containerPort: 7627
+            # The keys machine tokens are signed with, served with TLS and no client certificate
+            # (feature 040): the broker and every service read them, holding none to present.
+            - name: keys
+              containerPort: 7629
           env:
             # Identity (feature 008). The issuer tokens must name is derived in-process from
             # ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT below — https://auth.<base>[:port]/realms/ankka
@@ -102,6 +106,14 @@ spec:
             # that works; replaced by the overlay from ankka-platform.httpsPort.
             - name: ANKKA_HTTPS_PORT
               value: "443"
+            # Where machine tokens' signing keys are read from (feature 040): the Secret the control
+            # plane creates in this namespace on first need and patches on a rotation, mounted
+            # optional, so the first pod starts before it exists.
+            - name: ANKKA_MACHINE_KEYS_DIRECTORY
+              value: "/var/run/ankka/machine-keys"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
             # Where the control plane, an ankka service itself, exports its telemetry, and what
             # it sends with it. The address is replaced by the overlay from
             # ankka-platform.otlpEndpoint; empty names no collector, and nothing is exported. The
@@ -160,6 +172,9 @@ spec:
             - name: ankka-service-tls
               mountPath: /var/run/secrets/ankka/service
               readOnly: true
+            - name: machine-keys
+              mountPath: /var/run/ankka/machine-keys
+              readOnly: true
           # Serve for a moment after the decision to stop: the pod leaves its Service's endpoints
           # when deletion starts, kube-proxy learns that up to a second later, and the runtime
           # unbinds on SIGTERM at once — so without this, a command routed to the old pod in that
@@ -183,3 +198,7 @@ spec:
         - name: ankka-service-tls
           secret:
             secretName: ankka-controlplane-service-tls
+        - name: machine-keys
+          secret:
+            secretName: ankka-controlplane-machine-keys
+            optional: true

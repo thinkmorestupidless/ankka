@@ -131,6 +131,26 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
       writes.incrementAndGet(): Unit
       projects.put((namespace, name), spec): Unit
 
+  private val machines =
+    TrieMap.empty[String, com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec]
+
+  def putMachine(spec: com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec): Unit =
+    guard()
+    machines.put(
+      com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(spec.organizationId, spec.name),
+      spec
+    ): Unit
+
+  def deleteMachine(organizationId: String, name: String): Unit =
+    guard()
+    machines.remove(
+      com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(organizationId, name)
+    ): Unit
+
+  /** What the control plane last wrote of a machine, by `<organization>.<name>`. */
+  def machine(name: String): Option[com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec] =
+    machines.get(name)
+
   def projectStatus(
       namespace: String,
       name: String

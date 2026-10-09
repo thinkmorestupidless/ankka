@@ -424,7 +424,18 @@ final class ServiceBuilder private[ankka] (
  * A request's span says only that HTTP served it and by which route; this is what puts that route,
  * and every call made from it, on the endpoint a developer wrote.
  */
-final case class ServedRoute(method: String, path: String, streaming: Boolean, endpoint: String)
+/**
+ * A route a server serves. `grantable` when its ACL admits granted callers (feature 040), which is
+ * how the control plane tells a grant on a route that can never open it from one waiting for the
+ * route to appear.
+ */
+final case class ServedRoute(
+    method: String,
+    path: String,
+    streaming: Boolean,
+    endpoint: String,
+    grantable: Boolean = false
+)
 
 object ServedRoute:
   /**

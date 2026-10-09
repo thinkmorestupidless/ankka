@@ -119,6 +119,62 @@ object Output:
           )
         )
 
+  /** A project's grants: who, what, where each is in its life, and whether it opens anything. */
+  def grants(rows: Vector[GrantDetail], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("ID", "GRANTEE", "TARGET", "STATE", "EFFECT", "BY", "AT"),
+          rows.map(g =>
+            Vector(
+              g.id,
+              g.grantee.text,
+              g.target.text,
+              g.state.word,
+              g.effect,
+              g.granted.by.getOrElse("-"),
+              g.granted.at.fold("-")(_.toString)
+            )
+          )
+        )
+
+  /** One grant just made. */
+  def grantMade(grant: GrantDetail, projectId: String, format: Format): String =
+    format match
+      case Format.Json => writeToString(grant)
+      case Format.Table =>
+        val waits =
+          if grant.state == GrantState.Pending then
+            "; it is pending until an owner of the grantee's organization accepts it"
+          else ""
+        s"grant ${grant.id}: '$projectId' grants ${grant.grantee.text} ${grant.target.text}$waits"
+
+  /** What a project's services or an organization's machines were granted, and from whom. */
+  def receivedGrants(rows: Vector[ReceivedGrantDetail], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("ID", "FROM", "GRANTEE", "TARGET", "STATE", "TOPIC", "LAST CHANGE"),
+          rows.map(r =>
+            Vector(
+              r.id,
+              s"${r.grantingProject} (${r.grantingOrganization})",
+              r.grantee.text,
+              r.target.text,
+              r.state.word,
+              r.topic.fold("-")(t =>
+                s"${t.partitions} partitions" + (if t.compacted then ", compacted" else "") +
+                  t.retention.fold("")(d => s", kept $d")
+              ),
+              r.changes.lastOption.fold("-")(c =>
+                s"${c.change.word} by ${c.by.getOrElse("-")}" + c.at.fold("")(a => s" at $a")
+              )
+            )
+          )
+        )
+
   def projectSecrets(rows: Vector[ProjectSecretSummary], format: Format): String =
     format match
       case Format.Json => writeToString(rows)
@@ -235,6 +291,17 @@ object Output:
           // Feature 034: each only when present, so a service with no bucket reads as before.
           row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
           row.bucketAddress.map("bucket address" -> _) ++
+          // Feature 040: whether a grant on the service's routes can reach its instances.
+          row.grantsPhrase.map("grants" -> _) ++
+          // Feature 040: each other project's topic, the right it needs, and whether it has it.
+          row.crossProjectTopics
+            .filter(_.nonEmpty)
+            .map(topics =>
+              val width = topics.map(_.text.length).max
+              "cross-project topics" -> topics
+                .map(t => s"${t.text.padTo(width, ' ')}  ${t.right.padTo(7, ' ')}  ${t.status}")
+                .mkString("\n")
+            ) ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.
@@ -372,6 +439,40 @@ object Output:
            |  ${token.secret}
            |
            |$expiry Store it as a secret named ANKKA_TOKEN.""".stripMargin
+
+  /** A machine just registered: its client id, its secret this once, and where to use them. */
+  def machineRegistered(machine: MachineRegistered, format: Format): String =
+    format match
+      case Format.Json => writeToString(machine)
+      case Format.Table =>
+        val broker = machine.brokerBootstrap.fold("")(b => s"\n  broker         $b")
+        s"""Machine '${machine.name}' registered. This is the only time the secret is shown.
+           |
+           |  client id      ${machine.clientId}
+           |  client secret  ${machine.clientSecret}
+           |  token URL      ${machine.tokenUrl}$broker
+           |
+           |It takes a token from the token URL with these as OAuth 2.0 client credentials.""".stripMargin
+
+  def machines(machines: Vector[MachineSummary], format: Format): String =
+    format match
+      case Format.Json                      => writeToString(machines)
+      case Format.Table if machines.isEmpty => "no machines"
+      case Format.Table =>
+        table(
+          Vector("NAME", "CLIENT ID", "REGISTERED BY", "AT", "BYTE RATES"),
+          machines.map(m =>
+            Vector(
+              m.name,
+              m.clientId,
+              m.registeredBy.getOrElse("-"),
+              m.registeredAt.fold("-")(_.toString),
+              m.byteRates.fold("the installation's")(r =>
+                s"produce ${r.produceBytesPerSecond}/s, consume ${r.consumeBytesPerSecond}/s, ${r.requestPercentage}%"
+              )
+            )
+          )
+        )
 
   def deployTokens(tokens: Vector[DeployTokenSummary], format: Format): String =
     format match

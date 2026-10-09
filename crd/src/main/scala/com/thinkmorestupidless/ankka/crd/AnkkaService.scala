@@ -323,7 +323,13 @@ final case class AnkkaServiceStatus(
      * What the platform did about this service's bucket (feature 034). Absent only when the service
      * neither asks for one nor gives an object store of its own.
      */
-    objectStorage: Option[ObjectStorageStatus] = None
+    objectStorage: Option[ObjectStorageStatus] = None,
+    /**
+     * `mounted` once the operator has rendered the service with the project's ConfigMap, whose
+     * grants file its running instances read (feature 040). Absent for a web-hosted service, whose
+     * routes cannot be granted, and from an operator that predates grants.
+     */
+    grants: Option[String] = None
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: AnkkaServiceStatus): Boolean =

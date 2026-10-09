@@ -81,3 +81,11 @@ Feature: A grant to another organization is accepted before it takes effect
     When the history of "spinvibe" and the history of "affiliates" are read
     Then each shows that "ada" granted it, that "bo" accepted it and that "ada" revoked it, each with when it was done
     And nothing in either history holds a client secret or a machine token
+
+  Scenario: deleting a registered machine lapses every grant naming it, and a machine registered again under its name holds nothing
+    Given "ada" has granted the registered machine "network" of "affiliates" to consume the topic "affiliates.attribution" of "spinvibe"
+    And "bo" has accepted the grant
+    When "bo" deletes the registered machine "network"
+    Then the grant is shown as "lapsed" in the grants of "spinvibe"
+    And the history of "spinvibe" and the history of "affiliates" each show that the grant lapsed when "bo" deleted "network", with when it was done
+    And when "bo" registers "network" as a machine of "affiliates" again, the new registered machine holds no grant

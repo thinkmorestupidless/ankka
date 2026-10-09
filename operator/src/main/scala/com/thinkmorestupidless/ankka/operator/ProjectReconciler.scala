@@ -28,7 +28,14 @@ final class ProjectReconciler(client: KubernetesClient, settings: Settings, exec
         val observed =
           settings.broker.fold(Map.empty)(b => executor.observeTopics(b.namespace, names))
         ProjectReconciler
-          .actions(ref, spec, settings.broker, observed, Option(project.getStatus))
+          .actions(
+            ref,
+            spec,
+            settings.broker,
+            observed,
+            Option(project.getStatus),
+            settings.machines
+          )
           .foreach(executor.execute)
 
 object ProjectReconciler:
@@ -42,7 +49,9 @@ object ProjectReconciler:
       spec: AnkkaProjectSpec,
       broker: Option[BrokerSettings],
       observed: Map[String, TopicState],
-      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus]
+      current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus],
+      // Feature 040: where machines' tokens come from, for every service of the project.
+      machines: Option[Settings.MachineIssuer] = None
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
@@ -52,7 +61,9 @@ object ProjectReconciler:
     val next = TopicProvisioning.status(spec, broker, observed)
     // The declarations every service of the project reads at start (feature 037), with or without
     // a broker: a contract is checked wherever the topic lives.
-    (Action.EnsureProjectConfig(ProjectConfig.configMap(ref.namespace, spec)) +: topics) ++
+    (Action.EnsureProjectConfig(
+      ProjectConfig.configMap(ref.namespace, spec, machines)
+    ) +: topics) ++
       Option.unless(current.contains(next))(
         Action.SetProjectStatus(ref.namespace, ref.name, next)
       )

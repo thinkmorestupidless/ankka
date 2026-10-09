@@ -264,9 +264,10 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   test("every base-domain placeholder is substituted") {
     // `BASE_DOMAIN` is the literal the components carry; `ANKKA_BASE_DOMAIN` is an environment
     // variable's *name* and legitimately contains it, so match the placeholder on its own.
+    // A variable's name may appear anywhere (`${strimzienv:ANKKA_BASE_DOMAIN}` reads one).
+    val placeholder = "(?<!ANKKA_)BASE_DOMAIN".r
     val unreplaced = remote.linesIterator
-      .filter(_.contains("BASE_DOMAIN"))
-      .filterNot(_.contains("name: ANKKA_BASE_DOMAIN"))
+      .filter(line => placeholder.findFirstIn(line).isDefined)
       .toVector
     assertEquals(unreplaced, Vector.empty, "a placeholder reached the remote render")
   }
@@ -402,13 +403,14 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     yamlOf(documentsOfKind(render, "Kafka").headOption.getOrElse(fail("no Kafka rendered")))
 
   test("an installation in a cluster has the broker a local platform has") {
-    // The same listener, the same authorization and the same configuration: only its size differs.
-    for path <- Seq(
-        Seq("spec", "kafka", "listeners"),
-        Seq("spec", "kafka", "authorization"),
-        Seq("spec", "kafka", "config")
-      )
-    do assertEquals(at(kafka(remote), path*), at(kafka(local), path*), path.mkString("."))
+    // The same listener, the same authorization and the same configuration: only its size differs,
+    // and the listener and caps that expose it to machines, which the cloud alone has (feature 040).
+    assertEquals(internalListeners(remote), internalListeners(local))
+    assertEquals(
+      at(kafka(remote), "spec", "kafka", "authorization"),
+      at(kafka(local), "spec", "kafka", "authorization")
+    )
+    assertEquals(sharedConfig(remote), sharedConfig(local))
     // Told of it the same way: each of the operator's three settings once, in its one container.
     for overlay <- Seq(remote -> "cloud", local -> "local") do
       val operator = operatorDeployment(overlay._1, overlay._2)
@@ -425,6 +427,105 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       environmentValue(operatorDeployment(remote, "cloud"), "ANKKA_BROKER_BOOTSTRAP"),
       environmentValue(operatorDeployment(local, "local"), "ANKKA_BROKER_BOOTSTRAP")
     )
+  }
+
+  private def listeners(render: String): Vector[java.util.Map[String, Any]] =
+    at(kafka(render), "spec", "kafka", "listeners") match
+      case l: java.util.List[?] =>
+        l.asScala.toVector.collect { case m: java.util.Map[?, ?] =>
+          m.asInstanceOf[java.util.Map[String, Any]]
+        }
+      case other => fail(s"no listeners: $other")
+
+  private def internalListeners(render: String) =
+    listeners(render).filterNot(_.get("name") == "external")
+
+  private val ExternalCaps =
+    Set("max.connections.per.ip", "listener.name.external.max.connection.creation.rate")
+
+  private def sharedConfig(render: String) =
+    at(kafka(render), "spec", "kafka", "config") match
+      case m: java.util.Map[?, ?] => m.asScala.toMap.filterNot((k, _) => ExternalCaps(k.toString))
+      case other                  => fail(s"no config: $other")
+
+  // features/cross-project/machine-topics.feature (feature 040)
+  test(
+    "the cloud exposes its broker to machines through the Gateway, and the local platform does not"
+  ) {
+    val external =
+      listeners(remote).find(_.get("name") == "external").getOrElse(fail("no external listener"))
+    assertEquals(external.get("type"), "tlsroute")
+    assertEquals(at(external, "port"), 9094)
+    // Strimzi 1.x has no `oauth` type: OAUTHBEARER is a custom listener over strimzi-kafka-oauth.
+    assertEquals(at(external, "authentication", "type"), "custom")
+    assertEquals(at(external, "authentication", "sasl"), true)
+    val listenerConfig = at(external, "authentication", "listenerConfig") match
+      case m: java.util.Map[?, ?] => m.asScala.map((k, v) => k.toString -> v.toString).toMap
+      case other                  => fail(s"no listenerConfig: $other")
+    assertEquals(listenerConfig.get("sasl.enabled.mechanisms"), Some("OAUTHBEARER"))
+    val jaas = listenerConfig.getOrElse("oauthbearer.sasl.jaas.config", fail("no JAAS line"))
+    for option <- Seq(
+        "oauth.valid.issuer.uri=\"https://api.${strimzienv:ANKKA_BASE_DOMAIN}\"",
+        "oauth.username.claim=\"broker_user\"",
+        "oauth.jwks.endpoint.uri=\"https://ankka-controlplane.ankka-controlplane.svc:7629/"
+      )
+    do assert(jaas.contains(option), jaas)
+    // The issuer's base domain, filled whole by the overlay: the token names `https://api.<base>`.
+    val env = at(kafka(remote), "spec", "kafka", "template", "kafkaContainer", "env").toString
+    assert(env.contains("name=ANKKA_BASE_DOMAIN") && env.contains("value=example.com"), env)
+    assertEquals(at(external, "configuration", "bootstrap", "host"), "broker.example.com")
+    val peers = at(external, "networkPolicyPeers").toString
+    assert(
+      peers.contains("envoy-gateway-system") && peers.contains("owning-gateway-name=ankka"),
+      peers
+    )
+
+    val gateway = yamlOf(documentsOfKind(remote, "Gateway").find(_.contains("name: ankka")).get)
+    val broker = at(gateway, "spec", "listeners") match
+      case l: java.util.List[?] =>
+        l.asScala.collect { case m: java.util.Map[?, ?] => m }.find(_.get("name") == "broker")
+      case _ => None
+    assert(
+      broker.exists(b => b.get("port") == 9094 && b.toString.contains("Passthrough")),
+      broker.toString
+    )
+
+    val config =
+      at(kafka(remote), "spec", "kafka", "config").asInstanceOf[java.util.Map[String, Any]]
+    assertEquals(config.get("max.connections.per.ip").toString, "64")
+    assertEquals(config.get("listener.name.external.max.connection.creation.rate").toString, "20")
+
+    val certificate = documentsOfKind(remote, "Certificate")
+      .map(yamlOf)
+      .find(c => at(c, "metadata", "name") == "ankka-broker-external")
+      .getOrElse(fail("no external certificate"))
+    // Kafka loads a PEM key only as PKCS#8: the broker refused a PKCS#1 key at start.
+    assertEquals(at(certificate, "spec", "privateKey", "encoding"), "PKCS8")
+    val issuer = at(certificate, "spec", "issuerRef", "name")
+    assert(
+      documentsOfKind(remote, "ClusterIssuer")
+        .map(yamlOf)
+        .exists(i => at(i, "metadata", "name") == issuer),
+      s"the external certificate names '$issuer', which is not rendered"
+    )
+    assertEquals(
+      environmentValue(
+        documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-controlplane")).get,
+        "ANKKA_BROKER_EXTERNAL_BOOTSTRAP"
+      ),
+      "broker.example.com:9094"
+    )
+
+    // Nothing of it locally: no listener, no certificate, no Gateway listener, no setting.
+    assert(!listeners(local).exists(_.get("name") == "external"))
+    assert(!local.contains("ankka-broker-external"))
+    assert(!local.contains("ANKKA_BROKER_EXTERNAL_BOOTSTRAP"))
+    for placeholder <- Seq(
+        "PUBLIC_ISSUER",
+        "BROKER_MAX_CONNECTIONS_PER_IP",
+        "BROKER_EXTERNAL_CONNECTION_RATE"
+      )
+    do assert(!remote.contains(placeholder), s"$placeholder survived into the cloud render")
   }
 
   test("the size of the broker is left for whoever installs it to state") {

@@ -39,10 +39,14 @@ message Caller {
     Empty gateway = 1;
     ServiceCaller service = 2;
     Empty local = 3;
+    // 1.15: a machine registered on an organization, proven by a token the control plane issued.
+    MachineCaller machine = 4;
   }
 }
 
 message ServiceCaller { string project = 1; string name = 2; }
+
+message MachineCaller { string organization = 1; string name = 2; }
 
 message Principal {
   string subject = 1;

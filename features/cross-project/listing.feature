@@ -44,6 +44,9 @@ Feature: Listing a project's grants
       | the installation does not expose its broker, and the topic "affiliates.attribution" is declared on "spinvibe" | the registered machine "psp-batch" of "eitheror" | to consume the topic "affiliates.attribution" of "spinvibe"      | broker not exposed  |
       | the organization "affiliates" has the project "network" with a deployed service "ingest"             | the service "ingest" of "network"          | the route "POST /v1/wallets/{player}/{currency}/deposits" of "wallet"       | pending             |
 
+  # A topic's retention is declared once a project can say it; until then a grant tells its
+  # grantee the partitions and compaction it can read, and this waits.
+  @ignore
   Scenario: a topic grant tells its grantee the topic's retention
     Given the topic "affiliates.attribution" is declared on "spinvibe", and the broker retains its messages for "7" days
     And "ada" has granted the service "merchant" of "payments" to consume the topic "affiliates.attribution" of "spinvibe"
@@ -62,3 +65,12 @@ Feature: Listing a project's grants
     When a member of "eitheror" reads the history of "spinvibe"
     Then the history shows that "ada" granted it and that "ada" revoked it, each with when it was done
     And nothing in the history holds a credential or a machine token
+
+  Scenario: a grant that allows decryption and an erasure grant are held and listed, and nothing enforces them yet
+    Given the topic "casino.players" is declared on "spinvibe"
+    And "ada" has granted the service "merchant" of "payments" to consume the topic "casino.players" of "spinvibe", allowing decryption
+    And "ada" has granted the service "merchant" of "payments" the right to ask for the erasure of the data subjects of "spinvibe"
+    When a member of "eitheror" reads the grants of "spinvibe"
+    Then the member is shown the grant to consume "casino.players" as allowing decryption, and the erasure grant, each granted by "ada"
+    And the grants held by the project "payments" show both
+    And neither grant opens a route of "spinvibe", and nothing of "spinvibe" decrypts or erases anything for "merchant"

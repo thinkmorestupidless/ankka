@@ -100,6 +100,12 @@ enum Action:
       status: com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus
   )
 
+  /** A registered machine's status (feature 040): its broker user, and how far it has got. */
+  case SetMachineStatus(
+      name: String,
+      status: com.thinkmorestupidless.ankka.crd.AnkkaMachineStatus
+  )
+
   /**
    * Ensures a project's shared Postgres capacity. Idempotent; concurrent first-service applies in
    * one project converge on the same object rather than racing to create two.
@@ -246,6 +252,7 @@ enum Action:
     case SetProjectStatus(ns, name, status) =>
       s"set project status $ns/$name: " +
         status.topics.map(t => s"${t.name} ${t.phase}").mkString(", ")
+    case SetMachineStatus(name, status) => s"set machine status $name: ${status.phase}"
     case EnsureCluster(c) =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>

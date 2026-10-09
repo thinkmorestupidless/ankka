@@ -15,7 +15,7 @@ from datetime import timedelta
 from typing import Any
 
 from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail
-from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
+from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, MachineCaller, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import CommandError, ComponentClient
@@ -242,6 +242,26 @@ class ContractRelay(Consumer[Fanned, Fanned]):
     def on_message(self, message: Fanned) -> ConsumerEffect:
         return self.effects.produce(Fanned(n=message.n + 1))
 # docs:end contract-relay
+
+
+# ── partner-relay: another project's topic, read and published to (1.15) ──
+
+
+# docs:start partner-relay
+class PartnerRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other."""
+
+    component_id = "partner-relay"
+    topic = "conformance-shared"
+    project = "partner"
+    start_from = StartFrom.EARLIEST
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-shared-relayed", project="partner")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(message)
+# docs:end partner-relay
 
 
 # ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──
@@ -701,11 +721,17 @@ class CallersEndpoint(Endpoint):
         c = self.request.caller
         if isinstance(c, ServiceCaller):
             return f"service:{c.project}/{c.name}"
+        if isinstance(c, MachineCaller):
+            return f"machine:{c.organization}/{c.name}"
         return "gateway" if isinstance(c, Gateway) else "local"
 
     @get("/self", acl=Acl.allow_callers(Callers.self_))
     def only_self(self) -> str:
         return "self"
+
+    @get("/granted", acl=Acl.allow_callers(Callers.granted))
+    def granted(self) -> str:
+        return "granted"
 
     @sse("/events", acl=Acl.allow_callers(Callers.self_))
     async def events(self) -> AsyncIterator[str]:
@@ -998,6 +1024,7 @@ def reference_service() -> ServiceBuilder:
         .register(TopicRows)
         .register(TopicRelay)
         .register(ContractRelay)
+        .register(PartnerRelay)
         .register(TreeNode)
         .register(TreeRows)
         .register(JoinedLeft)

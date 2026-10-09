@@ -69,7 +69,12 @@ export interface Publication {
   readonly topic: string
   readonly contract?: Contract
   readonly broker?: string
+  /** Another project's topic (1.15), which that project must grant this service produce on. */
+  readonly project?: string
 }
+
+/** The first protocol in which a process can read or publish to another project's topic. */
+export const GRANTS_PROTOCOL: readonly [number, number] = [1, 15]
 
 /** The first protocol in which a process can declare a contract, a broker or parallel reading. */
 export const CONTRACT_PROTOCOL: readonly [number, number] = [1, 14]

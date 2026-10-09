@@ -98,6 +98,25 @@ owned by the service, at `storage.<base>` with the bucket in the path, naming th
 plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
 limitations. `docs/platform/object-storage.md` is the contract with a service.
 
+## Grants and machines reach the cluster through resources the operator already watches
+
+Feature 040. A project's accepted grants are `AnkkaProject.spec.grants`; `ProjectConfig` writes them as
+`grants.json` in the `ankka-project` ConfigMap every platform container already mounts, and the
+machine issuer and key URL as `machines.json` beside it (operator `Settings.machines`). Neither is an
+environment variable, so a grant changes no pod template and upgrading the operator rolls nothing; the
+runtime finds `grants.json` beside the declarations and re-reads it (`GrantsFile`). A granted topic is a
+literal ACL entry on the grantee service's `KafkaUser` (`GrantedTopic`, `StrimziRendering.grantedRules`),
+and the operator requeues every grantee of an old or new `AnkkaProject` so a revoked grant leaves the
+user at once. A registered machine is a cluster-scoped `AnkkaMachine` (schema `ankkamachine.yaml`), which
+`MachineReconciler` renders as a `KafkaUser` `machine.<org>.<name>` with no authentication of its own,
+its granted topics, groups `ankka.machine.<org>.<name>.` and quotas clamped to the installation's ceiling.
+
+The `broker-external` component exposes the broker to machines: an `external` OAUTHBEARER listener on
+9094 verifying tokens against the control plane's `keys` port, a TLS passthrough Gateway listener
+`broker` with Strimzi's `tlsroute`s, and a certificate from the installation's public issuer, all filled
+from four `ankka-platform` keys. The cloud overlay lists it; the local one does not, and kind publishes
+9094 only on a cluster created with `kind.yaml`'s `30094` mapping, which kind fixes at creation.
+
 ## Deploying locally
 
 ```bash
@@ -194,6 +213,17 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service
   certificate carries a common name on an installation with a broker — and only there, so nothing else's
   rendering changed.
+- **Strimzi 1.x has no `oauth` listener authentication.** OAUTHBEARER is `type: custom`, `sasl: true`,
+  with strimzi-kafka-oauth's callback handler and its options as one JAAS line; the API server refuses
+  `oauth` by name. A value inside that line cannot be filled by a kustomize delimiter replacement, so
+  the broker-external listener reads its base domain through `${strimzienv:ANKKA_BASE_DOMAIN}`.
+- **A certificate a Kafka listener presents must ask cert-manager for `encoding: PKCS8`.** cert-manager
+  writes an RSA key as PKCS#1 by default and Kafka loads a PEM key only as PKCS#8; the broker exits at
+  start with `Invalid PEM keystore configs … algid parse error`. The external listener's certificate
+  forgot it once; `RemoteOverlaySuite` pins it.
+- **A listener setting is a line of a properties file.** Strimzi writes `listenerConfig` there, so a
+  newline inside a value (a blank line in a folded YAML block) ends it: `JAAS config entry not
+  terminated by semi-colon`.
 - **Strimzi replaces the broker's pod whenever its listener certificate changes**, measured within 12s. The
   broker's certificate therefore lives a year, not the day every workload's does.
 - **A custom listener trusts an authority by its certificate; Strimzi's own client authority wants the key.**

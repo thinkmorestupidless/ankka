@@ -124,13 +124,19 @@ object ProjectId:
    * developer's machine that states its name reads a topic under the group
    * `ankka.local.<service>.…`, which is exactly what a deployed service in a project called `local`
    * would be given. Two different services must never share a group.
+   *
+   * `machine` is reserved for the same reason: a registered machine reads a topic under the group
+   * prefix `ankka.machine.<organization>.<name>.`, so a project called `machine` with a service
+   * named after an organization would hold read on that organization's machines' groups.
    */
-  val Reserved: Set[String] = Set("platform", "local")
+  val Reserved: Set[String] = Set("platform", "local", "machine")
 
   /** Why `id` is reserved, in a sentence that is true of it. */
   def reservedBecause(id: String): String =
     if id == "local" then
       s"project id '$id' is reserved for services run locally, whose consumer groups it names"
+    else if id == "machine" then
+      s"project id '$id' is reserved for registered machines, whose consumer groups it names"
     else s"project id '$id' is reserved for the platform's own workloads"
 
   def problems(id: String): Vector[String] =
@@ -917,8 +923,25 @@ final case class ServiceStatus(
     /** The bucket the platform gives the service, when its descriptor asks for one. */
     bucket: Option[String] = None,
     /** Where that bucket is on the internet, when its descriptor asks that it be reachable. */
-    bucketAddress: Option[String] = None
-)
+    bucketAddress: Option[String] = None,
+    /**
+     * `mounted` when the operator reported the service reads its project's grants (feature 040).
+     * Absent for a web-hosted service, and when the installation's operator predates grants: a
+     * grant on such a service's routes opens nothing until it is rolled out by a newer one.
+     */
+    grants: Option[String] = None,
+    /**
+     * Each other project's topic the service's components read or publish to (feature 040), with
+     * whether that project grants the right: from the running instances, as `undeclaredTopics` is,
+     * so `None` when none answered and on a listing row.
+     */
+    crossProjectTopics: Option[Vector[CrossProjectTopic]] = None
+):
+  /** `mounted`, `rollout needed`, or nothing to say: what `services get` shows (feature 040). */
+  def grantsPhrase: Option[String] =
+    grants.orElse(
+      Option.when(hosting != "web" && confirmed && readyInstances > 0)("rollout needed")
+    )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
 final case class HistoryActor(
@@ -1203,7 +1226,13 @@ final case class LogsResponse(instances: Vector[InstanceLogs])
 // ── Topology (feature 019) ──────────────────────────────────────────────────
 
 /** One handler of a node: a command, a query, a step, a route, a tool. */
-final case class TopologyHandler(name: String, `type`: String, streaming: Option[Boolean] = None)
+final case class TopologyHandler(
+    name: String,
+    `type`: String,
+    streaming: Option[Boolean] = None,
+    /** A route whose ACL admits granted callers (feature 040); absent for any other. */
+    grantable: Option[Boolean] = None
+)
 
 /** One component, endpoint, topic or outside party of a service's topology. */
 final case class TopologyNode(
@@ -1277,6 +1306,14 @@ final case class InstanceTopologyDocument(
  * the topic holds past the last one handled, as of the instance's last poll; `failing`, the reason
  * of the change being delivered again, until one succeeds.
  */
+/**
+ * Another project's topic a service reads (`consume`) or publishes to (`produce`), and whether that
+ * project grants the service the right (feature 040): `granted`, or `not granted (no grant)`,
+ * `not granted (pending)`, `not granted (ended)`. Until it is granted the broker refuses it.
+ */
+final case class CrossProjectTopic(project: String, topic: String, right: String, status: String):
+  def text: String = s"$project/$topic"
+
 final case class TopicSourceReport(
     kind: String,
     component: String,
@@ -1734,3 +1771,21 @@ object Wire:
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
     Codecs.make[Vector[ProjectSecretSummary]]
+
+  // Cross-project access (feature 040).
+  given grantRequestCodec: JsonValueCodec[GrantRequest] = Codecs.make[GrantRequest]
+  given grantDetailCodec: JsonValueCodec[GrantDetail]   = Codecs.make[GrantDetail]
+  given grantDetailsCodec: JsonValueCodec[Vector[GrantDetail]] =
+    Codecs.make[Vector[GrantDetail]]
+  given receivedGrantCodec: JsonValueCodec[ReceivedGrantDetail] = Codecs.make[ReceivedGrantDetail]
+  given receivedGrantsCodec: JsonValueCodec[Vector[ReceivedGrantDetail]] =
+    Codecs.make[Vector[ReceivedGrantDetail]]
+  given machineRegistrationCodec: JsonValueCodec[MachineRegistration] =
+    Codecs.make[MachineRegistration]
+  given machineRegisteredCodec: JsonValueCodec[MachineRegistered] = Codecs.make[MachineRegistered]
+  given machineSummaryCodec: JsonValueCodec[MachineSummary]       = Codecs.make[MachineSummary]
+  given machineSummariesCodec: JsonValueCodec[Vector[MachineSummary]] =
+    Codecs.make[Vector[MachineSummary]]
+  given byteRatesCodec: JsonValueCodec[ByteRatesRequest]  = Codecs.make[ByteRatesRequest]
+  given tokenResponseCodec: JsonValueCodec[TokenResponse] = Codecs.make[TokenResponse]
+  given jwksCodec: JsonValueCodec[JsonWebKeySet]          = Codecs.make[JsonWebKeySet]

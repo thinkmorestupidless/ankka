@@ -104,17 +104,67 @@ final class ServiceProjector private (
       case None => throw new IllegalStateException("the cluster client is not started")
 
   /**
+   * Where machine tokens' signing keys are written (feature 040): the Secret `secret` in the
+   * control plane's own `namespace`, one `<kid>.pem` entry per key, by the merge patch that writes
+   * a project secret's entries — `create` and `patch`, never `get`.
+   */
+  def machineKeyWriter(
+      namespace: String,
+      secret: String
+  ): com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter =
+    new com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter:
+      private def resources =
+        client.getOrElse(throw new IllegalStateException("the cluster client is not started"))
+      def addKey(kid: String, pem: String): Unit =
+        resources.setSecretEntries(namespace, secret, Map(s"$kid.pem" -> pem))
+      def removeKeys(kids: Seq[String]): Unit =
+        kids.foreach(kid => resources.removeSecretEntry(namespace, secret, s"$kid.pem"))
+
+  /**
    * Writes a project's declared topics to the cluster as its `AnkkaProject` (feature 027). Called
    * by `ProjectTopicsTrigger` when the declarations change; it throws when the cluster cannot take
    * the write, so the trigger is retried with its projection's backoff until it can.
    */
+  /**
+   * Writes a registered machine as its `AnkkaMachine`, or removes it when it is gone (feature 040).
+   * `None` is a machine that is not registered.
+   */
+  def projectMachine(
+      organizationId: String,
+      name: String,
+      machine: Option[com.thinkmorestupidless.ankka.controlplane.api.MachineSummary]
+  ): Unit =
+    client match
+      case Some(resources) =>
+        machine match
+          case Some(m) =>
+            resources.putMachine(
+              com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec(
+                organizationId,
+                name,
+                m.byteRates.map(_.produceBytesPerSecond),
+                m.byteRates.map(_.consumeBytesPerSecond),
+                m.byteRates.map(_.requestPercentage)
+              )
+            )
+          case None => resources.deleteMachine(organizationId, name)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  /** Whether the projector has its cluster client and its projection: whether it can write. */
+  def ready: Boolean = client.isDefined && projection.isDefined
+
   def projectTopics(projectId: String): Unit =
     (client, projection) match
       case (Some(resources), Some(work)) =>
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(projectId, work.topicsOf(projectId), work.brokersOf(projectId))
+          ProjectProjection.spec(
+            projectId,
+            work.topicsOf(projectId),
+            work.brokersOf(projectId),
+            work.grantsOf(projectId)
+          )
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
 
@@ -221,6 +271,15 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.brokers)
+      .invoke()
+
+  /** Every grant the project has made (feature 040); the projection keeps the accepted ones. */
+  def grantsOf(
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.grants)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =

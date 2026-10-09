@@ -139,6 +139,16 @@ view's projection is named), and every write of such a view is guarded by the re
   `KafkaCredential` is `Certificate(dir)` through `KafkaTls` or `Sasl(dir)` as `SASL_SSL` with a PEM
   truststore. `ProjectionRuntime.subscriberFor`/`publisherFor` pick by `TopicOptions.broker` and
   `Publication.broker`; a declared broker's topics have no prefix and are not "undeclared".
+- **Another project's topic travels as `<project>/<name>` and nowhere else changes** (feature 040).
+  `TopicOptions.project` and `Publication.project` become a `TopicAddress` at the runtime's edge, so the
+  subscriber, the publisher, the in-memory broker, declared connections and the topology all carry the
+  slash form, and `KafkaConnection.qualified` alone turns it into `<project>.<name>` — never this
+  project's prefix. A Kafka name cannot hold `/`, so the forms cannot meet; but `topic:<broker>/<name>`
+  is a declared broker's node too, which is why a component may not name both (`crossProjectProblems`)
+  and the status reads a declared edge's `broker` to tell them apart. The broker enforces the grant: the
+  operator renders one literal ACL entry per granted right on the grantee's `KafkaUser`, read from every
+  `AnkkaProject` (`GrantedTopic.naming`), and requeues grantees from the old and the new resource, or a
+  revocation would wait for the five-minute resync.
 - **Parallel partitions are a partitioned source with one actor per lane.** `TopicSubscription.parallel`
   switches `KafkaSubscriber` to `committablePartitionedSource`, each lane `.async` with its own handler
   instance (`subscribeTopic`'s `lanes`), and a failed message retried in its lane (`RestartSource` around

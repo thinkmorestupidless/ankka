@@ -85,6 +85,15 @@ trait AnkkaServiceClient extends AutoCloseable:
   def putProject(namespace: String, name: String, spec: AnkkaProjectSpec): Unit
 
   /**
+   * Writes a registered machine as its cluster-scoped `AnkkaMachine` (feature 040), from which the
+   * operator gives it a user on the installation's broker. Idempotent, as `putProject` is.
+   */
+  def putMachine(spec: com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec): Unit
+
+  /** Removes a deleted machine's `AnkkaMachine`; one already gone is no failure. */
+  def deleteMachine(organizationId: String, name: String): Unit
+
+  /**
    * A contract's schema document into the project's schema `ConfigMap`, under its fingerprint
    * (feature 037).
    */

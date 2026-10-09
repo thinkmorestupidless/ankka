@@ -100,6 +100,9 @@ pub enum CallerMatcher {
     AnyInProject,
     /// This service itself.
     SelfService,
+    /// Whoever this service's project has granted the route to: a service of another project, or
+    /// a registered machine (protocol 1.15). A route that does not name this can never be granted.
+    Granted,
 }
 
 impl CallerMatcher {
@@ -117,6 +120,7 @@ impl CallerMatcher {
             CallerMatcher::Internet => Kind::Internet(proto::Empty {}),
             CallerMatcher::AnyInProject => Kind::AnyInProject(proto::Empty {}),
             CallerMatcher::SelfService => Kind::Self_(proto::Empty {}),
+            CallerMatcher::Granted => Kind::Granted(proto::Empty {}),
             CallerMatcher::Service { name, project } => Kind::Service(proto::NamedService {
                 project: project.clone(),
                 name: name.clone(),
@@ -154,6 +158,14 @@ pub enum Caller {
     Service {
         /// Its project.
         project: String,
+        /// Its name.
+        name: String,
+    },
+    /// A machine registered on an organization, proven by a token the control plane issued
+    /// (protocol 1.15). Without its token, the same request is the gateway.
+    Machine {
+        /// The organization it is registered on.
+        organization: String,
         /// Its name.
         name: String,
     },
@@ -641,6 +653,10 @@ fn caller_of(caller: Option<proto::Caller>) -> Caller {
             project: s.project,
             name: s.name,
         },
+        Some(Kind::Machine(m)) => Caller::Machine {
+            organization: m.organization,
+            name: m.name,
+        },
         Some(Kind::Local(_)) | None => Caller::Local,
     }
 }
@@ -720,6 +736,76 @@ mod tests {
             ]
         );
         assert!(endpoint.routes.iter().all(|r| !r.streaming));
+    }
+
+    #[test]
+    fn granted_callers_are_declared_and_a_machine_is_read_from_the_protocol() {
+        use proto::caller_matcher::Kind;
+        let declared =
+            Acl::Callers(vec![CallerMatcher::Internet, CallerMatcher::Granted]).callers();
+        let kinds: Vec<bool> = declared
+            .iter()
+            .map(|m| matches!(m.kind, Some(Kind::Granted(_))))
+            .collect();
+        assert_eq!(kinds, vec![false, true]);
+        let machine = caller_of(Some(proto::Caller {
+            kind: Some(proto::caller::Kind::Machine(proto::MachineCaller {
+                organization: "eitheror".to_string(),
+                name: "affiliate-network".to_string(),
+            })),
+        }));
+        assert_eq!(
+            machine,
+            Caller::Machine {
+                organization: "eitheror".to_string(),
+                name: "affiliate-network".to_string()
+            }
+        );
+        let endpoints = vec![proto::Endpoint {
+            id: "Wallets".to_string(),
+            allow_callers: declared,
+            ..Default::default()
+        }];
+        let refused = crate::service::grants_refusal(&endpoints, "1.14").unwrap_or_default();
+        assert!(
+            refused.contains("Wallets admit granted callers"),
+            "{refused}"
+        );
+        assert_eq!(crate::service::grants_refusal(&endpoints, "1.15"), None);
+    }
+
+    #[test]
+    fn another_projects_topic_is_named_by_its_project_and_needs_1_15() {
+        use crate::components::consumer::Publication;
+        use crate::components::view::Source;
+        let source = Source::topic("casino.players")
+            .project("spinvibe")
+            .to_proto();
+        assert_eq!(source.project.as_deref(), Some("spinvibe"));
+        let produces = Publication::to("payments.deposits")
+            .project("spinvibe")
+            .to_proto();
+        assert_eq!(produces.project.as_deref(), Some("spinvibe"));
+        assert_eq!(Source::topic("orders").to_proto().project, None);
+        let components = vec![proto::Component {
+            id: "partner-relay".to_string(),
+            detail: Some(proto::component::Detail::Consumer(proto::ConsumerDetail {
+                source: Some(source),
+                produces: Some(produces),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }];
+        let refused =
+            crate::service::cross_project_refusal(&components, "1.14").unwrap_or_default();
+        assert!(
+            refused.contains("partner-relay read or publish"),
+            "{refused}"
+        );
+        assert_eq!(
+            crate::service::cross_project_refusal(&components, "1.15"),
+            None
+        );
     }
 
     #[test]

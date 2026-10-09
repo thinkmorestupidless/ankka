@@ -1,0 +1,1 @@
+{"type":"GrantRequest","json":{"grantee":"service:payments/merchant","target":{"kind":"erasure"}}}

@@ -57,6 +57,14 @@ rules:
   - apiGroups: ["ankka.thinkmorestupidless.com"]
     resources: ["ankkaprojects/status"]
     verbs: ["get", "update", "patch"]
+  # A registered machine (feature 040): read, to give it a user on the installation's broker, and
+  # only its status written. Never deleted by the operator: the control plane removes it.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkamachines"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkamachines/status"]
+    verbs: ["get", "update", "patch"]
   # "patch" alongside "create": ensureNamespace writes via server-side apply, which is always
   # a PATCH even for an object that does not exist yet — "create" alone 403s on first use.
   - apiGroups: [""]

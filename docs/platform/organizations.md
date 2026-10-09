@@ -166,6 +166,38 @@ and deleted, and `QUOTA` is `projects/services/instances` with `-` for a limit n
 also brings that record up to date with what exists, so an organization created before the installation
 had quotas shows its true usage from the moment it is first given one.
 
+## Grants offered to an organization
+
+A project of another organization may grant one of its routes, methods or topics to a service of one of
+your projects or to one of your registered machines. Such a grant is **pending**, and opens nothing,
+until an owner of your organization accepts it:
+
+```bash
+ankka organizations grants list acme                 # what acme holds or is offered, and every change
+ankka organizations grants accept acme <grant>
+ankka organizations grants decline acme <grant>
+ankka organizations grants relinquish acme <grant>   # give up an accepted grant
+```
+
+Only owners answer a grant; a member or a deploy token is refused. A grant within one organization needs
+no answer. See [Cross-project access](cross-project-access.md).
+
+## Machines
+
+A **registered machine** is a system outside the installation, such as a partner's platform, that an
+organization holds and other projects may grant access to. Owners register and delete them, and set
+their byte rates on the broker:
+
+```bash
+ankka organizations machines register acme network   # shows the client secret once
+ankka organizations machines list acme
+ankka organizations machines delete acme network     # its grants lapse
+```
+
+A machine authenticates with its client id and secret for a short-lived token from the control plane,
+and holds nothing until a grant names it. A deploy token, by contrast, is a member of the organization
+and works the control plane. See [Machines](cross-project-access.md#machines).
+
 ## Delete a project or an organization
 
 ```bash
@@ -181,3 +213,6 @@ the obvious mistake rather than being a transactional constraint.
 id again is refused with a `409`. An id that quietly came back could carry someone else's history and
 access. Service names are different: a service name is a deployment target, not a boundary, so
 re-applying a deleted service's descriptor recreates it under the same name.
+
+Deleting a project lapses every grant its services held or were offered by other projects, as deleting a
+registered machine lapses its own.

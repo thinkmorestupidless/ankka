@@ -121,7 +121,7 @@ function problemsOf(cls: unknown): readonly string[] {
 
 test("a consumer's contract, broker, parallel and publication reach discovery", () => {
   const spec = specOf(consumer({ contract: orders, broker: "legacy", parallel: true, producesTo: { topic: "enriched", contract: enriched, broker: "legacy" } }))
-  assert.equal(spec.protocolVersion, "1.14")
+  assert.equal(spec.protocolVersion, "1.15")
   const d = spec.components[0].detail
   assert.equal(d.case, "consumer")
   if (d.case !== "consumer") return
@@ -176,4 +176,28 @@ test("a sidecar too old for contracts is refused, naming what declares one", () 
   const published = specOf(consumer({ producesTo: { topic: "enriched", broker: "legacy" } }))
   assert.match(refusal(published, "1.13") ?? "", /relay declare/)
   assert.equal(refusal(specOf(consumer({ producesTo: "enriched" })), "1.13"), undefined)
+})
+
+test("another project's topic is named by its project, read and published to, and needs 1.15", async () => {
+  const { grantsRefusal } = await import("../src/server/discovery.ts")
+  const Relay = class extends consumer({ producesTo: { topic: "payments.deposits", project: "spinvibe" } }) {
+    static readonly project = "spinvibe"
+  }
+  const spec = specOf(Relay)
+  const d = spec.components[0].detail
+  assert.equal(d.case, "consumer")
+  if (d.case !== "consumer") return
+  assert.equal(d.value.source?.project, "spinvibe")
+  assert.equal(d.value.produces?.project, "spinvibe")
+  assert.match(grantsRefusal(spec, "1.14") ?? "", /another project's topics need 1\.15 \(relay\)/)
+  assert.equal(grantsRefusal(spec, "1.15"), undefined)
+  const plain = specOf(consumer({ producesTo: "enriched" })).components[0].detail
+  if (plain.case === "consumer") assert.equal(plain.value.source?.project, undefined)
+})
+
+test("a project and a broker together are refused", () => {
+  const Both = class extends consumer({ broker: "legacy" }) {
+    static readonly project = "spinvibe"
+  }
+  assert.ok(problemsOf(Both).some((p) => p.includes("names a project and a broker")), problemsOf(Both).join("; "))
 })

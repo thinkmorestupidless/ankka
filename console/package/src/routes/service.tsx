@@ -151,6 +151,31 @@ export default function Service() {
               <dd>{s.broker}</dd>
             </>
           ) : null}
+          {s.grants ? (
+            <>
+              <dt>Grants</dt>
+              <dd data-grants>{s.grants}</dd>
+            </>
+          ) : null}
+          {s.crossProjectTopics && s.crossProjectTopics.length > 0 ? (
+            <>
+              <dt>Cross-project topics</dt>
+              <dd>
+                <ul className="ac-topics">
+                  {s.crossProjectTopics.map((t) => (
+                    <li
+                      key={`${t.project}/${t.topic}/${t.right}`}
+                      data-cross-project-topic={`${t.project}/${t.topic}`}
+                      data-granted={t.status === "granted" ? "yes" : "no"}
+                    >
+                      <code>{`${t.project}/${t.topic}`}</code> {t.right}{" "}
+                      {t.status === "granted" ? t.status : <span className="ac-notice">{t.status}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           {s.undeclaredTopics && s.undeclaredTopics.length > 0 ? (
             <>
               <dt>Undeclared topics</dt>

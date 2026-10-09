@@ -67,6 +67,8 @@ function callerOf(req: HttpRequest): Caller {
       return Object.freeze({ kind: "gateway" })
     case "service":
       return Object.freeze({ kind: "service", project: kind.value.project, name: kind.value.name })
+    case "machine":
+      return Object.freeze({ kind: "machine", organization: kind.value.organization, name: kind.value.name })
     default:
       return Object.freeze({ kind: "local" })
   }

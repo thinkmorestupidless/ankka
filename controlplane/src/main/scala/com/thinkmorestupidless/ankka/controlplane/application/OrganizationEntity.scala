@@ -45,6 +45,46 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
     case usage @ (_: ProjectReserved | _: ProjectReleased | _: ServiceReserved |
         _: ServiceReleased | _: UsageReconciled) =>
       currentState.onUsage(usage)
+    case GrantRecorded(id, project, organization, grantee, target, change, actor, at) =>
+      currentState.onGrantRecorded(
+        GrantRecordedFields(id, project, organization, grantee, target, change, actor, at)
+      )
+
+  // ── grants to the organization's machines (feature 040) ───────────────────
+
+  /**
+   * Record a change to a grant a project made to one of this organization's registered machines.
+   * Written only by the consumer that follows the granting project; one already recorded is a
+   * conflict, which that consumer reads as done. Recorded on a deleted organization too, so a lapse
+   * reaches the history the organization leaves.
+   */
+  def recordGrantChange(request: RecordGrantChange): Effect[Done] =
+    if !currentState.known then notFound
+    else if currentState.received.get(request.id).exists(_.recorded(request.change)) then
+      effects.error(
+        s"grant '${request.id}' already records ${request.change.word}",
+        ErrorCode.Conflict
+      )
+    else
+      effects
+        .persist(
+          GrantRecorded(
+            request.id,
+            request.grantingProject,
+            request.grantingOrganization,
+            request.grantee,
+            request.target,
+            request.change,
+            actor,
+            at
+          )
+        )
+        .thenReply(_ => Done)
+
+  /** What projects granted this organization's machines, live and ended. */
+  def receivedGrants: ReadOnlyEffect[Vector[ReceivedGrant]] =
+    if !currentState.known then notFound
+    else effects.reply(currentState.received.values.toVector.sortBy(_.id))
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -393,6 +433,10 @@ object OrganizationEntity
   given Serializer[ReserveService]   = Codecs.serializer[ReserveService]("reserve-service")
   given Serializer[RecordService]    = Codecs.serializer[RecordService]("record-service")
   given intOption: Serializer[Option[Int]] = Codecs.serializer[Option[Int]]("int-option")
+  given recordGrantChangeSerializer: Serializer[RecordGrantChange] =
+    Codecs.serializer[RecordGrantChange]("record-grant-change")
+  given receivedGrantsSerializer: Serializer[Vector[ReceivedGrant]] =
+    Codecs.serializer[Vector[ReceivedGrant]]("received-grants")
 
   def create(context: EventSourcedEntityContext) = new OrganizationEntity(context)
 
@@ -419,3 +463,5 @@ object OrganizationEntity
   val roleOf             = query("role-of")(_.roleOf)
   val pendingFor         = query("pending-for")(_.pendingFor)
   val members            = query("members")(_.members)
+  val recordGrantChange  = command("record-grant-change")(_.recordGrantChange)
+  val receivedGrants     = query("received-grants")(_.receivedGrants)

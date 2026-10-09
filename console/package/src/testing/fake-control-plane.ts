@@ -2,7 +2,8 @@
  * A control plane in one process: every route the console uses, over in-memory state, with the
  * control plane's rules as the console can observe them — who sees what, `404` rather than `403`
  * for an outsider, owner-only operations, tombstoned ids, `409` for a non-empty delete, a disabled
- * organization refusing changes, descriptor validation, a deploy token shown once.
+ * organization refusing changes, descriptor validation, a deploy token shown once, grants made,
+ * listed and ended with their effect, and machines registered with a secret shown once.
  *
  * It answers from state rather than from a script, so it cannot run out quietly. What a test needs
  * to steer is explicit: `script()` makes the next answer on one route a given status, `tick()` moves
@@ -34,6 +35,10 @@ export interface FakeControlPlaneOptions {
   signupUrl?: string;
   baseDomain?: string;
   port?: number;
+  /** The broker's address outside the cluster; unset, the installation does not expose its broker and a machine's topic grant opens nothing. */
+  brokerBootstrap?: string;
+  /** The most bytes a second a machine may be given on either side; the control plane's default is 32 MiB. */
+  byteRateCeiling?: number;
 }
 
 type Role = "owner" | "member";
@@ -239,6 +244,44 @@ interface Token {
   revoked: boolean;
 }
 
+/** What one grant opens, flat as the control plane holds it (feature 040). */
+export interface FakeGrantTarget {
+  kind: string;
+  service?: string;
+  method?: string;
+  path?: string;
+  topic?: string;
+  right?: string;
+  decrypt?: boolean;
+}
+
+interface GrantAct {
+  by?: string;
+  at: string;
+}
+
+/** A grant a project made; `changes` is what the grantee's side records of it. */
+interface Grant {
+  id: string;
+  projectId: string;
+  grantee: string;
+  target: FakeGrantTarget;
+  state: string;
+  granted: GrantAct;
+  answered?: GrantAct;
+  ended?: GrantAct;
+  changes: { change: string; by?: string; at: string }[];
+}
+
+interface Machine {
+  organizationId: string;
+  name: string;
+  registeredBy?: string;
+  registeredAt: string;
+  byteRates?: { produceBytesPerSecond: number; consumeBytesPerSecond: number; requestPercentage: number };
+  hidden: boolean;
+}
+
 interface Caller {
   subject: string;
   name?: string;
@@ -297,6 +340,10 @@ export interface FakeControlPlane {
     services: Map<string, Service>;
     tokens: Map<string, Token>;
     tombstones: Set<string>;
+    /** Every project's grants, by id. */
+    grants: Map<string, Grant>;
+    /** Registered machines, by `<organization>/<name>`. */
+    machines: Map<string, Machine>;
   };
   seed(seed: FakeSeed): void;
   close(): Promise<void>;
@@ -340,6 +387,10 @@ export interface FakeSeed {
     compacted?: boolean;
     contract?: { name: string; schema: unknown };
   }[];
+  /** Grants a project made, as if an owner had made them: accepted within its organization, pending to another, unless `state` says. */
+  grants?: { projectId: string; grantee: string; target: FakeGrantTarget; state?: string; by?: string }[];
+  /** Machines registered on an organization. */
+  machines?: { organizationId: string; name: string; byteRates?: Machine["byteRates"] }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -349,6 +400,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   const services = new Map<string, Service>();
   const tokens = new Map<string, Token>();
   const tombstones = new Set<string>();
+  const grants = new Map<string, Grant>();
+  const machines = new Map<string, Machine>();
   const visited = new Set<string>();
   const counts = new Map<string, number>();
   const scripted = new Map<string, { status: number; error: string }[]>();
@@ -959,6 +1012,327 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       .map(([name, b]) => ({ name, bootstrap: b.bootstrap, shape: b.shape, secret: b.secret, declaredAt: b.declaredAt }));
   });
 
+  // ── Grants (feature 040): the control plane's rules and words ─────────────
+
+  const display = (c: Caller) => c.name ?? c.email ?? c.subject;
+  const noSuchProject = (id: string) => new HttpError(404, `no such project '${id}'`);
+
+  /** A project's grants are read by its organization's members and written by its owners; an outsider is told there is no project. */
+  function grantProject(c: Caller, id: string, owner: boolean): { project: Project; org: Org } {
+    const project = projects.get(id);
+    if (!project) throw noSuchProject(id);
+    const org = organizations.get(project.organizationId);
+    const role = org?.members.get(c.subject)?.role;
+    if (!org || (!role && !isAdmin(c))) throw noSuchProject(id);
+    if (owner) {
+      if (role !== "owner" && !isAdmin(c)) throw new HttpError(403, `owner role required in organization '${org.id}'`);
+      requireWrite(org);
+    }
+    return { project, org };
+  }
+
+  const parseGrantee = (text: string) => {
+    const m = /^(service|machine):([^/]+)\/([^/]+)$/.exec(text);
+    return m ? { kind: m[1] as "service" | "machine", scope: m[2], name: m[3] } : null;
+  };
+
+  const HttpMethods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+  const GrpcMethod = /^[A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*$/;
+  const MachineNameRule = "lowercase letters, digits and '-', starting with a letter";
+
+  const machineNameProblems = (name: string): string[] =>
+    name === "" ? ["a machine needs a name"] : NameRule.test(name) ? [] : [`machine name '${name}' is invalid: ${MachineNameRule}`];
+
+  /** Everything wrong with the grantee and the target, all at once, as `GrantRules.problems` words it. */
+  function grantProblems(grantee: string, t: FakeGrantTarget): string[] {
+    const problems: string[] = [];
+    const g = parseGrantee(grantee);
+    if (!g) problems.push(`grantee '${grantee}' is not "service:<project>/<service>" or "machine:<organization>/<name>"`);
+    else if (g.kind === "service") {
+      if (!NameRule.test(g.scope)) problems.push(`grantee: project id '${g.scope}' is invalid: lowercase letters, digits and '-', starting with a letter`);
+      if (!NameRule.test(g.name)) problems.push(`grantee: service name '${g.name}' is invalid`);
+    } else {
+      if (!NameRule.test(g.scope))
+        problems.push(
+          `grantee: organization '${g.scope}' cannot have machines: an organization's id is part of a machine's name on the broker, so it must be lowercase letters, digits and '-', starting with a letter`,
+        );
+      problems.push(...machineNameProblems(g.name).map((p) => `grantee: ${p}`));
+    }
+    const none = (field: keyof FakeGrantTarget) => (t[field] !== undefined ? [`a ${t.kind} target has no ${field}`] : []);
+    switch (t.kind) {
+      case "route":
+        if (!t.service) problems.push("a route target needs a service");
+        if (!t.method || !HttpMethods.includes(t.method)) problems.push(`a route target's method is one of ${HttpMethods.join(", ")}`);
+        if (!t.path?.startsWith("/")) problems.push("a route target's path is a template beginning with '/'");
+        problems.push(...none("topic"), ...none("right"));
+        break;
+      case "method":
+        if (!t.service) problems.push("a method target needs a service");
+        if (!t.method || !GrpcMethod.test(t.method)) problems.push('a method target\'s method is a gRPC method, "<Service>/<Method>"');
+        problems.push(...none("path"), ...none("topic"), ...none("right"));
+        break;
+      case "topic":
+        if (!t.topic) problems.push("a topic target needs a topic");
+        else if (!TopicName.test(t.topic)) problems.push(`topic '${t.topic}': ${TopicNameRule}`);
+        if (t.right !== "consume" && t.right !== "produce") problems.push("a topic target's right is one of consume, produce");
+        problems.push(...none("service"), ...none("method"), ...none("path"));
+        break;
+      case "erasure":
+        problems.push(...none("service"), ...none("method"), ...none("path"), ...none("topic"), ...none("right"));
+        break;
+      default:
+        problems.push(`target kind '${t.kind}' is not one of route, method, topic, erasure`);
+    }
+    if (t.service !== undefined && !NameRule.test(t.service)) problems.push(`target: service name '${t.service}' is invalid`);
+    if (t.decrypt && !(t.kind === "topic" && t.right === "consume")) problems.push("only a grant to consume a topic may allow decryption");
+    return problems;
+  }
+
+  /** The target as the wire carries it: only the fields it has, and `decrypt` always. */
+  const targetOnTheWire = (t: FakeGrantTarget) => ({
+    kind: t.kind,
+    ...(t.service === undefined ? {} : { service: t.service }),
+    ...(t.method === undefined ? {} : { method: t.method }),
+    ...(t.path === undefined ? {} : { path: t.path }),
+    ...(t.topic === undefined ? {} : { topic: t.topic }),
+    ...(t.right === undefined ? {} : { right: t.right }),
+    decrypt: t.decrypt ?? false,
+  });
+
+  const sameTarget = (a: FakeGrantTarget, b: FakeGrantTarget) => JSON.stringify(targetOnTheWire(a)) === JSON.stringify(targetOnTheWire(b));
+  const live = (g: Grant) => g.state === "pending" || g.state === "accepted";
+
+  /**
+   * Whether a grant opens what it names, or why not, as `GrantEffect` reads it — short of the
+   * instances' topology, which the fake does not have: a service with a ready instance that is not
+   * web-hosted is taken to have the route and to have mounted its grants.
+   */
+  function effectOf(g: Grant): string {
+    if (g.state !== "accepted") return g.state;
+    if (g.target.kind === "route" || g.target.kind === "method") {
+      const s = services.get(serviceKey(g.projectId, g.target.service ?? ""));
+      if (!s) return "route not seen";
+      if (s.hosting === "web") return "route not grantable";
+      if (s.paused || s.readyInstances < 1) return "route not seen";
+      return "in effect";
+    }
+    if (g.target.kind === "topic" && g.grantee.startsWith("machine:") && !options.brokerBootstrap) return "broker not exposed";
+    return "in effect";
+  }
+
+  const grantDetail = (g: Grant, effect: string) => ({
+    id: g.id,
+    grantee: g.grantee,
+    target: targetOnTheWire(g.target),
+    state: g.state,
+    effect,
+    granted: g.granted,
+    ...(g.answered ? { answered: g.answered } : {}),
+    ...(g.ended ? { ended: g.ended } : {}),
+  });
+
+  const receivedDetail = (g: Grant) => {
+    const granting = projects.get(g.projectId);
+    const topic = g.target.kind === "topic" && g.target.topic ? granting?.topics?.get(g.target.topic) : undefined;
+    return {
+      id: g.id,
+      grantingProject: g.projectId,
+      grantingOrganization: granting?.organizationId ?? "",
+      grantee: g.grantee,
+      target: targetOnTheWire(g.target),
+      state: g.state,
+      changes: g.changes,
+      ...(topic ? { topic: { partitions: topic.partitions, compacted: topic.compacted ?? false } } : {}),
+    };
+  };
+
+  const byGranted = (a: Grant, b: Grant) => a.granted.at.localeCompare(b.granted.at) || a.id.localeCompare(b.id);
+
+  function makeGrant(project: Project, org: Org, grantee: string, target: FakeGrantTarget, by: string | undefined, state?: string): Grant {
+    const g = parseGrantee(grantee)!;
+    const granteeOrg = g.kind === "service" ? projects.get(g.scope)?.organizationId : g.scope;
+    const pending = granteeOrg !== org.id;
+    const at = now();
+    const grant: Grant = {
+      id: randomBytes(8).toString("hex"),
+      projectId: project.id,
+      grantee,
+      target,
+      state: state ?? (pending ? "pending" : "accepted"),
+      granted: { by, at },
+      changes: [{ change: pending ? "offered" : "made", by, at }],
+    };
+    grants.set(grant.id, grant);
+    return grant;
+  }
+
+  route("POST", "/projects/{projectId}/grants", (c, p, body) => {
+    const { project, org } = grantProject(c, p.projectId, true);
+    const b = (body ?? {}) as { grantee?: string; target?: FakeGrantTarget };
+    const grantee = String(b.grantee ?? "");
+    const raw = b.target ?? { kind: "" };
+    const target: FakeGrantTarget = {
+      kind: String(raw.kind ?? ""),
+      service: raw.service ?? undefined,
+      method: raw.method ?? undefined,
+      path: raw.path ?? undefined,
+      topic: raw.topic ?? undefined,
+      right: raw.right ?? undefined,
+      decrypt: raw.decrypt === true,
+    };
+    const problems = grantProblems(grantee, target);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    const g = parseGrantee(grantee)!;
+    if (g.kind === "service" && !projects.has(g.scope)) throw noSuchProject(g.scope);
+    if (g.kind === "machine" && !organizations.has(g.scope)) throw new HttpError(404, `no such organization '${g.scope}'`);
+    if (target.kind === "topic" && !project.topics?.has(target.topic!)) throw new HttpError(404, `project '${project.id}' has not declared the topic '${target.topic}'`);
+    if (g.kind === "service" && g.scope === project.id) throw new HttpError(400, "a project's own services need no grant: name them in the route's ACL instead");
+    // Granting what a live grant already grants answers that grant.
+    const existing = [...grants.values()].find((x) => x.projectId === project.id && x.grantee === grantee && live(x) && sameTarget(x.target, target));
+    const grant = existing ?? makeGrant(project, org, grantee, target, display(c));
+    return grantDetail(grant, grant.state === "accepted" ? "in effect" : grant.state);
+  });
+
+  route("GET", "/projects/{projectId}/grants", (c, p) => {
+    const { project } = grantProject(c, p.projectId, false);
+    return [...grants.values()]
+      .filter((g) => g.projectId === project.id)
+      .sort(byGranted)
+      .map((g) => grantDetail(g, effectOf(g)));
+  });
+
+  route("GET", "/projects/{projectId}/grants/received", (c, p) => {
+    const { project } = grantProject(c, p.projectId, false);
+    return [...grants.values()]
+      .filter((g) => g.grantee.startsWith(`service:${project.id}/`))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(receivedDetail);
+  });
+
+  route("DELETE", "/projects/{projectId}/grants/{grantId}", (c, p) => {
+    const { project } = grantProject(c, p.projectId, true);
+    const g = grants.get(p.grantId);
+    if (!g || g.projectId !== project.id) throw new HttpError(404, `project '${project.id}' has no grant '${p.grantId}'`);
+    const [to, verb, applies] = g.state === "pending" ? ["withdrawn", "withdraw", "a pending"] : ["revoked", "revoke", "an accepted"];
+    if (g.state !== "pending" && g.state !== "accepted") throw new HttpError(409, `grant '${g.id}' is ${g.state}; ${verb} applies to ${applies} grant`);
+    const at = now();
+    g.state = to;
+    g.ended = { by: display(c), at };
+    g.changes.push({ change: to, by: display(c), at });
+    return "done";
+  });
+
+  /** The grants naming one of the organization's machines, or a service of one of its projects. */
+  function offeredTo(org: Org): Grant[] {
+    const own = new Set([...projects.values()].filter((x) => x.organizationId === org.id).map((x) => x.id));
+    return [...grants.values()]
+      .filter((g) => {
+        const grantee = parseGrantee(g.grantee);
+        return grantee !== null && (grantee.kind === "machine" ? grantee.scope === org.id : own.has(grantee.scope));
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  route("GET", "/organizations/{organizationId}/grants", (c, p) => {
+    const { org } = requireOrg(c, p.organizationId);
+    return offeredTo(org).map(receivedDetail);
+  });
+
+  /**
+   * An owner of the grantee's organization answers a grant: a member is 403, a grant not offered to
+   * the organization 404 whoever asks (its id discloses nothing), a grant in the wrong state 409.
+   */
+  const answers = {
+    accept: { from: "pending", to: "accepted", applies: "a pending" },
+    decline: { from: "pending", to: "declined", applies: "a pending" },
+    relinquish: { from: "accepted", to: "relinquished", applies: "an accepted" },
+  } as const;
+  for (const [verb, rule] of Object.entries(answers)) {
+    route("POST", `/organizations/{organizationId}/grants/{grantId}/${verb}`, (c, p) => {
+      const org = requireOwner(c, p.organizationId);
+      requireWrite(org);
+      const g = offeredTo(org).find((x) => x.id === p.grantId);
+      if (!g) throw new HttpError(404, `no grant '${p.grantId}' is offered to '${org.id}'`);
+      if (g.state !== rule.from) throw new HttpError(409, `grant '${g.id}' is ${g.state}; ${verb} applies to ${rule.applies} grant`);
+      const at = now();
+      const act = { by: display(c), at };
+      g.state = rule.to;
+      if (verb !== "relinquish") g.answered = act;
+      if (verb !== "accept") g.ended = act;
+      g.changes.push({ change: rule.to, ...act });
+      return "done";
+    });
+  }
+
+  // ── Machines (feature 040): an owner registers, limits and deletes; a member lists ──
+
+  const machineKey = (o: string, n: string) => `${o}/${n}`;
+  // `ankka.controlplane.machines.byte-rate-ceiling`, 32 MiB a second unless the installation says otherwise.
+  const ByteRateCeiling = options.byteRateCeiling ?? 33_554_432;
+
+  const machineSummary = (m: Machine) => ({
+    name: m.name,
+    clientId: `machine:${m.organizationId}/${m.name}`,
+    registeredBy: m.registeredBy,
+    registeredAt: m.registeredAt,
+    ...(m.byteRates ? { byteRates: m.byteRates } : {}),
+  });
+
+  route("GET", "/organizations/{organizationId}/machines", (c, p) => {
+    const { org } = requireOrg(c, p.organizationId);
+    return [...machines.values()]
+      .filter((m) => m.organizationId === org.id && !m.hidden)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(machineSummary);
+  });
+
+  route("POST", "/organizations/{organizationId}/machines", (c, p, body) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    const name = String((body as { name?: string } | undefined)?.name ?? "");
+    const problems = machineNameProblems(name);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    if (machines.has(machineKey(org.id, name))) throw new HttpError(409, `machine '${name}' is already registered on '${org.id}'`);
+    machines.set(machineKey(org.id, name), { organizationId: org.id, name, registeredBy: display(c), registeredAt: now(), hidden: hideNew });
+    return {
+      name,
+      clientId: `machine:${org.id}/${name}`,
+      // 32 random bytes as hex: the only time the secret exists outside the machine that holds it.
+      clientSecret: randomBytes(32).toString("hex"),
+      tokenUrl: `${base}/oauth/token`,
+      ...(options.brokerBootstrap ? { brokerBootstrap: options.brokerBootstrap } : {}),
+    };
+  });
+
+  route("DELETE", "/organizations/{organizationId}/machines/{name}", (c, p) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    if (!machines.delete(machineKey(org.id, p.name))) throw new HttpError(404, `no such machine '${machineKey(org.id, p.name)}'`);
+    return "done";
+  });
+
+  route("PUT", "/organizations/{organizationId}/machines/{name}/byte-rates", (c, p, body) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    const b = (body ?? {}) as { produceBytesPerSecond?: number; consumeBytesPerSecond?: number; requestPercentage?: number };
+    const produce = Number(b.produceBytesPerSecond ?? 0);
+    const consume = Number(b.consumeBytesPerSecond ?? 0);
+    const percentage = Number(b.requestPercentage ?? 0);
+    if (![produce, consume, percentage].every(Number.isInteger)) throw new HttpError(400, "byte rates and the request percentage are whole numbers");
+    const rate = (label: string, value: number) =>
+      value <= 0 ? [`${label} must be more than nothing`] : value > ByteRateCeiling ? [`${label} of ${value} bytes a second is over the installation's ceiling of ${ByteRateCeiling}`] : [];
+    const problems = [
+      ...rate("the produce byte rate", produce),
+      ...rate("the consume byte rate", consume),
+      ...(percentage < 1 || percentage > 100 ? ["the request percentage is from 1 to 100"] : []),
+    ];
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    const m = machines.get(machineKey(org.id, p.name));
+    if (!m) throw new HttpError(404, `no such machine '${machineKey(org.id, p.name)}'`);
+    m.byteRates = { produceBytesPerSecond: produce, consumeBytesPerSecond: consume, requestPercentage: percentage };
+    return machineSummary(m);
+  });
+
   route("GET", "/services/{projectId}", (c, p) => {
     requireProject(c, p.projectId);
     return [...services.values()].filter((s) => s.projectId === p.projectId).map(serviceStatus);
@@ -1264,8 +1638,9 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       hideNew = false;
       for (const o of organizations.values()) o.hidden = false;
       for (const p of projects.values()) p.hidden = false;
+      for (const m of machines.values()) m.hidden = false;
     },
-    state: { organizations, projects, services, tokens, tombstones },
+    state: { organizations, projects, services, tokens, tombstones, grants, machines },
     seed(seed) {
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
@@ -1340,6 +1715,17 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           compacted: t.compacted,
           contract: t.contract ? { ...t.contract, fingerprint: fakeFingerprint(t.contract.schema) } : undefined,
         });
+      }
+      for (const m of seed.machines ?? []) {
+        machines.set(machineKey(m.organizationId, m.name), { organizationId: m.organizationId, name: m.name, registeredBy: "seed", registeredAt: now(), byteRates: m.byteRates, hidden: false });
+      }
+      for (const g of seed.grants ?? []) {
+        const project = projects.get(g.projectId);
+        const org = project && organizations.get(project.organizationId);
+        if (!project || !org) throw new Error(`no project ${g.projectId}`);
+        if (!parseGrantee(g.grantee)) throw new Error(`grantee ${g.grantee} is not service:<project>/<name> or machine:<organization>/<name>`);
+        const grant = makeGrant(project, org, g.grantee, g.target, g.by ?? "seed", g.state);
+        if (g.state && g.state !== "pending" && g.state !== "accepted") grant.ended = { by: g.by ?? "seed", at: grant.granted.at };
       }
     },
     close: () =>

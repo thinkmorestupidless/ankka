@@ -102,6 +102,8 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
     case usage @ (_: ProjectReserved | _: ProjectReleased | _: ServiceReserved |
         _: ServiceReleased | _: UsageReconciled) =>
       effects.updateRow(row.copy(record = row.record.fold(usage)))
+    // Grants to the organization's machines are read from the entity, whose record is exact.
+    case _: GrantRecorded => effects.ignore()
 
 object OrganizationRows
     extends View.Companion[OrganizationRowsView, OrganizationEvent, OrganizationRow](

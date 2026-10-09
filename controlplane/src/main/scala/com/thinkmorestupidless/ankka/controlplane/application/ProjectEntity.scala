@@ -3,6 +3,10 @@ package com.thinkmorestupidless.ankka.controlplane.application
 import com.thinkmorestupidless.ankka.controlplane.api.{
   BrokerDeclarationRequest,
   CreateProject,
+  GrantRules,
+  GrantState,
+  GrantTarget,
+  Grantee,
   ProjectBrokers,
   ProjectDetail,
   ProjectSecretSummary,
@@ -30,7 +34,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
   def applyEvent(event: ProjectEvent): Project = event match
     case ProjectCreated(name, organizationId, _, _) => currentState.onCreated(name, organizationId)
     case ProjectRenamed(name, _, _)                 => currentState.onRenamed(name)
-    case _: ProjectDeleted                          => currentState.onDeleted
+    case ProjectDeleted(actor, at)                  => currentState.onDeleted(actor, at)
     case RegistryConfigured(server, username, secretName, actor, at) =>
       currentState.onRegistryConfigured(server, username, secretName, actor, at)
     case _: RegistryCleared => currentState.onRegistryCleared
@@ -44,6 +48,22 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       currentState.onBrokerDeclared(name, DeclaredBroker(bootstrap, shape, secretName, at))
     case ProjectBrokerRemoved(name, _, _) => currentState.onBrokerRemoved(name)
     case ProjectTopicRemoved(name, _, _)  => currentState.onTopicRemoved(name)
+    case GrantMade(id, grantee, target, pending, actor, at) =>
+      currentState.onGrantMade(id, grantee, target, pending, actor, at)
+    case GrantAccepted(id, actor, at) =>
+      currentState.onGrantAnswered(id, GrantState.Accepted, actor, at)
+    case GrantDeclined(id, actor, at) =>
+      currentState.onGrantAnswered(id, GrantState.Declined, actor, at)
+    case GrantWithdrawn(id, actor, at) =>
+      currentState.onGrantEnded(id, GrantState.Withdrawn, actor, at)
+    case GrantRevoked(id, actor, at) => currentState.onGrantEnded(id, GrantState.Revoked, actor, at)
+    case GrantRelinquished(id, actor, at) =>
+      currentState.onGrantEnded(id, GrantState.Relinquished, actor, at)
+    case GrantLapsed(id, actor, at) => currentState.onGrantEnded(id, GrantState.Lapsed, actor, at)
+    case GrantRecorded(id, project, organization, grantee, target, change, actor, at) =>
+      currentState.onGrantRecorded(
+        GrantRecordedFields(id, project, organization, grantee, target, change, actor, at)
+      )
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -241,6 +261,137 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       )
     else effects.persist(ProjectBrokerRemoved(request.name, actor, at)).thenReply(_ => Done)
 
+  /**
+   * Make a grant (feature 040). The project's own rules are checked here, where its state is: the
+   * target's shape, a topic the project declares, no grant to one of its own services. Whether the
+   * grantee is of another organization — so whether the grant waits — the endpoint has decided, as
+   * it has that the grantee's project exists. The same live grant again is the same grant: its
+   * record is the reply and nothing is persisted.
+   */
+  def makeGrant(request: MakeGrant): Effect[Grant] =
+    if !currentState.exists then notFound
+    else
+      val problems = Grantee.problems(request.grantee) ++ GrantTarget.problems(request.target)
+      val undeclared = request.target.topic.filter(t =>
+        request.target.kind == GrantTarget.Topic && !currentState.topics.contains(t)
+      )
+      if problems.nonEmpty then effects.error(problems.mkString("; "))
+      else if undeclared.nonEmpty then
+        effects.error(GrantRules.undeclared(context.entityId, undeclared.get), ErrorCode.NotFound)
+      else
+        request.grantee match
+          case Grantee.Service(project, _) if project == context.entityId =>
+            effects.error(GrantRules.ownService)
+          case _ =>
+            currentState.liveGrant(request.grantee, request.target) match
+              case Some(live) => effects.reply(live)
+              case None if currentState.grants.contains(request.id) =>
+                effects.error(s"grant '${request.id}' already exists", ErrorCode.Conflict)
+              case None =>
+                effects
+                  .persist(
+                    GrantMade(
+                      request.id,
+                      request.grantee,
+                      request.target,
+                      request.pending,
+                      actor,
+                      at
+                    )
+                  )
+                  .thenReply(_.grants(request.id))
+
+  /** The grantor takes back a grant nobody has answered yet. */
+  def withdrawGrant(id: String): Effect[Done] =
+    change(id, "withdraw", GrantState.Pending, "a pending")(GrantWithdrawn(id, actor, at))
+
+  /** The grantor ends an accepted grant, without the grantee. */
+  def revokeGrant(id: String): Effect[Done] =
+    change(id, "revoke", GrantState.Accepted, "an accepted")(GrantRevoked(id, actor, at))
+
+  /** An owner of the grantee's organization takes a pending grant; the endpoint checked who. */
+  def acceptGrant(id: String): Effect[Done] =
+    change(id, "accept", GrantState.Pending, "a pending")(GrantAccepted(id, actor, at))
+
+  /** An owner of the grantee's organization refuses a pending grant. */
+  def declineGrant(id: String): Effect[Done] =
+    change(id, "decline", GrantState.Pending, "a pending")(GrantDeclined(id, actor, at))
+
+  /** An owner of the grantee's organization gives up an accepted grant, without the grantor. */
+  def relinquishGrant(id: String): Effect[Done] =
+    change(id, "relinquish", GrantState.Accepted, "an accepted")(GrantRelinquished(id, actor, at))
+
+  /**
+   * The grantee was deleted. Ends a live grant with the deleter's attribution; on a grant already
+   * ended it records nothing and succeeds, since the consumer that sends it may send it twice.
+   */
+  def lapseGrant(id: String): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      currentState.grants.get(id) match
+        case None                     => noSuchGrant(id)
+        case Some(g) if !g.state.live => effects.reply(Done)
+        case Some(_) => effects.persist(GrantLapsed(id, actor, at)).thenReply(_ => Done)
+
+  /**
+   * Record a change to a grant another project made to one of this project's services. Written only
+   * by the consumer that follows the granting project; a change already recorded is a conflict,
+   * which that consumer reads as done.
+   */
+  def recordGrantChange(request: RecordGrantChange): Effect[Done] =
+    if !currentState.exists then notFound
+    else if currentState.received.get(request.id).exists(_.recorded(request.change)) then
+      effects.error(
+        s"grant '${request.id}' already records ${request.change.word}",
+        ErrorCode.Conflict
+      )
+    else
+      effects
+        .persist(
+          GrantRecorded(
+            request.id,
+            request.grantingProject,
+            request.grantingOrganization,
+            request.grantee,
+            request.target,
+            request.change,
+            actor,
+            at
+          )
+        )
+        .thenReply(_ => Done)
+
+  /** Every grant the project has made, live and ended, oldest first. */
+  def grants: ReadOnlyEffect[Vector[Grant]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.grants.values.toVector.sortBy(g => (g.granted.at, g.id)))
+
+  /**
+   * What other projects granted this project's services. Readable on a deleted project too: a
+   * deletion lapses the grants its services held, and the consumer that does it reads them here.
+   */
+  def receivedGrants: ReadOnlyEffect[Vector[ReceivedGrant]] =
+    if !currentState.known then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.received.values.toVector.sortBy(_.id))
+
+  /** Who deleted the project and when; nothing while it exists or was never created. */
+  def deletion: ReadOnlyEffect[Option[Deletion]] =
+    effects.reply(Option.when(currentState.deleted)(currentState.deletion).flatten)
+
+  private def change(id: String, verb: String, from: GrantState, applies: String)(
+      event: ProjectEvent
+  ): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      currentState.grants.get(id) match
+        case None => noSuchGrant(id)
+        case Some(g) if g.state != from =>
+          effects.error(GrantRules.cannot(id, g.state, verb, applies), ErrorCode.Conflict)
+        case Some(_) => effects.persist(event).thenReply(_ => Done)
+
+  private def noSuchGrant(id: String) =
+    effects.error(s"project '${context.entityId}' has no grant '$id'", ErrorCode.NotFound)
+
   /** The project's declared brokers, by name. */
   def brokers: ReadOnlyEffect[Map[String, DeclaredBroker]] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
@@ -308,7 +459,9 @@ object ProjectEntity
   given Serializer[Vector[ProjectSecretSummary]] =
     Codecs.serializer[Vector[ProjectSecretSummary]]("project-secrets")
   given Serializer[DeclareTopic] = Codecs.serializer[DeclareTopic]("declare-topic")
-  given Serializer[RemoveTopic]  = Codecs.serializer[RemoveTopic]("remove-topic")
+  given deletionSerializer: Serializer[Option[Deletion]] =
+    Codecs.serializer[Option[Deletion]]("deletion-option")
+  given Serializer[RemoveTopic] = Codecs.serializer[RemoveTopic]("remove-topic")
   given Serializer[Map[String, DeclaredTopic]] =
     Codecs.serializer[Map[String, DeclaredTopic]]("declared-topics")
   given declareBrokerSerializer: Serializer[DeclareBroker] =
@@ -318,6 +471,14 @@ object ProjectEntity
   // Named: an anonymous given of `Map[String, DeclaredBroker]` erases to the declared topics' one.
   given declaredBrokersSerializer: Serializer[Map[String, DeclaredBroker]] =
     Codecs.serializer[Map[String, DeclaredBroker]]("declared-brokers")
+
+  given makeGrantSerializer: Serializer[MakeGrant]  = Codecs.serializer[MakeGrant]("make-grant")
+  given grantSerializer: Serializer[Grant]          = Codecs.serializer[Grant]("grant")
+  given grantsSerializer: Serializer[Vector[Grant]] = Codecs.serializer[Vector[Grant]]("grants")
+  given recordGrantChangeSerializer: Serializer[RecordGrantChange] =
+    Codecs.serializer[RecordGrantChange]("record-grant-change")
+  given receivedGrantsSerializer: Serializer[Vector[ReceivedGrant]] =
+    Codecs.serializer[Vector[ReceivedGrant]]("received-grants")
 
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
@@ -342,3 +503,16 @@ object ProjectEntity
   val declareBroker = command("declare-broker")(_.declareBroker)
   val removeBroker  = command("remove-broker")(_.removeBroker)
   val brokers       = query("brokers")(_.brokers)
+
+  // Cross-project access (feature 040).
+  val makeGrant         = command("make-grant")(_.makeGrant)
+  val withdrawGrant     = command("withdraw-grant")(_.withdrawGrant)
+  val revokeGrant       = command("revoke-grant")(_.revokeGrant)
+  val acceptGrant       = command("accept-grant")(_.acceptGrant)
+  val declineGrant      = command("decline-grant")(_.declineGrant)
+  val relinquishGrant   = command("relinquish-grant")(_.relinquishGrant)
+  val lapseGrant        = command("lapse-grant")(_.lapseGrant)
+  val recordGrantChange = command("record-grant-change")(_.recordGrantChange)
+  val grants            = query("grants")(_.grants)
+  val receivedGrants    = query("received-grants")(_.receivedGrants)
+  val deletion          = query("deletion")(_.deletion)

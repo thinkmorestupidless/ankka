@@ -21,6 +21,14 @@ An installation has one [Gateway API](https://gateway-api.sigs.k8s.io/) `Gateway
 - **HTTP on port 80**, which accepts one route: a redirect of every request to HTTPS. There is no
   HTTP-only mode.
 
+An installation that exposes its broker to registered machines adds a third, with the `broker-external`
+component:
+
+- **TLS on port 9094**, named `broker`, for `*.<base domain>`, in passthrough mode. It accepts only the
+  `TLSRoute`s the broker makes in `ankka-broker`, one for `broker.<base domain>` and one per broker node,
+  and Envoy routes each connection by its server name without terminating it. See
+  [Cross-project access](cross-project-access.md#a-machine-on-the-broker).
+
 How the gateway reaches the outside world is the installation's choice. A local platform publishes it on
 node ports that kind maps to the host's 8080 and 8443; a cloud installation gives it a `LoadBalancer`.
 

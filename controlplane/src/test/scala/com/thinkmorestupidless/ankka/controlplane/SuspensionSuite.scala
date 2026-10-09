@@ -141,6 +141,8 @@ class SuspensionSuite extends munit.FunSuite with LogCapturing:
     }
     eventually("the cluster is told")(fake.current("ankka-checkout", "cart").exists(!_.spec.paused))
     eventually("late runs again")(!status("late").suspended)
+    // Each service is unsuspended on its own: wait for the one asserted, not another.
+    eventually("inventory is no longer suspended")(!status("inventory").suspended)
     val inventory = status("inventory")
     assertEquals(
       (inventory.lifecycle, inventory.suspended),

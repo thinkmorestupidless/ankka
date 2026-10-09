@@ -137,13 +137,33 @@ final class RemoteEndpoint private (
     // Named by its prefix, as the HTTP server names every endpoint it serves: the server reports
     // these same routes, and one endpoint under two names would be drawn twice.
     val id = ServedRoute.endpointId(spec.prefix)
+    // The same answer the server gives for the route's effective ACL (feature 040), so the two
+    // listings of one route are one route.
+    def grantable(r: RouteSpec): Boolean =
+      val callers = if r.acl.isDefined then r.allowCallers else spec.allowCallers
+      val acl     = r.acl.getOrElse(spec.acl)
+      acl.isCallers && callers.exists(_.kind.isGranted)
     plain.map(r =>
-      ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = false, id)
+      ServedRoute(
+        r.method.toUpperCase,
+        spec.prefix + r.template,
+        streaming = false,
+        id,
+        grantable(r)
+      )
     ) ++
       streaming.map(r =>
-        ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true, id)
+        ServedRoute(
+          r.method.toUpperCase,
+          spec.prefix + r.template,
+          streaming = true,
+          id,
+          grantable(r)
+        )
       ) ++
-      sockets.map(r => ServedRoute("SOCKET", spec.prefix + r.template, streaming = true, id))
+      sockets.map(r =>
+        ServedRoute("SOCKET", spec.prefix + r.template, streaming = true, id, grantable(r))
+      )
 
   private def forwardOf(r: RouteSpec, args: Vector[String], body: Array[Byte]): HttpForward =
     val ctx   = request
@@ -162,6 +182,7 @@ final class RemoteEndpoint private (
       caller = ctx.caller match
         case Caller.Gateway          => RemoteCaller.Gateway
         case Caller.Service(p, name) => RemoteCaller.Service(p, name)
+        case Caller.Machine(o, name) => RemoteCaller.Machine(o, name)
         case Caller.Local            => RemoteCaller.Local,
       // The request's span, and the route as the caller of whatever the process calls for it.
       metadata = Trace.outbound(Trace.into(Metadata.empty, trace))
@@ -247,6 +268,8 @@ object RemoteEndpoint:
       CallerMatcher.NamedService(named.project, named.name)
     case CallerMatcherSpec.Kind.AnyInProject(_) => CallerMatcher.AnyInProject
     case CallerMatcherSpec.Kind.Self(_)         => CallerMatcher.Self
+    // Feature 040: whoever the project granted the route to, read by the sidecar's own server.
+    case CallerMatcherSpec.Kind.Granted(_) => CallerMatcher.Granted
     // A matcher kind this sidecar does not know — a newer SDK's — admits nobody rather than guessing.
     case CallerMatcherSpec.Kind.Empty => CallerMatcher.NamedService(Some(""), "")
 

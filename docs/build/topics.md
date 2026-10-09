@@ -432,8 +432,10 @@ the service's project:
 
 - It may read, publish to and describe every topic of its own project.
 - It may read under its own consumer groups, the ones named for it as *Consumer groups* describes.
-- It may do nothing else. It cannot make a topic, and it cannot reach another project's topics: the broker
-  itself refuses.
+- It may read or publish to another project's topic only while that project grants it, as *Reading
+  another project's topic* describes.
+- It may do nothing else. It cannot make a topic, and it cannot reach another project's topics without a
+  grant: the broker itself refuses.
 
 A web-hosted service has no components and is given nothing of the broker.
 
@@ -746,6 +748,103 @@ with `ANKKA_TOPIC_BROKER_<NAME>_BOOTSTRAP_SERVERS`, `ANKKA_TOPIC_BROKER_<NAME>_S
 `ANKKA_TOPIC_BROKER_<NAME>_SECRET_DIRECTORY` and `ANKKA_TOPIC_BROKER_<NAME>_NAME` (the name upper-cased,
 `-` as `_`); a process-hosted service's own container is given none of them and no mount. A service run
 locally sets the same variables to reach a declared broker from a developer's machine.
+
+## Reading another project's topic
+
+A topic belongs to the project that declares it. Another project's service may read it, or publish to
+it, only while that project grants the service the right to: one grant names one topic, one service and
+one right, `consume` or `produce`. An owner of the topic's organization makes and revokes the grant as
+data, and neither service is redeployed:
+
+```bash
+ankka projects grants make service:affiliates-hub/attribution topic casino.players consume -p spinvibe
+```
+
+A component names the topic by the project it belongs to:
+
+/// tab | Scala
+
+<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/CheckoutsSeen.scala#cross-project-source -->
+```scala
+// Another project's topic: the broker serves it while that project grants this service
+// consume on it, under this service's own consumer group.
+ChangeSource
+  .fromTopic(p, CheckoutTopic.name, Codecs.serializer[CheckoutNotice]("checkout-notice"))
+```
+
+```scala
+override def produces = produceTo("spinvibe", "payments.deposits")
+```
+
+///
+
+/// tab | Python
+
+```python
+class Players(View[Player, PlayerRow]):
+    topic = "casino.players"
+    project = "spinvibe"
+
+
+class Deposits(Consumer[Event, Deposit]):
+    produces_to = Publication("payments.deposits", project="spinvibe")
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+static readonly topic = "casino.players"
+static readonly project = "spinvibe"
+static readonly producesTo = { topic: "payments.deposits", project: "spinvibe" }
+```
+
+///
+
+/// tab | Rust
+
+```rust
+fn source() -> Source {
+    Source::topic("casino.players").project("spinvibe")
+}
+
+fn produces() -> Option<Publication> {
+    Some(Publication::to("payments.deposits").project("spinvibe"))
+}
+```
+
+///
+
+The broker holds the topic as `spinvibe.casino.players`, whichever project reads it. The reader's
+consumer group stays its own, named as *Consumer groups* describes, so it reads under nothing the
+granting project owns. The reader's project declarations are not consulted for another project's topic,
+and the service starts whether or not a grant exists.
+
+The broker enforces the grant. Without one, a subscription is refused and retried with the projection's
+backoff, and a publication fails and is retried. Once the grant is made, the platform adds one entry for
+that topic and that right to the service's credential on the broker, and the next retry succeeds. A
+revoked grant removes the entry, and the broker refuses the next read or publication. `ankka services
+get` lists each other project's topic the service uses, the right it needs and whether it has it:
+
+```text
+cross-project topics  spinvibe/casino.players     consume  granted
+                      spinvibe/payments.deposits  produce  not granted (pending)
+```
+
+`not granted` says why: `no grant`, `pending` while the grantee's organization has not accepted it, or
+`ended` once it was withdrawn, revoked or lapsed. A component may not name both a project and a declared
+broker for one topic: another project's topics are on the installation's broker, and a service naming
+both is refused when it starts. A protocol before 1.15 does not carry the project, so an SDK refuses to
+declare such a component to an older runtime.
+
+### Reading a granted topic from outside the installation
+
+A project may grant one of its topics to a registered machine, a system outside the installation, as it
+grants one to a service. On an installation that exposes its broker, the machine reads it with any
+Apache Kafka client from 3.1 on, authenticating with a token the control plane issues it, under a group
+of its own and within its byte rates. Its client's properties, and what the broker allows it, are in
+[Cross-project access](../platform/cross-project-access.md#a-machine-on-the-broker).
 
 ## Reading partitions in parallel
 

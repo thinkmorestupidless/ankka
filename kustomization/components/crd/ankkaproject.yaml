@@ -100,6 +100,56 @@ spec:
                         description: The project secret holding the credential, mounted as a directory.
                       declaredAt:
                         type: string
+                grants:
+                  type: array
+                  description: >-
+                    The project's accepted grants: one grantee, a service of another project or a
+                    registered machine, given one route, gRPC method, topic right or the erasure
+                    right of this project's. A pending grant is never listed, so it opens nothing.
+                    Rendered into every service's grants file and onto the grantee's broker user.
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - grantee
+                      - kind
+                    properties:
+                      id:
+                        type: string
+                      grantee:
+                        type: string
+                        description: service:<project>/<name> or machine:<organization>/<name>.
+                      kind:
+                        type: string
+                        enum:
+                          - route
+                          - method
+                          - topic
+                          - erasure
+                      service:
+                        type: string
+                        description: The granting project's service, for a route or a method.
+                      httpMethod:
+                        type: string
+                      path:
+                        type: string
+                        description: The route's path template.
+                      method:
+                        type: string
+                        description: A gRPC method, as Service/Method.
+                      topic:
+                        type: string
+                        description: The declared topic, as the project's components name it.
+                      right:
+                        type: string
+                        enum:
+                          - consume
+                          - produce
+                      decrypt:
+                        type: boolean
+                        description: A consume grant whose grantee may decrypt personal fields.
+                      grantedAt:
+                        type: string
             status:
               type: object
               properties:

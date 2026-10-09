@@ -95,7 +95,19 @@ final class ServiceEndpoint(
         status.copy(
           undeclaredTopics = Some(used.filterNot(declared.keySet)),
           topicChecks = Some(TopicChecks.ofService(declared, status.name, read)),
-          topicSources = Some(ServiceEndpoint.topicSourcesOf(read))
+          topicSources = Some(ServiceEndpoint.topicSourcesOf(read)),
+          crossProjectTopics = Some(
+            ServiceEndpoint.crossProjectTopicsOf(
+              read,
+              status.projectId,
+              status.name,
+              owner =>
+                clients.componentClient
+                  .forEventSourcedEntity(EntityId(owner))
+                  .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.grants)
+                  .invoke()
+            )
+          )
         )
 
   /**
@@ -378,6 +390,58 @@ final class ServiceEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
 
 object ServiceEndpoint:
+
+  /**
+   * The other projects' topics the service's components read or publish to (feature 040), from the
+   * topology its instances report — a topic edge to `topic:<project>/<name>` that names no declared
+   * broker — each with whether the granting project grants this service that right:
+   * `grantsOf(project)` is that project's grants, live and ended. An accepted grant is `granted`;
+   * otherwise the newest grant's state says why not, and none at all is `no grant`.
+   */
+  def crossProjectTopicsOf(
+      documents: Vector[InstanceTopologyDocument],
+      project: String,
+      service: String,
+      grantsOf: String => Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]
+  ): Vector[CrossProjectTopic] =
+    val target = com.thinkmorestupidless.ankka.controlplane.api.GrantTarget
+    val used = documents
+      .flatMap(_.declared)
+      .filter(_.broker.isEmpty)
+      .flatMap { edge =>
+        edge.kind match
+          case "topic-subscription" => Some(edge.from -> target.Consume)
+          case "topic-publication"  => Some(edge.to -> target.Produce)
+          case _                    => None
+      }
+      .collect {
+        case (id, right) if id.startsWith("topic:") && id.drop(6).contains('/') =>
+          val (owner, name) = id.drop(6).span(_ != '/')
+          (owner, name.drop(1), right)
+      }
+      .distinct
+      .sorted
+    val me = Grantee.Service(project, service)
+    val grants = scala.collection.mutable.Map
+      .empty[String, Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]]
+    used.map { (owner, name, right) =>
+      val held = grants
+        .getOrElseUpdate(
+          owner,
+          try grantsOf(owner)
+          catch case NonFatal(_) => Vector.empty
+        )
+        .filter(g =>
+          g.grantee == me && g.target.kind == target.Topic && g.target.topic.contains(name) &&
+            g.target.right.contains(right)
+        )
+      val status =
+        if held.exists(_.state == GrantState.Accepted) then "granted"
+        else if held.exists(_.state == GrantState.Pending) then "not granted (pending)"
+        else if held.nonEmpty then "not granted (ended)"
+        else "not granted (no grant)"
+      CrossProjectTopic(owner, name, right, status)
+    }
 
   /**
    * One report per topic source over the instances: lags summed, the first failing reason kept

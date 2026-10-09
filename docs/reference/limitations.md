@@ -35,8 +35,8 @@ feature also says what that feature does not do.
   profile, or has existing data to migrate, supplies its own database through `ANKKA_DB_*` variables, and its
   isolation is then whatever its owner configured.
 - **One broker per installation, and a project is its boundary.** Every project's topics are on the
-  installation's one Kafka, and a service reaches the topics of its own project only. There is no grant
-  that lets a service of one project read or publish to another project's topic. A project may declare
+  installation's one Kafka, and a service reaches the topics of its own project, and another project's
+  only where that project granted it the topic. A project may declare
   brokers of its own beside the installation's, each named per topic by a component, and those topics are
   the broker owner's: the platform makes nothing on them and checks no contract there. A local platform's
   broker is a single node.
@@ -88,9 +88,17 @@ feature also says what that feature does not do.
   TLS; the store's are not. A network policy admits only ankka workloads, the gateway and the operator, and
   a request is signed, so a secret key never crosses the network, but an object's contents cross it
   unencrypted. A request from a browser is encrypted as far as the gateway.
+- **The control plane's `keys` port asks for no client certificate.** It serves only the public keys
+  machine tokens are signed with, port 7629, to the broker and the services that verify those tokens; a
+  network policy admits ankka workloads and the broker.
 - **A project is not a network boundary for HTTP.** Any ankka workload can open a connection to any
   service's HTTP port; whether the request is served is the callee's ACL's decision, from the caller's
-  certificate. Cluster ports and databases are closed to other projects.
+  certificate, and a service of another project is admitted only on a route its project granted it.
+  Cluster ports and databases are closed to other projects.
+- **A machine is a `Caller.Machine`, not a `Caller.Service`.** A registered machine outside the
+  installation is admitted by a grant as a service is, but it is a caller of its own kind, verified by a
+  token rather than a certificate. A service of another installation is not a caller ankka can name:
+  trust between installations is not built, and such a service is registered as a machine.
 - **The gateway is one caller.** Every request from outside the cluster reads as the gateway, whichever
   hostname it arrived at. Telling users apart is a bearer token the service verifies in
   `Acl.Authenticate`.
@@ -309,3 +317,17 @@ feature also says what that feature does not do.
   `kind load docker-image`; it runs no registry of its own. A cluster that pulls images needs one
   elsewhere. A private one works: `ankka projects registry set` puts its credential in the cluster
   for a whole project, and the platform never reads the credential back.
+
+## Upgrading to cross-project access
+
+- **A project named `machine` is refused.** A grantee is written `machine:<organization>/<name>`, so the
+  word is reserved; rename such a project before upgrading.
+- **A kind cluster reaches an exposed broker only if it was created with the `30094 → 9094` mapping** in
+  `kustomization/kind.yaml`. kind decides port mappings when it creates a cluster, so one made before
+  must be recreated to reach the broker from the host.
+- **The control plane has a second port, `keys` (7629),** which asks for no client certificate and serves
+  only the public keys machine tokens are signed with. A network policy of the installation's own that
+  names the control plane's ports needs it too.
+- **Services read their project's grants from the project's ConfigMap they already mount**, so upgrading
+  the operator restarts nothing; a service built before the release admits no granted caller until it is
+  rebuilt, and a grant naming one of its routes is listed as `rollout needed`.

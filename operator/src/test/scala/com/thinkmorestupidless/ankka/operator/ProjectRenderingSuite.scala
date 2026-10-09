@@ -177,3 +177,79 @@ class ProjectRenderingSuite extends munit.FunSuite:
       1
     )
   }
+
+  // features/cross-project/route-grants.feature, listing.feature (feature 040)
+  test("the project's accepted grants are rendered beside its declarations, in the one ConfigMap") {
+    import com.thinkmorestupidless.ankka.crd.ProjectGrantEntry
+    val spec = money.copy(grants =
+      List(
+        ProjectGrantEntry(
+          "b2",
+          "machine:affiliates/network",
+          "topic",
+          topic = Some("transactions"),
+          right = Some("consume"),
+          decrypt = true
+        ),
+        ProjectGrantEntry(
+          "a1",
+          "service:payments/merchant",
+          "route",
+          service = Some("wallet"),
+          httpMethod = Some("POST"),
+          path = Some("/v1/wallets/{player}/{currency}/deposits")
+        ),
+        ProjectGrantEntry("c3", "service:payments/merchant", "erasure")
+      )
+    )
+    val config = actions(spec).collectFirst { case Action.EnsureProjectConfig(c) => c }.get
+    assertEquals(config.getMetadata.getName, ProjectConfig.Name)
+    assertEquals(
+      config.getData.keySet,
+      java.util.Set.of(ProjectConfig.Key, ProjectConfig.GrantsKey)
+    )
+    assertEquals(
+      config.getData.get(ProjectConfig.GrantsKey),
+      """{"project":"money","grants":[""" +
+        """{"id":"a1","grantee":"service:payments/merchant","kind":"route","service":"wallet","httpMethod":"POST","path":"/v1/wallets/{player}/{currency}/deposits"},""" +
+        """{"id":"b2","grantee":"machine:affiliates/network","kind":"topic","topic":"transactions","right":"consume","decrypt":true},""" +
+        """{"id":"c3","grantee":"service:payments/merchant","kind":"erasure"}]}"""
+    )
+  }
+
+  test("a project with no grants renders an empty grants file, so every service reads none") {
+    val config = actions().collectFirst { case Action.EnsureProjectConfig(c) => c }.get
+    assertEquals(
+      config.getData.get(ProjectConfig.GrantsKey),
+      """{"project":"money","grants":[]}"""
+    )
+  }
+
+  test("where machines' tokens come from is written beside the grants, and nothing without it") {
+    val machines =
+      Settings.MachineIssuer("https://api.example.test", Settings.DefaultMachineJwksUrl)
+    val config =
+      ProjectConfig.configMap("ankka-money", AnkkaProjectSpec(projectId = "money"), Some(machines))
+    assertEquals(
+      config.getData.get(ProjectConfig.MachinesKey),
+      """{"issuer":"https://api.example.test","jwksUrl":"https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"}"""
+    )
+    val without = ProjectConfig.configMap("ankka-money", AnkkaProjectSpec(projectId = "money"))
+    assert(!without.getData.containsKey(ProjectConfig.MachinesKey), without.getData.toString)
+  }
+
+  test("the machine issuer is the control plane's own address, derived as the control plane does") {
+    assertEquals(
+      Settings.machineIssuer(None, None, Some("example.test"), 8443),
+      Some(Settings.MachineIssuer("https://api.example.test:8443", Settings.DefaultMachineJwksUrl))
+    )
+    assertEquals(
+      Settings.machineIssuer(None, None, Some("example.test"), 443).map(_.issuer),
+      Some("https://api.example.test")
+    )
+    assertEquals(
+      Settings.machineIssuer(Some("https://other.test"), Some("https://k/jwks"), None, 443),
+      Some(Settings.MachineIssuer("https://other.test", "https://k/jwks"))
+    )
+    assertEquals(Settings.machineIssuer(None, None, None, 443), None)
+  }

@@ -78,6 +78,10 @@ message Source {
   optional Contract contract = 4;
   optional string broker = 5;
   optional bool parallel = 6;
+  // 1.15, only with `topic`: the project whose topic this is, when it is not the service's own. The
+  // broker refuses the subscription until that project grants the service consume on it; the
+  // consumer group stays the service's own.
+  optional string project = 7;
 }
 
 // 1.14: a name and the fingerprint of the schema document a component was built against:
@@ -85,7 +89,8 @@ message Source {
 message Contract { string name = 1; string fingerprint = 2; }
 
 // 1.14: a topic a consumer publishes to, with the contract it states and the declared broker it is on.
-message Publication { string topic = 1; optional Contract contract = 2; optional string broker = 3; }
+// 1.15: `project` names another project's topic, which that project must grant produce on.
+message Publication { string topic = 1; optional Contract contract = 2; optional string broker = 3; optional string project = 4; }
 
 // 1.7
 message StartFrom {
@@ -213,6 +218,8 @@ message CallerMatcher {
     NamedService service = 2;
     Empty any_in_project = 3;
     Empty self = 4;
+    // 1.15: a caller holding a grant, made by this service's project, on this route or method.
+    Empty granted = 5;
   }
 }
 

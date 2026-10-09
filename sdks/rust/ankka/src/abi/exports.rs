@@ -39,6 +39,8 @@ pub enum Export {
     CheckTaskResult,
     /// `ankka1_http`: `HttpRequest` in, `HttpReply` out.
     Http,
+    /// `ankka1_erase`: `ErasureHandleRequest` in, `ErasureHandleReply` out (protocol 1.15).
+    Erase,
 }
 
 thread_local! {
@@ -174,6 +176,12 @@ macro_rules! service {
             pub unsafe extern "C" fn ankka1_http(ptr: i32, len: i32) -> i64 {
                 // SAFETY: as above.
                 unsafe { run(Export::Http, ptr, len, $build) }
+            }
+
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn ankka1_erase(ptr: i32, len: i32) -> i64 {
+                // SAFETY: as above.
+                unsafe { run(Export::Erase, ptr, len, $build) }
             }
         };
     };

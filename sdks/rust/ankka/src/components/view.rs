@@ -316,9 +316,12 @@ impl<C: View> Registered for Registration<C> {
         use proto::view_effect::Effect;
         let effect = match effect {
             ViewEffect::UpdateRow(row) => {
-                Effect::UpdateRow(codec.to_payload(&row).unwrap_or_else(|e| {
-                    panic!("view '{}': a row does not encode: {e}", C::COMPONENT_ID)
-                }))
+                // A view's row is the one place a personal field's lookup token is written.
+                Effect::UpdateRow(
+                    crate::personal::allowing_lookup(|| codec.to_payload(&row)).unwrap_or_else(
+                        |e| panic!("view '{}': a row does not encode: {e}", C::COMPONENT_ID),
+                    ),
+                )
             }
             ViewEffect::DeleteRow => Effect::DeleteRow(proto::Empty {}),
             ViewEffect::Ignore => Effect::Ignore(proto::Empty {}),

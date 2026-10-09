@@ -15,6 +15,7 @@ import { materialiseKeyValue } from "../materialise.ts"
 import type { RegisteredKeyValue } from "../service.ts"
 import { retentionToProto } from "./eventSourced.ts"
 import { decodePayload, encodePayload } from "./payloads.ts"
+import { PersonalFieldError, personalErrorCode } from "../personal.ts"
 import type { ServerContext } from "./server.ts"
 
 type OutcomeInit = MessageInitShape<typeof OutcomeSchema>
@@ -102,6 +103,7 @@ async function runCommand(
   try {
     effect = (await handler.run(entity, input)) as KeyValueEffect<unknown, unknown>
   } catch (e) {
+    if (e instanceof PersonalFieldError) return { out: refusedPersonal(cmd.id, e) }
     ctx.log(`ankka: ${registered.id}/${entityId}/${cmd.name} threw: ${messageOf(e)}`)
     return { out: failure(cmd.id, { message: messageOf(e), code: ErrorCode.Internal }) }
   } finally {
@@ -134,7 +136,16 @@ async function runCommand(
     if (m.error) return { out }
     return { out, newState: m.newState }
   } catch (e) {
+    // A personal field that cannot be written — its subject erased, the keyring refusing or out of
+    // reach — refuses the command, and nothing is written (feature 042).
+    if (e instanceof PersonalFieldError) return { out: refusedPersonal(cmd.id, e) }
     ctx.log(`ankka: ${registered.id}/${entityId}/${cmd.name}: the effect could not be applied: ${messageOf(e)}`)
     return { out: failure(cmd.id, { message: messageOf(e), code: ErrorCode.Internal }) }
   }
+}
+
+function refusedPersonal(commandId: bigint, e: PersonalFieldError) {
+  return create(KeyValueOutSchema, {
+    message: { case: "reply", value: { commandId, outcome: { outcome: { case: "error", value: { message: e.message, code: errorCodeToProto(personalErrorCode(e)) } } } } },
+  })
 }

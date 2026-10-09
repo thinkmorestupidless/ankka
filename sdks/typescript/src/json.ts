@@ -8,6 +8,8 @@
 
 import { Duration, Instant, LocalDate, LocalDateTime } from "./time.ts"
 import { done, resolve, describe, type Schema } from "./schema.ts"
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
+import { checkSubject, isLookupAllowed, keySource, PersonalFieldError, type Personal, type Present } from "./personal.ts"
 
 export class EncodingError extends Error {
   constructor(message: string) {
@@ -178,7 +180,92 @@ function write(schema: Schema, value: unknown, out: string[], path: string): voi
       out.push(`{"type":${JSON.stringify(value)}}`)
       return
     }
+    case "personal":
+      out.push(writePersonal(r.inner, value, path))
+      return
   }
+}
+
+// ── Personal fields (protocol 1.15; protocol/fixtures/personal) ─────────────
+
+function aad(subject: string, project: string): Uint8Array {
+  return new TextEncoder().encode(`${subject}\u0000${project}`)
+}
+
+function writePersonal(inner: Schema, value: unknown, path: string): string {
+  if (!isPlainObject(value) || (value["kind"] !== "present" && value["kind"] !== "erased") || typeof value["subject"] !== "string") {
+    throw new EncodingError(`${at(path)}expected a personal value (present(...) or erased(...)), got ${kindOf(value)}`)
+  }
+  const keys = keySource()
+  const p = value as unknown as Personal<unknown>
+  if (p.kind === "erased") {
+    const project = p.project ?? keys.ownProject ?? keys.key(undefined, p.subject, false).project
+    return JSON.stringify({ subject: p.subject, project })
+  }
+  const answer = keys.key(p.project, p.subject, p.project === undefined || p.project === keys.ownProject)
+  const project = answer.project || p.project || keys.ownProject || ""
+  switch (answer.kind) {
+    case "key": {
+      const plaintext = new TextEncoder().encode(writeJson(inner, p.value))
+      const nonce = randomBytes(12)
+      const cipher = createCipheriv("aes-256-gcm", answer.key, nonce)
+      cipher.setAAD(aad(p.subject, project))
+      const sealed = Buffer.concat([Buffer.from([1]), nonce, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
+      const envelope: Record<string, string> = { subject: p.subject, project, data: sealed.toString("base64") }
+      if (p.lookup && isLookupAllowed()) envelope["lookup"] = keys.lookupToken(plaintext)
+      p.stored = true
+      return JSON.stringify(envelope)
+    }
+    case "destroyed":
+      // Carried, not new: a state holding what was stored before the erasure.
+      if (p.stored) return JSON.stringify({ subject: p.subject, project })
+      throw new PersonalFieldError(`data subject ${p.subject} is erased in project ${project}: no personal field can be written for it`, "BAD_REQUEST")
+    case "refused":
+      // No key and no tombstone, asked without creating one: a subject never written here, as erased.
+      if (answer.reason === "unknown") {
+        throw new PersonalFieldError(`data subject ${p.subject} is erased in project ${project}: no personal field can be written for it`, "BAD_REQUEST")
+      }
+      throw new PersonalFieldError(`the keyring refused data subject ${p.subject} of project ${project}: ${answer.reason}`, "FORBIDDEN")
+    case "unavailable":
+      throw new PersonalFieldError(`no keyring is available: ${answer.reason}`, "UNAVAILABLE")
+  }
+}
+
+function readPersonal(inner: Schema, raw: unknown, path: string): Personal<unknown> {
+  if (!isPlainObject(raw)) throw new DecodingError(`expected a personal envelope, got ${kindOf(raw)}`, path)
+  for (const k of Object.keys(raw)) {
+    if (!["subject", "project", "data", "lookup"].includes(k)) throw new DecodingError(`unknown key '${k}' in a personal envelope`, path)
+  }
+  const subject = raw["subject"]
+  const project = raw["project"]
+  if (typeof subject !== "string") throw new DecodingError("a personal envelope needs a valid subject", path)
+  try {
+    checkSubject(subject)
+  } catch {
+    throw new DecodingError("a personal envelope needs a valid subject", path)
+  }
+  if (typeof project !== "string" || project === "") throw new DecodingError("a personal envelope needs its project", path)
+  const data = raw["data"]
+  if (data === undefined || data === null) return { kind: "erased", subject, project }
+  const answer = keySource().key(project, subject, false)
+  if (answer.kind === "unavailable") throw new PersonalFieldError(`no keyring is available: ${answer.reason}`, "UNAVAILABLE")
+  if (answer.kind !== "key") return { kind: "erased", subject, project }
+  if (typeof data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new DecodingError("personal envelope corrupt: data is not base64", path)
+  const stored = Buffer.from(data, "base64")
+  const corrupt = (): DecodingError => new DecodingError(`personal envelope corrupt: it does not open as ${subject} of ${project}`, path)
+  if (stored.length < 1 + 12 + 16 || stored[0] !== 1) throw corrupt()
+  let plaintext: Buffer
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", answer.key, stored.subarray(1, 13))
+    decipher.setAAD(aad(subject, project))
+    decipher.setAuthTag(stored.subarray(stored.length - 16))
+    plaintext = Buffer.concat([decipher.update(stored.subarray(13, stored.length - 16)), decipher.final()])
+  } catch {
+    throw corrupt()
+  }
+  const read: Present<unknown> = { kind: "present", subject, value: readJson(inner, plaintext.toString("utf8")), lookup: "lookup" in raw, project }
+  read.stored = true
+  return read
 }
 
 function writeFields(fields: Readonly<Record<string, Schema>>, value: Record<string, unknown>, out: string[], path: string, continuing: boolean): void {
@@ -291,6 +378,8 @@ function decode(schema: Schema, raw: unknown, path: string): unknown {
       }
       return name
     }
+    case "personal":
+      return readPersonal(r.inner, raw, path)
   }
 }
 

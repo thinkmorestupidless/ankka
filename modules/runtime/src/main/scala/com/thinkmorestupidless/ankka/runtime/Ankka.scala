@@ -240,6 +240,7 @@ final class ServiceBuilder private[ankka] (
     // Every serialization this JVM does without a scope of its own uses the project of the services
     // running in it, when they agree.
     val personalRegistration = keyring.map(k => PersonalScope.register(k, project))
+    keyring.foreach(k => ServiceScope(system).set(k, project))
     // Before anything runs a handler: every line a handler writes names its trace from here on.
     TraceLogging.install()
     val registry = validate.fold(

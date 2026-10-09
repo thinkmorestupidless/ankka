@@ -48,7 +48,8 @@ object ModuleLoader:
     "invoke_tool",
     "check_guardrail",
     "check_task_result",
-    "http"
+    "http",
+    "erase"
   ).map(Abi.Prefix + _)
 
   /** Required of every module, whatever it declares. */
@@ -59,7 +60,8 @@ object ModuleLoader:
    * `HostImports.values` provides, which `WasmHostSuite` holds. The secret store's three arrived
    * with protocol 1.6; a module that does not use the store does not import them. `request`, `now`
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
-   * module that calls it.
+   * module that calls it. `subject_key`, `lookup_token` and `erase_objects` arrived with 1.15 and
+   * are imported only by a module with personal fields, or an erasure handler.
    */
   val Imports: Set[String] =
     Set(
@@ -77,7 +79,10 @@ object ModuleLoader:
       "request",
       "now",
       "random",
-      "schedule_recurring"
+      "schedule_recurring",
+      "subject_key",
+      "lookup_token",
+      "erase_objects"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

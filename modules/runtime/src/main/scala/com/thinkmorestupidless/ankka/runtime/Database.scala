@@ -20,6 +20,12 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 private[ankka] final class Database(factory: ConnectionFactory)(using system: ActorSystem[?]):
 
+  /**
+   * Rows are decoded on the driver's thread; a personal field in one needs the service's scope
+   * there.
+   */
+  private val scope = ServiceScope(system)
+
   private given ExecutionContext = system.executionContext
 
   /**
@@ -82,7 +88,7 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
       def run(publisher: org.reactivestreams.Publisher[Void]): Future[Unit] =
         Source.fromPublisher(publisher).runWith(Sink.ignore).map(_ => ())
       run(connection.beginTransaction()).flatMap { _ =>
-        work(Database.Transaction(connection)).transformWith {
+        work(Database.Transaction(connection, ServiceScope(system))).transformWith {
           case scala.util.Success(value) => run(connection.commitTransaction()).map(_ => value)
           case scala.util.Failure(e) =>
             run(connection.rollbackTransaction()).transform(_ => scala.util.Failure(e))
@@ -140,7 +146,7 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
         .flatMapConcat { result =>
           // The BiFunction overload, explicitly: `Result.map` is also defined for
           // `Function[Readable, T]`, and an unannotated lambda picks that one.
-          val mapper: BiFunction[Row, RowMetadata, A] = (row, _) => decode(row)
+          val mapper: BiFunction[Row, RowMetadata, A] = (row, _) => scope.within(decode(row))
           Source.fromPublisher(result.map(mapper))
         }
         .runWith(Sink.seq)
@@ -154,7 +160,9 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
 private[ankka] object Database:
 
   /** The statements of one transaction, on its connection, one after another. */
-  final class Transaction private[runtime] (connection: Connection)(using Materializer):
+  final class Transaction private[runtime] (connection: Connection, scope: ServiceScope)(using
+      Materializer
+  ):
 
     /** Executes a statement, returning the number of rows affected. */
     def execute(fragment: SqlFragment): Future[Long] =
@@ -165,7 +173,7 @@ private[ankka] object Database:
 
     /** Runs a query and decodes every row. */
     def query[A](fragment: SqlFragment)(decode: Row => A): Future[Vector[A]] =
-      val mapper: BiFunction[Row, RowMetadata, A] = (row, _) => decode(row)
+      val mapper: BiFunction[Row, RowMetadata, A] = (row, _) => scope.within(decode(row))
       Source
         .fromPublisher(bind(connection.createStatement(fragment.render), fragment).execute())
         .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))
@@ -183,7 +191,8 @@ private[ankka] object Database:
       // discarding what it went on producing: a result that never ends is not read at all.
       val statement = connection.createStatement(sql).fetchSize(limit)
       binds.zipWithIndex.foreach((value, index) => statement.bind(index, value): Unit)
-      val mapper: BiFunction[Row, RowMetadata, A] = (row, metadata) => decode(row, metadata)
+      val mapper: BiFunction[Row, RowMetadata, A] = (row, metadata) =>
+        scope.within(decode(row, metadata))
       Source
         .fromPublisher(statement.execute())
         .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))

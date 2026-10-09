@@ -37,7 +37,7 @@ private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeou
     using system: ActorSystem[?]
 ):
 
-  private given ExecutionContext = system.executionContext
+  private given ExecutionContext = ServiceScope(system).executionContext
 
   val table: String = ViewDescriptor.tableFor(componentId)
 
@@ -107,7 +107,7 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
     askTimeout: FiniteDuration
 )(using system: ActorSystem[?]):
 
-  private given ExecutionContext = system.executionContext
+  private given ExecutionContext = ServiceScope(system).executionContext
 
   val core: KeyedViewCore = KeyedViewCore(descriptor.componentId, askTimeout)
 
@@ -171,7 +171,8 @@ private[ankka] final class KeyedViewEventHandler(
 )(using system: ActorSystem[?])
     extends R2dbcHandler[EventEnvelope[JournalRecord]]:
 
-  private given ExecutionContext = system.executionContext
+  private val scope              = ServiceScope(system)
+  private given ExecutionContext = ServiceScope(system).executionContext
 
   private def run(session: R2dbcSession, fragment: SqlFragment): Future[Done] =
     session
@@ -179,31 +180,33 @@ private[ankka] final class KeyedViewEventHandler(
       .map(_ => Done)
 
   def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
-    record.kind match
-      // A TTL being set is a storage fact, not a change a view is told of.
-      case JournalRecord.KindExpiry => Future.successful(Done)
-      case kind =>
-        val payload =
-          Option.when(kind == JournalRecord.KindDomain)((record.payload, record.manifest))
-        def select(fragment: SqlFragment) =
-          session.selectOne(Database.bind(session.createStatement(fragment.render), fragment))(_ =>
-            ()
-          )
-        for
-          _ <- guard.inSession(session)
-          _ <- core.opening.foldLeft(Future.successful[Option[Unit]](None))((f, s) =>
-            f.flatMap(_ => select(s))
-          )
-          changes <- handle(subject, envelope.sequenceNr, payload)
-          writes <- core
-            .writes(changes)
-            .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
-          _ <- writes.foldLeft(Future.successful[Done](Done))((f, w) =>
-            f.flatMap(_ => run(session, w))
-          )
-        yield Done
+    scope.within {
+      val subject = PersistenceId.extractEntityId(envelope.persistenceId)
+      val record  = envelope.event
+      record.kind match
+        // A TTL being set is a storage fact, not a change a view is told of.
+        case JournalRecord.KindExpiry => Future.successful(Done)
+        case kind =>
+          val payload =
+            Option.when(kind == JournalRecord.KindDomain)((record.payload, record.manifest))
+          def select(fragment: SqlFragment) =
+            session.selectOne(Database.bind(session.createStatement(fragment.render), fragment))(
+              _ => ()
+            )
+          for
+            _ <- guard.inSession(session)
+            _ <- core.opening.foldLeft(Future.successful[Option[Unit]](None))((f, s) =>
+              f.flatMap(_ => select(s))
+            )
+            changes <- handle(subject, envelope.sequenceNr, payload)
+            writes <- core
+              .writes(changes)
+              .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
+            _ <- writes.foldLeft(Future.successful[Done](Done))((f, w) =>
+              f.flatMap(_ => run(session, w))
+            )
+          yield Done
+    }
 
 /**
  * Applies one change of a key value source to a keyed view: the lock and the rows in one
@@ -219,28 +222,31 @@ private[ankka] final class KeyedViewStateHandler(
 )(using system: ActorSystem[?])
     extends Handler[DurableStateChange[StateRecord]]:
 
-  private given ExecutionContext = system.executionContext
+  private val scope              = ServiceScope(system)
+  private given ExecutionContext = ServiceScope(system).executionContext
   private val database           = Database()
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
-    val (payload, revision) = change match
-      // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
-      case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-        (None, updated.revision)
-      case updated: UpdatedDurableState[StateRecord] =>
-        (Some((updated.value.payload, updated.value.manifest)), updated.revision)
-      case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
-    database.inTransaction { tx =>
-      for
-        _ <- guard.inTransaction(tx)
-        _ <- core.opening.foldLeft(Future.successful(Vector.empty[Unit]))((f, s) =>
-          f.flatMap(_ => tx.query(s)(_ => ()))
-        )
-        changes <- handle(subject, revision, payload)
-        writes <- core
-          .writes(changes)
-          .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
-        _ <- writes.foldLeft(Future.successful(0L))((f, w) => f.flatMap(_ => tx.execute(w)))
-      yield Done
+    scope.within {
+      val subject = PersistenceId.extractEntityId(change.persistenceId)
+      val (payload, revision) = change match
+        // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+        case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+          (None, updated.revision)
+        case updated: UpdatedDurableState[StateRecord] =>
+          (Some((updated.value.payload, updated.value.manifest)), updated.revision)
+        case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
+      database.inTransaction { tx =>
+        for
+          _ <- guard.inTransaction(tx)
+          _ <- core.opening.foldLeft(Future.successful(Vector.empty[Unit]))((f, s) =>
+            f.flatMap(_ => tx.query(s)(_ => ()))
+          )
+          changes <- handle(subject, revision, payload)
+          writes <- core
+            .writes(changes)
+            .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
+          _ <- writes.foldLeft(Future.successful(0L))((f, w) => f.flatMap(_ => tx.execute(w)))
+        yield Done
+      }
     }

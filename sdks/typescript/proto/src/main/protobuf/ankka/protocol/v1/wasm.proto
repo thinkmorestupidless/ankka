@@ -85,3 +85,7 @@ message ConfigReply { optional string value = 1; }
 
 // The invoke_stream import: a streaming reply, delivered whole.
 message StreamTokens { repeated StreamToken tokens = 1; }
+
+// The subject_key import (1.15): a `KeyFetch` in, the key or why there is none out. The host holds
+// the keyring's channel and its cache, so an erased subject answers `refused` with reason "erased".
+message SubjectKeyReply { oneof result { SubjectKey key = 1; SubjectRefused refused = 2; } }

@@ -11,6 +11,7 @@ import ankka.protocol.v1.agent.{
 import ankka.protocol.v1.consumer.ConsumerEffect
 import ankka.protocol.v1.discovery.Kind
 import ankka.protocol.v1.endpoint.HttpReply
+import ankka.protocol.v1.erasure.{ErasureHandleReply, ErasureHandleRequest}
 import ankka.protocol.v1.event_sourced.EventSourcedIn
 import ankka.protocol.v1.key_value.KeyValueIn
 import ankka.protocol.v1.payload as pb
@@ -418,6 +419,22 @@ final class WasmConversation(
         Purpose(componentId.toString, Some(taskType), sent)
       )(PbTaskResultVerdict.parseFrom)
     ).map(fromTaskResultVerdict)
+
+  override def erase(
+      subject: String,
+      erasureId: String,
+      reapply: Boolean,
+      metadata: Metadata
+  ): Future[com.thinkmorestupidless.ankka.sdk.ErasureOutcome] =
+    val sent = stamped(metadata)
+    orFail(
+      fresh(
+        "erase",
+        ErasureHandleRequest(subject, erasureId, reapply, sent.toSeq.toMap),
+        settings.commandTimeout,
+        Purpose("", None, sent)
+      )(ErasureHandleReply.parseFrom)
+    ).map(com.thinkmorestupidless.ankka.sidecar.GrpcConversation.erasureOutcome)
 
   /** Refused at discovery: a module answers a request whole, so no route of one streams. */
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =

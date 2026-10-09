@@ -104,7 +104,7 @@ final class ViewQueries[Row] private[ankka] (
     declared: Vector[CheckedQuery] = Vector.empty
 )(using system: ActorSystem[?]):
 
-  private given ExecutionContext = system.executionContext
+  private given ExecutionContext = ServiceScope(system).executionContext
 
   // Lazy: an endpoint is built before it serves, and a suite that only lists its routes builds one
   // with no actor system behind it. Nothing is counted until a query is made.

@@ -51,6 +51,7 @@ private[ankka] object EventSourcedEntityHost:
       val observability = Observability(ctx.system)
       val componentRef  = observability.names.intern(descriptor.componentId.toString)
       val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
+      val scope         = ServiceScope(ctx.system)
 
       val base = EventSourcedBehavior
         .withEnforcedReplies[
@@ -61,20 +62,22 @@ private[ankka] object EventSourcedEntityHost:
           persistenceId = PersistenceId(descriptor.componentId, entityId),
           emptyState = empty,
           commandHandler = (state, command) =>
-            onCommand(
-              descriptor,
-              entity,
-              entityId,
-              state,
-              command,
-              EventSourcedBehavior.lastSequenceNumber(ctx),
-              observability,
-              componentRef
+            scope.within(
+              onCommand(
+                descriptor,
+                entity,
+                entityId,
+                state,
+                command,
+                EventSourcedBehavior.lastSequenceNumber(ctx),
+                observability,
+                componentRef
+              )
             ),
           eventHandler = (state, event) => onEvent(entity, state, event)
         )
-        .eventAdapter(eventAdapter(descriptor))
-        .snapshotAdapter(snapshotAdapter(descriptor, entity))
+        .eventAdapter(ScopedAdapters.events(scope, eventAdapter(descriptor)))
+        .snapshotAdapter(ScopedAdapters.snapshots(scope, snapshotAdapter(descriptor, entity)))
 
       descriptor.snapshotEvery match
         case Some(n) if n > 0 => base.withRetention(RetentionCriteria.snapshotEvery(n, 2))

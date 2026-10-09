@@ -58,7 +58,11 @@ object Discovery:
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
-   * (feature 031).
+   * (feature 031). 1.14: a topic source's contract, broker and parallel reading, and a publication
+   * (feature 037). 1.15: personal fields — `SubjectKeys`, `LookupToken` and `EraseObjects` on
+   * `Client`, the `Erasure` service a process serves, `Spec.erasure_handler`, and the module
+   * imports `subject_key`, `lookup_token`, `erase_objects` with the export `ankka1_erase` (feature
+   * 042).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -139,6 +143,9 @@ object Discovery:
 
   /** The minor that introduced socket routes. */
   private val SocketsSince = 9
+
+  /** The minor that introduced the erasure handler. */
+  private val ErasureSince = 15
 
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
@@ -367,6 +374,10 @@ object Discovery:
               s"protocol 1.$SocketsSince; the SDK speaks ${spec.protocolVersion}"
       }
     }
+
+    if spec.erasureHandler && minorOf(spec.protocolVersion).exists(_ < ErasureSince) then
+      problems += s"the spec declares an erasure handler, which needs protocol 1.$ErasureSince; " +
+        s"the SDK speaks ${spec.protocolVersion}"
 
     val found = problems.result()
     if found.nonEmpty then Left(found)

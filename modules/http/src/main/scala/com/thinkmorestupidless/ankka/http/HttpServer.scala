@@ -528,7 +528,9 @@ private final class Router(
             // of its own — the difference between a trace and a list.
             Tracing.request(route.describe, origin)(route.run(args, bytes))
           )
-        )(using AnkkaExecutors.virtual)
+        )(using
+          com.thinkmorestupidless.ankka.runtime.ServiceScope(system).on(AnkkaExecutors.virtual)
+        )
       }
       .map { encoded =>
         HttpResponse(
@@ -589,7 +591,9 @@ private final class Router(
             // of its own — the difference between a trace and a list.
             Tracing.request(route.describe, origin)(route.run(args, bytes))
           )
-        )(using AnkkaExecutors.virtual)
+        )(using
+          com.thinkmorestupidless.ankka.runtime.ServiceScope(system).on(AnkkaExecutors.virtual)
+        )
       }
       .flatMap { source =>
         // JSON per event, named or not: see SseEvent for why raw text is not safe here.
@@ -656,12 +660,20 @@ private final class Router(
                 RequestScope.withContext(context)(
                   Tracing.socket(route.describe, origin)(run(opened))
                 )
-              )(using AnkkaExecutors.virtual).onComplete {
+              )(using
+                com.thinkmorestupidless.ankka.runtime
+                  .ServiceScope(system)
+                  .on(AnkkaExecutors.virtual)
+              ).onComplete {
                 case scala.util.Success(_) => opened.close(CloseReason.Finished)
                 case scala.util.Failure(failure) =>
                   system.log.error(s"unhandled failure in ${route.describe}", failure)
                   opened.close(CloseReason.Failed)
-              }(using AnkkaExecutors.virtual)
+              }(using
+                com.thinkmorestupidless.ankka.runtime
+                  .ServiceScope(system)
+                  .on(AnkkaExecutors.virtual)
+              )
             }
             val protocol =
               Option.when(offeredProtocols(request).contains(SocketProtocol))(SocketProtocol)

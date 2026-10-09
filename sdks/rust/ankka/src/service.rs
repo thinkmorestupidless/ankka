@@ -19,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.14";
+pub const PROTOCOL_VERSION: &str = "1.15";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -53,6 +53,7 @@ pub struct Service {
     endpoints: Vec<Box<dyn RegisteredEndpoint>>,
     problems: Vec<String>,
     held: RefCell<HashMap<String, HeldState>>,
+    erasure_handler: Option<crate::erasure::ErasureHandler>,
 }
 
 impl Service {
@@ -64,7 +65,21 @@ impl Service {
             endpoints: Vec::new(),
             problems: Vec::new(),
             held: RefCell::default(),
+            erasure_handler: None,
         }
+    }
+
+    /// What the service does of its own when one of its project's data subjects is erased —
+    /// chiefly the subject's objects in its bucket, which the platform cannot see. Run after the
+    /// platform's own duties, on every application and again on each later one, so it must be safe
+    /// to run twice. At most one per service (protocol 1.15).
+    pub fn on_erasure(mut self, handler: crate::erasure::ErasureHandler) -> Service {
+        if self.erasure_handler.is_some() {
+            self.problems
+                .push("an erasure handler is registered twice".to_string());
+        }
+        self.erasure_handler = Some(handler);
+        self
     }
 
     /// Registers a component by its value: `.register(ShoppingCart)`.
@@ -174,6 +189,15 @@ impl Service {
         if let Some(refusal) = refusal(&components, &info.protocol_version) {
             panic!("{refusal}");
         }
+        if self.erasure_handler.is_some() && start_from::older_than(&info.protocol_version, (1, 15))
+        {
+            panic!(
+                "the service registers an erasure handler, which the runtime would never run: it \
+                 speaks protocol {}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.15 \
+                 or later.",
+                info.protocol_version
+            );
+        }
         let mut stateful: Vec<String> = self
             .components
             .iter()
@@ -190,6 +214,7 @@ impl Service {
                 }),
                 components,
                 endpoints: self.endpoints.iter().map(|e| e.to_endpoint()).collect(),
+                erasure_handler: self.erasure_handler.is_some(),
             }),
             stateful,
             abi_version: ABI_VERSION.to_string(),
@@ -284,6 +309,8 @@ impl Service {
 
     /// Runs one export over its encoded request, answering the encoded reply.
     pub fn call(&self, export: Export, request: &[u8]) -> Vec<u8> {
+        // A refusal left by an earlier call must not be read as this one's.
+        let _ = crate::personal::take_refusal();
         match export {
             Export::Discover => {
                 let problems = self.problems();
@@ -342,6 +369,9 @@ impl Service {
                 let id = request.component_id.clone();
                 self.answer(&id, "guardrails", |c| c.check_guardrail(request))
                     .encode_to_vec()
+            }
+            Export::Erase => {
+                crate::erasure::run(self.erasure_handler, decode(export, request)).encode_to_vec()
             }
             Export::CheckTaskResult => {
                 let request: proto::TaskResultRequest = decode(export, request);

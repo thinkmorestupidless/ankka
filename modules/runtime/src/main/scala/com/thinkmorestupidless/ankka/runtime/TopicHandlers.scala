@@ -26,7 +26,8 @@ private[ankka] final class ViewTopicHandler(
     guard: ViewGuard
 )(using system: ActorSystem[?]):
 
-  private given ExecutionContext = system.executionContext
+  private val scope              = ServiceScope(system)
+  private given ExecutionContext = ServiceScope(system).executionContext
 
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
@@ -34,52 +35,54 @@ private[ankka] final class ViewTopicHandler(
   private val observability = Observability(system)
 
   def process(message: IncomingMessage): Future[Done] =
-    message.subject match
-      case None =>
-        // Without a subject there is no row to key off. Failing would redeliver
-        // forever, so log and move on.
-        system.log.warn(
-          "view '{}' skipped a message with no ce-subject",
-          descriptor.componentId
-        )
-        Future.successful(Done)
-
-      case Some(subject) =>
-        database
-          .query(ViewStore.selectByKey(table, subject))(row =>
-            descriptor.rowSerializer
-              .fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8"))
+    scope.within {
+      message.subject match
+        case None =>
+          // Without a subject there is no row to key off. Failing would redeliver
+          // forever, so log and move on.
+          system.log.warn(
+            "view '{}' skipped a message with no ce-subject",
+            descriptor.componentId
           )
-          .flatMap { existing =>
-            view._setRow(existing.headOption)
-            view._setContext(
-              Some(SimpleChangeContext(subject, 0L, localOrigin = true))
+          Future.successful(Done)
+
+        case Some(subject) =>
+          database
+            .query(ViewStore.selectByKey(table, subject))(row =>
+              descriptor.rowSerializer
+                .fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8"))
             )
+            .flatMap { existing =>
+              view._setRow(existing.headOption)
+              view._setContext(
+                Some(SimpleChangeContext(subject, 0L, localOrigin = true))
+              )
 
-            val effect =
-              try
-                ProjectionSupport
-                  .traced(
-                    observability,
-                    descriptor.componentId.toString,
-                    ViewDescriptor.OnChange.name,
-                    ProjectionSupport.carried(message)
-                  )(view.onChange(descriptor.source.decoder.fromBytes(message.payload)))
-                  ._1
-              finally view._setContext(None)
+              val effect =
+                try
+                  ProjectionSupport
+                    .traced(
+                      observability,
+                      descriptor.componentId.toString,
+                      ViewDescriptor.OnChange.name,
+                      ProjectionSupport.carried(message)
+                    )(view.onChange(descriptor.source.decoder.fromBytes(message.payload)))
+                    ._1
+                finally view._setContext(None)
 
-            effect match
-              case ViewEffect.UpdateRow(row) =>
-                val json = String(
-                  PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)),
-                  "UTF-8"
-                )
-                guard.write(ViewStore.upsert(table, subject, json))
-              case ViewEffect.DeleteRow =>
-                guard.write(ViewStore.delete(table, subject))
-              case ViewEffect.Ignore =>
-                Future.successful(Done)
-          }
+              effect match
+                case ViewEffect.UpdateRow(row) =>
+                  val json = String(
+                    PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)),
+                    "UTF-8"
+                  )
+                  guard.write(ViewStore.upsert(table, subject, json))
+                case ViewEffect.DeleteRow =>
+                  guard.write(ViewStore.delete(table, subject))
+                case ViewEffect.Ignore =>
+                  Future.successful(Done)
+            }
+    }
 
 /**
  * Runs a consumer over broker messages.
@@ -94,7 +97,8 @@ private[ankka] final class ConsumerTopicHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    scope: ServiceScope
 ):
 
   private val id = descriptor.componentId.toString
@@ -103,6 +107,9 @@ private[ankka] final class ConsumerTopicHandler(
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(message: IncomingMessage): Future[Done] =
+    scope.within(handle(message))
+
+  private def handle(message: IncomingMessage): Future[Done] =
     val subject = message.subject.getOrElse("")
 
     consumer._setContext(Some(SimpleChangeContext(subject, 0L, localOrigin = true)))

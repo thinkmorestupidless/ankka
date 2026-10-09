@@ -37,7 +37,43 @@ service Client {
   // older than 1.12 answers UNIMPLEMENTED, so a timer meant to recur is never scheduled as one that
   // fires once. A refusal is an Error in the reply, as for the secret store.
   rpc ScheduleRecurring (ScheduleRecurringRequest) returns (ScheduleRecurringReply);
+
+  // Personal fields (protocol 1.15). The runtime holds the keyring's channel and its cache; a
+  // process never reaches the keyring itself. `FetchSubjectKey` answers one fetch — a codec, which is
+  // synchronous in every SDK, makes it as one blocking call on a miss — and `SubjectKeyEvents`, one
+  // stream per process for its life, tells it of every subject erased so it drops its copy at once.
+  rpc FetchSubjectKey  (KeyFetch) returns (KeyAnswer);
+  rpc SubjectKeyEvents (Empty)    returns (stream SubjectDestroyed);
+  // The lookup token of a value, made with the project's lookup key, which the process never holds.
+  rpc LookupToken  (LookupTokenRequest)  returns (LookupTokenReply);
+  // Deletes every object under `subjects/<subject>/` in the service's bucket. Only an erasure
+  // handler calls it.
+  rpc EraseObjects (EraseObjectsRequest) returns (EraseObjectsReply);
 }
+
+message KeyAnswer {
+  oneof out {
+    SubjectKey key = 1;
+    SubjectDestroyed destroyed = 2;
+    SubjectRefused refused = 3;
+  }
+}
+// `create` only for a present value written in the process's own project.
+message KeyFetch         { string subject = 1; string project = 2; bool create = 3; }
+// `expires_millis`: how long the process may keep the key, so its copy expires with the runtime's.
+message SubjectKey       { string subject = 1; string project = 2; bytes key = 3; int64 expires_millis = 4; }
+// Erased: answered to a fetch, and sent on `SubjectKeyEvents` for every subject the runtime is told of.
+message SubjectDestroyed { string subject = 1; string project = 2; string erasure_id = 3; }
+// Not erased: this project may not read that one's subjects, the subject was never written, or
+// the keyring could not be reached (`reason` says which; the process retries the last).
+message SubjectRefused   { string subject = 1; string project = 2; string reason = 3; bool unavailable = 4; }
+
+message LookupTokenRequest { bytes plaintext = 1; }
+message LookupTokenReply   { oneof result { string token = 1; Error error = 2; } }
+
+message EraseObjectsRequest { string subject = 1; }
+message EraseObjectsReply   { oneof result { ErasedObjects erased = 1; Error error = 2; } }
+message ErasedObjects { int64 count = 1; int64 final_at_millis = 2; }
 
 message InvokeRequest {
   Kind kind = 1;

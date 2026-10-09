@@ -41,6 +41,14 @@ pub enum Import {
     DeleteSecret,
     /// `request`: `ServiceRequest` in, `ServiceReply` out. Called through [`call_request`].
     Request,
+    /// `subject_key`: `KeyFetch` in, `SubjectKeyReply` out. Called through [`call_subject_key`].
+    SubjectKey,
+    /// `lookup_token`: `LookupTokenRequest` in, `LookupTokenReply` out. Called through
+    /// [`call_lookup_token`].
+    LookupToken,
+    /// `erase_objects`: `EraseObjectsRequest` in, `EraseObjectsReply` out. Called through
+    /// [`call_erase_objects`].
+    EraseObjects,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -107,6 +115,24 @@ pub fn random(buf: &mut [u8]) {
 /// (protocol 1.12).
 pub fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
     host::call_schedule_recurring(request)
+}
+
+/// Asks for a data subject's key: an encoded `KeyFetch` in, an encoded `SubjectKeyReply` out. Apart
+/// from [`call`] for the reason [`call_secret`] is: a module with no personal field must not import
+/// it, or it would need a runtime that offers it (protocol 1.15).
+pub fn call_subject_key(request: &[u8]) -> Vec<u8> {
+    host::call_subject_key(request)
+}
+
+/// Asks for a value's lookup token, which only a view's row carries (protocol 1.15).
+pub fn call_lookup_token(request: &[u8]) -> Vec<u8> {
+    host::call_lookup_token(request)
+}
+
+/// Erases a data subject's objects in the service's bucket; served only to the erasure handler
+/// (protocol 1.15).
+pub fn call_erase_objects(request: &[u8]) -> Vec<u8> {
+    host::call_erase_objects(request)
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -187,6 +213,9 @@ mod host {
                 Import::ScheduleRecurring => {
                     panic!("schedule_recurring is called through call_schedule_recurring")
                 }
+                Import::SubjectKey | Import::LookupToken | Import::EraseObjects => {
+                    panic!("{import:?} is called through its own function")
+                }
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -217,6 +246,43 @@ mod host {
         let (rptr, rlen) = memory::unpack(packed);
         // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
         unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    // Personal fields (1.15): each a block of its own, so a module imports only what it uses.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn subject_key(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn lookup_token(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn erase_objects(ptr: u32, len: u32) -> u64;
+    }
+
+    fn answered(packed: u64) -> Vec<u8> {
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn call_subject_key(request: &[u8]) -> Vec<u8> {
+        // SAFETY: as for `call`.
+        answered(unsafe { subject_key(request.as_ptr() as usize as u32, request.len() as u32) })
+    }
+
+    pub(super) fn call_lookup_token(request: &[u8]) -> Vec<u8> {
+        // SAFETY: as for `call`.
+        answered(unsafe { lookup_token(request.as_ptr() as usize as u32, request.len() as u32) })
+    }
+
+    pub(super) fn call_erase_objects(request: &[u8]) -> Vec<u8> {
+        // SAFETY: as for `call`.
+        answered(unsafe { erase_objects(request.as_ptr() as usize as u32, request.len() as u32) })
     }
 
     pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
@@ -486,7 +552,54 @@ mod native {
                 call_secret(import, request)
             }
             Import::Request => call_request(request),
+            Import::SubjectKey => call_subject_key(request),
+            Import::LookupToken => call_lookup_token(request),
+            Import::EraseObjects => call_erase_objects(request),
         }
+    }
+
+    pub(super) fn call_subject_key(request: &[u8]) -> Vec<u8> {
+        if let Some(host) = installed() {
+            return host.call(Import::SubjectKey, request);
+        }
+        let fetch = proto::KeyFetch::decode(request).expect("a KeyFetch");
+        proto::SubjectKeyReply {
+            result: Some(proto::subject_key_reply::Result::Refused(
+                proto::SubjectRefused {
+                    subject: fetch.subject,
+                    project: fetch.project,
+                    reason: NO_RUNTIME.into(),
+                    unavailable: true,
+                },
+            )),
+        }
+        .encode_to_vec()
+    }
+
+    pub(super) fn call_lookup_token(request: &[u8]) -> Vec<u8> {
+        if let Some(host) = installed() {
+            return host.call(Import::LookupToken, request);
+        }
+        proto::LookupTokenReply {
+            result: Some(proto::lookup_token_reply::Result::Error(proto::Error {
+                message: NO_RUNTIME.into(),
+                code: proto::ErrorCode::Unavailable as i32,
+            })),
+        }
+        .encode_to_vec()
+    }
+
+    pub(super) fn call_erase_objects(request: &[u8]) -> Vec<u8> {
+        if let Some(host) = installed() {
+            return host.call(Import::EraseObjects, request);
+        }
+        proto::EraseObjectsReply {
+            result: Some(proto::erase_objects_reply::Result::Error(proto::Error {
+                message: NO_RUNTIME.into(),
+                code: proto::ErrorCode::Unavailable as i32,
+            })),
+        }
+        .encode_to_vec()
     }
 
     pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {

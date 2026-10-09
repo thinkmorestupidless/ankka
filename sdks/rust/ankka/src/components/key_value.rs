@@ -241,10 +241,27 @@ impl<C: KeyValueEntity> Registration<C> {
         held: &mut HeldState,
     ) -> proto::HandleReply {
         let sent = request.state.clone();
-        let fault = |id: i64, message: String| proto::HandleReply {
-            reply: None,
-            state: sent.clone(),
-            failure: Some(failure(id, ErrorCode::Internal, message)),
+        let fault = |id: i64, message: String| match crate::personal::take_refusal() {
+            // A personal field that could not be written refuses the command, as for an event
+            // sourced entity; the state stays what it was (1.15).
+            Some(refusal) => proto::HandleReply {
+                reply: Some(proto::handle_reply::Reply::KeyValue(
+                    proto::key_value_out::Reply {
+                        command_id: id,
+                        outcome: Some(proto::Outcome {
+                            outcome: Some(proto::outcome::Outcome::Error(refusal.to_proto())),
+                        }),
+                        ..Default::default()
+                    },
+                )),
+                state: sent.clone(),
+                failure: None,
+            },
+            None => proto::HandleReply {
+                reply: None,
+                state: sent.clone(),
+                failure: Some(failure(id, ErrorCode::Internal, message)),
+            },
         };
         let Some(proto::handle_request::Command::KeyValue(command)) = request.command else {
             return fault(

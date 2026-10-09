@@ -17,6 +17,7 @@ from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent
 from ankka.consumer import Consumer
 from ankka.endpoint import Endpoint
+from ankka.erasure import ErasureHandler
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
 from ankka.graph import GraphConsumer
 from ankka.key_value_entity import KeyValueEntity
@@ -25,7 +26,7 @@ from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
 
-PROTOCOL_VERSION = "1.14"
+PROTOCOL_VERSION = "1.15"
 DEFAULT_PROCESS_PORT = 9010
 
 
@@ -45,6 +46,8 @@ class Registry:
     autonomous: dict[str, type[AutonomousAgent]] = field(default_factory=dict)
     endpoints: dict[str, type[Endpoint]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
+    # What the service does of its own when a data subject is erased (protocol 1.15): at most one.
+    erasure_handler: ErasureHandler | None = None
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
@@ -66,6 +69,7 @@ class Registry:
             sdk=discovery_pb2.SdkInfo(name="ankka-python", version=__version__),
             components=components,
             endpoints=[cls.to_endpoint() for cls in self.endpoints.values()],
+            erasure_handler=self.erasure_handler is not None,
         )
 
 
@@ -116,6 +120,16 @@ class ServiceBuilder:
             self._registry.others.append(component)
         else:
             self._problems.append(f"{component!r} is not an ankka component")
+        return self
+
+    def on_erasure(self, handler: ErasureHandler) -> ServiceBuilder:
+        """What the service does of its own when one of its project's data subjects is erased —
+        chiefly the subject's objects in its bucket, which the platform cannot see. Run after the
+        platform's own duties, on every application and again on each later one, so it must be safe
+        to run twice. At most one per service."""
+        if self._registry.erasure_handler is not None:
+            self._problems.append("an erasure handler is registered twice")
+        self._registry.erasure_handler = handler
         return self
 
     def validate(self) -> Registry:

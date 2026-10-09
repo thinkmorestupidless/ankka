@@ -4,6 +4,7 @@
 // whether a number is an `int` or a `double`, carries a `long` as `bigint`, and names records so the
 // default manifest exists. Nothing here performs I/O or touches JSON; that is `json.ts`.
 
+import type { Personal } from "./personal.ts"
 import type { Duration, Instant, LocalDate, LocalDateTime } from "./time.ts"
 
 /** The one value of type `Done`: a handler that has nothing to say. */
@@ -34,6 +35,7 @@ export type Shape =
   | { readonly kind: "sumType"; readonly name: string; readonly cases: Readonly<Record<string, Readonly<Record<string, Schema>>>> }
   | { readonly kind: "enumeration"; readonly name: string; readonly values: readonly string[] }
   | { readonly kind: "lazy"; readonly thunk: () => Schema }
+  | { readonly kind: "personal"; readonly inner: Schema }
 
 interface Typed<T> {
   /** Phantom: carries the TypeScript type. Never set. */
@@ -131,6 +133,14 @@ export const s = Object.freeze({
     return Object.freeze({ kind: "enumeration", name, values: Object.freeze([...values]) }) as Schema<V[number]>
   },
 
+  /**
+   * A personal field (protocol 1.15): a value of one data subject, written as the personal envelope,
+   * encrypted under that subject's key. Build one with `present(subject, value)`.
+   */
+  personal<T>(inner: Schema<T>): Schema<Personal<T>> {
+    return Object.freeze({ kind: "personal", inner }) as Schema<Personal<T>>
+  },
+
   /** A reference to a schema declared later, for recursive shapes: `s.list(s.lazy(() => Tree))`. */
   lazy<T>(thunk: () => Schema<T>): Schema<T> {
     return Object.freeze({ kind: "lazy", thunk }) as Schema<T>
@@ -166,6 +176,8 @@ export function describe(schema: Schema): string {
       return `list<${describe(r.inner)}>`
     case "stringMap":
       return `map<string, ${describe(r.inner)}>`
+    case "personal":
+      return `personal<${describe(r.inner)}>`
     default:
       return r.kind
   }
@@ -185,6 +197,8 @@ export function defaultManifest(schema: Schema): string {
       return `list[${defaultManifest(r.inner)}]`
     case "stringMap":
       return `map[${defaultManifest(r.inner)}]`
+    case "personal":
+      return `personal[${defaultManifest(r.inner)}]`
     default:
       return r.kind
   }
@@ -240,6 +254,13 @@ export function toJsonSchema(schema: Schema): Record<string, unknown> {
       }
     case "enumeration":
       return { type: "object", properties: { type: { enum: [...r.values] } }, required: ["type"], additionalProperties: false }
+    case "personal":
+      return {
+        type: "object",
+        properties: { subject: { type: "string" }, project: { type: "string" }, data: { type: "string" }, lookup: { type: "string" } },
+        required: ["subject", "project"],
+        additionalProperties: false,
+      }
   }
 }
 

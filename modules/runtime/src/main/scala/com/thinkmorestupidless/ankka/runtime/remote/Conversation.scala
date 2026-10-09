@@ -175,7 +175,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.14"
+  val Version: String     = "1.15"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -314,6 +314,22 @@ trait Conversation:
   ): Future[TaskResultVerdict]
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]
+
+  /**
+   * Runs the guest's erasure handler (protocol 1.15) for one application of an erasure. Asked only
+   * of a guest whose discovery declared one; a conversation that cannot run one answers so.
+   */
+  def erase(
+      subject: String,
+      erasureId: String,
+      reapply: Boolean,
+      metadata: Metadata
+  ): Future[com.thinkmorestupidless.ankka.sdk.ErasureOutcome] =
+    val _ = (subject, erasureId, reapply, metadata)
+    Future.successful(
+      com.thinkmorestupidless.ankka.sdk.ErasureOutcome
+        .Failed("this guest serves no erasure handler")
+    )
   def handleHttpStream(request: HttpForward): Source[String, NotUsed]
 
   /**

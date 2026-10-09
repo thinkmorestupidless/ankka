@@ -460,6 +460,25 @@ class ComponentClient:
         component_id = agent if isinstance(agent, str) else agent.component_id
         return AutonomousAgentCalls(self, component_id, instance_id)
 
+    async def lookup_token(self, value: Any, tp: Any = None) -> str:
+        """The lookup token of ``value``: what a view's declared query compares a personal field
+        marked for lookup with. Made by the runtime with the project's lookup key, which this
+        process never holds; a token shows only that two values are equal (protocol 1.15)."""
+        from ankka.codec import to_json_value, write_json
+
+        plaintext = write_json(to_json_value(value, tp)).encode("utf-8")
+        try:
+            reply = await self._stub.LookupToken(client_pb2.LookupTokenRequest(plaintext=plaintext))
+        except grpc.aio.AioRpcError as e:
+            if e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise CommandError(
+                    Error("the runtime is older than protocol 1.15 and makes no lookup tokens", ErrorCode.UNAVAILABLE)
+                ) from e
+            raise
+        if reply.WhichOneof("result") == "error":
+            raise CommandError(_error(reply.error))
+        return str(reply.token)
+
     async def close(self) -> None:
         if self._channel is not None:
             await self._channel.close()

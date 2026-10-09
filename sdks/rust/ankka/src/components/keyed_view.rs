@@ -264,9 +264,9 @@ impl<C: KeyedView> Registered for Registration<C> {
             .map(|change| match change {
                 RowChange::Upsert(key, row) => proto::RowChange {
                     change: Some(proto::row_change::Change::Upsert(
-                        codec.to_payload(&row).unwrap_or_else(|e| {
-                            panic!("keyed view '{view}': row '{key}' does not encode: {e}")
-                        }),
+                        crate::personal::allowing_lookup(|| codec.to_payload(&row)).unwrap_or_else(
+                            |e| panic!("keyed view '{view}': row '{key}' does not encode: {e}"),
+                        ),
                     )),
                     key,
                 },

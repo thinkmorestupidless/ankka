@@ -9,6 +9,7 @@ import ankka.protocol.v1.agent.{
   ToolResult
 }
 import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
+import ankka.protocol.v1.erasure.{ErasureGrpc, ErasureHandleReply, ErasureHandleRequest}
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc}
 import ankka.protocol.v1.endpoint.{
   HttpGrpc,
@@ -77,6 +78,7 @@ final class GrpcConversation(
   private val http         = HttpGrpc.stub(channel)
   private val agent        = AgentGrpc.stub(channel)
   private val discovery    = DiscoveryGrpc.stub(channel)
+  private val erasure      = ErasureGrpc.stub(channel)
 
   import Translate.*
 
@@ -424,6 +426,18 @@ final class GrpcConversation(
   def invokeTimedAction(request: TimedActionRequest): Future[Either[CommandError, Unit]] =
     timedAction.invoke(toTimedActionRequest(request)).map(fromTimedActionEffect)
 
+  // ── Erasure (protocol 1.15) ─────────────────────────────────────────────────
+
+  override def erase(
+      subject: String,
+      erasureId: String,
+      reapply: Boolean,
+      metadata: Metadata
+  ): Future[com.thinkmorestupidless.ankka.sdk.ErasureOutcome] =
+    erasure
+      .handle(ErasureHandleRequest(subject, erasureId, reapply, metadata.toSeq.toMap))
+      .map(GrpcConversation.erasureOutcome)
+
   // ── Agents ──────────────────────────────────────────────────────────────────
 
   def plan(request: PlanRequest): Future[Either[ProcessFailure, RemotePlan]] =
@@ -606,3 +620,19 @@ final class GrpcConversation(
     catch case NonFatal(_) => false
 
 end GrpcConversation
+
+object GrpcConversation:
+  /** A process's or a module's answer from its erasure handler, as the runtime records it. */
+  def erasureOutcome(reply: ErasureHandleReply): com.thinkmorestupidless.ankka.sdk.ErasureOutcome =
+    import com.thinkmorestupidless.ankka.sdk.{ErasedObjects, ErasureOutcome}
+    reply.outcome match
+      case ErasureHandleReply.Outcome.Done(done) =>
+        ErasureOutcome.Done(
+          done.detail,
+          done.objects.map(o =>
+            ErasedObjects(o.count, java.time.Instant.ofEpochMilli(o.finalAtMillis))
+          )
+        )
+      case ErasureHandleReply.Outcome.Failed(failed) => ErasureOutcome.Failed(failed.reason)
+      case ErasureHandleReply.Outcome.Empty =>
+        ErasureOutcome.Failed("the erasure handler answered nothing")

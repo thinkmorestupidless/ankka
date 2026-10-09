@@ -4,6 +4,7 @@
 //
 //   await Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen()
 
+import type { ErasureHandler } from "./erasure.ts"
 import { isStartFrom, type StartFrom } from "./startFrom.ts"
 import { Contract, type Publication } from "./contract.ts"
 import { codecFor, isCodec, type Codec, type Shape } from "./codec.ts"
@@ -173,9 +174,13 @@ export class Registry {
   readonly components: ReadonlyMap<string, RegisteredComponent>
   readonly endpoints: ReadonlyMap<string, RegisteredEndpoint>
 
-  constructor(components: ReadonlyMap<string, RegisteredComponent>, endpoints: ReadonlyMap<string, RegisteredEndpoint>) {
+  /** What the service does of its own when a data subject is erased (protocol 1.15). */
+  readonly erasureHandler: ErasureHandler | undefined
+
+  constructor(components: ReadonlyMap<string, RegisteredComponent>, endpoints: ReadonlyMap<string, RegisteredEndpoint>, erasureHandler?: ErasureHandler) {
     this.components = components
     this.endpoints = endpoints
+    this.erasureHandler = erasureHandler
     Object.freeze(this)
   }
 
@@ -227,6 +232,7 @@ export interface ServiceOptions {
 
 export class ServiceBuilder {
   readonly #classes: unknown[] = []
+  readonly #erasureHandlers: ErasureHandler[] = []
   readonly #client: ComponentClient
   readonly #log: (message: string) => void
 
@@ -254,6 +260,16 @@ export class ServiceBuilder {
   register<C extends Endpoint>(cls: EndpointClass<C>): this
   register(cls: AnyClass): this {
     this.#classes.push(cls)
+    return this
+  }
+
+  /**
+   * What the service does of its own when one of its project's data subjects is erased — chiefly the
+   * subject's objects in its bucket, which the platform cannot see. Run after the platform's own
+   * duties, on every application and again on each later one, so it must be safe to run twice.
+   */
+  onErasure(handler: ErasureHandler): this {
+    this.#erasureHandlers.push(handler)
     return this
   }
 
@@ -298,8 +314,9 @@ export class ServiceBuilder {
       }
     }
 
+    if (this.#erasureHandlers.length > 1) problems.push("an erasure handler is registered twice")
     if (problems.length > 0) throw new RegistrationError(problems)
-    return new Registry(components, endpoints)
+    return new Registry(components, endpoints, this.#erasureHandlers[0])
   }
 
   /** The discovery `Spec` for what is registered, without listening. */

@@ -1,0 +1,22 @@
+// The erasure handler (protocol 1.15), served by the process when its `Spec` declared one: called
+// once for each erasure applied to the service, and again on each reapplication, after the runtime
+// has done the platform's own duties. A throw, a `failed` or no answer within the runtime's handler
+// timeout is a failed application, retried on the next sweep, so a handler must be safe to run again.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/client.proto";
+
+service Erasure { rpc Handle (ErasureHandleRequest) returns (ErasureHandleReply); }
+
+message ErasureHandleRequest {
+  string subject = 1;
+  string erasure_id = 2;
+  bool reapply = 3;
+  map<string, string> metadata = 4;
+}
+message ErasureHandleReply { oneof outcome { ErasureDone done = 1; ErasureFailed failed = 2; } }
+// `objects`: what `EraseObjects` reported, when the handler called it.
+message ErasureDone   { string detail = 1; ErasedObjects objects = 2; }
+message ErasureFailed { string reason = 1; }

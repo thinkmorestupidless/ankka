@@ -810,7 +810,8 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                ServiceScope(system)
               )
           )
         }
@@ -829,7 +830,8 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                ServiceScope(system)
               )
           )
         }
@@ -837,7 +839,15 @@ final class ProjectionRuntime private (
       case ChangeSource.Topic(topic, _, startFrom, options) =>
         subscriberFor(options.broker).foreach { broker =>
           def handler =
-            ConsumerTopicHandler(typed, target, client, Observability(system), secrets, services)
+            ConsumerTopicHandler(
+              typed,
+              target,
+              client,
+              Observability(system),
+              secrets,
+              services,
+              ServiceScope(system)
+            )
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
           val version = typed.version.getOrElse(1)
@@ -1187,7 +1197,8 @@ private final class ViewEventHandler(
 )(using system: ActorSystem[?])
     extends R2dbcHandler[EventEnvelope[JournalRecord]]:
 
-  private given ExecutionContext = system.executionContext
+  private val scope              = ServiceScope(system)
+  private given ExecutionContext = ServiceScope(system).executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
   // Captured here, at construction, not looked up inside `process`: projection handlers run on
@@ -1196,18 +1207,20 @@ private final class ViewEventHandler(
   private val observability = Observability(system)
 
   def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    scope.within {
+      val subject = PersistenceId.extractEntityId(envelope.persistenceId)
+      val record  = envelope.event
 
-    guard
-      .inSession(session)
-      .flatMap(_ => ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer))
-      .flatMap { row =>
-        val effect =
-          ProjectionSupport
-            .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
-        ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
-      }
+      guard
+        .inSession(session)
+        .flatMap(_ => ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer))
+        .flatMap { row =>
+          val effect =
+            ProjectionSupport
+              .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
+          ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
+        }
+    }
 
 /** As `ViewEventHandler`, but for key value state changes. */
 private final class ViewStateHandler(
@@ -1217,7 +1230,8 @@ private final class ViewStateHandler(
 )(using system: ActorSystem[?])
     extends Handler[DurableStateChange[StateRecord]]:
 
-  private given ExecutionContext = system.executionContext
+  private val scope              = ServiceScope(system)
+  private given ExecutionContext = ServiceScope(system).executionContext
   private val database           = Database()
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
@@ -1225,46 +1239,50 @@ private final class ViewStateHandler(
   private val observability = Observability(system)
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
+    scope.within {
+      val subject = PersistenceId.extractEntityId(change.persistenceId)
 
-    database
-      .query(ViewStore.selectByKey(table, subject))(r =>
-        descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
-      )
-      .flatMap { existing =>
-        view._setRow(existing.headOption)
-        view._setContext(Some(SimpleChangeContext(subject, revisionOf(change), localOrigin = true)))
-
-        val effect =
-          try
-            ProjectionSupport.handling(
-              observability,
-              descriptor.componentId.toString,
-              ViewDescriptor.OnChange.name
-            ) {
-              change match
-                // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
-                case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-                  view.onDelete
-                case updated: UpdatedDurableState[StateRecord] =>
-                  view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
-                case _: DeletedDurableState[StateRecord] => view.onDelete
-            }
-          finally view._setContext(None)
-
-        def write(fragment: SqlFragment): Future[Done] =
-          database.inTransaction(tx =>
-            guard.inTransaction(tx).flatMap(_ => tx.execute(fragment)).map(_ => Done)
+      database
+        .query(ViewStore.selectByKey(table, subject))(r =>
+          descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
+        )
+        .flatMap { existing =>
+          view._setRow(existing.headOption)
+          view._setContext(
+            Some(SimpleChangeContext(subject, revisionOf(change), localOrigin = true))
           )
-        effect match
-          case ViewEffect.UpdateRow(row) =>
-            val json =
-              String(PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)), "UTF-8")
-            write(ViewStore.upsert(table, subject, json))
-          case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
-          case ViewEffect.Ignore =>
-            Future.successful(Done)
-      }
+
+          val effect =
+            try
+              ProjectionSupport.handling(
+                observability,
+                descriptor.componentId.toString,
+                ViewDescriptor.OnChange.name
+              ) {
+                change match
+                  // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+                  case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+                    view.onDelete
+                  case updated: UpdatedDurableState[StateRecord] =>
+                    view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
+                  case _: DeletedDurableState[StateRecord] => view.onDelete
+              }
+            finally view._setContext(None)
+
+          def write(fragment: SqlFragment): Future[Done] =
+            database.inTransaction(tx =>
+              guard.inTransaction(tx).flatMap(_ => tx.execute(fragment)).map(_ => Done)
+            )
+          effect match
+            case ViewEffect.UpdateRow(row) =>
+              val json =
+                String(PersonalScope.allowingLookup(descriptor.rowSerializer.toBytes(row)), "UTF-8")
+              write(ViewStore.upsert(table, subject, json))
+            case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
+            case ViewEffect.Ignore =>
+              Future.successful(Done)
+        }
+    }
 
   private def revisionOf(change: DurableStateChange[StateRecord]): Long = change match
     case updated: UpdatedDurableState[StateRecord] => updated.revision
@@ -1277,7 +1295,8 @@ private final class ConsumerEventHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    scope: ServiceScope
 ) extends Handler[EventEnvelope[JournalRecord]]:
 
   private val id = descriptor.componentId.toString
@@ -1286,24 +1305,26 @@ private final class ConsumerEventHandler(
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    scope.within {
+      val subject = PersistenceId.extractEntityId(envelope.persistenceId)
+      val record  = envelope.event
 
-    consumer._setContext(
-      Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
-    )
-    val (effect, context) =
-      try
-        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
-          record.kind match
-            case JournalRecord.KindDomain =>
-              consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
-            case JournalRecord.KindDeleted => consumer.onDelete
-            case _                         => ConsumerEffect.Ignore
-        }
-      finally consumer._setContext(None)
+      consumer._setContext(
+        Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
+      )
+      val (effect, context) =
+        try
+          ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
+            record.kind match
+              case JournalRecord.KindDomain =>
+                consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
+              case JournalRecord.KindDeleted => consumer.onDelete
+              case _                         => ConsumerEffect.Ignore
+          }
+        finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+      ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+    }
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(
@@ -1312,7 +1333,8 @@ private final class ConsumerStateHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    scope: ServiceScope
 ) extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
@@ -1321,24 +1343,26 @@ private final class ConsumerStateHandler(
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
+    scope.within {
+      val subject = PersistenceId.extractEntityId(change.persistenceId)
 
-    val revision = change match
-      case updated: UpdatedDurableState[StateRecord] => updated.revision
-      case deleted: DeletedDurableState[StateRecord] => deleted.revision
+      val revision = change match
+        case updated: UpdatedDurableState[StateRecord] => updated.revision
+        case deleted: DeletedDurableState[StateRecord] => deleted.revision
 
-    consumer._setContext(Some(SimpleChangeContext(subject, revision, localOrigin = true)))
-    val (effect, context) =
-      try
-        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
-          change match
-            // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
-            case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-              consumer.onDelete
-            case updated: UpdatedDurableState[StateRecord] =>
-              consumer.onMessage(descriptor.source.decoder.fromBytes(updated.value.payload))
-            case _: DeletedDurableState[StateRecord] => consumer.onDelete
-        }
-      finally consumer._setContext(None)
+      consumer._setContext(Some(SimpleChangeContext(subject, revision, localOrigin = true)))
+      val (effect, context) =
+        try
+          ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
+            change match
+              // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+              case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+                consumer.onDelete
+              case updated: UpdatedDurableState[StateRecord] =>
+                consumer.onMessage(descriptor.source.decoder.fromBytes(updated.value.payload))
+              case _: DeletedDurableState[StateRecord] => consumer.onDelete
+          }
+        finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+      ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+    }

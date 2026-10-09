@@ -161,10 +161,18 @@ class PersonalFieldsFeatures
   Given(
     "a view {string} of {string} that reads {string} into a row with the personal field {string}"
   ) { (_: String, _: String, _: String, _: String) =>
-    ()
+    // One kit runs every scenario, and earlier ones wrote this entity with other emails: the row is
+    // written again here, and waited for until it holds this write, not a stale one.
+    register("8c1f", "ada@example.com")
   }
   When("{string} writes the row for {string}") { (_: String, subject: String) =>
-    kit.eventually("the row")(row(subject.stripPrefix("player/")))
+    val id = subject.stripPrefix("player/")
+    kit.eventually("the row holds the latest write")(
+      kit.service.viewClient
+        .forView(Profiles)
+        .get(id)
+        .filter(_.email.toOption.contains("ada@example.com"))
+    ): Unit
   }
   Then(
     "the table of {string} holds the field {string} of that row encrypted under the subject key of {string}"

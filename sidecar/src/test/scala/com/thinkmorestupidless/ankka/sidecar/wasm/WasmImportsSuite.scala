@@ -1,6 +1,13 @@
 package com.thinkmorestupidless.ankka.sidecar.wasm
 
-import ankka.protocol.v1.client.{ServiceFailure, ServiceReply, ServiceRequest}
+import ankka.protocol.v1.client.{
+  EraseObjectsReply,
+  EraseObjectsRequest,
+  KeyFetch,
+  ServiceFailure,
+  ServiceReply,
+  ServiceRequest
+}
 import ankka.protocol.v1.endpoint.{HttpRequest as PbHttpRequest, HttpResponse as PbHttpResponse}
 import ankka.protocol.v1.payload as pb
 import com.dylibso.chicory.runtime.{HostFunction, ImportValues, Instance, WasmFunctionHandle}
@@ -707,5 +714,59 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
     entries(talk, Metadata.empty).foreach { (function, _, call) =>
       val came = outcome(call)
       assert(came.contains(moduleFailed), s"$function did not run the guest's check: $came")
+    }
+  }
+
+  // ── Personal fields (protocol 1.15) ────────────────────────────────────────
+
+  private val eraseObjectsImport =
+    """(import "ankka1" "erase_objects" (func $erase (param i32 i32) (result i64)))"""
+
+  /** Every function asks to erase a subject's objects, and answers what the import answered. */
+  private val erasing: LoadedModule =
+    val bytes = EraseObjectsRequest("player/8c1f").toByteArray
+    guest(
+      eraseObjectsImport,
+      s"(call $$erase (i32.const 16) (i32.const ${bytes.length}))",
+      s"""(data (i32.const 16) "${hex(bytes)}")"""
+    )
+
+  test("a module erases a subject's objects only from its erasure handler") {
+    callable.filterNot(_ == CallSite.Erase).foreach { function =>
+      val made  = instance(erasing, imports(None))
+      val fault = made.call(function, Array.emptyByteArray, teller).left.toOption
+      assert(
+        fault.exists(
+          _.message.contains("erase_objects may be called only from the module's erasure handler")
+        ),
+        s"$function: $fault"
+      )
+    }
+    // From the handler it reaches the runtime, which before it is bound answers that it is not ready.
+    val made = instance(erasing, imports(None))
+    val reply = EraseObjectsReply.parseFrom(
+      made.call(CallSite.Erase, Array.emptyByteArray, teller).toOption.get
+    )
+    assert(reply.result.isError, reply.toString)
+    assert(!made.broken)
+  }
+
+  test("a module asks for a subject's key from any call, and is answered without a runtime") {
+    val fetch = KeyFetch("player/8c1f", "", create = true).toByteArray
+    val keying = guest(
+      """(import "ankka1" "subject_key" (func $key (param i32 i32) (result i64)))""",
+      s"(call $$key (i32.const 16) (i32.const ${fetch.length}))",
+      s"""(data (i32.const 16) "${hex(fetch)}")"""
+    )
+    Vector("ankka1_handle", "ankka1_fold", "ankka1_view", CallSite.Erase).foreach { function =>
+      val made = instance(keying, imports(None))
+      val reply = ankka.protocol.v1.wasm.SubjectKeyReply.parseFrom(
+        made
+          .call(function, Array.emptyByteArray, teller)
+          .toOption
+          .getOrElse(fail(s"$function trapped"))
+      )
+      // No runtime bound yet: an outage, never an erasure.
+      assert(reply.result.refused.exists(_.unavailable), s"$function: $reply")
     }
   }

@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.sidecar.wasm
 
 import ankka.protocol.v1.client.*
 import ankka.protocol.v1.payload as pb
-import ankka.protocol.v1.wasm.{ConfigReply, ConfigRequest, StreamTokens}
+import ankka.protocol.v1.wasm.{ConfigReply, ConfigRequest, StreamTokens, SubjectKeyReply}
 import com.dylibso.chicory.runtime.{HostFunction, ImportValues, Instance, WasmFunctionHandle}
 import com.dylibso.chicory.wasm.types.{FunctionType, ValType}
 import com.thinkmorestupidless.ankka.core.PlatformVariables
@@ -88,6 +88,9 @@ final class HostImports(
     .addFunction(randomFunction)
     .addFunction(bytes("schedule_recurring")(scheduleRecurring))
     .addFunction(logFunction)
+    .addFunction(bytes("subject_key")(subjectKey))
+    .addFunction(bytes("lookup_token")(lookupToken))
+    .addFunction(bytes("erase_objects")(eraseObjects))
     .build()
 
   // ── The calls ──────────────────────────────────────────────────────────────
@@ -209,6 +212,49 @@ final class HostImports(
               "request",
               s"request to ${call.service} was given no answer by the runtime within $serviceWait"
             )
+
+  // Personal fields (protocol 1.15). A codec runs wherever a value is read or written, so the key is
+  // served to every call; the host holds the keyring's channel and its cache, so an erased subject
+  // is answered `refused` with the reason "erased".
+
+  private[sidecar] def subjectKey(request: Array[Byte]): Array[Byte] =
+    val fetch = KeyFetch.parseFrom(request)
+    def refused(reason: String, unavailable: Boolean) =
+      SubjectKeyReply(
+        SubjectKeyReply.Result.Refused(
+          SubjectRefused(fetch.subject, fetch.project, reason, unavailable)
+        )
+      )
+    val reply = logic match
+      case None => refused(notReady.message, unavailable = true)
+      case Some(c) =>
+        await(c.subjectKey(fetch), commandTimeout).out match
+          case KeyAnswer.Out.Key(key) => SubjectKeyReply(SubjectKeyReply.Result.Key(key))
+          case KeyAnswer.Out.Destroyed(d) =>
+            SubjectKeyReply(
+              SubjectKeyReply.Result.Refused(SubjectRefused(d.subject, d.project, "erased", false))
+            )
+          case KeyAnswer.Out.Refused(r) => SubjectKeyReply(SubjectKeyReply.Result.Refused(r))
+          case KeyAnswer.Out.Empty      => refused("the runtime answered nothing", true)
+    reply.toByteArray
+
+  private def lookupToken(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => LookupTokenReply(LookupTokenReply.Result.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.lookupToken(LookupTokenRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  /** Refused, by throwing, anywhere but in the module's erasure handler. */
+  private def eraseObjects(request: Array[Byte]): Array[Byte] =
+    if !CallSite.current.exists(_.function == CallSite.Erase) then
+      throw ImportRefused(
+        "erase_objects",
+        "erase_objects may be called only from the module's erasure handler (ankka1_erase)"
+      )
+    logic match
+      case None => EraseObjectsReply(EraseObjectsReply.Result.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.eraseObjects(EraseObjectsRequest.parseFrom(request)), serviceWait).toByteArray
 
   private def config(request: Array[Byte]): Array[Byte] =
     ConfigReply(lookup(ConfigRequest.parseFrom(request).name)).toByteArray

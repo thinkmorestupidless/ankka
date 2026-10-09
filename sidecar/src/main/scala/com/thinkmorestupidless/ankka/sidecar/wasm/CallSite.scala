@@ -61,7 +61,8 @@ object CallSite:
     "invoke_tool",
     "check_guardrail",
     "check_task_result",
-    "http"
+    "http",
+    "erase"
   ).map(Abi.Prefix + _)
 
   private val Where =
@@ -72,6 +73,9 @@ object CallSite:
 
   /** The call into a module this thread is running, if it is running one. */
   def current: Option[CallSite] = Option(held.get)
+
+  /** The one function `erase_objects` may be called from: the module's erasure handler. */
+  val Erase: String = Abi.Prefix + "erase"
 
   private[wasm] def within[A](site: CallSite)(body: => A): A =
     val before = held.get

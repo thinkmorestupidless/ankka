@@ -22,12 +22,15 @@ import grpc.aio
 from ankka._proto.ankka.protocol.v1 import (
     agent_pb2,
     agent_pb2_grpc,
+    client_pb2,
     consumer_pb2,
     consumer_pb2_grpc,
     discovery_pb2,
     discovery_pb2_grpc,
     endpoint_pb2,
     endpoint_pb2_grpc,
+    erasure_pb2,
+    erasure_pb2_grpc,
     event_sourced_pb2,
     event_sourced_pb2_grpc,
     key_value_pb2,
@@ -49,6 +52,13 @@ from ankka.secrets import Secrets
 from ankka.services import Services
 from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
+from ankka import personal
+from ankka.erasure import ErasureContext, ObjectErasure
+from ankka.erasure import Failed as ErasureFailed
+from ankka.personal import PersonalFieldError, allowing_lookup
+
+# The first protocol with personal fields and the erasure handler.
+ERASURE_PROTOCOL = (1, 15)
 from ankka.effects import consumer as consumer_effects
 from ankka.effects import timed_action as timed_effects
 from ankka.effects import view as view_effects
@@ -71,6 +81,42 @@ def _failure(command_id: int, message: str, code: Any = payload_pb2.INTERNAL) ->
     return payload_pb2.Failure(command_id=command_id, error=payload_pb2.Error(message=message, code=code))
 
 
+class ErasureServicer(erasure_pb2_grpc.ErasureServicer):
+    """Runs the service's erasure handler for one application of an erasure (protocol 1.15)."""
+
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    async def Handle(self, request: erasure_pb2.ErasureHandleRequest, context: Any) -> erasure_pb2.ErasureHandleReply:
+        handler = self.registry.erasure_handler
+        if handler is None:
+            return erasure_pb2.ErasureHandleReply(failed=erasure_pb2.ErasureFailed(reason="no erasure handler"))
+        scoped = self.client.with_metadata(Metadata(tuple(request.metadata.items())))
+        ctx = ErasureContext(
+            subject=request.subject,
+            erasure_id=request.erasure_id,
+            reapply=request.reapply,
+            objects=ObjectErasure(scoped, request.subject),
+            client=scoped,
+        )
+        try:
+            outcome = await handler(ctx)
+        except Exception as e:  # noqa: BLE001 - a handler that throws is a failed application, run again
+            log.warning("the erasure handler raised for %s: %s", request.erasure_id, e)
+            return erasure_pb2.ErasureHandleReply(failed=erasure_pb2.ErasureFailed(reason=f"the erasure handler raised: {e}"))
+        if isinstance(outcome, ErasureFailed):
+            return erasure_pb2.ErasureHandleReply(failed=erasure_pb2.ErasureFailed(reason=outcome.reason))
+        done = erasure_pb2.ErasureDone(detail=outcome.detail)
+        if outcome.objects is not None:
+            done.objects.CopyFrom(
+                client_pb2.ErasedObjects(
+                    count=outcome.objects.count, final_at_millis=int(outcome.objects.final_at.timestamp() * 1000)
+                )
+            )
+        return erasure_pb2.ErasureHandleReply(done=done)
+
+
 class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
     def __init__(self, registry: Registry) -> None:
         self.registry = registry
@@ -85,6 +131,14 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         return self.registry.spec()
 
     def refusal(self, sidecar_protocol: str) -> str | None:
+        if self.registry.erasure_handler is not None and start_from.older_than(sidecar_protocol, ERASURE_PROTOCOL):
+            return (
+                "the service registers an erasure handler, which the sidecar would never run: it speaks protocol "
+                f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later."
+            )
+        return self._older_refusal(sidecar_protocol)
+
+    def _older_refusal(self, sidecar_protocol: str) -> str | None:
         """A sidecar older than 1.7 would ignore where a topic source starts and its version: a
         consumer declared ``latest`` would read everything, and a raised version would rebuild nothing.
         One older than 1.13 would not know a view's declared queries, which would be missing at their
@@ -193,6 +247,11 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 )
                 try:
                     effect = await entity._run(spec, state, cmd.payload.data, ctx)
+                except PersonalFieldError as e:
+                    refused = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
+                    refused.outcome.error.CopyFrom(_personal_refusal(e))
+                    yield event_sourced_pb2.EventSourcedOut(reply=refused)
+                    continue
                 except Exception as e:
                     log.warning("%s/%s %s raised: %s", type(entity).component_id, entity_id, cmd.name, e)
                     log.debug("%s", traceback.format_exc())
@@ -206,14 +265,19 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     for ev in effect.events:
                         new_state = entity.apply_event(new_state, ev)
                 reply = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
+                # A personal field that cannot be written — its subject erased, the keyring refusing
+                # or out of reach — refuses the command: nothing is journaled (feature 042).
+                try:
+                    encoded_events = [_payload_of(codec, ev) for ev in effect.events]
+                except PersonalFieldError as e:
+                    reply.outcome.error.CopyFrom(_personal_refusal(e))
+                    yield event_sourced_pb2.EventSourcedOut(reply=reply)
+                    continue
                 if isinstance(effect.outcome, Fail):
                     reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
                 elif isinstance(effect.outcome, NoReply):
                     reply.outcome.no_reply.SetInParent()
-                    reply.events.extend(
-                        payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
-                        for ev in effect.events
-                    )
+                    reply.events.extend(encoded_events)
                 else:
                     assert isinstance(effect.outcome, Reply)
                     try:
@@ -226,10 +290,7 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                         payload_pb2.Payload(content_type=spec.reply_codec.content_type, manifest=spec.reply_codec.manifest, data=encoded)
                     )
                     reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
-                    reply.events.extend(
-                        payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
-                        for ev in effect.events
-                    )
+                    reply.events.extend(encoded_events)
                 retention = retention_to_pb(effect.retention) if not isinstance(effect.outcome, Fail) else None
                 if retention is not None:
                     reply.retention.CopyFrom(retention)
@@ -245,6 +306,16 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
         # The stream ended: passivation or the sidecar went away. Either way the state is released.
         entity = None
         state = None
+
+
+def _row_payload(codec: Any, row: Any) -> payload_pb2.Payload:
+    with allowing_lookup():
+        return _payload_of(codec, row)
+
+
+def _personal_refusal(e: PersonalFieldError) -> payload_pb2.Error:
+    """A personal field that could not be written, as the refusal the platform's own hosts answer."""
+    return payload_pb2.Error(message=e.message, code=payload_pb2.ErrorCode.Value(e.code))  # type: ignore[arg-type]
 
 
 def _payload_of(codec: Any, value: Any) -> payload_pb2.Payload:
@@ -289,20 +360,29 @@ class KeyValueServicer(key_value_pb2_grpc.KeyValueServicer):
                     continue
                 metadata = Metadata.from_pb(cmd.metadata)
                 ctx = CommandContext(entity_id, type(entity).component_id, metadata, 0, self.client.with_metadata(metadata))
+                reply = key_value_pb2.KeyValueOut.Reply(command_id=cmd.id)
                 try:
                     effect = await entity._run(spec, state, cmd.payload.data, ctx)
+                except PersonalFieldError as e:
+                    reply.outcome.error.CopyFrom(_personal_refusal(e))
+                    yield key_value_pb2.KeyValueOut(reply=reply)
+                    continue
                 except Exception as e:
                     log.warning("%s/%s %s raised: %s", type(entity).component_id, entity_id, cmd.name, e)
                     yield key_value_pb2.KeyValueOut(failure=_failure(cmd.id, str(e) or type(e).__name__))
                     continue
-                reply = key_value_pb2.KeyValueOut.Reply(command_id=cmd.id)
                 new_state = state if effect.new_state is None else effect.new_state
                 if isinstance(effect.outcome, Fail):
                     reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
                     yield key_value_pb2.KeyValueOut(reply=reply)
                     continue
                 if effect.new_state is not None:
-                    reply.new_state.CopyFrom(_payload_of(type(entity).state_codec, effect.new_state))
+                    try:
+                        reply.new_state.CopyFrom(_payload_of(type(entity).state_codec, effect.new_state))
+                    except PersonalFieldError as e:
+                        reply.outcome.error.CopyFrom(_personal_refusal(e))
+                        yield key_value_pb2.KeyValueOut(reply=reply)
+                        continue
                 retention = retention_to_pb(effect.retention)
                 if retention is not None:
                     reply.retention.CopyFrom(retention)
@@ -477,7 +557,9 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             Metadata.from_pb(request.metadata),
         )
         if isinstance(effect, view_effects.UpdateRow):
-            return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
+            # A view's row is the one place a personal field's lookup token is written.
+            with allowing_lookup():
+                return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
         if isinstance(effect, view_effects.DeleteRow):
             return view_pb2.ViewEffect(delete_row=payload_pb2.Empty())
         return view_pb2.ViewEffect(ignore=payload_pb2.Empty())
@@ -493,7 +575,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         reader = SidecarRows(self.client.with_metadata(metadata).views)
         effect = await cls()._handle(request.source_id, None if request.deleted else request.event.data, metadata, reader)
         changes = [
-            view_pb2.RowChange(key=c.key, upsert=_payload_of(cls.row_codec, c.row))
+            view_pb2.RowChange(key=c.key, upsert=_row_payload(cls.row_codec, c.row))
             if isinstance(c, keyed_effects.Upsert)
             else view_pb2.RowChange(key=c.key, delete=payload_pb2.Empty())
             for c in effect.changes
@@ -918,10 +1000,14 @@ class Server:
         timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         endpoint_pb2_grpc.add_HttpServicer_to_server(HttpServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        if self.registry.erasure_handler is not None:
+            erasure_pb2_grpc.add_ErasureServicer_to_server(ErasureServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:
         if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
             raise ValueError("the process server binds loopback only")
+        # The process's keys come from the runtime it serves: fetched on a miss, dropped on an erasure.
+        personal.install_if_absent(personal.SidecarKeys(lambda: self.client.address))
         server = grpc.aio.server()
         self.add_servicers(server)
         self.port = server.add_insecure_port(f"{host}:{port}")

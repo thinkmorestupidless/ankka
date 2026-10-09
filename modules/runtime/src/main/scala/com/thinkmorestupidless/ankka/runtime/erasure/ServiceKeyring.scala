@@ -15,6 +15,9 @@ final class ServiceKeyring(val connection: KeyringConnection, val cache: KeyCach
 
   @volatile private var lookupKeys = Map.empty[String, Array[Byte]]
 
+  override def isDestroyed(project: String, subject: String): Boolean =
+    cache.isDestroyed(project, subject)
+
   def lookupKey(project: String): Array[Byte] =
     lookupKeys.getOrElse(
       project, {

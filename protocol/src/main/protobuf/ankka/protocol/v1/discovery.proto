@@ -18,6 +18,8 @@ message Spec {
   SdkInfo sdk = 2;
   repeated Component components = 3;
   repeated Endpoint endpoints = 4;
+  // Protocol 1.15: the process serves `Erasure.Handle`, called for every erasure the service applies.
+  bool erasure_handler = 30;
 }
 
 message SdkInfo { string name = 1; string version = 2; }

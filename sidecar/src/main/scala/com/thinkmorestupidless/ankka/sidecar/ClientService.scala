@@ -64,6 +64,22 @@ final class ClientService(
   def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
   def decide(request: DecideRequest): Future[InvokeReply]    = logic.decide(request)
 
+  def lookupToken(request: LookupTokenRequest): Future[LookupTokenReply] =
+    logic.lookupToken(request)
+  def eraseObjects(request: EraseObjectsRequest): Future[EraseObjectsReply] =
+    logic.eraseObjects(request)
+
+  def fetchSubjectKey(request: KeyFetch): Future[KeyAnswer] = logic.subjectKey(request)
+
+  /**
+   * Every subject the service is told is erased, for as long as the process holds the stream. Sends
+   * are serialized: a gRPC observer takes one caller at a time.
+   */
+  def subjectKeyEvents(request: pb.Empty, out: StreamObserver[SubjectDestroyed]): Unit =
+    val observer  = out.asInstanceOf[io.grpc.stub.ServerCallStreamObserver[SubjectDestroyed]]
+    val listening = logic.onDestroyed(d => out.synchronized(scala.util.Try(out.onNext(d))): Unit)
+    observer.setOnCancelHandler(() => listening.close())
+
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match
       case ErrorCode.Unavailable => Status.UNAVAILABLE

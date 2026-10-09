@@ -96,6 +96,9 @@ object WasmDiscovery:
           "does not have"
     }
 
+    if spec.erasureHandler && !exports.contains(Abi.Prefix + "erase") then
+      problems += s"the module declares an erasure handler and does not export '${Abi.Prefix}erase'"
+
     val own = problems.result()
     Discovery.validate(spec, protocolVersion, authConfigured) match
       case Left(shared)             => Left(own ++ shared)

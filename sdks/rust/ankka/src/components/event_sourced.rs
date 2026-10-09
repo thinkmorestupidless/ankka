@@ -498,6 +498,23 @@ fn fault(
     code: ErrorCode,
     message: String,
 ) -> proto::HandleReply {
+    // A personal field that could not be written — its subject erased, the keyring refusing or out
+    // of reach — refuses the command rather than failing it, and nothing is journaled (1.15).
+    if let Some(refusal) = crate::personal::take_refusal() {
+        return proto::HandleReply {
+            reply: Some(proto::handle_reply::Reply::EventSourced(
+                proto::event_sourced_out::Reply {
+                    command_id,
+                    outcome: Some(proto::Outcome {
+                        outcome: Some(proto::outcome::Outcome::Error(refusal.to_proto())),
+                    }),
+                    ..Default::default()
+                },
+            )),
+            state,
+            failure: None,
+        };
+    }
     proto::HandleReply {
         reply: None,
         state,

@@ -16,12 +16,19 @@ import base64
 import dataclasses
 import enum
 import json
+import os
 import types
 import typing
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Generic, Protocol, TypeVar, get_args, get_origin, get_type_hints
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from ankka import personal as personal_module
+from ankka.personal import DataSubjectError, Erased, Personal, PersonalFieldError, Present, check_subject
 
 A = TypeVar("A")
 
@@ -154,6 +161,8 @@ def to_json_value(value: Any, tp: Any = None) -> Any:
     """A domain value as the JSON-compatible structure ENCODING.md prescribes."""
     if value is None:
         return None
+    if isinstance(value, Personal):
+        return _encode_personal(value, _personal_inner(tp))
     if isinstance(value, bool):
         return value
     if isinstance(value, enum.Enum):
@@ -200,6 +209,8 @@ def from_json_value(value: Any, tp: Any) -> Any:
         raise EncodingError(f"null where a {tp} was required")
     if tp is Any:
         return value
+    if tp is Personal or get_origin(tp) is Personal:
+        return _decode_personal(value, _personal_inner(tp))
     members = _union_members(tp)
     if members is not None:
         if not isinstance(value, dict) or DISCRIMINATOR not in value:
@@ -259,6 +270,103 @@ def from_json_value(value: Any, tp: Any) -> Any:
         inner = args[1] if len(args) == 2 else Any
         return {k: from_json_value(v, inner) for k, v in value.items()}
     raise EncodingError(f"cannot decode into {tp!r}")
+
+
+# ── Personal fields (protocol 1.15; protocol/fixtures/personal) ─────────────
+
+
+def _personal_inner(tp: Any) -> Any:
+    if tp is None:
+        return None
+    args = get_args(_strip_optional(tp)[0])
+    return args[0] if args else Any
+
+
+def _aad(subject: str, project: str) -> bytes:
+    return f"{subject}\u0000{project}".encode()
+
+
+def _encode_personal(value: Personal[Any], inner: Any) -> dict[str, Any]:
+    keys = personal_module.source()
+    if isinstance(value, Erased):
+        project = value.project or keys.own_project
+        if project is None:
+            # The first write learns the project from the runtime's answer.
+            project = keys.key(None, value.subject, create=False).project
+        return {"subject": value.subject, "project": project}
+    present = typing.cast(Present[Any], value)
+    own = keys.own_project
+    project = present.project or own
+    answer = keys.key(present.project, present.subject, create=present.project is None or present.project == own)
+    project = answer.project or project or ""
+    if answer.kind == "key":
+        plaintext = write_json(to_json_value(present._value, inner)).encode("utf-8")
+        nonce = os.urandom(12)
+        sealed = AESGCM(answer.key).encrypt(nonce, plaintext, _aad(present.subject, project))
+        out: dict[str, Any] = {
+            "subject": present.subject,
+            "project": project,
+            "data": base64.b64encode(b"\x01" + nonce + sealed).decode("ascii"),
+        }
+        if present.lookup and personal_module.lookup_allowed():
+            out["lookup"] = keys.lookup_token(plaintext)
+        object.__setattr__(present, "stored", True)
+        return out
+    if answer.kind == "destroyed" and present.stored:
+        # Carried, not new: a state holding what was stored before the erasure.
+        return {"subject": present.subject, "project": project}
+    # A subject the keyring has no key for, asked without `create`, is one never written here: as erased.
+    if answer.kind == "destroyed" or (answer.kind == "refused" and answer.reason == "unknown"):
+        raise PersonalFieldError(
+            f"data subject {present.subject} is erased in project {project}: no personal field can be written for it",
+            "BAD_REQUEST",
+        )
+    if answer.kind == "refused":
+        raise PersonalFieldError(
+            f"the keyring refused data subject {present.subject} of project {project}: {answer.reason}", "FORBIDDEN"
+        )
+    raise PersonalFieldError(f"no keyring is available: {answer.reason}", "UNAVAILABLE")
+
+
+def _decode_personal(value: Any, inner: Any) -> Personal[Any]:
+    if not isinstance(value, dict):
+        raise EncodingError(f"expected a personal envelope, got {value!r}")
+    unknown = set(value) - {"subject", "project", "data", "lookup"}
+    if unknown:
+        raise EncodingError(f"unknown key {sorted(unknown)[0]!r} in a personal envelope")
+    subject = value.get("subject")
+    project = value.get("project")
+    if not isinstance(subject, str):
+        raise EncodingError("a personal envelope needs a valid subject")
+    try:
+        check_subject(subject)
+    except DataSubjectError as e:
+        raise EncodingError("a personal envelope needs a valid subject") from e
+    if not isinstance(project, str) or not project:
+        raise EncodingError("a personal envelope needs its project")
+    data = value.get("data")
+    if data is None:
+        return Erased(subject, project)
+    answer = personal_module.source().key(project, subject, create=False)
+    if answer.kind == "unavailable":
+        raise PersonalFieldError(f"no keyring is available: {answer.reason}", "UNAVAILABLE")
+    if answer.kind != "key":
+        return Erased(subject, project)
+    try:
+        stored = base64.b64decode(data, validate=True)
+    except ValueError as e:
+        raise EncodingError("personal envelope corrupt: data is not base64") from e
+    if len(stored) < 1 + 12 + 16 or stored[0] != 1:
+        raise EncodingError(f"personal envelope corrupt: it does not open as {subject} of {project}")
+    try:
+        plaintext = AESGCM(answer.key).decrypt(stored[1:13], stored[13:], _aad(subject, project))
+    except InvalidTag as e:
+        raise EncodingError(f"personal envelope corrupt: it does not open as {subject} of {project}") from e
+    read: Present[Any] = Present(
+        subject, from_json_value(json.loads(plaintext.decode("utf-8")), inner), "lookup" in value, project
+    )
+    object.__setattr__(read, "stored", True)
+    return read
 
 
 def _decode_dataclass(obj: dict[str, Any], cls: type) -> Any:

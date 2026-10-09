@@ -109,9 +109,11 @@ final class InMemoryKeyring:
     @volatile var hello: Option[Hello]              = None
     @volatile var listener: Option[KeyringListener] = None
     def project: Option[String]                     = hello.map(_.project)
-    def reads(other: String): Boolean = hello.exists(h =>
-      h.project == other || (h.reads.contains(other) && grants((h.project, other)))
-    )
+
+    /** Its own project, and every other it has been given a key of under a grant. */
+    private val readable = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+    def reads(other: String): Boolean =
+      hello.exists(h => h.project == other || readable.contains(other))
 
     def fetch(owner: String, subject: String, create: Boolean): KeyResult =
       if outage then throw unavailable()
@@ -120,6 +122,7 @@ final class InMemoryKeyring:
         synchronized { refusals = refusals :+ ((reader, owner, subject)) }
         KeyResult.Refused(s"project $reader holds no grant that allows decryption of $owner")
       else
+        if reader != owner then readable.add(owner): Unit
         tombstones.get((owner, subject)) match
           case Some(id) => KeyResult.Destroyed(id)
           case None =>

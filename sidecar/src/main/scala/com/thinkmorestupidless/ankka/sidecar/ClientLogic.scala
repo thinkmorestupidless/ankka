@@ -18,6 +18,8 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   Serializer
 }
+import com.thinkmorestupidless.ankka.core.personal.{KeyResult, LookupTokens}
+import com.thinkmorestupidless.ankka.runtime.erasure
 import com.thinkmorestupidless.ankka.runtime.remote.{
   PayloadKeys,
   RemoteDescriptor,
@@ -487,6 +489,77 @@ final class ClientLogic(
     onStore { service.secrets.delete(request.name); DeleteSecretReply() }(e =>
       DeleteSecretReply(Some(e))
     )
+
+  // ── Personal fields (protocol 1.15) ─────────────────────────────────────────
+  //
+  // The process encrypts and decrypts its own personal fields, with keys this runtime fetches through
+  // its own channel to the keyring and caches; the process mirrors the cache for as long as it is told
+  // (`expires_millis`) and drops a key the moment it is told the subject is erased. The process never
+  // reaches the keyring, and never holds the project's lookup key.
+
+  private lazy val keyExpiry: Long =
+    erasure.KeyCacheSettings.from(system.settings.config).expiry.toMillis
+
+  /** One answer to a fetch, made on a virtual thread: a miss is a round trip to the keyring. */
+  def subjectKey(fetch: KeyFetch): Future[KeyAnswer] =
+    Future {
+      val project = if fetch.project.isEmpty then service.project else fetch.project
+      def refused(reason: String, unavailable: Boolean = false) =
+        KeyAnswer(
+          KeyAnswer.Out.Refused(SubjectRefused(fetch.subject, project, reason, unavailable))
+        )
+      try
+        service.keyring.key(
+          project,
+          fetch.subject,
+          fetch.create && project == service.project
+        ) match
+          case KeyResult.Available(key) =>
+            KeyAnswer(
+              KeyAnswer.Out.Key(
+                SubjectKey(fetch.subject, project, ByteString.copyFrom(key), keyExpiry)
+              )
+            )
+          case KeyResult.Destroyed(id) =>
+            KeyAnswer(KeyAnswer.Out.Destroyed(SubjectDestroyed(fetch.subject, project, id)))
+          case KeyResult.Unknown          => refused("unknown")
+          case KeyResult.Refused(because) => refused(because)
+      catch
+        case e: CommandError if e.code == ErrorCode.Unavailable => refused(e.message, true)
+        case e: CommandError                                    => refused(e.message)
+    }(using AnkkaExecutors.virtual)
+
+  /**
+   * Every subject this service is told is erased, from now until the handle is closed; nothing when
+   * the service has no keyring of its own.
+   */
+  def onDestroyed(push: SubjectDestroyed => Unit): AutoCloseable =
+    service.keyring match
+      case k: erasure.ServiceKeyring =>
+        k.cache.onDestroyed((project, subject, id) => push(SubjectDestroyed(subject, project, id)))
+      case _ => () => ()
+
+  def lookupToken(request: LookupTokenRequest): Future[LookupTokenReply] =
+    onStore(
+      LookupTokenReply(
+        LookupTokenReply.Result.Token(
+          LookupTokens.token(
+            service.keyring.lookupKey(service.project),
+            request.plaintext.toByteArray
+          )
+        )
+      )
+    )(e => LookupTokenReply(LookupTokenReply.Result.Error(e)))
+
+  private lazy val objectErasure = erasure.ObjectErasures.fromConfig(system.settings.config)
+
+  def eraseObjects(request: EraseObjectsRequest): Future[EraseObjectsReply] =
+    onStore {
+      val erased = objectErasure(request.subject).erase()
+      EraseObjectsReply(
+        EraseObjectsReply.Result.Erased(ErasedObjects(erased.count, erased.finalAt.toEpochMilli))
+      )
+    }(e => EraseObjectsReply(EraseObjectsReply.Result.Error(e)))
 
   // ── Calls to other services (protocol 1.8) ──────────────────────────────────
   //

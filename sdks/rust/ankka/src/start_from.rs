@@ -92,7 +92,7 @@ pub(crate) fn declares_contracts(component: &proto::Component) -> bool {
     }
 }
 
-fn older_than(protocol_version: &str, first: (u32, u32)) -> bool {
+pub(crate) fn older_than(protocol_version: &str, first: (u32, u32)) -> bool {
     let mut parts = protocol_version.split('.').map(str::parse::<u32>);
     match (parts.next(), parts.next()) {
         (Some(Ok(major)), Some(Ok(minor))) => (major, minor) < first,

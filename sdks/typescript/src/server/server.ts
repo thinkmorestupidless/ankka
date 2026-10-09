@@ -17,6 +17,9 @@ import { workflowRoutes } from "./workflow.ts"
 import { statelessRoutes } from "./stateless.ts"
 import { agentRoutes } from "./agent.ts"
 import { httpRoutes } from "./http.ts"
+import { erasureRoutes } from "./erasure.ts"
+import { installKeys, installKeysIfAbsent } from "../personal.ts"
+import { SidecarKeys } from "../keyring.ts"
 
 export interface ServerOptions {
   /** `127.0.0.1` by default; `0.0.0.0` for the testkit; anything else is refused. */
@@ -43,6 +46,7 @@ export class Server {
   readonly #shutdown = new AbortController()
   readonly #sessions = new Set<ServerHttp2Session>()
   #http2: Http2Server | undefined
+  #keys: SidecarKeys | undefined
   #address: { host: string; port: number } | undefined
   #resolveClosed!: () => void
   readonly closed: Promise<void> = new Promise((resolve) => {
@@ -64,6 +68,8 @@ export class Server {
     const port = this.#options.port ?? Number(process.env.ANKKA_PROCESS_PORT ?? 9010)
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`not a port: ${String(port)}`)
 
+    // The process's keys come from the runtime it serves: fetched on a miss, dropped on an erasure.
+    this.#keys = installKeysIfAbsent(() => new SidecarKeys(() => this.#context.client.address))
     const handler = connectNodeAdapter({
       routes: (router: ConnectRouter) => {
         discoveryRoutes(router, () => renderSpec(this.#context.registry), this.#context.log)
@@ -73,6 +79,7 @@ export class Server {
         statelessRoutes(router, this.#context)
         agentRoutes(router, this.#context)
         httpRoutes(router, this.#context)
+        erasureRoutes(router, this.#context)
       },
       shutdownSignal: this.#shutdown.signal,
       readMaxBytes: this.#options.readMaxBytes ?? 64 * 1024 * 1024,
@@ -119,6 +126,11 @@ export class Server {
     await closing
     clearTimeout(grace)
     this.#http2 = undefined
+    if (this.#keys) {
+      installKeys(undefined)
+      await this.#keys.close()
+      this.#keys = undefined
+    }
     this.#resolveClosed()
   }
 }

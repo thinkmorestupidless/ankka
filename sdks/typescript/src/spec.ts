@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.14"
+export const PROTOCOL_VERSION = "1.15"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -252,5 +252,6 @@ export function renderSpec(registry: Registry): Spec {
     sdk: { name: SDK_NAME, version: VERSION },
     components,
     endpoints,
+    erasureHandler: registry.erasureHandler !== undefined,
   })
 }

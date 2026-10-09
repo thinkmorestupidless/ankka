@@ -67,7 +67,7 @@ object Protocol:
    * (feature 031). 1.14 added a topic source's contract, broker and parallel flag and a consumer's
    * publication with its contract and broker (feature 037).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 14)
+  val version: ProtocolVersion = ProtocolVersion(1, 15)
 
 object Compatibility:
 

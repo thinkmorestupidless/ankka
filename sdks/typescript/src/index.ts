@@ -82,6 +82,24 @@ export {
 export { Server, type ServerOptions } from "./server/server.ts"
 export { problems as sidecarProblems } from "./server/discovery.ts"
 export { PROTOCOL_VERSION, SDK_NAME } from "./spec.ts"
+export {
+  present,
+  erased,
+  valueOf,
+  isErased,
+  checkSubject,
+  allowingLookup,
+  installKeys,
+  FixedKeys,
+  DataSubjectError,
+  PersonalFieldError,
+  type Personal,
+  type Present,
+  type Erased,
+  type KeySource,
+  type KeyAnswer,
+} from "./personal.ts"
+export { objectPrefix, ErasureOutcomes, type ErasureHandler, type ErasureContext, type ErasureOutcome, type ErasedObjects, type ObjectErasure } from "./erasure.ts"
 export { StartFrom } from "./startFrom.ts"
 export {
   materialiseEventSourced, materialiseKeyValue, materialiseWorkflowCommand, materialiseStep,

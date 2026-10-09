@@ -25,6 +25,12 @@ trait KeyringHandle:
   /** The key a project's lookup tokens are made with. Not a subject key; the keyring keeps it. */
   def lookupKey(project: String): Array[Byte]
 
+  /**
+   * Whether this handle has been told `subject` of `project` is erased: what a value already held
+   * in memory consults, with no round trip. A handle told nothing answers no.
+   */
+  def isDestroyed(project: String, subject: String): Boolean = false
+
 enum KeyResult:
   case Available(key: Array[Byte])
 
@@ -106,23 +112,11 @@ object PersonalScope:
   def current: Option[PersonalScope] = Option(local.get()).orElse(default)
 
   /**
-   * Every (project, subject) this JVM has been told is erased: what a value held in memory
-   * consults.
-   */
-  private val destroyed = java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
-
-  /**
-   * Told by a service's keyring channel: `subject` of `project` is erased, everywhere in this JVM.
-   */
-  def markDestroyed(project: String, subject: String): Unit =
-    destroyed.add((project, subject)): Unit
-
-  /**
-   * Whether `subject` is known erased here, in `project` or, when that is not known, the current
-   * one.
+   * Whether `subject` is known erased to the current scope's keyring, in `project` or, when that is
+   * not known, the scope's own.
    */
   def isDestroyed(project: Option[String], subject: String): Boolean =
-    project.orElse(current.map(_.project)).exists(p => destroyed.contains((p, subject)))
+    current.exists(scope => scope.keyring.isDestroyed(project.getOrElse(scope.project), subject))
 
   /**
    * Inside a service, refuses a subject that is erased: known here, or answered destroyed by the
@@ -132,7 +126,7 @@ object PersonalScope:
   private[personal] def refuseErased(subject: String): Unit =
     current.foreach { scope =>
       val erased =
-        destroyed.contains((scope.project, subject)) ||
+        scope.keyring.isDestroyed(scope.project, subject) ||
           (try
             scope.keyring
               .key(scope.project, subject, create = false)

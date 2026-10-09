@@ -11,7 +11,7 @@ import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protoc
 import { codecFor, jsonCodec, isCodec, textCodecs, binaryCodecs, codecForManifest, type Codec, type Shape } from "./codec.ts"
 import { CommandError, type ErrorDetail, type Metadata } from "./effects/common.ts"
 import type { HandlerRef } from "./handlers.ts"
-import { decodeJsonValue, reviver } from "./json.ts"
+import { decodeJsonValue, reviver, writeJson } from "./json.ts"
 import { errorCodeFromProto, kindToProto, type ComponentKind } from "./kinds.ts"
 import { metadataToProto } from "./context.ts"
 import { encodePayload, decodePayload, EMPTY_PAYLOAD } from "./server/payloads.ts"
@@ -531,6 +531,25 @@ export class ComponentClient {
 
   forEventSourcedEntity(componentId: string, entityId: string): Calls {
     return new Calls(this.#connection, this.#metadata, "event-sourced", componentId, entityId)
+  }
+
+  /**
+   * The lookup token of `value` under `schema`: what a view's declared query compares a personal
+   * field marked for lookup with. Made by the runtime with the project's lookup key, which this
+   * process never holds; a token shows only that two values are equal (protocol 1.15).
+   */
+  async lookupToken<T>(schema: Schema<T>, value: T): Promise<string> {
+    const plaintext = new TextEncoder().encode(writeJson(schema, value))
+    const reply = await stubOf(this.#connection).lookupToken({ plaintext }).catch(tooOld("lookup tokens", "1.15"))
+    if (reply.result.case !== "token") throw new CommandError(errorOf(reply.result.value ?? { message: "no lookup token", code: 0 as ProtoErrorCode }))
+    return reply.result.value
+  }
+
+  /** Deletes every object under `subjects/<subject>/` in the service's bucket: an erasure handler's call. */
+  async eraseObjects(subject: string): Promise<{ count: number; finalAt: Date }> {
+    const reply = await stubOf(this.#connection).eraseObjects({ subject }).catch(tooOld("erasing objects", "1.15"))
+    if (reply.result.case !== "erased") throw new CommandError(errorOf(reply.result.value ?? { message: "no answer", code: 0 as ProtoErrorCode }))
+    return { count: Number(reply.result.value.count), finalAt: new Date(Number(reply.result.value.finalAtMillis)) }
   }
 
   forKeyValueEntity(componentId: string, entityId: string): Calls {

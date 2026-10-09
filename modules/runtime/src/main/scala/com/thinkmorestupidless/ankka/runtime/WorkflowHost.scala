@@ -90,11 +90,14 @@ private[ankka] object WorkflowHost:
         EventSourcedBehavior[EntityProtocol.Command, Event[S], Run[S]](
           persistenceId = PersistenceId(descriptor.componentId, workflowId),
           emptyState = empty,
-          commandHandler = (state, command) => engine.onCommand(state, command),
+          commandHandler =
+            (state, command) => ServiceScope(ctx.system).within(engine.onCommand(state, command)),
           eventHandler = (state, event) => applyEvent(empty, state, event)
         )
-          .eventAdapter(eventAdapter(descriptor))
-          .snapshotAdapter(snapshotAdapter(descriptor))
+          .eventAdapter(ScopedAdapters.events(ServiceScope(ctx.system), eventAdapter(descriptor)))
+          .snapshotAdapter(
+            ScopedAdapters.snapshots(ServiceScope(ctx.system), snapshotAdapter(descriptor))
+          )
           .withRetention(RetentionCriteria.snapshotEvery(100, 2))
           .receiveSignal { case (state, RecoveryCompleted) =>
             engine.onRecovered(state)

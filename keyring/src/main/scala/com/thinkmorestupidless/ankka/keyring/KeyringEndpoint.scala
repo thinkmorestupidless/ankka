@@ -158,7 +158,8 @@ final class KeyringEndpoint(clients: EndpointClients, state: KeyringState) exten
               )
           case ChannelWire.Out.Fetch(id, project, subject, create) =>
             channel.foreach { open =>
-              val admitted = project == open.project || open.reads.contains(project)
+              val admitted = project == open.project || open
+                .reads(project) || state.grants.allows(open.project, project)
               val answer =
                 if !admitted then
                   state.refused(project, subject)
@@ -169,6 +170,7 @@ final class KeyringEndpoint(clients: EndpointClients, state: KeyringState) exten
                     s"project ${open.project} holds no grant that allows decryption of $project"
                   )
                 else
+                  if project != open.project then open.reading(project)
                   state.keys.subject(project, subject, create && project == open.project) match
                     case KeyResult.Available(key) =>
                       ChannelWire.In.Key(

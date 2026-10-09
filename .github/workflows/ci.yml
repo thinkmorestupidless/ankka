@@ -67,6 +67,8 @@ jobs:
               - 'proxy/**'
               - 'proxy-core/**'
               - 'samples/**'
+              # The keyring (feature 042): its own suites, and the control plane's erasure suites run it.
+              - 'keyring/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:
               - *workflow

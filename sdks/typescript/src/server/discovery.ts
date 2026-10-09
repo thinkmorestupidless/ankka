@@ -15,7 +15,23 @@ import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions }
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
-  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol) ?? contractRefusal(spec, sidecarProtocol)
+  return (
+    erasureRefusal(spec, sidecarProtocol) ??
+    startPositionRefusal(spec, sidecarProtocol) ??
+    declaredQueryRefusal(spec, sidecarProtocol) ??
+    contractRefusal(spec, sidecarProtocol)
+  )
+}
+
+/** A sidecar older than 1.15 would never run an erasure handler: refused rather than silently skipped. */
+function erasureRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!spec.erasureHandler) return undefined
+  const [major, minor] = sidecarProtocol.split(".").map(Number)
+  if (major === undefined || minor === undefined || Number.isNaN(major) || Number.isNaN(minor) || major > 1 || minor >= 15) return undefined
+  return (
+    `the service registers an erasure handler, which the sidecar would never run: it speaks protocol ${sidecarProtocol}, ` +
+    `and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later.`
+  )
 }
 
 /**

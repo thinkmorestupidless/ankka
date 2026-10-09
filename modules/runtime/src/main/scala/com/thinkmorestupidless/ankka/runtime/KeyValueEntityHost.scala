@@ -50,25 +50,30 @@ private[ankka] object KeyValueEntityHost:
       // than once per invocation.
       val observability = Observability(ctx.system)
       val componentRef  = observability.names.intern(descriptor.componentId.toString)
+      val scope         = ServiceScope(ctx.system)
 
       DurableStateBehavior
         .withEnforcedReplies[EntityProtocol.Command, Stored[S]](
           persistenceId = PersistenceId(descriptor.componentId, entityId),
           emptyState = empty,
           commandHandler = (state, command) =>
-            onCommand(
-              descriptor,
-              entity,
-              entityId,
-              empty,
-              state,
-              command,
-              DurableStateBehavior.lastSequenceNumber(ctx),
-              observability,
-              componentRef
+            scope.within(
+              onCommand(
+                descriptor,
+                entity,
+                entityId,
+                empty,
+                state,
+                command,
+                DurableStateBehavior.lastSequenceNumber(ctx),
+                observability,
+                componentRef
+              )
             )
         )
-        .snapshotAdapter(snapshotAdapter(descriptor, empty))
+        .snapshotAdapter(
+          ScopedAdapters.snapshots(ServiceScope(ctx.system), snapshotAdapter(descriptor, empty))
+        )
     }
 
   private def onCommand[C <: KeyValueEntity[S], S](

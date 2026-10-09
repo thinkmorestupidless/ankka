@@ -20,6 +20,8 @@ import type { RegisteredConsumer } from "../service.ts"
 import type { TimedAction } from "../timedAction.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { decodePayload, encodePayload } from "./payloads.ts"
+// A view's row is the one place a personal field's lookup token is written.
+import { allowingLookup } from "../personal.ts"
 import { PayloadSchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import type { ServerContext } from "./server.ts"
 
@@ -50,7 +52,7 @@ async function handleKeyedView(req: ViewRequest, sourceId: string, ctx: ServerCo
     const changes = (effect?.changes ?? []).map((c) =>
       "deleted" in c
         ? { key: c.key, change: { case: "delete" as const, value: {} } }
-        : { key: c.key, change: { case: "upsert" as const, value: encodePayload(registered.rowCodec, c.row) } },
+        : { key: c.key, change: { case: "upsert" as const, value: allowingLookup(() => encodePayload(registered.rowCodec, c.row)) } },
     )
     return create(ViewEffectSchema, { effect: { case: "rows", value: { changes } } })
   } catch (e) {
@@ -72,7 +74,7 @@ export async function handleView(req: ViewRequest, ctx: ServerContext): Promise<
     const effect = req.deleted ? await view.onDelete() : await view.onChange(decodePayload(registered.eventCodec, req.event))
     switch (effect.kind) {
       case "update-row":
-        return create(ViewEffectSchema, { effect: { case: "updateRow", value: encodePayload(registered.rowCodec, effect.row) } })
+        return create(ViewEffectSchema, { effect: { case: "updateRow", value: allowingLookup(() => encodePayload(registered.rowCodec, effect.row)) } })
       case "delete-row":
         return create(ViewEffectSchema, { effect: { case: "deleteRow", value: {} } })
       case "ignore":

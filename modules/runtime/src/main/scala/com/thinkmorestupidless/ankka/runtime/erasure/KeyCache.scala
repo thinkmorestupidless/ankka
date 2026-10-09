@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime.erasure
 
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
-import com.thinkmorestupidless.ankka.core.personal.{KeyResult, PersonalScope}
+import com.thinkmorestupidless.ankka.core.personal.KeyResult
 
 import scala.concurrent.duration.*
 
@@ -65,7 +65,7 @@ final class KeyCache(
               case other => entries.put((project, subject), Entry(other, at)): Unit
           }
           result match
-            case KeyResult.Destroyed(_) => PersonalScope.markDestroyed(project, subject)
+            case KeyResult.Destroyed(_) => erased.add((project, subject)): Unit
             case _                      => ()
           result
         catch
@@ -89,13 +89,34 @@ final class KeyCache(
 
   /**
    * The keyring said this key is destroyed: no cached copy survives the call, and every value this
-   * JVM holds in memory of the subject reads as erased from now on.
+   * service holds in memory of the subject reads as erased from now on.
    */
   def destroyed(project: String, subject: String, erasureId: String): Unit =
     synchronized(
       entries.put((project, subject), Entry(KeyResult.Destroyed(erasureId), now()))
     ): Unit
-    PersonalScope.markDestroyed(project, subject)
+    erased.add((project, subject)): Unit
+    listeners.forEach(_.apply(project, subject, erasureId))
+
+  private val listeners =
+    java.util.concurrent.CopyOnWriteArrayList[(String, String, String) => Unit]()
+
+  /**
+   * Told of every subject this cache is told is destroyed, from now until the returned handle is
+   * closed: how a process behind a sidecar drops its own copy of the key.
+   */
+  def onDestroyed(listener: (String, String, String) => Unit): AutoCloseable =
+    listeners.add(listener): Unit
+    () => listeners.remove(listener): Unit
+
+  /**
+   * Every subject this instance has been told is erased, kept apart from the bounded entries so an
+   * erased subject never reads as present again when its entry is evicted. A subject is erased
+   * once.
+   */
+  private val erased = java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
+
+  def isDestroyed(project: String, subject: String): Boolean = erased.contains((project, subject))
 
   /**
    * Everything forgotten — the keyring closed the channel before this instance could confirm a

@@ -31,9 +31,18 @@ final class OpenChannel(
     val project: String,
     val service: String,
     val instance: String,
-    val reads: Set[String],
+    initialReads: Set[String],
     socket: Socket
 ):
+  /**
+   * The other projects this channel reads keys of: those `hello` named that a grant admits, and
+   * every one the keyring has since given it a key of. A destroy in any of them is told to this
+   * channel.
+   */
+  private val readable = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+  initialReads.foreach(readable.add)
+  def reads(project: String): Boolean = readable.contains(project)
+  def reading(project: String): Unit  = readable.add(project): Unit
   def send(frame: ChannelWire.In): Unit =
     socket.synchronized(socket.send(ChannelWire.writeIn(frame)))
   @volatile var closed: Boolean = false

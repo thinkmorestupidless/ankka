@@ -2,7 +2,10 @@ package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.agent.AgentRuntime
 import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig}
-import com.thinkmorestupidless.ankka.core.ComponentDescriptor
+import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, Metadata}
+import com.thinkmorestupidless.ankka.sdk.ErasureHandler
+import scala.concurrent.Await
+import scala.concurrent.duration.*
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{
@@ -195,8 +198,21 @@ object Main:
         case Some(port) => HttpServer.at("0.0.0.0", port)(endpoints.map(e => _ => e)*)
         case None       => HttpServer.of(endpoints.map(e => _ => e)*)
 
-    Ankka.service
+    // The process's erasure handler (protocol 1.15), run after the platform's own duties; the
+    // runtime bounds it with `ankka.erasure.handler-timeout` and records what it answered.
+    val handlerTimeout =
+      system.settings.config.getDuration("ankka.erasure.handler-timeout").toMillis.millis
+    val erasureHandler: Option[ErasureHandler] =
+      Option.when(discovered.spec.erasureHandler) { ctx =>
+        Await.result(
+          conversation.erase(ctx.subject, ctx.erasureId, ctx.reapply, Metadata.empty),
+          handlerTimeout
+        )
+      }
+    val builder = Ankka.service
       .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory)
+    erasureHandler
+      .fold(builder)(builder.withErasureHandler)
       .withConversation(conversation)
       .withExtension(projections)
       .withExtension(timers)

@@ -336,7 +336,8 @@ Changed from the plan while building:
 - SC-003, checked: no main source of any module imports a cloud SDK, and no image carries one. The build
   does name one cloud SDK, `software.amazon.awssdk:s3`, as a test dependency of `operator` and
   `controlplane` from before this feature: the object storage suites use it as a service's own program
-  would, against the installation's store. SC-003's "a grep finds only ankka-gcp's README" is stricter
-  than that and is not true as written; whether to keep the test client or reword the criterion is open.
+  would, against the installation's store. SC-003 was reworded to say what it protects: no cloud
+  client in any module's compile scope, any image or any main source; a test client that plays a
+  service's program is allowed.
 - `CloudProviderNeeded.wrappingKey` is a second refusal: a keyring's wrapping key needs the installation
   to name one, which a provider alone does not.

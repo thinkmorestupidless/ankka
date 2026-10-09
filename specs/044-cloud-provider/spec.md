@@ -113,6 +113,11 @@ cadence.
 
 ### Session 2026-10-09
 
+- Q: SC-003 said a grep finds no cloud SDK coordinates, but the object storage suites use the AWS S3
+  client as a test dependency, playing a service's program against the store. Keep it or reword? →
+  A: Reword. What SC-003 protects is that no cloud client reaches the platform's code or images; the
+  test client is how the suites prove a bucket works for a real S3 client, and stays.
+
 - Q: FR-005 named the cloud identity field `principal`, but the glossary reserves `principal` for who
   a call came from. Which word is the contract's? → A: `identity`. The `identity` kind's output and
   the `secret-access`, `bucket-credential` and `wrapping-key` parameter are named `identity`;
@@ -421,9 +426,9 @@ account it needs.
 - **SC-002**: The operator's and the provider's ClusterRoles, applied to their real identities, let
   every scenario pass and hold no `get` or `list` on Secrets and no `delete` on `cloudresources`; a
   suite proves it under the real identities, as `OperatorClusterSuite` does today.
-- **SC-003**: A dependency report of every ankka module and image shows no cloud client library; a
-  grep of the repository for the Google, AWS and Azure SDK coordinates finds only `ankka-gcp`'s
-  README link.
+- **SC-003**: No module's compile-scope dependencies and no image carry a cloud client library, and
+  no main source imports one. A cloud SDK may appear only as a test dependency that plays a service's
+  own program, as the S3 client the object storage suites sign requests with does.
 - **SC-004**: With no provider running, a request's absence is reported in the service's status
   within 2 minutes 30 seconds of apply, and the status recovers within 30 seconds of a provider
   starting.

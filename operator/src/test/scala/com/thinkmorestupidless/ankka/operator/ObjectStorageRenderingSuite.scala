@@ -88,7 +88,13 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       val actions = render(asks, plan)
       val bucket  = actions.indexWhere(_ == Action.EnsureBucket("shop.reports"))
       val credential = actions.indexWhere {
-        case Action.EnsureStorageCredential("ankka-shop", "reports-storage", _, "shop.reports") =>
+        case Action.EnsureStorageCredential(
+              "ankka-shop",
+              "reports-storage",
+              _,
+              "shop.reports",
+              0
+            ) =>
           true
         case _ => false
       }
@@ -293,4 +299,107 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     val actions = render(exposing, ObjectStoragePlan.Failed(Vector("x")), withBase)
     assert(removesRoute(actions))
     assertEquals(routes(actions), Vector.empty)
+  }
+
+  // Feature 039: a credential issued again, on Garage.
+
+  private def withStatus(spec: AnkkaServiceSpec, inPlace: Int): AnkkaService =
+    val r = resource(spec)
+    r.setStatus(
+      com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus(objectStorage =
+        Some(
+          com.thinkmorestupidless.ankka.crd
+            .ObjectStorageStatus(phase = "Provisioned", credentialGeneration = inPlace)
+        )
+      )
+    )
+    r
+
+  private def renderOn(r: AnkkaService, plan: ObjectStoragePlan): Vector[Action] =
+    Rendering
+      .render(r, settings, ProvisioningPlan.Supplied, objectStoragePlan = plan)
+      .fold(p => fail(p.mkString("; ")), identity)
+
+  private def credentialAnnotation(actions: Vector[Action]): Option[String] =
+    actions
+      .collectFirst { case Action.ApplyDeployment(d) => d }
+      .flatMap(d => Option(d.getSpec.getTemplate.getMetadata.getAnnotations))
+      .flatMap(a => Option(a.get(Labels.StorageCredentialKey)))
+
+  private val ready = ObjectStoragePlan.Ready(recovered = false)
+
+  test("a credential never issued again renders as before: no annotation, no re-issue, no sweep") {
+    val actions = render(asks, ready)
+    assertEquals(credentialAnnotation(actions), None)
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assert(!actions.exists(_.isInstanceOf[Action.DeleteExpiredKeys]), actions.toString)
+    assertEquals(
+      actions.collect { case a: Action.EnsureStorageCredential => a.generation },
+      Vector(0)
+    )
+  }
+
+  test(
+    "a generation asked above the one in place is issued before the Deployment that rolls onto it"
+  ) {
+    val actions =
+      renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 1), ready)
+    val reissue = actions.indexWhere {
+      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2) => true
+      case _                                                                        => false
+    }
+    assert(reissue >= 0, actions.toString)
+    assert(reissue < actions.indexWhere(_.isInstanceOf[Action.ApplyDeployment]), actions.toString)
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureStorageCredential]), actions.toString)
+    assertEquals(credentialAnnotation(actions), Some("2"))
+    assert(actions.contains(Action.DeleteExpiredKeys("shop.reports")), actions.toString)
+  }
+
+  test("a generation in place is ensured, not issued again, and the pods stay on it") {
+    val actions =
+      renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 2), ready)
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assertEquals(
+      actions.collect { case a: Action.EnsureStorageCredential => a.generation },
+      Vector(2)
+    )
+    assertEquals(credentialAnnotation(actions), Some("2"))
+  }
+
+  test(
+    "a store that cannot be reached issues nothing, and the pods stay on the generation in place"
+  ) {
+    val actions = renderOn(
+      withStatus(asks.copy(storageCredentialGeneration = 3), inPlace = 2),
+      ObjectStoragePlan.Waiting(Some("down"))
+    )
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assertEquals(credentialAnnotation(actions), Some("2"))
+  }
+
+  test("the status reports the generation the pass leaves in place") {
+    val spec = asks.copy(storageCredentialGeneration = 2)
+    assertEquals(
+      ObjectStorage.status(ready, spec, settings, inPlace = 1).map(_.credentialGeneration),
+      Some(2)
+    )
+    assertEquals(
+      ObjectStorage
+        .status(ObjectStoragePlan.Waiting(Some("down")), spec, settings, inPlace = 1)
+        .map(_.credentialGeneration),
+      Some(1)
+    )
+  }
+
+  // Feature 039: the platform sets a Garage bucket's CORS rule, from the descriptor.
+
+  test("an exposed bucket's rule admits the descriptor's origins, and any other bucket has none") {
+    val origins = List("https://play.example")
+    val exposed = asks.copy(exposeObjectStorage = true, objectStorageOrigins = origins)
+    assert(render(exposed, ready).contains(Action.SetBucketCors("shop.reports", origins)))
+    // Not exposed: the origins name nobody until it is, and a rule left from before is removed.
+    assert(
+      render(asks.copy(objectStorageOrigins = origins), ready)
+        .contains(Action.SetBucketCors("shop.reports", Nil))
+    )
   }

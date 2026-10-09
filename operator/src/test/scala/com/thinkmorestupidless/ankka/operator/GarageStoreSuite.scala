@@ -278,6 +278,32 @@ class GarageStoreSuite extends munit.FunSuite:
     assertEquals(store.keyInfo("GK000000000000000000000000"), None)
   }
 
+  // Feature 039: a move's write pause, on the key the service already holds.
+  test(
+    "a key denied write keeps reading, is refused a write at once, and writes again when allowed"
+  ) {
+    val bucket = store.createBucket("casino.deny")
+    val key    = store.createKey("casino.deny")
+    store.allow(bucket.id, key.accessKeyId)
+    put(s3(key), "casino.deny", "passport.pdf", "a passport")
+    store.deny(bucket.id, key.accessKeyId)
+    assertEquals(get(s3(key), "casino.deny", "passport.pdf"), "a passport")
+    val refused = intercept[S3Exception](put(s3(key), "casino.deny", "proof.pdf", "proof"))
+    assertEquals(refused.statusCode(), 403)
+    store.allow(bucket.id, key.accessKeyId)
+    put(s3(key), "casino.deny", "proof.pdf", "proof")
+  }
+
+  test("a bucket's keys are those named for it and for it and a generation, with their expiry") {
+    val first  = store.createKey("casino.keys")
+    val second = store.createKey("casino.keys#2")
+    store.createKey("casino.keys-other"): Unit
+    val at = Instant.parse("2030-01-01T00:00:00Z")
+    store.expire(first.accessKeyId, at)
+    val found = store.keysOf("casino.keys").map(k => k.accessKeyId -> k.expiration).toMap
+    assertEquals(found, Map(first.accessKeyId -> Some(at), second.accessKeyId -> None))
+  }
+
   test("a store nothing answers at is unavailable") {
     val nowhere = GarageStore("http://127.0.0.1:1", Token)
     intercept[ObjectStoreUnavailable](nowhere.bucket("shop.reports"))

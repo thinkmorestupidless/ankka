@@ -632,6 +632,18 @@ object Main:
       }
     }
 
+    val storage = Opts.subcommand("storage", "Act on a service's bucket and its credential.") {
+      val reissue = Opts.subcommand(
+        "reissue",
+        "Issue the service's storage credential again; the old one ends after the rotation grace."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          Output.service(ctx.client.reissueStorageCredential(ctx.project, name), ctx.format)
+        }
+      }
+      reissue
+    }
+
     val logs = Opts.subcommand("logs", "Print a deployed service's recent output.") {
       (
         Opts.argument[String]("name"),
@@ -737,6 +749,7 @@ object Main:
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
+      .orElse(storage)
       .orElse(rollback)
       .orElse(logs)
       .orElse(topology)

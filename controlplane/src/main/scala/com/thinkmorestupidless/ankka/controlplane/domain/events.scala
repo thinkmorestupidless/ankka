@@ -330,6 +330,18 @@ enum ServiceEvent:
   case ServiceSuspended(actor: Option[Actor] = None, at: Option[Instant] = None)
   case ServiceReinstated(actor: Option[Actor] = None, at: Option[Instant] = None)
 
+  /**
+   * A member asked for the service's storage credential to be issued again (feature 039). Desired
+   * state beside the descriptor, like exposure: no deployment generation; the operator issues a new
+   * credential, rolls the service onto it, and ends the old one after the rotation grace.
+   * `generation` is the credential's, not the service's.
+   */
+  case StorageCredentialReissued(
+      generation: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 /** What an operator submits to change a service. */
 final case class ApplyService(projectId: String, descriptor: ServiceDescriptor)
 

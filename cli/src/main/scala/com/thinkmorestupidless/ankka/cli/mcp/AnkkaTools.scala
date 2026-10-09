@@ -252,6 +252,15 @@ private[cli] final class AnkkaTools(
       destructive = false,
       idempotent = false
     )(_.restartService(_, _)),
+    serviceAction(
+      "reissue_storage_credential",
+      "Issue a service's storage credential again",
+      "Issue a new credential for the service's bucket and roll its instances onto it. The old " +
+        "credential goes on working until the rotation grace, an hour as shipped, has passed, and " +
+        "is refused after. For a leaked credential or a rotation policy.",
+      destructive = false,
+      idempotent = false
+    )(_.reissueStorageCredential(_, _)),
     Tool(
       "delete_service",
       "Delete a service",

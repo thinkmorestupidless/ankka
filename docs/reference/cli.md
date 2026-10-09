@@ -1264,6 +1264,7 @@ Usage:
     ankka services pause
     ankka services resume
     ankka services restart
+    ankka services storage
     ankka services rollback
     ankka services logs
     ankka services topology
@@ -1293,6 +1294,8 @@ Subcommands:
         Start a paused service again.
     restart
         Replace a service's instances.
+    storage
+        Act on a service's bucket and its credential.
     rollback
         Apply the descriptor of an earlier generation again, as a new generation.
     logs
@@ -1439,6 +1442,42 @@ Options and flags:
 Usage: ankka services restart [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Replace a service's instances.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services storage`
+
+```text
+Usage: ankka services storage reissue
+
+Act on a service's bucket and its credential.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    reissue
+        Issue the service's storage credential again; the old one ends after the rotation grace.
+```
+
+### `ankka services storage reissue`
+
+```text
+Usage: ankka services storage reissue [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Issue the service's storage credential again; the old one ends after the rotation grace.
 
 Options and flags:
     --help

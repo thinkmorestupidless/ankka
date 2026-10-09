@@ -119,7 +119,9 @@ trait Executor:
 final class Fabric8Executor(
     client: KubernetesClient,
     telemetryHeaders: Option[Settings.Credential] = None,
-    store: Option[ObjectStore] = None
+    store: Option[ObjectStore] = None,
+    /** How long an old storage credential works after a new one is in place (feature 039). */
+    rotationGrace: scala.concurrent.duration.FiniteDuration = Settings.default.rotationGrace
 ) extends Executor:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.executor")
@@ -445,13 +447,14 @@ final class Fabric8Executor(
           s.createBucket(bucket): Unit
           log.info("made bucket {}", bucket)
         case Some(info) if info.allowedKeys.isEmpty =>
-          // Made again after its service deleted it: the service's keys reach it once more.
-          s.keysNamed(bucket).foreach(s.allow(info.id, _))
+          // Made again after its service deleted it: the service's keys reach it once more, of
+          // whatever generation (feature 039), unless they have ended.
+          s.keysOf(bucket).filterNot(_.expired).foreach(k => s.allow(info.id, k.accessKeyId))
         case Some(_) => ()
 
-    case Action.EnsureStorageCredential(namespace, name, labels, bucket) =>
+    case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation) =>
       requireStore(): Unit
-      storageCredentials.get.ensure(namespace, name, labels, bucket) match
+      storageCredentials.get.ensure(namespace, name, labels, bucket, generation) match
         case StorageCredential.Result.Created =>
           log.info("issued the storage credential {}/{}", namespace, name)
         case StorageCredential.Result.Replaced =>
@@ -462,6 +465,35 @@ final class Fabric8Executor(
             name
           )
         case StorageCredential.Result.Unchanged => ()
+
+    case Action.ReissueStorageCredential(namespace, name, bucket, generation) =>
+      requireStore(): Unit
+      storageCredentials.get.reissue(
+        namespace,
+        name,
+        bucket,
+        generation,
+        java.time.Instant.now().plusSeconds(rotationGrace.toSeconds)
+      )
+      log.info(
+        "issued the storage credential {}/{} again, at generation {}; the old one ends in {}",
+        namespace,
+        name,
+        generation,
+        rotationGrace
+      )
+
+    case Action.DeleteExpiredKeys(bucket) =>
+      requireStore(): Unit
+      storageCredentials.get.deleteExpired(bucket)
+
+    case Action.SetBucketCors(bucket, origins) =>
+      val s = requireStore()
+      s.bucket(bucket).foreach { info =>
+        if info.corsOrigins.toSet != origins.toSet then
+          s.setCors(info.id, origins)
+          log.info("set the cors rule of bucket {} to {}", bucket, origins.mkString(", "))
+      }
 
     case Action.EnsureReferenceGrant(grant) =>
       val _ = client.resource(grant).fieldManager(FieldManager).forceConflicts().serverSideApply()

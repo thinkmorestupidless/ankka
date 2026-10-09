@@ -200,7 +200,12 @@ final class ServiceReconciler(
         spec.serviceName
       ),
       broker = LifecycleRules.brokerStatus(brokerPlan),
-      objectStorage = ObjectStorage.status(objectStoragePlan, spec, settings),
+      objectStorage = ObjectStorage.status(
+        objectStoragePlan,
+        spec,
+        settings,
+        ObjectStorage.inPlace(resource)
+      ),
       // A broker that failed says why where a member looks first, without changing the
       // service's lifecycle: a service whose credential cannot be had is still deployed.
       detail = base.detail.orElse(brokerPlan match
@@ -240,6 +245,7 @@ object ServiceReconciler:
       new Fabric8Executor(
         client,
         settings.otlpHeaders,
-        settings.objectStore.map(store => GarageStore(store.adminUrl, store.adminToken))
+        settings.objectStore.map(store => GarageStore(store.adminUrl, store.adminToken)),
+        settings.rotationGrace
       )
     )

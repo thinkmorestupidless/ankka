@@ -453,6 +453,11 @@ final case class Service(
      */
     exposed: Boolean = false,
     /**
+     * Desired state: how many times a member has asked for the storage credential to be issued
+     * again (feature 039). Projected to the resource; the operator issues each one.
+     */
+    storageCredentialGeneration: Int = 0,
+    /**
      * Desired state, owned by the *organization*: disabled means every one of its services stops
      * (feature 008). Separate from `paused`, which the members own, so that re-enabling restores
      * exactly what they had chosen.
@@ -801,6 +806,10 @@ object Service:
       case ServiceDeleted(actor, at)    => current.onDeleted.remember("deleted", actor, at)
       case ServiceSuspended(actor, at)  => current.onSuspended.remember("suspended", actor, at)
       case ServiceReinstated(actor, at) => current.onReinstated.remember("reinstated", actor, at)
+      case StorageCredentialReissued(generation, actor, at) =>
+        current
+          .copy(storageCredentialGeneration = generation)
+          .remember("storage-credential-reissued", actor, at)
 
   /**
    * The operator's reported database phase

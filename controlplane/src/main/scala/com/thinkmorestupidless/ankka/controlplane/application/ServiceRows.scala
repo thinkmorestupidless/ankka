@@ -160,6 +160,9 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
             // goes: `services list` should show what exists now.
             effects.deleteRow()
 
+          // Nothing a listing shows changes until the operator reports the rollout.
+          case _: StorageCredentialReissued => effects.ignore()
+
 object ServiceRows
     extends View.Companion[ServiceRowsView, ServiceEvent, ServiceStatus](
       componentId = ComponentId("service-rows"),

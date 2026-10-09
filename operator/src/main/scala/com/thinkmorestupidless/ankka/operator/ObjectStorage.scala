@@ -105,12 +105,47 @@ object ObjectStorage:
       base <- settings.baseDomain
     yield Buckets.publicAddress(spec.projectId, spec.serviceName, base, settings.httpsPort)
 
+  /** The generation of the storage credential the Secret holds, as the last pass reported it. */
+  def inPlace(resource: com.thinkmorestupidless.ankka.crd.AnkkaService): Int =
+    Option(resource.getStatus)
+      .flatMap(_.objectStorage)
+      .map(_.credentialGeneration)
+      .getOrElse(0)
+
+  /**
+   * The generation of the storage credential in place once this pass has run (feature 039): the one
+   * a member asked for when the plan renders the credential, which issues it before the Deployment
+   * is applied; otherwise the one already there. Rendering puts it on the pod template and the
+   * status reports it, from this one function, so the two cannot disagree.
+   */
+  def credentialGeneration(plan: ObjectStoragePlan, spec: AnkkaServiceSpec, inPlace: Int): Int =
+    plan match
+      case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_) =>
+        math.max(spec.storageCredentialGeneration, inPlace)
+      case _ => inPlace
+
   def status(
       plan: ObjectStoragePlan,
       spec: AnkkaServiceSpec,
-      settings: Settings
+      settings: Settings,
+      inPlace: Int = 0
   ): Option[ObjectStorageStatus] =
-    val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    val bucket     = Buckets.name(spec.projectId, spec.serviceName)
+    val generation = credentialGeneration(plan, spec, inPlace)
+    // A bucket the platform made says which store it is in and which credential is in place; an
+    // object store of the service's own is neither the platform's to name.
+    statusOf(plan, spec, settings, bucket).map(s =>
+      if spec.provisionObjectStorage then
+        s.copy(store = "garage", credentialGeneration = generation)
+      else s
+    )
+
+  private def statusOf(
+      plan: ObjectStoragePlan,
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      bucket: String
+  ): Option[ObjectStorageStatus] =
     plan.reportedPhase.map { phase =>
       plan match
         case ObjectStoragePlan.Supplied => ObjectStorageStatus(phase = phase)

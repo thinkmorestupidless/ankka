@@ -234,10 +234,18 @@ Requested ─▶ Copying ─▶ Pausing ─▶ Verifying ─▶ Switched
 |---|---|---|
 | `Requested` | renders the GCS identity, bucket and credential requests (R3) | all `Ready` → `Copying` |
 | `Copying` | ensures `…-copy` Job | Job succeeded → `Pausing`; failed → `Failed` |
-| `Pausing` | issues a read-only Garage key (`<bucket>#ro<n>`), patches `<service>-storage`, bumps the credential annotation, records `pauseStartedAt` and `pauseBound` | rollout complete (`ClusterSnapshot`: `updatedReplicas == specReplicas`, `totalReplicas == updatedReplicas`, no rollout pending) → `Verifying`; bound passed → `Failed` |
+| `Pausing` | takes write from the key the service holds (`StorageCredential.pauseWrites`, Garage's `DenyBucketKey`), records `pauseStartedAt` and `pauseBound` | the next pass → `Verifying`; bound passed → `Failed` |
 | `Verifying` | ensures `…-verify` Job with `activeDeadlineSeconds` = what remains of the bound | succeeded → `Switched`; failed or deadline → `Failed` |
 | `Switched` | renders the GCS variables and `envFrom` (R3), which rolls the service; `status.objectStorage.store = gcs` | terminal |
-| `Failed` | issues a writing key `<bucket>#<n+1>`, patches the Secret, bumps the annotation; `store = garage`, `detail` says why | terminal; a new request restarts at `Requested` |
+| `Failed` | gives the key in place its writes back (`resumeWrites`); `store = garage`, `detail` says why | terminal; a new request restarts at `Requested` |
+
+**Revised during implementation (2026-10-09).** The plan first issued a new read-only key
+(`<bucket>#ro<n>`), patched the Secret and rolled the service onto it. That was unsound: the old
+writing key went on working until the pods were replaced, so an instance not yet replaced could
+write during the pause and the verify would miss it. Garage's admin API can take write from the
+key in place (`DenyBucketKey`), which is in force at once for every instance, needs no rollout and
+leaves reads working; `GarageStoreSuite` proves it against the pinned image. The pause is therefore
+one admin call, and its end on failure is one more (`AllowBucketKey` with write).
 
 A reconcile is level-triggered, so each pass reads the status's state, observes the Job and the
 rollout, and applies one transition. The state survives operator restarts because the status

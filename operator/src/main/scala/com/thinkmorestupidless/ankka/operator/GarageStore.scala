@@ -87,15 +87,42 @@ final class GarageStore(
     send("POST", s"/v2/UpdateKey?id=${encode(accessKeyId)}", Some(body)): Unit
 
   def keyInfo(accessKeyId: String): Option[KeyInfo] =
-    send("GET", "/v2/ListKeys")._2.elements.asScala
-      .find(_.path("id").asText() == accessKeyId)
-      .map(key => KeyInfo(accessKeyId, key.path("name").asText(), key.path("expired").asBoolean()))
+    listKeys().find(_.accessKeyId == accessKeyId)
+
+  def keysOf(bucket: String): Vector[KeyInfo] =
+    listKeys().filter(k => k.name == bucket || k.name.startsWith(bucket + "#"))
+
+  def deny(bucketId: String, accessKeyId: String): Unit =
+    val body = json.createObjectNode()
+    body.put("bucketId", bucketId)
+    body.put("accessKeyId", accessKeyId)
+    val permissions = body.putObject("permissions")
+    permissions.put("read", false)
+    permissions.put("write", true)
+    permissions.put("owner", true)
+    send("POST", "/v2/DenyBucketKey", Some(body)): Unit
+
+  private def listKeys(): Vector[KeyInfo] =
+    send("GET", "/v2/ListKeys")._2.elements.asScala.toVector.map { key =>
+      KeyInfo(
+        key.path("id").asText(),
+        key.path("name").asText(),
+        key.path("expired").asBoolean(),
+        Option(key.path("expiration").asText(null)).filter(_.nonEmpty).map(Instant.parse)
+      )
+    }
 
   private def bucketInfo(body: JsonNode): BucketInfo =
     BucketInfo(
       id = body.path("id").asText(),
       created = Instant.parse(body.path("created").asText()),
-      allowedKeys = body.path("keys").elements.asScala.map(_.path("accessKeyId").asText()).toSet
+      allowedKeys = body.path("keys").elements.asScala.map(_.path("accessKeyId").asText()).toSet,
+      corsOrigins = body
+        .path("corsRules")
+        .elements
+        .asScala
+        .flatMap(_.path("AllowedOrigin").elements.asScala.map(_.asText()))
+        .toVector
     )
 
   private def obj(fields: (String, String)*): JsonNode =

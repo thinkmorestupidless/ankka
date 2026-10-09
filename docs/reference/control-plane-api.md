@@ -131,6 +131,7 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/pause` | |
 | `POST` | `/services/{projectId}/{name}/resume` | |
 | `POST` | `/services/{projectId}/{name}/restart` | |
+| `POST` | `/services/{projectId}/{name}/storage-credential` | |
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
@@ -547,6 +548,15 @@ Starts a paused service again. Answers with the status.
 Replaces every instance by a rolling update, and increments the generation. Refused with `409` while the
 service is paused. Answers with the status.
 
+### `POST /services/{projectId}/{name}/storage-credential`
+
+Issues the service's storage credential again. A new credential is written where the service's
+instances read it, the instances are replaced by a rolling update once it is there, and the old
+credential goes on working until the rotation grace (an hour as shipped) has passed, after which it is
+refused. The service's generation is unchanged. Refused with `409` when the service's descriptor asks
+for no bucket, since the platform holds no credential of its own for it. Answers with the status, and
+the history records `storage-credential-reissued`.
+
 ### `POST /services/{projectId}/{name}/rollback`
 
 Rolls the service back: applies the descriptor it recorded at an earlier generation again, as a new
@@ -639,7 +649,7 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended` or `reinstated`. `administrative` is `true` when the platform administrator role
+`deleted`, `suspended`, `reinstated` or `storage-credential-reissued`. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

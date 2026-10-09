@@ -56,14 +56,37 @@ trait ObjectStore:
    */
   def keyInfo(accessKeyId: String): Option[KeyInfo]
 
+  /**
+   * Every key of one service's bucket: named for it, or for it and a generation (`<bucket>#<n>`,
+   * feature 039). Never a secret.
+   */
+  def keysOf(bucket: String): Vector[KeyInfo]
+
+  /**
+   * Takes write and ownership of the bucket from the key, which still reads it (feature 039: a
+   * move's write pause, in force at once, on the key the service already holds).
+   */
+  def deny(bucketId: String, accessKeyId: String): Unit
+
 /**
  * @param allowedKeys
  *   the access key ids allowed on the bucket
  */
-final case class BucketInfo(id: String, created: Instant, allowedKeys: Set[String])
+final case class BucketInfo(
+    id: String,
+    created: Instant,
+    allowedKeys: Set[String],
+    /** The origins the bucket's CORS rules admit (feature 039). */
+    corsOrigins: Seq[String] = Nil
+)
 
 /** An access key as the store describes it, without its secret. */
-final case class KeyInfo(accessKeyId: String, name: String, expired: Boolean)
+final case class KeyInfo(
+    accessKeyId: String,
+    name: String,
+    expired: Boolean,
+    expiration: Option[Instant] = None
+)
 
 /** An access key as the store issued it. `toString` prints the id alone. */
 final case class IssuedKey(accessKeyId: String, secretAccessKey: String):

@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.{ObjectMetaBuilder, Secret, SecretBuilder}
 
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import scala.jdk.CollectionConverters.*
 
@@ -47,21 +48,27 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
 
   private val ensured = ConcurrentHashMap.newKeySet[(String, String)]()
 
+  /**
+   * @param generation
+   *   the generation of the credential in place (feature 039): its key is named for the bucket and
+   *   the generation, so a pass after an operator restart looks for the key the Secret holds, never
+   *   for one of an older generation
+   */
   def ensure(
       namespace: String,
       secretName: String,
       labels: Map[String, String],
-      bucket: String
+      bucket: String,
+      generation: Int = 0
   ): StorageCredential.Result =
-    val info = store
-      .bucket(bucket)
-      .getOrElse(throw new IllegalStateException(s"the bucket $bucket has not been made"))
+    val info = existing(bucket)
+    val name = StorageCredential.keyName(bucket, generation)
     if ensured.contains((namespace, secretName)) then
-      reallow(info, bucket)
+      reallow(info, name)
       StorageCredential.Result.Unchanged
     else
-      val earlier = store.keysNamed(bucket)
-      val issued  = store.createKey(bucket)
+      val earlier = store.keysNamed(name)
+      val issued  = store.createKey(name)
       store.allow(info.id, issued.accessKeyId)
       val result = secrets.create(secret(namespace, secretName, labels, issued)) match
         case SecretWriter.Outcome.Created =>
@@ -78,8 +85,58 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       result
 
   /** A bucket made again shows no key allowed; the service's keys are allowed on it once more. */
-  private def reallow(info: BucketInfo, bucket: String): Unit =
-    if info.allowedKeys.isEmpty then store.keysNamed(bucket).foreach(store.allow(info.id, _))
+  private def reallow(info: BucketInfo, keyName: String): Unit =
+    if info.allowedKeys.isEmpty then store.keysNamed(keyName).foreach(store.allow(info.id, _))
+
+  private def existing(bucket: String): BucketInfo =
+    store
+      .bucket(bucket)
+      .getOrElse(throw new IllegalStateException(s"the bucket $bucket has not been made"))
+
+  /**
+   * Issues the credential of a new generation and writes it where the pod reads it (feature 039).
+   *
+   * Called only while the generation in place is behind the one a member asked for, so it always
+   * issues: a key of this generation already in the store is one a pass made and was cut off before
+   * writing, whose secret no Secret holds, and it is deleted first. Every other key of the bucket
+   * is set to stop working at `expireAt`, once — an expiry already set is never moved — so an
+   * instance not yet replaced keeps working through the grace and is refused after it.
+   */
+  def reissue(
+      namespace: String,
+      secretName: String,
+      bucket: String,
+      generation: Int,
+      expireAt: Instant
+  ): Unit =
+    val info = existing(bucket)
+    val name = StorageCredential.keyName(bucket, generation)
+    store.keysNamed(name).foreach(store.deleteKey)
+    val issued = store.createKey(name)
+    store.allow(info.id, issued.accessKeyId)
+    secrets.patch(namespace, secretName, StorageCredential.entries(issued))
+    store
+      .keysOf(bucket)
+      .filter(k => k.accessKeyId != issued.accessKeyId && k.expiration.isEmpty)
+      .foreach(k => store.expire(k.accessKeyId, expireAt))
+    ensured.add((namespace, secretName)): Unit
+
+  /** Deletes the keys of the bucket the store says have expired; never the one in place. */
+  def deleteExpired(bucket: String): Unit =
+    store.keysOf(bucket).filter(_.expired).foreach(k => store.deleteKey(k.accessKeyId))
+
+  /**
+   * A move's write pause (feature 039): the key in place keeps reading and may no longer write,
+   * from now, for every instance at once. Nothing is rewritten, so nothing rolls.
+   */
+  def pauseWrites(bucket: String, generation: Int): Unit =
+    val info = existing(bucket)
+    store.keysNamed(StorageCredential.keyName(bucket, generation)).foreach(store.deny(info.id, _))
+
+  /** Ends a write pause on Garage: the key in place writes again. */
+  def resumeWrites(bucket: String, generation: Int): Unit =
+    val info = existing(bucket)
+    store.keysNamed(StorageCredential.keyName(bucket, generation)).foreach(store.allow(info.id, _))
 
   private def secret(
       namespace: String,
@@ -100,6 +157,13 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       .build()
 
 object StorageCredential:
+
+  /**
+   * The name of the key of a credential's generation (feature 039): the bucket's for generation 0,
+   * which every key made before the feature is, and the bucket's and the generation's after.
+   */
+  def keyName(bucket: String, generation: Int): String =
+    if generation == 0 then bucket else s"$bucket#$generation"
 
   val AccessKeyEntry: String = "ANKKA_S3_ACCESS_KEY"
   val SecretKeyEntry: String = "ANKKA_S3_SECRET_KEY"

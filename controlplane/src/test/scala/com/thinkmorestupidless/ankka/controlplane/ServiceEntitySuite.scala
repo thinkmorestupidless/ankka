@@ -352,6 +352,49 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(restarted.replyValue.readyInstances, 0)
   }
 
+  // Feature 039: a storage credential issued again.
+
+  private def withBucket =
+    ApplyService(
+      "acme",
+      descriptor().copy(service = descriptor().service.copy(provisionObjectStorage = true))
+    )
+
+  test(
+    "issuing a storage credential again raises its generation, is in the history, and deploys nothing"
+  ) {
+    val kit    = newKit
+    val _      = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val first  = kit.call(ServiceEntity.reissueStorageCredential)
+    val second = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(
+      second.events.collect { case e: StorageCredentialReissued => e.generation },
+      Vector(2)
+    )
+    assertEquals(first.replyValue.generation, 1L, "the service's own generation does not move")
+    assertEquals(kit.currentState.storageCredentialGeneration, 2)
+    assertEquals(kit.currentState.history.head.kind, "storage-credential-reissued")
+  }
+
+  test("a service whose descriptor asks for no bucket has no storage credential to issue again") {
+    val kit     = newKit
+    val _       = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val refused = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assert(
+      refused.error.message.contains("no storage credential to reissue"),
+      refused.error.message
+    )
+  }
+
+  test("a storage credential issued again survives a replay of the journal") {
+    val kit      = newKit
+    val _        = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _        = kit.call(ServiceEntity.reissueStorageCredential)
+    val replayed = kit.allEvents.foldLeft(Service.empty(ServiceKey("acme", "cart")))(Service.fold)
+    assertEquals(replayed.storageCredentialGeneration, 1)
+  }
+
   test("resuming a running service is a no-op") {
     val kit    = newKit
     val _      = kit.call(ServiceEntity.applyDescriptor)(applying())

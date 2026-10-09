@@ -246,6 +246,10 @@ final class ControlPlaneClient(settings: Settings):
   def restartService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "restart"))
 
+  /** Issues the service's storage credential again (feature 039). */
+  def reissueStorageCredential(projectId: String, name: String): ServiceStatus =
+    decode[ServiceStatus](action(projectId, name, "storage-credential"))
+
   def exposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "expose"))
 

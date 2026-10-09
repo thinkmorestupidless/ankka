@@ -89,7 +89,12 @@ final case class Settings(
      */
     cloudProvider: Option[String] = None,
     /** The image of the program a move runs as a Job (feature 039), as `sidecarImage` is. */
-    storageMoverImage: String = "ankka-storage-mover:latest"
+    storageMoverImage: String = "ankka-storage-mover:latest",
+    /**
+     * How long an old storage credential goes on working after a new one is in place: feature 044's
+     * rotation grace, an hour as shipped, which feature 039 applies to Garage's keys too.
+     */
+    rotationGrace: FiniteDuration = 1.hour
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -169,6 +174,11 @@ object Settings:
       ),
       proxyImage = string("ankka.operator.proxy-image", "ANKKA_PROXY_IMAGE", default.proxyImage),
       httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort),
+      rotationGrace = seconds(
+        "ankka.operator.rotation-grace-seconds",
+        "ANKKA_ROTATION_GRACE_SECONDS",
+        default.rotationGrace
+      ),
       otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),

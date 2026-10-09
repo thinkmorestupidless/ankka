@@ -60,7 +60,17 @@ class StorageCredentialSuite extends munit.FunSuite:
       def expire(accessKeyId: String, at: Instant): Unit =
         calls += s"expire $accessKeyId"; expiries(accessKeyId) = at
       def keyInfo(accessKeyId: String): Option[KeyInfo] =
-        keys.get(accessKeyId).map(name => KeyInfo(accessKeyId, name, expired(accessKeyId)))
+        keys.get(accessKeyId).map(info(accessKeyId, _))
+      def keysOf(bucket: String): Vector[KeyInfo] =
+        calls += "keysOf"
+        keys.collect {
+          case (id, name) if name == bucket || name.startsWith(bucket + "#") => info(id, name)
+        }.toVector
+      def deny(bucketId: String, accessKeyId: String): Unit =
+        calls += s"deny $accessKeyId"; writers -= accessKeyId: Unit
+
+    private def info(id: String, name: String) =
+      KeyInfo(id, name, expired(id), expiries.get(id))
 
     val writer: SecretWriter = new SecretWriter:
       def create(secret: Secret): SecretWriter.Outcome =
@@ -81,6 +91,13 @@ class StorageCredentialSuite extends munit.FunSuite:
       credentials.ensure(Namespace, Name, Labels, Bucket)
 
     def held: Map[String, String] = secrets((Namespace, Name))
+
+    val Grace = java.time.Duration.ofHours(1)
+
+    def reissue(generation: Int): Unit =
+      credentials.reissue(Namespace, Name, Bucket, generation, now.plus(Grace))
+
+    def named(name: String): Vector[String] = keys.collect { case (id, `name`) => id }.toVector
 
   test("with nothing issued, one key is issued, allowed and written into the Secret") {
     val w = World()
@@ -183,4 +200,89 @@ class StorageCredentialSuite extends munit.FunSuite:
       Map(StorageCredential.AccessKeyEntry -> "GK0", StorageCredential.SecretKeyEntry -> "old")
     w.ensure(): Unit
     assert(w.allowed.contains("GK0"), w.calls.mkString(", "))
+  }
+
+  // Feature 039: a credential issued again, on Garage, and a move's write pause.
+
+  private def issued(w: World): World =
+    w.ensure(): Unit
+    w.calls.clear()
+    w
+
+  test(
+    "issuing again makes a key of the new generation, writes it, and expires the old one after the grace"
+  ) {
+    val w = issued(World())
+    w.reissue(1)
+    val fresh = w.named(s"$Bucket#1")
+    assertEquals(fresh.size, 1)
+    assertEquals(w.held(StorageCredential.AccessKeyEntry), fresh.head)
+    assert(w.writers.contains(fresh.head), "the new key writes")
+    assertEquals(
+      w.expiries.get("GK1"),
+      Some(w.now.plus(w.Grace)),
+      "the first key ends after the grace"
+    )
+    assertEquals(w.expiries.get(fresh.head), None, "the new key does not end")
+    assert(w.calls.indexOf(s"allow ${fresh.head}") < w.calls.indexOf("patch"), w.calls.toString)
+  }
+
+  test("an expiry already set is never moved, so a key's grace ends when it first began") {
+    val w = issued(World())
+    w.reissue(1)
+    val first = w.expiries("GK1")
+    w.now = w.now.plusSeconds(600)
+    w.reissue(2)
+    assertEquals(w.expiries("GK1"), first)
+  }
+
+  test(
+    "a pass cut off after issuing and before writing issues the key again, so the Secret holds one that exists"
+  ) {
+    val w = issued(World())
+    w.keys("GK-orphan") = s"$Bucket#1" // issued; its secret never reached the Secret
+    w.reissue(1)
+    assert(!w.keys.contains("GK-orphan"), "a key whose secret no Secret holds is deleted")
+    assertEquals(w.named(s"$Bucket#1"), Vector(w.held(StorageCredential.AccessKeyEntry)))
+  }
+
+  test("only expired keys of the service's bucket are deleted, and never the one in place") {
+    val w = issued(World())
+    w.keys("GK-other") = "shop.ledger"
+    w.expiries("GK-other") = w.now.minusSeconds(1)
+    w.reissue(1)
+    w.credentials.deleteExpired(Bucket)
+    assert(w.keys.contains("GK1"), "the first key is still in its grace")
+    w.now = w.now.plus(w.Grace)
+    w.credentials.deleteExpired(Bucket)
+    assert(!w.keys.contains("GK1"), "the first key is gone once its grace has passed")
+    assert(w.keys.contains("GK-other"), "another bucket's key is not this service's to delete")
+    assertEquals(w.named(s"$Bucket#1").size, 1)
+  }
+
+  test(
+    "after a restart, ensuring a re-issued credential finds the key of its generation and changes nothing"
+  ) {
+    // The trap: 034's ensure looked for keys under the bare bucket name, found none once
+    // generation 0 was gone, and would patch the Secret back to a key of generation 0.
+    val w = issued(World())
+    w.reissue(2)
+    w.keys -= "GK1"
+    val held  = w.held
+    val fresh = StorageCredential(w.store, w.writer) // a new operator process
+    assertEquals(
+      fresh.ensure(Namespace, Name, Labels, Bucket, generation = 2),
+      StorageCredential.Result.Unchanged
+    )
+    assertEquals(w.held, held)
+  }
+
+  test("a write pause takes write from the key in place at once, and gives it back") {
+    val w = issued(World())
+    w.credentials.pauseWrites(Bucket, generation = 0)
+    assert(!w.writers.contains("GK1"), "the key in place no longer writes")
+    assert(w.allowed.contains("GK1"), "and still reads")
+    assertEquals(w.secrets((Namespace, Name)), w.held, "the Secret is untouched: nothing rolls")
+    w.credentials.resumeWrites(Bucket, generation = 0)
+    assert(w.writers.contains("GK1"))
   }

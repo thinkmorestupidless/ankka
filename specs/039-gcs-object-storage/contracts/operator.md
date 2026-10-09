@@ -60,34 +60,41 @@ The name-length rule (034's row 3) applies on `garage` only.
 |---|---|---|
 | `EnsureCloudResource(resource)` | 044's | 044's server-side apply |
 | `EnsureServiceAccountAnnotations(ns, name, annotations)` | the identity fulfilment's map | merged onto the ServiceAccount the operator already renders (part of `EnsureServiceAccount`'s object; no new verb) |
-| `SetBucketCors(bucket, origins)` | Garage; the descriptor's origins when exposed, else empty | `ObjectStore.setCors` on every pass that renders the bucket |
-| `ReissueStorageCredential(ns, secretName, labels, bucket, generation)` | Garage; no key | `StorageCredential.reissue` below |
-| `EnsureReadOnlyCredential(ns, secretName, labels, bucket, move)` | Garage; a move's pause | `StorageCredential.readOnly` below |
-| `RestoreWritingCredential(ns, secretName, labels, bucket, generation)` | Garage; a move's failure | `StorageCredential.reissue` with the next generation |
-| `ExpireKeysBelow(bucket, generation)`, `DeleteExpiredKeys(bucket)` | Garage | `expire` on every key of a lower generation; `deleteKey` on each `expired` |
+| `SetBucketCors(bucket, origins)` | Garage; the descriptor's origins when exposed, else empty; rendered only for a descriptor that is exposed or names origins | `ObjectStore.setCors`, only when the bucket's rule says otherwise |
+| `ReissueStorageCredential(ns, secretName, bucket, generation)` | Garage; no key | `StorageCredential.reissue` below |
+| `PauseWrites(bucket, generation)` | Garage; a move's pause | `StorageCredential.pauseWrites`: `DenyBucketKey` write and owner on the key in place |
+| `ResumeWrites(bucket, generation)` | Garage; a move's failure | `StorageCredential.resumeWrites`: `AllowBucketKey` with write |
+| `DeleteExpiredKeys(bucket)` | Garage; rendered once a credential has been issued again | `deleteKey` on each key the store reports `expired` |
 | `EnsureMoveJob(job)` | a `batch/v1 Job` | server-side apply; RBAC `batch/jobs` get list watch create patch |
 
 `describe` prints namespaces, names, buckets, generations and states. No action, log line or
 status holds a secret.
 
-### `StorageCredential.reissue(namespace, secretName, labels, bucket, generation)`
+### `StorageCredential.reissue(namespace, secretName, bucket, generation, expireAt)`
+
+Rendered only while the generation asked for is above the one in place (the status's), so it
+always issues:
 
 | Step | Does |
 |---|---|
-| 1 | `createKey(s"$bucket#$generation")`, `allow(bucket, key, write = true)` |
-| 2 | `secrets.patch(namespace, secretName, entries)` — the Secret exists (034 made it); a patch of an absent Secret is a `create` |
-| 3 | `expire(k, now + grace)` for every key named `bucket` or `bucket#m` with `m < generation` that is not yet expiring |
-| 4 | returns `generation`; the reconciler records it in the status and on the pod template |
+| 1 | deletes any key already named `bucket#generation`: a pass cut off before writing left it, and no Secret holds its secret |
+| 2 | `createKey(s"$bucket#$generation")`, `allow(bucket, key, write = true)` |
+| 3 | `secrets.patch(namespace, secretName, entries)` |
+| 4 | `expire(k, expireAt)` for every other key of the bucket with no expiry yet; an expiry already set is never moved |
 
-Idempotent: a pass that finds `bucket#generation` already among `keysNamed` does steps 3 and 4
-only. `grace` is 044's rotation grace. A later pass's `DeleteExpiredKeys` removes what Garage
-reports expired.
+`expireAt` is now plus the rotation grace (`ANKKA_ROTATION_GRACE_SECONDS`, an hour as shipped, 044's).
+The reconciler records the generation in the status and on the pod template. `ensure` takes the
+generation in place and looks for that key, so a pass after an operator restart never mistakes an
+expired generation-0 key's absence for a lost credential. A later pass's `DeleteExpiredKeys` removes
+what Garage reports expired. A pod restarted between a pass cut off after step 3 and the next pass
+reads a key step 1 then deletes, and is replaced by the roll that follows.
 
-### `StorageCredential.readOnly(namespace, secretName, labels, bucket, move)`
+### A move's write pause, on Garage
 
-`createKey(s"$bucket#ro$move")`, `allow(bucket, key, write = false)`, patch the Secret; the
-reconciler bumps the credential annotation (to `<generation>-ro<move>`) so the service rolls
-onto it. Expired with the rest when a writing generation follows.
+`pauseWrites(bucket, generation)` takes write and ownership from the key in place
+(`DenyBucketKey`); `resumeWrites` gives them back (`AllowBucketKey`). Nothing is rewritten and
+nothing rolls: every instance holds the same key, so the pause is in force for all of them at
+once, and reads go on working.
 
 ## Rendering, per store
 
@@ -114,8 +121,8 @@ hostings are 034's: the developer's container only.
 
 `ankka.thinkmorestupidless.com/storage-credential-generation: <generation in place>` — the
 status's `credentialGeneration` on either store (the fulfilment's on `gcs`, `reissue`'s on
-`garage`), or `<generation>-ro<move>` during a pause. Absent for a service without a bucket the
-platform made, so nothing already rendered changes.
+`garage`). Absent while it is 0, which every service is until a member issues its credential
+again, so nothing already rendered changes.
 
 ### The ServiceAccount
 
@@ -134,20 +141,17 @@ condition and termination report, the rollout snapshot and the clock.
 | none, spec has a request `n` > status's | — | `Requested` | the three GCS requests (as a `gcs` service's) |
 | `Requested` | all `Ready` | `Copying` | `EnsureMoveJob(copy)` |
 | `Requested` | a request `Failed` | `Failed` | — |
-| `Copying` | Job succeeded | `Pausing` | `EnsureReadOnlyCredential`; records `pauseStartedAt`, `pauseBound` |
-| `Copying` | Job failed | `Failed` | — (the service still holds its writing key) |
-| `Pausing` | rollout complete on the read-only annotation | `Verifying` | `EnsureMoveJob(verify, deadline = bound − elapsed)` |
-| `Pausing` | `now > pauseStartedAt + bound` | `Failed` | `RestoreWritingCredential` |
+| `Copying` | Job succeeded | `Pausing` | `PauseWrites`; records `pauseStartedAt`, `pauseBound` |
+| `Copying` | Job failed | `Failed` | — (the service still writes) |
+| `Pausing` | the next pass | `Verifying` | `EnsureMoveJob(verify, deadline = bound − elapsed)` |
+| `Pausing` | `now > pauseStartedAt + bound` | `Failed` | `ResumeWrites` |
 | `Verifying` | Job succeeded | `Switched` | the GCS variables and `envFrom` (rolls the service); `store = gcs` |
-| `Verifying` | Job failed or deadline | `Failed` | `RestoreWritingCredential`; `detail` from the termination report |
+| `Verifying` | Job failed or deadline | `Failed` | `ResumeWrites`; `detail` from the termination report |
 | `Failed`, spec request `n+1` | — | `Requested` | as the first row |
 
-"Rollout complete": `ClusterSnapshot` with no `rolloutPending`, `updatedReplicas == specReplicas`,
-`totalReplicas == updatedReplicas`, `readyReplicas == specReplicas`, and the Deployment's
-template carrying the read-only annotation. The verify Job's `activeDeadlineSeconds` is what
-remains of the bound, at least 1; Kubernetes fails it at the deadline, which the next pass reads.
-A `Failed` move's `RestoreWritingCredential` is `reissue` at `max(status generation, spec
-generation) + 1`, so the service rolls onto a writing key and the read-only key expires.
+The verify Job's `activeDeadlineSeconds` is what remains of the bound, at least 1; Kubernetes fails
+it at the deadline, which the next pass reads. The pause lasts from `PauseWrites` until the pods
+have rolled onto Google Cloud Storage, or until `ResumeWrites`.
 
 During `Pausing` and `Verifying` the operator ignores a raised `storageCredentialGeneration` (the
 control plane refuses it anyway) and keeps rendering Garage's variables; after `Switched` it

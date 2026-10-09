@@ -586,15 +586,15 @@ object copied twice into a changed state.
   control plane copies an object.
 - **FR-023**: Objects a service writes to Garage between the copy and the rollout MUST be copied
   before the switch, or the switch MUST NOT happen. The move MUST do this by a write pause enforced
-  by credential: after the background copy, the service's credential in `<service>-storage` is
-  replaced by one that reads and does not write (the store contract gains an operation that issues
-  a read-only credential for a bucket), the service is rolled so it holds it, the objects changed
-  since the copy began are copied and verified, and the pause ends when the service rolls onto GCS
-  or the move fails. The pause MUST have a bound: 10 minutes as shipped, which the member asking
+  by credential: after the background copy, the credential the service holds is made one that
+  reads and does not write, in force at once for every instance with nothing rewritten and no
+  rollout (the store contract gains an operation that takes write from a key), the objects
+  changed since the copy began are copied and verified, and the pause ends when the service rolls
+  onto GCS or the move fails. The pause MUST have a bound: 10 minutes as shipped, which the member asking
   for the move MAY override; a pause that reaches its bound before the service has rolled onto GCS
   MUST fail the move. The status MUST report the pause, its start and its bound, and MUST say the
-  storage is moving; a move that fails during the pause MUST restore a writing credential with the
-  service still on Garage.
+  storage is moving; a move that fails during the pause MUST give the credential in place its
+  writes back, with the service still on Garage.
 
 **Local and testing**
 

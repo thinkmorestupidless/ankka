@@ -39,8 +39,8 @@ Everything 034 defined stays as it was unless named here.
 
 | | |
 |---|---|
-| Name | `<bucket>` for generation 0 (every key made before this feature), `<bucket>#<n>` for generation `n`, `<bucket>#ro<n>` for the read-only key of move `n` |
-| Permission | `read`, `write`, `owner`; a read-only key `read` alone |
+| Name | `<bucket>` for generation 0 (every key made before this feature), `<bucket>#<n>` for generation `n` |
+| Permission | `read`, `write`, `owner`; during a move's write pause the key in place has write and owner taken from it, and `read` alone |
 | Expiry | none while in place; `now + rotation grace` once a higher generation is in the Secret |
 | Deleted | by the operator, only when Garage reports it `expired`, or when it was issued and never written to a Secret |
 

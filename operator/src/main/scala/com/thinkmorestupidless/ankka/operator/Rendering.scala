@@ -266,7 +266,15 @@ object Rendering:
                 settings.httpsPort,
                 settings.otlpEndpoint,
                 settings.otlpHeaders.isDefined,
-                storageEnv(spec, settings)
+                storageEnv(
+                  spec,
+                  settings,
+                  ObjectStorage.credentialGeneration(
+                    objectStoragePlan,
+                    spec,
+                    ObjectStorage.inPlace(resource)
+                  )
+                )
               ),
               deployed,
               declaredBrokers
@@ -355,17 +363,38 @@ object Rendering:
       plan: ObjectStoragePlan
   ): Vector[Action] =
     val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    val secret = Buckets.secret(spec.serviceName)
     val provision = plan match
       case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_) =>
-        Vector(
-          Action.EnsureBucket(bucket),
-          Action.EnsureStorageCredential(
-            namespace,
-            Buckets.secret(spec.serviceName),
-            Labels.identity(spec.projectId, spec.serviceName),
-            bucket
+        val inPlace = ObjectStorage.inPlace(resource)
+        val asked   = spec.storageCredentialGeneration
+        // Feature 039: a generation asked above the one in place is issued, and its old keys end
+        // after the grace; the sweep runs only once a credential has been issued again, so a
+        // service that never asked makes the calls it made before.
+        val credential =
+          if asked > inPlace then
+            Vector(Action.ReissueStorageCredential(namespace, secret, bucket, asked))
+          else
+            Vector(
+              Action.EnsureStorageCredential(
+                namespace,
+                secret,
+                Labels.identity(spec.projectId, spec.serviceName),
+                bucket,
+                inPlace
+              )
+            )
+        val sweep = Option.when(math.max(asked, inPlace) > 0)(Action.DeleteExpiredKeys(bucket))
+        // The bucket's CORS rule is the platform's (feature 039): the descriptor's origins while it
+        // is reachable from the internet, else none. Rendered only for a descriptor that says
+        // either, so a bucket nobody exposed is asked nothing more than before.
+        val cors = Option.when(spec.exposeObjectStorage || spec.objectStorageOrigins.nonEmpty)(
+          Action.SetBucketCors(
+            bucket,
+            if spec.exposeObjectStorage then spec.objectStorageOrigins else Nil
           )
         )
+        (Action.EnsureBucket(bucket) +: credential) ++ sweep ++ cors
       case _ => Vector.empty
     provision ++ bucketExposure(resource, spec, namespace, settings, plan)
 
@@ -490,7 +519,11 @@ object Rendering:
    * credential's Secret, whatever the plan — so with no store there is no Secret and no instance
    * starts with an empty credential — and where the bucket is, when the installation has a store.
    */
-  def storageEnv(spec: AnkkaServiceSpec, settings: Settings): Option[StorageEnv] =
+  def storageEnv(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      credentialGeneration: Int = 0
+  ): Option[StorageEnv] =
     Option.when(spec.provisionObjectStorage) {
       val bucket = Buckets.name(spec.projectId, spec.serviceName)
       val where = settings.objectStore.toVector.flatMap(store =>
@@ -504,7 +537,8 @@ object Rendering:
       yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(base, settings.httpsPort)).toVector
       StorageEnv(
         secret = Buckets.secret(spec.serviceName),
-        literals = (where :+ (StorageEnv.Bucket -> bucket)) ++ public
+        literals = (where :+ (StorageEnv.Bucket -> bucket)) ++ public,
+        credentialGeneration = credentialGeneration
       )
     }
 
@@ -1122,7 +1156,12 @@ object Rendering:
           // (feature 004, FR-016). Anything genuinely part of the template — image, env, port —
           // still rolls, because the template itself changed.
           .withAnnotations(
-            (spec.annotations + (Labels.RestartsKey -> spec.restarts.toString)).asJava
+            (spec.annotations + (Labels.RestartsKey -> spec.restarts.toString) ++
+              // Feature 039: a storage credential issued again rolls the pods onto it. Absent
+              // until one is, so upgrading the operator changes no pod template.
+              storage
+                .filter(_.credentialGeneration > 0)
+                .map(s => Labels.StorageCredentialKey -> s.credentialGeneration.toString)).asJava
           )
           .build()
       )
@@ -1714,7 +1753,16 @@ object Rendering:
  * `envFrom`, and the rest as literals, which change with the pod template and so reach every
  * instance when they change. Only what never changes is in the Secret, which is written once.
  */
-final case class StorageEnv(secret: String, literals: Vector[(String, String)])
+/**
+ * @param credentialGeneration
+ *   the storage credential's generation in place (feature 039), put on the pod template when it is
+ *   above 0 so the service rolls onto a credential issued again, and never before it is there
+ */
+final case class StorageEnv(
+    secret: String,
+    literals: Vector[(String, String)],
+    credentialGeneration: Int = 0
+)
 
 object StorageEnv:
   val Endpoint: String       = PlatformVariables.ObjectStoragePrefix + "ENDPOINT"

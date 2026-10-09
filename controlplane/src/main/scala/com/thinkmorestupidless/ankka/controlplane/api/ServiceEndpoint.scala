@@ -218,6 +218,19 @@ final class ServiceEndpoint(
   }
 
   /**
+   * Issues the service's storage credential again (feature 039): the operator writes a new one,
+   * rolls the service onto it, and ends the old one after the rotation grace.
+   */
+  post("/{projectId}/{name}/storage-credential") { (projectId: String, name: String) =>
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.reissueStorageCredential)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
+  }
+
+  /**
    * Exposure (feature 005). Whether the service *may* be exposed is decided here — no HTTP, a label
    * too long, a hostname another service holds, no base domain — because two of those are
    * cross-entity or platform-level, which an entity cannot see. The entity records the answer.

@@ -100,6 +100,47 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test(
+    "a storage credential issued again round-trips, and its stored form names no key (feature 039)"
+  ) {
+    val event: ServiceEvent = ServiceEvent.StorageCredentialReissued(3)
+    val bytes               = ServiceEntity.eventSerializer.toBytes(event)
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
+    val json = String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+    assert(!json.toLowerCase.contains("secret") && !json.toLowerCase.contains("key\""), json)
+  }
+
+  test("a descriptor of feature 039 round-trips through the event, its new fields whole") {
+    val descriptor = ServiceDescriptor(
+      "kyc",
+      ServiceSpec(
+        "kyc:1",
+        provisionObjectStorage = true,
+        exposeObjectStorage = true,
+        objectStorageOrigins = Vector("https://play.example"),
+        objectStorageCredential = false,
+        objectStorageVersionAgeDays = Some(365)
+      )
+    )
+    val event: ServiceEvent = ServiceEvent.ServiceApplied("casino", descriptor, 1L)
+    val bytes               = ServiceEntity.eventSerializer.toBytes(event)
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
+  }
+
+  test(
+    "a descriptor applied before feature 039 names no origins, takes a credential and keeps every version"
+  ) {
+    val applied = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case a: ServiceEvent.ServiceApplied => a }
+      .getOrElse(fail("the fixture has no ServiceApplied"))
+    val spec = applied.descriptor.service
+    assertEquals(
+      (spec.objectStorageOrigins, spec.objectStorageCredential, spec.objectStorageVersionAgeDays),
+      (Vector.empty, true, None)
+    )
+  }
+
   test("a descriptor applied before web hosting decodes with no mounts, callers or process port") {
     val applied = samples("service-event")
       .map(ServiceEntity.eventSerializer.fromBytes)

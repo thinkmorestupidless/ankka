@@ -152,8 +152,31 @@ enum Action:
       namespace: String,
       secretName: String,
       labels: Map[String, String],
-      bucket: String
+      bucket: String,
+      /** The generation in place (feature 039), whose key the Secret holds. */
+      generation: Int = 0
   )
+
+  /**
+   * Issues a service's storage credential again, at `generation`, writes it into the Secret, and
+   * sets every older key of the bucket to end once the rotation grace has passed (feature 039,
+   * `StorageCredential.reissue`). Carries no key.
+   */
+  case ReissueStorageCredential(
+      namespace: String,
+      secretName: String,
+      bucket: String,
+      generation: Int
+  )
+
+  /** Deletes the keys of a service's bucket the store says have expired (feature 039). */
+  case DeleteExpiredKeys(bucket: String)
+
+  /**
+   * Sets a bucket's CORS rule to admit exactly these origins, none meaning no rule (feature 039).
+   * Written only when the bucket's rule says otherwise.
+   */
+  case SetBucketCors(bucket: String, origins: List[String])
 
   /**
    * Lets the routes of one project's namespace name the object store's Service (feature 034): a
@@ -253,8 +276,15 @@ enum Action:
     case EnsureSecretKey(ns, name, _)          => s"ensure secret key $ns/$name (create-if-absent)"
     case EnsureTelemetrySecret(ns, name, _, _) => s"ensure telemetry secret $ns/$name"
     case EnsureBucket(bucket)                  => s"ensure bucket $bucket"
-    case EnsureStorageCredential(ns, name, _, bucket) =>
-      s"ensure storage credential $ns/$name for bucket $bucket (create-if-absent)"
+    case EnsureStorageCredential(ns, name, _, bucket, generation) =>
+      val at = if generation == 0 then "" else s" at generation $generation"
+      s"ensure storage credential $ns/$name for bucket $bucket$at (create-if-absent)"
+    case ReissueStorageCredential(ns, name, bucket, generation) =>
+      s"issue storage credential $ns/$name for bucket $bucket again, at generation $generation"
+    case DeleteExpiredKeys(bucket) => s"delete expired keys of bucket $bucket"
+    case SetBucketCors(bucket, origins) =>
+      if origins.isEmpty then s"set no cors rule on bucket $bucket"
+      else s"set cors rule on bucket $bucket admitting ${origins.mkString(", ")}"
     case EnsureReferenceGrant(g) =>
       s"ensure referencegrant ${g.getMetadata.getNamespace}/${g.getMetadata.getName}"
     case EnsureDatabaseRole(r) =>

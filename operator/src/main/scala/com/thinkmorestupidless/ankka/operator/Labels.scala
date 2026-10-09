@@ -36,6 +36,12 @@ object Labels:
    */
   val RestartsKey: String = "ankka.thinkmorestupidless.com/restarts"
 
+  /**
+   * On the pod template: the generation of the storage credential the pods read (feature 039).
+   * Changes only once a credential issued again is in its Secret, which is what rolls the pods.
+   */
+  val StorageCredentialKey: String = "ankka.thinkmorestupidless.com/storage-credential-generation"
+
   val ManagedByAnkka: String = "ankka"
 
   /**

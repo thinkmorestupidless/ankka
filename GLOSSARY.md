@@ -2,8 +2,8 @@
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
 still to be settled by `/speckit-clarify`: those under *Secrets*, *Topic sources*, the retention terms
-under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery*, *Erasure*
-and *Cloud provider*, at present. The platform's established words
+under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery* and
+*Cloud provider*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -2310,45 +2310,45 @@ Avoid: disk, PVC
 ## Erasure
 
 ### data subject
-*Proposed.* The person a personal field is about, named by an id the domain chooses, such as
+The person a personal field is about, named by an id the domain chooses, such as
 "player/8c1f", which is readable wherever it is held and survives an erasure. A data subject is of
 one project: a person known to two projects is two data subjects. It is not a subject, which is an
 issuer's id for the person a token names.
 
 ### personal field
-*Proposed.* A field of an event, a state, a row or a message that a service marks as about one data
+A field of an event, a state, a row or a message that a service marks as about one data
 subject. Every store holds it only encrypted, as a personal envelope. A field that is not marked,
 such as an amount, an id or a time, is held as it was written, and the platform cannot know that
 it is about anyone.
 
 ### personal envelope
-*Proposed.* What every store holds a personal field as: the data subject readable beside the
+What every store holds a personal field as: the data subject readable beside the
 field's value encrypted under that data subject's subject key. It is the same in every language and
 in every store, and nothing but the code that reads and writes personal fields looks inside it.
 
 ### subject key
-*Proposed.* The key one data subject's personal fields are encrypted under, in one project. It is
+The key one data subject's personal fields are encrypted under, in one project. It is
 made with the first write of one of them, whichever service or instance writes first, kept by the
 keyring, destroyed by an erasure, and never replaced. It is not the secret key, which encrypts a
 service's secret store, and not an issuer's keys.
 
 ### keyring
-*Proposed.* The part of the platform that keeps every subject key and lookup key of an installation,
+The part of the platform that keeps every subject key and lookup key of an installation,
 outside every service's database and every project's backup. It gives a subject key only to a
 service of the data subject's project, or to a holder of a grant that allows decryption, and it
 records every request it refuses. No subject key leaves the installation.
 
 ### lookup token
-*Proposed.* What a row of a view carries beside a personal field marked for lookup, so that a
+What a row of a view carries beside a personal field marked for lookup, so that a
 declared query can match the field's value without reading it: a keyed hash under the project's
 lookup key, which the keyring holds. It is removed from every row of a data subject by an erasure.
 
 ### lookup key
-*Proposed.* The key of one project that its lookup tokens are made with. The keyring keeps it; it is
+The key of one project that its lookup tokens are made with. The keyring keeps it; it is
 not a subject key.
 
 ### erasure
-*Proposed.* Destroying a data subject's subject key, so that every personal field of that data
+Destroying a data subject's subject key, so that every personal field of that data
 subject reads as erased wherever it is held, and running what each service of the project does for
 the data subject of its own. Nothing written is removed: the personal envelopes stay, unreadable.
 As a verb, erase.
@@ -2356,41 +2356,41 @@ As a verb, erase.
 Avoid: shredding, crypto-shredding
 
 ### erased
-*Proposed.* Of a personal field: read as having no value, because its data subject's subject key
+Of a personal field: read as having no value, because its data subject's subject key
 was destroyed. It is a value, not a failure: an entity is recovered, a view is rebuilt and a
 consumer is handed a message with erased in a personal field. Of a data subject: with its subject
 key destroyed, so that no personal field can be written for it again.
 
 ### erasure request
-*Proposed.* Asking the platform for the erasure of one data subject in one project: who asked, a
+Asking the platform for the erasure of one data subject in one project: who asked, a
 not-before date and a reason if it is held, a correlation id if one was given, and where it
 stands: held, withdrawn, applied. An applied erasure request records when the subject key was
 destroyed, each service's completion and when the erasure became final. The platform never carries
 one beyond its project.
 
 ### not-before date
-*Proposed.* The date before which an erasure request is not applied. The domain chooses it, for a
+The date before which an erasure request is not applied. The domain chooses it, for a
 hold the law puts on the data; the platform keeps it and applies the erasure request when the date
 has passed, without anyone acting. Only an owner may override it, with a reason that is recorded.
 
 ### withdrawn
-*Proposed.* Of a held erasure request: taken back before its not-before date by whoever asked for it
+Of a held erasure request: taken back before its not-before date by whoever asked for it
 or by a member, so that nothing is destroyed. An applied erasure request cannot be. As a verb,
 withdraw.
 
 ### completion
-*Proposed.* What an erasure request records for one service of its project: when the service had
+What an erasure request records for one service of its project: when the service had
 dropped the subject key, redacted its rows, removed its lookup tokens, ended its sessions of the
 data subject and run its erasure handler to the end, and what the erasure handler reported.
 
 ### erasure handler
-*Proposed.* The one handler a service may register to do its own part of an erasure, such as
+The one handler a service may register to do its own part of an erasure, such as
 erasing the data subject's objects. It is run with the data subject on every application of an
 erasure request in its project, and again on each later application, so it must be safe to run
 again. What the platform does of its own does not wait for it.
 
 ### erasure log
-*Proposed.* The record of every applied erasure of an installation, written before any subject key
+The record of every applied erasure of an installation, written before any subject key
 is destroyed and kept in two places outside the keyring's database: the control plane's database
 and a bucket. The keyring applies it before it answers anyone after its database is restored; a
 service applies its project's entries to its own tables before it is ready after a restore of its
@@ -2398,34 +2398,34 @@ project's database; and a control plane restored to before an erasure brings its
 from the bucket before it can be released.
 
 ### erasure certificate
-*Proposed.* What a member fetches for an applied erasure request, to give the data subject: the
+What a member fetches for an applied erasure request, to give the data subject: the
 erasure request, the data subject, who asked for it, each service's completion and when the
 erasure became final. It holds no personal field.
 
 ### correlation id
-*Proposed.* An id whoever asks for an erasure request may give it, so that erasure requests in
+An id whoever asks for an erasure request may give it, so that erasure requests in
 different projects for one person can be listed together. The platform reads nothing into it.
 
 ### decryption
-*Proposed.* What a grant on a topic may allow beyond reading it: the holder's reads of the personal
+What a grant on a topic may allow beyond reading it: the holder's reads of the personal
 fields on that topic are given their values. A service in another project is given the subject key;
 a machine outside the installation is not, and asks the keyring to decrypt each field for it, which
 the keyring records against the machine and the grant. Without it, every personal field on the
 topic is read as erased.
 
 ### subject prefix
-*Proposed.* Where a service keeps the objects of one data subject in its bucket: under the name
+Where a service keeps the objects of one data subject in its bucket: under the name
 "subjects/", the data subject and "/". An erasure handler asks the platform to erase every object
 under it, every version where the object store keeps versions; an object kept outside it is not
 erased.
 
 ### soft-delete window
-*Proposed.* How long an object store that keeps every version of an object still holds a deleted
+How long an object store that keeps every version of an object still holds a deleted
 one before it is gone. The erasure of a data subject's objects becomes final when it has passed.
 It is defined by object storage on Google Cloud (spec 039).
 
 ### switched
-*Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
+Of a service: given a restored database in place of the one it had (spec 041). A
 service that is switched is not ready until it has applied the erasure log to the restored
 database.
 

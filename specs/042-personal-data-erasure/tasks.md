@@ -1,0 +1,303 @@
+# Tasks: Personal Data Erasure — Crypto-Shredding Per Data Subject
+
+**Input**: Design documents from `/specs/042-personal-data-erasure/`
+
+**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md),
+[data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md)
+
+**Tests**: included, and first. This repository's rule is that each acceptance scenario ends as a
+test that fails without the feature. The scenarios are the nine files of `features/erasure/`; where
+a task says "case", it means a `test(...)` in the named suite, named for the scenario it holds;
+where it says "steps", it means the Gherkin step definitions a `GherkinSuite` runs the feature file
+through. A task marked `[blocked: 0xx]` is written against a seam this feature builds and cannot
+pass until that spec lands; it stays unchecked, with its scenario `@ranElsewhere` and a note naming
+the spec, so `/speckit-converge` finds it.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: can run in parallel — different files, no dependency on an incomplete task
+- **[Story]**: US1 (a service marks personal fields and they are stored only encrypted), US2 (an
+  erasure makes a subject's personal fields unreadable everywhere), US3 (a restored backup cannot
+  bring an erased subject back), US4 (an erasure waits for a legal hold), US5 (another project's
+  consumer, and an outside machine, read an erased subject as erased), US6 (an agent's conversation
+  about a subject is forgotten), US7 (a subject's objects are erased), US8 (a granted service asks
+  for an erasure, and the domain fans it out)
+
+Paths are repository-relative. Abbreviations, each followed by
+`…/com/thinkmorestupidless/ankka/<module>` where it is a Scala tree: `CORE`/`CORET` =
+`modules/core/src/{main,test}/scala/…/core`; `SDK` = `modules/sdk/src/main/scala/…/sdk`; `RT`/`RTT`
+= `modules/runtime/src/{main,test}/scala/…/runtime`; `HT` = `modules/http/src/main/scala/…/http`;
+`AG`/`AGT` = `modules/agent/src/{main,test}/scala/…/agent`; `TK`/`TKT` =
+`modules/testkit/src/{main,test}/scala/…/testkit`; `KR`/`KRT` = `keyring/src/{main,test}/scala/…/keyring`;
+`SC`/`SCT` = `sidecar/src/{main,test}/scala/…/sidecar`; `OP`/`OPT` =
+`operator/src/{main,test}/scala/…/operator`; `API`/`APIT` =
+`controlplane-api/src/{main,test}/scala/…/controlplane/api`; `CP`/`CPT` =
+`controlplane/src/{main,test}/scala/…/controlplane`; `CLI`/`CLIT` = `cli/src/{main,test}/scala/…/cli`;
+`PY` = `sdks/python/src/ankka`; `TS` = `sdks/typescript/src`; `RS` = `sdks/rust/ankka/src`; `P` =
+`protocol/src/main/protobuf/ankka/protocol/v1`; `K` = `kustomization`; `F` = `features/erasure`.
+
+Offline runs always pass `-Dankka.cluster.tests=off`. A k3s run is `caffeinate -i sbt 'set
+controlPlane / Test / logBuffered := false' …`, so a scenario reports as it ends. Decisions are
+cited as R-numbers from research.md; contracts as `contracts/<file>`.
+
+## Phase 1: Setup
+
+- [ ] T001 Add `keyring/` to `build.sbt` (`keyring`, `publish / skip`, `JavaAppPackaging` + `DockerPlugin`, `dockerSettings`, main `…keyring.Main`, image `ankka-keyring`, depends on `runtime`, `http`, `authOidc`, `telemetryOtlp`; `testkit % Test`, `controlPlane % Test` for the log route double), in `root.aggregate`; add `keyring/Docker/publishLocal` to `buildAll` and `docker:publishLocal`'s list; `keyring/src/main/resources/{reference.conf,logback.xml}` modelled on `controlplane/`'s
+- [ ] T002 [P] Add `keyring/**` and `kustomization/components/keyring/**` to `.github/workflows/ci.yml`'s `scala` filter and satisfy `.github/ci-coverage.py`; add `ankka-keyring` to the `images` job's `IMAGES` and `keyring/Docker/publish` to its sbt line in `.github/workflows/release.yml`, and to the registry-cache pull list; confirm `.github/cluster-suites.py` needs no change (it reads `ankka.cluster.tests`)
+- [ ] T003 [P] `kustomization/components/postgres/ddl/50-erasure-postgres.sql`: `ankka_erasures_applied(erasure_id TEXT PRIMARY KEY, project TEXT NOT NULL, subject TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL, handler_outcome TEXT, objects_erased BIGINT, objects_final_at TIMESTAMPTZ)`; name it in the seven lists: `TK/SharedPostgres.scala` `DdlResources`, `OP/CnpgRendering.scala` `SchemaFiles`, `OPT/SchemaResourceSuite.scala`, `OPT/CnpgRenderingSuite.scala`, `SCT/SidecarClusterSuite.scala`, `K/components/postgres/kustomization.yaml`, `K/components/postgres/cluster.yaml`; regenerate the operator's golden files for the ConfigMap text only and review that nothing else moved
+- [ ] T004 [P] `CORE/PlatformVariables.scala`: `KeyringUrl = "ANKKA_KEYRING_URL"` in `RuntimeReadNames` and `PlatformOnly`-style refusal for a descriptor (`ServiceSpec.problems` in `API/descriptors.scala` refuses it as it refuses `ANKKA_HTTP_PORT`), withheld from a module's `config`; move `ObjectStoragePrefix` (`ANKKA_S3_`) from the program-only set to `SharedPrefixes` beside `ANKKA_KAFKA_`; cases in `CORET/PlatformVariablesSuite.scala` and `APIT/DescriptorSuite.scala`; `CPT/PlatformDeclarationSuite.scala` still passes (one declaration)
+
+## Phase 2: Foundational
+
+Shared by every story: the type and its codec, the scope the runtime sets, the keyring and the
+channel, the test kit's keyring. Nothing in a story phase runs without these.
+
+- [ ] T005 [P] `CORET/personal/PersonalCodecSuite.scala` cases: a case class with `Personal[String]`, `Personal[LocalDate]` and a nested `Personal[Address]` derives with `Codecs.make` and no declaration; the envelope's key order and absence of whitespace; AAD binds subject, project and manifest (an envelope moved to another subject, project or manifest fails as "corrupt", never `Erased`); the erased form decodes with no scope; `Present` encoded with no scope throws `Unavailable` naming the keyring; a destroyed key decodes as `Erased`; `lookup` is written only when the scope allows it; `toString` is `Personal(<subject>)`; `DataSubject.problems` on the FR-002 rule (empty, 254 characters, a space, a quote)
+- [ ] T006 `CORE/personal/Personal.scala`: `enum Personal[+A]` (`Present(subject, value, origin, lookup)`, `Erased(subject, origin)`), `present`, `lookup`, `toOption`, `map`, `getOrElse`, `toString`, `DataSubject`; `PersonalCodec` writing and reading `contracts/personal-envelope.md`'s grammar with AES-256-GCM over `javax.crypto` (the `SecretCipher` framing, re-implemented in `core` since `runtime`'s is `private[runtime]`); `inline given codec[A]: JsonValueCodec[Personal[A]]`; if the inline given does not resolve for nested generics, the fallback of R1 and a note in research.md (R1)
+- [ ] T007 [P] `CORE/personal/PersonalScope.scala`: the thread-local `(keyring, project, manifest, lookupAllowed)`, `within`, `withManifest`, `current`; `KeyringHandle` trait, `KeyResult`, `KeyringHandle.unavailable`; `LookupTokens.token(key, plaintext)` (HMAC-SHA-256, hex); `CORE/Serializer.scala`: `JsonSerializer.toBytes`/`fromBytes` set the manifest with `withManifest` (R3, R4, R6)
+- [ ] T008 [P] `CORET/personal/PersonalFixturesSuite.scala` writes `protocol/fixtures/personal/{key.json,envelopes.json}` under `-Dankka.fixtures.regenerate=on` (ten rows per `contracts/personal-envelope.md`) and refuses a row the codec would not write; commit the files; `protocol/README.md` fixtures section names the directory
+- [ ] T009 `TK/InMemoryKeyring.scala`: one per JVM (`InMemoryKeyring.shared`), keys per `(project, subject)`, tombstones, lookup keys per project, `destroy(project, subject)`, `grants` (`GrantReader.of`), an `outage` flag that makes `key` throw `Unavailable`; `TK/EventSourcedTestKit.scala` and `TK/KeyValueEntityTestKit.scala` round-trip inputs, events and replies inside `PersonalScope.within(InMemoryKeyring.shared, "local")`; `TKT/EntityTestKitPersonalSuite.scala` sees plain values in a unit test
+- [ ] T010 `RT/erasure/KeyCache.scala` with `KeyCacheSettings` from `ankka.erasure.cache.{keys,expiry,outage-bound}` (`reference.conf` defaults 10000, 5m, 15m): LRU bound, expiry while answering, kept through an outage to the bound then dropped, dropped at once on a notice, emptied on `close(unacknowledged)`; `RTT/erasure/KeyCacheSuite.scala` with a manual clock covers each rule (R5)
+- [ ] T011 `RT/erasure/KeyringClient.scala`: the WebSocket of `contracts/keyring-channel.md` over `java.net.http.WebSocket` with `RotatingTls`'s `SSLContext` (plain `ws://` locally), reconnect with backoff 1 s doubling to 30 s, `hello` on open (`reads` from the service's declared topic sources of other projects), `fetch` naming its project and `lookupKey` as promises completed by the matching reply, `destroyed`/`apply`/`log`/`close` as callbacks, `ack` and `completed` as sends; implements `KeyringHandle` over the cache; `RTT/erasure/KeyringClientSuite.scala` against a scripted WebSocket server on `127.0.0.1:0` (the JDK's `HttpServer` cannot serve WebSockets; use pekko-http's test server from `http`'s test sources via `http % Test`) covering reconnect, the 60-second close, and `fetch` during an outage (R8)
+- [ ] T012 `RT/erasure/ErasureRuntime.scala`: a `RuntimeExtension` named `erasure`, registered by `ServiceBuilder.host` when `ANKKA_KEYRING_URL` is set or a `KeyringHandle` is given to the builder (`withKeyring`, which the test kit uses); on start opens the channel, applies the `log`, then `readiness = true`; `apply` runs the duties in order (drop the key, `ViewRedaction` for every view — T029, agent marks — T057, the handler — T030) and records `ankka_erasures_applied` through `RT/erasure/AppliedErasures.scala`, answering `completed`; `AnkkaService.keyring: KeyringHandle` (default `unavailable`) beside `secrets`; `RTT/erasure/ErasureRuntimeSuite.scala`: readiness false until the log is applied, an `apply` for an unknown subject completes with empty duties, an `apply` is idempotent, and the outage case of SC-010 — with the keyring stopped, reads of cached subjects keep answering for the outage bound, no erasure is applied, a recovery that failed for an uncached key succeeds within one fetch of the keyring's return and nothing it held is lost (R16)
+- [ ] T013 Set `PersonalScope.within(service.keyring, service.project, lookupAllowed)` at every serialization site: `RT/EventSourcedEntityHost.scala` event and snapshot adapters (288, 321), `RT/KeyValueEntityHost.scala` adapter (226), `RT/WorkflowHost.scala`'s adapter, `RT/ProjectionRuntime.scala` handlers (~1230–1336; `lookupAllowed = true` around row writes only), `RT/ProjectionSupport.scala` (`applyConsumer`, row upserts), `RT/TopicHandlers.scala` (65, 112), `RT/ViewClient.scala` (`ViewQueries` decode), `RT/KeyedViewHandlers.scala`, `RT/ShardingTransport.scala` (commands and replies), `HT/HttpServer.scala` (request and response bodies, inside the handler's `Future`); the project is `ServiceIdentity`'s or `local`; `RTT/erasure/ScopeSitesSuite.scala` drives a personal field through an entity command, a reply, a snapshot, a key value state, a view row, a declared query, a topic message (in-memory broker), a consumer delivery and an HTTP response, each failing `Unavailable` without the scope (R4)
+- [ ] T014 `TK/AnkkaTestKit.scala`: `start(…, keyring: KeyringHandle = InMemoryKeyring.shared, project: String = "local")` passes `withKeyring` and `ankka.service.project`; `kit.erase(subject)` (destroys in the keyring, then drives `ErasureRuntime.apply` and waits for `completed`); `kit.keyringOutage { … }`; `kit.assertNoPersonalValue(values*)` scanning every table of the kit's database, every column cast to text, in plain, base64 and hex, as `secret.stored-encrypted` scans (`SCT/conformance/ConformanceSuite.scala:1532`); `TKT/AnkkaTestKitPersonalSuite.scala` proves `assertNoPersonalValue` fails on a plaintext planted by the test (R20)
+- [ ] T015 [P] `KRT/WrappingSuite.scala` cases: a subject key wrapped by a KEK wrapped by the root key round-trips; a wrong root key fails to unwrap; the wrapped forms carry the owner id as AAD; `KR/Wrapping.scala` and `KR/RootKeySource.scala` (`secretStore`: the secret `root-key` generated on first start into the keyring's own `SecretStore`; the `fromWrappingKey` seam stubbed `[blocked: 044]`) (R9)
+- [ ] T016 `KR/ProjectKeyEntity.scala` (key value, id `<project>`: `ProjectKeys(kek, lookupKey)`), `KR/SubjectKeyEntity.scala` (key value, id `<project>/<subject>`: `Live | Tombstone`, commands `fetchOrCreate`, `fetch`, `destroy(erasureId)`, `recordDecryption`, `recordRefusal`), `KR/ErasureEntity.scala` (event sourced, id `<erasureId>`: `Started(channels)`, `KeyDestroyed`, `Acknowledged`, `ChannelClosedUnacknowledged`, `Completed`, `Reapplied`), `KR/ErasureRows.scala`; serializers under declared wire names; `KRT/KeyringEntitiesSuite.scala` through the entity test kits: first write mints once, a tombstone refuses `create`, an erasure for an unseen subject is a tombstone with `everExisted = false`, completion per service as data-model.md defines (R7)
+- [ ] T017 `KR/Channel.scala`: the socket route `/channel` (http module socket routes) speaking `contracts/keyring-channel.md`; `hello` admitted by `KR/Admission.scala` (certificate `ankka://<project>/<service>`, `Caller.Local` locally; each `reads` entry admitted by a `decrypt` grant through `GrantReader`, T020, which until 040 admits none outside the test kit); per-project fan-out through a Pekko distributed pub-sub `Topic`, a channel subscribed to its own project and every admitted `reads` entry; a `fetch` naming a project the channel is not admitted to is `refused` and recorded; a destroy publishes `destroyed` + `apply`, records the channel set on the `ErasureEntity`, and a timer closes any channel unacknowledged after 60 s with `close(unacknowledged)`; `KRT/ChannelSuite.scala` against the keyring started in-process by `AnkkaTestKit` with two `KeyringClient`s: both get the notice, an unacknowledging client is closed at 60 s (manual clock), `fetch` from a foreign project is `refused` and recorded (R8, R10)
+- [ ] T018 `KR/KeyringEndpoint.scala`: `POST /projects/{p}/erasures` (refuses an unknown `logSequence` with 409), `POST …/{id}/reapply`, `GET …/{id}`, `GET /status` (503 until ready), `POST /decrypt` (`[blocked: 040]`, T051); `Acl.AllowCallers` admitting the control plane's identity to the erasure routes and refusing it on `/channel`; `KR/Keyring.scala` (`components`, `endpoints`, `builder`), `KR/Main.scala`; `KRT/KeyringEndpointSuite.scala`: apply, apply again (idempotent), the control plane's identity refused a `fetch`, status before and after replay (R10)
+- [ ] T019 `KR/KeyringReplay.scala`: a `RuntimeExtension` with `readiness` false until done; with neither `ANKKA_ERASURE_LOG_URL` nor `ANKKA_S3_*` replays its own journal and reports `copies: 1`; with either, reads it (`GET /erasures/log?after=` with the keyring's identity; the bucket through T062's client), unions by erasure id, ensures tombstone and destroy, reports `behind`; `KRT/ReplaySuite.scala`: one copy (ready at once), the two-copy cases in T042 (R17)
+- [ ] T020 `RT/GrantReader.scala`: `grants(principal): Set[Grant]`, `Grant(project, target, attributes, state)`, `GrantReader.none`, `GrantReader.of(...)` for tests; `contracts/grants.md`'s shapes; used by T017's `Admission` and T074's authorization; the file reader is `[blocked: 040]` (R12)
+
+**Checkpoint**: `sbt 'core/testOnly *Personal*' 'runtime/testOnly *erasure.*' 'keyring/test' 'testkit/testOnly *Personal* *EntityTestKitPersonal*'` green; a personal field written through the test kit is in the journal only as an envelope.
+
+## Phase 3: User Story 1 — A service marks personal fields and they are stored only encrypted (P1) 🎯 MVP
+
+**Goal**: `Personal[A]` in a Scala service and in the three SDKs, stored only encrypted in every
+store, read as the value by the entity, the view and a consumer; the key minted once.
+
+**Independent test**: `F/personal-fields.feature` and `F/languages.feature` green; `kit.assertNoPersonalValue`
+holds after a registration; the SDK conformance runs report the `personal.*` cases ran.
+
+### Tests
+
+- [ ] T021 [P] [US1] `TKT/erasure/ErasureSteps.scala`: the abstract steps class (a project of one or more kits sharing `InMemoryKeyring.shared`, a players service whose `PlayerRegistered` has three personal fields and two plain ones, a `profiles` view with a lookup-marked `email`, an `engagement` consumer over the in-memory broker, two instances through `startPeer`); `TKT/erasure/PersonalFieldsFeatures.scala` = `GherkinSuite("../../features/erasure/personal-fields.feature")`, every scenario's steps, including "where no service runs" through the CLI's route listing (`CLI` `Main.run("services", "routes", …)` in-process) and a component test with no test kit
+- [ ] T022 [P] [US1] `TKT/erasure/PersonalReplayBenchmark.scala`: an entity of 1,000 events with one subject's personal fields recovered after `restartService()` versus the same without, printing both and asserting ≤ 1.3× (SC-007), three runs taking the median; tagged slow, excluded from no job
+- [ ] T023 [P] [US1] `SCT/conformance/ConformanceSuite.scala` cases `personal.envelope-written` (the journal row holds the fixture's envelope shape and no plaintext), `personal.read-back` (the entity reads the value after a restart), `personal.erased-read` (after the suite destroys the key in its in-process keyring the field reads as erased), `personal.lookup-token` (a view row carries the token and the declared query matches it), `personal.sidecar-uninspected` (the sidecar's log and spans carry no plaintext); the suite starts the keyring in-process (`Keyring.components` through `AnkkaTestKit`) and points the sidecar's `ANKKA_KEYRING_URL` at it; the conformance contract `specs/009-polyglot-runtimes/contracts/conformance.md` lists the five
+- [ ] T024 [P] [US1] `TKT/erasure/LanguagesFeatures.scala` = `GherkinSuite("../../features/erasure/languages.feature")` with `@ranElsewhere` naming each SDK's conformance run and fixture test, so the scenario is reported, not skipped silently
+
+### Implementation
+
+- [ ] T025 [US1] `RT/QueryCheck.scala`: refuse a declared query whose statement reads `->'data'` of a field or compares a personal field's whole object, with the message naming the lookup token; `SDK/contexts.scala`, `HT/EndpointClients` (`modules/http`): `lookupToken(value: String): String` on `EndpointClients`, `WorkflowContext` (steps only, through `StepScope`), `ConsumerContext`, `AgentContext`, computed over the project's lookup key from `AnkkaService.keyring`; `RTT/views/DeclaredQuerySuite.scala` cases for the refusal and a matching token (R6)
+- [ ] T026 [US1] `P/client.proto`: `SubjectKeys`, `LookupToken`, `EraseObjects` and their messages; `P/erasure.proto`: the `Erasure` service; `P/discovery.proto`: `Spec.erasure_handler = 30`; `P/wasm.proto` and `protocol/WASM-ABI.md`: `subject_key`, `lookup_token`, `erase_objects`, `ankka1_erase`; `protocol/README.md` history entry for 1.15; `API/Compatibility.scala:70`, `RT/remote/Conversation.scala:177` to `ProtocolVersion(1, 15)`; the five pinning tests (`SCT/ProtocolSuite.scala:158`, `SCT/HostingSuite.scala:120`, `sdks/python/tests/test_topic_sources.py:176`, `sdks/typescript/test/contracts.test.ts:124`, `sdks/rust/ankka/tests/contracts_discovery.rs:118`); copy the protocol into the three SDKs with their scripts (R11, `contracts/protocol-1.15.md`)
+- [ ] T027 [US1] `SC/ClientLogic.scala` + `SC/ClientService.scala`: `subjectKeys` (one stream per process: `Fetch` → cache hit or `KeyringClient.fetch`; `Destroyed`/`Apply` forwarded; `Ack`/`Completed` forwarded), `lookupToken`, `eraseObjects` (T064); `SC/Discovery.scala`: read `erasure_handler`, refuse it under 1.14; `SC/GrpcConversation.scala`: `erase(subject, erasureId, reapply)` calling the process's `Erasure.Handle` with the handler's metadata; `SC/wasm/HostImports.scala` + `SC/wasm/ModuleLoader.scala`: the three imports (own entry functions, `CallSite` rules: `subject_key` everywhere, `erase_objects` only from `ankka1_erase`) and the export; `SC/wasm/WasmConversation.scala`: `erase` through the export on the blocking pool; `SCT/WasmImportsSuite.scala` guests for each import's permission; `SCT/WasmHostSuite.scala` holds `ModuleLoader.Imports` to `HostImports.values` (R11)
+- [ ] T028 [P] [US1] Python SDK: `PY/personal.py` (`Personal`, `Present`, `Erased`, `personal()`, `DataSubjectError`, `__repr__`), `PY/codec.py` branches in `to_json_value`/`from_json_value` for `Personal[T]` under the envelope grammar (AES-GCM through `cryptography`, added to `pyproject.toml`), `PY/keyring.py` (the `SubjectKeys` stream, a cache mirroring `expires_millis`, `KeyNeeded` raised by a sync codec on a miss and satisfied by the server wrapper which fetches and retries the decode or encode once), `PY/client.py` `lookup_token`, `PY/service.py` `PROTOCOL_VERSION = "1.15"`; `sdks/python/tests/test_personal.py` against `protocol/fixtures/personal/`; `sdks/python/examples/shopping_cart/conformance.py` gains the personal entity the five cases drive; `uv run conformance` green with `ANKKA_CONFORMANCE_ONLY='*personal.*'` reporting five
+- [ ] T029 [P] [US1] TypeScript SDK: `TS/personal.ts` (`Personal<T>`, `present`, `erased`, `s.personal(inner)` as a new schema kind in `TS/schema.ts`, both switches in `TS/json.ts`, `toJsonSchema`), AES-GCM through `node:crypto`, `TS/keyring.ts` (the stream over Connect, the cache, `KeyNeeded` and the server's retry), `TS/client.ts` `lookupToken`, `TS/spec.ts` to 1.15; `sdks/typescript/test/personal.test.ts` against the fixtures; `examples/shopping-cart/conformance.ts` gains the personal entity; `npm run conformance` green with the five cases reported
+- [ ] T030 [P] [US1] Rust crate: `RS/personal.rs` (`Personal<T>` with serde impls writing the envelope; the `subject_key` import fetched inline through `RS/abi/imports.rs` in its own `extern` block and entry function; AES-GCM through `aes-gcm` added to `Cargo.toml`, `no_std`-free), `RS/abi/exports.rs` `ankka1_erase`, `RS/erasure.rs` (`ErasureContext`, `ErasureOutcome`, `#[ankka::erasure_handler]`), `RS/service.rs` to 1.15; `sdks/rust/ankka/tests/personal.rs` against the fixtures through the native host; `examples/shopping-cart` conformance feature gains the personal entity; `./conformance.sh` green in both shapes with the five cases reported; `wasm-objdump -j Import` shows a module with no personal field imports none of the three
+- [ ] T031 [US1] `samples/shopping-cart`: the cart's customer name and email become `Personal[String]` of subject `customer/<cartId>` (`samples/shopping-cart/src/main/scala/…/ShoppingCart.scala`, its view and the `CustomerAdded` event), the sample's features in `samples/shopping-cart/features/` gain one scenario, `samples/shopping-cart/src/test` passes under the test kit's keyring; `docs:start`/`docs:end` markers around the field declaration for the docs page (T090)
+
+**Checkpoint**: `F/personal-fields.feature` and `F/languages.feature` green; the four conformance runs report `personal.*`; the benchmark ratio printed.
+
+## Phase 4: User Story 2 — An erasure makes a subject's personal fields unreadable everywhere (P1)
+
+**Goal**: a member asks for an erasure; within 60 seconds every service of the project reads the
+subject as erased; each service's completion and the certificate are readable.
+
+**Independent test**: `F/erasing.feature` green through two kits as one project, and through the
+control plane's suite with an in-process keyring.
+
+### Tests
+
+- [ ] T032 [P] [US2] `TKT/erasure/ErasingFeatures.scala` = `GherkinSuite("../../features/erasing.feature")` with the steps for the service side (three kits `players`, `wallet`, `engagement` on one in-memory keyring; recovery, rebuild, the refused write, every table scanned, the handler run twice); the control plane steps (the member asks, reads, fetches the certificate) in `CPT/erasure/ErasingControlPlaneFeatures.scala` over `AnkkaTestKit.start(ControlPlane.componentsWith(…))` plus the keyring started in-process and the three kits' channels pointed at it
+- [ ] T033 [P] [US2] `CPT/ErasureEntitySuite.scala` through `EventSourcedTestKit`: ask, apply at once with no date, log written, key destroyed, each service's completion, applied, final; a second ask for an applied subject answers the applied request; every event carries actor and at; `CPT/EventCompatibilitySuite.scala` gains the erasure events' wire forms and asserts the certificate's form has no field that can carry a value
+- [ ] T034 [P] [US2] `CLIT/ErasuresCommandSuite.scala`: `request`, `list`, `get`, `certificate` against a scripted control plane; `CLIT/CliReferenceSuite.scala` and `CPT/ControlPlaneRoutesReferenceSuite.scala` fail until T040 regenerates the pages
+
+### Implementation
+
+- [ ] T035 [US2] `RT/erasure/ViewRedaction.scala`: for every view table of the service, `UPDATE … SET payload = regexp_replace(payload, $pattern, $replacement, 'g'), updated_at = now() WHERE payload LIKE $like` under `ViewVersions.lockFragment` taken exclusively, the pattern built from `contracts/personal-envelope.md`'s present and lookup forms for the subject and project with `.` escaped; returns the rows touched per view; called from `ErasureRuntime.apply` (T012); `RTT/erasure/ViewRedactionSuite.scala`: a row with two subjects keeps the other's envelope, a lookup token goes, a row of another project's envelope for the same subject id is untouched, a redacted row decodes as `Erased` with no keyring (R14)
+- [ ] T036 [US2] `SDK/Erasure.scala`: `ErasureHandler`, `ErasureContext` (`subject`, `erasureId`, `reapply`, `objects` — T063, `services`, `secrets`), `ErasureOutcome`; `RT/Ankka.scala` `ServiceBuilder.withErasureHandler`; `ErasureRuntime` runs it after the duties with `ankka.erasure.handler-timeout` (5 m), a throw or timeout is `Failed` retried on the next `apply`; `RTT/erasure/ErasureHandlerSuite.scala`: runs on every apply, a second run reports at once, a failure is retried (R18)
+- [ ] T037 [US2] `API/descriptors.scala`: `RequestErasure`, `ErasureState` (string codec in the companion), `ErasureRequest`, `Who`, `Override`, `ServiceCompletion`, `ErasureCertificate`, `ErasureLogEntry`, `ProjectHistoryEntry`, their `problems` and `Wire` codecs; `APIT/ErasureWireSuite.scala` round-trips and the rules (subject, `notBefore` in the past, reason required with a date, correlation id length) (R22)
+- [ ] T038 [US2] `CP/application/ErasureEntity.scala` (data-model.md's events and state machine, every command attributed), `CP/application/ErasureRows.scala` (declared queries by subject, state, correlation id), `CP/application/ErasureLogEntity.scala` (`Appended(entry)` with a sequence, `after(n)` query); `CP/ControlPlane.scala` lists them (R21, R23)
+- [ ] T039 [US2] `CP/deploy/KeyringClient.scala` (the control plane's HTTP client to the keyring under its identity: apply, reapply, status), `CP/deploy/ErasureSweeper.scala` (a cluster singleton like `ProjectionSweeper` at `sweep-interval`: applies `Applying` requests — log entity, then the bucket copy when configured (T044), then the keyring with the sequence; polls completions and records `ServiceCompleted`, `Applied`, `Final`, and `Settled` once `finalAt + erasure.reapply-grace` (30 d) has passed; a service the keyring reports as having had no channel at the destroy and the control plane knows as paused or desired at zero is recorded `completedByAbsence`; `Failed` on any step with the reason; reapplies `Applied`/`Final` every `erasure.reapply-interval` (15 m) and a `Settled` one only on `POST …/{e}/reapply`; records a `HandlerRun` only on the first run, a failure or a changed outcome (`CP/deploy/DeployConfig.scala` carries both intervals); `CPT/ErasureSweeperSuite.scala` with a scripted keyring and a manual clock: the order of writes, a keyring 503 leaves `Failed` and nothing destroyed, the reapply cadence, the settle after the grace, a repeated outcome recording nothing, completion by absence
+- [ ] T040 [US2] `CP/api/ErasureEndpoint.scala`: the routes of `contracts/control-plane-erasures.md` but withdraw and override (T047) and the service's ask (T074); `GET /erasures/log?after=` with `Acl.AllowCallers(Caller.Service("platform", "keyring"))`; `CP/ControlPlane.scala` endpoints; `CLI/Main.scala` + `CLI/ErasuresCommand.scala` (`request`, `list`, `get`, `certificate`; `--keyring URL` posting to a keyring directly for project `local`), `CLI/Output.scala` tables, `CLI/mcp/AnkkaTools.scala` mirrors; `just docs-reference` regenerates `docs/reference/cli.md` and `docs/reference/control-plane-api.md`, each new route with a hand-written section
+- [ ] T041 [US2] `CP/domain/model.scala` + `events.scala`: `Project.history` (as `Service.history`, capped 50) with `ErasureRequested`, `ErasureApplied`, `ErasureRefused` kinds; `CP/application/ProjectEntity.scala` `history` query; `CP/api/ProjectEndpoint.scala` `GET /projects/{id}/history`; `ankka projects history`; `CPT/ProjectHistorySuite.scala`
+
+**Checkpoint**: `F/erasing.feature` green on both suites; `ankka projects erasures certificate` prints a certificate with no value in it.
+
+## Phase 5: User Story 3 — A restored backup cannot bring an erased subject back (P1)
+
+**Goal**: a service restored to before an erasure is not ready until it has reapplied; the keyring
+restored to before an erasure replays both log copies before it answers.
+
+**Independent test**: `F/restores.feature` green offline by database template copy; the k3s half
+blocked on 041.
+
+### Tests
+
+- [ ] T042 [P] [US3] `TKT/erasure/RestoresFeatures.scala` = `GherkinSuite("../../features/erasure/restores.feature")`: Case A through `kit.snapshotDatabase()` before the erasure and `kit.restoreDatabase(s)` after, asserting the readiness gate held (a request during the gap answers `Unavailable`) and then every row reads erased and no token remains; Case B through the in-process keyring's own kit snapshot and restore, asserting no key request is answered until the replay finished; the union case with one copy behind (a fake bucket copy in the test, T044's client over a testcontainers Garage); the failed-log-write case through a scripted `ErasureLogBucket` that fails
+- [ ] T043 [P] [US3] `CPT/erasure/RestoresClusterFeatures.scala` `[blocked: 041]`: the two restore scenarios on k3s marked `@ranElsewhere` with a note naming 041's switch; `ErasureClusterFeatures` (T082) reports them as such
+
+### Implementation
+
+- [ ] T044 [US3] `RT/erasure/ObjectStoreClient.scala` (shared by T059 and T046): SigV4 over `java.net.http`, `putObject`, `getObject`, `listObjects` (`ListObjectsV2` and `ListObjectVersions`), `deleteObjects` (batches of 1,000), checksums `WHEN_REQUIRED`; `CP/deploy/ErasureLogBucket.scala`: `append(entry)` as `erasure-log/<project>/<erasureId>.json` (never overwritten; a `PUT` of an existing key with different content is an error), `list()`, `reconcile()` at the control plane's start appending what the entity lacks and logging the count gained; `RTT/erasure/ObjectStoreClientSuite.scala` and `CPT/ErasureLogBucketSuite.scala` against `dxflrs/garage:v2.3.0` in testcontainers (R15, R23)
+- [ ] T045 [US3] `TK/AnkkaTestKit.scala` `snapshotDatabase()`/`restoreDatabase(s)` (`stopService`, `CREATE DATABASE … TEMPLATE …` through `TK/SharedPostgres.scala`, `startService`), and the same for a kit running the keyring; `TKT/SnapshotRestoreSuite.scala` proves a row written after the snapshot is gone after the restore (R20)
+- [ ] T046 [US3] `KR/KeyringReplay.scala` two-copy replay (T019's seam): the control plane copy through `GET /erasures/log`, the bucket copy through T044's client, union, `behind`, the `keyring replay: copies=… behind=…` log line; `RT/ObserveServer.scala` adds `erasures: {appliedUpTo, finishedAt}` to the topology document for 041's status to read; `KRT/ReplaySuite.scala` two-copy cases; `docs/reference/limitations.md` says the k3s restore proof waits for 041
+
+**Checkpoint**: `F/restores.feature` green offline; the two k3s scenarios reported `@ranElsewhere` naming 041.
+
+## Phase 6: User Story 4 — An erasure waits for a legal hold (P1)
+
+**Goal**: a request with a not-before date is held, applied when the date passes with nobody acting,
+withdrawable and replaceable before, overridable by an owner only.
+
+**Independent test**: `F/holds.feature` green against the control plane's suite with a manual clock.
+
+### Tests
+
+- [ ] T047 [P] [US4] `CPT/erasure/HoldsFeatures.scala` = `GherkinSuite("../../features/erasure/holds.feature")`: every scenario, the date moved by the sweeper's manual clock, the member and owner through `TestIdentity`, the history keeping both requests of a replacement
+
+### Implementation
+
+- [ ] T048 [US4] `CP/application/ErasureEntity.scala`: `Held`, `Withdrawn` (whoever asked or a member, only while held), `Replaced(by)` (a later request from the same asker; a different asker is 409), `Overridden(reason)` (owner only, applies at once); `CP/deploy/ErasureSweeper.scala` applies held requests whose date has passed; `CP/api/ErasureEndpoint.scala` `DELETE …/{e}` and `POST …/{e}/override` with `Authorization.requireOwner`; `CLI/ErasuresCommand.scala` `withdraw`, `override --reason`; the reference pages regenerated; SC-006 held by `CPT/ErasureSweeperSuite.scala`'s cadence case
+
+**Checkpoint**: `F/holds.feature` green; a member's override is 403 with the owner-role message.
+
+## Phase 7: User Story 5 — Another project's consumer, and an outside machine, read an erased subject as erased (P2)
+
+**Goal**: a consumer in another project decrypts only under a `decrypt` grant and loses the value
+on erasure or revocation; a machine outside decrypts field by field through the keyring or reads
+erased. Offline through the test kit's grants; the grants file, machine tokens and the k3s proof
+wait for 040.
+
+**Independent test**: `F/other-projects.feature` green offline with `kit.grants`; the k3s suite's
+cross-project scenarios `@ranElsewhere` naming 040.
+
+### Tests
+
+- [ ] T049 [P] [US5] `TKT/erasure/OtherProjectsFeatures.scala` = `GherkinSuite("../../features/erasure/other-projects.feature")`: two kits as projects `brand` and `payments` on one in-memory keyring and one in-memory broker, grants set and revoked through `InMemoryKeyring.shared.grants`; the machine scenarios through a `TestIssuer` token against the in-process keyring's `/decrypt`; the 5-minute revocation bound through the cache's manual clock
+- [ ] T050 [P] [US5] `CPT/erasure/OtherProjectsClusterFeatures.scala` `[blocked: 040]`: the same scenarios on k3s with a rendered grants file and a real machine token, `@ranElsewhere` naming 040
+
+### Implementation
+
+- [ ] T051 [US5] `CORE/personal/Personal.scala`: `origin` set on decode when the envelope's project is not the scope's, kept on re-encode, so another project's store holds the producing project's envelope (FR-027); `KR/Admission.scala`: a `hello` or `fetch` admitted by a grant with `decrypt` on a topic of the project (`GrantReader`, T020), `create` refused to a grantee, a refused fetch recorded on the `SubjectKeyEntity`; a revoked grant refuses the next fetch and the cache's 5-minute expiry bounds the reads; `KRT/AdmissionSuite.scala` (R12)
+- [ ] T052 [US5] `KR/KeyringEndpoint.scala` `POST /decrypt`: `Acl.Authenticate` from `auth-oidc` over the keyring's `ANKKA_AUTH_` set, the principal mapped to `machine:<org>/<name>` (the claim shape of 040 FR-014, stubbed as `machine` claims in `TestIssuer`), admitted by a grant with `decrypt` naming the machine, refused once the grant is revoked or the subject erased, each decryption and refusal recorded; `KRT/DecryptRouteSuite.scala`; `docs/platform/erasure.md`'s "an outside machine" section says erasure reaches later reads, not stored copies (R13)
+- [ ] T053 [US5] `RT/GrantReader.scala` `fromFile(path)` `[blocked: 040]`: the reader over the rendered grants volume, re-read by mtime, with its shape in `contracts/grants.md`; left as a stub answering `none` with a `TODO(040)` the converge step finds; `K/components/keyring/deployment.yaml` mounts the volume once 040 renders it
+
+**Checkpoint**: `F/other-projects.feature` green offline; `KRT/AdmissionSuite` shows a consumer without `decrypt` reads erased and the refusal is recorded.
+
+## Phase 8: User Story 6 — An agent's conversation about a subject is forgotten (P2)
+
+**Goal**: a session, an instance or a task started with a subject keeps its transcript encrypted
+under the subject key; after an erasure the session reads as erased, a new turn starts with nothing
+and a note, a tagged instance is terminated; an untagged session is unchanged.
+
+**Independent test**: `F/agents.feature` green through `AnkkaTestKit` with `TestModelProvider`.
+
+### Tests
+
+- [ ] T054 [P] [US6] `TKT/erasure/AgentsFeatures.scala` = `GherkinSuite("../../features/erasure/agents.feature")`: a `support` service with a request agent and an autonomous agent, `TestModelProvider.lastRequest` asserting the model is told the earlier conversation was erased, `assertNoPersonalValue("my card was declined")`, the outline over an instance and a task
+- [ ] T055 [P] [US6] `AGT/SessionMemoryPersonalSuite.scala` through `EventSourcedTestKit`: a pre-feature journal (the JSON pinned today) still replays; `SubjectAssigned` then `PersonalMessageAdded`; `Erased` marks and `history` answers empty with `erased = true`; `AGT/CompactionSuite.scala` case: a compactor over erased messages summarises nothing
+
+### Implementation
+
+- [ ] T056 [US6] `AG/SessionMemoryEntity.scala` + `AG/memory.scala`: `SessionHistory.subject`/`erased`, events `SubjectAssigned`, `PersonalMessageAdded(Personal[StoredMessage])`, `Erased(at)`; `append` persists personal events when the session has a subject; `markErased` command; `AG/AgentRuntime.scala` `AgentCalls.withSubject(subject)` (metadata `ankka.subject`, read in the invoke path at 683/757/898 and handed to the entity); `AG/PromptReplay.scala`: on `erased` no earlier messages and the system note; `AG/compaction.scala` skips erased; `AG/ObservabilityEndpoint`'s `/sessions/<id>` (in `RT/ObservabilityEndpoint.scala`) shows an erased session as erased (R19)
+- [ ] T057 [US6] `AG/autonomous/TaskEntity.scala` `CreatedPersonal(Personal[TaskText])` and `TaskBuilder.withSubject` in `AG/autonomous/Calls.scala`; `AG/autonomous/InstanceEntity.scala` `InstanceRecord.subject`; the platform view `ankka-subject-index` in `AG/AgentRuntime.scala` `descriptors` (row key the subject; sessions and instances); `RT/erasure/ErasureRuntime.scala`'s duties ask the index through the view client and send `markErased` to each session and `terminate` to each instance (`AutonomousAgentHost.terminate`), counting them in `Duties`; `AGT/SubjectIndexSuite.scala`
+
+**Checkpoint**: `F/agents.feature` green; the session document of the local console shows "erased".
+
+## Phase 9: User Story 7 — A subject's objects are erased (P2)
+
+**Goal**: `erase(subject)` deletes every object under the subject prefix in the service's bucket,
+reports the count and finality, runs again on reapplication; a service with no bucket is refused.
+
+**Independent test**: `F/objects.feature`'s Garage rows green against testcontainers Garage; the
+GCS rows blocked on 039.
+
+### Tests
+
+- [ ] T058 [P] [US7] `TKT/erasure/ObjectsFeatures.scala` = `GherkinSuite("../../features/erasure/objects.feature")`: a `kyc` kit given `ANKKA_S3_*` of a testcontainers Garage bucket, the handler calling `ctx.objects.erase()`, the "one version" row, the late write, the no-bucket `ledger`; the "every version" and "soft-delete window" rows `@ranElsewhere` naming 039
+
+### Implementation
+
+- [ ] T059 [US7] `RT/erasure/ObjectErasure.scala` over T044's client: `erase(subject)` lists under `subjects/<subject>/` (versions where the store has them), deletes in batches, returns `ErasedObjects(count, finalAt)` with `finalAt = now` on Garage and `now + window` once 039 reports a window (`[blocked: 039]` branch stubbed); `SDK/Erasure.scala` `ErasureContext.objects` answering `Refused("no bucket")` without `ANKKA_S3_BUCKET`; `AppliedErasures` records count and finality; the control plane's `ServiceCompletion` carries them and `Final` waits for the latest; `RTT/erasure/ObjectErasureSuite.scala` against Garage (R15)
+- [ ] T060 [US7] `OP/Rendering.scala`: `ANKKA_S3_*` rendered on the platform container too when `provisionObjectStorage` (the `StorageEnv` at 1720 and the credential's `secretKeyRef`s), by `PlatformVariables.shared`; `OPT/RenderingSuite.scala` case; goldens repinned for the variables only and the diff reviewed as such; `docs/platform/object-storage.md` says the platform container holds the credential for `erase`
+- [ ] T061 [US7] `SC/ClientLogic.scala` `eraseObjects` → `ObjectErasure` (the sidecar's own `ANKKA_S3_*`), `SC/wasm/HostImports.scala` `erase_objects`; `PY/erasure.py` `ctx.objects.erase()`, `TS/erasure.ts`, `RS/erasure.rs` over the import; a conformance case `erasure.handler-erases-objects` in `SCT/conformance/ConformanceSuite.scala` against a Garage container, run by every reference
+
+**Checkpoint**: `F/objects.feature`'s Garage rows green; a module with no handler imports no `erase_objects`.
+
+## Phase 10: User Story 8 — A granted service asks for an erasure, and the domain fans it out (P3)
+
+**Goal**: a service asks through its service client in its own project or another's under a grant,
+is named as the asker, is refused without the right with the refusal recorded, and a member lists
+two projects' requests by correlation id. Only the refusal and the listing are buildable before 040.
+
+**Independent test**: `F/asking.feature` scenarios 3 and 4 green; 1 and 2 `@ranElsewhere` naming 040.
+
+### Tests
+
+- [ ] T062 [P] [US8] `CPT/erasure/AskingFeatures.scala` = `GherkinSuite("../../features/erasure/asking.feature")`: the refusal scenario through a kit with `ANKKA_SERVICES_URL`-style local services pointed at the control plane's test kit and the service's identity set by `serviceIdentity`; the listing scenario with two projects and a member; scenarios 1 and 2 `@ranElsewhere` `[blocked: 040]`
+
+### Implementation
+
+- [ ] T063 [US8] `SDK`: `services.controlPlane.requestErasure(project, RequestErasure)` on `HttpServiceClients` (`RT/HttpServiceClients.scala`), reaching `ANKKA_CONTROLPLANE_URL` (a new runtime-read platform variable in `CORE/PlatformVariables.scala`, rendered by the operator as `https://ankka-controlplane.ankka-controlplane.svc:9000` on the platform container; `RemoteOverlaySuite:119`'s assertion stays for the token, which does not exist); `CP/api/ErasureEndpoint.scala`'s `POST` admits a `Caller.Service` through `CP/auth/Authorization.scala`'s new `erasure(caller, project)` over `GrantReader` (T020; everything refused until 040), records `ErasureRefused` on the project's history (T041) and names the service as `Who(kind = "service")` when admitted; the listing by correlation id across projects the member belongs to
+- [ ] T064 [US8] `[blocked: 040]` `CP/auth/Authorization.scala` `erasure(...)` admitting the `erasure` right from the rendered grants once `GrantReader.fromFile` exists (T053); the k3s proof in T082
+
+**Checkpoint**: `F/asking.feature` scenarios 3 and 4 green; 1 and 2 reported `@ranElsewhere`.
+
+## Phase 11: Installation
+
+The keyring deployed and run locally; the k3s proof; the templates. Story-independent, needed by
+every k3s scenario.
+
+- [ ] T065 `K/components/keyring/{kustomization,deployment,cluster,zero-trust,route,secret}.yaml` per `contracts/installation.md` (`ankka://platform/keyring`, the CNPG cluster with the DDL ConfigMap and `99-grants.sql`, the network policies, `keyring.<base>` → `/decrypt`); listed in `K/overlays/local/kustomization.yaml` and `K/overlays/cloud/kustomization.yaml` after `controlplane`; `K/components/controlplane/zero-trust.yaml` admits the keyring on 9000; `OPT/RemoteOverlaySuite.scala` and `CPT/ReservedProjectIdsSuite.scala` pass; `kustomization/deploy-local.sh` builds and loads `ankka-keyring` and waits for its rollout
+- [ ] T066 [P] `OP/KeyringSettings.scala` (`read`: the operator's own `ANKKA_KEYRING_URL`, as `BrokerSettings.read`) and `K/components/keyring/operator-patch.yaml` patching it onto the operator's Deployment as the `garage` component does; `OP/Rendering.scala`: `ANKKA_KEYRING_URL` on the platform container of every hosting but web when the operator has the setting, nothing otherwise (`RenderingGoldenSuite` unchanged; `RenderingUnchangedSuite` repinned for the one variable); `OP/Action.scala` `EnsurePlatformBucket(name)` + the credential Secret `ankka-platform-erasure-log` in `ankka-controlplane` and `ankka-keyring` at operator start when object store settings exist (create-only; 409 success), performed in `OP/Executor.scala`; `OPT/RenderingSuite.scala`, `OPT/PlatformBucketSuite.scala`; `RenderingGoldenSuite`/`RenderingUnchangedSuite` repinned for the one variable and the diff reviewed as such; `K/components/controlplane/deployment.yaml` and the keyring's take `ANKKA_S3_*` from the Secret, `optional: true`
+- [ ] T067 [P] `docker-compose.yml`: `keyring-db` and `keyring` per `contracts/installation.md`; the `sidecar` and `runtime` profiles get `ANKKA_KEYRING_URL=http://keyring:9020`; `cli/src/main/templates/common-service/docker-compose.yml` and `ankka.g8/src/main/g8/docker-compose.yml` gain the pair at `ghcr.io/thinkmorestupidless/ankka-keyring:{{ankka_version}}` (`\$` escaped in the g8 copy); each template's starter service gains one personal field and its test; `CLIT/PythonTemplateSuite.scala`, `TypeScriptTemplateSuite.scala`, `RustTemplateSuite.scala`, `TemplateSuite.scala` assert the generated project starts with the keyring and writes it
+- [ ] T068 `CPT/erasure/ErasureClusterFeatures.scala` (reads `ankka.cluster.tests`; `GherkinSuite("../features/erasure/erasing.feature")` and a hand-picked subset of `personal-fields`, `objects` on Garage): installs `K/components/keyring` beside `PkiStack`, `GatewayStack`, `ObjectStoreStack`, deploys the shopping cart sample with `ANKKA_KEYRING_URL`, proves a channel per instance over mutual TLS, a destroy read as erased by two instances within 60 s, a redacted view, `erase` on Garage, one rolling restart during an erasure, the control plane's identity refused a key, `keyring replay: copies=2 behind=neither` in the log; the restore and cross-project scenarios `@ranElsewhere` (T043, T050); run with `gh workflow run cluster --ref <branch> -f suite=ErasureClusterFeatures`
+
+**Checkpoint**: `./kustomization/deploy-local.sh` brings a kind cluster up with the keyring ready; `docker compose up -d` and the quickstart's compose walkthrough hold.
+
+## Phase 12: Polish
+
+- [ ] T069 [P] `TKT/erasure/PersonalLeakSuite.scala`: runs the feature's plaintext values against `LogCapturing`'s buffer, the recorder's name table and the local console's `/sessions` and `/traces` documents after the erasure suites, failing on any hit (SC-009); a planted log line makes it fail (R25)
+- [ ] T070 [P] `docs/platform/erasure.md` (marking, the subject id residual, holds, the certificate, restores, other projects and outside machines, objects and the prefix convention, agents, the checklist for a regulated service, what a lookup token leaks, the local keyring), included samples from T031; `docs/reference/limitations.md` (the residual, Garage's plain HTTP unchanged, the proofs waiting on 040/041/039/044, a `local` run's envelopes unreadable once the service is deployed to a project); `docs/reference/glossary.md` (data subject, personal field, keyring, erasure request, erasure certificate); `docs/reference/configuration.md` (`ankka.erasure.*`); `mkdocs.yml` nav and the skill `pages:` lists (`tools/docs/skill/ankka-deploy`, a new `ankka-erasure` skill or the platform skill); `just docs-sync`, `just docs`
+- [ ] T071 [P] `.claude/rules/erasure.md` (the scope and its sites, the envelope grammar's fixedness, the redaction statement, the channel's close semantics, the seven-lists reminder for the new DDL file, the blocked seams) and its row in `CLAUDE.md`'s table; `.claude/rules/kubernetes.md` gains the keyring component and the platform bucket; `.claude/rules/sidecar.md` the three rpcs; `.claude/rules/agents.md` the subject tag
+- [ ] T072 [P] `GLOSSARY.md`: the *Erasure* terms are already settled; add `channel`, `subject prefix` cross-references only if a feature uses a word the checker flags; `just features` clean
+- [ ] T073 `sbt -Dankka.cluster.tests=off buildAll`; `sbt 'sidecar/testOnly *ConformanceSuite'` in-process; each SDK's conformance run; `just docs`; `gh workflow run cluster --ref <branch> -f suite=ErasureClusterFeatures`; `sbt scalafmtAll scalafmtSbt`
+
+## Dependencies
+
+- Phase 1 → Phase 2 → every story. Within Phase 2: T005, T007, T008, T015 and T020 are parallel
+  starts; T006 needs T005 and T007; T009 needs T006; T010 and T011 need T007; T012 needs T010,
+  T011 and T009; T013 needs T012; T014 needs T013; T016 needs T015; T017 needs T016, T011 and T020;
+  T018 needs T017; T019 needs T018.
+- US1 (Phase 3) needs all of Phase 2; within it T021–T024 together, T025 beside T026, T027 needs
+  T026, T028–T030 need T026 and run together, T031 last.
+- US2 (Phase 4) needs Phase 2 and T025; T035 and T036 feed T012's duties; T037 → T038 → T039 →
+  T040; T041 beside T040.
+- US3 (Phase 5) needs US2's T038–T039 (the log entity and sweeper); T044 before T046; T045 beside T044.
+- US4 (Phase 6) needs US2's T038–T040.
+- US5 (Phase 7) needs Phase 2 and T020; T051 beside T052; T053 is blocked.
+- US6 (Phase 8) needs Phase 2 and T012; T056 beside T057's entities, then the index.
+- US7 (Phase 9) needs T036 and T044; T059 → T060 and T061 in parallel.
+- US8 (Phase 10) needs T040 and T041; T064 is blocked.
+- Installation (Phase 11) needs US1, US2 and US7 for its k3s scenarios; T065–T067 are parallel; T068 last.
+- Polish needs every story.
+
+## Parallel execution
+
+- After Phase 2: US1's SDK tasks (T028–T030), US6 (T054–T057) and US7's client (T044, T059) touch
+  disjoint trees and can run beside US2.
+- Within US2: T032–T034 together; T035 and T036 beside T037; T038 → T039 → T040 with T041 beside.
+- Within US5: T049 and T050 together; T051 and T052 together.
+- Within Installation: T065, T066 and T067 together.
+
+## Implementation strategy
+
+MVP is Phase 2 plus US1: a personal field stored only encrypted, read back as the value, in Scala
+and the three SDKs, with the keyring running in-process under the test kit. It is the idea the
+feature rests on and the half that touches every serialization site, so it is the half to get
+reviewed first. US2 next, since it is the obligation and brings the control plane, the CLI and the
+duties; US4 is small on top of it. US3 and US7 then, each self-contained; US6 whenever the agent
+module is free, since it touches nothing the others do. US5 and US8 last, each shipping its offline
+half now and leaving a named blocked task for 040. Installation before Polish, because the k3s
+suite is the only proof of the channel over mutual TLS.

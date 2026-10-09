@@ -104,6 +104,38 @@ transcripts and object storage, and a restored backup must not bring an erased s
   its view schema), and a service switched under 041 is not ready until it has.
 - Q: Subject-key rotation that is not an erasure? → A: Out of scope.
 
+### Session 2026-10-08 (clarify)
+
+- Q: The keyring cannot know which subjects a topic carried. What does one `decrypt` grant on a
+  topic admit its holder to? → A: Every subject key of the producing project. The holder only ever
+  holds ciphertext it was granted anyway; the documentation says a project granting `decrypt` on one
+  topic should assume it on every grant to that grantee.
+- Q: Once a subject is erased, which writes of its personal fields does the codec refuse? → A: Only
+  `Present`. Encoding `Erased` always succeeds, for any subject, and writes the subject-only envelope,
+  so an entity, snapshot, state or row that already holds an erased subject keeps persisting.
+- Q: What is the erasure log's second copy where the object store keeps one version (Garage), or where
+  there is no object store? → A: One object per applied erasure, named by the erasure's id and never
+  overwritten, so append-only needs no versioning; versioning is used where the store has it. An
+  installation with no object store runs with the control plane's copy alone, and the keyring's
+  status says so.
+- Q: A local service has no project and no control plane. Where are its subject keys, and how is a
+  subject erased there? → A: A keyring process in `docker compose`, beside Postgres and Keycloak,
+  which a local service reaches by `ANKKA_KEYRING_URL` and the CLI asks for erasures from. The
+  templates and the samples run it.
+- Q: The glossary's 21 *Proposed* terms under *Erasure*, and `file`, which it refuses while the spec
+  says "file" and "filer"? → A: All settled as written; `shredding` and `crypto-shredding` stay
+  refused. The spec says "ask for" and "who asked for it", and the CLI command is
+  `ankka projects erasures request`.
+
+### Session 2026-10-09 (analysis)
+
+- Q: How long does the platform keep re-running an applied erasure's handlers, and is every run
+  recorded? → A: Until finality plus the installation's reapplication grace (default 30 days), after
+  which the erasure is settled; a run is recorded on its first run, on a failure and when its outcome
+  changes, never when it repeats.
+- Q: What is the completion of a service with no running instance when the key is destroyed? → A:
+  Complete by absence; it applies the erasure from the log on its next start before it reports ready.
+
 ## Context
 
 A service's payloads are bytes its own serializer makes. `Serializer[A]` in `core` turns a value into
@@ -147,15 +179,16 @@ Five decisions shape this feature.
   the subject's key from a process-local cache (a miss is one fetch from the keyring; a first write for
   a new subject creates the key) and writes the **personal envelope**, the subject in the clear beside
   the ciphertext; on decode it takes the key and restores the value, or yields `Erased` when the
-  keyring reports the key destroyed. The codec reaches the keyring through a handle the runtime
-  installs when the service starts — `Keyring.current`, `unavailable` before then, exactly as
-  `SecretStore.unavailable` stands where no service runs — and the test kit installs an in-memory one.
+  keyring reports the key destroyed. The codec reaches the keyring through a scope the runtime sets
+  around every serialization it performs, carrying the service's keyring handle and project; outside
+  any scope the codec refuses as `Unavailable`, exactly as `SecretStore.unavailable` stands where no
+  service runs, and the test kit sets a scope over an in-memory keyring.
   Every store a value reaches passes through `Serializer`, so the one codec covers the journal,
   snapshots, durable state, view rows and topic messages, and nothing outside it knows encryption is
   happening. The runtime, the sidecar and the journal see ordinary JSON. The costs are named: encryption
   sits on the persist path (a cached key costs microseconds beside the journal write already there; a
-  miss costs one round trip), and the runtime-installed handle is the one piece of global state the
-  SDK gains.
+  miss costs one round trip), and the runtime-set scope is the one piece of ambient state the SDK
+  gains.
 - **A keyring in ankka, and an erasure log that survives restores.** Subject keys live in the
   installation's **keyring**, a platform component whose store is not a project database and is not in
   any project's backup. Each key is wrapped by its project's key-encryption key, which is wrapped by the
@@ -165,13 +198,13 @@ Five decisions shape this feature.
   keyring's database, and a restore of the keyring replays it before the keyring answers any read. The
   keyring admits callers by 040's identities and the grants 040 renders to it.
 - **Erasure is a platform request with a hold, and the domain fans it out.** A member, or a service
-  granted it, files an erasure request for one subject in one project, optionally with a not-before
+  granted it, asks for an erasure request for one subject in one project, optionally with a not-before
   date, a reason and a correlation id. The platform holds it until the date, then destroys the key,
   records the erasure, and drives the work only a service can do — view rows to redact, lookup tokens
   to drop, agent sessions to forget, caches to drop — and runs each service's **erasure handler**, the
   one place a service does its own part, such as erasing the subject's objects. Completion is recorded
   per service. A held request can be withdrawn; an applied one cannot. A person known to two projects
-  is two subjects; the domain files twice and correlates.
+  is two subjects; the domain asks twice and correlates.
 - **Erased is a value, not an error.** `Personal[A]` decodes as `Present(a)` or `Erased` in every SDK.
   An entity whose player has been erased still replays, a balance still sums, a view still rebuilds; a
   handler that wants the email gets `Erased` and decides what that means. Nothing throws on replay.
@@ -218,7 +251,7 @@ plain values.
 
 ### User Story 2 - An erasure makes a subject's personal fields unreadable everywhere (Priority: P1)
 
-A player asks to be forgotten. Their account is closed and no hold applies. A member files an erasure
+A player asks to be forgotten. Their account is closed and no hold applies. A member asks for an erasure
 for `player/8c1f…` in the brand project. Within a minute every service of the project reads that
 player's email, name and date of birth as `Erased`: the players entity on replay, the backoffice view,
 the wallet's journal (which recorded the name on a payout), the engagement consumer. The wallet's
@@ -228,7 +261,7 @@ completion, and the member fetches the certificate for the player's reply.
 **Why this priority**: This is the obligation. Story 1 is how it is possible; this is the act.
 
 **Independent Test**: Through `AnkkaTestKit` with two services sharing one in-memory keyring as one
-project: write personal and non-personal fields for one subject and another, file an erasure for the
+project: write personal and non-personal fields for one subject and another, ask for an erasure for the
 first, restart both services, replay every entity, read every view row and consumer delivery, and
 assert the first subject's personal fields are `Erased` and everything else is as written, the second
 subject included.
@@ -279,7 +312,7 @@ subject afterwards.
 ### User Story 4 - An erasure waits for a legal hold (Priority: P1)
 
 A player closes their account. The operator's anti-money-laundering obligation is to keep identity data
-for five years after the last transaction. The players service files an erasure for the player with a
+for five years after the last transaction. The players service asks for an erasure for the player with a
 not-before date five years out and the reason `aml-retention`. Nothing changes for five years; then the
 key is destroyed without anyone acting. Two years in, a regulator orders the data destroyed: an owner
 overrides the hold with the order's reference, and it is applied that day.
@@ -287,9 +320,9 @@ overrides the hold with the order's reference, and it is applied that day.
 **Why this priority**: For a regulated operator nearly every erasure is held. A feature that erases only
 on the day it is asked is unusable.
 
-**Independent Test**: With a test clock: file an erasure with a not-before date; assert reads stay
+**Independent Test**: With a test clock: ask for an erasure with a not-before date; assert reads stay
 `Present`; advance past the date; assert the subject is erased and the request records the hold reason
-and the time it lapsed. Separately: file a held erasure, override it as an owner with a reason, assert
+and the time it lapsed. Separately: ask for a held erasure, override it as an owner with a reason, assert
 it applies at once and the override is recorded; attempt the same as a member and assert refusal.
 
 **Acceptance Scenarios**:
@@ -317,7 +350,7 @@ every cross-project copy is a separate erasure obligation nobody can discharge.
 
 **Independent Test**: Two projects in one test installation: grant project B a consume with `decrypt`
 on project A's topic; publish a personal field for a subject; B's consumer stores it in a view; erase
-the subject in A; assert B's view and a replay of B's consumer read `Erased` without any request filed
+the subject in A; assert B's view and a replay of B's consumer read `Erased` without any request asked for
 in B. Revoke the grant and assert B's next key request is refused.
 
 **Acceptance Scenarios**:
@@ -383,18 +416,18 @@ listed and the finality time reported as the soft-delete window.
 
 ---
 
-### User Story 8 - A granted service files an erasure, and the domain fans it out (Priority: P3)
+### User Story 8 - A granted service asks for an erasure, and the domain fans it out (Priority: P3)
 
-The players service decides when a player's hold ends and files the erasure itself, with the hold,
+The players service decides when a player's hold ends and asks for the erasure itself, with the hold,
 when the account closes. The same player is a subject in the shared payments project under a different
-id the players service keeps a mapping for; it files a second erasure there, under a grant from payments
+id the players service keeps a mapping for; it asks for a second erasure there, under a grant from payments
 (040), with the same correlation id on both, so an auditor reading either project finds the other.
 
-**Why this priority**: Members filing by hand works for the first erasures. A domain that owns its
-retention rules needs to file them as code, and ankka does not know what a player is.
+**Why this priority**: Members asking by hand works for the first erasures. A domain that owns its
+retention rules needs to ask for them as code, and ankka does not know what a player is.
 
-**Independent Test**: Grant a service the right to file erasures in its own project and in another;
-file from each with one correlation id; assert both are applied, the requests name the filing service,
+**Independent Test**: Grant a service the right to ask for erasures in its own project and in another;
+ask from each with one correlation id; assert both are applied, the requests name the service that asked,
 and a listing by correlation id returns both; assert a service without the grant is refused.
 
 **Acceptance Scenarios**:
@@ -430,18 +463,21 @@ and a listing by correlation id returns both; assert a service without the grant
   whatever it writes outside ankka is outside this feature; the documentation says so.
 - **Telemetry and logs.** A personal value never appears in a span attribute, a log line, an error
   message or the local console's recorder (FR-029).
-- **An erasure filed twice.** The second for an applied subject is accepted and answered as already
+- **An erasure asked for twice.** The second for an applied subject is accepted and answered as already
   applied, recording nothing new but running every service's handler once more.
-- **An erasure filed for a subject never seen.** It is applied: the keyring records a tombstone for the
+- **An erasure request for a subject never seen.** It is applied: the keyring records a tombstone for the
   subject, and a later first write for it is refused rather than minting a key. This is how a subject is
   erased before its data arrives (a migration).
 - **A service added to the project after an erasure.** It reads the subject as erased from its first
   start; it has no completion to record until its handler has run once.
 - **A rolling deploy during an erasure.** Old and new instances both drop the key from their caches;
   completion is recorded per service when every running instance has, within FR-022's bound.
+- **A service with no running instance when the key is destroyed** (paused, or desired at zero). It has
+  no cache to drop and no channel to answer; its completion is recorded as complete by absence, and it
+  applies the erasure from the log on its next start before it reports ready.
 - **A topic's retention (043) drops the encrypted records later.** Nothing to do; the ciphertext was
   already unreadable.
-- **The keyring is down when an erasure is filed.** The request is recorded and stays pending; it is
+- **The keyring is down when an erasure is asked for.** The request is recorded and stays pending; it is
   applied when the keyring answers.
 - **An envelope copied from one subject's record into another's.** It does not decrypt: the ciphertext
   is bound to its subject, project and manifest (FR-004), so a spliced envelope fails authentication
@@ -455,15 +491,16 @@ and a listing by correlation id returns both; assert a service without the grant
 
 - **FR-001**: Every SDK MUST offer a personal type — `Personal[A]` in Scala, and the equivalent in
   Python, TypeScript and the Rust crate — whose value is either present with a subject or erased, and
-  whose codec writes the **personal envelope** on encode: a JSON object carrying the subject in the
-  clear and the field's own encoding as ciphertext under the subject's key; and on decode restores the
+  whose codec writes the **personal envelope** on encode: a JSON object carrying the subject and its
+  project in the clear and the field's own encoding as ciphertext under the subject's key; and on decode restores the
   value, or yields the erased value when the keyring reports the key destroyed. A derived codec for a
   type with `Personal` fields MUST pick the personal codec up with no further declaration.
 - **FR-002**: A subject id MUST be a string of 1 to 253 characters from letters, digits, `.`, `_`, `-`,
   `/` and `:`; it is opaque to the platform and scoped to one project.
-- **FR-003**: The codec MUST reach the keyring through a handle the runtime installs when the service
-  starts and the test kit installs for a test; before either, the handle MUST refuse every call as
-  `Unavailable`, naming the keyring, as `SecretStore.unavailable` does. For a process-hosted service the
+- **FR-003**: The codec MUST reach the keyring through a scope the runtime sets around every
+  serialization it performs, carrying the service's keyring handle and project, and the test kit sets
+  for a test; outside any scope the codec MUST refuse to encode a present value or decrypt an envelope
+  as `Unavailable`, naming the keyring, as `SecretStore.unavailable` does. For a process-hosted service the
   handle is the SDK's own, speaking to the sidecar over one new rpc that fetches a subject's key and
   carries destroyed notices; for a module it is a `keyring` host import beside 030's `request` and
   `clock`.
@@ -474,18 +511,20 @@ and a listing by correlation id returns both; assert a service without the grant
   writes first, unless the keyring holds a tombstone for the subject, in which case the write MUST be
   refused naming the subject as erased.
 - **FR-006**: The runtime, the sidecar and every store MUST handle a payload with personal envelopes as
-  they handle any other bytes; nothing outside the codec MUST parse, rewrite or depend on the envelope.
+  they handle any other bytes; nothing that carries a payload MUST parse, rewrite or depend on the
+  envelope. The one exception is the platform's own redaction of a view row on erasure, which rewrites
+  the envelope to its erased form by the grammar the fixtures pin and reads no value.
 
 **Erasure**
 
-- **FR-007**: A member MUST be able to file an erasure request for one subject in one project, through
-  the control plane's API and the CLI (`ankka projects erasures file <subject> [--not-before <date>]
+- **FR-007**: A member MUST be able to ask for an erasure request for one subject in one project, through
+  the control plane's API and the CLI (`ankka projects erasures request <subject> [--not-before <date>]
   [--reason <text>] [--correlation <id>]`), and to list and read requests by subject, by state and by
   correlation id.
-- **FR-008**: A service MUST be able to file an erasure request through its service client in its own
+- **FR-008**: A service MUST be able to ask for an erasure request through its service client in its own
   project when the project grants it the erasure right, and in another project when that project
-  grants it (spec 040); a request names its filer. The platform MUST NOT fan a request out beyond its
-  project; a subject known to two projects is two requests, which the domain files and MAY correlate.
+  grants it (spec 040); a request names who asked for it. The platform MUST NOT fan a request out beyond its
+  project; a subject known to two projects is two requests, which the domain asks for and MAY correlate.
 - **FR-009**: Applying an erasure MUST, in this order: write the erasure to the erasure log (both
   copies, FR-017); destroy the subject's key in the keyring and record a tombstone so a later write is
   refused; push the destroyed notice to every service (FR-022); and record each service's completion
@@ -505,18 +544,25 @@ and a listing by correlation id returns both; assert a service without the grant
   can match by equality; on erasure the service MUST remove every lookup token of the subject from its
   view rows. The documentation MUST state that a lookup token leaks equality and that anyone holding
   both the lookup key and the table can test guesses against it.
-- **FR-013**: A write of a personal field for an erased subject MUST be refused by the codec with an
-  error naming the subject as erased, and nothing MUST be persisted.
+- **FR-013**: A write of a `Present` personal field for an erased subject MUST be refused by the
+  codec with an error naming the subject as erased, and nothing MUST be persisted. Encoding `Erased`
+  MUST always succeed, for any subject, and MUST write the subject-only envelope, so an entity,
+  snapshot, state or row that already holds an erased subject keeps persisting.
 - **FR-014**: An erasure request MAY carry a not-before date and a reason; it MUST then be held and
   applied by the platform when the date passes. A held request MUST be withdrawable and replaceable by
-  its filer or a member; an applied one MUST NOT be. An owner MUST be able to override a hold with a
+  whoever asked for it or a member; an applied one MUST NOT be. An owner MUST be able to override a hold with a
   recorded reason, applying the erasure at once; a member MUST NOT.
-- **FR-015**: The platform MUST check held requests, and MUST re-run every applied erasure's service
-  handlers, at least every 15 minutes.
-- **FR-016**: Every request, hold, replacement, withdrawal, override, application, handler run and
-  per-service completion MUST be recorded in the control plane's audit with who did it and when, MUST be
+- **FR-015**: The platform MUST check held requests at least every 15 minutes, and MUST re-run an
+  applied erasure's service handlers at least every 15 minutes until the erasure's finality plus the
+  installation's reapplication grace (default 30 days, a platform setting); after that the erasure is
+  **settled** and its handlers run again only on a member's request.
+- **FR-016**: Every request, hold, replacement, withdrawal, override, application and per-service
+  completion MUST be recorded in the control plane's audit with who did it and when; a handler run MUST
+  be recorded on its first run, on any failure and whenever its outcome differs from the last recorded
+  one, and MUST NOT be recorded when it repeats the last outcome, so a settled erasure's journal is
+  bounded. Every record MUST be
   readable by members of the project, and an applied request MUST yield an **erasure certificate** — the
-  request, the subject, the filer, each service's completion time and the time of finality, holding
+  request, the subject, who asked for it, each service's completion time and the time of finality, holding
   nothing personal — that a member can fetch.
 
 **Keys, the keyring and restores**
@@ -526,14 +572,25 @@ and a listing by correlation id returns both; assert a service without the grant
   (041). Subject keys MUST be wrapped by a per-project key-encryption key, itself wrapped by the
   installation's root key: on a Postgres installation a key the keyring keeps in its own secret store
   (038); on Google Cloud the key of 044's `wrapping-key` request for the keyring's identity. The erasure
-  log MUST be kept in two places outside the keyring's database: the control plane's database and an
-  append-only, versioned platform bucket in the installation's object store (039).
+  log MUST be kept in two places outside the keyring's database: the control plane's database and a
+  platform bucket in the installation's object store, where each applied erasure is one object named
+  by the erasure's id and never overwritten (versioned where the store keeps versions, 039; one
+  version on Garage). An installation with no object store MUST run with the control plane's copy
+  alone, and the keyring's status MUST say so.
 - **FR-018**: The keyring MUST admit a request for a subject key only from a service of the subject's
   project, or from a principal holding a grant (spec 040) that carries `decrypt` on a topic of that
   project, identified as spec 040 identifies callers and read from the grants 040 renders to the
-  keyring. A refused fetch MUST be recorded. The control plane's identity MUST NOT be able to read a key.
+  keyring. A `decrypt` grant on any one topic admits its holder to every subject key of the project:
+  the keyring does not know which subjects a topic carried, and the documentation MUST say that a
+  project granting `decrypt` on one topic should assume it on every grant to that grantee. A refused
+  fetch MUST be recorded. The control plane's identity MUST NOT be able to read a key.
 - **FR-019**: The keyring MUST run with the number of instances the installation sets (default 2 in
-  Kubernetes, 1 locally), and a request MUST be answered by any instance.
+  Kubernetes, 1 locally), and a request MUST be answered by any instance. Locally the keyring is a
+  container in the bundled `docker compose`, beside Postgres and Keycloak; a local service reaches it
+  by `ANKKA_KEYRING_URL`, a platform variable, and the CLI asks for erasures from it with no control
+  plane. A local service that sets no `ANKKA_KEYRING_URL` refuses every personal field as
+  `Unavailable`, naming the keyring (FR-003). The templates (`ankka init`) and the samples MUST run
+  it.
 - **FR-020**: A service instance MAY cache subject keys. The cache MUST be bounded (default 10,000 keys,
   a platform setting), MUST expire a key at most 5 minutes after it was fetched while the keyring
   answers, MUST keep serving reads from cached keys while the keyring does not answer for at most the
@@ -562,7 +619,8 @@ and a listing by correlation id returns both; assert a service without the grant
   tool call, tool result, summary and task input or result it persists in the personal envelope under
   that subject, through the same codec a service uses.
 - **FR-025**: On erasure an agent session's history MUST read as erased and a new turn MUST start with
-  an empty history; an autonomous agent instance tagged with the subject MUST be stopped and its state
+  an empty history and tell the model that the earlier conversation was erased; an autonomous agent
+  instance tagged with the subject MUST be stopped and its state
   read as erased. The documentation MUST say that what a session sent to its model provider is beyond
   the installation's edge and this feature.
 - **FR-026**: Every SDK MUST offer one object storage call, `erase(subject)`, that deletes every object
@@ -579,8 +637,9 @@ and a listing by correlation id returns both; assert a service without the grant
   life, destroyed once.
 - **FR-029**: No personal value MUST appear in a log line, a span attribute, an error message, the
   recorder, or the local console. `Personal`'s textual form in every SDK MUST be `Personal(<subject>)`
-  and nothing else, so an interpolated event prints no value; the recorder and the log bridge MUST drop
-  any attribute whose value is a personal envelope.
+  and nothing else, so an interpolated event prints no value. The feature's suites MUST scan the
+  captured log, the recorder and the local console's documents for every plaintext they wrote and fail
+  on a hit.
 - **FR-030**: The test kit MUST install an in-memory keyring, offer a way to erase a subject and to
   simulate a keyring outage in a test, and offer an assertion that a database dump holds no personal
   value.
@@ -599,8 +658,8 @@ and a listing by correlation id returns both; assert a service without the grant
 - **Data subject**: the person a personal field is about, named by an opaque id the domain chooses,
   scoped to one project. The id itself is in the clear everywhere and survives an erasure.
 - **Personal field**: a field of a payload typed `Personal`; stored only encrypted.
-- **Personal envelope**: the JSON shape a personal field takes in every store — the subject in the clear
-  beside ciphertext, or the subject alone once erased.
+- **Personal envelope**: the JSON shape a personal field takes in every store — the subject and its
+  project in the clear beside ciphertext, or the subject and project alone once erased.
 - **Subject key**: the key one subject's personal fields are encrypted under in one project; created on
   first write, destroyed by an erasure, never rotated.
 - **Keyring**: the platform component that keeps subject keys and the lookup keys, wrapped, outside
@@ -608,14 +667,14 @@ and a listing by correlation id returns both; assert a service without the grant
 - **Keyring handle**: what a codec calls; installed by the runtime or the test kit, `unavailable`
   before.
 - **Tombstone**: the keyring's record of an erased subject, kept so no later write mints a key.
-- **Erasure request**: a request to erase one subject in one project — filed, held, withdrawn,
-  overridden or applied — with its filer, hold, correlation id and per-service completion.
+- **Erasure request**: a request to erase one subject in one project — asked for, held, withdrawn,
+  overridden or applied — with who asked for it, its hold, correlation id and per-service completion.
 - **Erasure handler**: the one callback a service registers to do its own part of an erasure, run on
   every application.
 - **Erasure log**: the append-only record of every applied erasure, kept in two places, replayed after
   any restore.
-- **Erasure certificate**: what a member fetches for an applied request: the request, the subject, the
-  filer, completions and finality; nothing personal.
+- **Erasure certificate**: what a member fetches for an applied request: the request, the subject, who
+  asked for it, completions and finality; nothing personal.
 - **Lookup token**: a keyed hash of a personal field's value that lets a declared query match it by
   equality, removed on erasure.
 - **Erased**: the value a personal field decodes to once its subject's key is destroyed.
@@ -637,7 +696,8 @@ and a listing by correlation id returns both; assert a service without the grant
   or in a project consuming its topics decrypts a personal field of the subject (FR-022).
 - **SC-005**: Every non-personal field of an erased subject's events, state, rows and messages reads
   exactly as before the erasure, and every entity and view holding them replays and rebuilds.
-- **SC-006**: A held erasure is applied within 15 minutes of its date with no one acting.
+- **SC-006**: A held erasure is applied within 15 minutes of its date with no one acting (FR-015), and
+  every service reads the subject as erased within 60 seconds more (FR-022).
 - **SC-007**: Recovering an entity of 1,000 events with personal fields takes at most 1.3 times as long
   as without them (FR-023).
 - **SC-008**: The same event with personal fields, persisted by a Scala, a Python, a TypeScript and a
@@ -666,7 +726,7 @@ and a listing by correlation id returns both; assert a service without the grant
   regulator needs is keyed by it. The documentation says so, and says to choose an id that is not
   itself a name, an email or a document number.
 - **Subjects are per project.** A person who is a subject in two projects is two subjects; the domain
-  files an erasure in each (a granted service can, FR-008) and correlates them.
+  asks for an erasure in each (a granted service can, FR-008) and correlates them.
 - **The key enters the service.** A codec that decrypts holds the key in the service's process, as the
   service's secrets already are; the trust boundary is the running, admitted service, not the codec.
 - **The domain decides holds.** The platform does not know AML or gambling-licence retention periods;
@@ -701,15 +761,16 @@ and a listing by correlation id returns both; assert a service without the grant
 - **044 (cloud provider)**: the `wrapping-key` request for the keyring's identity on Google Cloud.
 - **030 (wasm request and clock)**: the host import module the `keyring` import joins.
 
-## Glossary terms proposed
+## Glossary terms
 
-*Proposed* in `GLOSSARY.md` under *Erasure*, to settle in `/speckit-clarify`: data subject, personal
-field, personal envelope, subject key, keyring, lookup token, lookup key, erasure, erased, erasure
-request, not-before date, withdrawn, completion, erasure handler, erasure log, erasure certificate,
-correlation id, grant, decryption, subject prefix, soft-delete window, restore, switched, journal.
-The features say "asks for" an erasure request, not "files" one (`file` is a refused synonym of
-`object`), "hold" stays an everyday word with `not-before date` as the term, the keyring handle and
-the tombstone are not named in any scenario, and `encrypted` was widened to cover a personal field.
+Settled in `GLOSSARY.md` under *Erasure* (clarify session of 2026-10-08): data subject, personal field,
+personal envelope, subject key, keyring, lookup token, lookup key, erasure, erased, erasure request,
+not-before date, withdrawn, completion, erasure handler, erasure log, erasure certificate, correlation
+id, decryption, subject prefix, soft-delete window, switched; `shredding` and `crypto-shredding` are
+refused. The features and this spec say "asks for" an erasure request, not "files" one (`file` is a
+refused synonym of `object`), and the CLI verb is `request`; "hold" stays an everyday word with
+`not-before date` as the term; the keyring handle and the tombstone are not named in any scenario; and
+`encrypted` was widened to cover a personal field.
 
 ## Open Questions
 

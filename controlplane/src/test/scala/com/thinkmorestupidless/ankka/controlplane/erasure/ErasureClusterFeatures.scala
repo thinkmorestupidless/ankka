@@ -208,11 +208,52 @@ class ErasureClusterFeatures extends munit.FunSuite with LogCapturing:
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
 
-      explained(KeyringNamespace, "ankka-keyring")(
-        waitFor(600.seconds, "the keyring's two instances") {
-          readyReplicas(KeyringNamespace, "ankka-keyring") == 2
-        }
-      )
+      try
+        explained(KeyringNamespace, "ankka-keyring")(
+          waitFor(600.seconds, "the keyring's two instances") {
+            readyReplicas(KeyringNamespace, "ankka-keyring") == 2
+          }
+        )
+      catch
+        case failure: Throwable =>
+          // What the keyring meets when it reads the control plane's log: the chain served, and
+          // whether its own authority verifies it — and how the control plane's pods stand.
+          val probe = podsOf(KeyringNamespace, "ankka-keyring").headOption.fold("no keyring pod") {
+            pod =>
+              val dir = "/var/run/secrets/ankka/service"
+              val r = k3s.execInContainer(
+                "kubectl",
+                "exec",
+                "-n",
+                KeyringNamespace,
+                pod.getMetadata.getName,
+                "-c",
+                "ankka-keyring",
+                "--",
+                "curl",
+                "-v",
+                "-sS",
+                "-m",
+                "10",
+                "--cert",
+                s"$dir/tls.crt",
+                "--key",
+                s"$dir/tls.key",
+                "--cacert",
+                s"$dir/ca.crt",
+                "https://ankka-controlplane.ankka-controlplane.svc:9000/erasures/log?after=0"
+              )
+              r.getStdout + r.getStderr
+          }
+          val controlPlane =
+            try
+              explained(Namespace, "ankka-controlplane")(fail("the control plane, as it stood"))
+              ""
+            catch case e: Throwable => e.getMessage
+          throw AssertionError(
+            s"${failure.getMessage}\n=== keyring to control plane ===\n$probe\n=== control plane ===\n$controlPlane",
+            failure
+          )
       explained(Namespace, "ankka-controlplane")(
         waitFor(600.seconds, "the control plane") {
           readyReplicas(Namespace, "ankka-controlplane") >= 1 && api(

@@ -188,12 +188,19 @@ final case class ServiceVerification(
 /** `POST /services/{p}/{n}/switch` (feature 041): the cluster to move the service onto. */
 final case class SwitchRequest(cluster: String)
 
-/** One thing done to a project's database, for `GET /projects/{id}/history`. */
+/**
+ * One thing done to a project, for `GET /projects/{id}/history`: to its database (feature 041), or
+ * to one of its topics (feature 043), when `topic` names it. A topic's `kind` is `topic-declared`,
+ * `topic-changed`, `topic-filled` (by the platform, with no one in `by`) or `topic-removed`, and
+ * `changes` holds each setting it changed.
+ */
 final case class ProjectHistoryView(
     kind: String,
     by: Option[String] = None,
     at: Option[Instant] = None,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    topic: Option[String] = None,
+    changes: Vector[SettingChange] = Vector.empty
 )
 
 /**

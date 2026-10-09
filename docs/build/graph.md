@@ -732,13 +732,17 @@ the latest record under every key, and every delta's key is its element, so the 
 latest state however long the service runs. A topic that deletes by age holds only recent history, and a
 graph cannot be rebuilt from it.
 
-The topic is the project's, declared once with `--compacted`, before anything publishes to it:
+The topic is the project's, declared once with `--compacted` (the short form of `--cleanup compact`),
+before anything publishes to it:
 
 ```bash
 ankka projects topics set cart-graph --partitions 3 --compacted -p checkout
 ```
 
-A topic already made is made compacted when its declaration says so. A topic a component names that
+A topic already made is made compacted when its declaration says so. Declaring it again without the flag
+leaves it compacted; it stops being compacted only when declared with `--cleanup delete`, which an owner
+confirms, since a topic that deletes by age loses what compaction kept. Every delta carries its element as
+its key, so a graph consumer's messages are never refused for having none. A topic a component names that
 the project has not declared is listed on the service's status as undeclared.
 
 ## From the topic to the store

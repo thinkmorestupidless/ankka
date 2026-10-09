@@ -151,7 +151,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag and what it is failing on (topicSources), each side it takes on a declared topic's contract (topicChecks), whether its instances read the project's grants (grants), each other project's topic it reads or publishes to and whether that project grants it (crossProjectTopics), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag, what it is failing on and what its topic still holds per partition (topicSources, gap), warnings such as a view over a topic that keeps less than the installation's threshold (warnings), each side it takes on a declared topic's contract (topicChecks), whether its instances read the project's grants (grants), each other project's topic it reads or publishes to and whether that project grants it (crossProjectTopics), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true
@@ -164,6 +164,14 @@ private[cli] final class AnkkaTools(
       readOnly = true,
       idempotent = true
     )(args => ToolResult(json(client.serviceHistory(project(args), required(args, "name"))))),
+    Tool(
+      "project_history",
+      "Project history",
+      "Who did what to a project and when, newest first: each restore, rehearsal and change to its database (with a detail), and each declaration, change or removal of one of its topics (with the topic, and each setting changed from what to what). An entry the platform made, such as filling the settings of a topic declared before topics stated them, names no one in `by`.",
+      schema(Seq.empty, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args => ToolResult(json(client.projectHistory(project(args))))),
     Tool(
       "service_logs",
       "Service logs",

@@ -169,6 +169,69 @@ test("a project declares a topic once, gives it more partitions, never fewer, an
   await expect(row).toHaveCount(0);
 });
 
+test("a topic declared with partitions alone shows every setting as the installation's default, and a change that removes messages is an owner's, confirmed", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "the installation's defaults are the fake's shipped ones");
+  const org = unique("retention-org");
+  const project = unique("retention-proj");
+  seedTenancy(target, { org, project });
+  await signIn(page, "owner", `/projects/${project}`);
+  // The disclosure stays open after a declaration with scripts on; open it only when it is shut.
+  const declaring = page.locator("details", { has: page.locator("summary", { hasText: "Declare a topic" }) });
+  const openDeclaring = async () => {
+    if (!(await declaring.evaluate((d) => (d as HTMLDetailsElement).open))) await declaring.locator("summary").click();
+  };
+  await openDeclaring();
+  await page.getByLabel("Topic", { exact: true }).fill("transactions");
+  await page.getByLabel("Partitions", { exact: true }).fill("12");
+  await page.getByLabel("Retention", { exact: true }).fill("90d");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  const row = page.locator('tr[data-topic="transactions"]');
+  await expect(row.locator('td[data-setting="retention"]')).toHaveText("90d");
+  await expect(row.locator('td[data-setting="retention"]')).toHaveAttribute("data-defaulted", "no");
+  await expect(row.locator('td[data-setting="cleanup"]')).toHaveAttribute("data-defaulted", "yes");
+  await expect(row.locator('td[data-setting="copies"]')).toContainText("1, 1 in sync");
+  await audit(page);
+
+  // A shorter retention removes messages: the owner is told what, and confirms before it is sent.
+  await openDeclaring();
+  await page.getByLabel("Topic", { exact: true }).fill("transactions");
+  await page.getByLabel("Partitions", { exact: true }).fill("");
+  await page.getByLabel("Retention", { exact: true }).fill("30d");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  const dialog = page.locator("[data-removal-dialog]");
+  await expect(dialog).toContainText("It removes messages older than 30d, and they are gone.");
+  await expect(row.locator('td[data-setting="retention"]')).toHaveText("90d");
+  await audit(page);
+  await dialog.getByRole("button", { name: "Remove them" }).click();
+  await expect(row.locator('td[data-setting="retention"]')).toHaveText("30d");
+  await expect(page.locator('li[data-history="topic-changed"][data-topic="transactions"]')).toContainText("retention 90d → 30d");
+  await expect(page.locator('li[data-history="topic-declared"][data-topic="transactions"]')).toBeVisible();
+
+  // Copies are fixed when a topic is declared.
+  await openDeclaring();
+  await page.getByLabel("Topic", { exact: true }).fill("transactions");
+  await page.getByLabel("Partitions", { exact: true }).fill("");
+  await page.getByLabel("Copies", { exact: true }).fill("2");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  await expect(page.getByRole("alert")).toContainText("copies and minimum in-sync copies are fixed when a topic is declared");
+});
+
+test("a change that removes messages is refused to a member who is not an owner", async ({ page, target, signIn, unique }) => {
+  test.skip(target.kind !== "fake", "the topic is seeded on the fake");
+  const org = unique("member-org");
+  const project = unique("member-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({ topics: [{ projectId: project, name: "transactions", partitions: 12, settings: { retention: "90d" } }] });
+  await signIn(page, "member", `/projects/${project}`);
+  await page.getByText("Declare a topic").click();
+  await page.getByLabel("Topic", { exact: true }).fill("transactions");
+  await page.getByLabel("Partitions", { exact: true }).fill("");
+  await page.getByLabel("Retention", { exact: true }).fill("30d");
+  await page.getByRole("button", { name: "Declare topic" }).click();
+  await expect(page.getByRole("alert")).toContainText("owner role required: this declaration removes messages older than 30d");
+  await expect(page.locator('tr[data-topic="transactions"] td[data-setting="retention"]')).toHaveText("90d");
+});
+
 test("a topic is declared compacted with a contract and its schema, shown with its checks, and the schema is fetched", async ({ page, target, signIn, unique, audit }) => {
   test.skip(target.kind !== "fake", "the checks of a topic's sides are seeded on the fake");
   const org = unique("contract-org");

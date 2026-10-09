@@ -37,8 +37,8 @@ service see; [quickstart.md](quickstart.md) the proofs.
 1.2.0 / Kafka 4.3.1 (the broker, pinned in `kustomization/components/broker`); jsoniter (the wire).
 
 **Storage**: Postgres (the control plane's journal records settings, the defaulted set, each change
-and the sweep's fill; `ankka_view_versions` gains `recorded_at`, created and altered by the runtime,
-not the DDL directory); the `AnkkaProject` resource and the `KafkaTopic` it renders; the
+and the sweep's fill; the gap's time rule reads `ankka_view_versions.built_at`, which the runtime
+already writes, so no table changes); the `AnkkaProject` resource and the `KafkaTopic` it renders; the
 `ankka-project` ConfigMap unchanged.
 
 **Testing**: munit through `AnkkaTestKit` with the in-memory broker (the gap after `drop`, the keyless
@@ -161,7 +161,7 @@ modules/runtime/…/runtime/
 ├── MessageSubscriber.scala          # Retained; InMemoryBroker.compact/drop
 ├── TopicSources.scala               # RetentionGap; one JSON rendering of a topic source
 ├── ProjectionRuntime.scala          # gap on subscribe/rebuild/GapInterval; the acks refusal at start
-├── ViewVersions.scala               # recorded_at
+├── ViewVersions.scala               # builtAt, read from the existing built_at
 ├── ObservabilityDocuments.scala, TopologyJson.scala   # use TopicSources' rendering
 └── ObservabilityRoute.scala         # the three series
 modules/testkit/src/test/…/testkit/  # KafkaSuite, InMemoryBrokerSuite, ViewVersionSuite, MetricsSuite cases
@@ -200,7 +200,7 @@ Each step is offline before the k3s features run; a story's living feature is it
 5. **The runtime's reads** (R11, R15): `TopicConfigs`, `KeylessPublication` in `KafkaPublisher` and
    `InMemoryBroker.compact`; the `acks` refusal; `KafkaSuite` and `InMemoryBrokerSuite` cases;
    `cleanup-policy.feature`'s keyless outline and lag scenario.
-6. **The gap** (R12, R13): `Retained`, `RetentionGap`, `recorded_at`, the three reports, the one
+6. **The gap** (R12, R13): `Retained`, `RetentionGap`, `built_at`, the three reports, the one
    rendering, the series; `TopicSourceReport.gap` and the per-partition merge; `services get`; the
    console's column; `ViewVersionSuite` with `drop`, `KafkaSuite` with a dropped segment, `MetricsSuite`,
    `TopicSourcesReportSuite`. `gap.feature`'s first four scenarios.

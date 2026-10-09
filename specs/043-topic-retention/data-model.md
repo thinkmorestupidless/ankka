@@ -177,7 +177,8 @@ final case class RetentionGap(partitions: Vector[PartitionGap], compacted: Boole
 ```
 
 - `gone` = not compacted and (any `beginning > 0`, or any `earliestAt` after the view's `since`).
-- `since` = `ankka_view_versions.recorded_at` for a view (written by `rebuild`; `NULL` for a row
+- `since` = `ankka_view_versions.built_at` for a view, the column that already records when a view's
+  version was built (written by `rebuild`; for a row
   recorded before this feature, which disables the time rule for it); a consumer has none.
 - Reported on subscribe, on rebuild and every `GapInterval` (5 minutes).
 

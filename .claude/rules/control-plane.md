@@ -239,3 +239,17 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   unreleased marker the projector writes nothing and the writes an endpoint makes (a secret, a registry
   credential, a rehearsal namespace) are refused as unavailable. The release is a platform
   administrator's, and is recorded on the marker.
+- **A topic's settings are filled by the endpoint and checked by the entity** (feature 043).
+  `TopicPolicy` (beside `OrganizationPolicy`, from `ankka.controlplane.topics`) gives a first
+  declaration its defaults; a redeclaration keeps what it leaves out (`TopicSettingsRules.merge`). The
+  endpoint takes the policy by name, so a suite can change it between scenarios. Copies fixed and the
+  diff recorded are the entity's; the owner rule and the acknowledgement are the endpoint's.
+- **A change that removes messages carries `removes`, restating the control plane's own words.** The
+  endpoint refuses one without it (400) or from a member who is not an owner (403); the CLI and the
+  console show the 400's text, ask, and send again saying so. The refusal reaches the CLI as the JSON
+  body, quotes escaped, so `TopicsCommand.removalAsked` matches an escaped quote too: the first version
+  matched only plain text, never asked, and only the offline feature runner driving the real CLI
+  against the real route found it.
+- **The sweep fills on every start, and fills nothing twice.** `TopicSettingsSweep` lists projects from
+  `ProjectRows`, a projection that may not yet hold a project made a moment ago, so a test retries it;
+  the entity records nothing for a project with nothing unfilled.

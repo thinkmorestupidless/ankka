@@ -160,6 +160,66 @@ final class MetricsSuite extends FunSuite:
     assert(!rendered.contains("""ankka_topic_source_behind{component="notifier""""), rendered)
   }
 
+  // features/topics/gap.feature: the retention gap is shown wherever a service's topic sources are
+  test(
+    "a topic source's retention gap is three series: per partition, and whether messages are gone"
+  ) {
+    val at = java.time.Instant.parse("2026-09-01T10:00:00Z")
+    val gap = RetentionGap(
+      Vector(PartitionGap(0, 1240L, Some(at)), PartitionGap(1, 0L, None)),
+      compacted = false,
+      gone = true,
+      readAt = at
+    )
+    val rendered = Metrics.render(
+      observability(),
+      Vector(
+        source(ComponentKind.View, "summary", 2, Some(2), behind = false).copy(gap = Some(gap))
+      )
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_beginning{kind="view",component="summary",topic="order-changes",partition="0"} 1240"""
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_beginning{kind="view",component="summary",topic="order-changes",partition="1"} 0"""
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains(
+        s"""ankka_topic_source_earliest_retained_seconds{kind="view",component="summary",topic="order-changes",partition="0"} ${at.getEpochSecond}"""
+      ),
+      rendered
+    )
+    // A partition that holds nothing has no earliest time to report.
+    assert(
+      !rendered.contains(
+        """earliest_retained_seconds{kind="view",component="summary",topic="order-changes",partition="1"}"""
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_gone{kind="view",component="summary",topic="order-changes"} 1"""
+      ),
+      rendered
+    )
+  }
+
+  test("a source not yet told what its topic holds has no gap series") {
+    val rendered =
+      Metrics.render(
+        observability(),
+        Vector(source(ComponentKind.Consumer, "notifier", 1, None, behind = false))
+      )
+    assert(rendered.contains("# TYPE ankka_topic_source_gone gauge"), rendered)
+    assert(!rendered.contains("ankka_topic_source_gone{"), rendered)
+  }
+
   test("a view behind its recorded version is shown as behind in the metrics") {
     val rendered = Metrics.render(
       observability(),

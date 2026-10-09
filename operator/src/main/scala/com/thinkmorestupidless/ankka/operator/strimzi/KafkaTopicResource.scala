@@ -7,14 +7,19 @@ import io.fabric8.kubernetes.client.CustomResource
 import io.fabric8.kubernetes.model.annotation.{Group, Kind, Plural, Version}
 
 /**
- * A topic as ankka declares it: its partitions and nothing else. Replicas are left out, so the
- * broker's own `default.replication.factor` decides them and ankka never states a number that has
- * to match the installation's size.
+ * A topic as ankka declares it: its partitions, its copies and every setting of its configuration
+ * (feature 043), so the broker's configuration of the topic names each and none is the broker's
+ * default. Replicas are stated because a topic's copies are its durability and are fixed when it is
+ * declared: Strimzi changes them only through Cruise Control, which the platform does not install.
+ * A topic declared before topics stated their copies has none, and the broker's
+ * `default.replication.factor` stays what decided them.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class KafkaTopicSpec(
     partitions: Int = 1,
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    replicas: Option[Int] = None,
     /**
      * Feature 037: `cleanup.policy: compact` for a topic the project declares compacted; absent
      * otherwise, so an existing topic's applied object does not change (`NON_ABSENT` would still

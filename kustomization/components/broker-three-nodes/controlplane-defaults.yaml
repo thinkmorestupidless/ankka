@@ -1,0 +1,17 @@
+# What the control plane gives a topic's first declaration that states no copies: three, two of
+# which must hold a message before it is acknowledged.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_TOPIC_DEFAULT_COPIES
+              value: "3"
+            - name: ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC
+              value: "2"

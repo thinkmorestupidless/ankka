@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.operator.{
   ProjectReconciler,
   ServiceRef,
   StrimziObjectState,
+  StrimziRendering,
   TopicProvisioning,
   TopicState
 }
@@ -248,7 +249,12 @@ class ProjectTopicsFeature
       // The project the outline declared on is the one scenario's project.
       val p    = projects.values.head
       val spec = writtenWith(p, topic)
-      val seen = observe(partitions).map((_, s) => s"$p.$topic" -> s)
+      // A topic the broker has made carries the settings the declaration rendered (feature 043).
+      val entry = spec.topics.find(_.name == topic).getOrElse(fail(s"'$topic' was not written"))
+      val made  = StrimziRendering.kafkaConfig(entry).map(_.map((k, v) => k -> String.valueOf(v)))
+      val seen = observe(partitions).map((_, s) =>
+        s"$p.$topic" -> s.copy(replicas = entry.replicas, config = made)
+      )
       cluster.reportProject(
         namespace(p),
         p,

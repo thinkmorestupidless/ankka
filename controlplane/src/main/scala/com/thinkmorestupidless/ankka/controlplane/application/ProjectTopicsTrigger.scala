@@ -20,6 +20,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectRestoreRequested,
   ProjectCreated,
   ProjectTopicDeclared,
+  ProjectTopicSettingsFilled,
   ProjectTopicRemoved
 }
 import com.thinkmorestupidless.ankka.core.ComponentId
@@ -38,9 +39,9 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
 
   def onMessage(event: ProjectEvent): Effect = event match
     // A restore asked for (feature 041) is written as the topics are: the operator makes it.
-    case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectBrokerDeclared |
-        _: ProjectBrokerRemoved | _: ProjectRestoreRequested | _: ProjectDatabaseSet |
-        _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
+    case _: ProjectTopicDeclared | _: ProjectTopicSettingsFilled | _: ProjectTopicRemoved |
+        _: ProjectBrokerDeclared | _: ProjectBrokerRemoved | _: ProjectRestoreRequested |
+        _: ProjectDatabaseSet | _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
         _: ProjectBackupCredentialReissued | _: ProjectLocationSet =>
       projector.projectTopics(messageContext.subject)
       effects.ignore()

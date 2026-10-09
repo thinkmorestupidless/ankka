@@ -133,7 +133,8 @@ it.
 
 ## R7. The credential generation lives on the `AnkkaService`
 
-**Decision**: `AnkkaServiceSpec.storageCredentialGeneration: Long = 1`, declared in the schema,
+**Decision**: `AnkkaServiceSpec.storageCredentialGeneration: Option[Long] = None` (absent means 1),
+declared in the schema,
 copied by the operator into the `storage-credential` request's `spec.credentialGeneration`. The
 control plane's projector does **not** set the field: a field its manager never owns cannot be
 reverted by a re-projection, and the operator reads `1` when it is absent. A later feature gives a
@@ -302,4 +303,40 @@ Things the implementation must check against a real API server before trusting t
 
 ## Verified during implementation
 
-*(filled in as the implementation proves or disproves the above)*
+On k3s `v1.35.1-k3s1`, by `OperatorClusterSuite` cases 40-43 and `CloudProviderClusterFeatures`, run
+locally (not yet on the `cluster` workflow):
+
+- Server-side apply of a `CloudResource` under the operator's minted token succeeds the first time,
+  as a PATCH on an absent object, and the owner reference survives. The same token's status write and
+  delete are refused 403.
+- `editStatus` under the provider's token succeeds; a status write leaves `metadata.generation` where
+  it was, and a spec change by the operator raises it by one.
+- Under the provider's token a Secret `create` succeeds, a second meets 409, a JSON merge `patch`
+  succeeds, and `get`, `list`, a spec patch of the request and a delete of it are all refused 403. The
+  operator's token is refused a `get` of the same Secret.
+- Deleting the `AnkkaService` removes its `CloudResource`s by garbage collection and leaves the Secret.
+- The `CloudResource` informer delivers status-only updates under the operator's client: the absence
+  scenario recovered within thirty seconds of the scripted provider starting, which no five-minute
+  resync could have done.
+- `CloudProviderClusterFeatures`: 12 scenarios passed and 20 reported as run elsewhere, in 153 seconds.
+
+Changed from the plan while building:
+
+- `AnkkaServiceSpec.storageCredentialGeneration` is `Option[Long]`, not `Long = 1`: the shared codec
+  omits only absent values, so a plain `Long` would have been written by every projection and owned by
+  the control plane's field manager, reverting a raise.
+- The status carries `credentialReportedAt`, so the rotation grace can be counted from the status, as
+  the provider contract requires, rather than from a provider's memory.
+- The credential request waits on the bucket's answer as well as the identity's: its `bucket` parameter
+  is the provider's name for the bucket.
+- `Rendering.render` keeps its type; `ObjectStorage.withheld` is the one rule both it and the reconciler
+  ask, and `render` takes the rendered requests as `cloudRequests`.
+- The control plane shows the bucket's name the operator reported (`Service.bucketNamed`); before, it
+  derived the store's naming, which would have shown `shop.reports` for a cloud bucket.
+- SC-003, checked: no main source of any module imports a cloud SDK, and no image carries one. The build
+  does name one cloud SDK, `software.amazon.awssdk:s3`, as a test dependency of `operator` and
+  `controlplane` from before this feature: the object storage suites use it as a service's own program
+  would, against the installation's store. SC-003's "a grep finds only ankka-gcp's README" is stricter
+  than that and is not true as written; whether to keep the test client or reword the criterion is open.
+- `CloudProviderNeeded.wrappingKey` is a second refusal: a keyring's wrapping key needs the installation
+  to name one, which a provider alone does not.

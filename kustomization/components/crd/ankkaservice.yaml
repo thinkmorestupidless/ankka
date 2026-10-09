@@ -250,6 +250,13 @@ spec:
                     Whether that bucket is reachable from the internet, for URLs the service signs.
                     The bucket's name and address are never in the resource: the operator derives
                     them.
+                storageCredentialGeneration:
+                  type: integer
+                  minimum: 1
+                  description: >-
+                    The generation of the storage credential a cloud provider issues for that
+                    bucket (feature 044). Raising it asks for a new credential in the same Secret.
+                    Absent means 1; the control plane never sets it.
             status:
               type: object
               properties:

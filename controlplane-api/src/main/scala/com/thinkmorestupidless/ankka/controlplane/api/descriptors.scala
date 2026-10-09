@@ -124,13 +124,18 @@ object ProjectId:
    * developer's machine that states its name reads a topic under the group
    * `ankka.local.<service>.…`, which is exactly what a deployed service in a project called `local`
    * would be given. Two different services must never share a group.
+   *
+   * `cloud-provider` is reserved because a project's namespace is `ankka-<project>`, and the
+   * installation's cloud provider runs in `ankka-cloud-provider` (feature 044).
    */
-  val Reserved: Set[String] = Set("platform", "local")
+  val Reserved: Set[String] = Set("platform", "local", "cloud-provider")
 
   /** Why `id` is reserved, in a sentence that is true of it. */
   def reservedBecause(id: String): String =
     if id == "local" then
       s"project id '$id' is reserved for services run locally, whose consumer groups it names"
+    else if id == "cloud-provider" then
+      s"project id '$id' is reserved for the namespace the installation's cloud provider runs in"
     else s"project id '$id' is reserved for the platform's own workloads"
 
   def problems(id: String): Vector[String] =
@@ -989,6 +994,23 @@ object Role:
 final case class OrganizationMembership(id: String, name: String, role: Role)
 
 /** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
+/**
+ * What the installation is (feature 044, `GET /installation`): its version, and its cloud when it
+ * names a provider.
+ */
+final case class Installation(platformVersion: String, cloud: Option[CloudInstallation] = None)
+
+/**
+ * The installation's cloud: its provider, the one account its cloud resources are made in, the
+ * default location, and the wrapping key, which only an owner of an organization is shown.
+ */
+final case class CloudInstallation(
+    provider: String,
+    account: String,
+    location: String,
+    kmsKey: Option[String] = None
+)
+
 final case class Whoami(
     subject: String,
     name: Option[String] = None,
@@ -1706,6 +1728,7 @@ object Wire:
 
   given authDiscoveryCodec: JsonValueCodec[AuthDiscovery]     = Codecs.make[AuthDiscovery]
   given whoamiCodec: JsonValueCodec[Whoami]                   = Codecs.make[Whoami]
+  given installationCodec: JsonValueCodec[Installation]       = Codecs.make[Installation]
   given inviteCodec: JsonValueCodec[Invite]                   = Codecs.make[Invite]
   given roleChangeCodec: JsonValueCodec[RoleChange]           = Codecs.make[RoleChange]
   given repairCodec: JsonValueCodec[Repair]                   = Codecs.make[Repair]

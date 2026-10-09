@@ -308,3 +308,23 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     val json = serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready"))
     assert(!json.contains("objectStorage"), json)
   }
+
+  test("the storage credential's generation is absent from the wire until something sets it") {
+    // The control plane does not set it, so its projection must never write it: a field its
+    // manager never owns is not reverted when the next projection is applied (feature 044, R7).
+    val json = serialization.asJson(AnkkaServiceSpec(projectId = "checkout", serviceName = "cart"))
+    assert(!json.contains("storageCredentialGeneration"), json)
+    assertEquals(
+      serialization.unmarshal(json, classOf[AnkkaServiceSpec]).storageCredentialGeneration,
+      None
+    )
+  }
+
+  test("a raised storage credential generation is read back as a Long") {
+    val decoded = serialization.unmarshal(
+      """{"projectId":"checkout","serviceName":"cart","storageCredentialGeneration":2}""",
+      classOf[AnkkaServiceSpec]
+    )
+    val generation: Long = decoded.storageCredentialGeneration.getOrElse(fail("absent"))
+    assertEquals(generation, 2L)
+  }

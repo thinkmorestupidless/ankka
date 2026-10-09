@@ -1,0 +1,52 @@
+# The grant every cloud provider runs under, the contract's and not a provider's to choose.
+#
+# As narrow as the operator's, and the other half of it: the operator writes a request and reads
+# its answer; the provider reads a request and writes its answer. Neither holds the other's verbs,
+# and neither can read a Secret.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ankka-cloud-provider
+  namespace: ankka-cloud-provider
+  labels:
+    app.kubernetes.io/managed-by: ankka
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ankka-cloud-provider
+  labels:
+    app.kubernetes.io/managed-by: ankka
+rules:
+  # Every request, in every namespace, to find the ones naming this provider. Read only: the
+  # request is the operator's, and no "create", "patch" or "delete" here could change what it asks.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["cloudresources"]
+    verbs: ["get", "list", "watch"]
+  # The answer, written through the status subresource, which never raises the request's
+  # generation: an observedGeneration means what it says.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["cloudresources/status"]
+    verbs: ["get", "update", "patch"]
+  # A credential, written where a pod reads it: "create" once, learning from a conflict that one is
+  # already there, and "patch" to replace it when a request's credential generation is raised. No
+  # "get" and no "list": a provider can never read a Secret back, the one it wrote included. No
+  # "delete": a credential is never destroyed, and nothing is deleted on a request's removal.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ankka-cloud-provider
+  labels:
+    app.kubernetes.io/managed-by: ankka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ankka-cloud-provider
+subjects:
+  - kind: ServiceAccount
+    name: ankka-cloud-provider
+    namespace: ankka-cloud-provider

@@ -43,8 +43,9 @@ one, as a half-set broker is.
 
 Every parameter key is a constant in `CloudRequests.Keys`; `CloudRequestsSuite` asserts a rendered
 request carries exactly its kind's keys and that `location` is the setting's string verbatim.
-`credentialGeneration` is read from `AnkkaServiceSpec.storageCredentialGeneration`, a field the
-control plane's projector never sets (research R7), so a value raised on the resource is not
+`credentialGeneration` is read from `AnkkaServiceSpec.storageCredentialGeneration`, an
+`Option[Long]` the control plane's projector never sets (research R7): `None` is omitted from the
+wire, so the projector's apply never owns the field and a value raised on the resource is not
 reverted by a re-projection; absent, it is `1`.
 
 ## Observing
@@ -60,8 +61,8 @@ It is pure; `CloudProvisioningSuite` is its rule table.
 
 For the bucket path, `ObjectStorage.decide` takes `cloud: Option[CloudBucketPlans]`, where
 `CloudBucketPlans(identity: CloudPlan, bucket: CloudPlan, credential: Option[CloudPlan])` (the
-credential plan is absent until the identity is `Ready`, because the credential request's
-`identity` parameter is that fulfilment's output), and answers:
+credential plan is absent until both the identity and the bucket are `Ready`, because the credential
+request's `identity` and `bucket` parameters are those fulfilments' outputs), and answers:
 
 | Plans | `ObjectStoragePlan` |
 |---|---|
@@ -69,18 +70,20 @@ credential plan is absent until the identity is `Ready`, because the credential 
 | identity `Ready(i, _, _)`, bucket `Ready(o, r, _)`, credential `Some(Ready(_, _, g))` | `Ready(recovered = r, cloud = Some(CloudBucket(o.bucket, o.endpoint, o.region, g)))` |
 | otherwise | `Waiting(the first detail among them)` |
 
-`Rendering.render` answers `Rendered(actions, withheld: Option[String])`: `withheld` carries the
-plan's detail whenever the actions hold no `ApplyDeployment` because a request the Deployment
-needs is unanswered, and the reconciler reports `UpdateInProgress` with it. Every existing caller
-reads `.actions`.
+`ObjectStorage.withheld(plan, spec, settings): Option[String]` says why the Deployment is not
+applied on a pass: a cloud bucket still `Waiting`, with the plan's detail or "waiting on the cloud
+provider for the bucket". `Rendering.render` leaves `ApplyDeployment` out when it is defined and the
+reconciler reports `UpdateInProgress` with it; both ask the one function, so they cannot disagree.
+`render` keeps its type and takes the requests to apply as `cloudRequests`, which the reconciler
+renders with `ObjectStorage.cloudRequests` and observes before deciding.
 
 ## Actions, in order, for a service with `provisionObjectStorage` on the cloud path
 
 1. everything before the bucket, as today (namespace, identity, database …);
 2. `EnsureCloudResource(identity request)`;
 3. `EnsureCloudResource(bucket request)`;
-4. `EnsureCloudResource(storage-credential request)`, once the identity plan is `Ready`, with
-   `identity` = its output;
+4. `EnsureCloudResource(storage-credential request)`, once the identity and bucket plans are
+   `Ready`, with `identity` and `bucket` = their outputs;
 5. `ApplyDeployment` **only** when the plan is `Ready` or `Failed`; while `Waiting`, no Deployment
    is applied and `withheld` carries the plan's detail;
 6. the bucket's route, as today, only when `Ready`.
@@ -108,8 +111,10 @@ from the plan. The acknowledgement bound's detail is `no provider for <provider>
 
 ## Re-queueing
 
-A pass that leaves any request without `observedGeneration` calls `enqueueAfter(ref, bound)`. The
-`CloudResource` informer enqueues the controller owner of a changed object on the matching queue.
+A pass that leaves any request unacknowledged asks for another pass at the bound through
+`Reconciler.requeueWith`, which `Operator` wires to its queue's `enqueueAfter`. The `CloudResource`
+informer enqueues the controller owner of a changed object on the matching queue
+(`Operator.ownerOf`).
 
 ## RBAC, added to `components/operator/operator.yaml`
 

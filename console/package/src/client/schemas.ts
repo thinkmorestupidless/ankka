@@ -57,6 +57,22 @@ export const whoamiSchema = z.object({
 });
 export type Whoami = z.infer<typeof whoamiSchema>;
 
+/** The installation's cloud: its provider, account and location, and its key for an owner alone. */
+export const cloudInstallationSchema = z.object({
+  provider: z.string(),
+  account: z.string(),
+  location: z.string(),
+  kmsKey: optional(z.string()),
+});
+export type CloudInstallation = z.infer<typeof cloudInstallationSchema>;
+
+/** `GET /installation`: the platform's version, and its cloud when it names a provider. */
+export const installationSchema = z.object({
+  platformVersion: z.string(),
+  cloud: optional(cloudInstallationSchema),
+});
+export type Installation = z.infer<typeof installationSchema>;
+
 export const quotaSchema = z.object({
   projects: optional(z.number().int()),
   services: optional(z.number().int()),
@@ -468,6 +484,7 @@ export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
   OrganizationMembership: organizationMembershipSchema,
   Whoami: whoamiSchema,
+  Installation: installationSchema,
   Quota: quotaSchema,
   Usage: usageSchema,
   OrganizationDetail: organizationDetailSchema,

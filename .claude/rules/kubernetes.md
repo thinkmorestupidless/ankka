@@ -98,6 +98,35 @@ owned by the service, at `storage.<base>` with the bucket in the path, naming th
 plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
 limitations. `docs/platform/object-storage.md` is the contract with a service.
 
+## A cloud request is rendered like a `KafkaTopic` and answered by a provider
+
+What needs power over a cloud account (a bucket, a cloud identity, a key) is never the operator's to
+make (feature 044). The operator writes a `CloudResource` (crd, schema `cloudresource.yaml`) by
+server-side apply, owned by the `AnkkaService` or `AnkkaProject` it serves, and reads its status; a
+**cloud provider**, a process in `ankka-cloud-provider` under the `cloud-provider` component's
+ServiceAccount, writes the status and, for a credential, `create`s the Secret once and `patch`es it on a
+raised generation. The two grants are halves: the operator has `create`/`patch` on `cloudresources` and
+only `get` on their status; the provider has `get`/`list`/`watch` on them and `update`/`patch` on the
+status; both have `create`/`patch` on Secrets, and neither has `get` or `delete`. `OperatorClusterSuite`
+cases 40-43 prove each half under minted tokens. Six request kinds, named in `CloudRequests.Keys`; a
+service's request is `<service>-<suffix>`, a project's `<project>.<suffix>` so the two cannot collide.
+`ANKKA_CLOUD_*` (six names, `PlatformOnly`) come from `ankka-platform` to the operator, the control plane
+and the `ankka-cloud` ConfigMap a provider reads; `CloudProviders` in `PlatformVariables` is the one list
+of known names.
+
+A bucket takes the cloud path when the installation names a provider and runs no Garage
+(`ObjectStorage.takesCloudPath`): `identity` and `bucket` first, then `bucket-credential` naming what they
+answered. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
+unanswered `ObjectStorage.withheld` keeps the Deployment back (the endpoint is the provider's to say) and
+the service reports `UpdateInProgress` with why. A third informer on `CloudResource` wakes the owner, and a
+pass with an unacknowledged request requeues at the bound, so "no provider for gcp has answered" lands on
+time and the status recovers within seconds of a provider starting. The control plane shows the bucket's
+name as the operator reported it (`Service.bucketNamed`), empty meaning not yet known.
+`storageCredentialGeneration` is an `Option` on the resource so the control plane's apply never carries
+it: an administrator's raise survives re-projection. The scripted provider
+(`operator/src/test/.../cloud/`) is what `CloudProviderClusterFeatures` runs `features/cloud-provider/`
+against; `-Dankka.cloud.external=<kubeconfig>` points the same suite at a real provider.
+
 ## Deploying locally
 
 ```bash
@@ -497,6 +526,13 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   it as `Invalid payload signature`.** Configure a client with `requestChecksumCalculation(WHEN_REQUIRED)`
   and `responseChecksumValidation(WHEN_REQUIRED)`; the docs' object storage page says so for every client,
   since other SDKs changed the same default.
+- **The operator's `write` helper in `OperatorClusterSuite` always names the resource `cart`.** A case
+  that needs a second service applies its own `AnkkaService` by name; the first cloud cases waited thirty
+  seconds for a resource `write` had put under another name.
+- **A test that renders the overlays as shipped proves no replacement.** The cloud settings' defaults
+  equal the components' literals, so a render passes with every replacement missing; `RemoteOverlaySuite`
+  renders a copy of the local overlay beside it with a distinct value in each key and asserts each one
+  arrives, and was seen to fail with one replacement broken.
 - **The route's removal for a bucket is rendered for every service**, asked or not, so dropping
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a

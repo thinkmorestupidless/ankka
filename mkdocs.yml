@@ -216,6 +216,7 @@ nav:
       - Databases: platform/databases.md
       - The broker: platform/broker.md
       - Object storage: platform/object-storage.md
+      - The cloud provider: platform/cloud-provider.md
       - Secrets on the platform: platform/secrets.md
       - Networking and TLS: platform/networking.md
   - Reference:

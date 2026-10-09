@@ -209,7 +209,10 @@ object Rendering:
       objectStoragePlan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
       // The project's declared brokers (feature 037), read by the caller from `AnkkaProject` as
       // `databasePlan` is decided by it: `render` stays a pure function of its arguments.
-      declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty
+      declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty,
+      // The requests to the installation's cloud provider this service needs (feature 044), already
+      // rendered by the caller, which observes their answers to decide `objectStoragePlan`.
+      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -250,28 +253,35 @@ object Rendering:
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
           objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
+          cloudRequests.map(Action.EnsureCloudResource(_)) ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
-          brokerActions(spec, broker) :+
-          Action.ApplyDeployment(
-            BrokerMounts.attach(
-              deployment(
-                resource,
-                deployed,
-                namespace,
-                databasePlan,
-                settings.sidecarImage,
-                settings.namespacePrefix,
-                settings.proxyImage,
-                settings.baseDomain,
-                settings.httpsPort,
-                settings.otlpEndpoint,
-                settings.otlpHeaders.isDefined,
-                storageEnv(spec, settings)
-              ),
-              deployed,
-              declaredBrokers
+          brokerActions(spec, broker) ++
+          // Not while a cloud bucket waits on its provider: its endpoint and region are the
+          // provider's to say, and an instance started without them would be started wrong.
+          Option
+            .when(ObjectStorage.withheld(objectStoragePlan, spec, settings).isEmpty)(
+              Action.ApplyDeployment(
+                BrokerMounts.attach(
+                  deployment(
+                    resource,
+                    deployed,
+                    namespace,
+                    databasePlan,
+                    settings.sidecarImage,
+                    settings.namespacePrefix,
+                    settings.proxyImage,
+                    settings.baseDomain,
+                    settings.httpsPort,
+                    settings.otlpEndpoint,
+                    settings.otlpHeaders.isDefined,
+                    storageEnv(spec, settings, objectStoragePlan)
+                  ),
+                  deployed,
+                  declaredBrokers
+                )
+              )
             )
-          ) :+
+            .toVector :+
           addressAction(resource, spec, namespace) :+
           grpcPeersAction(resource, spec, namespace) :+
           routeAction(resource, spec, namespace, settings.baseDomain) :+
@@ -356,7 +366,8 @@ object Rendering:
   ): Vector[Action] =
     val bucket = Buckets.name(spec.projectId, spec.serviceName)
     val provision = plan match
-      case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_) =>
+      case _ if ObjectStorage.takesCloudPath(spec, settings) => Vector.empty
+      case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, _) =>
         Vector(
           Action.EnsureBucket(bucket),
           Action.EnsureStorageCredential(
@@ -385,7 +396,7 @@ object Rendering:
       plan: ObjectStoragePlan
   ): Vector[Action] =
     val asked = plan match
-      case ObjectStoragePlan.Waiting(_) | ObjectStoragePlan.Ready(_) =>
+      case ObjectStoragePlan.Waiting(_) | ObjectStoragePlan.Ready(_, _) =>
         spec.provisionObjectStorage && spec.exposeObjectStorage
       case _ => false
     (asked, settings.baseDomain, settings.objectStore) match
@@ -490,7 +501,37 @@ object Rendering:
    * credential's Secret, whatever the plan — so with no store there is no Secret and no instance
    * starts with an empty credential — and where the bucket is, when the installation has a store.
    */
-  def storageEnv(spec: AnkkaServiceSpec, settings: Settings): Option[StorageEnv] =
+  def storageEnv(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      plan: ObjectStoragePlan = ObjectStoragePlan.NotAsked
+  ): Option[StorageEnv] =
+    if ObjectStorage.takesCloudPath(spec, settings) then cloudStorageEnv(spec, plan)
+    else garageStorageEnv(spec, settings)
+
+  /**
+   * A bucket in the installation's cloud account (feature 044): where it is, as the provider
+   * answered, and the credential's Secret, which the provider wrote. Nothing at all until all three
+   * requests are answered, and nothing for a bucket the provider refused: no instance starts told
+   * of a bucket that is not there.
+   */
+  private def cloudStorageEnv(spec: AnkkaServiceSpec, plan: ObjectStoragePlan): Option[StorageEnv] =
+    plan match
+      case ObjectStoragePlan.Ready(_, Some(cloud)) =>
+        Some(
+          StorageEnv(
+            secret = Buckets.secret(spec.serviceName),
+            literals = Vector(
+              StorageEnv.Endpoint -> cloud.endpoint,
+              StorageEnv.Region   -> cloud.region,
+              StorageEnv.Bucket   -> cloud.bucket
+            ),
+            credentialGeneration = Some(cloud.credentialGeneration)
+          )
+        )
+      case _ => None
+
+  private def garageStorageEnv(spec: AnkkaServiceSpec, settings: Settings): Option[StorageEnv] =
     Option.when(spec.provisionObjectStorage) {
       val bucket = Buckets.name(spec.projectId, spec.serviceName)
       val where = settings.objectStore.toVector.flatMap(store =>
@@ -1122,7 +1163,12 @@ object Rendering:
           // (feature 004, FR-016). Anything genuinely part of the template — image, env, port —
           // still rolls, because the template itself changed.
           .withAnnotations(
-            (spec.annotations + (Labels.RestartsKey -> spec.restarts.toString)).asJava
+            (spec.annotations + (Labels.RestartsKey -> spec.restarts.toString) ++
+              // A cloud bucket's credential generation (feature 044): a new credential in the same
+              // Secret rolls the instances, which read a Secret only when they start.
+              storage
+                .flatMap(_.credentialGeneration)
+                .map(g => Labels.StorageCredentialGenerationKey -> g.toString)).asJava
           )
           .build()
       )
@@ -1714,7 +1760,12 @@ object Rendering:
  * `envFrom`, and the rest as literals, which change with the pod template and so reach every
  * instance when they change. Only what never changes is in the Secret, which is written once.
  */
-final case class StorageEnv(secret: String, literals: Vector[(String, String)])
+final case class StorageEnv(
+    secret: String,
+    literals: Vector[(String, String)],
+    /** The cloud provider's credential generation, on a bucket in the cloud account only. */
+    credentialGeneration: Option[Long] = None
+)
 
 object StorageEnv:
   val Endpoint: String       = PlatformVariables.ObjectStoragePrefix + "ENDPOINT"

@@ -43,6 +43,9 @@ final class ControlPlaneClient(settings: Settings):
 
   def whoami(): Whoami = get[Whoami]("/auth/whoami")
 
+  /** What the installation is: its version and, when it names one, its cloud (feature 044). */
+  def installation(): Installation = get[Installation]("/installation")
+
   // ── Organizations ─────────────────────────────────────────────────────────
 
   def listOrganizations(): Vector[OrganizationSummary] =

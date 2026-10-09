@@ -94,7 +94,8 @@ object StatusIngest:
         confirmed = true,
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
-        objectStorage = status.objectStorage.map(_.phase)
+        objectStorage = status.objectStorage.map(_.phase),
+        bucket = status.objectStorage.map(_.bucket)
       )
 
   /**

@@ -66,6 +66,14 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       Whoami("sub-1")
     ),
     fixture(
+      "Installation",
+      Installation(
+        "0.12.0",
+        Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka")))
+      ),
+      Installation("0.12.0")
+    ),
+    fixture(
       "OrganizationSummary",
       OrganizationSummary(
         "acme",

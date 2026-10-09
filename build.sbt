@@ -166,7 +166,11 @@ lazy val commonSettings = Seq(
     "ankka.rendering.pin",
     // The fixture suites (contract fingerprints, graph deltas) rewrite their files instead of
     // refusing a difference, which is only ever right for a change meant to alter them.
-    "ankka.fixtures.regenerate"
+    "ankka.fixtures.regenerate",
+    // A kubeconfig naming a cluster that runs a real cloud provider (feature 044):
+    // CloudProviderClusterFeatures then starts no k3s and no scripted provider and runs its
+    // scenarios against that cluster instead.
+    "ankka.cloud.external"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")

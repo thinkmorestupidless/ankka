@@ -57,6 +57,17 @@ rules:
   - apiGroups: ["ankka.thinkmorestupidless.com"]
     resources: ["ankkaprojects/status"]
     verbs: ["get", "update", "patch"]
+  # A request to the installation's cloud provider (feature 044). The operator writes the request
+  # by server-side apply ("patch" with "create": an apply is a PATCH even for a new object) and
+  # reads the provider's answer. No "update" or "patch" on the status: the answer is the
+  # provider's alone. No "delete": a request goes with its owner, by the garbage collector, and
+  # nothing in a cloud goes with it.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["cloudresources"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["cloudresources/status"]
+    verbs: ["get"]
   # "patch" alongside "create": ensureNamespace writes via server-side apply, which is always
   # a PATCH even for an object that does not exist yet — "create" alone 403s on first use.
   - apiGroups: [""]
@@ -218,6 +229,22 @@ spec:
             - name: ANKKA_OTLP_HEADERS
               valueFrom:
                 secretKeyRef: { name: ankka-telemetry, key: headers, optional: true }
+            # The installation's cloud (feature 044): which provider fulfils its cloud requests, the
+            # account and default location they are made in, its one wrapping key, how long a
+            # request may go unanswered before a service says so, and the rotation grace a provider
+            # honours. Replaced by the overlay from ankka-platform; "none" writes no request.
+            - name: ANKKA_CLOUD_PROVIDER
+              value: "none"
+            - name: ANKKA_CLOUD_ACCOUNT
+              value: ""
+            - name: ANKKA_CLOUD_LOCATION
+              value: ""
+            - name: ANKKA_CLOUD_KMS_KEY
+              value: ""
+            - name: ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND
+              value: "2m"
+            - name: ANKKA_CLOUD_ROTATION_GRACE
+              value: "1h"
           resources:
             requests:
               cpu: "100m"

@@ -75,7 +75,12 @@ final case class Settings(
      * asked of anything. Set by the object store's component, not the operator's own manifest, so
      * an overlay without the component renders an operator without a store.
      */
-    objectStore: Option[ObjectStoreSettings] = None
+    objectStore: Option[ObjectStoreSettings] = None,
+    /**
+     * The installation's cloud provider and account (feature 044). `None` when it has none: no
+     * cloud request is written, and everything is served by the installation itself.
+     */
+    cloud: Option[CloudSettings] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -159,7 +164,8 @@ object Settings:
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
-      objectStore = objectStore()
+      objectStore = objectStore(),
+      cloud = CloudSettings.read(raw)
     )
 
   /**

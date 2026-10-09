@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the eighteen it renders") {
+  test("the variables the platform alone sets are exactly the twenty-four it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -31,11 +31,41 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_WASM_INSTANCES",
         "ANKKA_WASM_MAX_MEMORY_PAGES",
         "ANKKA_OTLP_ENDPOINT",
-        "ANKKA_OTLP_HEADERS"
+        "ANKKA_OTLP_HEADERS",
+        "ANKKA_CLOUD_PROVIDER",
+        "ANKKA_CLOUD_ACCOUNT",
+        "ANKKA_CLOUD_LOCATION",
+        "ANKKA_CLOUD_KMS_KEY",
+        "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND",
+        "ANKKA_CLOUD_ROTATION_GRACE"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
     assert(PlatformOnly.contains(GrpcPort))
+  }
+
+  test("the installation's cloud is the platform's to name, and no program's to read for itself") {
+    val cloud = Vector(
+      CloudProvider,
+      CloudAccount,
+      CloudLocation,
+      CloudKmsKey,
+      CloudAcknowledgementBound,
+      CloudRotationGrace
+    )
+    assertEquals(cloud.distinct.size, 6)
+    cloud.foreach { name =>
+      assert(name.startsWith("ANKKA_CLOUD_"), name)
+      assert(platformOnly(name), name)
+      assert(!runtimeOnly(name), name)
+      assert(withheldFromModule(name), name)
+    }
+  }
+
+  test("the cloud providers the platform knows by name are gcp alone, and none means none") {
+    assertEquals(CloudProviders, Set("gcp"))
+    assertEquals(CloudProviderNone, "none")
+    assert(!CloudProviders.contains(CloudProviderNone))
   }
 
   test(

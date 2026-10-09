@@ -31,10 +31,7 @@
 
 ## Notes
 
-- One marker remains, in Assumptions: whether a project may name its own cloud account (a brand in
-  another jurisdiction with its own billing) or one account per installation is the rule. Settle it
-  with `/speckit-clarify` before planning; nothing in the six kinds changes either way except a
-  `account` parameter on `bucket`.
+- The account question is settled (clarification of 2026-10-08): one account per installation.
 - As every ankka spec does, this one names the platform's own surfaces (`CloudResource`, the
   operator's ClusterRole, `PlatformVariables`, the `ankka-platform` ConfigMap, `StorageCredential`'s
   write-once rule) because they are the contract the feature defines, not a choice the plan makes.
@@ -44,6 +41,5 @@
 - Features 038, 039, 041 and 042 are consumers of this contract and each must be amended to read
   `ANKKA_CLOUD_*` and to express its need as a request kind (SC-005); 039's FR-001 and FR-002 are
   superseded here.
-- The acceptance scenarios name `features/cloud-provider/*.feature` files that do not exist yet;
-  `/speckit-bdd-features` writes them before `/speckit-plan`. The mandatory `after_specify` hook
-  has not been run.
+- The acceptance scenarios' `features/cloud-provider/*.feature` files exist, and `just features`
+  reports no finding.

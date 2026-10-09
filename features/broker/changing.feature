@@ -34,8 +34,15 @@ Feature: Changing a topic's settings
     Given the topic "transactions" is declared on "money" with the retention time "90 days"
     When an owner declares the topic "transactions" on "money" with the retention time "30 days"
     Then the owner is told, before the declaration is sent, that messages older than "30 days" are removed and gone
-    And the declaration is sent only once the owner confirms
+    And the declaration is sent only once the owner confirms, stating what the owner accepts removing
     And "money" records the owner, the retention time "90 days" and the retention time "30 days"
+
+  Scenario: a declaration that removes messages without stating what it accepts removing is refused
+    Given the topic "transactions" is declared on "money" with the retention time "90 days"
+    When an owner declares the topic "transactions" on "money" with the retention time "30 days" without stating what it accepts removing
+    Then the owner is refused
+    And the refusal names that messages older than "30 days" would be removed and gone
+    And the installation's broker keeps a message on "transactions" for "90 days"
 
   Scenario: a change that removes no message needs only a member
     Given the topic "transactions" is declared on "money" with the retention time "90 days"
@@ -47,6 +54,13 @@ Feature: Changing a topic's settings
     When a member declares the topic "transactions" on "money" with the cleanup policy "compact"
     Then the topic "transactions" of "money" is compacted on the installation's broker
     And the status of "transactions" shows the cleanup policy "compact"
+
+  Scenario: a running service learns a topic's new cleanup policy from the broker without a restart
+    Given the topic "transactions" is declared on "money" with the cleanup policy "delete"
+    And a consumer of "wallet" publishes to "transactions" under no key
+    When a member declares the topic "transactions" on "money" with the cleanup policy "compact"
+    Then publishing under no key fails in "wallet" before anything is sent to the installation's broker
+    And no instance of "wallet" is restarted
 
   Scenario: a declaration that changes nothing records nothing
     Given the topic "transactions" is declared on "money" with the retention time "90 days"

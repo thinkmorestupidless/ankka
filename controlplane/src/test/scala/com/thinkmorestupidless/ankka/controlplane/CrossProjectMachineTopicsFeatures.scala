@@ -179,8 +179,8 @@ class CrossProjectMachineTopicsFeatures
         s"oauth.jwks.endpoint.uri=\"$JwksUrl\""
       )
       // The suite's key set is plain HTTP, and strimzi-kafka-oauth refuses a truststore for one.
-      .replace("oauth.ssl.truststore.location=\"/mnt/ankka-service-ca/ca.crt\"", "")
-      .replace("oauth.ssl.truststore.type=\"PEM\"", "")
+      // Whole lines: a blank line left in the folded JAAS block breaks the JAAS entry.
+      .replaceAll("(?m)^[ \\t]*oauth\\.ssl\\.truststore\\.[a-z]+=\"[^\"]*\"\\n", "")
       .replace("connections.max.reauth.ms: 900000", "connections.max.reauth.ms: 60000")
     assert(
       listener.contains(JwksUrl) && listener.contains("reauth.ms: 60000") && !listener.contains(

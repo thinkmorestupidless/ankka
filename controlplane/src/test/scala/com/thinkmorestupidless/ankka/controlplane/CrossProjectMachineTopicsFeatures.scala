@@ -187,7 +187,13 @@ class CrossProjectMachineTopicsFeatures
           |""".stripMargin,
         ""
       )
-    patch("kafka", "ankka", Broker, listener, "listener")
+    val patched = patch("kafka", "ankka", Broker, listener, "listener")
+    // The listener in the broker's spec, or the suite says what kubectl answered.
+    val listeners = jsonPath("kafka", "-n", Broker, "ankka", "{.spec.kafka.listeners[*].name}")
+    assert(
+      listeners.split(' ').contains("external"),
+      s"listeners after the patch: $listeners; kubectl: $patched"
+    )
     patch("gateway", "ankka", "ankka-gateway", filled("gateway-listener.yaml"), "gateway-listener")
     patch(
       "envoyproxy",
@@ -278,18 +284,21 @@ class CrossProjectMachineTopicsFeatures
       s"/tmp/$name.yaml"
     ): Unit
 
+  /**
+   * A JSON patch, refused loudly: kubectl writes a client-side failure as `error:`, not `Error`.
+   */
   private def patch(
       kind: String,
       name: String,
       namespace: String,
       json6902: String,
       file: String
-  ): Unit =
+  ): String =
     k3s.copyFileToContainer(
       Transferable.of(json6902.getBytes(StandardCharsets.UTF_8)),
       s"/tmp/$file.yaml"
     )
-    val out = node(
+    val r = k3s.execInContainer(
       "kubectl",
       "patch",
       kind,
@@ -301,7 +310,9 @@ class CrossProjectMachineTopicsFeatures
       "--patch-file",
       s"/tmp/$file.yaml"
     )
-    assert(!out.contains("Error"), out)
+    val out = r.getStdout + r.getStderr
+    assert(r.getExitCode == 0 && !out.toLowerCase.contains("error"), s"patching $kind $name: $out")
+    out
 
   // ── the machine's client ──────────────────────────────────────────────────
 

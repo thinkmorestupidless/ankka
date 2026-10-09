@@ -1,6 +1,11 @@
 # The external listener, appended to the installation's Kafka, and the caps on how many connections
 # reach the broker: per client address on every listener, and how fast new ones may open on this one.
 # BASE_DOMAIN and the two caps are replaced by the overlay.
+#
+# Strimzi 1.x has no `oauth` authentication type: OAUTHBEARER is a `custom` listener whose validator
+# is the strimzi-kafka-oauth callback handler the broker image carries. Its options are one JAAS
+# line, so the issuer reads the base domain from the broker's environment (Strimzi's `strimzienv`
+# config provider), which the overlay sets as a whole value.
 - op: add
   path: /spec/kafka/listeners/-
   value:
@@ -9,20 +14,26 @@
     type: tlsroute
     tls: true
     authentication:
-      type: oauth
-      # The control plane's keys port: TLS from the service authority, no client certificate.
-      jwksEndpointUri: https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json
-      # The control plane's public address, which every machine token names as its issuer.
-      validIssuerUri: https://api.BASE_DOMAIN
-      userNameClaim: broker_user
-      checkAudience: true
-      clientId: ankka
-      # A token must be renewed within this, or the broker ends the connection.
-      maxSecondsWithoutReauthentication: 900
-      tlsTrustedCertificates:
-        # The service authority's certificate, already in this namespace with the broker's own.
-        - secretName: ankka-broker-tls
-          certificate: ca.crt
+      type: custom
+      sasl: true
+      listenerConfig:
+        sasl.enabled.mechanisms: OAUTHBEARER
+        oauthbearer.sasl.server.callback.handler.class: io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
+        # The control plane's public address names every machine token's issuer; its keys port
+        # (TLS from the service authority, whose certificate is mounted already, no client
+        # certificate) serves the keys; the principal is the token's `broker_user` claim.
+        oauthbearer.sasl.jaas.config: >-
+          org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required
+          unsecuredLoginStringClaim_sub="unused"
+          oauth.valid.issuer.uri="https://api.${strimzienv:ANKKA_BASE_DOMAIN}"
+          oauth.jwks.endpoint.uri="https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"
+          oauth.ssl.truststore.location="/mnt/ankka-service-ca/ca.crt"
+          oauth.ssl.truststore.type="PEM"
+          oauth.username.claim="broker_user"
+          oauth.check.audience="true"
+          oauth.client.id="ankka";
+        # A token must be renewed within this, or the broker ends the connection.
+        connections.max.reauth.ms: 900000
     configuration:
       bootstrap:
         host: broker.BASE_DOMAIN
@@ -47,6 +58,12 @@
           matchLabels:
             gateway.envoyproxy.io/owning-gateway-name: ankka
             gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+# The base domain the issuer above reads.
+- op: add
+  path: /spec/kafka/template/kafkaContainer/env
+  value:
+    - name: ANKKA_BASE_DOMAIN
+      value: BASE_DOMAIN
 - op: add
   path: /spec/kafka/config/max.connections.per.ip
   value: "BROKER_MAX_CONNECTIONS_PER_IP"

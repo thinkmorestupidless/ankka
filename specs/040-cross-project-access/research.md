@@ -537,3 +537,21 @@ Recorded during implementation, before any k3s run; the k3s runs (T089) may add 
   listing keeps each grant's maker, answer and end with when, which is what the history scenarios read.
 - **Retention is not declarable on a topic yet**, so the listing scenario that reports a topic's
   retention to its grantee is `@ignore`d.
+
+### What the first k3s runs corrected (2026-10-09)
+
+- **R1's listener used `authentication.type: oauth`, which Strimzi 1.2 does not have.** The API server
+  refused it (`supported values: "tls", "scram-sha-512", "custom"`), and `RemoteOverlaySuite` had pinned
+  the refused value, so nothing offline could see it. The external listener is now `type: custom`,
+  `sasl: true`, with strimzi-kafka-oauth's `JaasServerOauthValidatorCallbackHandler`, its options on
+  one JAAS line (issuer, key set over the keys port trusted by the mounted service authority, the
+  `broker_user` claim, audience `ankka`), `connections.max.reauth.ms: 900000`, and the key set's URL
+  allowed on the node pool. The issuer reads the base domain through `${strimzienv:ANKKA_BASE_DOMAIN}`,
+  an environment variable on the broker the overlay sets whole, since a JAAS line cannot be filled by
+  a delimiter replacement.
+- **Strimzi is restarted after the Gateway API is installed** in `CrossProjectMachineTopicsFeatures`.
+  Its log reports `TLSRoutes=true` once restarted; whether it needs the restart was not isolated.
+- The other failures were the suites' own: the `AnkkaMachine` CRD not applied, a revocation not
+  waited for before the next scenario reused the machine's name, a produce grant's topic read with the
+  producer's credential, and a `pause` service waited on for readiness it can never report.
+

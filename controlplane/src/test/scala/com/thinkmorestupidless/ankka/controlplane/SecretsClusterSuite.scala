@@ -36,9 +36,9 @@ import scala.jdk.CollectionConverters.*
  * record's database comes up from its component and the control plane makes its table there as the
  * role that owns it; and that a read whose record cannot be written is refused in a real pod.
  *
- * The Secret Manager backend's cases wait on spec 044: Workload Identity does not exist in k3s, and
- * the fake Secret Manager listens on this JVM's loopback, which no pod can reach. They are named
- * below, ignored, until 044's fake provider gives them a cluster to run in.
+ * The Secret Manager backend's cases are `SecretsCloudClusterSuite`'s, against 044's scripted cloud
+ * provider: what the operator asks for a service's access and a project's secrets, and when it
+ * rolls the service out.
  *
  * Disable with `-Dankka.cluster.tests=off`, which also skips building the images.
  */
@@ -528,8 +528,3 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
     assertEquals(status, 200, body)
     assert(body.contains(s"\"service\":\"$Service\""), body)
   }
-
-  // Spec 044's fake provider is what these need: a cluster where a pod can be granted access to
-  // Secret Manager and reach a fake of it (tasks T027 and T047).
-  test("a service is not rolled out until its access to its secrets is granted".ignore) {}
-  test("a project secret's entry reaches the pod once it is synced to Secret Manager".ignore) {}

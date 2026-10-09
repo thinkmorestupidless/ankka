@@ -141,6 +141,9 @@ class CrossProjectRouteGrantsFeatures
       val operatorSettings = OperatorSettings.default.copy(resyncInterval = 2.seconds)
       operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
       operator.start()
+      // What a grant's effect is read from: each instance's topology over its observe port, read
+      // as the control plane's identity, which this JVM does not hold.
+      ObserverPod.install(k3s)
 
       val deployConfig = DeployConfig.default.copy(
         namespacePrefix = Prefix,
@@ -157,6 +160,7 @@ class CrossProjectRouteGrantsFeatures
           deployConfig,
           auth = Some(identity.config()),
           logs = Some(new PodLogs(k8s, Prefix)),
+          topology = Some(ObserverPod.reader(k3s, k8s, Prefix)),
           secrets = Some(projector),
           topics = Some(projector),
           schemas = Some(projector)
@@ -743,5 +747,12 @@ class CrossProjectRouteGrantsFeatures
       walletUrl(path, "wss"),
       maxSeconds = 10
     )
-    assertEquals(again._1, 403, again._2)
+    // curl ends a refused upgrade with exit 22, so the status is only in what it wrote.
+    val status =
+      if again._1 != 0 then again._1
+      else
+        "Refused WebSockets upgrade: (\\d{3})".r
+          .findFirstMatchIn(again._2)
+          .fold(0)(_.group(1).toInt)
+    assertEquals(status, 403, again._2)
   }

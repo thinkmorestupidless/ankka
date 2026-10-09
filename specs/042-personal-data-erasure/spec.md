@@ -127,6 +127,12 @@ transcripts and object storage, and a restored backup must not bring an erased s
   refused. The spec says "ask for" and "who asked for it", and the CLI command is
   `ankka projects erasures request`.
 
+### Session 2026-10-09 (implementation)
+
+- Q: Does the associated data bind the serializer's manifest? → A: No; subject and project only. A
+  consumer in another service or language decodes a message under its own type and manifest, and the
+  envelope must open there.
+
 ### Session 2026-10-09 (analysis)
 
 - Q: How long does the platform keep re-running an applied erasure's handlers, and is every run
@@ -505,8 +511,10 @@ and a listing by correlation id returns both; assert a service without the grant
   carries destroyed notices; for a module it is a `keyring` host import beside 030's `request` and
   `clock`.
 - **FR-004**: The ciphertext MUST be authenticated encryption under a key used for no other subject,
-  with the subject, the project and the serializer's manifest as associated data, so an envelope moved
-  between subjects or payload types fails to decrypt and is reported as corrupt, never as erased.
+  with the subject and the project as associated data, so an envelope moved between subjects or
+  projects fails to decrypt and is reported as corrupt, never as erased. The serializer's manifest is
+  not bound: a consumer in another service or another language reads a topic message under a type of
+  its own, and an envelope must open there.
 - **FR-005**: A subject's key MUST be created on its first write, once, whichever instance or service
   writes first, unless the keyring holds a tombstone for the subject, in which case the write MUST be
   refused naming the subject as erased.

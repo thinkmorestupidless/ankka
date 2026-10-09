@@ -60,17 +60,16 @@ one SQL statement (R14) and lets four SDKs prove they wrote the same bytes. **Al
 ciphertext inline as the field's value with a sidecar-known prefix (nothing outside the codec may
 know the envelope, FR-006); a binary framing (the journal is JSON text, the row table is TEXT).
 
-### R3. Associated data is subject, project and manifest; the manifest reaches the field codec through `Serializer.json`
+### R3. Associated data is subject and project; the plaintext is the value's JSON
 
-**Decision**: AAD = `subject ‖ 0x00 ‖ project ‖ 0x00 ‖ manifest` (FR-004). `Serializer.json`
-(`C/Serializer.scala:23`) sets `PersonalScope.manifest` in a thread-local around `writeToArray` /
-`readFromArray`, so a field codec learns the enclosing serializer's manifest; a `Personal` encoded
-with no manifest in scope (a `writeToString` in a log line, say) throws `Unavailable` naming the
-keyring. A value copied from an event into a row is decrypted in the handler and encrypted again
-under the row serializer's manifest, which is the cost of one AES-GCM per copy. **Rationale**: a
-spliced envelope must fail authentication, and the manifest is the one name the serializer has for
-the payload type. **Alternatives**: subject and project only (an envelope moved from an event to a
-row of another shape would decrypt); the enclosing field name (the codec cannot see it).
+**Decision** (revised in implementation): AAD = `subject ‖ 0x00 ‖ project` (FR-004). The plaintext is
+the inner value's JSON in every SDK, a string included (`"ada@example.com"` with its quotes), so a
+fixture row has one plaintext in every language. **Rationale**: the manifest was the first design;
+it fails the commonest cross-service read — a consumer in another service or in Python decodes a
+topic message under its own type and manifest, and every such envelope would read as corrupt. An
+envelope moved between subjects or projects still fails, which is the splice that matters.
+**Alternatives**: the manifest as well (above); the enclosing field name (the codec cannot see it);
+a primitive's plaintext as raw text (one more rule each SDK could get wrong, for no gain).
 
 ### R4. The keyring handle is a scope the runtime sets around every serialization, not a JVM global
 

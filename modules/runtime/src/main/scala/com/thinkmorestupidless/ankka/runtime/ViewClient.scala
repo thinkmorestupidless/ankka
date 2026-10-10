@@ -6,7 +6,9 @@ import com.thinkmorestupidless.ankka.sdk.{
   DeclaredQuery,
   KeyedView,
   View,
-  ViewDescriptor
+  ViewDescriptor,
+  WatchEvent,
+  Watching
 }
 import io.r2dbc.spi.R2dbcException
 import org.apache.pekko.NotUsed
@@ -28,6 +30,17 @@ final class ViewClient private[ankka] (
     askTimeout: FiniteDuration
 )(using system: ActorSystem[?]):
 
+  // The instance's watches, made on the first watch: a service that never watches opens no
+  // connection for them.
+  @volatile private var watching = false
+  private lazy val watches: ViewWatches =
+    watching = true
+    ViewWatches(database, askTimeout)
+
+  /** Ends every open watch, telling each the instance is stopping, and closes their connection. */
+  private[ankka] def stopWatches(): Unit =
+    if watching then scala.concurrent.Await.result(watches.stop(), 10.seconds)
+
   // Each view's declared queries, checked once: a companion is asked for on every request.
   private val checked = ConcurrentHashMap[ComponentId, Vector[CheckedQuery]]()
 
@@ -48,7 +61,8 @@ final class ViewClient private[ankka] (
       companion.rowSerializer,
       database,
       askTimeout,
-      checkedFor(companion.componentId, companion.descriptor.queries)
+      checkedFor(companion.componentId, companion.descriptor.queries),
+      Some(() => watches)
     )
 
   /** Queries against a view, resolved from its companion so the row type is carried. */
@@ -61,7 +75,8 @@ final class ViewClient private[ankka] (
       companion.rowSerializer,
       database,
       askTimeout,
-      checkedFor(companion.componentId, companion.descriptor.queries)
+      checkedFor(companion.componentId, companion.descriptor.queries),
+      Some(() => watches)
     )
 
 /**
@@ -103,7 +118,8 @@ final class ViewQueries[Row] private[ankka] (
     serializer: Serializer[Row],
     database: Database,
     askTimeout: FiniteDuration,
-    declared: Vector[CheckedQuery] = Vector.empty
+    declared: Vector[CheckedQuery] = Vector.empty,
+    watchesOf: Option[() => ViewWatches] = None
 )(using system: ActorSystem[?]):
 
   private given ExecutionContext = system.executionContext
@@ -243,6 +259,101 @@ final class ViewQueries[Row] private[ankka] (
             .mapError { case failure => refusal(name, statementTimeout, failure) }
         )
         limitedTo(rows, limit)
+
+  /**
+   * A watch of one of this view's declared queries, declared `.watched`: every row it matches now,
+   * then `WatchEvent.CaughtUp` once, then, for as long as the watcher reads, each row that is
+   * written and matches and a removal of each given row that is written so it no longer matches or
+   * is deleted. Live and coalesced: never an older version of a row after a newer one, possibly
+   * fewer versions than were written, nothing replayed. It completes only when the watcher stops
+   * reading, and fails with `WatchEnded` when the view is emptied for a rebuild or the instance
+   * stops.
+   */
+  def watch(query: DeclaredQuery, values: (String, String)*): Source[WatchEvent[Row], NotUsed] =
+    watch(query, Watching(), values*)
+
+  /** As `watch`, holding unread rows and overflowing as `watching` says. */
+  def watch(
+      query: DeclaredQuery,
+      watching: Watching,
+      values: (String, String)*
+  ): Source[WatchEvent[Row], NotUsed] =
+    if query.view.toString != view then
+      Source.failed(
+        CommandError(
+          s"the query '${query.name}' is view '${query.view}'s, and this is view '$view'",
+          ErrorCode.NotFound
+        )
+      )
+    else watchNamed(query.name, values.toMap, watching)
+
+  /**
+   * A declared query by its name, watched, refused as `askNamed` refuses and when not watchable.
+   */
+  private[ankka] def watchNamed(
+      name: String,
+      values: Map[String, String],
+      watching: Watching
+  ): Source[WatchEvent[Row], NotUsed] =
+    checkedAsk(name, values, 1) match
+      case Left(refused) => Source.failed(refused)
+      case Right(query) if !query.watchable =>
+        Source.failed(
+          CommandError(
+            s"view '$view' declares the query '$name' without watched; declare it .watched to " +
+              "watch it",
+            ErrorCode.BadRequest
+          )
+        )
+      case Right(query) =>
+        val binds = query.values.map(values)
+        opened(
+          name,
+          ViewWatches.Target.Named(query.sql, binds),
+          watching,
+          database.stream(statementTimeout, fetchSize)(query.sql, binds)((row, _) =>
+            (row.get("row_key", classOf[String]), row.get("payload", classOf[String]))
+          )
+        )
+
+  /**
+   * A watch of one row by its key: the row now if there is one, then `WatchEvent.CaughtUp`, then
+   * each version written and a removal when it is deleted.
+   */
+  def watchRow(key: String, watching: Watching = Watching()): Source[WatchEvent[Row], NotUsed] =
+    val fragment = ViewStore.selectByKey(table, key)
+    opened(
+      ViewQueries.Get,
+      ViewWatches.Target.ByKey(key),
+      watching,
+      database.stream(statementTimeout, fetchSize)(fragment.render, fragment.params.map(_.value))(
+        (row, _) => (key, row.get("payload", classOf[String]))
+      )
+    )
+
+  private def opened(
+      name: String,
+      target: ViewWatches.Target,
+      watching: Watching,
+      rowsNow: Source[(String, String), NotUsed]
+  ): Source[WatchEvent[Row], NotUsed] =
+    watchesOf match
+      case None =>
+        Source.failed(
+          CommandError(s"view '$view' cannot be watched from here", ErrorCode.Internal)
+        )
+      case Some(watches) =>
+        streamed(name)(
+          watches()
+            .watch(table, target, watching)(
+              rowsNow.mapError { case failure => refusal(name, statementTimeout, failure) }
+            )
+            .map {
+              case WatchEvent.Row(key, json) => WatchEvent.Row(key, decode(json))
+              case WatchEvent.Removed(key)   => WatchEvent.Removed(key)
+              case WatchEvent.CaughtUp       => WatchEvent.CaughtUp
+            }
+        )
 
   private def limitedTo(rows: Source[Row, NotUsed], limit: Option[Int]): Source[Row, NotUsed] =
     limit.fold(rows)(n => rows.take(n.toLong))

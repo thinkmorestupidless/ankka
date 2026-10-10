@@ -766,6 +766,10 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
   )((from: String, to: String) => connected(from, to, "state"))
 
   Then(
+    "the topology shows a declared connection from {string} to {string} as a workflow subscription"
+  )((from: String, to: String) => connected(from, to, "workflow"))
+
+  Then(
     "the topology shows a declared connection from {string} to {string} as a topic subscription"
   )((from: String, to: String) => connected(from, to, "topic-subscription"))
 

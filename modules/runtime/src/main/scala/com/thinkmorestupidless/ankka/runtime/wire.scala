@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata}
 import org.apache.pekko.actor.typed.ActorRef
 
@@ -198,7 +199,9 @@ final case class RemoteStateRecord(
  * Flat, like `JournalRecord`, and for the same reason: this is the durable record of a business
  * process, and it should stay readable without ankka to interpret it.
  *
- *   - `kind = 0` — the workflow's state changed
+ *   - `kind = 0` — the workflow's state changed; from spec 046 `standing` holds where the workflow
+ *     stood once the whole effect that recorded the state was applied, and a record written before
+ *     holds none
  *   - `kind = 1` — a step was scheduled; `step` and `stepInput` say which and with what
  *   - `kind = 2` — the workflow paused; `deadlineMillis`/`step` hold the timeout, if any
  *   - `kind = 3` — completed
@@ -212,8 +215,24 @@ final case class WorkflowRecord(
     step: String,
     stepInput: Array[Byte],
     message: String,
-    deadlineMillis: Long
+    deadlineMillis: Long,
+    // Left out when absent, so a record that carries no standing is written byte for byte as the
+    // release before wrote it, and the pinned journal stays the journal.
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    standing: Option[StandingRecord] = None
 ) extends AnkkaSerializable
+
+/**
+ * Where a workflow stood once the effect that recorded a state was applied: the engine's status by
+ * name, the step it is on or waits after (empty for none), its retries, and why it failed (empty
+ * when it did not). Flat and string-keyed like the record it sits on.
+ */
+final case class StandingRecord(
+    status: String,
+    step: String,
+    retries: Map[String, Int],
+    failure: String
+)
 
 object WorkflowRecord:
   val KindStateUpdated  = 0
@@ -226,8 +245,8 @@ object WorkflowRecord:
 
   private val NoBytes = Array.emptyByteArray
 
-  def stateUpdated(state: Array[Byte]): WorkflowRecord =
-    WorkflowRecord(KindStateUpdated, state, "", NoBytes, "", 0L)
+  def stateUpdated(state: Array[Byte], standing: Option[StandingRecord] = None): WorkflowRecord =
+    WorkflowRecord(KindStateUpdated, state, "", NoBytes, "", 0L, standing)
 
   def transitioned(step: String, input: Array[Byte]): WorkflowRecord =
     WorkflowRecord(KindTransitioned, NoBytes, step, input, "", 0L)

@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.14")
+    assertEquals(Discovery.ProtocolVersion, "1.15")
   }
 
   test(
@@ -406,6 +406,96 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     val problems =
       validateSpec(topicSpec("1.14", consumer("follower", Some(src)))).left.toOption.get
     assert(problems.exists(_.contains("which apply to a topic")), problems)
+  }
+
+  // ── Workflow sources (protocol 1.15) ──────────────────────────────────────
+
+  private val checkout = Component(
+    Kind.WORKFLOW,
+    "checkout",
+    Vector.empty,
+    Component.Detail.Workflow(WorkflowDetail(Vector("reserve")))
+  )
+
+  private val workflowSource =
+    Some(Source(Source.Source.Component(Source.ComponentRef(Kind.WORKFLOW, "checkout"))))
+
+  test("discovery 1.15: a view and a consumer that read a workflow are hosted") {
+    val discovered = validateSpec(
+      topicSpec(
+        "1.15",
+        checkout,
+        view("checkout-rows", workflowSource),
+        consumer("ends", workflowSource)
+      )
+    ).fold(p => fail(p.mkString("; ")), identity)
+    val sources = discovered.descriptors.collect {
+      case v: RemoteViewDescriptor     => v.source
+      case c: RemoteConsumerDescriptor => c.source
+    }
+    assertEquals(
+      sources.toSet,
+      Set(RemoteSource.Component(ComponentKind.Workflow, ComponentId("checkout")))
+    )
+  }
+
+  test(
+    "discovery: a workflow source from a process before 1.15 is refused, naming it and both versions"
+  ) {
+    val problems = validateSpec(
+      topicSpec(
+        "1.14",
+        checkout,
+        view("checkout-rows", workflowSource),
+        consumer("ends", workflowSource)
+      )
+    ).left.toOption.get
+    assert(
+      problems.exists(p =>
+        p.contains("view 'checkout-rows' reads workflow 'checkout'") && p.contains("1.15") && p
+          .contains("1.14")
+      ),
+      problems
+    )
+    assert(problems.exists(_.contains("consumer 'ends' reads workflow 'checkout'")), problems)
+  }
+
+  test(
+    "discovery 1.15: a start position or a contract on a workflow source is refused, as on an entity's"
+  ) {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val src =
+      workflowSource.map(_.copy(startFrom = named(P.Named.EARLIEST), parallel = Some(true)))
+    val problems =
+      validateSpec(topicSpec("1.15", checkout, consumer("ends", src))).left.toOption.get
+    assert(problems.exists(_.contains("declares a start position")), problems)
+    assert(problems.exists(_.contains("which apply to a topic")), problems)
+  }
+
+  test("discovery 1.15: a keyed view may read a workflow beside an entity") {
+    val cart = Component(
+      Kind.EVENT_SOURCED_ENTITY,
+      "cart",
+      Vector.empty,
+      Component.Detail.EventSourced(EventSourcedDetail(0))
+    )
+    val keyed = Component(
+      Kind.VIEW,
+      "joined",
+      Vector.empty,
+      Component.Detail.View(
+        ViewDetail(
+          None,
+          "row",
+          sources = Vector(
+            Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart"))),
+            workflowSource.get
+          )
+        )
+      )
+    )
+    validateSpec(topicSpec("1.15", checkout, cart, keyed))
+      .fold(p => fail(p.mkString("; ")), identity): Unit
   }
 
   test("discovery: what a process may not declare about a topic source is refused, all at once") {

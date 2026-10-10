@@ -20,6 +20,7 @@ A consumer reads one source, declared the same way as a view's:
 |---|---|---|---|---|
 | An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | `static readonly source = ShoppingCartEntity` | `Source::of(ShoppingCart)` |
 | A key value entity's state | `ChangeSource.stateOf(CheckoutLog)` | `source = CheckoutLog` | `static readonly source = CheckoutLog` | `Source::of(CheckoutLog)` |
+| A workflow's states | `ChangeSource.stateOf(CheckoutWorkflow)` | `source = CheckoutWorkflow` | `static readonly source = CheckoutWorkflow` | `Source::of(CheckoutWorkflow)` |
 | A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | `Source::topic("stock-events")` |
 
 From a key value entity a consumer sees the latest value, and intermediate values can be skipped. Use an
@@ -442,6 +443,129 @@ Only the developer knows whether a repeat is harmless, which is why deduplicatio
 A [graph consumer](graph.md) is the exception: it is safe to repeat as it stands. Each element it
 publishes is a whole state at the version of the change, a change handled twice publishes equal deltas,
 and the reader passes over a delta that is not newer than what it holds.
+
+## Reacting to a workflow
+
+A consumer can read a workflow, named as the source as a view names one. It is handed each state the
+workflow records, at least once and in the order recorded, with the workflow's id as the subject and the
+state's record's sequence number. With each state comes the workflow's **standing**, where the workflow
+stood once the whole effect that recorded the state was applied: `messageContext.standing` in Scala,
+`self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust.
+
+| Standing | When a change carries it |
+|---|---|
+| `NotStarted` | The workflow recorded a state and has moved to no step yet. |
+| `Running` | The workflow moved to a step with the state, or is on one. The step is named. |
+| `Paused` | The workflow paused with the state. The step named is the one its timeout runs, or else the one it paused after. |
+| `Completed` | The workflow ended with the state. |
+| `Failed` | The workflow failed with the state. The reason is given. |
+| `Unknown` | The state was recorded by a release that did not stamp standings. |
+
+A consumer that acts on how a workflow ended reads the standing and ignores every change before the end.
+This one records each checkout that completed or failed, and nothing else:
+
+**Scala**
+
+```scala
+/** Records each checkout that ended, completed or failed, and nothing else. */
+final class CheckoutEnds(client: ComponentClient) extends Consumer[CheckoutState, Nothing]:
+  def onMessage(state: CheckoutState): Effect =
+    messageContext.standing match
+      case Some(standing) if standing.isTerminal =>
+        val end = standing.failure.fold(standing.status)(why => s"\${standing.status}: \$why")
+        client
+          .forKeyValueEntity(EntityId(s"end-\${messageContext.subject}"))
+          .call(Profile.set)
+          .invoke(end): Unit
+        effects.done()
+      // Running or paused: not an end, and nothing to do.
+      case _ => effects.ignore()
+
+object CheckoutEnds
+    extends Consumer.Companion[CheckoutEnds, CheckoutState, Nothing](
+      componentId = ComponentId("checkout-ends"),
+      source = ChangeSource.stateOf(Checkout)
+    ):
+  def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
+```
+
+**Python**
+
+```python
+class CheckoutEnds(Consumer[Checkout, None]):
+    """Records each checkout that ended, completed or failed, and nothing else."""
+
+    component_id = "checkout-ends"
+    source = CheckoutWorkflow
+    message_codec = CheckoutWorkflow.state_codec
+
+    async def on_message(self, state: Checkout) -> ConsumerEffect:  # type: ignore[override]
+        standing = self.standing
+        if standing is None or not standing.is_terminal:
+            # Running or paused: not an end, and nothing to do.
+            return self.effects.ignore()
+        end = standing.status if standing.failure is None else f"{standing.status}: {standing.failure}"
+        assert self.client is not None
+        await self.client.for_key_value_entity("profile", f"end-{self.metadata.subject or ''}").call("set").invoke(end, reply=str)
+        return self.effects.done()
+```
+
+**TypeScript**
+
+```typescript
+/** Records each checkout that ended, completed or failed, and nothing else. */
+export class CheckoutEnds extends Consumer<Checkout> {
+  static readonly componentId = "checkout-ends"
+  static readonly source = CheckoutWorkflow
+  static readonly message = CheckoutWorkflow.state
+
+  async onMessage(_state: Checkout) {
+    const standing = this.standing
+    // Running or paused: not an end, and nothing to do.
+    if (standing === undefined || !isTerminal(standing)) return this.effects.ignore()
+    const end = standing.failure === undefined ? standing.status : `\${standing.status}: \${standing.failure}`
+    await this.client.of(Profile, `end-\${this.subject}`).call(Profile.handlers.set).invoke(end)
+    return this.effects.done()
+  }
+}
+```
+
+**Rust**
+
+```rust
+/// Records each checkout that ended, completed or failed, and nothing else.
+pub struct CheckoutEnds;
+
+impl Consumer for CheckoutEnds {
+    type Message = Checkout;
+    const COMPONENT_ID: &'static str = "checkout-ends";
+
+    fn source() -> Source {
+        Source::of(CheckoutWorkflow)
+    }
+
+    fn on_message(_: Checkout, ctx: &Context) -> ConsumerEffect {
+        // Running or paused: not an end, and nothing to do.
+        let Some(standing) = ctx.standing().filter(|s| s.is_terminal()) else {
+            return consumer::ignore();
+        };
+        let end = match &standing.failure {
+            Some(why) => format!("{}: {why}", standing.status),
+            None => standing.status.clone(),
+        };
+        let id = format!("end-{}", ctx.metadata().subject().unwrap_or_default());
+        let recorded: Result<String, CommandError> = ctx.client().invoke(Profile, &id, "set", end);
+        recorded.expect("the profile records the end");
+        consumer::done()
+    }
+}
+```
+
+A transition, a pause, an end or a failure that records no state is no change, and neither is a workflow
+timing out: a consumer that must act on a failure needs the failing workflow to record a state, in a
+failover step that records the failure and then fails the workflow. A workflow's deletion runs the
+consumer's deletion handler. Delivery is at least once, as from any source, so the handler must tolerate
+seeing a state twice.
 
 ## When the source is deleted
 

@@ -16,6 +16,7 @@ from ankka.start_from import StartFrom
 from ankka.context import Metadata
 from ankka.effects.view import DeleteRow, Ignore, UpdateRow, ViewEffect, ViewEffects
 from ankka.event_sourced_entity import RegistrationError
+from ankka.standing import Standing
 
 Src = TypeVar("Src")
 Row = TypeVar("Row")
@@ -105,10 +106,17 @@ class View(Generic[Src, Row]):
         self.effects: ViewEffects[Row] = ViewEffects()
         self._row: Row | None = None
         self._metadata: Metadata = Metadata()
+        self._standing: Standing | None = None
 
     @property
     def row(self) -> Row | None:
         return self._row
+
+    @property
+    def standing(self) -> Standing | None:
+        """Of a change from a workflow: where it stood once the effect that recorded the state was
+        applied. None for a change from an entity or a topic."""
+        return self._standing
 
     @property
     def metadata(self) -> Metadata:
@@ -139,10 +147,13 @@ class View(Generic[Src, Row]):
             ),
         )
 
-    async def _handle(self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata) -> ViewEffect:
+    async def _handle(
+        self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata, standing: Standing | None = None
+    ) -> ViewEffect:
         """``event_bytes`` is None when the source was deleted."""
         self._row = self.row_codec.decode(row_bytes) if row_bytes is not None else None
         self._metadata = metadata
+        self._standing = standing
         try:
             result = self.on_delete() if event_bytes is None else self.on_change(self.event_codec.decode(event_bytes))
             if isinstance(result, Awaitable):

@@ -167,7 +167,11 @@ object ConformanceReference:
         )
         .build
 
-    /** `mode`: `ok`, `fail` (charge is declined) or `pause` (a pause before charging). */
+    /**
+     * `mode`: `ok`, `fail` (charge is declined and compensated), `pause` (a pause before charging),
+     * `abort` (declined; the compensation records it and fails the workflow) or `drop` (declined;
+     * the compensation fails the workflow and records nothing).
+     */
     def start(mode: String): Effect[String] =
       if currentState.status != "new" then effects.error("already started", ErrorCode.Conflict)
       else
@@ -189,10 +193,14 @@ object ConformanceReference:
         .updateState(currentState.copy(status = "waiting"))
         .thenPause(1500.millis, Checkout.charge.ref)
     def chargeStep: StepEffect =
-      if currentState.mode == "fail" then throw RuntimeException("payment declined")
+      if Set("fail", "abort", "drop").contains(currentState.mode) then
+        throw RuntimeException("payment declined")
       else stepEffects.updateState(currentState.copy(status = "charged")).thenEnd
-    def compensateStep: StepEffect =
-      stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
+    def compensateStep: StepEffect = currentState.mode match
+      case "abort" =>
+        stepEffects.updateState(currentState.copy(status = "aborted")).thenFail("payment declined")
+      case "drop" => stepEffects.thenFail("payment declined")
+      case _      => stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
     def status: ReadOnlyEffect[String] = effects.reply(currentState.status)
 
   object Checkout
@@ -237,6 +245,68 @@ object ConformanceReference:
         rowSerializer = Codecs.serializer[CartRow]("cart-row")
       ):
     def create(ctx: ViewComponentContext) = new CartRowsView
+
+  // ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+  // docs:start workflow-view
+  /** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+  final case class CheckoutRow(
+      id: String,
+      status: String,
+      standing: String,
+      step: Option[String],
+      failure: Option[String]
+  )
+
+  final class CheckoutRowsView extends View[CheckoutState, CheckoutRow]:
+    def onChange(state: CheckoutState): Effect =
+      // A change from a workflow carries its standing: where it stood once the effect that
+      // recorded `state` was applied.
+      val standing = updateContext.standing.getOrElse(WorkflowLifecycle.unknown)
+      effects.updateRow(
+        CheckoutRow(
+          updateContext.subject,
+          state.status,
+          standing.status,
+          standing.pendingStep,
+          standing.failure
+        )
+      )
+
+  object CheckoutRows
+      extends View.Companion[CheckoutRowsView, CheckoutState, CheckoutRow](
+        componentId = ComponentId("checkout-rows"),
+        source = ChangeSource.stateOf(Checkout),
+        rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
+      ):
+    def create(ctx: ViewComponentContext) = new CheckoutRowsView
+    val byStanding = query("by-standing")(
+      s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
+    )
+  // docs:end workflow-view
+
+  // docs:start workflow-consumer
+  /** Records each checkout that ended, completed or failed, and nothing else. */
+  final class CheckoutEnds(client: ComponentClient) extends Consumer[CheckoutState, Nothing]:
+    def onMessage(state: CheckoutState): Effect =
+      messageContext.standing match
+        case Some(standing) if standing.isTerminal =>
+          val end = standing.failure.fold(standing.status)(why => s"${standing.status}: $why")
+          client
+            .forKeyValueEntity(EntityId(s"end-${messageContext.subject}"))
+            .call(Profile.set)
+            .invoke(end): Unit
+          effects.done()
+        // Running or paused: not an end, and nothing to do.
+        case _ => effects.ignore()
+
+  object CheckoutEnds
+      extends Consumer.Companion[CheckoutEnds, CheckoutState, Nothing](
+        componentId = ComponentId("checkout-ends"),
+        source = ChangeSource.stateOf(Checkout)
+      ):
+    def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
+  // docs:end workflow-consumer
 
   // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
 
@@ -746,8 +816,9 @@ object ConformanceReference:
         .getOrElse(throw HttpProblem.notFound(s"no row for '$cartId'"))
     }
 
-  given JsonValueCodec[TreeRow]   = Codecs.make[TreeRow]
-  given JsonValueCodec[JoinedRow] = Codecs.make[JoinedRow]
+  given JsonValueCodec[TreeRow]     = Codecs.make[TreeRow]
+  given JsonValueCodec[CheckoutRow] = Codecs.make[CheckoutRow]
+  given JsonValueCodec[JoinedRow]   = Codecs.make[JoinedRow]
 
   /** Records on either side of the keyed view, and reads its rows. */
   final class JoinedEndpoint(clients: EndpointClients) extends HttpEndpoint("/joined"):
@@ -931,6 +1002,22 @@ object ConformanceReference:
       checkout(id).call(Checkout.start).invoke(mode)
     }
     get("/checkout/{id}")((id: String) => checkout(id).call(Checkout.status).invoke())
+    get("/checkout/{id}/row") { (id: String) =>
+      clients.viewClient
+        .forView(CheckoutRows)
+        .get(id)
+        .getOrElse(throw HttpProblem.notFound(s"no row for '$id'"))
+    }
+    get("/checkout-rows/{standing}") { (standing: String) =>
+      clients.viewClient
+        .forView(CheckoutRows)
+        .ask(CheckoutRows.byStanding, "standing" -> standing)
+        .map(_.id)
+    }
+    get("/checkout/{id}/end") { (id: String) =>
+      val end = profile(s"end-$id").call(Profile.get).invoke()
+      if end == "none" then throw HttpProblem.notFound(s"'$id' has not ended") else end
+    }
     post[String, Done]("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))
       Done
@@ -1123,6 +1210,8 @@ object ConformanceReference:
     "conformance",
     "profile",
     "checkout",
+    "checkout-rows",
+    "checkout-ends",
     "cart-rows",
     "checkout-recorder",
     "checkout-fanout",
@@ -1147,6 +1236,8 @@ object ConformanceReference:
     Conformance.descriptor,
     Profile.descriptor,
     Checkout.descriptor,
+    CheckoutRows.descriptor,
+    CheckoutEnds.descriptor,
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     CheckoutFanout.descriptor,

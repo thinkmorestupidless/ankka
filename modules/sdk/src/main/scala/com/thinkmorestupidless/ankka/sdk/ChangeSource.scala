@@ -34,6 +34,15 @@ object ChangeSource:
     def describe = s"key-value-entity($componentId)"
 
   /**
+   * Each state a workflow records, with where the workflow stood once the effect that recorded it
+   * was applied, in order, exactly once to a view. A transition, a pause, an end or a failure that
+   * records no state is no change: a step whose outcome a reader must see records it in the state.
+   */
+  final case class Workflow[Src](componentId: ComponentId, decoder: Serializer[Src])
+      extends ChangeSource[Src]:
+    def describe = s"workflow($componentId)"
+
+  /**
    * Messages from a broker topic.
    *
    * `startFrom` is where the source begins the first time its consumer group reads the topic, and
@@ -67,6 +76,15 @@ object ChangeSource:
       companion: KeyValueEntity.Companion[C, S]
   ): ChangeSource[S] =
     KeyValue(companion.componentId, companion.stateSerializer)
+
+  /**
+   * Each state a workflow records. The change a handler is given is the state; where the workflow
+   * stood is `standing` on the change's context.
+   */
+  def stateOf[W <: com.thinkmorestupidless.ankka.sdk.Workflow[S], S](
+      companion: com.thinkmorestupidless.ankka.sdk.Workflow.Companion[W, S]
+  ): ChangeSource[S] =
+    Workflow(companion.componentId, companion.stateSerializer)
 
   /** A topic, starting wherever the component's default says: a view from the earliest message. */
   def fromTopic[Src](name: String, decoder: Serializer[Src]): ChangeSource[Src] =
@@ -142,8 +160,16 @@ trait ChangeContext:
   /** Whether the change originated in this region. */
   def localOrigin: Boolean
 
+  /**
+   * Of a change from a workflow: where the workflow stood once the effect that recorded the state
+   * was applied — running, paused, completed or failed, the step, the retries and the reason.
+   * `None` for a change from an entity or a topic.
+   */
+  def standing: Option[WorkflowLifecycle] = None
+
 private[ankka] final case class SimpleChangeContext(
     subject: String,
     sequenceNumber: Long,
-    localOrigin: Boolean
+    localOrigin: Boolean,
+    override val standing: Option[WorkflowLifecycle] = None
 ) extends ChangeContext

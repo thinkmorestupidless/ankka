@@ -70,6 +70,24 @@ pub(crate) const CONTRACT_PROTOCOL: (u32, u32) = (1, 14);
 
 /// Whether a host speaking `protocol_version` would ignore a contract, a broker, parallel
 /// reading or a publication's contract.
+pub(crate) fn older_than_workflow_sources(protocol_version: &str) -> bool {
+    older_than(protocol_version, (1, 15))
+}
+
+/// Whether a view, keyed view or consumer declares a workflow as a source.
+pub(crate) fn reads_workflow(component: &proto::Component) -> bool {
+    let sources: Vec<&proto::Source> = match &component.detail {
+        Some(proto::component::Detail::View(v)) => {
+            v.source.iter().chain(v.sources.iter()).collect()
+        }
+        Some(proto::component::Detail::Consumer(c)) => c.source.iter().collect(),
+        _ => Vec::new(),
+    };
+    sources.iter().any(|s| {
+        matches!(&s.source, Some(proto::source::Source::Component(c)) if c.kind == proto::Kind::Workflow as i32)
+    })
+}
+
 pub(crate) fn older_than_contracts(protocol_version: &str) -> bool {
     older_than(protocol_version, CONTRACT_PROTOCOL)
 }

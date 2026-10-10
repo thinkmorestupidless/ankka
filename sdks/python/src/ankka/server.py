@@ -58,6 +58,7 @@ from ankka.endpoint import HttpProblem, Socket, SocketClosed, SseEvent
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
+from ankka.standing import WORKFLOW_SOURCE_PROTOCOL, Standing
 from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries
 from ankka.workflow import Workflow
 
@@ -90,7 +91,23 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         One older than 1.13 would not know a view's declared queries, which would be missing at their
         first asking. One older than 1.14 would ignore a contract, a broker, parallel partitions and a
         publication's contract: a service checked against nothing, reading the wrong broker. Refused,
-        naming what declares them, rather than served wrong."""
+        naming what declares them, rather than served wrong. One older than 1.15 would not read a
+        workflow as a source, and a view or consumer that did would be handed nothing."""
+        if start_from.older_than(sidecar_protocol, WORKFLOW_SOURCE_PROTOCOL):
+            reading = [
+                cls.__name__
+                for cls in (
+                    *self.registry.views.values(),
+                    *self.registry.keyed_views.values(),
+                    *self.registry.consumers.values(),
+                )
+                if reads_workflow(cls)
+            ]
+            if reading:
+                return (
+                    f"{', '.join(reading)} read a workflow, which the sidecar does not know: it speaks protocol "
+                    f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later."
+                )
         if start_from.older_than(sidecar_protocol, contract.CONTRACT_PROTOCOL):
             stating = [
                 cls.__name__
@@ -475,6 +492,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             None if request.deleted else request.event.data,
             request.row.data if request.HasField("row") else None,
             Metadata.from_pb(request.metadata),
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
         )
         if isinstance(effect, view_effects.UpdateRow):
             return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
@@ -491,7 +509,13 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         reader = SidecarRows(self.client.with_metadata(metadata).views)
-        effect = await cls()._handle(request.source_id, None if request.deleted else request.event.data, metadata, reader)
+        effect = await cls()._handle(
+            request.source_id,
+            None if request.deleted else request.event.data,
+            metadata,
+            reader,
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
+        )
         changes = [
             view_pb2.RowChange(key=c.key, upsert=_payload_of(cls.row_codec, c.row))
             if isinstance(c, keyed_effects.Upsert)
@@ -513,13 +537,29 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
-        effect = await consumer._handle(None if request.deleted else request.message.data, metadata)
+        effect = await consumer._handle(
+            None if request.deleted else request.message.data,
+            metadata,
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
+        )
         refusal = several_refusal(effect, metadata)
         if refusal is not None:
             # Failed, not answered: a runtime that does not know `produce_all` would read it as no
             # effect and record the change as handled with nothing published.
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
         return consumer_effect_pb(effect, cls.out_codec)
+
+
+def reads_workflow(cls: Any) -> bool:
+    """Whether a view, keyed view or consumer declares a workflow as a source."""
+    component = cls.to_component()
+    if component.HasField("view"):
+        sources = [component.view.source, *component.view.sources] if component.view.HasField("source") else list(
+            component.view.sources
+        )
+    else:
+        sources = [component.consumer.source]
+    return any(s.HasField("component") and s.component.kind == discovery_pb2.WORKFLOW for s in sources)
 
 
 SOCKETS_SINCE = (1, 9)

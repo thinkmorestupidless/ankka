@@ -111,6 +111,7 @@ pub struct Context {
     secrets: bool,
     services: bool,
     rows_of: Option<String>,
+    standing: Option<crate::standing::Standing>,
 }
 
 impl Context {
@@ -130,7 +131,21 @@ impl Context {
             secrets: false,
             services: false,
             rows_of: None,
+            standing: None,
         }
+    }
+
+    /// This context with a workflow's standing: what the runtime builds for a change from a
+    /// workflow, and a test builds for one.
+    pub fn with_standing(mut self, standing: Option<crate::standing::Standing>) -> Context {
+        self.standing = standing;
+        self
+    }
+
+    /// Of a change from a workflow: where it stood once the effect that recorded the state was
+    /// applied. `None` for a change from an entity or a topic, and for anything but a change.
+    pub fn standing(&self) -> Option<&crate::standing::Standing> {
+        self.standing.as_ref()
     }
 
     /// This context with the rows of keyed view `view`: what the runtime builds for a keyed view's

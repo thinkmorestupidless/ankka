@@ -1562,8 +1562,8 @@ installation's console is one host, and the hosted product's website another.
 ## Graph deltas
 
 ### change
-One event, state or deletion of one entity, one record of a workflow with the state and the
-standing after it, or one message from a topic, as a view or a consumer is handed it.
+One event, state or deletion of one entity, one state a workflow recorded with the standing after
+the effect that recorded it, or one message from a topic, as a view or a consumer is handed it.
 
 ### key
 What a message is published under. Messages under one key are delivered in order, and a compacted topic keeps the last of them. A message's key is its entity's id unless the message names another; the key does not change which entity the message is about.
@@ -2555,18 +2555,19 @@ Avoid: fake provider, stub provider, mock provider
 ## Workflow sources
 
 ### standing
-*Proposed.* Of a workflow: where the platform says it has got to — running, paused, completed or
+Of a workflow: where the platform says it has got to — not started, running, paused, completed or
 failed — with the step it is on or waits after, how many times each step was retried and, when it
-failed, why. It is not the workflow's state, which is the developer's own type and says what the
-process decided.
+failed, why; or unknown, for a state recorded before the platform stamped standings. Not started is a
+workflow that has recorded a state and moved to no step yet. It is not the workflow's state, which is
+the developer's own type and says what the process decided.
 
-Avoid: workflow status
+Avoid: workflow status, workflow lifecycle
 
 ### transition
-*Proposed.* A workflow moving to a step, which the platform records before the step runs.
+A workflow moving to a step, which the platform records before the step runs.
 
 ### workflow subscription
-*Proposed.* A declared connection from a workflow to a view or consumer that reads its changes.
+A declared connection from a workflow to a view or consumer that reads its changes.
 
 ## View streams
 

@@ -352,6 +352,8 @@ object TopologyJson:
         entity(component, ComponentKind.EventSourcedEntity, "events")
       case DeclaredSource.State(component) =>
         entity(component, ComponentKind.KeyValueEntity, "state")
+      case DeclaredSource.Workflow(component) =>
+        entity(component, ComponentKind.Workflow, "workflow")
       case DeclaredSource.Topic(name, contract, broker) =>
         val from = topic(name, broker)
         Connection(

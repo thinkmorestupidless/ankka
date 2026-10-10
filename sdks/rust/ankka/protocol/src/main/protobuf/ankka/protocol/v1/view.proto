@@ -13,6 +13,7 @@ message ViewRequest {
   optional Payload row = 4;                     // the current row, if any
   bool deleted = 5;                             // the source was deleted: no event, the row is the process's to keep or drop
   optional string source_id = 6;                // 1.13: a keyed view: the component this change is from. A keyed view is sent no `row`
+  optional WorkflowStanding standing = 7;       // 1.15: a change from a workflow source: where it stood once the effect was applied
 }
 
 message ViewEffect {

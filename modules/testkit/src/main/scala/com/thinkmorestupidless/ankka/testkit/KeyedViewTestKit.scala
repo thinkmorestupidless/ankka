@@ -51,26 +51,35 @@ final class KeyedViewTestKit[V <: KeyedView[Row], Row] private (
     answers = answers.updated(query.name, answer)
     this
 
-  /** Hands `value`, a change of the entity `subject` of `source`, to the source's handler. */
-  def change[Src](source: KeyedSource[V, Row], subject: String, value: Src): KeyedViewEffect[Row] =
+  /**
+   * Hands `value`, a change of `subject` of `source`, to the source's handler. `standing` is a
+   * workflow's, for a source that reads one.
+   */
+  def change[Src](
+      source: KeyedSource[V, Row],
+      subject: String,
+      value: Src,
+      standing: Option[WorkflowLifecycle] = None
+  ): KeyedViewEffect[Row] =
     val bytes = source.source.decoder.asInstanceOf[Serializer[Src]].toBytes(value)
-    run(source, subject, Some(bytes))
+    run(source, subject, Some(bytes), standing)
 
-  /** Tells the source's handler that the entity `subject` was deleted. */
+  /** Tells the source's handler that `subject` was deleted. */
   def deleted(source: KeyedSource[V, Row], subject: String): KeyedViewEffect[Row] =
-    run(source, subject, None)
+    run(source, subject, None, None)
 
   private def run(
       source: KeyedSource[V, Row],
       subject: String,
-      bytes: Option[Array[Byte]]
+      bytes: Option[Array[Byte]],
+      standing: Option[WorkflowLifecycle]
   ): KeyedViewEffect[Row] =
     if !descriptor.sources.exists(_ eq source) then
       throw IllegalArgumentException(
         s"the source ${source.source.describe} is not one of view '${descriptor.componentId}'s"
       )
     sequence += 1
-    val change = KeyedViewTestKit.Change(subject, sequence, KeyedViewTestKit.Rows(this))
+    val change = KeyedViewTestKit.Change(subject, sequence, KeyedViewTestKit.Rows(this), standing)
     val effect = bytes match
       case Some(payload) => source.onChange(view, source.decode(payload), change)
       case None          => source.onDelete(view, change)
@@ -116,8 +125,12 @@ object KeyedViewTestKit:
       .foreach(problem => throw IllegalArgumentException(problem))
     new KeyedViewTestKit(descriptor, client)
 
-  private final case class Change[Row](subject: String, sequenceNumber: Long, rows: ViewRows[Row])
-      extends KeyedChange[Row]
+  private final case class Change[Row](
+      subject: String,
+      sequenceNumber: Long,
+      rows: ViewRows[Row],
+      override val standing: Option[WorkflowLifecycle]
+  ) extends KeyedChange[Row]
 
   private final class Rows[Row](kit: KeyedViewTestKit[?, Row]) extends ViewRows[Row]:
     def get(key: String): Option[Row] = kit.row(key)

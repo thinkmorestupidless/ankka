@@ -141,6 +141,13 @@ trait ConformanceTarget:
   /** A discovery with this protocol version; `Left` is the refusal. Process targets only. */
   def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]]
 
+  /**
+   * One discovery asked of the target by a runtime stating `protocolVersion`, and the target's
+   * refusal of it if it refused; `None` for a target in this process. A sidecar retries a refused
+   * discovery until the target answers, so this asks once rather than through the sidecar.
+   */
+  def refusalAt(protocolVersion: String): Option[Option[String]]
+
   /** The statement of a view's declared query, as the target declared it. */
   def declaredStatement(view: String, query: String): Option[String]
 
@@ -317,6 +324,7 @@ object ConformanceTarget:
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
+    def refusalAt(protocolVersion: String): Option[Option[String]]                  = None
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(reference.descriptors, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
@@ -445,6 +453,16 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(Discovery.discover(channel, settings, BuildInfo.version, protocolVersion).map(_ => ()))
+    def refusalAt(protocolVersion: String): Option[Option[String]] =
+      val stub = ankka.protocol.v1.discovery.DiscoveryGrpc
+        .blockingStub(channel)
+        .withDeadlineAfter(10, java.util.concurrent.TimeUnit.SECONDS)
+      Some(
+        Try(
+          stub.discover(ankka.protocol.v1.discovery.SidecarInfo(protocolVersion, BuildInfo.version))
+        ).failed.toOption
+          .map(_.getMessage)
+      )
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
@@ -606,6 +624,11 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(discover(protocolVersion).map(_ => ()))
+    def refusalAt(protocolVersion: String): Option[Option[String]] =
+      Some(
+        Try(discover(protocolVersion))
+          .fold(e => Some(e.toString), _.left.toOption.map(_.mkString("; ")))
+      )
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =

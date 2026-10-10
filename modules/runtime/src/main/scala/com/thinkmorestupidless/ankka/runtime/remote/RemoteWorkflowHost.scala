@@ -49,26 +49,36 @@ private[ankka] object RemoteWorkflowHost:
   private val stateSerializer: Serializer[Payload] = new Serializer[Payload]:
     // The manifest the journal records is fixed per kind for the in-process host, but a remote
     // workflow's is the process's; carried inside the bytes so recovery gets it back.
-    val manifest = "ankka.remote.workflow"
-    def toBytes(value: Payload): Array[Byte] =
-      val m = value.manifest.getBytes("UTF-8")
-      val c = value.contentType.getBytes("UTF-8")
-      java.nio.ByteBuffer
-        .allocate(8 + m.length + c.length + value.data.length)
-        .putInt(m.length)
-        .put(m)
-        .putInt(c.length)
-        .put(c)
-        .put(value.data)
-        .array()
-    def fromBytes(bytes: Array[Byte]): Payload =
-      if bytes.isEmpty then NoState
-      else
-        val b = java.nio.ByteBuffer.wrap(bytes)
-        val m = new Array[Byte](b.getInt); b.get(m)
-        val c = new Array[Byte](b.getInt); b.get(c)
-        val d = new Array[Byte](b.remaining); b.get(d)
-        Payload(String(c, "UTF-8"), String(m, "UTF-8"), d)
+    val manifest                               = "ankka.remote.workflow"
+    def toBytes(value: Payload): Array[Byte]   = pack(value)
+    def fromBytes(bytes: Array[Byte]): Payload = unpack(bytes)
+
+  /** A process's state as the engine journals it: its manifest and content type in front. */
+  def pack(value: Payload): Array[Byte] =
+    val m = value.manifest.getBytes("UTF-8")
+    val c = value.contentType.getBytes("UTF-8")
+    java.nio.ByteBuffer
+      .allocate(8 + m.length + c.length + value.data.length)
+      .putInt(m.length)
+      .put(m)
+      .putInt(c.length)
+      .put(c)
+      .put(value.data)
+      .array()
+
+  /**
+   * A remote workflow's journalled state back as the process's payload: the manifest and content
+   * type packed in front of its bytes. The one reader of the packing, for recovery and for a view
+   * or a consumer that reads the workflow.
+   */
+  def unpack(bytes: Array[Byte]): Payload =
+    if bytes.isEmpty then NoState
+    else
+      val b = java.nio.ByteBuffer.wrap(bytes)
+      val m = new Array[Byte](b.getInt); b.get(m)
+      val c = new Array[Byte](b.getInt); b.get(c)
+      val d = new Array[Byte](b.remaining); b.get(d)
+      Payload(String(c, "UTF-8"), String(m, "UTF-8"), d)
 
   /** One instance's open conversation and the ids it hands out, monotonic per stream. */
   final class Live(val session: InstanceSession):

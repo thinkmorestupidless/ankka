@@ -46,6 +46,11 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
     // Likewise a project's brokers (feature 037).
     case _: ProjectBrokerDeclared | _: ProjectBrokerRemoved => effects.ignore()
     case _: ProjectLocationSet                              => effects.ignore()
+    // And its restores (feature 041), read from the project and the cluster.
+    case _: ProjectRestoreRequested | _: ProjectRestoreEnded | _: ProjectDatabaseSet |
+        _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
+        _: ProjectBackupCredentialReissued =>
+      effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

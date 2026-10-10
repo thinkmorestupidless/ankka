@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.thinkmorestupidless.ankka.core.{Codecs, Metadata}
 import com.thinkmorestupidless.ankka.runtime.{
   ConsumerGroups,
+  Divergence,
   IncomingMessage,
   KafkaPublisher,
   KafkaSubscriber,
@@ -268,6 +269,42 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
     finally
       peer.stop()
       kit.stop()
+  }
+
+  test("the broker says what a topic holds past a moment, and how much of it a group has read") {
+    val topic = freshTopic("diverge")
+    publishMany(topic, 5, "before")
+    Thread.sleep(1500)
+    val moment = java.time.Instant.now()
+    Thread.sleep(1500)
+    publishMany(topic, 3, "after")
+    val published =
+      Await.result(subscriber.positionsSince(topic, None, moment), 30.seconds)
+    assertEquals(published.map(_.after), Some(3L))
+    assertEquals(published.flatMap(_.read), None, "a topic only published to has no group")
+    KafkaSuite.commitEnd(bootstrap, topic, "diverge-reader")
+    val read =
+      Await.result(subscriber.positionsSince(topic, Some("diverge-reader"), moment), 30.seconds)
+    assertEquals(read, Some(Divergence.Positions(3L, Some(3L))))
+    val unread =
+      Await.result(subscriber.positionsSince(topic, Some("never-read"), moment), 30.seconds)
+    assertEquals(unread, Some(Divergence.Positions(3L, Some(0L))))
+  }
+
+  test("a message's declared id is its ce-id header") {
+    val topic = freshTopic("declared-id")
+    Await.result(
+      publisher.publish(
+        topic,
+        eventSerializer.toBytes(StockEvent("id-1", 1, "w1")),
+        Metadata.empty.withSubject("id-1").add(Metadata.CeId, "ankka-db/stock|id-1/4")
+      ),
+      30.seconds
+    ): Unit
+    val headers = eventually("the record")(
+      KafkaSuite.readHeaders(bootstrap, topic, "assert-declared-id").headOption
+    )
+    assertEquals(headers._2.get("ce-id"), Some("ankka-db/stock|id-1/4"))
   }
 
   test("the longest permitted ids make a group the broker accepts") {
@@ -639,6 +676,23 @@ object KafkaSuite:
     properties.put(ConsumerConfig.GROUP_ID_CONFIG, groupId)
     properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
     KafkaConsumer[String, String](properties, StringDeserializer(), StringDeserializer())
+
+  /** Commits `group` at the end of every partition of `topic`, as a group that read everything. */
+  def commitEnd(bootstrap: String, topic: String, group: String): Unit =
+    val client = consumer(bootstrap, group)
+    try
+      val partitions = client
+        .partitionsFor(topic)
+        .asScala
+        .toVector
+        .map(info => org.apache.kafka.common.TopicPartition(topic, info.partition))
+      val ends = client.endOffsets(partitions.asJava).asScala
+      client.commitSync(
+        ends
+          .map((p, end) => p -> org.apache.kafka.clients.consumer.OffsetAndMetadata(end.longValue))
+          .asJava
+      )
+    finally client.close()
 
   /** Every record on `topic`, as (key, value). */
   def readAll(bootstrap: String, topic: String, groupId: String): Vector[(String, String)] =

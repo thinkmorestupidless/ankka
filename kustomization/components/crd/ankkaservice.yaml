@@ -283,6 +283,11 @@ spec:
                       type: integer
                     writePauseBound:
                       type: string
+                databaseCluster:
+                  type: string
+                  description: >-
+                    The project database cluster the service is switched to, a restore or one it
+                    left (feature 041). Absent is the project database. A change rolls the service.
             status:
               type: object
               properties:

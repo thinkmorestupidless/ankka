@@ -351,9 +351,30 @@ move.
 
 ## The store in an installation
 
-The object store is the `garage` component of the installation's overlay. It is one node with one volume,
-so a bucket's durability is that volume's; an installation that needs more runs more nodes, with a higher
-replication factor, from its own overlay. Inside the cluster the store speaks plain HTTP, behind a network
+The object store is the `garage` component of the installation's overlay. On its own it is one node with
+one volume, so a bucket's durability is that volume's, which is what a local platform runs.
+
+An installation in a cluster lists `garage-replicated` after it: three nodes, one per machine, each
+object kept on all three, so losing a machine and its volume loses nothing. A small Deployment,
+`garage-layout`, connects the nodes and gives each its role, and goes on doing so every fifteen
+seconds: the node that replaces a lost one, which comes up with a new identity, is given the lost
+node's role and Garage copies the objects back to it. Until it has a role it refuses what it is sent,
+so for those seconds about one request in three is refused.
+
+`garage-copy` copies every bucket, the services' and the platform's backups alike, to a secondary store
+outside the cluster every hour, with `rclone sync`, so an object deleted from Garage is deleted from the
+copy at the next run. The secondary's address and credential are the Secret `garage-secondary` in
+`garage-system`, with `ENDPOINT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY` and `REGION`, which the
+installation creates, beside `garage-copy-key`, the key the copy reads Garage with (`ACCESS_KEY_ID`,
+`GK` and 24 hex digits, and `SECRET_ACCESS_KEY`, 64), which the copy imports into Garage itself. Each
+copy writes what it did to the ConfigMap `garage-copy-status`, and
+`ankka status` reports when the last one completed, when one last failed and why, and how many objects
+it deleted. Without a completed copy, the installation's backups share its cluster's failure domain,
+and the status says so. An installation that requires a copy, with `ANKKA_BACKUP_COPY_REQUIRED=on`, does
+not call a project backed up until its latest base backup has been copied.
+
+The platform's own buckets, `platform.backups.<project>` and `platform.backups-controlplane`, hold the
+databases' backups; no service can be given a credential for them. Inside the cluster the store speaks plain HTTP, behind a network
 policy that admits only the installation's workloads, the gateway and the operator; a request from a
 browser is encrypted as far as the gateway. A request is signed, so a secret key never crosses the
 network, but an object's contents do.

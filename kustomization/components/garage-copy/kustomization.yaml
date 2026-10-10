@@ -1,0 +1,16 @@
+# A copy of every bucket on the installation's Garage, the services' and the backups' alike, to a
+# secondary store outside the cluster (feature 041, research R20), every hour. `rclone sync` makes
+# each copy exactly the source: an object deleted from Garage is deleted from the copy at the next
+# run, so the copy never holds what the installation has erased.
+#
+# The secondary's endpoint and credential are `garage-secondary`; the value here is development's,
+# and the cloud overlay deletes it, so the copy fails, and says so, until a real one exists. Each run
+# writes what it did to the ConfigMap `garage-copy-status`, which the control plane reads for the
+# installation's status and the copy metric.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - secondary.yaml
+  - status.yaml
+  - rbac.yaml
+  - cronjob.yaml

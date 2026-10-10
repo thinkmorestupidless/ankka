@@ -52,6 +52,55 @@ final class Fabric8AnkkaServiceClient(
       val _ = client.resource(ns).fieldManager(FieldManager).forceConflicts().serverSideApply()
       log.debug("created namespace {}", namespace)
 
+  /**
+   * The rehearsal namespace (feature 041), by server-side apply every time, so a namespace made
+   * before it carries the project it rehearses; then the operator's one delete, bound there. The
+   * control plane may bind that ClusterRole by name only (`bind`, `resourceNames`), so it can grant
+   * the operator nothing else and hold none of it itself.
+   */
+  override def ensureRehearsalNamespace(namespace: String, projectId: String): Unit =
+    val ns = new NamespaceBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(namespace)
+          .withLabels(
+            java.util.Map.of(
+              "app.kubernetes.io/managed-by",
+              "ankka",
+              Fabric8AnkkaServiceClient.RehearsalOf,
+              projectId
+            )
+          )
+          .build()
+      )
+      .build()
+    val _ = client.resource(ns).fieldManager(FieldManager).forceConflicts().serverSideApply()
+    val binding = new io.fabric8.kubernetes.api.model.rbac.RoleBindingBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(Fabric8AnkkaServiceClient.RehearsalRole)
+          .withNamespace(namespace)
+          .withLabels(java.util.Map.of("app.kubernetes.io/managed-by", "ankka"))
+          .build()
+      )
+      .withRoleRef(
+        new io.fabric8.kubernetes.api.model.rbac.RoleRefBuilder()
+          .withApiGroup("rbac.authorization.k8s.io")
+          .withKind("ClusterRole")
+          .withName(Fabric8AnkkaServiceClient.RehearsalRole)
+          .build()
+      )
+      .withSubjects(
+        new io.fabric8.kubernetes.api.model.rbac.SubjectBuilder()
+          .withKind("ServiceAccount")
+          .withName(Fabric8AnkkaServiceClient.OperatorAccount)
+          .withNamespace(Fabric8AnkkaServiceClient.OperatorNamespace)
+          .build()
+      )
+      .build()
+    val _ = client.resource(binding).fieldManager(FieldManager).forceConflicts().serverSideApply()
+    log.debug("rehearsal namespace {} for {}", namespace, projectId)
+
   def ensurePullSecret(
       namespace: String,
       server: String,
@@ -281,6 +330,60 @@ final class Fabric8AnkkaServiceClient(
         .get()
     ).flatMap(p => Option(p.getStatus))
 
+  override def projectSpec(
+      namespace: String,
+      name: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] =
+    Option(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(name)
+        .get()
+    ).flatMap(p => Option(p.getSpec))
+
+  override def copyStatus(): Map[String, String] =
+    try
+      Option(client.configMaps().inNamespace("garage-system").withName("garage-copy-status").get())
+        .flatMap(c => Option(c.getData))
+        .map(_.asScala.toMap)
+        .getOrElse(Map.empty)
+    catch case NonFatal(_) => Map.empty
+
+  /** Every namespace labelled as the platform's and named for a project, but not a rehearsal's. */
+  override def platformProjects(): Vector[String] =
+    client
+      .namespaces()
+      .withLabel("app.kubernetes.io/managed-by", "ankka")
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .map(_.getMetadata.getName)
+      .filter(_.startsWith(s"$namespacePrefix-"))
+      .filterNot(_.endsWith(com.thinkmorestupidless.ankka.crd.Recovery.RehearsalSuffix))
+      .map(_.stripPrefix(s"$namespacePrefix-"))
+      .filterNot(Set("controlplane", "operator", "gateway", "console"))
+
+  override def controlPlaneBackups(): Option[com.thinkmorestupidless.ankka.crd.LineStatus] =
+    def status(apiVersion: String, kind: String, name: String): Any =
+      Option(
+        client
+          .genericKubernetesResources(apiVersion, kind)
+          .inNamespace(ControlPlaneLine.Namespace)
+          .withName(name)
+          .get()
+      ).flatMap(r => Option(r.getAdditionalProperties.get("status"))).orNull
+    try
+      ControlPlaneLine.from(
+        status("barmancloud.cnpg.io/v1", "ObjectStore", "ankka-backups"),
+        status("postgresql.cnpg.io/v1", "Cluster", ControlPlaneLine.Cluster)
+      )
+    catch
+      case NonFatal(e) =>
+        log.warn(s"could not read the control plane's own backups: $e")
+        None
+
   def delete(namespace: String, name: String): Unit =
     val _ = client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).delete()
     log.debug("deleted resource {}/{}", namespace, name)
@@ -342,6 +445,18 @@ final class Fabric8AnkkaServiceClient(
     )
 
 object Fabric8AnkkaServiceClient:
+
+  /** On a rehearsal namespace: the project it rehearses (feature 041). */
+  val RehearsalOf: String = "ankka.thinkmorestupidless.com/rehearsal-of"
+
+  /**
+   * The ClusterRole, and its binding's name, that let the operator delete a rehearsal's cluster.
+   */
+  val RehearsalRole: String = "ankka-operator-rehearsal"
+
+  /** Who the operator runs as, as its install manifest names it. */
+  val OperatorAccount: String   = "ankka-operator"
+  val OperatorNamespace: String = "ankka-operator"
 
   /** A ConfigMap key holds letters, digits, `-`, `_` and `.`: the fingerprint's `:` becomes `-`. */
   def schemaKey(fingerprint: String): String = fingerprint.replace(':', '-')

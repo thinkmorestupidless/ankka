@@ -1,0 +1,45 @@
+# Restores the control plane's own database to a moment (feature 041). Applied by hand by a
+# platform administrator, as docs/operate/recovery.md says, because there is no control plane to
+# ask: the two values below are the only ones to set.
+#
+#   restoreName  the restored cluster's name, ankka-controlplane-db-r<yyyyMMddHHmm> by convention
+#   targetTime   the moment, RFC 3339 with a zone
+#
+# It makes the restored cluster beside the current one, which is kept, and a Job that writes the
+# restore marker into it once it is up. The control plane started on the restored database holds
+# its projection until a platform administrator releases it. Pointing the control plane at the
+# restored cluster is deployment-patch.yaml, for an installation's own overlay, or the documented
+# `kubectl set env` for one deployed by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ankka-controlplane
+
+resources:
+  - cluster.yaml
+  - marker-job.yaml
+
+configMapGenerator:
+  - name: ankka-controlplane-restore
+    literals:
+      - restoreName=SET
+      - targetTime=SET
+    options:
+      disableNameSuffixHash: true
+
+replacements:
+  # The moment first, then the name: the cluster is selected by its name before it is renamed.
+  - source: { kind: ConfigMap, name: ankka-controlplane-restore, fieldPath: data.targetTime }
+    targets:
+      - select: { kind: Cluster, name: ankka-controlplane-db-restored }
+        fieldPaths: [spec.bootstrap.recovery.recoveryTarget.targetTime]
+      - select: { kind: Job, name: ankka-controlplane-restore-marker }
+        fieldPaths:
+          - spec.template.spec.containers.[name=marker].env.[name=TARGET_TIME].value
+  - source: { kind: ConfigMap, name: ankka-controlplane-restore, fieldPath: data.restoreName }
+    targets:
+      - select: { kind: Job, name: ankka-controlplane-restore-marker }
+        fieldPaths:
+          - spec.template.spec.containers.[name=marker].env.[name=PGHOST].value
+        options: { delimiter: "-rw", index: 0 }
+      - select: { kind: Cluster, name: ankka-controlplane-db-restored }
+        fieldPaths: [metadata.name]

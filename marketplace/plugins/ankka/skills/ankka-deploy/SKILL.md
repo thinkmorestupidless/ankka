@@ -118,6 +118,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/operate/logs.md` — Read what a deployed service printed with `ankka services logs` — from every instance or one, from the container before the last restart, limited by lines or time — and know what it does not keep.
 - `references/operate/telemetry.md` — Send every service's traces and metrics to an OpenTelemetry collector the installation names once, read one request across services as one trace, join logs to traces, and open a local platform's telemetry store.
 - `references/operate/service-lifecycle.md` — What pausing, resuming, restarting, rolling back and deleting a deployed service do to its instances, its data, its hostname and its generation, and how a suspended service differs from a paused one.
+- `references/operate/recovery.md` — See whether a project is backed up, restore a project's database to a moment into a new cluster, switch one service to it and back, and reclaim a cluster nobody uses, as a platform administrator.
 - `references/operate/troubleshooting.md` — Symptoms you are likely to meet building, running, deploying and operating ankka services, with the cause of each and what to do about it.
 
 ### Reference

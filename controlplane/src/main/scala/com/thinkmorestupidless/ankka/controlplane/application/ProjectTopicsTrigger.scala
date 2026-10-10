@@ -4,8 +4,13 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.ServiceProjector
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectBrokerDeclared,
+  ProjectBackupCredentialReissued,
   ProjectBrokerRemoved,
   ProjectLocationSet,
+  ProjectDatabaseSet,
+  ProjectRehearsalEnded,
+  ProjectRehearsalRequested,
+  ProjectRestoreRequested,
   ProjectTopicDeclared,
   ProjectTopicRemoved
 }
@@ -24,8 +29,11 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
     extends Consumer[ProjectEvent, Nothing]:
 
   def onMessage(event: ProjectEvent): Effect = event match
+    // A restore asked for (feature 041) is written as the topics are: the operator makes it.
     case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectBrokerDeclared |
-        _: ProjectBrokerRemoved | _: ProjectLocationSet =>
+        _: ProjectBrokerRemoved | _: ProjectRestoreRequested | _: ProjectDatabaseSet |
+        _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
+        _: ProjectBackupCredentialReissued | _: ProjectLocationSet =>
       projector.projectTopics(messageContext.subject)
       effects.ignore()
     case _ => effects.ignore()

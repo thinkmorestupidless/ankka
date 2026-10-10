@@ -539,9 +539,47 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
     val victim         = pods.head
     val restartsBefore = victim.getStatus.getContainerStatuses.get(0).getRestartCount.intValue
     sigkill(victim)
-    waitForValue(60.seconds, "every cart answers with its state")(
-      (2 to 11).map(i => i -> nodeHttp(s"/carts/c$i")._2).filterNot(_._2.contains("Widget"))
-    )(_.isEmpty)
+    // How long the carts took to answer is printed whether or not they did in time, and a
+    // failure prints every pod's log, the killed container's last run included, and who each pod
+    // thinks is in the cluster: a pass or fail alone says nothing about where the time went.
+    val killedAt = System.nanoTime()
+    try
+      waitForValue(60.seconds, "every cart answers with its state")(
+        (2 to 11).map(i => i -> nodeHttp(s"/carts/c$i")._2).filterNot(_._2.contains("Widget"))
+      )(_.isEmpty)
+      println(
+        s"crash: every cart answered ${(System.nanoTime() - killedAt) / 1_000_000}ms after the kill"
+      )
+    catch
+      case e: Throwable =>
+        println(
+          s"crash: carts still unanswered ${(System.nanoTime() - killedAt) / 1_000_000}ms after the kill"
+        )
+        for pod <- pods do
+          val name     = pod.getMetadata.getName
+          val restarts = pod.getStatus.getContainerStatuses.get(0).getRestartCount
+          println(
+            s"== $name (${pod.getStatus.getPodIP}, restarts $restarts), members: ${scala.util.Try(membership(pod)).getOrElse("unanswered")}"
+          )
+          println(
+            nodeExec("kubectl", "logs", "-n", Namespace, name, "--tail", "120", "--timestamps")._2
+          )
+          if name == victim.getMetadata.getName then
+            println(s"== $name, the run that was killed")
+            println(
+              nodeExec(
+                "kubectl",
+                "logs",
+                "-n",
+                Namespace,
+                name,
+                "--previous",
+                "--tail",
+                "60",
+                "--timestamps"
+              )._2
+            )
+        throw e
     waitFor(120.seconds) {
       pods
         .find(_.getMetadata.getName == victim.getMetadata.getName)

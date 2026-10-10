@@ -92,6 +92,61 @@ trait Executor:
    */
   def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState]
 
+  /**
+   * What `BackupStatus.of` needs about one archiving cluster (feature 041): the cluster's status,
+   * the plugin's recovery window for its line, and its newest base backup. A cluster without the
+   * plugin's or CNPG's types installed reads as nothing found.
+   */
+  def observeBackups(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused cluster: String,
+      @scala.annotation.unused objectStore: String
+  ): BackupObservation = BackupObservation.empty
+
+  /**
+   * Runs one of `DatabaseQueries`' statements by `psql` as `postgres` in `pod`'s database
+   * container, against `database`, and answers its output; `None` when it could not be run. The
+   * operator's only read inside a database (research R11).
+   */
+  def query(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused pod: String,
+      @scala.annotation.unused database: String,
+      @scala.annotation.unused sql: String
+  ): Option[String] = None
+
+  /**
+   * The services of a project's namespace and the database cluster each is switched to, `None` for
+   * the project database (feature 041): who a restore is verified for, and who uses it.
+   */
+  def servicesIn(
+      @scala.annotation.unused namespace: String
+  ): Vector[(String, Option[String])] = Vector.empty
+
+  /** The project's resource (feature 041): its database settings and backups; none without one. */
+  def projectSpec(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused projectId: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None
+
+  /**
+   * The database clusters of a rehearsal namespace (feature 041), each with when it expires, as its
+   * annotation says; none when the namespace or the type is not there.
+   */
+  def rehearsalClusters(
+      @scala.annotation.unused namespace: String
+  ): Vector[(String, Option[Instant])] = Vector.empty
+
+  /**
+   * Removes a rehearsal's cluster (feature 041), the one delete the operator is granted, and only
+   * in a rehearsal namespace. Answers why, rather than throwing, when it could not: a rehearsal
+   * that could not be removed is reported, and removed when its time to live passes.
+   */
+  def deleteRehearsalCluster(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused name: String
+  ): Either[String, Unit] = Left("this executor removes nothing")
+
   /** The brokers a project declares (feature 037), from its `AnkkaProject`; none without one. */
   def projectBrokers(
       namespace: String,
@@ -142,12 +197,30 @@ trait Executor:
  * @param store
  *   the installation's object store (feature 034), which the bucket and credential actions reach
  */
+object Fabric8Executor:
+
+  /**
+   * The executor an installation's settings describe: the telemetry credential, and the object
+   * store with its region. Every reconciler builds its executor here, so none can be missing the
+   * store: the project reconciler's was, and every rehearsal failed on its backup credential.
+   */
+  def of(client: KubernetesClient, settings: Settings): Fabric8Executor =
+    new Fabric8Executor(
+      client,
+      settings.otlpHeaders,
+      settings.objectStore.map(store => GarageStore(store.adminUrl, store.adminToken)),
+      settings.rotationGrace,
+      settings.objectStore.map(_.region).getOrElse("garage")
+    )
+
 final class Fabric8Executor(
     client: KubernetesClient,
     telemetryHeaders: Option[Settings.Credential] = None,
     store: Option[ObjectStore] = None,
     /** How long an old storage credential works after a new one is in place (feature 039). */
-    rotationGrace: scala.concurrent.duration.FiniteDuration = Settings.default.rotationGrace
+    rotationGrace: scala.concurrent.duration.FiniteDuration = Settings.default.rotationGrace,
+    /** The store's region, which a database's archiver signs its requests for (feature 041). */
+    objectStoreRegion: String = "garage"
 ) extends Executor:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.executor")
@@ -200,6 +273,14 @@ final class Fabric8Executor(
             ): Unit
     )
   )
+
+  /**
+   * The credential generation this process last issued each backup key at (feature 041): a higher
+   * one on the project's resource is a member's re-issue. Not remembered across a restart, which
+   * then issues nothing: a re-issue asked for while no operator ran happens at the next one asked.
+   */
+  private val backupGenerations =
+    new java.util.concurrent.ConcurrentHashMap[(String, String), Int]()
 
   private def requireStore(): ObjectStore =
     store.getOrElse(
@@ -487,6 +568,63 @@ final class Fabric8Executor(
           // whatever generation (feature 039), unless they have ended.
           s.keysOf(bucket).filterNot(_.expired).foreach(k => s.allow(info.id, k.accessKeyId))
         case Some(_) => ()
+
+    case Action.EnsureObjectStore(store) =>
+      client.resource(store).fieldManager(FieldManager).forceConflicts().serverSideApply(): Unit
+
+    case Action.EnsureScheduledBackup(schedule) =>
+      // Not until the cluster archives: its first base backup is taken the moment the schedule
+      // exists, and while CNPG is still adding the plugin it fails ("requested plugin is not
+      // available", or the instance restarted under it) and the next is a day away. The pass is
+      // repeated at every resync, so the schedule follows within seconds of the archive working.
+      val namespace = schedule.getMetadata.getNamespace
+      val cluster   = schedule.getSpec.cluster.name
+      val archiving = ifTypeExists(
+        client.resources(classOf[PostgresCluster]).inNamespace(namespace).withName(cluster).get()
+      ).flatMap(c => Option(c.getStatus))
+        .exists(_.conditions.exists(c => c.`type` == "ContinuousArchiving" && c.status == "True"))
+      if archiving then
+        client
+          .resource(schedule)
+          .fieldManager(FieldManager)
+          .forceConflicts()
+          .serverSideApply(): Unit
+        baseBackupAgain(namespace, cluster)
+      else log.debug("{}/{}: no base backup scheduled until it archives", namespace, cluster)
+
+    case Action.RetryBaseBackup(namespace, cluster) =>
+      baseBackupAgain(namespace, cluster)
+
+    case Action.EnsureBackupCredential(namespace, bucket, keyName, permission, generation) =>
+      requireStore(): Unit
+      val entries  = StorageCredential.backupEntries(objectStoreRegion)
+      val issuedAt = backupGenerations.getOrDefault((namespace, keyName), -1)
+      if issuedAt >= 0 && generation > issuedAt then
+        storageCredentials.get.reissueKey(
+          namespace,
+          com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret,
+          bucket,
+          keyName,
+          permission,
+          entries
+        )
+        log.info("issued the backup credential {}/{} again, at {}", namespace, keyName, generation)
+      else
+        storageCredentials.get.ensure(
+          namespace,
+          com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret,
+          Map(Labels.ManagedByKey -> Labels.ManagedByAnkka),
+          bucket,
+          keyName = Some(keyName),
+          permission = permission,
+          entries = entries
+        ) match
+          case StorageCredential.Result.Created =>
+            log.info("issued the backup credential {}/{}", namespace, keyName)
+          case StorageCredential.Result.Replaced =>
+            log.warn("the object store held no key {}; a new one was written", keyName)
+          case StorageCredential.Result.Unchanged => ()
+      backupGenerations.put((namespace, keyName), generation): Unit
 
     case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation) =>
       requireStore(): Unit
@@ -808,6 +946,86 @@ final class Fabric8Executor(
         .exists(spec => !spec.disablePassword.contains(true))
     )
 
+  override def observeBackups(
+      namespace: String,
+      cluster: String,
+      objectStore: String
+  ): BackupObservation =
+    val status = ifTypeExists(
+      client.resources(classOf[PostgresCluster]).inNamespace(namespace).withName(cluster).get()
+    ).flatMap(c => Option(c.getStatus))
+    val window = ifTypeExists(
+      client
+        .resources(classOf[cnpg.BarmanObjectStore])
+        .inNamespace(namespace)
+        .withName(objectStore)
+        .get()
+    ).flatMap(s => Option(s.getStatus)).flatMap(_.serverRecoveryWindow.get(cluster))
+    val newest = ifTypeExists(
+      client.resources(classOf[cnpg.PostgresBackup]).inNamespace(namespace).list().getItems
+    ).map(_.asScala.toVector)
+      .getOrElse(Vector.empty)
+      .filter(b => Option(b.getSpec).exists(_.cluster.name == cluster))
+      .sortBy(b => Option(b.getMetadata.getCreationTimestamp).getOrElse(""))
+      .lastOption
+      .flatMap(b => Option(b.getStatus))
+    BackupObservation(status, window, newest)
+
+  override def rehearsalClusters(namespace: String): Vector[(String, Option[Instant])] =
+    ifTypeExists(client.resources(classOf[PostgresCluster]).inNamespace(namespace).list().getItems)
+      .map(_.asScala.toVector)
+      .getOrElse(Vector.empty)
+      .map { c =>
+        val expires = Option(c.getMetadata.getAnnotations)
+          .flatMap(a => Option(a.get(RehearsalRendering.ExpiresAt)))
+          .flatMap(t => scala.util.Try(Instant.parse(t)).toOption)
+        c.getMetadata.getName -> expires
+      }
+
+  override def deleteRehearsalCluster(namespace: String, name: String): Either[String, Unit] =
+    if !namespace.endsWith(com.thinkmorestupidless.ankka.crd.Recovery.RehearsalSuffix) then
+      Left(s"$namespace is not a rehearsal namespace; the operator removes no other database")
+    else
+      try
+        client.resources(classOf[PostgresCluster]).inNamespace(namespace).withName(name).delete()
+        log.info(s"removed the rehearsal's database $namespace/$name")
+        Right(())
+      catch
+        case scala.util.control.NonFatal(e) =>
+          Left(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+
+  override def query(
+      namespace: String,
+      pod: String,
+      database: String,
+      sql: String
+  ): Option[String] =
+    val out = new java.io.ByteArrayOutputStream
+    val err = new java.io.ByteArrayOutputStream
+    try
+      val watch = client
+        .pods()
+        .inNamespace(namespace)
+        .withName(pod)
+        .inContainer("postgres")
+        .writingOutput(out)
+        .writingError(err)
+        .exec("psql", "-U", "postgres", "-d", database, "-tA", "-v", "ON_ERROR_STOP=1", "-c", sql)
+      try
+        val code = watch.exitCode().get(30, java.util.concurrent.TimeUnit.SECONDS)
+        if code == 0 then Some(out.toString(java.nio.charset.StandardCharsets.UTF_8))
+        else
+          log.debug(
+            s"psql in $namespace/$pod against $database exited $code: " +
+              err.toString(java.nio.charset.StandardCharsets.UTF_8).trim
+          )
+          None
+      finally watch.close()
+    catch
+      case e: Exception =>
+        log.debug(s"psql in $namespace/$pod could not be run: ${e.getMessage}")
+        None
+
   /** One of Strimzi's objects as found, or absent. */
   private def strimziState(
       found: Option[io.fabric8.kubernetes.api.model.HasMetadata],
@@ -823,6 +1041,45 @@ final class Fabric8Executor(
         )
 
   /** A cluster without Strimzi's resource types reads as nothing made yet, not as a failure. */
+  /**
+   * A cluster whose every base backup failed is given another (`BaseBackupRetry`): its schedule's
+   * first can fail while CNPG is still adding the plugin, and its next is a day away.
+   */
+  private def baseBackupAgain(namespace: String, cluster: String): Unit =
+    def instant(text: String) = scala.util.Try(java.time.Instant.parse(text)).toOption
+    val attempts = ifTypeExists(
+      client.resources(classOf[cnpg.PostgresBackup]).inNamespace(namespace).list().getItems
+    ).map(_.asScala.toVector)
+      .getOrElse(Vector.empty)
+      .filter(b => Option(b.getSpec).exists(_.cluster.name == cluster))
+      .map { b =>
+        val status = Option(b.getStatus)
+        BaseBackupRetry.Attempt(
+          status.flatMap(_.phase),
+          status
+            .flatMap(_.stoppedAt)
+            .flatMap(instant)
+            .orElse(Option(b.getMetadata.getCreationTimestamp).flatMap(instant))
+        )
+      }
+    val now = java.time.Instant.now()
+    if BaseBackupRetry.due(attempts, now) then
+      val backup = new cnpg.PostgresBackup
+      backup.setMetadata(
+        new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
+          .withNamespace(namespace)
+          .withName(BaseBackupRetry.name(cluster, now))
+          .build()
+      )
+      backup.setSpec(
+        cnpg.BackupSpec(
+          cnpg.ClusterRef(cluster),
+          pluginConfiguration = Some(cnpg.BackupPluginConfiguration())
+        )
+      )
+      client.resource(backup).create(): Unit
+      log.info("{}/{}: every base backup failed; taking another", namespace, cluster)
+
   private def ifTypeExists[A](read: => A): Option[A] =
     try Option(read)
     catch case e: KubernetesClientException if e.getCode == 404 => None
@@ -836,6 +1093,30 @@ final class Fabric8Executor(
         .get()
     )
     BrokerObservation(user = strimziState(found, found.flatMap(u => Option(u.getStatus))))
+
+  override def servicesIn(namespace: String): Vector[(String, Option[String])] =
+    client
+      .resources(classOf[AnkkaService])
+      .inNamespace(namespace)
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .flatMap(r => Option(r.getSpec))
+      .filter(spec => spec.provisionDatabase && spec.database != "none")
+      .map(spec => spec.serviceName -> spec.databaseCluster)
+
+  override def projectSpec(
+      namespace: String,
+      projectId: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec))
 
   override def projectBrokers(
       namespace: String,

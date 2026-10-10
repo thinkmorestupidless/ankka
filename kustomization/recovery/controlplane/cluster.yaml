@@ -1,0 +1,30 @@
+# The control plane's database at the moment: the latest base backup of the line
+# ankka-controlplane-db before it, and its archive up to it, from the control plane's own backup
+# bucket. The owner's credential is the one the control plane already holds, so the restored
+# database accepts it unchanged. It archives nothing until released: archive/ adds that.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ankka-controlplane-db-restored
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    recovery:
+      source: line
+      database: ankka
+      owner: ankka
+      secret:
+        name: ankka-controlplane-db-app
+      recoveryTarget:
+        targetTime: SET
+  externalClusters:
+    - name: line
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: ankka-backups
+          serverName: ankka-controlplane-db

@@ -206,6 +206,7 @@ nav:
       - Logs: operate/logs.md
       - Telemetry: operate/telemetry.md
       - Pause, resume, restart and delete: operate/service-lifecycle.md
+      - Backups and recovery: operate/recovery.md
       - Troubleshooting: operate/troubleshooting.md
   - Run the platform:
       - Install a local platform: platform/install-local.md

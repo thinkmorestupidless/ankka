@@ -1,0 +1,24 @@
+# For an installation's own overlay: the control plane reads the restored cluster. List it as a
+# strategic merge patch beside the control plane component, with SET replaced by the restored
+# cluster's name. `valueFrom: null` removes the Secret reference the host replaces; the password and
+# the user are the restored cluster's owner's, which are the same.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          env:
+            - name: ANKKA_DB_HOST
+              value: SET-rw
+              valueFrom: null
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_DB_HOST
+              value: SET-rw
+              valueFrom: null

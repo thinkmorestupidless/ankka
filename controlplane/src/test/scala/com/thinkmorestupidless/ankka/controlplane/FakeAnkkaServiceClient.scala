@@ -27,8 +27,12 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
   @volatile private var reachable          = true
 
   /** Every write the control plane performed, so a test can assert on "no write at all". */
-  private val writes  = new AtomicInteger(0)
-  private val deletes = new AtomicInteger(0)
+  private val writes        = new AtomicInteger(0)
+  private val projectWrites = new AtomicInteger(0)
+
+  /** Writes of a project's resource that changed it. */
+  def projectWriteCount: Int = projectWrites.get()
+  private val deletes        = new AtomicInteger(0)
 
   def writeCount: Int  = writes.get()
   def deleteCount: Int = deletes.get()
@@ -127,8 +131,10 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
   ): Unit =
     guard()
     namespaces.put(namespace, true): Unit
+    // A project's resource is counted apart from the services': since feature 041 the sweep writes
+    // one for every project with a service, once, and that is not a service being rewritten.
     if !projects.get((namespace, name)).contains(spec) then
-      writes.incrementAndGet(): Unit
+      projectWrites.incrementAndGet(): Unit
       projects.put((namespace, name), spec): Unit
 
   def projectStatus(

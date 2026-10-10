@@ -1,6 +1,17 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{
+  BackupsStatus,
+  LineStatus,
+  ProjectBackupsSpec,
+  ProjectClusterStatus,
+  ProjectDatabaseSpec,
+  ProjectDatabaseStatus,
+  RehearsalEntry,
+  RehearsalStatus,
+  RestoreEntry,
+  RestoreStatus,
+  ServiceVerification,
   ProjectBrokerEntry,
   AnkkaProjectSpec,
   AnkkaProjectStatus,
@@ -120,6 +131,31 @@ class CrdSchemaSuite extends munit.FunSuite:
       declaredIn(projectCrd, "spec", "brokers", "items"),
       fieldsOf(classOf[ProjectBrokerEntry])
     )
+  }
+
+  test("a project's backups, database, restores and rehearsals are declared at every level") {
+    // Feature 041. Each nested block, in both directions: a field the schema lacks is refused on
+    // every write of the block, and a property the class lacks is a promise nothing keeps.
+    val blocks: Vector[(Seq[String], Class[?])] = Vector(
+      Seq("spec", "database")                                   -> classOf[ProjectDatabaseSpec],
+      Seq("spec", "backups")                                    -> classOf[ProjectBackupsSpec],
+      Seq("spec", "restores", "items")                          -> classOf[RestoreEntry],
+      Seq("spec", "rehearsals", "items")                        -> classOf[RehearsalEntry],
+      Seq("status", "backups")                                  -> classOf[BackupsStatus],
+      Seq("status", "backups", "lines", "items")                -> classOf[LineStatus],
+      Seq("status", "database")                                 -> classOf[ProjectDatabaseStatus],
+      Seq("status", "clusters", "items")                        -> classOf[ProjectClusterStatus],
+      Seq("status", "restores", "items")                        -> classOf[RestoreStatus],
+      Seq("status", "restores", "items", "services", "items")   -> classOf[ServiceVerification],
+      Seq("status", "rehearsals", "items")                      -> classOf[RehearsalStatus],
+      Seq("status", "rehearsals", "items", "services", "items") -> classOf[ServiceVerification]
+    )
+    for (path, clazz) <- blocks do
+      assertEquals(declaredIn(projectCrd, path*), fieldsOf(clazz), path.mkString("."))
+  }
+
+  test("the service's database cluster is declared") {
+    assert(declared("spec").contains("databaseCluster"))
   }
 
   test("the schema's hostings are exactly the ones the operator renders") {

@@ -31,7 +31,20 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
     )
 
   private val projectNames: Vector[String] =
-    Vector(Registries.SecretName, CnpgRendering.clientCaName, CnpgRendering.replicationName)
+    Vector(
+      Registries.SecretName,
+      CnpgRendering.clientCaName,
+      CnpgRendering.replicationName,
+      // Feature 041: the backup credential, in a project's namespace and its rehearsal namespace.
+      Buckets.BackupSecret
+    )
+
+  test("the backup credential's Secret is one no descriptor may read") {
+    assert(
+      com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec
+        .isPlatformSecret(Buckets.BackupSecret)
+    )
+  }
 
   test("every Secret name the operator derives for a service is refused as a project secret") {
     for

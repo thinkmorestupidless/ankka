@@ -114,6 +114,16 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/topics/{name}/schema` | |
 | `DELETE` | `/projects/{projectId}/topics/{name}` | |
 | `GET` | `/projects/{projectId}/topics` | |
+| `GET` | `/projects/{projectId}/status` | |
+| `POST` | `/projects/{projectId}/rehearsals` | |
+| `POST` | `/projects/{projectId}/backups/credential` | |
+| `GET` | `/projects/{projectId}/rehearsals` | |
+| `POST` | `/projects/{projectId}/restores` | |
+| `GET` | `/projects/{projectId}/restores` | |
+| `GET` | `/projects/{projectId}/restores/{name}` | |
+| `GET` | `/projects/{projectId}/database` | |
+| `PUT` | `/projects/{projectId}/database` | |
+| `GET` | `/projects/{projectId}/history` | |
 | `PUT` | `/projects/{projectId}/brokers/{name}` | |
 | `DELETE` | `/projects/{projectId}/brokers/{name}` | |
 | `PUT` | `/projects/{projectId}/location` | |
@@ -123,6 +133,7 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
+| `POST` | `/services/{projectId}/{name}/switch` | |
 | `POST` | `/services/{projectId}/{name}/rollback` | |
 | `GET` | `/services/{projectId}/{name}/descriptor` | |
 | `POST` | `/services/{projectId}/{name}/pause` | |
@@ -138,6 +149,8 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/services/{projectId}/{name}/history` | |
 | `DELETE` | `/services/{projectId}/{name}` | |
 | `GET` | `/auth/whoami` | |
+| `GET` | `/installation/restore` | |
+| `POST` | `/installation/restore/release` | |
 | `GET` | `/installation` | |
 | `GET` | `/auth` | |
 Path parameters are shown in braces. Identifiers for organizations and projects are lowercase letters,
@@ -170,8 +183,9 @@ Calling it also claims any pending invitation addressed to the caller's verified
 
 ### `GET /installation`
 
-What the installation is: its version, and its cloud when it names a
-[cloud provider](../platform/cloud-provider.md). Any caller with a token may read it. Response:
+What the installation is: its version, its cloud when it names a
+[cloud provider](../platform/cloud-provider.md), and where its backups go and how safely. Any caller
+with a token may read it. Response:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -181,6 +195,21 @@ What the installation is: its version, and its cloud when it names a
 | `cloud.account` | string | The one cloud account the installation's cloud resources are made in. |
 | `cloud.location` | string | Where they are made unless a project says otherwise. |
 | `cloud.kmsKey` | string, optional | The key the installation wraps with; shown only to an owner of an organization or a platform administrator. |
+| `backups` | object | Where the installation's backups go, and how safely. |
+
+`backups` is, for example, `{ "backupTarget": "object-store", "retentionDays": 30, "copyRequired": false,
+"sharesFailureDomain": true, "encryption": "none: …" }`.
+
+`backupTarget` is `none` or `object-store`, the installation's own object store; with `none`,
+`notBackedUp` says that nothing is backed up. `retentionDays` is the least any project keeps its
+backups: a project may keep them longer, never for less time. `copyRequired` says whether a project is
+backed up only once its latest base backup has a copy outside the cluster. `sharesFailureDomain` is
+`true` when the backups are in the cluster they back up, so that losing the cluster loses them too.
+`encryption` says how a backup is encrypted at rest, or `none` and why. `controlPlane` is the control
+plane's own database's backups, shaped as a project's line, when the control plane can read them.
+`secondaryStore` is the installation's copy of every bucket outside the cluster, where it has one:
+`{ "lastCompleted": "…", "lastFailed": "…", "failure": "…", "buckets": 12, "deletedObjects": 1 }`. Once
+a copy has completed, `sharesFailureDomain` is `false`.
 
 ## Organizations
 
@@ -518,6 +547,140 @@ Lets the installation's default location apply to the project's new buckets agai
 The project's declared brokers, by name: `[{ "name": "legacy", "bootstrap": "kafka.legacy:9094",
 "shape": "sasl", "secret": "legacy-credential", "declaredAt": "…" }]`. Never a credential.
 
+### `GET /projects/{projectId}/status`
+
+The project's backups and database. Members of the project's organization. Answers
+`{ "id": "shop", "backedUp": true, "target": "object-store", "lines": [ … ], "database": { … } }`.
+
+`backedUp` is `true` when every line of history is archiving and has a base backup, and, where the
+installation requires a copy outside its failure domain, that copy exists. `target` is `none` when the
+installation backs nothing up, and `detail` then says so.
+
+Each entry of `lines` is one line of history's backups: `{ "line": "ankka-db", "cluster": "ankka-db",
+"phase": "backing up", "lastBaseBackup": "…", "firstRestorable": "…", "lastRestorable": "…",
+"archiveLagSeconds": 12.5 }`. `phase` is `backing up`, `failing` or `not backed up`, with the reason in
+`failing`, in the archiver's words where it has them. `firstRestorable` and `lastRestorable` bound the
+moments the project can be restored to; `lastRestorable` is now less `archiveLagSeconds`, since a write
+the archive has not reached cannot be restored. `copiedAt` is when the latest base backup was copied
+outside the failure domain, where that is required.
+
+`database` is the project database: `{ "cluster": "ankka-db", "instances": 3, "readyInstances": 3,
+"primary": "ankka-db-1", "synchronous": true }`, with `writesWaitingOn` when a synchronous write is
+waiting for a replica. Read live from what the operator last reported; a cluster that cannot be read
+answers as one that has not reported, and `detail` says so.
+
+`clusters` lists the project's database clusters: `{ "name": "ankka-db", "line": "ankka-db", "phase":
+"live", "services": ["wallet"] }`. `phase` is `live`, `restore`, or `left` once every service has moved
+off it. The platform removes none of them. `restores` is every restore of the project, as
+`GET /projects/{projectId}/restores` lists them. `rehearsal` is the latest rehearsal that ended; one
+that failed, or whose database was not removed, makes `backedUp` `false` and is named in `detail`, as a
+backup failure is.
+
+### `POST /projects/{projectId}/restores`
+
+Restores the project's database to a moment. Owners of the project's organization only; a member who is
+not an owner is answered `403`. Body: `{ "moment": "2026-10-08T09:20:00Z", "line": "ankka-db" }`. The
+restore is a new database cluster beside the current one, made from the line's latest base backup
+before the moment and its archive up to it; nothing in the current database changes. Answers the
+restore, `{ "name": "ankka-db-r202610081012", "line": "ankka-db", "moment": "…", "phase": "Restoring" }`.
+
+`line` may be left out when every service of the project is on one cluster; with services on more
+than one, it is refused with `400` naming them. A moment before the earliest the line can be restored
+to, or after the latest, is refused with `400` naming both. A second restore while one has not ended is
+refused with `409` naming it. With no backup target, every restore is refused with `400`.
+
+### `GET /projects/{projectId}/restores`
+
+The project's restores, oldest first: `[{ "name": "ankka-db-r202610081012", "line": "ankka-db",
+"moment": "…", "phase": "Verified", "requestedBy": "Ada", "requestedAt": "…", "reachedAt": "…",
+"services": [ … ] }]`. `phase` is `Restoring`, `Verified`, `Failed` (with the reason in `detail`) or
+`InUse` once a service is switched to it. Members of the project's organization.
+
+### `GET /projects/{projectId}/restores/{name}`
+
+One restore. Each entry of `services` says what one service's database holds in it:
+`{ "name": "wallet", "present": true, "journalRows": 1200, "stateRows": 3, "offsetRows": 42,
+"timerRows": 0, "highestSequence": 98765, "changedSecrets": ["stripe-key"] }`. `present` is `false` for a
+service that had no database at the moment. `changedSecrets` names each service secret changed after
+the moment, never a value. `reachedAt` is the newest event any service's database holds. Answers `404`
+for a name the project has no restore of.
+
+Once verified, the restore also says what it cannot take back: the broker. `broker` lists each topic the
+restore's services publish to or read with messages newer than the moment, `{ "topic": "transactions",
+"group": "ankka.shop.totals.view.sums", "after": 3, "read": 2, "services": ["totals"] }`: `after` is the
+messages on the topic newer than the moment, and for a group, `read` is how many of them it has read.
+It is asked of the services' running instances as the restore is read, so it grows as they publish.
+`notAsked` names a service none of whose instances answered. `note` says that a message published again
+from a restored journal is read again by every view and consumer that reads its topic.
+
+### `POST /projects/{projectId}/rehearsals`
+
+Rehearses a restore of the project. Members of the project's organization, since a rehearsal changes
+nothing of the project. Body: `{ "moment": "2026-10-08T09:20:00Z", "line": "ankka-db" }`; both may be
+left out, for the latest moment the project database can be restored to. The rehearsal restores into a
+database cluster in the project's rehearsal namespace, `ankka-<project>-rehearsal`, checks it as a
+restore is checked, records how long it took and removes it. Answers the rehearsal, `{ "name":
+"ankka-db-x202610090000", "line": "ankka-db", "moment": "…", "outcome": "Running" }`. A moment outside
+the line's window is refused with `400` naming both ends, a second rehearsal while one runs with `409`,
+and every rehearsal with `400` when the installation has no backup target.
+
+### `GET /projects/{projectId}/rehearsals`
+
+The project's rehearsals, oldest first: `[{ "name": "ankka-db-x202610090000", "line": "ankka-db",
+"moment": "…", "outcome": "Completed", "requestedBy": "Ada", "requestedAt": "…", "elapsedSeconds": 118,
+"services": [ … ] }]`. `outcome` is `Running`, `Completed`, `Failed` or `NotRemoved`, the last for a
+rehearsal whose database could not be removed when it ended, which is removed when its time to live
+passes. A rehearsal the project's schedule started has no `requestedBy`. The latest hundred are kept.
+
+### `POST /projects/{projectId}/backups/credential`
+
+Issues the project's backup credential again. Owners of the project's organization only. The operator
+makes a new key for the project's backup bucket, writes it where the archiver reads it, and deletes the
+old one, so a key that leaked stops working; the archiver uses the new one from its next upload.
+Answers `{ "project": "shop", "generation": 2 }`, the count of times it was issued again. Refused with
+`400` when the installation has no backup target.
+
+### `GET /projects/{projectId}/database`
+
+What the project asks of its database: `{ "replicas": 2, "synchronous": true, "retentionDays": 45,
+"rehearse": "weekly" }`, each at its default when the project has asked nothing. Members of the
+project's organization.
+
+### `PUT /projects/{projectId}/database`
+
+Sets what the project asks of its database, whole: the body is `GET`'s answer, and a field left out is
+its default. `replicas` is between 0 and 4, each a replica beside the primary that takes its place if
+it is lost. `synchronous` makes every write wait for a replica to hold it, and needs a replica.
+`retentionDays` is how long the project's backups are kept, never shorter than the installation's
+retention. `rehearse` is `daily` or `weekly`. Members of the project's organization; every problem is
+refused at once with `400`. Answers the setting.
+
+### `GET /projects/{projectId}/history`
+
+Who did what to the project's database, newest first: `[{ "kind": "restore-requested", "by": "Ada",
+"at": "…", "detail": "ankka-db-r202610081012, of ankka-db at …" }]`. `kind` is `restore-requested`,
+`restore-completed`, `restore-failed`, `rehearsal-requested`, `rehearsal-completed`,
+`rehearsal-failed` or `database-set`. Members of the project's organization.
+
+## Installation
+
+### `GET /installation/restore`
+
+Whether the control plane is held after its own database was restored. Any authenticated caller.
+Answers `{ "held": true, "restoredAt": "…", "targetTime": "…", "services": [ … ], "topics": ["shop"],
+"unknownProjects": ["lab"] }`. Held, the control plane changes nothing in the cluster: `services` lists
+each service whose recorded generation or image is not what the cluster runs, `{ "project": "shop",
+"service": "cart", "recordedGeneration": 1, "clusterGeneration": 2, "recordedImage": "cart:1",
+"clusterImage": "cart:2" }`, `topics` each project whose declared topics differ from the cluster's,
+and `unknownProjects` each project the cluster holds that the restored database does not know.
+`releasedAt` and `releasedBy` say when the hold was released, and by whom.
+
+### `POST /installation/restore/release`
+
+Releases the hold: from its next sweep the control plane makes the cluster what its database records.
+A platform administrator's alone; anyone else is answered `403`. Recorded on the restore marker with who
+released it. Answers as `GET /installation/restore` does.
+
 ## Services
 
 Every service route answers with a service status, except where noted:
@@ -626,6 +789,19 @@ keeps the descriptors of its last fifty applies, and refuses with:
 
 A refused rollback writes nothing.
 
+### `POST /services/{projectId}/{name}/switch`
+
+Moves the service onto another of its project's database clusters: a verified restore that holds its
+database, or back to the project database, `ankka-db`. Owners of the project's organization only.
+Body: `{ "cluster": "ankka-db-r202610081012" }`. The switch is a new generation, so the service rolls onto
+the cluster at once and no other service moves; its history records a `switched` entry naming both
+clusters, and its status names the cluster it is on in `databaseCluster`. Switching to the cluster the
+service is on changes nothing.
+
+A cluster that is not one of the project's restores is refused with `400`, a restore that is not
+verified with `409`, and a restore that holds no database for the service with `400` naming the moment.
+The cluster the service leaves is kept, with every write it had.
+
 ### `GET /services/{projectId}/{name}/descriptor`
 
 The descriptor the service applied at the generation named by the required `generation` query
@@ -696,7 +872,9 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved` or `storage-settings-reapplied`. `administrative` is `true` when the platform administrator role
+`deleted`, `suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved`,
+`storage-settings-reapplied` or `switched`; a `switched` entry's `detail` names the database clusters it
+moved from and to. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

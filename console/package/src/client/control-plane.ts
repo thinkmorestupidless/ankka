@@ -9,6 +9,13 @@ import {
   membersResponseSchema,
   organizationSummarySchema,
   projectBrokerSchema,
+  projectStatusSchema,
+  credentialReissuedSchema,
+  databaseSettingSchema,
+  projectHistoryViewSchema,
+  restoreHoldStatusSchema,
+  rehearsalViewSchema,
+  restoreViewSchema,
   projectDetailSchema,
   projectSecretSummarySchema,
   projectSummarySchema,
@@ -27,6 +34,14 @@ import {
   type MembersResponse,
   type OrganizationSummary,
   type ProjectBroker,
+  type ProjectStatus,
+  type CredentialReissued,
+  type DatabaseSetting,
+  type InstallationStatus,
+  type ProjectHistoryView,
+  type RestoreHoldStatus,
+  type RehearsalView,
+  type RestoreView,
   type ProjectDetail,
   type ProjectSecretSummary,
   type ProjectSummary,
@@ -286,6 +301,76 @@ export class ControlPlaneClient {
 
   listBrokers(id: string): Promise<ProjectBroker[]> {
     return this.#call("GET", `/projects/${segment(id)}/brokers`, { schema: arrayOf(projectBrokerSchema) });
+  }
+
+  // ── Backups and recovery ──────────────────────────────────────────────────
+
+  /** Whether the project is backed up, how far back it can be restored, its database and its restores. */
+  projectStatus(id: string): Promise<ProjectStatus> {
+    return this.#call("GET", `/projects/${segment(id)}/status`, { schema: projectStatusSchema });
+  }
+
+  /** Restores the project's database to a moment, into a new cluster beside the current one. Owners only. */
+  restoreProject(id: string, moment: string, line?: string): Promise<RestoreView> {
+    return this.#call("POST", `/projects/${segment(id)}/restores`, { body: { moment, line }, schema: restoreViewSchema });
+  }
+
+  /** Issues the project's backup credential again; the old key stops working. Owners only. */
+  reissueBackupCredential(id: string): Promise<CredentialReissued> {
+    return this.#call("POST", `/projects/${segment(id)}/backups/credential`, { schema: credentialReissuedSchema });
+  }
+
+  listRestores(id: string): Promise<RestoreView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/restores`, { schema: arrayOf(restoreViewSchema) });
+  }
+
+  /** Who did what to the project's database, newest first. */
+  projectHistory(id: string): Promise<ProjectHistoryView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/history`, { schema: arrayOf(projectHistoryViewSchema) });
+  }
+
+  projectDatabase(id: string): Promise<DatabaseSetting> {
+    return this.#call("GET", `/projects/${segment(id)}/database`, { schema: databaseSettingSchema });
+  }
+
+  /** Sets what the project asks of its database, whole: replicas, synchronous writes, retention, rehearsals. */
+  setProjectDatabase(id: string, setting: DatabaseSetting): Promise<DatabaseSetting> {
+    return this.#call("PUT", `/projects/${segment(id)}/database`, { body: setting, schema: databaseSettingSchema });
+  }
+
+  /** Where the installation's backups go, for how long, and how safely: `backups` on `GET /installation`. */
+  async backups(): Promise<InstallationStatus> {
+    const installation = await this.installation();
+    if (!installation.backups) throw new Error("the control plane reported nothing of its backups");
+    return installation.backups;
+  }
+
+  /** Whether the control plane is held after its own database was restored, and what differs. */
+  restoreHold(): Promise<RestoreHoldStatus> {
+    return this.#call("GET", "/installation/restore", { schema: restoreHoldStatusSchema });
+  }
+
+  /** Releases a held control plane; a platform administrator's alone. */
+  releaseRestoreHold(): Promise<RestoreHoldStatus> {
+    return this.#call("POST", "/installation/restore/release", { schema: restoreHoldStatusSchema });
+  }
+
+  getRestore(id: string, name: string): Promise<RestoreView> {
+    return this.#call("GET", `/projects/${segment(id)}/restores/${segment(name)}`, { schema: restoreViewSchema });
+  }
+
+  /** Rehearses a restore in a namespace of its own; it changes nothing of the project. */
+  rehearseProject(id: string, moment?: string): Promise<RehearsalView> {
+    return this.#call("POST", `/projects/${segment(id)}/rehearsals`, { body: moment ? { moment } : {}, schema: rehearsalViewSchema });
+  }
+
+  listRehearsals(id: string): Promise<RehearsalView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/rehearsals`, { schema: arrayOf(rehearsalViewSchema) });
+  }
+
+  /** Moves one service to another of its project's database clusters: a restore, or back. */
+  switchService(projectId: string, name: string, cluster: string): Promise<ServiceStatus> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/switch`, { body: { cluster }, schema: serviceStatusSchema });
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

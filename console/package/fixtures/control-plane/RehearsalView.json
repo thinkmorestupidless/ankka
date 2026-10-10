@@ -1,0 +1,1 @@
+{"type":"RehearsalView","json":{"name":"ankka-db-x202610090000","line":"ankka-db","moment":"2026-09-28T10:00:00Z","outcome":"Completed","requestedBy":"Olive Owner","requestedAt":"2026-09-28T10:00:00Z","elapsedSeconds":118,"services":[{"name":"wallet","present":true,"journalRows":12,"stateRows":1,"offsetRows":4,"highestSequence":12,"changedSecrets":["api-key"]}]}}

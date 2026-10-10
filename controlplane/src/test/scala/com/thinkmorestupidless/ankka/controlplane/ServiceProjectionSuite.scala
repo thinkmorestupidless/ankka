@@ -313,9 +313,14 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
-  /** A pair whose namespace fits and whose Garage bucket name, `<project>.<service>`, does not. */
+  /**
+   * A pair whose namespace fits and whose Garage bucket name, `<project>.<service>`, does not: the
+   * longest project id there is (its backup bucket's bound), and a service name past the rest.
+   */
   private def longName(d: ServiceDescriptor) =
-    Service.empty(ServiceKey("p" * 57, "reports-archive")).onApplied(d, 1L)
+    Service
+      .empty(ServiceKey("p" * ProjectId.MaxLength, "reports-archive-monthly"))
+      .onApplied(d, 1L)
 
   test("the bucket name's limit is Garage's alone: a name the provider makes is never too long") {
     val Left(onGarage) = ServiceProjection.project(longName(asking()), config): @unchecked

@@ -66,6 +66,19 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
               )
             )
 
+          // A switch rolls the service as a restart does (feature 041).
+          case ServiceSwitched(cluster, generation, _, _) =>
+            effects.updateRow(
+              row.copy(
+                generation = generation,
+                lifecycle = ServiceLifecycle.UpdateInProgress,
+                readyInstances = 0,
+                detail = None,
+                confirmed = true,
+                databaseCluster = cluster
+              )
+            )
+
           case _: ServicePaused =>
             effects.updateRow(
               row.copy(

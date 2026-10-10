@@ -30,10 +30,21 @@ feature also says what that feature does not do.
   version before deployment. The platform does not compare it with the version the running image reports at
   `/ankka/version`. There is one compatibility rule — the same major, and a minor equal to the platform's or
   one below — and no finer matrix.
-- **One database per service, on one Postgres cluster per project.** Provisioned databases run on a
-  single-instance Postgres cluster in the project's namespace. A service that needs a different durability
-  profile, or has existing data to migrate, supplies its own database through `ANKKA_DB_*` variables, and its
-  isolation is then whatever its owner configured.
+- **One database per service, on one Postgres cluster per project.** Provisioned databases run on one
+  Postgres cluster in the project's namespace, a primary and as many as four replicas the project asks for.
+  A service that needs a different durability profile, or has existing data to migrate, supplies its own
+  database through `ANKKA_DB_*` variables, and its isolation and backups are then whatever its owner
+  configured.
+- **A restore does not take back the broker.** Messages published from events a restore lost stay on their
+  topics, and every view and consumer on the platform reads a message published again as a new one; its
+  `ce-id` is the one it carried before, which protects only a reader that deduplicates by it. A restore
+  reports the topics and groups newer than its moment, and changes nothing on the broker.
+- **Backups on Garage are not encrypted by the platform.** Garage holds no key the archiver can send, so a
+  backup is protected by its bucket's credential and by the installation's volume encryption. Without a
+  secondary store, an installation's backups share its cluster's failure domain, and its status says so.
+- **The platform removes no restore and no cluster a service left.** Each is listed, with its age or when
+  the last service left it, and removed by hand. A rehearsal's database is the one the platform removes,
+  when the rehearsal ends or its time to live passes.
 - **One broker per installation, and a project is its boundary.** Every project's topics are on the
   installation's one Kafka, and a service reaches the topics of its own project only. There is no grant
   that lets a service of one project read or publish to another project's topic. A project may declare
@@ -45,10 +56,11 @@ feature also says what that feature does not do.
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
-- **One object store for new buckets, of one node when it is Garage.** A bucket is made in the store the
-  installation names: its own Garage, a single node with one volume whose durability is that volume's, or
-  Google Cloud Storage in its cloud account. A bucket stays where it was made until a member moves it. A
-  bucket and its objects are never deleted by the platform.
+- **One object store for new buckets.** A bucket is made in the store the installation names: its own
+  Garage, or Google Cloud Storage in its cloud account. A local platform runs Garage as one node with one
+  volume, so its durability is that volume's; an installation may run it on three machines, each object on
+  all three, and copy every bucket hourly to a secondary store outside the cluster. A bucket stays where it
+  was made until a member moves it. A bucket and its objects are never deleted by the platform.
 - **Garage keeps one version of an object.** An object overwritten or deleted in Garage is gone at once;
   only Google Cloud Storage keeps noncurrent versions and a soft-delete window.
 - **A move from Garage does not move an object larger than 5 GiB**, and moves one service's bucket at a

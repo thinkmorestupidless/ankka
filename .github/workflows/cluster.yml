@@ -66,12 +66,25 @@ jobs:
       - if: matrix.project == 'sidecar'
         working-directory: sdks/python
         run: uv sync && uv run python scripts/proto.py
+      # What the runner was short of, sampled for the whole suite, so a flaky failure can be told
+      # from a starved runner: a table in the job's summary and the raw samples as an artifact.
+      - name: Start sampling the runner
+        run: nohup python3 .github/cluster-sampler.py record "$RUNNER_TEMP/samples" > "$RUNNER_TEMP/sampler.log" 2>&1 &
       # The nightly run is the full one: twenty cold starts, as the success criterion asks.
       - run: >-
           sbt -Dankka.template.tests=off
           -Dankka.coldstarts=${{ github.event_name == 'schedule' && '20' || inputs.coldstarts || '5' }}
           'set ${{ matrix.project }} / Test / logBuffered := false'
           '${{ matrix.project }}/testOnly ${{ matrix.class }}'
+      - name: Summarise the runner's resources
+        if: always()
+        run: python3 .github/cluster-sampler.py summary "$RUNNER_TEMP/samples" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: resources-${{ matrix.suite }}
+          path: ${{ runner.temp }}/samples/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         if: always()
         with:

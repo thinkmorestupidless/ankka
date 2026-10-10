@@ -216,6 +216,7 @@ object ServiceProjection:
               // Feature 039: what the descriptor says of its bucket, as it says it.
               objectStorageOrigins = descriptor.service.objectStorageOrigins.toList,
               objectStorageCredential = descriptor.service.objectStorageCredential,
-              objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays
+              objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays,
+              databaseCluster = service.databaseCluster
             )
           )

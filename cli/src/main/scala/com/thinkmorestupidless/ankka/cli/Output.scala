@@ -151,6 +151,218 @@ object Output:
         val width = fields.map(_._1.length).max
         fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
 
+  /**
+   * A project's backups and database (feature 041): a line for the project, a row per line of
+   * history, and a line for the database.
+   */
+  def projectStatus(status: ProjectStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val headline =
+          if status.backedUp then s"${status.id}: backed up"
+          else s"${status.id}: not backed up" + status.detail.fold("")(d => s" ($d)")
+        val lines =
+          if status.lines.isEmpty then Vector.empty
+          else
+            table(
+              Vector("LINE", "STATUS", "LAST BASE BACKUP", "RESTORABLE FROM", "TO", "LAG"),
+              status.lines.map(l =>
+                Vector(
+                  l.line,
+                  l.phase + l.failing.fold("")(f => s": $f"),
+                  l.lastBaseBackup.fold("-")(_.toString),
+                  l.firstRestorable.fold("-")(_.toString),
+                  l.lastRestorable.fold("-")(_.toString),
+                  l.archiveLagSeconds.fold("-")(s => f"$s%.0fs")
+                )
+              )
+            ).linesIterator.toVector
+        val database = status.database.toVector.map { d =>
+          s"database ${d.cluster}: ${d.readyInstances}/${d.instances} ready" +
+            d.primary.fold("")(p => s", primary $p") +
+            (if d.synchronous then ", synchronous" else "") +
+            d.writesWaitingOn.fold("")(w => s" (writes waiting: $w)")
+        }
+        (headline +: (lines ++ database)).mkString("\n")
+
+  /** One restore (feature 041): its fields, then a row per service's database. */
+  def restore(view: RestoreView, format: Format): String =
+    format match
+      case Format.Json => writeToString(view)
+      case Format.Table =>
+        val fields = Vector(
+          "name"   -> view.name,
+          "line"   -> view.line,
+          "moment" -> view.moment.toString,
+          "phase"  -> (view.phase + view.detail.fold("")(d => s": $d")),
+          "requested" -> (view.requestedAt.fold("-")(_.toString) + view.requestedBy.fold("")(b =>
+            s" by $b"
+          )),
+          "reached" -> view.reachedAt.fold("-")(_.toString)
+        )
+        val width = fields.map(_._1.length).max
+        val head  = fields.map((label, value) => s"${label.padTo(width, ' ')}  $value")
+        val rows =
+          if view.services.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector(
+                "SERVICE",
+                "PRESENT",
+                "JOURNAL",
+                "STATES",
+                "OFFSETS",
+                "TIMERS",
+                "HIGHEST SEQ",
+                "SECRETS CHANGED"
+              ),
+              view.services.map(v =>
+                Vector(
+                  v.name,
+                  if v.present then "yes" else "no",
+                  v.journalRows.toString,
+                  v.stateRows.toString,
+                  v.offsetRows.toString,
+                  v.timerRows.toString,
+                  v.highestSequence.toString,
+                  if v.changedSecrets.isEmpty then "-" else v.changedSecrets.mkString(", ")
+                )
+              )
+            ).linesIterator.toVector
+        // What the restore cannot take back: the broker, as the restore's services say it.
+        val broker =
+          if view.broker.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector("TOPIC", "GROUP", "NEWER THAN THE MOMENT", "READ BY THE GROUP", "SERVICES"),
+              view.broker.map(e =>
+                Vector(
+                  e.topic,
+                  e.group.getOrElse("-"),
+                  e.after.toString,
+                  e.read.fold("-")(_.toString),
+                  e.services.mkString(", ")
+                )
+              )
+            ).linesIterator.toVector
+        val unasked =
+          if view.notAsked.isEmpty then Vector.empty
+          else Vector("", s"not asked about the broker: ${view.notAsked.mkString(", ")}")
+        val note = view.note.toVector.flatMap(n => Vector("", n))
+        (head ++ rows ++ broker ++ unasked ++ note).mkString("\n")
+
+  def rehearsal(view: RehearsalView, format: Format): String =
+    format match
+      case Format.Json => writeToString(view)
+      case Format.Table =>
+        s"rehearsal ${view.name} of ${view.line} at ${view.moment}: ${view.outcome}" +
+          view.elapsedSeconds.fold("")(s => s", in ${s}s") + view.detail.fold("")(d => s" ($d)")
+
+  def rehearsals(views: Vector[RehearsalView], format: Format): String =
+    format match
+      case Format.Json => writeToString(views)
+      case Format.Table =>
+        table(
+          Vector("NAME", "MOMENT", "OUTCOME", "TOOK", "REQUESTED", "BY"),
+          views.map(v =>
+            Vector(
+              v.name,
+              v.moment.toString,
+              v.outcome + v.detail.fold("")(d => s": $d"),
+              v.elapsedSeconds.fold("-")(s => s"${s}s"),
+              v.requestedAt.fold("-")(_.toString),
+              v.requestedBy.getOrElse("the schedule")
+            )
+          )
+        )
+
+  def restoreHold(status: RestoreHoldStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val head =
+          if status.held then
+            s"held: the control plane's database was restored to " +
+              s"${status.targetTime.fold("an unknown moment")(_.toString)} and nothing is projected " +
+              "until a platform administrator releases it"
+          else
+            status.releasedAt.fold("not held")(at =>
+              s"not held: released at $at" + status.releasedBy.fold("")(b => s" by $b")
+            )
+        val services =
+          if status.services.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector("PROJECT", "SERVICE", "RECORDED", "IN THE CLUSTER"),
+              status.services.map(d =>
+                Vector(
+                  d.project,
+                  d.service,
+                  d.recordedGeneration.fold("-")(g => s"$g ${d.recordedImage.getOrElse("")}"),
+                  d.clusterGeneration.fold("-")(g => s"$g ${d.clusterImage.getOrElse("")}")
+                )
+              )
+            ).linesIterator.toVector
+        val lines =
+          Option.when(status.topics.nonEmpty)(
+            s"topics differ in: ${status.topics.mkString(", ")}"
+          ) ++
+            Option.when(status.unknownProjects.nonEmpty)(
+              s"projects the database does not know: ${status.unknownProjects.mkString(", ")}"
+            ) ++ status.reconciled
+        (head +: services ++: lines.toVector).mkString("\n")
+
+  def databaseSetting(setting: DatabaseSetting, format: Format): String =
+    format match
+      case Format.Json => writeToString(setting)
+      case Format.Table =>
+        Vector(
+          "replicas"    -> setting.replicas.toString,
+          "synchronous" -> (if setting.synchronous then "yes" else "no"),
+          "retention"   -> setting.retentionDays.fold("the installation's")(d => s"$d days"),
+          "rehearsed"   -> setting.rehearse.getOrElse("never")
+        ).map((label, value) => s"${label.padTo(11, ' ')}  $value").mkString("\n")
+
+  def restores(views: Vector[RestoreView], format: Format): String =
+    format match
+      case Format.Json => writeToString(views)
+      case Format.Table =>
+        table(
+          Vector("NAME", "LINE", "MOMENT", "PHASE", "REQUESTED BY"),
+          views.map(v =>
+            Vector(v.name, v.line, v.moment.toString, v.phase, v.requestedBy.getOrElse("-"))
+          )
+        )
+
+  def projectHistory(entries: Vector[ProjectHistoryView], format: Format): String =
+    format match
+      case Format.Json => writeToString(entries)
+      case Format.Table =>
+        table(
+          Vector("WHEN", "KIND", "BY", "DETAIL"),
+          entries.map(e =>
+            Vector(e.at.fold("-")(_.toString), e.kind, e.by.getOrElse("-"), e.detail.getOrElse("-"))
+          )
+        )
+
+  /** Where the installation's backups go (feature 041), as fields. */
+  def installation(status: InstallationStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val fields = Vector(
+          "backups"               -> status.notBackedUp.getOrElse(status.backupTarget),
+          "retention"             -> s"at least ${status.retentionDays} days",
+          "copy outside required" -> (if status.copyRequired then "yes" else "no"),
+          "shares failure domain" -> (if status.sharesFailureDomain then "yes" else "no"),
+          "encryption"            -> status.encryption
+        ) ++ status.controlPlane.toVector.map(l =>
+          "control plane" -> (l.phase + l.lastBaseBackup.fold("")(b => s", last base backup $b"))
+        )
+        val width = fields.map(_._1.length).max
+        fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
+
   /** `ghcr.io as octocat, set 2026-09-25 by sam@example.com`, or `none`. */
   private def registry(row: ProjectSummary): String =
     row.registry.fold("none") { r =>
@@ -300,7 +512,8 @@ object Output:
           entries.map(e =>
             Vector(
               e.at.fold("-")(_.toString),
-              e.rolledBackTo.fold(e.kind)(n => s"${e.kind} to $n"),
+              e.rolledBackTo
+                .fold(e.kind)(n => s"${e.kind} to $n") + e.detail.fold("")(d => s" ($d)"),
               e.generation.toString,
               e.image.getOrElse("-"),
               e.digest.fold("-")(_.take(DigestShown)),

@@ -262,6 +262,70 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A restore of the project's database was asked for (feature 041): a cluster `name` made from the
+   * line of history `line` at `targetTime`. Nothing changes in the current database.
+   */
+  case ProjectRestoreRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A rehearsal of a restore was asked for (feature 041), into the project's rehearsal namespace.
+   */
+  case ProjectRehearsalRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A rehearsal ended: `Completed`, `Failed` or `NotRemoved`, with how long it took. Carries the
+   * line and the moment, so one the project's schedule started is recorded whole. Recorded once.
+   */
+  case ProjectRehearsalEnded(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      outcome: String,
+      elapsedSeconds: Option[Long] = None,
+      detail: Option[String] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * The project's backup credential was asked to be issued again (feature 041, FR-003a): the
+   * operator mints a new key at `generation`, writes it where the archiver reads it, and deletes
+   * the old one. No key is in the journal, nor anywhere the control plane can read.
+   */
+  case ProjectBackupCredentialReissued(
+      generation: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** What the project asks of its database was set (feature 041): the whole setting, as asked. */
+  case ProjectDatabaseSet(
+      setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The restore ended: verified with the moment it reached, or failed and why. Recorded once. */
+  case ProjectRestoreEnded(
+      name: String,
+      succeeded: Boolean,
+      reachedAt: Option[Instant] = None,
+      detail: Option[String] = None,
+      at: Option[Instant] = None
+  )
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -288,6 +352,18 @@ enum ServiceEvent:
   case ServiceRestarted(generation: Long, actor: Option[Actor] = None, at: Option[Instant] = None)
 
   case ServicePaused(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * The service is switched to another of its project's database clusters (feature 041): `None` is
+   * the project database. States the generation it produced, as an apply does, since it rolls the
+   * service.
+   */
+  case ServiceSwitched(
+      cluster: Option[String],
+      generation: Long,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
   case ServiceResumed(actor: Option[Actor] = None, at: Option[Instant] = None)
 
   /**
@@ -495,6 +571,51 @@ final case class DeclareBroker(name: String, bootstrap: String, shape: String, s
 
 /** `remove-broker`: stop declaring a broker. */
 final case class RemoveBroker(name: String)
+
+/**
+ * `request-rehearsal` (feature 041): a rehearsal into the cluster `name`, of `line` at a moment.
+ */
+final case class RequestRehearsal(name: String, line: String, targetTime: java.time.Instant)
+
+/** `observe-rehearsal`: what the operator reported of a rehearsal; an end is recorded once. */
+final case class ObserveRehearsal(
+    name: String,
+    line: String,
+    targetTime: java.time.Instant,
+    outcome: String,
+    elapsedSeconds: Option[Long] = None,
+    detail: Option[String] = None
+)
+
+/** `reissue-backup-credential` (feature 041): a new key for the project's backups. */
+final case class ReissueBackupCredential(note: Option[String] = None)
+
+/** `set-database` (feature 041): what the project asks of its database, whole. */
+final case class SetDatabase(
+    setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting
+)
+
+/**
+ * `request-restore` (feature 041): a restore into the cluster `name`, of `line` at `targetTime`.
+ */
+final case class RequestRestore(name: String, line: String, targetTime: java.time.Instant)
+
+/**
+ * `observe-restore`: what the operator reported of a restore. `Verified` and `Failed` end it, once;
+ * anything else is progress, and records nothing.
+ */
+final case class ObserveRestore(
+    name: String,
+    phase: String,
+    reachedAt: Option[java.time.Instant] = None,
+    detail: Option[String] = None
+)
+
+/**
+ * `switch-database` (feature 041): the cluster the service is on from its next rolling update,
+ * which the switch starts; `None` is the project database.
+ */
+final case class SwitchDatabase(cluster: Option[String])
 
 /** `DeployTokenEntity.get` — everything the entity knows except the digest. */
 final case class DeployTokenDetail(

@@ -89,6 +89,12 @@ interface Project {
   brokers?: Map<string, BrokerRecord>;
   /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
   location?: string;
+  /** Feature 041: restores asked for, in order, and rehearsals. Restores verify at once here. */
+  restores?: { name: string; line: string; moment: string; requestedBy?: string; requestedAt: string }[];
+  rehearsals?: { name: string; line: string; moment: string; requestedBy?: string; requestedAt: string }[];
+  databaseHistory?: { kind: string; by?: string; at: string; detail?: string }[];
+  credentialGeneration?: number;
+  database?: { replicas: number; synchronous: boolean; retentionDays?: number; rehearse?: string };
   hidden: boolean;
 }
 
@@ -178,6 +184,8 @@ interface Service {
   paused: boolean;
   /** What the cluster reports of its database; `null` until it has reported one. */
   database: string | null;
+  /** The restore a member switched it to (feature 041); the project database when absent. */
+  databaseCluster?: string;
   history: {
     kind: string;
     generation: number;
@@ -323,6 +331,8 @@ export interface FakeSeed {
   cloud?: FakeCloud | null;
   /** Where the installation keeps new buckets (feature 039); Garage until a suite says otherwise. */
   objectStore?: "garage" | "gcs";
+  /** Feature 041: start held, as a control plane whose own database was restored. */
+  held?: { targetTime: string; services?: { project: string; service: string; recordedImage?: string; clusterImage?: string }[] };
   organizations?: { id: string; name: string; owners?: string[]; members?: string[]; disabled?: boolean }[];
   projects?: { id: string; name: string; organizationId: string }[];
   services?: {
@@ -461,6 +471,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       suspended,
       paused: s.paused,
       hosting: s.hosting ?? "embedded",
+      databaseCluster: s.databaseCluster ?? null,
       protocol: null,
       mounts: s.mounts ?? [],
       callers: s.callers ?? [],
@@ -580,6 +591,14 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return {
       platformVersion: "0.0.0-fake",
       ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
+      // Feature 041: where the backups go, as an installation with Garage and no copy says it.
+      backups: {
+        backupTarget: "object-store",
+        retentionDays: 30,
+        copyRequired: false,
+        sharesFailureDomain: true,
+        encryption: "none: Garage holds no key the archiver can send",
+      },
     };
   });
 
@@ -1026,6 +1045,149 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       .map(([name, b]) => ({ name, bootstrap: b.bootstrap, shape: b.shape, secret: b.secret, declaredAt: b.declaredAt }));
   });
 
+  // Backups and recovery (feature 041). The fake's project database is backed up from a day ago to
+  // now, and a restore is verified the moment it is asked for, holding every service's database.
+  const restoreView = (project: Project, r: NonNullable<Project["restores"]>[number]) => ({
+    name: r.name,
+    line: r.line,
+    moment: r.moment,
+    phase: [...services.values()].some((s) => s.projectId === project.id && s.databaseCluster === r.name) ? "InUse" : "Verified",
+    requestedBy: r.requestedBy,
+    requestedAt: r.requestedAt,
+    reachedAt: r.moment,
+    services: [...services.values()]
+      .filter((s) => s.projectId === project.id)
+      .map((s) => ({ name: s.name, present: true, journalRows: 1, highestSequence: 1 })),
+  });
+  const remember = (project: Project, kind: string, c: Caller, detail?: string) => {
+    project.databaseHistory ??= [];
+    project.databaseHistory.unshift({ kind, by: c.name ?? c.subject, at: now(), detail });
+  };
+  let hold: { targetTime: string; services?: { project: string; service: string; recordedImage?: string; clusterImage?: string }[]; releasedAt?: string; releasedBy?: string } | undefined;
+
+  route("GET", "/installation/restore", () =>
+    hold
+      ? { held: hold.releasedAt === undefined, targetTime: hold.targetTime, restoredAt: hold.targetTime, releasedAt: hold.releasedAt, releasedBy: hold.releasedBy, services: hold.releasedAt ? [] : (hold.services ?? []) }
+      : { held: false },
+  );
+
+  route("POST", "/installation/restore/release", (c) => {
+    if (!isAdmin(c)) throw new HttpError(403, "only a platform administrator releases a held control plane");
+    if (hold && hold.releasedAt === undefined) hold = { ...hold, releasedAt: now(), releasedBy: c.name ?? c.subject };
+    return hold ? { held: false, targetTime: hold.targetTime, releasedAt: hold.releasedAt, releasedBy: hold.releasedBy } : { held: false };
+  });
+
+  route("GET", "/projects/{projectId}/restores", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return (project.restores ?? []).map((r) => restoreView(project, r));
+  });
+
+  route("POST", "/projects/{projectId}/backups/credential", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireOwner(c, org.id);
+    project.credentialGeneration = (project.credentialGeneration ?? 0) + 1;
+    remember(project, "backup-credential-reissued", c, `generation ${project.credentialGeneration}`);
+    return { project: project.id, generation: project.credentialGeneration };
+  });
+
+  route("GET", "/projects/{projectId}/history", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return project.databaseHistory ?? [];
+  });
+
+  route("GET", "/projects/{projectId}/database", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return project.database ?? { replicas: 0, synchronous: false };
+  });
+
+  route("PUT", "/projects/{projectId}/database", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const b = body as { replicas?: number; synchronous?: boolean; retentionDays?: number; rehearse?: string };
+    const setting = { replicas: b.replicas ?? 0, synchronous: b.synchronous ?? false, retentionDays: b.retentionDays, rehearse: b.rehearse };
+    const problems: string[] = [];
+    if (setting.replicas < 0 || setting.replicas > 4) problems.push(`replicas must be between 0 and 4, not ${setting.replicas}`);
+    if (setting.synchronous && setting.replicas === 0) problems.push("a synchronous database needs at least one replica to wait for");
+    if (setting.retentionDays !== undefined && setting.retentionDays < 30) problems.push(`backups are kept at least 30 days on this installation, not ${setting.retentionDays}`);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    project.database = setting;
+    remember(project, "database-set", c, `${setting.replicas} replica${setting.replicas === 1 ? "" : "s"}${setting.synchronous ? ", synchronous" : ""}`);
+    return setting;
+  });
+
+  const minuteName = (prefix: string) => `ankka-db-${prefix}${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 12)}`;
+
+  route("GET", "/projects/{projectId}/status", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const day = new Date(Date.now() - 86_400_000).toISOString();
+    const onCluster = (name: string) => [...services.values()].filter((s) => s.projectId === project.id && (s.databaseCluster ?? "ankka-db") === name).map((s) => s.name);
+    const restores = project.restores ?? [];
+    return {
+      id: project.id,
+      backedUp: true,
+      target: "object-store",
+      lines: [{ line: "ankka-db", cluster: "ankka-db", phase: "backing up", lastBaseBackup: day, firstRestorable: day, lastRestorable: now() }],
+      database: { cluster: "ankka-db", instances: 1, readyInstances: 1, primary: "ankka-db-1" },
+      clusters: [
+        { name: "ankka-db", line: "ankka-db", phase: onCluster("ankka-db").length === 0 && restores.length > 0 ? "left" : "live", services: onCluster("ankka-db") },
+        ...restores.map((r) => ({ name: r.name, line: r.line, phase: "restore", services: onCluster(r.name), since: r.requestedAt })),
+      ],
+      restores: restores.map((r) => restoreView(project, r)),
+    };
+  });
+
+  route("POST", "/projects/{projectId}/restores", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireOwner(c, org.id);
+    const request = body as { moment?: string; line?: string };
+    const moment = String(request.moment ?? "");
+    if (Number.isNaN(Date.parse(moment)) || Date.parse(moment) > Date.now() || Date.parse(moment) < Date.now() - 86_400_000)
+      throw new HttpError(400, `${project.id} can be restored between ${new Date(Date.now() - 86_400_000).toISOString()} and ${now()}`);
+    project.restores ??= [];
+    const restore = { name: minuteName("r"), line: request.line ?? "ankka-db", moment, requestedBy: c.name ?? c.subject, requestedAt: now() };
+    if (project.restores.some((r) => r.name === restore.name)) throw new HttpError(409, `a restore of ${project.id} is in progress: ${restore.name}`);
+    project.restores.push(restore);
+    remember(project, "restore-requested", c, `${restore.name}, of ${restore.line} at ${moment}`);
+    return { ...restoreView(project, restore), phase: "Restoring", services: [] };
+  });
+
+  route("GET", "/projects/{projectId}/restores/{name}", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const restore = project.restores?.find((r) => r.name === p.name);
+    if (!restore) throw new HttpError(404, `${project.id} has no restore named ${p.name}`);
+    return restoreView(project, restore);
+  });
+
+  route("POST", "/projects/{projectId}/rehearsals", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    project.rehearsals ??= [];
+    const rehearsal = { name: minuteName("x"), line: "ankka-db", moment: now(), requestedBy: c.name ?? c.subject, requestedAt: now() };
+    project.rehearsals.push(rehearsal);
+    remember(project, "rehearsal-requested", c, rehearsal.name);
+    return { ...rehearsal, outcome: "Running" };
+  });
+
+  route("GET", "/projects/{projectId}/rehearsals", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return (project.rehearsals ?? []).map((r) => ({ ...r, outcome: "Completed", elapsedSeconds: 118 }));
+  });
+
+  route("POST", "/services/{projectId}/{name}/switch", (c, p, body) => {
+    const { service, org } = requireService(c, p.projectId, p.name);
+    requireOwner(c, org.id);
+    const cluster = String((body as { cluster?: string }).cluster ?? "");
+    const project = projects.get(p.projectId)!;
+    if (cluster !== "ankka-db" && !project.restores?.some((r) => r.name === cluster))
+      throw new HttpError(400, `${cluster} is not a restore of ${p.projectId} that can be switched to`);
+    const next = cluster === "ankka-db" ? undefined : cluster;
+    if (next !== service.databaseCluster) {
+      service.databaseCluster = next;
+      service.generation += 1;
+    }
+    return serviceStatus(service);
+  });
+
   route("GET", "/services/{projectId}", (c, p) => {
     requireProject(c, p.projectId);
     return [...services.values()].filter((s) => s.projectId === p.projectId).map(serviceStatus);
@@ -1377,6 +1539,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     seed(seed) {
       if (seed.objectStore) objectStore = seed.objectStore;
       if (seed.cloud !== undefined) cloud = seed.cloud;
+      if (seed.held) hold = { ...seed.held, releasedAt: undefined, releasedBy: undefined };
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
         for (const s of o.owners ?? []) members.set(s, { role: "owner", since: now() });

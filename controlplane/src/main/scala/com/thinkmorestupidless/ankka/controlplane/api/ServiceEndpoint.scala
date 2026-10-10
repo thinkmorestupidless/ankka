@@ -38,7 +38,12 @@ final class ServiceEndpoint(
     deploy: DeployConfig = DeployConfig.default,
     logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
     protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
-    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix),
+    /**
+     * Where a project's restores are read (feature 041), for what a switch may name; `None` refuses
+     * every switch to a restore.
+     */
+    projects: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -152,6 +157,54 @@ final class ServiceEndpoint(
    * two people asking at once both resolve to one generation, and the second is refused as already
    * having it, rather than rolling the first one back.
    */
+  /**
+   * Switches a service to another of its project's database clusters (feature 041): a verified
+   * restore that holds the service's database, or back to the project database. Owners only. The
+   * switch is a new generation, so the service rolls onto the cluster at once; switching to where
+   * it is changes nothing.
+   */
+  postBody("/{projectId}/{name}/switch") {
+    (projectId: String, name: String, request: SwitchRequest) =>
+      val authorized = authz.projectOwner(principal, projectId)
+      val target     = request.cluster.trim
+      if target != com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase then
+        val reported = projects
+          .flatMap(reader =>
+            try reader.topicStatus(projectId)
+            catch case NonFatal(_) => None
+          )
+          .toVector
+          .flatMap(_.restores)
+        val restore = reported
+          .find(_.name == target)
+          .getOrElse(
+            throw CommandError(
+              s"$target is not a restore of $projectId that can be switched to",
+              ErrorCode.BadRequest
+            )
+          )
+        if restore.phase != "Verified" && restore.phase != "InUse" then
+          throw CommandError(
+            s"the restore $target is ${restore.phase}; only a verified restore can be switched to",
+            ErrorCode.Conflict
+          )
+        if !restore.services.exists(v => v.name == name && v.present) then
+          throw CommandError(
+            s"$name had no database at ${restore.targetTime}, so it cannot be switched to $target",
+            ErrorCode.BadRequest
+          )
+      val status = entity(projectId, name)
+        .call(ServiceEntity.switchDatabase)
+        .withMetadata(authz.metadata(authorized))
+        .invoke(
+          com.thinkmorestupidless.ankka.controlplane.domain.SwitchDatabase(
+            Option
+              .when(target != com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase)(target)
+          )
+        )
+      withHostname(status)
+  }
+
   postBody("/{projectId}/{name}/rollback") {
     (projectId: String, name: String, request: RollbackRequest) =>
       val authorized = authz.project(principal, projectId, write = true)

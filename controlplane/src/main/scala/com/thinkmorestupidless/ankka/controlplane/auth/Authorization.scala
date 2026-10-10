@@ -67,6 +67,18 @@ final class Authorization(clients: EndpointClients, clock: Clock):
       case failure: CommandError if failure.code == ErrorCode.NotFound =>
         throw noSuchProject(projectId)
 
+  /**
+   * As `project`, for what only an owner of the project's organization may do (feature 041: a
+   * restore and a switch). A member who is not an owner is refused as member management refuses
+   * one; a non-member sees the project as missing.
+   */
+  def projectOwner(principal: Principal, projectId: String): Authorized =
+    val organizationId = organizationOf(projectId).getOrElse(throw noSuchProject(projectId))
+    try requireOwner(principal, organizationId, write = true)
+    catch
+      case failure: CommandError if failure.code == ErrorCode.NotFound =>
+        throw noSuchProject(projectId)
+
   def organizationOf(projectId: String): Option[String] =
     try
       Some(

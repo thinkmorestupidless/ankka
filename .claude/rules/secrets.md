@@ -62,3 +62,5 @@ operator's naming by `ReservedSecretNamesSuite`.
   rules now refuse it for every hosting (`ServiceSpec.isPlatformSecret`), and `ProxyEnvironmentSuite`
   holds the list to every Secret name `Rendering` asks cert-manager to write, so a new certificate cannot
   be added without the rule.
+- **`<anything>-backups` is the platform's.** A project namespace holds `ankka-db-backups`, the archiver's
+  credential for the project's backups (feature 041), so a project secret named so is refused.

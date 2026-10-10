@@ -95,7 +95,12 @@ final case class Settings(
      * rotation grace (`ANKKA_CLOUD_ROTATION_GRACE`), an hour as shipped, which feature 039 applies
      * to Garage's keys too.
      */
-    rotationGrace: FiniteDuration = 1.hour
+    rotationGrace: FiniteDuration = 1.hour,
+    /**
+     * The installation's backups (feature 041): where they go, for how long, and how often. Set by
+     * the `backups` component; without it nothing is archived and everything renders as before.
+     */
+    backups: BackupSettings = BackupSettings.none
 ):
   /**
    * The store new buckets are made in (research R1a D1): the backend the installation names, else
@@ -146,6 +151,7 @@ object Settings:
    * reported on it — which is exactly why that signal exists.
    */
   def fromEnvironment(): Settings =
+    val store = objectStore()
     Settings(
       namespacePrefix = string(
         "ankka.operator.namespace-prefix",
@@ -195,7 +201,8 @@ object Settings:
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
-      objectStore = objectStore(),
+      objectStore = store,
+      backups = BackupSettings.read(raw, store),
       cloud = CloudSettings.read(raw),
       storageMoverImage = string(
         "ankka.operator.storage-mover-image",

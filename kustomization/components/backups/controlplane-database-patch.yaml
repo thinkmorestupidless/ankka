@@ -1,0 +1,18 @@
+# The archiver on the control plane's own database, under its own line of history, and a segment
+# archived at least every minute, as a project database's. Adding the plugin restarts the
+# database's instance once.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ankka-controlplane-db
+  namespace: ankka-controlplane
+spec:
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: ankka-backups
+        serverName: ankka-controlplane-db
+  postgresql:
+    parameters:
+      archive_timeout: "60s"

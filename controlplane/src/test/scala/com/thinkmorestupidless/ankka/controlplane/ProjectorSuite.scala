@@ -124,6 +124,12 @@ class ProjectorSuite extends munit.FunSuite with LogCapturing:
     // The requirement that is easiest to satisfy on paper and hardest to keep: without the
     // idempotence check in `put` and the dedupe in `observe`, this is a continuous write
     // load against the API server rather than a failing test.
+    //
+    // A sweep that listed the resource before test 3 set its status records "no report" after
+    // test 3's report, and the next sweep records the report again. That is the previous test's
+    // write settling, not a steady state, so wait out a sweep before taking the baseline.
+    Thread.sleep(1500)
+    eventually()(status().confirmed)
     val before = client.forEventSourcedEntity(EntityId(Key.id)).call(ServiceEntity.get).invoke()
     fake.resetCounters()
 

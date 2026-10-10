@@ -222,7 +222,26 @@ final case class AnkkaServiceSpec(
      * renders the cluster's address as a literal on the pod template, never into the credential
      * Secret, which is written once.
      */
-    databaseCluster: Option[String] = None
+    databaseCluster: Option[String] = None,
+    /**
+     * The custom hostnames the service holds (feature 045): names under domains their owners bring,
+     * each proved by the control plane before it was recorded and unique across the installation.
+     * Rendered only while `exposed`. Unlike the derived hostname these are read from the resource,
+     * since nothing could derive them; the control plane is what refuses a name the project has not
+     * proved or another service holds, and the Gateway's own listeners win every conflict with one,
+     * so a name here cannot change how the base domain is reached.
+     */
+    customHostnames: List[String] = Nil
+)
+
+/** Where one custom hostname stands, as the operator read it from what serves it. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class HostnameStatus(
+    hostname: String = "",
+    /** `pending`, `serving` or `rejected`. */
+    state: String = "pending",
+    /** The authority's or the gateway's words; absent when serving with nothing to say. */
+    reason: Option[String] = None
 )
 
 /**
@@ -421,7 +440,12 @@ final case class AnkkaServiceStatus(
      * grants file its running instances read (feature 040). Absent for a web-hosted service, whose
      * routes cannot be granted, and from an operator that predates grants.
      */
-    grants: Option[String] = None
+    grants: Option[String] = None,
+    /**
+     * One entry per custom hostname on the spec, in its order, while the service is exposed
+     * (feature 045). Empty otherwise.
+     */
+    hostnames: List[HostnameStatus] = Nil
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: AnkkaServiceStatus): Boolean =

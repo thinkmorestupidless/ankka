@@ -466,6 +466,27 @@ enum ServiceEvent:
   case ServiceExposed(actor: Option[Actor] = None, at: Option[Instant] = None)
   case ServiceUnexposed(actor: Option[Actor] = None, at: Option[Instant] = None)
 
+  /**
+   * A custom hostname was added (feature 045), after the endpoint found it valid, held by no other
+   * service and proved by the project. Desired state beside exposure; no generation.
+   */
+  case CustomHostnameAdded(
+      hostname: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A custom hostname was removed: by a member, or taken away by a platform administrator, which
+   * the history says apart because the second is a decision made over the members' heads.
+   */
+  case CustomHostnameRemoved(
+      hostname: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None,
+      byAdministrator: Boolean = false
+  )
+
   /** What the reconciler saw. `generation` is the desired state being reported on. */
   case ServiceObserved(
       generation: Long,
@@ -507,7 +528,12 @@ enum ServiceEvent:
        * `mounted` when the operator reported the service reads its project's grants (feature 040).
        * `None` from an operator that predates grants, and for events from before it.
        */
-      grants: Option[String] = None
+      grants: Option[String] = None,
+      /**
+       * Where each custom hostname stands, as the operator reported it (feature 045). Empty for a
+       * service with none and for events from before they existed.
+       */
+      hostnames: Vector[HostnameReport] = Vector.empty
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -579,7 +605,8 @@ final case class ServiceObservation(
     broker: Option[String] = None,
     objectStorage: Option[String] = None,
     storage: Option[StorageReport] = None,
-    grants: Option[String] = None
+    grants: Option[String] = None,
+    hostnames: Vector[HostnameReport] = Vector.empty
 )
 
 /**
@@ -602,6 +629,12 @@ final case class StorageReport(
     /** When the move's write pause began, as the operator wrote it, RFC 3339. */
     movePausedAt: Option[String] = None
 )
+
+/**
+ * The operator's word on one custom hostname (feature 045): `pending`, `serving` or `rejected`,
+ * with the authority's or the gateway's reason. Verbatim from the resource's status.
+ */
+final case class HostnameReport(hostname: String, state: String, reason: Option[String] = None)
 
 /**
  * A deploy token's life: created, used (at most once a day), revoked.

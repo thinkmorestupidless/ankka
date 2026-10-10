@@ -236,6 +236,38 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     else effects.persist(ServiceUnexposed(actor, at)).thenReply(_.toStatus)
 
   /**
+   * Records a custom hostname (feature 045). Whether the name is valid, held by another service or
+   * proved by the project is the endpoint's to decide first: the first is a rule, the other two
+   * cross-entity checks. What only this entity knows is checked here: that the service is exposed,
+   * and that it holds fewer than the cap. One already held is answered unchanged.
+   */
+  def addHostname(hostname: String): Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if currentState.holds(hostname) then effects.reply(currentState.toStatus)
+    else if !currentState.exposed then
+      effects.error(ServiceEntity.notExposed(key.name), ErrorCode.Conflict)
+    else if currentState.customHostnames.size >= CustomHostnames.MaxPerService then
+      effects.error(ServiceEntity.atCap(key.name), ErrorCode.Conflict)
+    else effects.persist(CustomHostnameAdded(hostname, actor, at)).thenReply(_.toStatus)
+
+  /** Removes a custom hostname; one not held is answered unchanged. */
+  def removeHostname(hostname: String): Effect[ServiceStatus] = removing(hostname, false)
+
+  /**
+   * A platform administrator's removal, recorded as such: the decision to take a name from a
+   * service whose project no longer controls the domain is made over the members' heads.
+   */
+  def takeHostnameAway(hostname: String): Effect[ServiceStatus] = removing(hostname, true)
+
+  private def removing(hostname: String, byAdministrator: Boolean): Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.holds(hostname) then effects.reply(currentState.toStatus)
+    else
+      effects
+        .persist(CustomHostnameRemoved(hostname, actor, at, byAdministrator))
+        .thenReply(_.toStatus)
+
+  /**
    * The organization's decision, not the members' (feature 008). Idempotent: the trigger and the
    * sweep may both ask, and redelivery is at-least-once.
    */
@@ -269,7 +301,8 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.broker,
       observation.objectStorage,
       observation.storage,
-      observation.grants
+      observation.grants,
+      observation.hostnames
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)
@@ -345,6 +378,14 @@ object ServiceEntity
 
   def create(context: EventSourcedEntityContext) = new ServiceEntity(context)
 
+  /** Refusal 7 of feature 045's contract, also asked by the endpoint before anything costly. */
+  def notExposed(service: String): String = s"service '$service' is not exposed"
+
+  /** Refusal 8. */
+  def atCap(service: String): String =
+    s"service '$service' holds ${CustomHostnames.MaxPerService} custom hostnames, the most a " +
+      "service can hold"
+
   val applyDescriptor = command("apply")(_.apply)
   val restart         = command("restart")(_.restart)
   val reissueStorageCredential =
@@ -360,10 +401,14 @@ object ServiceEntity
   val resume         = command("resume")(_.resume)
   val expose         = command("expose")(_.expose)
   val unexpose       = command("unexpose")(_.unexpose)
-  val observe        = command("observe")(_.observe)
-  val delete         = command("delete")(_.delete)
-  val suspend        = command("suspend")(_.suspend)
-  val reinstate      = command("reinstate")(_.reinstate)
-  val get            = query("get")(_.get)
-  val history        = query("history")(_.history)
-  val desiredState   = query("desired")(_.desiredState)
+  // Three wire names, so an in-flight take-away survives a rolling update as a take-away.
+  val addHostname      = command("add-hostname")(_.addHostname)
+  val removeHostname   = command("remove-hostname")(_.removeHostname)
+  val takeHostnameAway = command("take-hostname-away")(_.takeHostnameAway)
+  val observe          = command("observe")(_.observe)
+  val delete           = command("delete")(_.delete)
+  val suspend          = command("suspend")(_.suspend)
+  val reinstate        = command("reinstate")(_.reinstate)
+  val get              = query("get")(_.get)
+  val history          = query("history")(_.history)
+  val desiredState     = query("desired")(_.desiredState)

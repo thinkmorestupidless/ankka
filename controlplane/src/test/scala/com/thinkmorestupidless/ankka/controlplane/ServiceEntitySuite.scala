@@ -1167,3 +1167,113 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
       "generation 3 was a restart and ran the descriptor of generation 2"
     )
   }
+
+  // --- Custom hostnames (feature 045): desired state beside exposure.
+
+  private def exposedKit =
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.expose)
+    kit
+
+  test("a service that is not exposed cannot be given a custom hostname") {
+    val kit     = newKit
+    val _       = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val refused = kit.call(ServiceEntity.addHostname)("app.example.com")
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assertEquals(refused.errorMessage, "service 'cart' is not exposed")
+    assertEquals(kit.allEvents.size, 1)
+  }
+
+  test(
+    "adding a custom hostname persists one event, is idempotent, and leaves the generation alone"
+  ) {
+    val kit   = exposedKit
+    val added = kit.call(ServiceEntity.addHostname)("app.example.com")
+    assertEquals(added.events, Vector(CustomHostnameAdded("app.example.com")))
+    assertEquals(added.replyValue.customHostnames, Vector(CustomHostname("app.example.com")))
+    assertEquals(added.replyValue.generation, 1L)
+    assertEquals(kit.call(ServiceEntity.addHostname)("app.example.com").events, Vector.empty)
+  }
+
+  test("a sixth custom hostname is refused, naming the cap") {
+    val kit = exposedKit
+    for i <- 1 to 5 do
+      assertEquals(kit.call(ServiceEntity.addHostname)(s"a$i.example.com").events.size, 1)
+    val refused = kit.call(ServiceEntity.addHostname)("a6.example.com")
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assertEquals(
+      refused.errorMessage,
+      "service 'cart' holds 5 custom hostnames, the most a service can hold"
+    )
+  }
+
+  test("removing one not held changes nothing; removing one held frees a slot") {
+    val kit = exposedKit
+    assertEquals(kit.call(ServiceEntity.removeHostname)("app.example.com").events, Vector.empty)
+    val _       = kit.call(ServiceEntity.addHostname)("app.example.com")
+    val removed = kit.call(ServiceEntity.removeHostname)("app.example.com")
+    assertEquals(removed.events, Vector(CustomHostnameRemoved("app.example.com")))
+    assertEquals(removed.replyValue.customHostnames, Vector.empty)
+  }
+
+  test("a take-away is recorded as one, and the history tells the three apart") {
+    val kit   = exposedKit
+    val _     = kit.call(ServiceEntity.addHostname)("a.example.com")
+    val _     = kit.call(ServiceEntity.addHostname)("b.example.com")
+    val _     = kit.call(ServiceEntity.removeHostname)("a.example.com")
+    val taken = kit.call(ServiceEntity.takeHostnameAway)("b.example.com")
+    assertEquals(
+      taken.events,
+      Vector(CustomHostnameRemoved("b.example.com", byAdministrator = true))
+    )
+    val history = kit.call(ServiceEntity.history).replyValue.take(4).map(e => (e.kind, e.hostname))
+    assertEquals(
+      history,
+      Vector(
+        "hostname taken away" -> Some("b.example.com"),
+        "hostname removed"    -> Some("a.example.com"),
+        "hostname added"      -> Some("b.example.com"),
+        "hostname added"      -> Some("a.example.com")
+      )
+    )
+  }
+
+  test("unexposing keeps the hostnames, each pending; deleting frees them") {
+    val kit       = exposedKit
+    val _         = kit.call(ServiceEntity.addHostname)("app.example.com")
+    val unexposed = kit.call(ServiceEntity.unexpose).replyValue
+    assertEquals(
+      unexposed.customHostnames,
+      Vector(CustomHostname("app.example.com", "pending", Some("the service is not exposed")))
+    )
+    assertEquals(
+      kit.call(ServiceEntity.desiredState).replyValue.map(_.customHostnames),
+      Some(Vector("app.example.com"))
+    )
+    val _ = kit.call(ServiceEntity.delete)
+    assertEquals(kit.currentState.customHostnames, Vector.empty)
+  }
+
+  test(
+    "an observation of the hostnames is what a member reads, and an identical one is not persisted"
+  ) {
+    val kit = exposedKit
+    val _   = kit.call(ServiceEntity.addHostname)("app.example.com")
+    val report = ServiceObservation(
+      1L,
+      ServiceLifecycle.Ready,
+      readyInstances = 1,
+      desiredInstances = 1,
+      hostnames = Vector(HostnameReport("app.example.com", "serving"))
+    )
+    assertEquals(kit.call(ServiceEntity.observe)(report).events.size, 1)
+    assertEquals(kit.call(ServiceEntity.observe)(report).events, Vector.empty)
+    assertEquals(
+      kit.call(ServiceEntity.get).replyValue.customHostnames,
+      Vector(CustomHostname("app.example.com", "serving"))
+    )
+    val pending =
+      report.copy(hostnames = Vector(HostnameReport("app.example.com", "pending", Some("x"))))
+    assertEquals(kit.call(ServiceEntity.observe)(pending).events.size, 1)
+  }

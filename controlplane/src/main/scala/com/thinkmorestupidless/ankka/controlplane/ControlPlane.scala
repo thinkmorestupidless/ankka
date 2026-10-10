@@ -139,7 +139,12 @@ object ControlPlane:
       machineKeys: Option[MachineKeys] = None,
       /** The installation's topic defaults, bounds and warning threshold (feature 043). */
       topicPolicy: => com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
-        com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
+        com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
+      /**
+       * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
+       * resolver `deploy` names, or the system's; a suite passes one it scripts.
+       */
+      proofs: Option[com.thinkmorestupidless.ankka.controlplane.api.ProofLookup] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -173,6 +178,9 @@ object ControlPlane:
           com.thinkmorestupidless.ankka.controlplane.deploy
             .PodLogs(DeployConfig.default.namespacePrefix)
         )
+        val lookup = proofs.getOrElse(
+          com.thinkmorestupidless.ankka.controlplane.api.ProofLookup.jndi(deploy.dnsResolver)
+        )
         topology match
           case Some(reader) =>
             ServiceEndpoint(
@@ -183,7 +191,8 @@ object ControlPlane:
               clock = clock,
               topology = reader,
               projects = topics,
-              topicPolicy = topicPolicy
+              topicPolicy = topicPolicy,
+              proofs = lookup
             )
           case None =>
             ServiceEndpoint(
@@ -193,7 +202,8 @@ object ControlPlane:
               logs = logReader,
               clock = clock,
               projects = topics,
-              topicPolicy = topicPolicy
+              topicPolicy = topicPolicy,
+              proofs = lookup
             ),
       clients => WhoamiEndpoint(clients, acl, clock),
       clients =>

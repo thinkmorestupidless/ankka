@@ -197,8 +197,8 @@ final class ServiceReconciler(
         val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
         seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
       def output(plan: CloudPlan, key: String) = plan match
-        case CloudPlan.Ready(outputs, _, _) => outputs.get(key)
-        case _                              => None
+        case CloudPlan.Ready(outputs, _, _, _) => outputs.get(key)
+        case _                                 => None
       val projectLocation = executor.projectLocation(ref.namespace, spec.projectId)
       val first =
         ObjectStorage.cloudRequests(resource, settings, cloud, projectLocation, None, None)

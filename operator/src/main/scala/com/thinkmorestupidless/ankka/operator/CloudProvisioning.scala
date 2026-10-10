@@ -22,8 +22,16 @@ enum CloudPlan:
   /** Not yet answered for this generation, or the provider says it is still working. */
   case Waiting(detail: Option[String])
 
-  /** The provider's answer for this generation. */
-  case Ready(outputs: Map[String, String], recovered: Boolean, credentialGeneration: Option[Long])
+  /**
+   * The provider's answer for this generation, and where it made the thing, in the installation's
+   * words (feature 039 reads a bucket's).
+   */
+  case Ready(
+      outputs: Map[String, String],
+      recovered: Boolean,
+      credentialGeneration: Option[Long],
+      location: String = ""
+  )
 
   /** The provider's refusal, in its own words. */
   case Failed(detail: String)
@@ -72,7 +80,8 @@ object CloudProvisioning:
                 CloudPlan.Ready(
                   status.outputs,
                   recovered = status.recovered || status.phase == CloudKinds.Recovered,
-                  credentialGeneration = status.credentialGeneration
+                  credentialGeneration = status.credentialGeneration,
+                  location = status.location
                 )
               case CloudKinds.Failed =>
                 CloudPlan.Failed(status.detail.getOrElse("the provider gave no reason"))

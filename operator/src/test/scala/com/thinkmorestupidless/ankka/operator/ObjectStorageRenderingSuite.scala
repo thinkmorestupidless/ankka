@@ -496,6 +496,24 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     assertEquals(bucketAsked(asks, projectLocation = Some("us-east1"))("location"), "us-east1")
   }
 
+  test(
+    "cloud: the status names the bucket, its store and its location as the provider reported them"
+  ) {
+    val ready = ObjectStoragePlan.Ready(
+      recovered = false,
+      Some(CloudBucket("t-shop-reports-1", "https://e", "auto", 1L, location = "europe-west2"))
+    )
+    val s = ObjectStorage.status(ready, asks, withCloud, None).get
+    assertEquals(s.store, "gcs")
+    assertEquals(s.bucket, "t-shop-reports-1")
+    assertEquals(s.location, Some("europe-west2"))
+    // Until the provider has answered, it names no location.
+    assertEquals(
+      ObjectStorage.status(ObjectStoragePlan.Waiting(None), asks, withCloud, None).get.location,
+      None
+    )
+  }
+
   test("cloud: a waiting bucket asks for an identity and a bucket, and starts no instance") {
     val actions = renderCloud(asks, ObjectStoragePlan.Waiting(None))
     assertEquals(cloudRequestNames(actions), Vector("reports-identity", "reports-bucket"))

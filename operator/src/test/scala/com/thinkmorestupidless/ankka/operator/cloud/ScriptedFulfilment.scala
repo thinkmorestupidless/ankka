@@ -127,6 +127,7 @@ final class ScriptedFulfilment(
   private val endedLog  = mutable.ArrayBuffer.empty[Ended]
   private val due       = mutable.ArrayBuffer.empty[(Ended, Instant)]
   private val refusals  = mutable.Map.empty[String, String]
+  private val stalls    = mutable.Map.empty[String, String]
 
   /** Anything this provider tried to reach outside the cluster. It has nothing that could. */
   val reached: AtomicInteger = new AtomicInteger(0)
@@ -148,6 +149,12 @@ final class ScriptedFulfilment(
 
   /** Fail the request of this name with this reason, from now on. */
   def failing(name: String, reason: String): Unit = synchronized(refusals(name) = reason)
+
+  /** Answer the request of this name as still being made, saying why, until `proceed`. */
+  def stalling(name: String, reason: String): Unit = synchronized(stalls(name) = reason)
+
+  /** Stop stalling every request. */
+  def proceed(): Unit = synchronized(stalls.clear())
 
   /**
    * The status for one request at one generation. `previous` is the status it already carries, if
@@ -171,8 +178,13 @@ final class ScriptedFulfilment(
     )
     def failed(reason: String) = base.copy(phase = CloudKinds.Failed, detail = Some(reason))
 
-    refusals.get(name) match
-      case Some(reason) => failed(reason)
+    refusals
+      .get(name)
+      .map(failed)
+      .orElse(
+        stalls.get(name).map(reason => base.copy(phase = CloudKinds.Waiting, detail = Some(reason)))
+      ) match
+      case Some(answer) => answer
       case None if !CloudKinds.all.contains(spec.kind) =>
         failed(s"kind ${spec.kind} is not implemented by $version")
       case None =>

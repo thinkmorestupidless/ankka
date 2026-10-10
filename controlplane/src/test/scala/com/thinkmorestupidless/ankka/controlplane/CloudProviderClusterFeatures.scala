@@ -406,9 +406,10 @@ class CloudProviderClusterFeatures
     assertEquals(r.getSpec.kind, CloudKinds.Bucket)
     assertEquals(r.getSpec.subject.project, project)
     assertEquals(r.getSpec.parameters("purpose"), purpose)
-    // A project names no location of its own until feature 039: the installation's, verbatim.
+    // This project names no location of its own: the installation's, verbatim.
     assertEquals(r.getSpec.parameters("location"), cloud.location)
-    assertEquals(r.getSpec.parameters("versioning"), "false")
+    // A service's bucket keeps versions (feature 039), and a bucket nobody exposed admits no origin.
+    assertEquals(r.getSpec.parameters("versioning"), "true")
     assertEquals(r.getSpec.parameters("corsOrigins"), "")
   }
 

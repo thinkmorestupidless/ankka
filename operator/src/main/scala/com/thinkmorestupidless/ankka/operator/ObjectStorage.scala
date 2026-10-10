@@ -75,7 +75,9 @@ final case class CloudBucket(
     bucket: String,
     endpoint: String,
     region: String,
-    credentialGeneration: Long
+    credentialGeneration: Long,
+    /** Where the provider made it, in the installation's words (feature 039). */
+    location: String = ""
 )
 
 /**
@@ -241,12 +243,22 @@ object ObjectStorage:
       case Some(detail) => ObjectStoragePlan.Failed(Vector(detail))
       case None =>
         (plans.identity, plans.bucket, plans.credential) match
-          case (_: CloudPlan.Ready, CloudPlan.Ready(o, recovered, _), Some(c: CloudPlan.Ready)) =>
+          case (
+                _: CloudPlan.Ready,
+                CloudPlan.Ready(o, recovered, _, location),
+                Some(c: CloudPlan.Ready)
+              ) =>
             val found = for
               bucket   <- o.get(CloudRequests.Keys.Bucket)
               endpoint <- o.get(CloudRequests.Keys.Endpoint)
               region   <- o.get(CloudRequests.Keys.Region)
-            yield CloudBucket(bucket, endpoint, region, c.credentialGeneration.getOrElse(1L))
+            yield CloudBucket(
+              bucket,
+              endpoint,
+              region,
+              c.credentialGeneration.getOrElse(1L),
+              location
+            )
             found match
               case Some(b) => ObjectStoragePlan.Ready(recovered, Some(b))
               case None =>
@@ -307,7 +319,15 @@ object ObjectStorage:
     // account is in Google Cloud Storage, `gcp` being the one provider there is (feature 044), and
     // its credential's generation is the provider's answer.
     statusOf(plan, spec, settings, reported, bucket).map(s =>
-      if inCloud then s.copy(store = "gcs", credentialGeneration = cloudGeneration(plan))
+      if inCloud then
+        s.copy(
+          store = "gcs",
+          credentialGeneration = cloudGeneration(plan),
+          // Where the provider made it, as it reported (feature 039).
+          location = plan match
+            case ObjectStoragePlan.Ready(_, Some(cloud)) => Some(cloud.location).filter(_.nonEmpty)
+            case _                                       => None
+        )
       else if spec.provisionObjectStorage then
         s.copy(store = "garage", credentialGeneration = credentialGeneration(plan, spec, inPlace))
       else s

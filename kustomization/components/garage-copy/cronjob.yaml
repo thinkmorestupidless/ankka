@@ -65,12 +65,22 @@ spec:
                 - |
                   out=/result/status
                   fail() { echo "lastFailed=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > $out; echo "failure=$1" >> $out; exit 0; }
-                  api() { wget -q -O - --header "Authorization: Bearer $TOKEN" "$@"; }
-                  # The copy's own key, from its Secret: imported when Garage does not hold it yet.
+                  # Tried three times: a node that replaced a lost one answers about one request in
+                  # three with 500 "Layout not ready" until it has a role.
+                  api() {
+                    for try in 1 2 3; do
+                      wget -q -O - --header "Authorization: Bearer $TOKEN" "$@" && return 0
+                      sleep 5
+                    done
+                    return 1
+                  }
+                  # The copy's own key, from its Secret: imported when Garage does not hold it yet. An
+                  # import refused because the key is there (409) is the key being there.
                   id="$RCLONE_CONFIG_GARAGE_ACCESS_KEY_ID"
-                  if ! api "$ADMIN/v2/GetKeyInfo?id=$id" >/dev/null 2>&1; then
+                  has_key() { api "$ADMIN/v2/GetKeyInfo?id=$id" >/dev/null 2>&1; }
+                  if ! has_key; then
                     api --post-data "{\"accessKeyId\":\"$id\",\"secretAccessKey\":\"$RCLONE_CONFIG_GARAGE_SECRET_ACCESS_KEY\",\"name\":\"garage-copy\"}" \
-                      "$ADMIN/v2/ImportKey" >/dev/null || fail "the copy's key could not be imported"
+                      "$ADMIN/v2/ImportKey" >/dev/null 2>&1 || has_key || fail "the copy's key could not be imported"
                   fi
                   buckets=$(api "$ADMIN/v2/ListBuckets" | tr -d '\n' | grep -o '"globalAliases": *\[ *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/') \
                     || fail "the buckets could not be listed"

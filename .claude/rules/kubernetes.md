@@ -603,7 +603,9 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
   Garage answers `500 Layout not ready` (or "no such key" on S3) for about one request in three, since
   the `garage` Service still routes to it. So `garage-layout` is a Deployment that reconciles every 15
   seconds and gives the new node the lost one's zone, not a Job someone has to run again. A role whose
-  node is merely down, with nothing new to take its place, is left alone.
+  node is merely down, with nothing new to take its place, is left alone. Every admin call the hourly
+  copy makes is tried three times for the same reason: a 500 on its key lookup read as "no key", and the
+  import then failed 409 on a key that was there.
 - **Every reconciler's executor comes from `Fabric8Executor.of(client, settings)`.** The project
   reconciler built a bare `Fabric8Executor(client)`, with no store, and every rehearsal failed with "an
   object storage action was rendered with no store" — in production as much as in the suite.

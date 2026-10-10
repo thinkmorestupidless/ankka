@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   Fabric8AnkkaServiceClient,
+  ObjectStoreKind,
   ServiceProjector
 }
 import com.thinkmorestupidless.ankka.crd.{
@@ -43,10 +44,18 @@ import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientB
 import org.testcontainers.k3s.K3sContainer
 import org.testcontainers.utility.DockerImageName
 
+import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
+import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.services.s3.S3Configuration
+import software.amazon.awssdk.services.s3.model.{GetObjectRequest, PutObjectRequest}
+import software.amazon.awssdk.services.s3.presigner.S3Presigner
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
+
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
+import java.time.Instant
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /**
@@ -77,7 +86,10 @@ class ObjectStorageGcsClusterFeatures
     "neither the operator nor the cloud provider can read a storage credential back" ->
       "OperatorClusterSuite, case 41, and CloudProviderClusterFeatures under the provider's own token",
     "the operator holds no Google client, credential or permission and reads only the cloud provider's status" ->
-      "OperatorClusterSuite's minted-token cases and CloudProviderClusterFeatures"
+      "OperatorClusterSuite's minted-token cases and CloudProviderClusterFeatures",
+    // This installation's object store is Google Cloud Storage; the refusal is the control plane's.
+    "a descriptor that declines a storage credential is refused on an installation whose object store is Garage" ->
+      "ServiceProjectionSuite, which projects the same descriptor against an installation on Garage"
   )
 
   override protected def ranOutside: Map[String, String] = Map(
@@ -108,8 +120,10 @@ class ObjectStorageGcsClusterFeatures
   private val MoverImage  = s"ankka-storage-mover:$Tag"
   private val Prefix      = "ankka"
   private val NamePrefix  = "t"
-  private val Projects    = Vector("shop", "shop-a")
-  private val Grace       = 20.seconds
+  private val Projects    = Vector("shop", "shop-a", "casino", "bank")
+  private val WrappingKey =
+    "projects/scripted-account/locations/europe-west2/keyRings/ankka/cryptoKeys/buckets"
+  private val Grace = 20.seconds
 
   private val cloud =
     CloudSettings("gcp", "scripted-account", "europe-west2", None, 30.seconds, Grace)
@@ -122,18 +136,19 @@ class ObjectStorageGcsClusterFeatures
     expiresIn = 3.hours
   )
 
-  private var k3s: K3sContainer                       = null
-  private var k8s: KubernetesClient                   = null
-  private var providerClient: KubernetesClient        = null
-  private var operator: Operator                      = null
-  private var operatorSettings: OperatorSettings      = null
-  private var store: ObjectStoreStack.Installed       = null
-  private var admin: GarageStore                      = null
-  private var fulfilment: ScriptedFulfilment          = null
-  private var provider: Option[ScriptedCloudProvider] = None
-  private var testKit: AnkkaTestKit                   = null
-  private var url: String                             = ""
-  private var config: Path                            = null
+  private var k3s: K3sContainer                                        = null
+  private var k8s: KubernetesClient                                    = null
+  private var providerClient: KubernetesClient                         = null
+  private var operator: Operator                                       = null
+  private var operatorSettings: OperatorSettings                       = null
+  private var store: ObjectStoreStack.Installed                        = null
+  private var admin: GarageStore                                       = null
+  private var fulfilment: ScriptedFulfilment                           = null
+  private var provider: Option[ScriptedCloudProvider]                  = None
+  private var testKit: AnkkaTestKit                                    = null
+  private var url: String                                              = ""
+  private var config: Path                                             = null
+  private var s3Forward: io.fabric8.kubernetes.client.LocalPortForward = null
 
   private def repoRoot: Path =
     var dir = Paths.get("").toAbsolutePath
@@ -175,6 +190,8 @@ class ObjectStorageGcsClusterFeatures
       PkiStack.install(k3s, k8s)
       store = ObjectStoreStack.install(k3s, k8s, repoRoot)
       admin = GarageStore(store.settings.adminUrl, store.settings.adminToken)
+      // The store's S3 port from the host, where a browser and an old credential are tried.
+      s3Forward = k8s.services().inNamespace("garage-system").withName("garage").portForward(3900)
 
       // The cloud provider, as any provider runs: under the shipped grant, answering from Garage.
       CloudProviderStack.install(k3s, k8s)
@@ -199,13 +216,16 @@ class ObjectStorageGcsClusterFeatures
         rotationGrace = Grace,
         storageMoverImage = MoverImage
       )
-      operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
-      operator.start()
+      startOperator(operatorSettings)
 
+      // The control plane holds the installation's store as the operator does: Google Cloud Storage.
       val deployConfig = DeployConfig.default.copy(
         namespacePrefix = Prefix,
         sweepInterval = 2.seconds,
-        progressDeadline = 300.seconds
+        progressDeadline = 300.seconds,
+        objectStore = ObjectStoreKind.Gcs,
+        objectStorePrefix = Some(NamePrefix),
+        cloudProvider = Some(cloud.provider)
       )
       val projector = ServiceProjector.withClient(
         deployConfig,
@@ -234,9 +254,15 @@ class ObjectStorageGcsClusterFeatures
     if operator != null then operator.close()
     provider.foreach(_.stop())
     if providerClient != null then providerClient.close()
+    if s3Forward != null then s3Forward.close()
     if store != null then store.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
+
+  private def startOperator(settings: OperatorSettings): Unit =
+    if operator != null then operator.close()
+    operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
+    operator.start()
 
   // ── the scenario's names ──────────────────────────────────────────────────
 
@@ -247,6 +273,11 @@ class ObjectStorageGcsClusterFeatures
   private var pendingName: String                = ""
   private var unreachable: Boolean               = false
   private var lastStatus: Option[ServiceStatus]  = None
+  private var operatorChanged: Boolean           = false
+  private var locationsNamed: Set[String]        = Set.empty
+  private var keyBefore: (String, String)        = ("", "")
+  private var reportedAt: Instant                = Instant.EPOCH
+  private var preflightAllowed: Boolean          = false
 
   /** This scenario's name for a service a feature calls `logical`. */
   private def real(logical: String): String = s"$logical-$scenario"
@@ -256,6 +287,11 @@ class ObjectStorageGcsClusterFeatures
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
       fulfilment.proceed()
+      if operatorChanged then
+        startOperator(operatorSettings)
+        operatorChanged = false
+      for project <- locationsNamed do ankka("projects", "location", "clear", "-p", project): Unit
+      locationsNamed = Set.empty
       for (project, name) <- deployed if statusOf(name, project).isDefined do
         ankka("services", "delete", name, "-p", project): Unit
       deployed = Vector.empty
@@ -265,6 +301,9 @@ class ObjectStorageGcsClusterFeatures
       pendingName = ""
       unreachable = false
       lastStatus = None
+      keyBefore = ("", "")
+      reportedAt = Instant.EPOCH
+      preflightAllowed = false
 
   // ── the CLI, the cluster and the store ─────────────────────────────────────
 
@@ -309,6 +348,26 @@ class ObjectStorageGcsClusterFeatures
   private def descriptor(name: String): String =
     s"""{"name":"$name","service":{"image":"$SampleImage","provisionObjectStorage":true}}"""
 
+  /**
+   * A descriptor that asks for more of its bucket: reachable from the internet, origins, no key.
+   */
+  private def descriptorWith(
+      name: String,
+      expose: Boolean = false,
+      origins: Vector[String] = Vector.empty,
+      credential: Boolean = true
+  ): String =
+    val fields = Vector(
+      Some(s""""image":"$SampleImage""""),
+      Some(""""provisionObjectStorage":true"""),
+      Option.when(expose)(""""exposeObjectStorage":true"""),
+      Option.when(origins.nonEmpty)(
+        origins.map(o => s""""$o"""").mkString(""""objectStorageOrigins":[""", ",", "]")
+      ),
+      Option.when(!credential)(""""objectStorageCredential":false""")
+    ).flatten
+    s"""{"name":"$name","service":{${fields.mkString(",")}}}"""
+
   private def applyJson(project: String, json: String): Run =
     val file = Files.createTempFile("ankka-object-storage-gcs", ".json")
     try
@@ -319,17 +378,115 @@ class ObjectStorageGcsClusterFeatures
   private def bucketRequestName(name: String): String =
     Names.CloudRequest.ofService(name, Names.CloudRequest.BucketSuffix)
 
-  private def apply(project: String, logical: String): String =
+  private def apply(project: String, logical: String, json: Option[String] = None): String =
     val name = real(logical)
     if unreachable then
       fulfilment.stalling(
         bucketRequestName(name),
         "Google Cloud Storage cannot be reached at present"
       )
-    ok(applyJson(project, descriptor(name)))
+    ok(applyJson(project, json.getOrElse(descriptor(name))))
     deployed = deployed :+ (project  -> name)
     projectOf = projectOf + (logical -> project)
     name
+
+  private def credentialRequestName(name: String): String =
+    Names.CloudRequest.ofService(name, Names.CloudRequest.StorageCredentialSuffix)
+
+  private def request(project: String, name: String): Option[CloudResource] =
+    Option(
+      k8s.resources(classOf[CloudResource]).inNamespace(namespace(project)).withName(name).get()
+    )
+
+  /** The key and secret one instance of a service was started with, from its own environment. */
+  private def keyInPod(logical: String): (String, String) =
+    val env = environment(logical)
+    (env("ANKKA_S3_ACCESS_KEY"), env("ANKKA_S3_SECRET_KEY"))
+
+  /** The store's answer to a listing of `bucket` with `key`, from the host: 200, or its refusal. */
+  private def storeAnswer(key: (String, String), bucket: String): Int =
+    val client = ServicePods.s3Client(s"http://127.0.0.1:${s3Forward.getLocalPort}", "garage", key)
+    try
+      client.listObjectsV2(
+        software.amazon.awssdk.services.s3.model.ListObjectsV2Request
+          .builder()
+          .bucket(bucket)
+          .maxKeys(1)
+          .build()
+      ): Unit
+      200
+    catch case e: software.amazon.awssdk.services.s3.model.S3Exception => e.statusCode()
+    finally client.close()
+
+  /** What `curl` from the host was answered: the status, and the headers in lower case. */
+  private def curl(args: String*): (Int, Map[String, String]) =
+    val command = Vector("curl", "-sS", "-m", "20", "-D", "-", "-o", "/dev/null") ++ args
+    val process = new ProcessBuilder(command*).redirectErrorStream(false).start()
+    val output  = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+    process.waitFor()
+    val heads  = output.split("\r\n\r\n").toVector.filter(_.startsWith("HTTP/"))
+    val head   = heads.lastOption.getOrElse("").split("\r\n").toVector
+    val status = head.headOption.flatMap(_.split(" ").lift(1)).flatMap(_.toIntOption).getOrElse(0)
+    val headers = head
+      .drop(1)
+      .flatMap(line =>
+        line.split(":", 2) match
+          case Array(k, v) => Some(k.trim.toLowerCase -> v.trim)
+          case _           => None
+      )
+      .toMap
+    (status, headers)
+
+  /**
+   * A URL the service signs for keeping `obj`, with the credential it was started with, for the
+   * store as a browser reaches it: here, through the forward from the host.
+   */
+  private def signForKeeping(logical: String, obj: String): String =
+    val env = environment(logical)
+    val presigner = S3Presigner
+      .builder()
+      .endpointOverride(URI.create(s"http://127.0.0.1:${s3Forward.getLocalPort}"))
+      .region(Region.of(env("ANKKA_S3_REGION")))
+      .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+      .credentialsProvider(
+        StaticCredentialsProvider.create(
+          AwsBasicCredentials.create(env("ANKKA_S3_ACCESS_KEY"), env("ANKKA_S3_SECRET_KEY"))
+        )
+      )
+      .build()
+    try
+      presigner
+        .presignPutObject(
+          PutObjectPresignRequest
+            .builder()
+            .signatureDuration(java.time.Duration.ofMinutes(30))
+            .putObjectRequest(
+              PutObjectRequest.builder().bucket(env("ANKKA_S3_BUCKET")).key(obj).build()
+            )
+            .build()
+        )
+        .url()
+        .toString
+    finally presigner.close()
+
+  /** A browser on `origin` asks first, as a browser must, and sends only when it is let. */
+  private def browserSends(origin: String, logical: String, obj: String): Unit =
+    val url = signForKeeping(logical, obj)
+    val (status, headers) = curl(
+      "-X",
+      "OPTIONS",
+      "-H",
+      s"Origin: $origin",
+      "-H",
+      "Access-Control-Request-Method: PUT",
+      url
+    )
+    preflightAllowed = status == 200 &&
+      headers.get("access-control-allow-origin").exists(o => o == origin || o == "*")
+    if preflightAllowed then
+      val (put, _) =
+        curl("-X", "PUT", "-H", s"Origin: $origin", "--data-binary", s"contents of $obj", url)
+      assertEquals(put, 200, s"the signed PUT from $origin")
 
   private def awaitReady(project: String, name: String): Unit =
     waitFor(360.seconds, s"$project/$name being Ready") {
@@ -542,4 +699,284 @@ class ObjectStorageGcsClusterFeatures
         Some(environment(logical)("ANKKA_S3_BUCKET")),
         name
       )
+  }
+
+  // ── US2: a credential issued again (isolation.feature) ─────────────────────
+
+  When("a member asks for the storage credential of {string} to be issued again") {
+    (logical: String) =>
+      keyBefore = keyInPod(logical)
+      ok(ankka("services", "storage", "reissue", real(logical), "-p", projectFor(logical))): Unit
+  }
+
+  /** Waits for the provider to report the second credential in place, and keeps when it did. */
+  private def awaitReissued(logical: String): Unit =
+    val name = credentialRequestName(real(logical))
+    waitFor(120.seconds, s"$name reporting generation 2") {
+      request(projectFor(logical), name)
+        .flatMap(r => Option(r.getStatus))
+        .exists(_.credentialGeneration.contains(2L))
+    }
+    reportedAt = Instant.parse(
+      request(projectFor(logical), name).get.getStatus.credentialReportedAt
+        .getOrElse(fail("no report time"))
+    )
+
+  Then("{string} is restarted once the fulfilment says the new storage credential is in place") {
+    (logical: String) =>
+      awaitReissued(logical)
+      val (project, name) = (projectFor(logical), real(logical))
+      waitFor(300.seconds, s"$name's instances on the new storage credential") {
+        val running = pods(project, name).filter(ServicePods.running)
+        running.nonEmpty && running.forall(p =>
+          Option(p.getMetadata.getAnnotations)
+            .flatMap(a =>
+              Option(a.get(com.thinkmorestupidless.ankka.operator.Labels.StorageCredentialKey))
+            )
+            .contains("2") &&
+            servicePods.accessKeyIn(project, name, p).exists(_ != keyBefore._1)
+        )
+      }
+      awaitReady(project, name)
+  }
+
+  Then(
+    "{string} reads its bucket with a storage credential that is not the one it had before, once it is restarted"
+  ) { (logical: String) =>
+    assertNotEquals(keyInPod(logical)._1, keyBefore._1)
+    val bucket = environment(logical)("ANKKA_S3_BUCKET")
+    val (code, body) = servicePods.s3(
+      projectFor(logical),
+      real(logical),
+      "PUT",
+      s"/$bucket/after-reissue.txt",
+      Some("after")
+    )
+    assertEquals(code, 200, body)
+  }
+
+  Then(
+    "the storage credential {string} had before reaches its bucket until the rotation grace has passed since the fulfilment, and Google Cloud Storage refuses it afterwards"
+  ) { (logical: String) =>
+    val bucket = reportedBucket(logical)
+    val ends   = reportedAt.plusMillis(Grace.toMillis)
+    // While the grace runs, with a margin for the clocks: still served.
+    if Instant.now().isBefore(ends.minusSeconds(5)) then
+      assertEquals(storeAnswer(keyBefore, bucket), 200)
+    while Instant.now().isBefore(ends) do Thread.sleep(500)
+    waitFor(60.seconds, "the old storage credential refused")(storeAnswer(keyBefore, bucket) == 403)
+  }
+
+  Then("the history of {string} says that its storage credential was issued again") {
+    (logical: String) =>
+      val run =
+        ok(ankka("services", "history", real(logical), "-p", projectFor(logical), "-o", "json"))
+      assert(run.out.contains("\"storage-credential-reissued\""), run.out)
+  }
+
+  Given(
+    "a deployed service {string} with a bucket, whose storage credential a member has asked to be issued again"
+  ) { (logical: String) =>
+    deploy("shop", logical): Unit
+    keyBefore = keyInPod(logical)
+    ok(ankka("services", "storage", "reissue", real(logical), "-p", "shop")): Unit
+    awaitReissued(logical)
+  }
+
+  Given(
+    "an instance of {string} that has not been replaced when the rotation grace has passed since the fulfilment"
+  ) { (_: String) =>
+    // The instance is the credential it was started with, read from it before the reissue: what
+    // happens to its pod after that changes nothing the store decides.
+    val ends = reportedAt.plusMillis(Grace.toMillis)
+    while Instant.now().isBefore(ends) do Thread.sleep(500)
+  }
+
+  When("that instance reads the bucket of {string} with the storage credential it was given") {
+    (_: String) => ()
+  }
+
+  Then("Google Cloud Storage refuses it") { () =>
+    val bucket = reportedBucket(projectOf.keys.headOption.getOrElse(fail("no service")))
+    waitFor(60.seconds, "the old storage credential refused")(storeAnswer(keyBefore, bucket) == 403)
+  }
+
+  // ── US5: a service that declines a storage credential (keyless.feature) ────
+
+  Given(
+    "a descriptor for a service {string} that asks for a bucket and declines a storage credential"
+  ) { (logical: String) =>
+    pending = Some("shop" -> descriptorWith(real(logical), credential = false))
+    pendingName = logical
+  }
+
+  Then("{string} starts with no variable {string} and no variable {string}") {
+    (logical: String, a: String, b: String) =>
+      awaitReady(projectFor(logical), real(logical))
+      val env = environment(logical)
+      assert(!env.contains(a) && !env.contains(b), env.keySet.toString)
+      for variable <- Vector("ANKKA_S3_ENDPOINT", "ANKKA_S3_REGION", "ANKKA_S3_BUCKET") do
+        assert(env.get(variable).exists(_.nonEmpty), s"$variable is not set")
+  }
+
+  Then("no storage credential is issued for {string}") { (logical: String) =>
+    val name = real(logical)
+    assertEquals(request(projectFor(logical), credentialRequestName(name)), None)
+    assert(!fulfilment.issued.exists(_.secretName.startsWith(name)), fulfilment.issued.toString)
+  }
+
+  // ── US3: retention, the wrapping key and the location (retention.feature) ──
+
+  Given(
+    "a deployed service {string} with a bucket, on an installation that keeps a deleted object for {string}"
+  ) { (logical: String, days: String) =>
+    assertEquals(operatorSettings.gcs.map(g => s"${g.softDeleteDays} days"), Some(days))
+    deploy("shop", logical): Unit
+  }
+
+  Then("the status says that a deleted object of {string} can still be recovered for {string}") {
+    (_: String, days: String) =>
+      assertEquals(lastStatus.flatMap(_.softDeleteDays).map(d => s"$d days"), Some(days))
+  }
+
+  Given("the installation names a wrapping key for its buckets") { () =>
+    startOperator(operatorSettings.copy(cloud = Some(cloud.copy(kmsKey = Some(WrappingKey)))))
+    operatorChanged = true
+  }
+
+  Then("the bucket of {string} is encrypted with the installation's wrapping key") {
+    (logical: String) =>
+      // The request is what the provider is asked; Garage, standing in, encrypts with nothing.
+      waitFor(120.seconds, "the bucket asked for with the installation's key") {
+        request(projectFor(logical), bucketRequestName(real(logical)))
+          .exists(_.getSpec.parameters.get("kmsKey").contains(WrappingKey))
+      }
+  }
+
+  Given("the installation names the location {string} for its buckets") { (location: String) =>
+    assertEquals(cloud.location, location)
+  }
+
+  Given(
+    "a descriptor for a service {string} in the project {string} that asks for a bucket, where {string} names no location"
+  ) { (logical: String, project: String, _: String) =>
+    ankka("projects", "location", "clear", "-p", project): Unit
+    pending = Some(project -> descriptor(real(logical)))
+    pendingName = logical
+  }
+
+  Given("a descriptor for a service {string} in the project {string} that asks for a bucket") {
+    (logical: String, project: String) =>
+      pending = Some(project -> descriptor(real(logical)))
+      pendingName = logical
+  }
+
+  Given("a member has named the location {string} for the project {string}") {
+    (location: String, project: String) =>
+      ok(ankka("projects", "location", "set", location, "-p", project)): Unit
+      locationsNamed = locationsNamed + project
+      // The operator reads it from the project's resource: the bucket is asked for once, there.
+      waitFor(60.seconds, s"$project's resource naming $location") {
+        Option(
+          k8s
+            .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+            .inNamespace(namespace(project))
+            .withName(project)
+            .get()
+        ).flatMap(p => Option(p.getSpec)).flatMap(_.bucketLocation).contains(location)
+      }
+  }
+
+  Then("the bucket of {string} is in the location {string}") { (logical: String, location: String) =>
+    waitFor(120.seconds, s"the bucket of ${real(logical)} made in $location") {
+      request(projectFor(logical), bucketRequestName(real(logical)))
+        .flatMap(r => Option(r.getStatus))
+        .exists(_.location == location)
+    }
+  }
+
+  Then("the status of {string} names the location {string}") { (logical: String, location: String) =>
+    waitFor(120.seconds, s"the status of ${real(logical)} naming $location") {
+      statusOf(real(logical), projectFor(logical)).flatMap(_.bucketLocation).contains(location)
+    }
+  }
+
+  // ── US4: a bucket reachable from a browser (reachable.feature) ─────────────
+
+  Given("a descriptor for a service {string} that asks for a bucket reachable from the internet") {
+    (logical: String) =>
+      pending = Some("shop" -> descriptorWith(real(logical), expose = true))
+      pendingName = logical
+  }
+
+  Then(
+    "{string} starts with the variable {string} set, naming its bucket in Google Cloud Storage"
+  ) { (logical: String, variable: String) =>
+    awaitReady(projectFor(logical), real(logical))
+    val endpoint = request(projectFor(logical), bucketRequestName(real(logical)))
+      .flatMap(r => Option(r.getStatus))
+      .flatMap(_.outputs.get("endpoint"))
+      .getOrElse(fail("the provider answered no endpoint"))
+    assertEquals(environment(logical).get(variable), Some(endpoint))
+  }
+
+  Then("the status shows the address of the bucket of {string} on the internet") {
+    (logical: String) =>
+      val endpoint = environment(logical)("ANKKA_S3_PUBLIC_ENDPOINT")
+      waitFor(60.seconds, "the status showing the bucket's address") {
+        statusOf(real(logical), projectFor(logical))
+          .flatMap(_.bucketAddress)
+          .contains(s"${endpoint.stripSuffix("/")}/${reportedBucket(logical)}")
+      }
+  }
+
+  Given(
+    "a deployed service {string} whose bucket is reachable from the internet, whose descriptor names the origin {string}"
+  ) { (logical: String, origin: String) =>
+    apply(
+      "shop",
+      logical,
+      Some(descriptorWith(real(logical), expose = true, origins = Vector(origin)))
+    ): Unit
+    awaitReady("shop", real(logical))
+    // The provider sets the bucket's rule from the request; nothing the service does.
+    waitFor(60.seconds, "the bucket admitting the origin") {
+      admin.bucket(reportedBucket(logical)).exists(_.corsOrigins.contains(origin))
+    }
+  }
+
+  When(
+    "a browser on the origin {string} sends the object {string} to a signed URL that {string} made for keeping {string}"
+  ) { (origin: String, obj: String, logical: String, _: String) =>
+    browserSends(origin, logical, obj)
+  }
+
+  When(
+    "a browser on the hostname of {string} sends the object {string} to a signed URL that {string} made for keeping {string}"
+  ) { (named: String, obj: String, logical: String, _: String) =>
+    // The service's own hostname, which no descriptor here names as an origin.
+    browserSends(s"https://${real(named)}-shop.example.test", logical, obj)
+  }
+
+  Then("the browser is refused") { () =>
+    assert(!preflightAllowed, "the store let the browser send")
+  }
+
+  Then("the bucket of {string} does not hold the object {string}") {
+    (logical: String, obj: String) =>
+      val client = ServicePods.s3Client(
+        s"http://127.0.0.1:${s3Forward.getLocalPort}",
+        "garage",
+        keyInPod(logical)
+      )
+      try
+        val held =
+          try
+            client.getObjectAsBytes(
+              GetObjectRequest.builder().bucket(reportedBucket(logical)).key(obj).build()
+            ): Unit
+            true
+          catch case _: software.amazon.awssdk.services.s3.model.S3Exception => false
+        assert(!held, s"the bucket holds $obj")
+      finally client.close()
   }

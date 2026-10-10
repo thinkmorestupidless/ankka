@@ -419,6 +419,20 @@ object Output:
             )
         s"$identity\n\n$organizations"
 
+  /** `ankka installation` (feature 044): the version, and the cloud when there is one. */
+  def installation(installation: Installation, format: Format): String =
+    format match
+      case Format.Json => writeToString(installation)
+      case Format.Table =>
+        val cloud = installation.cloud match
+          case None => Vector("provider" -> "none")
+          case Some(c) =>
+            Vector("provider" -> c.provider, "account" -> c.account, "location" -> c.location) ++
+              c.kmsKey.map("kms key" -> _)
+        (("platform" -> installation.platformVersion) +: cloud)
+          .map((label, value) => f"$label%-10s $value")
+          .mkString("\n")
+
   private val settingsCodec: JsonValueCodec[Settings] =
     com.thinkmorestupidless.ankka.core.Codecs.make[Settings]
 

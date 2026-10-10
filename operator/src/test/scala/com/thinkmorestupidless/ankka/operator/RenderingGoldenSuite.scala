@@ -5,6 +5,7 @@ import io.fabric8.kubernetes.api.model.{HasMetadata, ObjectMetaBuilder}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Paths}
+import scala.jdk.CollectionConverters.*
 
 /**
  * Everything the operator renders for six kinds of service, compared byte for byte with a record
@@ -112,6 +113,61 @@ class RenderingGoldenSuite extends munit.FunSuite:
     }
   }
 
+  /**
+   * A service whose bucket is in the installation's cloud account (feature 044), once its cloud
+   * provider has answered all three requests: the requests themselves, the variables from the
+   * answers, the credential's generation on the pod template, and nothing of the installation's own
+   * store.
+   */
+  test("what is rendered for 'cloud-bucket' is what was rendered before") {
+    val cloud = CloudSettings(
+      "gcp",
+      "acct",
+      "europe-west2",
+      Some("keys/ankka"),
+      scala.concurrent.duration.Duration(2, "minutes"),
+      scala.concurrent.duration.Duration(1, "hour")
+    )
+    val spec     = base.copy(provisionObjectStorage = true)
+    val settings = Settings.default.copy(cloud = Some(cloud))
+    val plan = ObjectStoragePlan.Ready(
+      recovered = false,
+      Some(
+        CloudBucket("acct-checkout-cart", "https://storage.scripted.invalid", "europe-west2", 1L)
+      )
+    )
+    val rendered = render(
+      spec,
+      settings,
+      provisioning,
+      plan,
+      resource =>
+        ObjectStorage.cloudRequests(
+          resource,
+          cloud,
+          Some("cart@acct.scripted"),
+          Some("acct-checkout-cart")
+        )
+    )
+    assert(rendered.contains("# cloud request identity"), rendered)
+    assert(rendered.contains("# cloud request bucket-credential"), rendered)
+    assert(!rendered.contains("# ensure bucket"), "the installation's own store is not asked")
+    val file = directory.resolve("cloud-bucket.txt")
+    if update then Files.writeString(file, rendered, UTF_8)
+    else
+      assert(Files.exists(file), s"no record at $file; run with -Dankka.golden.update=true once")
+      assertNoDiff(rendered, Files.readString(file, UTF_8))
+  }
+
+  test("no record but the cloud bucket's holds a cloud request") {
+    // absent.feature: "an installation with no cloud provider serves everything itself".
+    Files.list(directory).iterator.asScala.foreach { file =>
+      val text = Files.readString(file, UTF_8)
+      if file.getFileName.toString == "cloud-bucket.txt" then assert(text.contains("cloud request"))
+      else assert(!text.contains("cloud request"), s"$file renders a cloud request")
+    }
+  }
+
   test("nothing rendered for a service with a bucket holds the store's token") {
     val (name, spec, settings, plan) = storageCase
     assert(!render(spec, settings, plan, storagePlanOf(name)).contains("the-admin-token"))
@@ -121,7 +177,9 @@ class RenderingGoldenSuite extends munit.FunSuite:
       spec: AnkkaServiceSpec,
       settings: Settings,
       plan: ProvisioningPlan,
-      storagePlan: ObjectStoragePlan
+      storagePlan: ObjectStoragePlan,
+      cloudRequests: AnkkaService => Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = _ =>
+        Vector.empty
   ): String =
     val resource = new AnkkaService
     resource.setMetadata(
@@ -137,7 +195,8 @@ class RenderingGoldenSuite extends munit.FunSuite:
       settings,
       plan,
       BrokerProvisioning.known(spec, settings.broker),
-      storagePlan
+      storagePlan,
+      cloudRequests = cloudRequests(resource)
     ) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")
@@ -178,5 +237,6 @@ class RenderingGoldenSuite extends munit.FunSuite:
     case Action.EnsureBackendTlsPolicy(p) => Some(p)
     case Action.EnsureKafkaUser(u)        => Some(u)
     case Action.EnsureKafkaTopic(t)       => Some(t)
+    case Action.EnsureCloudResource(r)    => Some(r)
     case Action.EnsureReferenceGrant(g)   => Some(g)
     case _                                => None

@@ -146,6 +146,7 @@ kind load docker-image sample-shopping-cart-web:latest --name "$CLUSTER_NAME"
 
 echo "==> applying the CRD (must exist before anything references it)"
 kubectl apply -f kustomization/components/crd/ankkaservice.yaml
+kubectl apply -f kustomization/components/crd/cloudresource.yaml
 
 echo "==> creating the control plane's namespace, if it does not exist yet"
 kubectl create namespace ankka-controlplane --dry-run=client -o yaml | kubectl apply -f -

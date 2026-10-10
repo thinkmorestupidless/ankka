@@ -1,0 +1,17 @@
+# The installation's cloud settings, for the provider: a Deployment here reads them with envFrom.
+# Each value is replaced by the overlay from ankka-platform, as the operator's and the control
+# plane's are, so the three processes cannot disagree about the account they work in.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ankka-cloud
+  namespace: ankka-cloud-provider
+  labels:
+    app.kubernetes.io/managed-by: ankka
+data:
+  ANKKA_CLOUD_PROVIDER: "none"
+  ANKKA_CLOUD_ACCOUNT: ""
+  ANKKA_CLOUD_LOCATION: ""
+  ANKKA_CLOUD_KMS_KEY: ""
+  ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND: "2m"
+  ANKKA_CLOUD_ROTATION_GRACE: "1h"

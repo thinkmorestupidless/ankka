@@ -131,7 +131,10 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   ),
                   objectStorage = objectStorage.map(Service.objectStoragePhrase),
                   // Feature 039: as the entity's status says it (`Service.toStatus`).
-                  bucket = row.bucket.map(derived => storage.flatMap(_.bucket).getOrElse(derived)),
+                  bucket =
+                    if storage.flatMap(_.store).contains("gcs") then
+                      row.bucket.flatMap(_ => storage.flatMap(_.bucket))
+                    else row.bucket.map(derived => storage.flatMap(_.bucket).getOrElse(derived)),
                   bucketAddress =
                     if storage.flatMap(_.store).contains("gcs") then
                       row.bucketAddress.flatMap(_ => storage.flatMap(_.bucketAddress))

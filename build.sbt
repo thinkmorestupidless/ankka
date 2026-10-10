@@ -169,7 +169,11 @@ lazy val commonSettings = Seq(
     "ankka.fixtures.regenerate",
     // GcsCompatibilitySuite (feature 039): `on` makes it fail rather than skip when its bucket's
     // variables are missing, which is how the `gcs` workflow asks for it.
-    "ankka.gcs.tests"
+    "ankka.gcs.tests",
+    // A kubeconfig naming a cluster that runs a real cloud provider (feature 044):
+    // CloudProviderClusterFeatures then starts no k3s and no scripted provider and runs its
+    // scenarios against that cluster instead.
+    "ankka.cloud.external"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")

@@ -72,8 +72,9 @@ Five decisions shape the contract.
 - **The provider is owner-equivalent on the cloud project, and that is why it is not the operator.**
   On GKE it runs under Workload Identity with the roles its request kinds need; it holds no key file.
   Its ClusterRole in the cluster is as narrow as the operator's: `CloudResource` and its status, and
-  `create`/`patch` on Secrets in the platform's namespaces. The two processes hold different powers
-  and neither holds the other's.
+  `create`/`patch` on Secrets, cluster-wide and with no `get`, `list` or `delete`, exactly the
+  operator's own grant on them. The two processes hold different powers and neither holds the
+  other's.
 - **The installation names its provider once.** `ANKKA_CLOUD_PROVIDER` (`none` or `gcp`),
   `ANKKA_CLOUD_ACCOUNT` (the cloud project or account the installation's resources live in),
   `ANKKA_CLOUD_LOCATION` (the default location for anything that has one) and, optionally,
@@ -110,15 +111,45 @@ cadence.
 - Q: One cloud setting or one per feature? → A: One: the provider, the account, the default location
   and the one wrapping key are named here, once; 038, 039, 041 and 042 reference them.
 
+### Session 2026-10-09
+
+- Q: SC-003 said a grep finds no cloud SDK coordinates, but the object storage suites use the AWS S3
+  client as a test dependency, playing a service's program against the store. Keep it or reword? →
+  A: Reword. What SC-003 protects is that no cloud client reaches the platform's code or images; the
+  test client is how the suites prove a bucket works for a real S3 client, and stays.
+
+- Q: FR-005 named the cloud identity field `principal`, but the glossary reserves `principal` for who
+  a call came from. Which word is the contract's? → A: `identity`. The `identity` kind's output and
+  the `secret-access`, `bucket-credential` and `wrapping-key` parameter are named `identity`;
+  `principal` stays the caller's word.
+- Q: Where do the acknowledgement bound and the rotation grace live, and how does a provider learn
+  the grace? → A: Two more platform variables, `ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND` (`2m` as
+  shipped) and `ANKKA_CLOUD_ROTATION_GRACE` (`1h` as shipped), on the `ankka-platform` ConfigMap
+  beside the other four. The operator reads the bound, a provider reads the grace, and the fake
+  honours a short one so the k3s rotation scenario runs in seconds.
+- Q: How is the provider's grant on Secrets scoped? → A: As the operator's is: a ClusterRole with
+  `create` and `patch` on Secrets, no `get`, `list` or `delete`, bound cluster-wide. Neither
+  process can read a Secret, and no per-namespace binding has to follow the namespaces the
+  operator makes.
+- Q: Spec 039's glossary terms `provider` and `storage account` name what this spec calls `cloud
+  provider` and `cloud identity`. Fold them now? → A: No. 039's terms and feature steps stay as
+  written; 039's own amendment (SC-005) rewords them to this spec's vocabulary and refuses the old
+  words. This feature changes no glossary entry and no feature file of 039's.
+- Q: Which of a provider's cluster objects does ankka ship? → A: All but the Deployment: the
+  `CloudResource` CRD and a `cloud-provider` kustomization component holding the
+  `ankka-cloud-provider` namespace, the provider's ServiceAccount and its ClusterRole with its
+  binding. A provider, `ankka-gcp` or the fake, adds only its Deployment and, on GKE, the
+  annotation binding the ServiceAccount to its cloud identity.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A service asks for a bucket and the provider makes it (Priority: P1)
 
 A developer applies a descriptor with `provisionObjectStorage: true` to an installation whose object
-store is Google Cloud Storage (feature 039). The operator renders a `bucket` request and a
-`bucket-credential` request; the provider creates the bucket in the installation's account and
-location, creates an identity for the service, grants it on that bucket alone, issues a key, writes it
-once into `<service>-storage`, and reports both requests ready. The operator sees the Secret's name in
+store is Google Cloud Storage (feature 039). The operator renders an `identity` request, a `bucket`
+request and a `bucket-credential` request; the provider makes the service's cloud identity, creates
+the bucket in the installation's account and location, grants the identity on that bucket alone,
+issues a key, writes it once into `<service>-storage`, and reports all three requests ready. The operator sees the Secret's name in
 the status, renders the Deployment with it, and reports the bucket `Provisioned`. The developer's
 code is the one that runs on Garage.
 
@@ -127,7 +158,7 @@ and it exercises every part of the shape: a request, a fulfilment, a credential 
 the operator folds.
 
 **Independent Test**: With the fake provider installed in a k3s suite (`features/cloud-provider/
-bucket.feature`), apply a descriptor and observe: two `CloudResource` objects in the service's
+bucket.feature`), apply a descriptor and observe: three `CloudResource` objects (`identity`, `bucket`, `bucket-credential`) in the service's
 namespace, owned by the `AnkkaService`; a Secret `<service>-storage` the fake wrote; a Deployment
 reading it; status `Provisioned`. The same scenario runs in `ankka-gcp`'s nightly suite against a real
 account.
@@ -232,7 +263,8 @@ account it needs.
 ### Edge Cases
 
 - **Two requests for one thing.** A request is named deterministically from its kind and its
-  subject (`<service>-bucket`, `<service>-storage-credential`, `<project>-backup-bucket`), so a
+  subject (`<service>-bucket`, `<service>-storage-credential`, `<project>.backup-bucket`: a project's
+  carries a dot, which no service name can, so the two can never collide), so a
   second render finds the first; the operator writes by server-side apply, as everything else.
 - **The provider is slower than the operator's resync.** The operator never acts on a status whose
   `observedGeneration` is behind the spec's; it waits, and after the acknowledgement bound reports
@@ -261,8 +293,9 @@ account it needs.
 - **FR-001**: `crd` MUST define a namespaced `CloudResource` with a `spec` of `provider`, `kind`,
   `subject` (the project and, when there is one, the service), `credentialGeneration` and a
   `parameters` map of the kind's fields, and a `status` of `observedGeneration`, `phase` (`Waiting`,
-  `Ready`, `Recovered`, `Failed`), `detail`, `account`, `location`, `credentialGeneration`, and the
-  kind's outputs (a bucket's name, an identity's principal, a key's name, a Secret's name). The
+  `Ready`, `Recovered`, `Failed`), `detail`, `account`, `location`, `credentialGeneration`,
+  `credentialReportedAt`, `recovered`, `providerVersion`, and the kind's outputs (a bucket's name, a cloud identity, a key's
+  name, a Secret's name). The
   CRD's case class and its YAML MUST be held to each other by `CrdSchemaSuite`.
 - **FR-002**: The operator MUST write a `CloudResource` by server-side apply, owned by the
   `AnkkaService` or `AnkkaProject` it serves, named deterministically from the kind and subject, and
@@ -272,37 +305,43 @@ account it needs.
   status subresource, and MUST set `observedGeneration` to the spec generation it fulfilled before
   reporting any phase for it.
 - **FR-004**: The operator MUST NOT act on a status whose `observedGeneration` is behind the spec's,
-  and MUST report a service or project as `Waiting` with "no provider for `<provider>` has answered"
-  when a request has had no `observedGeneration` for the acknowledgement bound, two minutes as
-  shipped.
+  and MUST report the feature's status on the service or project (`status.objectStorage` for a
+  bucket, and the like for the other features) as `Waiting` with "no provider for `<provider>` has
+  answered" when a request has had no `observedGeneration` for the acknowledgement bound
+  (`ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND`, two minutes as shipped). While a request a service's
+  Deployment needs is unanswered, the service's lifecycle is `UpdateInProgress` with that detail.
 
 **The kinds**
 
 - **FR-005**: The contract MUST define exactly these kinds, and a provider MUST implement all six or
-  report `Failed` naming the kind: `identity` (a cloud principal bound to a Kubernetes
-  ServiceAccount: `serviceAccount`; output `principal`), `secret-access` (a principal's access to
-  secret ids: `principal`, `own: [ids]`, `read: [ids]`), `secret-sync` (a Kubernetes Secret kept in
-  step with a project's entries: `secretName`, `entries: [name → id]`; output the entry generation
-  synced), `bucket` (`purpose: service | backup`, `location`, `versioning`, `softDeleteDays`,
-  `corsOrigins`, `kmsKey`; output `bucket`), `bucket-credential` (`bucket`, `principal`,
-  `secretName`; output `secretName`), and `wrapping-key` (`principal`, `key`; output `key`).
+  report `Failed` naming the kind: `identity` (a cloud identity bound to a Kubernetes
+  ServiceAccount: `serviceAccount`; output `identity`), `secret-access` (a cloud identity's access
+  to secret ids: `identity`, `own: [ids]`, `read: [ids]`), `secret-sync` (a Kubernetes Secret kept in
+  step with a project's entries: `secretName`, `entries: [name → id]`, `entryGeneration`; output the
+  entry generation synced), `bucket` (`purpose: service | backup`, `location`, `versioning`, `softDeleteDays`,
+  `corsOrigins`, `kmsKey`; outputs `bucket`, `endpoint`, `region`), `bucket-credential` (`bucket`, `identity`,
+  `secretName`; output `secretName`), and `wrapping-key` (`identity`, `key`; output `key`). The
+  field is `identity`, never `principal`: a principal is who a call came from.
 - **FR-006**: A kind's parameters MUST be the platform's vocabulary and MUST NOT name a provider's
   product, role, resource type or region name; `location` is a string the installation chose and
   the provider interprets.
 - **FR-007**: A `bucket` with `purpose: backup` MUST be named so no service's bucket can collide with
   it, MUST have no route and no `ANKKA_S3_*` rendered for any service, and MUST be grantable only to
-  a `bucket-credential` whose principal is a project's database identity (041).
+  a `bucket-credential` whose identity is a project's database's cloud identity (041): a provider MUST
+  report any other `bucket-credential` naming it `Failed` with "a backup bucket is granted only to
+  its project's database".
 
 **Credentials**
 
 - **FR-008**: A credential a provider mints MUST be offered as a `create` of the named Secret in the
   requesting namespace; on `Created` the provider reports ready; on a conflict it MUST revoke what it
-  just issued and report ready naming the existing Secret. A provider MUST NOT hold `get` or `list` on
-  Secrets, and MUST hold `create` and `patch` only in the platform's namespaces.
+  just issued and report ready naming the existing Secret. A provider's grant on Secrets MUST be the
+  operator's: a ClusterRole with `create` and `patch`, bound cluster-wide, and no `get`, `list` or
+  `delete`.
 - **FR-009**: Raising a request's `credentialGeneration` MUST cause the provider to issue a new
   credential, write it into the same Secret by `patch`, report the generation in place, and revoke
-  the previous credential no sooner than the installation's rotation grace (one hour as shipped)
-  after that report. The operator MUST roll the service when the status's `credentialGeneration`
+  the previous credential no sooner than the installation's rotation grace
+  (`ANKKA_CLOUD_ROTATION_GRACE`, one hour as shipped) after that report. The operator MUST roll the service when the status's `credentialGeneration`
   changes.
 - **FR-010**: A `secret-sync` request MUST be fulfilled by `patch` of the named Secret within one
   minute of a change to any entry it names, and its status MUST say the entry generation synced, so
@@ -311,10 +350,13 @@ account it needs.
 **Settings**
 
 - **FR-011**: `core`'s `PlatformVariables` MUST declare `ANKKA_CLOUD_PROVIDER` (`none` or a known
-  provider name; `none` as shipped), `ANKKA_CLOUD_ACCOUNT`, `ANKKA_CLOUD_LOCATION` and
-  `ANKKA_CLOUD_KMS_KEY` (optional), set once on the `ankka-platform` ConfigMap and given to the
-  operator and the control plane. Features 038, 039, 041 and 042 MUST read these and MUST define no
-  cloud account, location or key setting of their own.
+  provider name; `none` as shipped), `ANKKA_CLOUD_ACCOUNT`, `ANKKA_CLOUD_LOCATION`,
+  `ANKKA_CLOUD_KMS_KEY` (optional), `ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND` (a duration; `2m` as
+  shipped) and `ANKKA_CLOUD_ROTATION_GRACE` (a duration; `1h` as shipped), set once on the
+  `ankka-platform` ConfigMap and given to the operator, the control plane and the provider. The
+  operator reads the acknowledgement bound and a provider reads the rotation grace; neither is a
+  descriptor's or a request's to set. Features 038, 039, 041 and 042 MUST read these and MUST
+  define no cloud account, location or key setting of their own.
 - **FR-012**: The control plane MUST refuse a backend or target that needs a provider (`secret-manager`,
   `gcs`, a `gcs` backup target, a wrapping key) when `ANKKA_CLOUD_PROVIDER` is `none`, naming the
   provider needed, and the operator MUST write no request for an installation whose provider is
@@ -336,6 +378,12 @@ account it needs.
 - **FR-017**: A provider MUST report a request whose spec now names a different account or location
   from the one the resource was made in as `Failed` with "made in another account or location", and
   MUST NOT move or recreate it.
+- **FR-017a**: ankka's kustomization MUST ship the `CloudResource` CRD and a `cloud-provider`
+  component holding the `ankka-cloud-provider` namespace, the provider's ServiceAccount and its
+  ClusterRole with its binding, so the grant is the contract's and one identity serves every
+  provider. A provider MUST add only its Deployment in that namespace and, on GKE, the annotation
+  binding that ServiceAccount to its cloud identity; the fake provider of FR-020 MUST run under
+  the same ServiceAccount.
 
 **Status and visibility**
 
@@ -344,7 +392,8 @@ account it needs.
   042's keyring), so `services get` and `projects get` show the provider's answer without naming
   `CloudResource`.
 - **FR-019**: The control plane MUST show the installation's provider, account and location on the
-  installation's settings, and MUST NOT show the KMS key's name to a member who is not an owner.
+  installation's settings, and MUST NOT show the KMS key's name to a member who is not an owner of at
+  least one organization.
 
 **Testing**
 
@@ -377,9 +426,9 @@ account it needs.
 - **SC-002**: The operator's and the provider's ClusterRoles, applied to their real identities, let
   every scenario pass and hold no `get` or `list` on Secrets and no `delete` on `cloudresources`; a
   suite proves it under the real identities, as `OperatorClusterSuite` does today.
-- **SC-003**: A dependency report of every ankka module and image shows no cloud client library; a
-  grep of the repository for the Google, AWS and Azure SDK coordinates finds only `ankka-gcp`'s
-  README link.
+- **SC-003**: No module's compile-scope dependencies and no image carry a cloud client library, and
+  no main source imports one. A cloud SDK may appear only as a test dependency that plays a service's
+  own program, as the S3 client the object storage suites sign requests with does.
 - **SC-004**: With no provider running, a request's absence is reported in the service's status
   within 2 minutes 30 seconds of apply, and the status recovers within 30 seconds of a provider
   starting.
@@ -395,16 +444,18 @@ account it needs.
 
 - The operator's RBAC gains `get`, `list`, `watch`, `create` and `patch` on `cloudresources`, and
   `get` on `cloudresources/status`, and nothing else. It keeps no `get` or `list` on Secrets.
-- A provider runs in its own namespace (`ankka-cloud-provider`) with its own ServiceAccount; on GKE
-  the installer binds that ServiceAccount to a cloud principal holding the roles the six kinds need.
+- A provider runs in the `ankka-cloud-provider` namespace under the ServiceAccount ankka's
+  `cloud-provider` component ships (FR-017a); on GKE `ankka-gcp`'s install binds that
+  ServiceAccount to a cloud identity holding the roles the six kinds need.
   Which roles those are is `ankka-gcp`'s README's to say; this spec says only that they are
   owner-equivalent.
 - One account and one default location per installation. A project may name its own location
   (039), carried in the `bucket` request; a project may not name its own account.
   A brand licensed in another jurisdiction, with its own billing, is a second installation, not a
   project naming its own account: an account boundary is an installation boundary.
-- The acknowledgement bound (2 minutes) and the rotation grace (1 hour) are installation settings
-  with those defaults; neither is a descriptor's to set.
+- The acknowledgement bound (2 minutes) and the rotation grace (1 hour) are the two duration
+  platform variables of FR-011, with those defaults; neither is a descriptor's to set. The fake
+  provider reads the same variable, so a k3s suite sets a grace of seconds.
 - `GarageStore` stays as it is: Garage has no operator and no account, and a request to a provider
   for it would be a process for its own sake. The `ObjectStore` seam remains the operator's for
   Garage; on `gcs` the operator renders requests instead of calling a store.
@@ -420,7 +471,9 @@ account it needs.
 - **038 (secret store backends)**: consumer of `identity`, `secret-access` and `secret-sync`; its
   backend setting is constrained by FR-012.
 - **039 (object storage on GCS)**: consumer of `bucket` and `bucket-credential`; its FR-001 and
-  FR-002 are superseded by FR-011 and FR-015 here.
+  FR-002 are superseded by FR-011 and FR-015 here. Its glossary terms `provider`, `storage account`
+  and `workload identity`, and the feature steps that use them, are its own amendment's to reword to
+  `cloud provider` and `cloud identity`; this feature leaves them as they are.
 - **041 (backup and recovery)**: consumer of `bucket` with `purpose: backup` and `bucket-credential`
   for the database's identity.
 - **042 (personal data erasure)**: consumer of `wrapping-key`.
@@ -431,7 +484,6 @@ account it needs.
 
 ## Open Questions
 
-- The one marker in Assumptions: a cloud account per project, or per installation only.
 - Whether a provider should also fulfil a `managed-database` kind so a project could ask for a
   cloud-managed Postgres instead of CNPG; nothing in 038–043 needs it and 041 covers durability
   another way, so it is noted and not specified.

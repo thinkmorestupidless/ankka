@@ -11,6 +11,7 @@ pages:
   - platform/databases.md
   - platform/broker.md
   - platform/object-storage.md
+  - platform/cloud-provider.md
   - platform/secrets.md
   - platform/networking.md
   - concepts/tenancy-and-access.md

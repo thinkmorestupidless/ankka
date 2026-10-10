@@ -308,3 +308,19 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     val json = serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready"))
     assert(!json.contains("objectStorage"), json)
   }
+
+  test("a raised storage credential generation is read back, and its absence is the first") {
+    // The member's count of credentials issued again (feature 039), which a cloud request asks
+    // for plus one (feature 044).
+    val decoded = serialization.unmarshal(
+      """{"projectId":"checkout","serviceName":"cart","storageCredentialGeneration":2}""",
+      classOf[AnkkaServiceSpec]
+    )
+    assertEquals(decoded.storageCredentialGeneration, 2)
+    assertEquals(
+      serialization
+        .unmarshal("""{"projectId":"checkout","serviceName":"cart"}""", classOf[AnkkaServiceSpec])
+        .storageCredentialGeneration,
+      0
+    )
+  }

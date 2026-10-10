@@ -310,7 +310,17 @@ export interface FakeControlPlane {
   close(): Promise<void>;
 }
 
+/** The installation's cloud, as `GET /installation` reports it (feature 044). */
+export interface FakeCloud {
+  provider: string;
+  account: string;
+  location: string;
+  kmsKey?: string;
+}
+
 export interface FakeSeed {
+  /** The installation's cloud (feature 044); `null` for an installation that names none, as until seeded. */
+  cloud?: FakeCloud | null;
   /** Where the installation keeps new buckets (feature 039); Garage until a suite says otherwise. */
   objectStore?: "garage" | "gcs";
   organizations?: { id: string; name: string; owners?: string[]; members?: string[]; disabled?: boolean }[];
@@ -368,6 +378,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   let hideNew = false;
   let base = "";
   let objectStore: "garage" | "gcs" = "garage";
+  let cloud: FakeCloud | null = null;
 
   const serviceKey = (p: string, n: string) => `${p}/${n}`;
 
@@ -558,6 +569,17 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         : [...organizations.values()]
             .filter((o) => o.members.has(c.subject))
             .map((o) => ({ id: o.id, name: o.name, role: o.members.get(c.subject)!.role })),
+    };
+  });
+
+  // Feature 044: what the installation is. The wrapping key's name is shown only to an owner of an
+  // organization or a platform administrator, as the control plane decides in its endpoint.
+  route("GET", "/installation", (c) => {
+    const owns = isAdmin(c) || [...organizations.values()].some((o) => o.members.get(c.subject)?.role === "owner");
+    const { kmsKey, ...where } = cloud ?? { provider: "", account: "", location: "" };
+    return {
+      platformVersion: "0.0.0-fake",
+      ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
     };
   });
 
@@ -1351,6 +1373,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     state: { organizations, projects, services, tokens, tombstones },
     seed(seed) {
       if (seed.objectStore) objectStore = seed.objectStore;
+      if (seed.cloud !== undefined) cloud = seed.cloud;
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
         for (const s of o.owners ?? []) members.set(s, { role: "owner", since: now() });

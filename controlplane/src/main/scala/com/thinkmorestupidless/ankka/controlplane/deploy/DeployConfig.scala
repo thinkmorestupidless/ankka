@@ -77,7 +77,7 @@ object DeployConfig:
     val section = config.getConfig("ankka.controlplane.kubernetes")
     val store   = config.getConfig("ankka.controlplane.object-store")
     val cloudProvider =
-      Option(config.getString("ankka.controlplane.cloud-provider"))
+      Option(config.getString("ankka.controlplane.cloud.provider"))
         .map(_.trim)
         .filter(p => p.nonEmpty && p != "none")
     // Empty is what a manifest renders when its overlay names no store: Garage, as before.

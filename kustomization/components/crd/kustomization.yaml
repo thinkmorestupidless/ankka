@@ -1,4 +1,4 @@
-# The AnkkaService and AnkkaProject CustomResourceDefinitions.
+# The AnkkaService, AnkkaProject and CloudResource CustomResourceDefinitions.
 #
 # Referenced by symlink, not copied: this is the exact file the k3s test suites install and the
 # exact file the operator ships on its classpath. Kustomize follows the symlink transparently, so
@@ -8,3 +8,4 @@ kind: Component
 resources:
   - ankkaservice.yaml
   - ankkaproject.yaml
+  - cloudresource.yaml

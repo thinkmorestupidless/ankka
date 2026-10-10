@@ -1,0 +1,8 @@
+# The cloud provider's namespace. "cloud-provider" is a reserved project id (ProjectId.Reserved,
+# Names.ReservedProjectIds), so no project's namespace can be this one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-cloud-provider
+  labels:
+    app.kubernetes.io/managed-by: ankka

@@ -32,7 +32,7 @@ class DeployConfigSuite extends munit.FunSuite:
       s"""$Section.backend = gcs
          |$Section.prefix = ankka
          |$Section.soft-delete-days = 30
-         |ankka.controlplane.cloud-provider = gcp""".stripMargin
+         |ankka.controlplane.cloud.provider = gcp""".stripMargin
     )
     assertEquals(config.objectStore, ObjectStoreKind.Gcs)
     assertEquals(config.objectStorePrefix, Some("ankka"))
@@ -41,7 +41,7 @@ class DeployConfigSuite extends munit.FunSuite:
   }
 
   test("Google Cloud Storage with no cloud provider, or none, fails naming the setting") {
-    for provider <- Vector("", "ankka.controlplane.cloud-provider = none") do
+    for provider <- Vector("", "ankka.controlplane.cloud.provider = none") do
       val e = intercept[IllegalArgumentException](
         read(s"$Section.backend = gcs\n$Section.prefix = ankka\n$provider")
       )
@@ -50,7 +50,7 @@ class DeployConfigSuite extends munit.FunSuite:
 
   test("Google Cloud Storage with no prefix fails naming the setting") {
     val e = intercept[IllegalArgumentException](
-      read(s"$Section.backend = gcs\nankka.controlplane.cloud-provider = gcp")
+      read(s"$Section.backend = gcs\nankka.controlplane.cloud.provider = gcp")
     )
     assert(e.getMessage.contains("ANKKA_OBJECT_STORE_PREFIX"), e.getMessage)
   }

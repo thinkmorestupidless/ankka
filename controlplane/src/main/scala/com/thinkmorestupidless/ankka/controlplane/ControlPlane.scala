@@ -98,7 +98,9 @@ object ControlPlane:
       /** Where a project's topics' phases are read from; the projector, as for the others. */
       topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
-      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None
+      schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
+      /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
+      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -137,7 +139,8 @@ object ControlPlane:
               topology = reader
             )
           case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
-      clients => WhoamiEndpoint(clients, acl, clock)
+      clients => WhoamiEndpoint(clients, acl, clock),
+      clients => InstallationEndpoint(clients, acl, cloud, deploy.platformVersion, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
@@ -166,6 +169,8 @@ object ControlPlane:
   ): ServiceBuilder =
     val deploy = DeployConfig.from(config)
     val policy = OrganizationPolicy.from(config)
+    val cloud =
+      com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     val projector = ServiceProjector(deploy)
@@ -181,7 +186,8 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            cloud = cloud
           )*
         )
       case _ =>
@@ -195,7 +201,8 @@ object ControlPlane:
             registry = Some(projector),
             secrets = Some(projector),
             topics = Some(projector),
-            schemas = Some(projector)
+            schemas = Some(projector),
+            cloud = cloud
           )*
         )
     val base = Ankka.service

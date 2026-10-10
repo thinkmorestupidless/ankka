@@ -403,3 +403,132 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         .contains(Action.SetBucketCors("shop.reports", Nil))
     )
   }
+
+  // A bucket in the installation's cloud account (feature 044).
+
+  private val cloud = CloudSettings(
+    "gcp",
+    "acct",
+    "europe-west2",
+    None,
+    scala.concurrent.duration.Duration(2, "minutes"),
+    scala.concurrent.duration.Duration(1, "hour")
+  )
+  private val withCloud = settings.copy(objectStore = None, cloud = Some(cloud))
+  private val cloudReady: ObjectStoragePlan.Ready = ObjectStoragePlan.Ready(
+    recovered = false,
+    Some(CloudBucket("acct-shop-reports", "https://storage.scripted.invalid", "europe-west2", 2L))
+  )
+
+  private def renderCloud(
+      spec: AnkkaServiceSpec,
+      plan: ObjectStoragePlan,
+      identity: Option[String] = None,
+      bucket: Option[String] = None
+  ): Vector[Action] =
+    val r = resource(spec)
+    Rendering
+      .render(
+        r,
+        withCloud,
+        ProvisioningPlan.Supplied,
+        objectStoragePlan = plan,
+        cloudRequests = ObjectStorage.cloudRequests(r, cloud, identity, bucket)
+      )
+      .fold(p => fail(p.mkString("; ")), identity => identity)
+
+  private def cloudRequestNames(actions: Vector[Action]): Vector[String] =
+    actions.collect { case Action.EnsureCloudResource(r) => r.getMetadata.getName }
+
+  test("cloud: a waiting bucket asks for an identity and a bucket, and starts no instance") {
+    val actions = renderCloud(asks, ObjectStoragePlan.Waiting(None))
+    assertEquals(cloudRequestNames(actions), Vector("reports-identity", "reports-bucket"))
+    assert(!actions.exists(_.isInstanceOf[Action.ApplyDeployment]), "no instance waits on a guess")
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureBucket]), "the store is not asked")
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureStorageCredential]))
+  }
+
+  test("cloud: the credential is asked for once the identity and the bucket are answered") {
+    val actions = renderCloud(
+      asks,
+      ObjectStoragePlan.Waiting(None),
+      identity = Some("reports@acct.scripted"),
+      bucket = Some("acct-shop-reports")
+    )
+    assertEquals(
+      cloudRequestNames(actions),
+      Vector("reports-identity", "reports-bucket", "reports-storage-credential")
+    )
+    val credential = actions.collectFirst {
+      case Action.EnsureCloudResource(r) if r.getSpec.kind == "bucket-credential" => r
+    }.get
+    assertEquals(credential.getSpec.parameters("identity"), "reports@acct.scripted")
+    assertEquals(credential.getSpec.parameters("bucket"), "acct-shop-reports")
+    assertEquals(credential.getSpec.parameters("secretName"), "reports-storage")
+    assertEquals(credential.getSpec.credentialGeneration, 1L)
+  }
+
+  test("cloud: a ready bucket's variables are the provider's answer and its credential's Secret") {
+    for hosting <- Hostings do
+      val spec      = asks.copy(hosting = hosting)
+      val cs        = containers(renderCloud(spec, cloudReady))
+      val developer = developers(spec, cs)
+      assertEquals(
+        storageVariables(developer),
+        Map(
+          "ANKKA_S3_ENDPOINT" -> "https://storage.scripted.invalid",
+          "ANKKA_S3_REGION"   -> "europe-west2",
+          "ANKKA_S3_BUCKET"   -> "acct-shop-reports"
+        ),
+        hosting
+      )
+      assertEquals(storageSecrets(developer), Vector("reports-storage"), hosting)
+      cs.filterNot(_ eq developer).foreach { other =>
+        assertEquals(
+          storageVariables(other),
+          Map.empty[String, String],
+          s"$hosting: ${other.getName}"
+        )
+      }
+  }
+
+  test("cloud: the credential's generation is on the pod template, so a new one rolls the pods") {
+    def annotation(plan: ObjectStoragePlan) =
+      renderCloud(asks, plan)
+        .collectFirst { case Action.ApplyDeployment(d) => d }
+        .flatMap(d => Option(d.getSpec.getTemplate.getMetadata.getAnnotations))
+        .flatMap(a => Option(a.get(Labels.StorageCredentialKey)))
+    assertEquals(annotation(cloudReady), Some("2"))
+    val third = cloudReady.copy(cloud = cloudReady.cloud.map(_.copy(credentialGeneration = 3L)))
+    assertEquals(annotation(third), Some("3"))
+    val a = renderCloud(asks, cloudReady).collectFirst { case Action.ApplyDeployment(d) => d }.get
+    val b = renderCloud(asks, third).collectFirst { case Action.ApplyDeployment(d) => d }.get
+    a.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialKey)
+    b.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialKey)
+    assertEquals(a, b, "the generation changes the template and nothing else")
+  }
+
+  test("cloud: a refused bucket starts the service told of no bucket at all") {
+    val cs =
+      containers(renderCloud(asks, ObjectStoragePlan.Failed(Vector("the location is refused"))))
+    cs.foreach(c => assertEquals(storageVariables(c), Map.empty[String, String], c.getName))
+    cs.foreach(c => assertEquals(storageSecrets(c), Vector.empty[String], c.getName))
+  }
+
+  test("cloud: the installation's own store renders no cloud request and no generation") {
+    for plan <- Vector(ObjectStoragePlan.Waiting(None), ObjectStoragePlan.Ready(false)) do
+      val actions = render(asks, plan)
+      assertEquals(cloudRequestNames(actions), Vector.empty[String])
+      val template =
+        actions.collectFirst { case Action.ApplyDeployment(d) => d }.get.getSpec.getTemplate
+      assert(
+        !template.getMetadata.getAnnotations.containsKey(Labels.StorageCredentialKey)
+      )
+  }
+
+  test("cloud: a cloud bucket has no route through the installation's gateway") {
+    val exposing = asks.copy(exposeObjectStorage = true)
+    val actions  = renderCloud(exposing, cloudReady)
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureHttpRoute]))
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureReferenceGrant]))
+  }

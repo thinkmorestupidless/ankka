@@ -40,6 +40,8 @@ import {
   type TopicDeclarationRequest,
   type Whoami,
   whoamiSchema,
+  type Installation,
+  installationSchema,
 } from "./schemas.ts";
 
 /** `fetch`'s shape; the server supplies one that presents the console's certificate. */
@@ -104,6 +106,13 @@ export class ControlPlaneClient {
 
   whoami(): Promise<Whoami> {
     return this.#call("GET", "/auth/whoami", { schema: whoamiSchema });
+  }
+
+  // ── The installation ──────────────────────────────────────────────────────
+
+  /** Its version, and its cloud when it names a provider; the key's name for an owner alone (feature 044). */
+  installation(): Promise<Installation> {
+    return this.#call("GET", "/installation", { schema: installationSchema });
   }
 
   // ── Organizations ─────────────────────────────────────────────────────────

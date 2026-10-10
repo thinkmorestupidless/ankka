@@ -115,6 +115,7 @@ Usage:
     ankka login
     ankka logout
     ankka whoami
+    ankka installation
     ankka organizations
     ankka projects
     ankka services
@@ -137,6 +138,8 @@ Subcommands:
         Forget the saved login for the control plane.
     whoami
         Show who the control plane thinks you are.
+    installation
+        Show the installation: its version, and its cloud provider, account and location.
     organizations
         Manage organizations.
     projects
@@ -193,6 +196,26 @@ Options and flags:
 Usage: ankka whoami [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Show who the control plane thinks you are.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka installation`
+
+```text
+Usage: ankka installation [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Show the installation: its version, and its cloud provider, account and location.
 
 Options and flags:
     --help

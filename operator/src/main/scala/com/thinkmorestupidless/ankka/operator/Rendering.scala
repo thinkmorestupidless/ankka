@@ -215,7 +215,9 @@ object Rendering:
       cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty,
       // What the cloud provider says binds the service's ServiceAccount to its cloud identity
       // (feature 039): put on the ServiceAccount as they are. None for every other service.
-      serviceAccountAnnotations: Map[String, String] = Map.empty
+      serviceAccountAnnotations: Map[String, String] = Map.empty,
+      // What a move of the service's bucket does this pass (feature 039), from `moveActions`.
+      moveActions: Vector[Action] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -257,6 +259,7 @@ object Rendering:
           telemetryAction(resource, spec, namespace, settings) ++
           objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
+          moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
@@ -467,6 +470,37 @@ object Rendering:
    * @param deadlineSeconds
    *   for the verify: what remains of the write pause bound, after which Kubernetes stops it
    */
+  /**
+   * A move's acts this pass as actions (feature 039): the target's requests while it runs, the
+   * mover's Job for the phase in hand into the target bucket as its provider answered it, and the
+   * write pause on the service's key in Garage, which `keyGeneration` names. The switch itself is
+   * the status's: the next pass finds the bucket in the cloud and renders its variables.
+   */
+  def moveActions(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      move: Int,
+      acts: Vector[StorageMove.Act],
+      target: Option[CloudBucket],
+      requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
+      keyGeneration: Int
+  ): Vector[Action] =
+    val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    def job(phase: MovePhase, deadline: Option[Long]) =
+      target.map(t =>
+        Action.EnsureMoveJob(moveJob(resource, spec, namespace, settings, move, phase, t, deadline))
+      )
+    acts.distinct.flatMap {
+      case StorageMove.Act.AskForBucket       => requests.map(Action.EnsureCloudResource(_))
+      case StorageMove.Act.Copy(_)            => job(MovePhase.Copy, None).toVector
+      case StorageMove.Act.PauseWrites        => Vector(Action.PauseWrites(bucket, keyGeneration))
+      case StorageMove.Act.Verify(_, seconds) => job(MovePhase.Verify, Some(seconds)).toVector
+      case StorageMove.Act.ResumeWrites       => Vector(Action.ResumeWrites(bucket, keyGeneration))
+      case StorageMove.Act.Switch(_)          => Vector.empty
+    }
+
   def moveJob(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,

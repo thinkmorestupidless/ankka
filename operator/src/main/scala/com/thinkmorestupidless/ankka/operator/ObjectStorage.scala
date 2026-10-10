@@ -226,6 +226,19 @@ object ObjectStorage:
     ))
 
   /**
+   * What a move's target bucket has been answered (feature 039), as the move reads it: the bucket
+   * as the cloud provider made it once its identity, bucket and credential are all answered.
+   */
+  def moveRequests(plans: CloudBucketPlans): (StorageMove.Requests, Option[CloudBucket]) =
+    fold(plans, credentialAsked = true) match
+      case ObjectStoragePlan.Ready(_, Some(bucket)) =>
+        StorageMove.Requests.Ready(bucket.bucket) -> Some(bucket)
+      case ObjectStoragePlan.Failed(problems) =>
+        StorageMove.Requests.Failed(problems.mkString("; ")) -> None
+      case ObjectStoragePlan.Waiting(detail) => StorageMove.Requests.Waiting(detail) -> None
+      case _                                 => StorageMove.Requests.Waiting(None)   -> None
+
+  /**
    * The annotations the cloud provider's answer for the service's cloud identity says its
    * ServiceAccount carries (feature 039): how the cloud binds a workload to that identity, in the
    * provider's words, as `key=value` pairs. None until the identity is answered.

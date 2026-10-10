@@ -100,7 +100,12 @@ object ControlPlane:
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
       schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
-      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
+      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None,
+      /**
+       * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
+       * resolver `deploy` names, or the system's; a suite passes one it scripts.
+       */
+      proofs: Option[com.thinkmorestupidless.ankka.controlplane.api.ProofLookup] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -128,6 +133,9 @@ object ControlPlane:
           com.thinkmorestupidless.ankka.controlplane.deploy
             .PodLogs(DeployConfig.default.namespacePrefix)
         )
+        val lookup = proofs.getOrElse(
+          com.thinkmorestupidless.ankka.controlplane.api.ProofLookup.jndi(deploy.dnsResolver)
+        )
         topology match
           case Some(reader) =>
             ServiceEndpoint(
@@ -136,9 +144,11 @@ object ControlPlane:
               deploy,
               logs = logReader,
               clock = clock,
-              topology = reader
+              topology = reader,
+              proofs = lookup
             )
-          case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
+          case None =>
+            ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock, proofs = lookup),
       clients => WhoamiEndpoint(clients, acl, clock),
       clients => InstallationEndpoint(clients, acl, cloud, deploy.platformVersion, clock)
     ) ++ auth.map(config =>

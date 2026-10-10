@@ -324,14 +324,25 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       s"the wildcard names ClusterIssuer $issuerRef, which the remote overlay does not define"
     )
 
-    // The local overlay is the mirror image, and for the mirror-image reason: its CA secret sits
-    // beside the Certificate, so a ClusterIssuer would look in the wrong namespace
-    // (.claude/rules/kubernetes.md).
+    // The local overlay's is a ClusterIssuer too, since a custom hostname's certificate is in the
+    // service's namespace (feature 045). A ClusterIssuer reads its CA secret in cert-manager's
+    // namespace (.claude/rules/kubernetes.md), so the root must be there, or the issuer is never
+    // Ready and nothing it signs ever is.
     val localCert = documentsOfKind(local, "Certificate")
       .find(_.contains("name: ankka-wildcard"))
       .getOrElse(fail("the local wildcard certificate is missing"))
-    assert(localCert.contains("kind: Issuer"), "the local one must stay namespaced")
-    assert(!localCert.contains("kind: ClusterIssuer"), "...and must not become a ClusterIssuer")
+    assert(localCert.contains("kind: ClusterIssuer"), s"must reference a ClusterIssuer: $localCert")
+    val localIssuer = documentsOfKind(local, "ClusterIssuer")
+      .find(_.contains("\n  name: ankka-ca\n"))
+      .getOrElse(fail("the local overlay defines no ClusterIssuer ankka-ca"))
+    assert(localIssuer.contains("secretName: ankka-root-ca"), localIssuer)
+    val root = documentsOfKind(local, "Certificate")
+      .find(_.contains("name: ankka-root-ca"))
+      .getOrElse(fail("the local root is missing"))
+    assert(
+      root.contains("namespace: cert-manager"),
+      s"the root must be where a ClusterIssuer looks: $root"
+    )
   }
 
   test("the DNSimple solver is named exactly as the webhook registers it") {
@@ -797,6 +808,87 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assert(role.contains("referencegrants"), role)
     assertEquals("- apiGroups:".r.findAllIn(role).size, 1, role)
     assert(!role.contains("delete") && !role.contains("list") && !role.contains("watch"), role)
+  }
+
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  private def deployment(render: String, name: String): String =
+    documentsOfKind(render, "Deployment")
+      .find(_.contains(s"\n  name: $name\n"))
+      .getOrElse(fail(s"no Deployment $name"))
+
+  private def envValue(document: String, variable: String): Option[String] =
+    s"(?s)- name: $variable\\n\\s+value: (\\S*)".r
+      .findFirstMatchIn(document)
+      .map(_.group(1).stripPrefix("\"").stripSuffix("\""))
+
+  test("both overlays give the operator and the control plane the issuer for custom hostnames") {
+    for (name, render, issuer) <- Vector(
+        ("local", local, "ankka-ca"),
+        ("cloud", remote, "letsencrypt-hostnames")
+      )
+    do
+      for d <- Vector("ankka-operator", "ankka-controlplane") do
+        assertEquals(
+          envValue(deployment(render, d), "ANKKA_HOSTNAME_ISSUER"),
+          Some(issuer),
+          s"$name/$d"
+        )
+      assert(
+        envValue(deployment(render, "ankka-controlplane"), "ANKKA_GATEWAY_ADDRESS").isDefined,
+        name
+      )
+      val issuers = documentsOfKind(render, "ClusterIssuer")
+      assert(issuers.exists(_.contains(s"\n  name: $issuer\n")), s"$name: no ClusterIssuer $issuer")
+  }
+
+  test(
+    "the Gateway admits listener sets and solver routes from managed namespaces, and only those"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val gateway =
+        documentsOfKind(render, "Gateway").find(_.contains("name: ankka\n")).getOrElse(fail(name))
+      assert(
+        "(?s)allowedListeners:\\s+namespaces:\\s+from: Selector\\s+selector:\\s+matchLabels:\\s+app.kubernetes.io/managed-by: ankka".r
+          .findFirstIn(gateway)
+          .isDefined,
+        s"$name: $gateway"
+      )
+      // kustomize sorts keys, so a listener's entry does not begin with its name: three selectors
+      // (the sets, the plain listener, the https one) and no listener left admitting its own
+      // namespace alone.
+      assertEquals("from: Selector".r.findAllIn(gateway).size, 3, s"$name: $gateway")
+      assert(!gateway.contains("from: Same"), s"$name: $gateway")
+  }
+
+  test(
+    "the cloud's issuer for custom hostnames answers HTTP-01 through the Gateway's plain listener, and nothing else"
+  ) {
+    val issuer = documentsOfKind(remote, "ClusterIssuer")
+      .find(_.contains("\n  name: letsencrypt-hostnames\n"))
+      .getOrElse(fail("no letsencrypt-hostnames"))
+    assertEquals("- http01:".r.findAllIn(issuer).size, 1, issuer)
+    assert(!issuer.contains("dns01"), issuer)
+    assert(
+      issuer.contains("gatewayHTTPRoute:") && issuer.contains("name: ankka") && issuer.contains(
+        "sectionName: http"
+      ),
+      issuer
+    )
+  }
+
+  test("cert-manager's controller runs with its Gateway API integration on, once") {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val controller = deployment(render, "cert-manager")
+      assertEquals("--enable-gateway-api".r.findAllIn(controller).size, 1, s"$name: $controller")
+      // The patch replaces the args list: the release's own must all still be there.
+      for arg <- Vector(
+          "--cluster-resource-namespace",
+          "--leader-election-namespace",
+          "--acme-http01-solver-image",
+          "--max-concurrent-challenges"
+        )
+      do assert(controller.contains(arg), s"$name lost $arg")
   }
 
   // ── The installation's cloud (feature 044) ────────────────────────────────

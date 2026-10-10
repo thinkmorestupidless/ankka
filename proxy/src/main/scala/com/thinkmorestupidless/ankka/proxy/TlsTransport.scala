@@ -78,13 +78,16 @@ final class TlsTransport(
           // The gateway and a mount of this project both read as the internet. A mount is another
           // web-hosted service's proxy passing a browser's request on, and it states the address the
           // browser used, which only the platform's proxy can present this certificate to say.
+          //
+          // From the gateway, the address is the request's own `Host`: the gateway chose this
+          // service by that name, and routes a name only to the service that holds it — the derived
+          // hostname or one of its custom hostnames (feature 045). So it is the gateway's word, not
+          // the request's; the forwarded headers a request carries are still never read.
           case (certificate, Caller.Gateway) =>
             val gateway = RotatingTls.ankkaUris(certificate).contains(RotatingTls.GatewayUri)
+            val header  = if gateway then "Host" else "X-Forwarded-Host"
             Right(
-              Sender.Internet(
-                if gateway then None
-                else Option(https.getRequestHeaders.getFirst("X-Forwarded-Host")).filter(_.nonEmpty)
-              )
+              Sender.Internet(Option(https.getRequestHeaders.getFirst(header)).filter(_.nonEmpty))
             )
           case (_, Caller.Service(project, name)) => Right(Sender.Service(project, name))
           // `fromCertificate` never answers Local: a certificate always names someone or is refused.

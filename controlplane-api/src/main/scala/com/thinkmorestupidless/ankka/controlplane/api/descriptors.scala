@@ -590,9 +590,12 @@ object ServiceSpec:
   /** The project database's cluster name, and the prefix of every Secret it is issued. */
   val PlatformSecretPrefix: String = "ankka-db"
 
+  // A name with a dot is a custom hostname's certificate (feature 045), named by the hostname: no
+  // other Secret the platform or a member writes in a project has one.
+
   def isPlatformSecret(name: String): Boolean =
     PlatformSecretSuffixes.exists(name.endsWith) || name == PlatformSecretPrefix ||
-      name.startsWith(PlatformSecretPrefix + "-")
+      name.startsWith(PlatformSecretPrefix + "-") || name.contains('.')
 
   private val Origin = """(https?)://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?""".r
 
@@ -980,7 +983,37 @@ final case class ServiceStatus(
      * Where a move of the bucket from Garage is, as a phrase: `copying`, `write pause`,
      * `verifying`, `moved`, `move failed`. Its detail is in `detail`.
      */
-    storageMove: Option[String] = None
+    storageMove: Option[String] = None,
+    /**
+     * The custom hostnames the service holds, in the order they were added, each with where it
+     * stands and the record its owner creates to point it at the installation (feature 045).
+     */
+    customHostnames: Vector[CustomHostname] = Vector.empty,
+    /**
+     * The proof record a project's custom hostnames need, the same for every one of them:
+     * `_ankka.<hostname> TXT "ankka-project=<project>"`, with `<hostname>` written literally.
+     * Present on every read of one service; absent on a listing row.
+     */
+    proofRecord: Option[DnsRecord] = None
+)
+
+/** A DNS record a member creates at their provider (feature 045). The platform writes none. */
+final case class DnsRecord(name: String, kind: String, value: String)
+
+/**
+ * One custom hostname of a service (feature 045).
+ *
+ * `state` is `pending`, `serving` or `rejected`, as the operator read it from the certificate, the
+ * authority and the gateway; `reason` is their words. `record` is the record to create so the name
+ * resolves to the installation, or, when no record can be said (an apex on an installation that has
+ * published no address), `note` says why.
+ */
+final case class CustomHostname(
+    hostname: String,
+    state: String = "pending",
+    reason: Option[String] = None,
+    record: Option[DnsRecord] = None,
+    note: Option[String] = None
 )
 
 /**
@@ -1011,7 +1044,9 @@ final case class HistoryEntry(
     /** `ServiceDescriptor.digest` of the descriptor this entry recorded, all 64 characters. */
     digest: Option[String] = None,
     /** On a `rolled-back` entry: the generation whose descriptor was applied again. */
-    rolledBackTo: Option[Long] = None
+    rolledBackTo: Option[Long] = None,
+    /** On a hostname's entry (feature 045): which custom hostname was added or removed. */
+    hostname: Option[String] = None
 )
 
 /**
@@ -1693,16 +1728,28 @@ object ProjectSecrets:
       "-mount-tls",
       "-storage"
     )
-  private val ValidName  = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
-  private val ValidEntry = """[A-Za-z0-9._-]+""".r
+  private val ValidName = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
+
+  /**
+   * A custom hostname's certificate is a Secret named by the hostname (feature 045), and every
+   * hostname has a dot; no other Secret in a project does. So a project secret has none, or a
+   * member could replace the key a gateway serves a product's domain with.
+   */
+  val ReservedCharacter: Char = '.'
+  private val ValidEntry      = """[A-Za-z0-9._-]+""".r
 
   /** What is wrong with a project secret's name, if anything. */
   def nameProblems(name: String): Vector[String] =
     if name.isEmpty then Vector("a project secret needs a name")
     else if name.length > MaxNameLength || !ValidName.matches(name) then
       Vector(
-        s"project secret name '$name' must be lowercase letters, digits, '-' and '.', begin and " +
+        s"project secret name '$name' must be lowercase letters, digits and '-', begin and " +
           s"end with a letter or digit, and be at most $MaxNameLength characters"
+      )
+    else if name.contains(ReservedCharacter) then
+      Vector(
+        s"project secret name '$name' has a '.', and names with a '.' are the platform's: a " +
+          "custom hostname's certificate is named by the hostname"
       )
     else if name.startsWith(ReservedPrefix) || ReservedSuffixes.exists(name.endsWith) then
       Vector(

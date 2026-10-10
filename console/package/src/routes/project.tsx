@@ -366,7 +366,16 @@ export default function Project() {
                     </td>
                     <td>{s.image}</td>
                     <td className="ac-num">{s.generation}</td>
-                    <td>{s.hostname ? <a href={s.hostname}>{s.hostname.replace(/^https:\/\//, "")}</a> : s.exposed ? "Exposed, no address yet" : "Not exposed"}</td>
+                    <td>
+                      {s.hostname ? <a href={s.hostname}>{s.hostname.replace(/^https:\/\//, "")}</a> : s.exposed ? "Exposed, no address yet" : "Not exposed"}
+                      {s.customHostnames.map((h) => (
+                        <span key={h.hostname} className="ac-hint" data-custom-hostname={h.hostname}>
+                          {", "}
+                          {h.hostname}
+                          {h.state === "serving" ? "" : ` (${h.state})`}
+                        </span>
+                      ))}
+                    </td>
                   </tr>
                 ))}
               </tbody>

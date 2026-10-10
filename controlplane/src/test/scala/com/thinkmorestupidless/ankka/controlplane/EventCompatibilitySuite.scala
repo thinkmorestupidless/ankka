@@ -508,7 +508,42 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     )
   }
 
-/** `ServiceApplied` as the build before feature 033 declared it: five fields. */
+  /** `ServiceApplied` as the build before feature 033 declared it: five fields. */
+
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("the hostname events have a pinned wire shape, and decode with no actor and no take-away") {
+    def read(json: String) = ServiceEntity.eventSerializer.fromBytes(json.getBytes("UTF-8"))
+    assertEquals(
+      read("""{"type":"CustomHostnameAdded","hostname":"app.example.com"}"""),
+      ServiceEvent.CustomHostnameAdded("app.example.com")
+    )
+    assertEquals(
+      read("""{"type":"CustomHostnameRemoved","hostname":"app.example.com"}"""),
+      ServiceEvent.CustomHostnameRemoved("app.example.com")
+    )
+    val taken = String(
+      ServiceEntity.eventSerializer.toBytes(
+        ServiceEvent.CustomHostnameRemoved("app.example.com", byAdministrator = true)
+      ),
+      "UTF-8"
+    )
+    assertEquals(
+      taken,
+      """{"type":"CustomHostnameRemoved","hostname":"app.example.com","byAdministrator":true}"""
+    )
+  }
+
+  test("an observation from before custom hostnames reports none") {
+    val observed = ServiceEntity.eventSerializer.fromBytes(
+      """{"type":"ServiceObserved","generation":1,"lifecycle":"Ready","readyInstances":1,"desiredInstances":1}"""
+        .getBytes("UTF-8")
+    )
+    observed match
+      case o: ServiceEvent.ServiceObserved => assertEquals(o.hostnames, Vector.empty)
+      case other                           => fail(s"decoded as $other")
+  }
+
 private object PreRollback:
   import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 

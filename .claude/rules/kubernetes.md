@@ -569,3 +569,31 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
   service rolling on upgrade, and is never accepted.
+- **A listener in a `ListenerSet` loses only an *equal* hostname to the Gateway's own listeners.** A
+  set's `*.<base>` is `Conflicted: HostnameConflict`; a set's `api.<base>` is accepted and
+  programmed, because it is more specific than the Gateway's `*.<base>` — and Envoy then selects it
+  for that name. So the operator renders no custom hostname under the base domain whatever the
+  resource says (`HostnameRendering.refusal`), beside the control plane's own refusal (feature 045,
+  spike S1). A route attaches to a set only through a `parentRef` of `kind: ListenerSet`; one naming
+  the Gateway attaches to the Gateway's own listeners alone.
+- **cert-manager leaves a Certificate's Secret behind when the Certificate is deleted**, unless the
+  controller runs with `--enable-certificate-owner-ref`. A pruned custom hostname's key then outlives
+  it, and a Certificate of the same name later is `Ready` at once from the stale Secret — which made a
+  "does not resolve yet" case read as serving. The certmanager component's patch sets the flag; the
+  patch replaces the whole `args` list, so it repeats the release's own and a version bump must too.
+- **cert-manager's HTTP-01 solver on the Gateway API is off until `--enable-gateway-api`**, and its
+  solver route is written in the *Certificate's* namespace with the issuer's `parentRefs`, so the
+  listener it names must admit that namespace (the Gateway's `http` listener admits managed
+  namespaces). Its self-check uses `--acme-http01-solver-nameservers` when given, yet Go's resolver
+  error still names the pod's own DNS server (`lookup x on 10.43.0.10:53: lame referral`): read the
+  message as the name, not the server.
+- **Pebble's images are tagged without a `v`** (`ghcr.io/letsencrypt/pebble:2.10.1`), take `-config`
+  and `-dnsserver` as container args, and serve their root at `GET /roots/0` on 15000. `AcmeStack`
+  pulls them before importing, since `ClusterImages.importInto` exports only what the daemon holds.
+- **The operator's client hands a `GenericKubernetesResource`'s untyped fields over as Scala
+  collections**, because `AnkkaSerialization` registers the Scala module: `status` is an immutable
+  `HashMap` and `conditions` a `List`, where fabric8's own mapper gives `java.util` ones. A reader that
+  matched only Java collections read every cert-manager field as absent, offline tests passed, and on
+  k3s a `Ready` certificate was reported "being issued" for ever. `Generic` (operator) reads both, and
+  `GenericSuite` holds both shapes.
+

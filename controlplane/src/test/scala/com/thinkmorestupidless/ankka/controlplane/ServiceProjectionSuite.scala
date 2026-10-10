@@ -275,6 +275,19 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(plain.exposeObjectStorage, false)
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("custom hostnames are projected whole, exposed or not, and none by default") {
+    val Right(none) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(none.customHostnames, Nil)
+    val holding = service().onHostnameAdded("app.example.com").onHostnameAdded("example.com")
+    val Right(unexposed) = ServiceProjection.project(holding, config): @unchecked
+    assertEquals(unexposed.customHostnames, List("app.example.com", "example.com"))
+    assertEquals(unexposed.exposed, false)
+    val Right(exposed) = ServiceProjection.project(holding.onExposed, config): @unchecked
+    assertEquals(exposed.customHostnames, List("app.example.com", "example.com"))
+  }
+
   // Feature 039.
 
   private def asking(f: ServiceSpec => ServiceSpec = identity) =

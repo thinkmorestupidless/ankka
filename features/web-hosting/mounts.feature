@@ -38,6 +38,12 @@ Feature: Mounting services under a web-hosted service
     And the process of "admin" is told that the request came from the internet
     And the process of "admin" is told the hostname of "web" as the address the request was sent to
 
+  Scenario: a mount is reached under a custom hostname of the web-hosted service
+    Given "web" holds the custom hostname "app.example.com"
+    When a browser sends a request for "/backend/cart/carts/c1" to "app.example.com"
+    Then "cart" is given a request for "/carts/c1"
+    And "cart" is told that the request came from the internet
+
   Scenario: a request under a mount of a web-hosted service in another project is refused
     Given a web-hosted service "portal" deployed in the project "billing"
     When "portal" passes a request to "cart" as a request under a mount

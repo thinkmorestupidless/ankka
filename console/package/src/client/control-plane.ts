@@ -314,6 +314,19 @@ export class ControlPlaneClient {
     return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/${operation}`);
   }
 
+  /** Add a custom hostname; a refusal is the control plane's, shown as it says it. */
+  addHostname(projectId: string, name: string, hostname: string): Promise<ServiceStatus> {
+    return this.#call("PUT", `/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}`, {
+      schema: serviceStatusSchema,
+    });
+  }
+
+  removeHostname(projectId: string, name: string, hostname: string): Promise<ServiceStatus> {
+    return this.#call("DELETE", `/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}`, {
+      schema: serviceStatusSchema,
+    });
+  }
+
   /** Issues the service's storage credential again; the old one works for the rotation grace. */
   reissueStorageCredential(projectId: string, name: string): Promise<ServiceStatus> {
     return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/storage-credential`, { schema: serviceStatusSchema });

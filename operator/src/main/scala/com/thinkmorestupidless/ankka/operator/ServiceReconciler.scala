@@ -380,6 +380,15 @@ final class ServiceReconciler(
           settings.baseDomain,
           executor.observeRoute(namespace, Names.httpRoute(spec.serviceName))
         )
+      ),
+      // Feature 045: each custom hostname while exposed, read only when there are some.
+      hostnames = HostnameRules.statuses(
+        spec,
+        settings,
+        if spec.exposed && spec.customHostnames.nonEmpty then
+          executor
+            .observeHostnames(namespace, spec.serviceName, spec.customHostnames.toVector.distinct)
+        else Map.empty
       )
     )
 

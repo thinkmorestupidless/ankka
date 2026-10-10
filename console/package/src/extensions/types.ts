@@ -35,6 +35,8 @@ export const operations = [
   "service.rollback",
   "service.expose",
   "service.unexpose",
+  "service-hostname.add",
+  "service-hostname.remove",
   "service.delete",
   "service.logs",
   "service.storage-credential",

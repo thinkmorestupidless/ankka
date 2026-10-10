@@ -333,6 +333,16 @@ final class ControlPlaneClient(settings: Settings):
   def unexposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "unexpose"))
 
+  /** Adds a custom hostname (feature 045); a refusal is the control plane's message. */
+  def addHostname(projectId: String, name: String, hostname: String): ServiceStatus =
+    decode[ServiceStatus](send("PUT", hostnamePath(projectId, name, hostname), None))
+
+  def removeHostname(projectId: String, name: String, hostname: String): ServiceStatus =
+    decode[ServiceStatus](send("DELETE", hostnamePath(projectId, name, hostname), None))
+
+  private def hostnamePath(projectId: String, name: String, hostname: String): String =
+    s"/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}"
+
   def deleteService(projectId: String, name: String): Unit =
     send("DELETE", s"/services/${segment(projectId)}/${segment(name)}", None): Unit
 

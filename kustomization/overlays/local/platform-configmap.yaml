@@ -37,3 +37,8 @@ data:
   cloudKmsKey: ""
   cloudAcknowledgementBound: 2m
   cloudRotationGrace: 1h
+  # The installation's own authority signs every custom hostname's certificate too (feature 045):
+  # it runs no challenge, so a name a developer points here with a hosts entry is served at once.
+  hostnameIssuer: ankka-ca
+  # A local platform has no address an apex record could point at.
+  gatewayAddress: ""

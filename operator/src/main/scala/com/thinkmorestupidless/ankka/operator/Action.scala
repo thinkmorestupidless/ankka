@@ -20,6 +20,8 @@ import com.thinkmorestupidless.ankka.operator.cnpg.{
 }
 import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicResource, KafkaUserResource}
 
+import scala.jdk.CollectionConverters.*
+
 /**
  * Something that should happen to the cluster, as a value.
  *
@@ -262,6 +264,22 @@ enum Action:
    */
   case RemoveBackendTlsPolicy(namespace: String, name: String, ownerUid: String)
 
+  /**
+   * An exposed service's listener set (feature 045): a listener per custom hostname, attached to
+   * the installation's Gateway, in the service's namespace. Server-side applied whole, so a
+   * hostname dropped from the spec is dropped from the set.
+   */
+  case EnsureListenerSet(set: io.fabric8.kubernetes.api.model.gatewayapi.v1.ListenerSet)
+
+  /** The set of a service with no custom hostname rendered; owner-checked, absent-safe. */
+  case RemoveListenerSet(namespace: String, name: String, ownerUid: String)
+
+  /**
+   * Deletes the custom hostname certificates this resource owns and no longer names (feature 045).
+   * Found by their label and owner, never by name alone, so it cannot touch another's.
+   */
+  case PruneHostnameCertificates(namespace: String, ownerUid: String, keep: Vector[String])
+
   def describe: String = this match
     case EnsureNamespace(name) => s"ensure namespace $name"
     case ApplyDeployment(d) =>
@@ -333,3 +351,10 @@ enum Action:
     case EnsureBackendTlsPolicy(p) =>
       s"ensure backendtlspolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
     case RemoveBackendTlsPolicy(ns, name, _) => s"remove backendtlspolicy $ns/$name if owned"
+    case EnsureListenerSet(s) =>
+      s"ensure listenerset ${s.getMetadata.getNamespace}/${s.getMetadata.getName} for " +
+        s.getSpec.getListeners.asScala.map(_.getHostname).mkString(", ")
+    case RemoveListenerSet(ns, name, _) => s"remove listenerset $ns/$name if owned"
+    case PruneHostnameCertificates(ns, _, keep) =>
+      s"prune hostname certificates in $ns" +
+        (if keep.isEmpty then "" else s" except ${keep.mkString(", ")}")

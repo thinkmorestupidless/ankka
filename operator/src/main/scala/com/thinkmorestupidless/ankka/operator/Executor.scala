@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.operator
 
-import io.fabric8.kubernetes.api.model.gatewayapi.v1.{BackendTLSPolicy, HTTPRoute}
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.{BackendTLSPolicy, HTTPRoute, ListenerSet}
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
 import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientException}
 import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceStatus, CloudResource}
@@ -41,6 +41,20 @@ trait Executor:
 
   /** The gateway's verdict on a service's route, if a route exists (feature 005). */
   def observeRoute(namespace: String, name: String): Option[RouteView]
+
+  /**
+   * What serves each custom hostname of a service (feature 045): its certificate, the newest
+   * challenge for it, its listener in the service's set, and the route's word on the set. Only
+   * read; cert-manager's and the gateway's objects are theirs. An executor with nothing to read
+   * reports nothing, which `HostnameRules` reads as a certificate still being issued.
+   */
+  def observeHostnames(
+      namespace: String,
+      serviceName: String,
+      hostnames: Vector[String]
+  ): Map[String, HostnameViews] =
+    val _ = (namespace, serviceName)
+    hostnames.map(h => h -> HostnameViews(h)).toMap
 
   /** Everything `Provisioning.decide` needs, read in one place. */
   def observeDatabase(
@@ -605,6 +619,53 @@ final class Fabric8Executor(
         val _ = policies.delete()
         log.debug("removed backendtlspolicy {}/{}", namespace, name)
 
+    case Action.EnsureListenerSet(set) =>
+      val _ = client.resource(set).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured listenerset {}/{}",
+        set.getMetadata.getNamespace,
+        set.getMetadata.getName
+      )
+
+    case Action.RemoveListenerSet(namespace, name, ownerUid) =>
+      // Absent-safe, as the route's removal is: rendered for every exposed service on every pass,
+      // so a cluster whose Gateway API predates ListenerSet reads as "no set".
+      val sets = client.resources(classOf[ListenerSet]).inNamespace(namespace).withName(name)
+      val existing =
+        try Option(sets.get())
+        catch case e: KubernetesClientException if e.getCode == 404 => None
+      if existing.exists(s => ownedBy(s.getMetadata, ownerUid)) then
+        val _ = sets.delete()
+        log.debug(
+          "removed listenerset {}/{}: the service serves no custom hostname",
+          namespace,
+          name
+        )
+
+    case Action.PruneHostnameCertificates(namespace, ownerUid, keep) =>
+      val certificates = client
+        .genericKubernetesResources("cert-manager.io/v1", "Certificate")
+        .inNamespace(namespace)
+      val labelled =
+        try
+          certificates
+            .withLabel(HostnameRendering.CertificateLabel, "true")
+            .list()
+            .getItems
+            .asScala
+            .toVector
+        catch case e: KubernetesClientException if e.getCode == 404 => Vector.empty
+      labelled
+        .filter(c => ownedBy(c.getMetadata, ownerUid) && !keep.contains(c.getMetadata.getName))
+        .foreach { c =>
+          val _ = certificates.withName(c.getMetadata.getName).delete()
+          log.debug(
+            "removed certificate {}/{}: no longer a custom hostname",
+            namespace,
+            c.getMetadata.getName
+          )
+        }
+
     case Action.EnsureSchemaConfig(configMap) =>
       val _ =
         client.resource(configMap).fieldManager(FieldManager).forceConflicts().serverSideApply()
@@ -766,6 +827,91 @@ final class Fabric8Executor(
             .map(c => (c.getStatus == "True", Option(c.getReason).getOrElse("")))
         RouteView(accepted = condition("Accepted"), resolvedRefs = condition("ResolvedRefs"))
       }
+
+  override def observeHostnames(
+      namespace: String,
+      serviceName: String,
+      hostnames: Vector[String]
+  ): Map[String, HostnameViews] =
+    if hostnames.isEmpty then Map.empty
+    else
+      val setName = HostnameRendering.setName(serviceName)
+      val set =
+        try
+          Option(
+            client.resources(classOf[ListenerSet]).inNamespace(namespace).withName(setName).get()
+          )
+        catch case e: KubernetesClientException if e.getCode == 404 => None
+      val listeners = set
+        .flatMap(s => Option(s.getStatus))
+        .flatMap(s => Option(s.getListeners))
+        .map(_.asScala.toVector)
+        .getOrElse(Vector.empty)
+      val routeAccepted = routeIfAny(namespace, Names.httpRoute(serviceName))
+        .flatMap(r => Option(r.getStatus))
+        .flatMap(s => Option(s.getParents))
+        .flatMap(_.asScala.find { p =>
+          val ref = p.getParentRef
+          ref != null && ref.getKind == "ListenerSet" && ref.getName == setName
+        })
+        .flatMap(p => Option(p.getConditions))
+        .flatMap(_.asScala.find(_.getType == "Accepted"))
+        .map(c => (c.getStatus == "True", Option(c.getReason).getOrElse("")))
+      val challenges =
+        try
+          client
+            .genericKubernetesResources("acme.cert-manager.io/v1", "Challenge")
+            .inNamespace(namespace)
+            .list()
+            .getItems
+            .asScala
+            .toVector
+        catch case e: KubernetesClientException if e.getCode == 404 => Vector.empty
+      hostnames.map { hostname =>
+        val certificate =
+          try
+            Option(
+              client
+                .genericKubernetesResources("cert-manager.io/v1", "Certificate")
+                .inNamespace(namespace)
+                .withName(HostnameRendering.certificateName(hostname))
+                .get()
+            ).map(certificateView)
+          catch case e: KubernetesClientException if e.getCode == 404 => None
+        val challenge = challenges
+          .filter(c => Generic.string(c, "spec", "dnsName").contains(hostname))
+          .sortBy(c => Option(c.getMetadata.getCreationTimestamp).getOrElse(""))
+          .lastOption
+          .map(c =>
+            ChallengeView(
+              Generic.string(c, "status", "state"),
+              Generic.string(c, "status", "reason")
+            )
+          )
+        val listener = listeners.find(_.getName == hostname).map { l =>
+          ListenerView(
+            Option(l.getConditions)
+              .map(_.asScala.toVector)
+              .getOrElse(Vector.empty)
+              .map(c => c.getType -> (c.getStatus == "True", Option(c.getReason).getOrElse("")))
+              .toMap
+          )
+        }
+        hostname -> HostnameViews(hostname, certificate, challenge, listener, routeAccepted)
+      }.toMap
+
+  /** `Ready`, and a failed issuance while a certificate is already in place (a refused renewal). */
+  private def certificateView(
+      c: io.fabric8.kubernetes.api.model.GenericKubernetesResource
+  ): CertificateView =
+    val conditions = Generic.conditions(c)
+    val ready      = conditions.get("Ready").exists(_._1 == "True")
+    val failed = conditions
+      .get("Issuing")
+      .filter((status, reason, _) => status == "False" && reason == "Failed")
+      .map(_._3)
+      .filter(_.nonEmpty)
+    CertificateView(ready, if ready then failed else None)
 
   override def observeDatabase(
       namespace: String,

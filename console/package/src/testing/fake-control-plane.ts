@@ -168,6 +168,8 @@ function fakeFingerprint(schema: unknown): string {
 interface Service {
   name: string;
   projectId: string;
+  /** Custom hostnames (feature 045), in the order added; the fake serves each at once. */
+  customHostnames?: string[];
   lifecycle: string;
   generation: number;
   image: string;
@@ -185,6 +187,7 @@ interface Service {
     at: string;
     image?: string;
     digest?: string;
+    hostname?: string;
     rolledBackTo?: number;
   }[];
   /** The descriptor in force, and the applied ones a rollback can return to, newest first, at most fifty. */
@@ -479,7 +482,35 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       bucketLocation: s.provisionObjectStorage && s.objectStore === "gcs" ? (s.bucketLocation ?? null) : null,
       softDeleteDays: s.provisionObjectStorage && s.objectStore === "gcs" ? 7 : null,
       storageMove: s.storageMove ?? null,
+      customHostnames: (s.customHostnames ?? []).map((hostname) => ({
+        hostname,
+        // The fake has no authority to wait for: an exposed service's hostnames serve at once.
+        state: s.exposed ? "serving" : "pending",
+        ...(s.exposed ? {} : { reason: "the service is not exposed" }),
+        ...(hostname.split(".").length === 2
+          ? { note: "an apex cannot be a CNAME; this installation has published no address" }
+          : { record: { name: hostname, kind: "CNAME", value: `${s.name}-${s.projectId}.${options.baseDomain ?? "example.test"}` } }),
+      })),
     };
+  };
+
+  /** A read of one service carries the proof record its project's custom hostnames need. */
+  const oneService = (s: Service) => ({
+    ...serviceStatus(s),
+    proofRecord: { name: "_ankka.<hostname>", kind: "TXT", value: `ankka-project=${s.projectId}` },
+  });
+
+  /** The control plane's refusals 1 to 5 (contracts/control-plane.md), in its words. */
+  const hostnameProblem = (requested: string): string | null => {
+    const h = requested.trim().toLowerCase().replace(/\.$/, "");
+    const base = options.baseDomain ?? "example.test";
+    if (/[\/:\s]/.test(h)) return `a custom hostname is a name alone: '${requested}' has a scheme, a path or a port`;
+    if (h.includes("*")) return "a custom hostname cannot be a wildcard";
+    const bad = h.split(".").find((l) => !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(l));
+    if (bad !== undefined) return `'${h}' is not a hostname: label '${bad}' must be letters, digits and '-', and cannot start or end with '-'`;
+    if (h.split(".").length < 2) return `'${h}' is not a name on the internet: a custom hostname has at least two labels`;
+    if (h === base || h.endsWith(`.${base}`)) return `a custom hostname cannot be under the base domain '${base}': those names are the platform's`;
+    return null;
   };
 
   // ── Authorization, the control plane's rules ──────────────────────────────
@@ -1031,7 +1062,42 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return [...services.values()].filter((s) => s.projectId === p.projectId).map(serviceStatus);
   });
 
-  route("GET", "/services/{projectId}/{name}", (c, p) => serviceStatus(requireService(c, p.projectId, p.name).service));
+  route("GET", "/services/{projectId}/{name}", (c, p) => oneService(requireService(c, p.projectId, p.name).service));
+
+  // Custom hostnames (feature 045). A name whose first label is `unproved` stands for one that does not
+  // carry the project's proof record.
+  route("PUT", "/services/{projectId}/{name}/hostnames/{hostname}", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    const hostname = p.hostname.trim().toLowerCase().replace(/\.$/, "");
+    const problem = hostnameProblem(p.hostname);
+    if (problem !== null) throw new HttpError(409, problem);
+    const held = s.customHostnames ?? [];
+    if (held.includes(hostname)) return oneService(s);
+    if (!s.exposed) throw new HttpError(409, `service '${s.name}' is not exposed`);
+    if (held.length >= 5) throw new HttpError(409, `service '${s.name}' holds 5 custom hostnames, the most a service can hold`);
+    const holder = [...services.values()].find((o) => o !== s && (o.customHostnames ?? []).includes(hostname));
+    if (holder) throw new HttpError(409, `'${hostname}' is held by service '${holder.name}' in project '${holder.projectId}'`);
+    if (hostname.split(".")[0] === "unproved")
+      throw new HttpError(
+        409,
+        `'${hostname}' does not carry the proof record of project '${s.projectId}': create TXT _ankka.${hostname} with the value "ankka-project=${s.projectId}"`,
+      );
+    s.customHostnames = [...held, hostname];
+    s.history.push({ kind: "hostname added", generation: s.generation, actor: actor(c), at: now(), hostname });
+    return oneService(s);
+  });
+
+  route("DELETE", "/services/{projectId}/{name}/hostnames/{hostname}", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    if (!isAdmin(c)) requireWrite(org);
+    const hostname = p.hostname.trim().toLowerCase().replace(/\.$/, "");
+    if ((s.customHostnames ?? []).includes(hostname)) {
+      s.customHostnames = (s.customHostnames ?? []).filter((h) => h !== hostname);
+      s.history.push({ kind: isAdmin(c) ? "hostname taken away" : "hostname removed", generation: s.generation, actor: actor(c), at: now(), hostname });
+    }
+    return oneService(s);
+  });
 
   route("PUT", "/services/{projectId}/{name}", (c, p, body) => {
     const { org } = requireProject(c, p.projectId);

@@ -102,6 +102,13 @@ spec:
             # that works; replaced by the overlay from ankka-platform.httpsPort.
             - name: ANKKA_HTTPS_PORT
               value: "443"
+            # Custom hostnames (feature 045): the issuer the operator asks, which the control plane
+            # needs only to refuse a hostname when there is none; and the address an apex
+            # hostname's record points at. Both replaced by the overlay from ankka-platform.
+            - name: ANKKA_HOSTNAME_ISSUER
+              value: ""
+            - name: ANKKA_GATEWAY_ADDRESS
+              value: ""
             # Where the control plane, an ankka service itself, exports its telemetry, and what
             # it sends with it. The address is replaced by the overlay from
             # ankka-platform.otlpEndpoint; empty names no collector, and nothing is exported. The

@@ -1,0 +1,26 @@
+# cert-manager's Gateway API integration, which its HTTP-01 solver needs to answer a challenge
+# through the installation's Gateway: the certificate for a custom hostname is obtained that way,
+# since the name is under a domain the installation cannot write to (feature 045, research R5).
+# It must be on when cert-manager starts; a controller started before the flag sees no Gateway API.
+# And every issued Secret is owned by its Certificate, so removing the request removes the key.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: cert-manager-controller
+          args:
+            - --v=2
+            - --cluster-resource-namespace=$(POD_NAMESPACE)
+            - --leader-election-namespace=kube-system
+            - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.21.2
+            - --max-concurrent-challenges=60
+            - --enable-gateway-api
+            # A certificate's Secret is owned by the Certificate, so the key goes when the request does:
+            # a custom hostname removed takes its key with it, rather than leaving it for the next
+            # Certificate of that name to be served from at once (feature 045).
+            - --enable-certificate-owner-ref

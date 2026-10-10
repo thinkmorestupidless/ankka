@@ -49,19 +49,26 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
 
   // ── the scenario's state ──────────────────────────────────────────────────
 
-  protected var project: String                 = "shop"
-  protected var service: String                 = "web"
-  protected var exposed: Boolean                = false
-  protected var callers: Vector[Admitted]       = Vector.empty
-  protected var responseTimeout: FiniteDuration = 60.seconds
-  protected var streamInterval: FiniteDuration  = 1.second
-  protected var process: StandInProcess         = null
-  protected var engine: ProxyEngine             = null
-  protected var serverTls: RotatingTls          = null
-  protected var settings: ProxySettings         = null
-  protected var thatRequest: String             = "/"
-  protected var last: ProxySteps.Reply          = null
-  protected var partArrivals: Vector[Long]      = Vector.empty
+  protected var project: String = "shop"
+  protected var service: String = "web"
+
+  /**
+   * Custom hostnames and the web-hosted service holding each (feature 045). Nothing about the proxy
+   * changes for one: the gateway routes a name only to its holder, so a request reaching the proxy
+   * from the gateway with that `Host` is one sent to it. The steps send exactly that.
+   */
+  protected var customHostnames: Map[String, String] = Map.empty
+  protected var exposed: Boolean                     = false
+  protected var callers: Vector[Admitted]            = Vector.empty
+  protected var responseTimeout: FiniteDuration      = 60.seconds
+  protected var streamInterval: FiniteDuration       = 1.second
+  protected var process: StandInProcess              = null
+  protected var engine: ProxyEngine                  = null
+  protected var serverTls: RotatingTls               = null
+  protected var settings: ProxySettings              = null
+  protected var thatRequest: String                  = "/"
+  protected var last: ProxySteps.Reply               = null
+  protected var partArrivals: Vector[Long]           = Vector.empty
 
   /** The services the scenario deployed beside "web", by project and name. */
   protected val callees = scala.collection.mutable.Map.empty[(String, String), ProxySteps.Served]
@@ -84,6 +91,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     service = "web"
     exposed = false
     callers = Vector.empty
+    customHostnames = Map.empty
     responseTimeout = 60.seconds
     streamInterval = 1.second
     process = null
@@ -330,8 +338,31 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   // ── When ──────────────────────────────────────────────────────────────────
 
   When("a person on the internet sends a request to {string}") { (name: String) =>
-    assertEquals(name, service)
-    send(internet, "/from-the-internet")
+    customHostnames.get(name) match
+      case Some(holder) =>
+        assertEquals(holder, service)
+        send(internet, "/at-a-custom-hostname", "Host" -> name)
+      case None =>
+        assertEquals(name, service)
+        send(internet, "/from-the-internet")
+  }
+
+  Given("{string} holds the custom hostname {string}") { (holder: String, hostname: String) =>
+    customHostnames += hostname -> holder
+  }
+
+  When("a person on the internet sends a request to {string} that says it was sent to {string}") {
+    (hostname: String, claimed: String) =>
+      assert(customHostnames.contains(hostname), s"no service holds $hostname")
+      send(
+        internet,
+        "/at-a-custom-hostname",
+        "Host"              -> hostname,
+        "X-Forwarded-Host"  -> claimed,
+        "X-Forwarded-Proto" -> "http",
+        "X-Forwarded-Port"  -> "80",
+        "Forwarded"         -> s"host=$claimed"
+      )
   }
 
   When("the service {string} in the project {string} sends a request to {string}") {
@@ -420,6 +451,16 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
       assertEquals(theRequest.all("x-forwarded-proto"), Vector("https"))
       assertEquals(theRequest.all("x-forwarded-port"), Vector("443"))
       assertEquals(theRequest.all("host"), Vector(hostnameOf(service)))
+      assertEquals(theRequest.all("forwarded"), Vector.empty)
+  }
+
+  Then("the process is told {string} as the address the request was sent to") {
+    (hostname: String) =>
+      assertEquals(last.status, 200, last.body)
+      assertEquals(theRequest.all("x-forwarded-host"), Vector(hostname))
+      assertEquals(theRequest.all("x-forwarded-proto"), Vector("https"))
+      assertEquals(theRequest.all("x-forwarded-port"), Vector("443"))
+      assertEquals(theRequest.all("host"), Vector(hostname))
       assertEquals(theRequest.all("forwarded"), Vector.empty)
   }
 
@@ -516,7 +557,9 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   }
 
   When("a browser sends a request for {string} to {string}") { (path: String, name: String) =>
-    sendTo(internet, portOf(name), path)
+    customHostnames.get(name) match
+      case Some(holder) => sendTo(internet, portOf(holder), path, "Host" -> name)
+      case None         => sendTo(internet, portOf(name), path)
   }
 
   When("a browser sends a request for {string} to the hostname of {string}") {

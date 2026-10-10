@@ -138,6 +138,8 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/storage/move` | |
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
+| `PUT` | `/services/{projectId}/{name}/hostnames/{hostname}` | |
+| `DELETE` | `/services/{projectId}/{name}/hostnames/{hostname}` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
 | `GET` | `/services/{projectId}/{name}/topology` | |
 | `GET` | `/services/{projectId}/{name}/history` | |
@@ -549,6 +551,8 @@ Every service route answers with a service status, except where noted:
 | `protocol` | string, optional | The sidecar protocol a process-hosted service declared. |
 | `topicSources` | list, optional | Each topic source of the service, from its running instances: `kind`, `component`, `topic`, `group`, `start`, `version`, `recordedVersion`, `behind`, `broker`, `contract`, `lag` (messages past the last one handled, summed over the instances, as of their last poll) and `failing` (the reason of the change being delivered again). Absent when no instance answered, and on a listing row. |
 | `topicChecks` | list, optional | Each side the service's components take on a declared topic with a contract: `topic`, `component`, `direction`, `stated`, `state` (`checked`, `mismatch` or `unchecked`). Absent as `topicSources` is. |
+| `customHostnames` | list, optional | Each [custom hostname](../deploy/custom-hostnames.md) the service holds, in the order added: `hostname`; `state`, which is `pending`, `serving` or `rejected`; `reason`, the certificate authority's or the gateway's words when there is something to say; `record`, the DNS record that points the name at the installation (`name`, `kind`, `value`); and `note`, when no record can be given, such as an apex on an installation that has published no address. Every one is `pending` with the reason `the service is not exposed` while the service is not exposed. Absent when the service holds none. |
+| `proofRecord` | object, optional | The record that proves the project controls a name it brings: `{ "name": "_ankka.<hostname>", "kind": "TXT", "value": "ankka-project=<project>" }`, with `<hostname>` written literally, since it is the same beside every name. On every read of one service; absent on a listing row. |
 
 ### `GET /services/{projectId}`
 
@@ -652,7 +656,40 @@ the same way.
 
 ### `POST /services/{projectId}/{name}/unexpose`
 
-Removes the external route and nothing else. Answers with the status.
+Removes the external route and nothing else. Answers with the status. The service's custom hostnames stay
+recorded and stop answering; exposing it again serves them again.
+
+### `PUT /services/{projectId}/{name}/hostnames/{hostname}`
+
+Adds a custom hostname to the service: a name under a domain the project's owner brings, served beside the
+hostname the platform derives. No body. The name is lowercased and loses a trailing dot. Answers with the
+status, whose `customHostnames` gives the record to create. Members with write access, and platform
+administrators. A name the service already holds is answered unchanged.
+
+Refused with `409`, checked in this order, so the first thing wrong is the one said:
+
+| Refusal | Message |
+|---|---|
+| a scheme, a path, a port or a space | `a custom hostname is a name alone: …` |
+| a wildcard | `a custom hostname cannot be a wildcard` |
+| not a DNS name | `'<hostname>' is not a hostname: …`, naming the label, or the 253-character limit |
+| one label | `'<hostname>' is not a name on the internet: a custom hostname has at least two labels` |
+| the base domain or a name under it | `a custom hostname cannot be under the base domain '<base>': those names are the platform's` |
+| no issuer configured | `the installation names no authority for custom hostnames (ANKKA_HOSTNAME_ISSUER)` |
+| the service is not exposed | `service '<name>' is not exposed` |
+| five held already | `service '<name>' holds 5 custom hostnames, the most a service can hold` |
+| another service holds it | `'<hostname>' is held by service '<other>' in project '<project>'` |
+| no proof record | `'<hostname>' does not carry the proof record of project '<project>': create TXT _ankka.<hostname> with the value "ankka-project=<project>"` |
+| the resolver could not be asked | `could not look up _ankka.<hostname>: <detail>; the proof record was not checked` |
+
+The proof record is read once, here, and never again; the control plane reads no other DNS.
+
+### `DELETE /services/{projectId}/{name}/hostnames/{hostname}`
+
+Removes a custom hostname: nothing answers at it within seconds, its certificate is discarded, and any
+service may claim the name. Nothing else about the service changes. By a platform administrator the history
+records it as `hostname taken away`, with `administrative: true`; by a member, as `hostname removed`. A
+name the service does not hold is answered unchanged.
 
 ### `GET /services/{projectId}/{name}/logs`
 
@@ -703,7 +740,9 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved` or `storage-settings-reapplied`. `administrative` is `true` when the platform administrator role
+`hostname added`, `hostname removed`, `hostname taken away`, `deleted`, `suspended`, `reinstated`,
+`storage-credential-reissued`, `storage-moved` or `storage-settings-reapplied`; a hostname's entry
+carries `hostname`, the name it added or removed. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

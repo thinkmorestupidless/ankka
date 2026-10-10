@@ -96,6 +96,37 @@ spec:
               # Only for a *user* token — see above. An account token needs no account ID.
               # accountID: "12345" # SET
 ---
+# The issuer for custom hostnames (ANKKA_HOSTNAME_ISSUER, feature 045): one name under a domain a
+# service's owner brings, which the installation cannot write to, so HTTP-01 rather than DNS-01.
+# cert-manager answers the challenge with a route on the Gateway's port-80 listener, in the
+# namespace of the service's certificate; the challenge succeeds only once the name resolves to
+# this installation, which is the owner's record to create. The load balancer must pass port 80.
+#
+# Its own account and its own name, beside letsencrypt-production: the two issue for different
+# reasons, and an operator reading a Certificate should see which. Production rate limits count
+# per registered domain — the owner's, not this installation's — so one product's hostnames cannot
+# spend another's. Rehearse against https://acme-staging-v02.api.letsencrypt.org/directory first,
+# under a different name, as above.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-hostnames
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.com # SET
+    privateKeySecretRef:
+      name: letsencrypt-hostnames-account
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: ankka
+                namespace: ankka-gateway
+                sectionName: http
+---
 # Named and shaped like the local overlay's, because deploy-local.sh, the k3s suites and anything
 # else that waits on the gateway wait on `certificate/ankka-wildcard` in `ankka-gateway` being
 # Ready. Only the issuer differs — and its kind, for the reason above.

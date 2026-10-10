@@ -951,3 +951,7 @@
 # remove httproute ankka-checkout/cart if owned
 
 # remove backendtlspolicy ankka-checkout/cart if owned
+
+# remove listenerset ankka-checkout/cart-hostnames if owned
+
+# prune hostname certificates in ankka-checkout

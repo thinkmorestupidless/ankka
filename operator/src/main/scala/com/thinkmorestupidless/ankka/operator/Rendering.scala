@@ -252,7 +252,7 @@ object Rendering:
     if problems.nonEmpty then Left(problems)
     else
       Right(
-        (Action.EnsureNamespace(namespace) +:
+        ((Action.EnsureNamespace(namespace) +:
           databaseActions(resource, spec, namespace, settings, databasePlan)) ++
           identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
@@ -303,9 +303,14 @@ object Rendering:
             )
             .toVector :+
           addressAction(resource, spec, namespace) :+
-          grpcPeersAction(resource, spec, namespace) :+
-          routeAction(resource, spec, namespace, settings.baseDomain) :+
-          backendTlsAction(resource, spec, namespace, settings.baseDomain)
+          grpcPeersAction(resource, spec, namespace)) ++
+          // Feature 045: the certificates and the set before the route that names the set, and
+          // what is no longer named after it, so a route never names a set that is gone.
+          HostnameRendering.ensure(resource, spec, namespace, settings) ++
+          (Vector(
+            routeAction(resource, spec, namespace, settings),
+            backendTlsAction(resource, spec, namespace, settings.baseDomain)
+          ) ++ HostnameRendering.prune(resource, spec, namespace, settings))
       )
 
   /**
@@ -948,11 +953,20 @@ object Rendering:
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      baseDomain: Option[String]
+      settings: Settings
   ): Action =
-    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
+    (spec.exposed, spec.port.orElse(spec.grpcPort), settings.baseDomain) match
       case (true, Some(_), Some(base)) =>
-        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, base))
+        Action.EnsureHttpRoute(
+          httpRoute(
+            resource,
+            spec,
+            namespace,
+            base,
+            HostnameRendering.rendered(spec, settings),
+            HostnameRendering.parent(spec, settings)
+          )
+        )
       case _ =>
         Action.RemoveHttpRoute(
           namespace,
@@ -977,7 +991,11 @@ object Rendering:
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      baseDomain: String
+      baseDomain: String,
+      // Feature 045: the custom hostnames rendered, after the derived one, and the set that serves
+      // them as a second parent. A service with none renders the route it rendered before.
+      customHostnames: Vector[String] = Vector.empty,
+      listenerSet: Option[io.fabric8.kubernetes.api.model.gatewayapi.v1.ParentReference] = None
   ): HTTPRoute =
     val grpcRule = spec.grpcPort.map { port =>
       new HTTPRouteRuleBuilder()
@@ -1016,15 +1034,17 @@ object Rendering:
       .withSpec(
         new HTTPRouteSpecBuilder()
           .withParentRefs(
-            new ParentReferenceBuilder()
+            (new ParentReferenceBuilder()
               .withGroup("gateway.networking.k8s.io")
               .withKind("Gateway")
               .withName(GatewayName)
               .withNamespace(GatewayNamespace)
               .withSectionName(GatewaySection)
-              .build()
+              .build() +: listenerSet.toVector)*
           )
-          .withHostnames(Hostnames.of(spec.serviceName, spec.projectId, baseDomain))
+          .withHostnames(
+            (Hostnames.of(spec.serviceName, spec.projectId, baseDomain) +: customHostnames)*
+          )
           .withRules((grpcRule.toVector ++ httpRule.toVector)*)
           .build()
       )

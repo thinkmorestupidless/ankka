@@ -131,8 +131,9 @@ cluster does not hold.
 
 ### Names
 
-A project secret's name is a Kubernetes Secret name: lowercase letters, digits, `-` and `.`, beginning and
-ending with a letter or digit, at most 253 characters. An entry's name is letters, digits, `.`, `_` and
+A project secret's name is lowercase letters, digits and `-`, beginning and ending with a letter or digit,
+at most 253 characters. A name with a `.` is refused: a custom hostname's certificate is a Secret named
+by the hostname, in the same namespace. An entry's name is letters, digits, `.`, `_` and
 `-`. A value is not empty and at most 64 KiB.
 
 A name of a form the platform uses for its own Secrets in a project is refused: one beginning `ankka-`, or

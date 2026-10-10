@@ -129,6 +129,22 @@ broker: reachable by registered machines, through the gateway, at hostnames of t
 Where an exposed service answers from outside the cluster, for HTTP and for gRPC, or where an
 exposed broker answers a registered machine. The platform derives it; nobody chooses it.
 
+### custom hostname
+A hostname under a domain its owner brings, added to an exposed service beside the one
+the platform derived, by a member and never by a descriptor. The owner points the name at the
+installation; the platform obtains a certificate for it and serves it as it serves the derived
+hostname, and manages no DNS. One custom hostname is held by one service of the installation, and a
+platform administrator can take it away.
+
+Avoid: own domain, vanity domain, bring-your-own domain, custom domain
+
+### proof record
+The `TXT` record beside a custom hostname, at `_ankka.<hostname>`, whose value names the project
+that may use the name. The control plane looks it up once, when a member adds the hostname, and
+records the claim only when it is there; one value proves every hostname the project brings.
+
+Avoid: verification record, TXT record, ownership record
+
 ### gateway
 What every request and call from outside the cluster passes through to reach an exposed service.
 It is the calling workload of each of them, whoever sent it; an ACL that admits the
@@ -2659,4 +2675,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately

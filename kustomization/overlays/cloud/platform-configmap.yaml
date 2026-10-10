@@ -53,3 +53,9 @@ data:
   cloudKmsKey: "" # SET to wrap the keyring and encrypt buckets with a key of the account's
   cloudAcknowledgementBound: 2m
   cloudRotationGrace: 1h
+  # The ClusterIssuer for custom hostnames (feature 045): letsencrypt-hostnames in acme-issuer.yaml,
+  # HTTP-01 through the Gateway. Empty refuses every custom hostname, naming this setting.
+  hostnameIssuer: letsencrypt-hostnames
+  # The load balancer's address, which an apex custom hostname's A record points at. Empty, an apex
+  # is told that this installation has published no address; every other hostname is a CNAME.
+  gatewayAddress: "" # SET

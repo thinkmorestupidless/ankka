@@ -175,6 +175,68 @@ class OutputSuite extends munit.FunSuite:
     assert(private_.contains("not exposed"), private_)
   }
 
+  // --- Custom hostnames (feature 045)
+
+  private val withHostnames =
+    status("cart", hostname = Some("https://cart-checkout.example.test"), exposed = true).copy(
+      customHostnames = Vector(
+        CustomHostname(
+          "app.example.com",
+          "serving",
+          record = Some(DnsRecord("app.example.com", "CNAME", "cart-checkout.example.test"))
+        ),
+        CustomHostname(
+          "example.com",
+          "pending",
+          Some("waiting for the certificate: no such host"),
+          note = Some("an apex cannot be a CNAME; this installation has published no address")
+        )
+      ),
+      proofRecord = Some(DnsRecord("_ankka.<hostname>", "TXT", "ankka-project=checkout"))
+    )
+
+  test("the listing shows each custom hostname after the derived one, marking one not serving") {
+    val rendered = Output.services(Vector(withHostnames), Format.Table)
+    assert(
+      rendered.contains("https://cart-checkout.example.test, app.example.com, example.com!"),
+      rendered
+    )
+  }
+
+  test(
+    "a single service shows each custom hostname, where it stands, its record, and the proof record"
+  ) {
+    val rendered = Output.service(withHostnames, Format.Table)
+    assert(rendered.contains("app.example.com  serving"), rendered)
+    assert(
+      rendered.contains("  create CNAME app.example.com → cart-checkout.example.test"),
+      rendered
+    )
+    assert(
+      rendered.contains("example.com  pending: waiting for the certificate: no such host"),
+      rendered
+    )
+    assert(
+      rendered.contains("  an apex cannot be a CNAME; this installation has published no address"),
+      rendered
+    )
+    assert(rendered.contains("TXT _ankka.<hostname> \"ankka-project=checkout\""), rendered)
+    // A service with none shows neither block.
+    val plain = Output.service(status("cart"), Format.Table)
+    assert(!plain.contains("custom hostnames") && !plain.contains("proof record"), plain)
+  }
+
+  test("adding a hostname prints the record to create, or why there is none") {
+    val added = Output.hostnameAdded(withHostnames, "App.Example.COM.")
+    assertEquals(
+      added,
+      "added 'app.example.com' to service 'cart'\n" +
+        "create CNAME app.example.com → cart-checkout.example.test\n" +
+        "keep the proof record: it is not read again, but it is how the claim was made"
+    )
+    assert(Output.hostnameAdded(withHostnames, "example.com").contains("an apex cannot be a CNAME"))
+  }
+
   test("exposed with no hostname — no base domain on the control plane — says so plainly") {
     val rendered = Output.service(status("cart", exposed = true), Format.Table)
     assert(rendered.contains("exposed, but the control plane has no base domain"), rendered)

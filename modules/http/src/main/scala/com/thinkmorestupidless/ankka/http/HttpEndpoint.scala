@@ -467,6 +467,18 @@ abstract class HttpEndpoint(val prefix: String):
       handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
     )
 
+  /** Routes `DELETE $$prefix$$template` to `handler`, with three path parameters. */
+  protected def delete[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
+      handler: (A, B, C) => R
+  ): Unit =
+    add("DELETE", template, 3, needsBody = false)((args, _) =>
+      handler(
+        pathArg[A](args, 0, template),
+        pathArg[B](args, 1, template),
+        pathArg[C](args, 2, template)
+      )
+    )
+
   /** Routes `POST $$prefix$$template` to `handler`. */
   protected def post[R: ToResponse](template: String)(
       handler: () => R
@@ -505,6 +517,18 @@ abstract class HttpEndpoint(val prefix: String):
   ): Unit =
     add("PUT", template, 2, needsBody = false)((args, _) =>
       handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
+
+  /** Routes `PUT $$prefix$$template` to `handler`, with three path parameters. */
+  protected def put[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
+      handler: (A, B, C) => R
+  ): Unit =
+    add("PUT", template, 3, needsBody = false)((args, _) =>
+      handler(
+        pathArg[A](args, 0, template),
+        pathArg[B](args, 1, template),
+        pathArg[C](args, 2, template)
+      )
     )
 
   /** Routes `PATCH $$prefix$$template` to `handler`. */

@@ -34,5 +34,12 @@ object WorkflowLifecycle:
 
   private[ankka] val Method: MethodName = MethodName("ankka:lifecycle")
 
+  /**
+   * Reserved handler name of a wait for the workflow's end, which the engine answers itself: at
+   * once when the workflow has ended, when it ends, or "not yet" when the hold the ask names is
+   * spent. It runs no handler and journals nothing.
+   */
+  private[ankka] val AwaitEnd: MethodName = MethodName("ankka:await-end")
+
   private[ankka] val serializer: Serializer[WorkflowLifecycle] =
     Codecs.serializer[WorkflowLifecycle]("workflow-lifecycle")

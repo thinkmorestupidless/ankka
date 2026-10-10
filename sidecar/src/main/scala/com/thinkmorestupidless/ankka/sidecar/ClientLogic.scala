@@ -131,7 +131,7 @@ final class ClientLogic(
   private def metadata(m: Option[pb.Metadata]): Metadata =
     Metadata(m.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toVector)
   private def error(e: CommandError): pb.Error =
-    pb.Error(e.message, Translate.toCode(e.code))
+    pb.Error(e.message, Translate.toCode(e.code), e.details)
   private def withKeys(request: InvokeRequest): Metadata =
     request.payload.fold(metadata(request.metadata)) { p =>
       metadata(request.metadata)
@@ -348,6 +348,95 @@ final class ClientLogic(
             )
           )
         )
+
+  // ── Waiting for a workflow's end (protocol 1.15) ─────────────────────────────
+
+  /** The workflow, the id and the caller's time a wait names, or why it cannot be waited for. */
+  private def waitFor(
+      request: AwaitEndRequest
+  ): Either[pb.Error, (ComponentId, EntityId, FiniteDuration)] =
+    (ComponentId.parse(request.componentId), EntityId.parse(request.entityId)) match
+      case (Right(componentId), Right(entityId)) if request.timeoutMillis > 0 =>
+        Right((componentId, entityId, request.timeoutMillis.millis))
+      case (Right(_), Right(_)) =>
+        Left(
+          pb.Error(
+            s"a wait for a workflow's end needs a timeout of more than zero, not ${request.timeoutMillis} ms",
+            pb.ErrorCode.BAD_REQUEST
+          )
+        )
+      case _ => Left(pb.Error("invalid workflow or id", pb.ErrorCode.BAD_REQUEST))
+
+  /** The wait itself, made as the handler the process was running. */
+  private def waiting(
+      componentId: ComponentId,
+      entityId: EntityId,
+      timeout: FiniteDuration,
+      request: AwaitEndRequest
+  ): Future[pb.Payload] =
+    val carried = metadata(request.metadata)
+    asCaller(carried)(transport.awaitEnd(componentId, entityId, timeout, carried)).map {
+      (bytes, replyMetadata) =>
+        // The engine names the state's manifest and content type: a process's workflow's are the
+        // process's own, as it wrote them.
+        pb.Payload(
+          replyMetadata.get(PayloadKeys.ContentType).getOrElse("application/json"),
+          replyMetadata.get(PayloadKeys.Manifest).getOrElse(""),
+          ByteString.copyFrom(bytes)
+        )
+    }
+
+  private def failure(e: Throwable): pb.Error = e match
+    case refused: CommandError => error(refused)
+    case other =>
+      pb.Error(Option(other.getMessage).getOrElse(other.getClass.getName), pb.ErrorCode.INTERNAL)
+
+  /**
+   * Waits for a workflow's end and answers it: the state it ended with, or a `WORKFLOW_FAILED` with
+   * the step and the reason in its details, or `TIMEOUT` when the caller's time passed first. The
+   * hold and the asking again are the runtime's; the process sees one call.
+   */
+  def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] =
+    waitFor(request) match
+      case Left(refusal) => Future.successful(InvokeReply(InvokeReply.Result.Error(refusal)))
+      case Right((componentId, entityId, timeout)) =>
+        waiting(componentId, entityId, timeout, request)
+          .map(state => InvokeReply(InvokeReply.Result.Reply(pb.Outcome.Reply(Some(state), None))))
+          .recover(e => InvokeReply(InvokeReply.Result.Error(failure(e))))
+
+  /**
+   * The same wait as a stream: a `heartbeat` token every `Heartbeat.interval` while it goes on,
+   * then one `ended` or `failed` token, after which nothing more is emitted. For a process's
+   * endpoint serving the wait as server-sent events past the idle timeout. Returns what stops the
+   * heartbeat when the process goes away first; the wait itself ends at its own deadline.
+   */
+  def awaitEndStream(request: AwaitEndRequest, emit: StreamToken => Unit): () => Unit =
+    waitFor(request) match
+      case Left(refusal) =>
+        emit(StreamToken(StreamToken.Token.Failed(refusal)))
+        () => ()
+      case Right((componentId, entityId, timeout)) =>
+        val lock  = new Object
+        var ended = false
+        def once(token: StreamToken, last: Boolean): Unit = lock.synchronized {
+          if !ended then
+            if last then ended = true
+            emit(token)
+        }
+        val every = com.thinkmorestupidless.ankka.http.Heartbeat.interval(system.settings.config)
+        val beat = system.scheduler.scheduleAtFixedRate(every, every)(() =>
+          once(StreamToken(StreamToken.Token.Heartbeat(pb.Empty())), last = false)
+        )
+        waiting(componentId, entityId, timeout, request).onComplete { result =>
+          beat.cancel()
+          val token = result match
+            case scala.util.Success(state) => StreamToken(StreamToken.Token.Ended(state))
+            case scala.util.Failure(e)     => StreamToken(StreamToken.Token.Failed(failure(e)))
+          once(token, last = true)
+        }
+        () =>
+          beat.cancel()
+          lock.synchronized { ended = true }
 
   def query(request: QueryRequest): Future[QueryReply] =
     ComponentId.parse(request.viewId) match

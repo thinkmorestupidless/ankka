@@ -26,9 +26,17 @@ enum ErrorCode {
   CONFLICT = 5;
   TIMEOUT = 6;
   UNAVAILABLE = 7;
+  WORKFLOW_FAILED = 8;   // 1.15: a workflow a caller waited for failed or was deleted
 }
 
-message Error { string message = 1; ErrorCode code = 2; }
+message Error {
+  string message = 1;
+  ErrorCode code = 2;
+  // 1.15: what a caller reads without parsing the message. A WORKFLOW_FAILED carries `step` (when
+  // one failed), `reason`, and `deleted` = "true" for a deleted workflow. Set only by the 1.15
+  // rpcs; a reader from before ignores it.
+  map<string, string> details = 3;
+}
 
 // A fault in the process: the handler threw, the payload could not be decoded. Not a refusal.
 message Failure { int64 command_id = 1; Error error = 2; }

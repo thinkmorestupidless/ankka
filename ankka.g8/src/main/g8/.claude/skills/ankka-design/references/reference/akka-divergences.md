@@ -25,6 +25,7 @@ will recognise every component. The differences below are deliberate, and each h
 | `AutonomousAgent` declared by a `definition()` on the instance | a `definition` on the companion, tools on the instance | The definition is checked at registration; the tools need the instance's component client. |
 | A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
 | `Question.choice("…").option(…)` built inline in the effect | questions declared once as values, with declared wire ids and option keys | A question is checked where it is built, and reading an answer through the question that asked it is typed. |
+| A caller polls a workflow's status, or subscribes to notifications | `awaitEnd`, answered when the workflow ends | One call, no interval, and every workflow can be waited for without changing it. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
 
 ## Registration is explicit
@@ -167,6 +168,21 @@ not published how a judgment is read or tested, ankka's answers are its own:
   fails naming any question it cannot answer.
 - **A judged guardrail** asks questions of the text a guardrail sees, fails closed when it cannot decide,
   and says so with a different error code from a refusal.
+
+## A caller can wait for a workflow's end
+
+Akka offers no wait for a workflow's end. Its workflow command handlers reply when they return, so the
+reply to a starting command confirms the start; a caller learns how the workflow finished by polling a
+query, or by subscribing to notifications that are not guaranteed to be delivered.
+
+In ankka any caller that may call a workflow can wait for its end with a timeout of its own, or send a
+command and wait as one call, and is answered when the end is recorded:
+
+- **The answer is the end.** A completed workflow answers its state; a failed or deleted one answers an
+  error of its own, `WorkflowFailed`, naming the step and the reason. A paused workflow has not ended.
+- **Nothing changes in the workflow.** A wait is the caller's; the workflow's handlers are as they were.
+- **Nothing about a wait is recorded.** A caller whose workflow moves to another instance asks again and
+  is answered there.
 
 ## What Akka has that ankka does not
 

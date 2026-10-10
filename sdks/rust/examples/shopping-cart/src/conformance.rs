@@ -1052,6 +1052,28 @@ impl ConformanceEndpoint {
         Ok("started".to_string())
     }
 
+    /// Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    fn start_and_await_checkout(request: &Request, mode: String) -> Result<String, HttpProblem> {
+        let ended: Result<Checkout, CommandError> = request.client().invoke_then_await_end(
+            CheckoutWorkflow,
+            request.path("id"),
+            "start",
+            mode,
+            Duration::of_seconds(30),
+        );
+        match ended {
+            Ok(checkout) => Ok(checkout.status),
+            Err(failed) if failed.code == ErrorCode::WorkflowFailed => {
+                let field = |name: &str| failed.details.get(name).cloned().unwrap_or_default();
+                Err(HttpProblem::new(
+                    424,
+                    format!("{}: {}", field("step"), field("reason")),
+                ))
+            }
+            Err(refused) => Err(refused.into()),
+        }
+    }
+
     fn checkout_status(request: &Request) -> Result<String, HttpProblem> {
         let checkout: Checkout =
             request
@@ -1176,6 +1198,10 @@ impl Endpoint for ConformanceEndpoint {
             .delete("/profile/{id}", ConformanceEndpoint::delete_profile)
             .post("/checkout/{id}", ConformanceEndpoint::start_checkout)
             .get("/checkout/{id}", ConformanceEndpoint::checkout_status)
+            .post(
+                "/checkout-await/{id}",
+                ConformanceEndpoint::start_and_await_checkout,
+            )
             .post("/remind/{id}", ConformanceEndpoint::remind)
             .post("/recur/{id}", ConformanceEndpoint::recur)
             .post("/recur/{id}/again", ConformanceEndpoint::recur_again)

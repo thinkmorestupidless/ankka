@@ -64,6 +64,21 @@ final class ClientService(
   def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
   def decide(request: DecideRequest): Future[InvokeReply]    = logic.decide(request)
 
+  // A wait's end, a failure included, travels in the reply; this never fails the gRPC call.
+  def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] = logic.awaitEnd(request)
+
+  def awaitEndStream(request: AwaitEndRequest, out: StreamObserver[StreamToken]): Unit =
+    val stop = logic.awaitEndStream(
+      request,
+      token =>
+        out.onNext(token)
+        if token.token.isEnded || token.token.isFailed then out.onCompleted()
+    )
+    out match
+      case server: io.grpc.stub.ServerCallStreamObserver[?] =>
+        server.setOnCancelHandler(() => stop())
+      case _ => ()
+
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match
       case ErrorCode.Unavailable => Status.UNAVAILABLE

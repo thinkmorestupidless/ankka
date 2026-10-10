@@ -39,7 +39,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.12"`;
+- its protocol version, `"1.15"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -78,6 +78,8 @@ The table is generated from the `.proto` files.
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
 | `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
 | `Client` | `ScheduleRecurring` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `client.proto` |
+| `Client` | `AwaitEnd` | `AwaitEndRequest` | `InvokeReply` | `client.proto` |
+| `Client` | `AwaitEndStream` | `AwaitEndRequest` | `stream StreamToken` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -197,7 +199,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.12`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.15`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -226,7 +228,16 @@ earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runti
 timed action's request. A recurring timer is a call of its own rather than a field on `ScheduleRequest`
 because an earlier runtime reads a field it does not know as absent, and would schedule a timer meant to
 recur to fire once; it answers the call `UNIMPLEMENTED` instead, which each SDK reports as the runtime being
-too old for recurring timers.
+too old for recurring timers. `1.13` added a view's declared queries, asked by name with values, the keyed
+view with several entity sources and row changes by key, and a version on a view that reads entities.
+`1.14` added what a project must know about a topic source and a publication: a source's contract, broker
+and parallel flag, and a consumer's publication with its contract and broker. `1.15` added waiting for a
+workflow's end: `AwaitEnd` on `Client`, answered with the state the workflow ended with, or an `Error` whose
+code is `WORKFLOW_FAILED` with the step and the reason in `details`, or `TIMEOUT`; `AwaitEndStream`, the
+same wait as a stream of `heartbeat` tokens and one `ended` or `failed` token; the `WORKFLOW_FAILED` code
+and `Error.details`; and the `await_end` import for a module. An earlier runtime answers either call
+`UNIMPLEMENTED`, which each SDK reports as the runtime being too old to wait, and refuses a module that
+imports `await_end` when it loads.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

@@ -17,7 +17,7 @@ use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::abi::imports::{Import, call, call_schedule_recurring};
+use crate::abi::imports::{Import, call, call_await, call_schedule_recurring};
 use crate::codec::time::Duration;
 use crate::codec::{EncodingError, decode_payload, encode_payload};
 use crate::components::{ComponentOf, kinds};
@@ -84,6 +84,93 @@ impl Client {
     {
         let _ = component;
         self.invoke_by_name(C::kind(), C::component_id(), entity_id, name, payload)
+    }
+
+    /// Waits for the end of the workflow `workflow_id` of `component`, for at most `timeout`, and
+    /// answers the state it ended with, as `S` — at once when it already has. A workflow that failed
+    /// or was deleted is an `Err` whose code is `WorkflowFailed` and whose `details` hold `step`,
+    /// `reason` and `deleted`; a wait not answered in time is `Timeout`, and the workflow runs on. A
+    /// paused workflow has not ended. The instance waits for as long as the wait does: wait from a
+    /// step, a route or a tool, not a command. Needs a runtime at protocol 1.15.
+    pub fn await_end<C, S>(
+        &self,
+        component: C,
+        workflow_id: &str,
+        timeout: Duration,
+    ) -> Result<S, CommandError>
+    where
+        C: ComponentOf<kinds::Workflow>,
+        S: DeserializeOwned + 'static,
+    {
+        let _ = component;
+        self.await_end_by_name(C::component_id(), workflow_id, timeout)
+    }
+
+    /// Sends handler `name` of the workflow `workflow_id` its payload and then waits for the
+    /// workflow's end, as one call, within `timeout` of the send. A refusal of the command is answered
+    /// at once and no wait begins; the command's own reply is not kept.
+    pub fn invoke_then_await_end<C, S, P>(
+        &self,
+        component: C,
+        workflow_id: &str,
+        name: &str,
+        payload: P,
+        timeout: Duration,
+    ) -> Result<S, CommandError>
+    where
+        C: ComponentOf<kinds::Workflow>,
+        S: DeserializeOwned + 'static,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        let started = crate::abi::imports::now();
+        let request = self.request(C::kind(), C::component_id(), workflow_id, name, &payload)?;
+        let reply: proto::InvokeReply = answer(Import::Invoke, request);
+        if let Some(proto::invoke_reply::Result::Error(error)) = reply.result {
+            return Err(CommandError::from_proto(&error));
+        }
+        let spent = (crate::abi::imports::now() - started).max(0);
+        let left = (timeout.to_millis() - spent).max(1);
+        self.await_end_by_name(C::component_id(), workflow_id, Duration::of_millis(left))
+    }
+
+    /// Waits for the end of a workflow named by its component id.
+    pub fn await_end_by_name<S: DeserializeOwned + 'static>(
+        &self,
+        component_id: &str,
+        workflow_id: &str,
+        timeout: Duration,
+    ) -> Result<S, CommandError> {
+        if timeout.to_millis() <= 0 {
+            return Err(CommandError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "a wait for a workflow's end needs a timeout of more than zero, not {timeout}"
+                ),
+            ));
+        }
+        let request = proto::AwaitEndRequest {
+            component_id: component_id.to_string(),
+            entity_id: workflow_id.to_string(),
+            timeout_millis: timeout.to_millis(),
+            metadata: Some(self.metadata.to_proto()),
+        };
+        let reply = call_await(&request.encode_to_vec());
+        let reply = proto::InvokeReply::decode(reply.as_slice())
+            .unwrap_or_else(|e| panic!("the runtime's answer to AwaitEnd does not decode: {e}"));
+        match reply.result {
+            Some(proto::invoke_reply::Result::Reply(reply)) => {
+                let payload = reply.payload.unwrap_or_default();
+                decode_payload(&payload).map_err(|e| CommandError::new(ErrorCode::Internal, e.0))
+            }
+            Some(proto::invoke_reply::Result::Error(error)) => {
+                Err(CommandError::from_proto(&error))
+            }
+            _ => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered a wait with nothing",
+            )),
+        }
     }
 
     /// Sends handler `name` of `entity_id` of `component` its payload and carries on, without
@@ -161,6 +248,9 @@ impl Client {
             match token.token {
                 Some(proto::stream_token::Token::Text(text)) => tokens.push(text),
                 Some(proto::stream_token::Token::Completed(_)) | None => {}
+                // A wait's tokens (protocol 1.15); a handler's stream never carries them.
+                Some(proto::stream_token::Token::Heartbeat(_))
+                | Some(proto::stream_token::Token::Ended(_)) => {}
                 Some(proto::stream_token::Token::Failed(error)) => {
                     return Err(CommandError::from_proto(&error));
                 }

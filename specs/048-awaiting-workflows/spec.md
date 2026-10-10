@@ -90,6 +90,32 @@ or to workflow settings, a notification stream of a workflow's progress (046 rea
 or a change to the gateway's timeouts. It is not a way to wait for an entity, an agent's session or a
 task, which have their own.
 
+## Clarifications
+
+### Session 2026-10-10
+
+- Q: SC-004 names the blueprint run's and the autonomous agent's polled awaits, which poll entities, not
+  workflows, while the feature excludes waits on an entity or a task. Which is right? → A: Workflows only.
+  SC-004 names the shopping cart's `CheckoutWorkflowSuite` alone; the run's and the task's awaits stay as
+  they are.
+- Q: How is a failed workflow's answer told apart from a refusal and an internal error, and how does it
+  name the step and the reason? → A: A new `ErrorCode.WorkflowFailed`, with the step and the reason as
+  fields on the error and on the protocol's `Error`, not parsed from the message. A deleted workflow
+  answers the same code with no step and the reason that it was deleted.
+- Q: How are the stream form's timeout and heartbeat set? → A: The stream takes the caller's timeout as
+  every await does and ends with the timeout when it passes; the heartbeat interval is the SDK's, a
+  fixed fraction of the service's configured idle timeout, not the caller's to set.
+- Q: The glossary marks "idle timeout" and "heartbeat" as proposed; settle them as written? → A: Yes,
+  both settled as defined, with "keep-alive" and "ping" refused as synonyms of heartbeat.
+- Q: A handler's wait is not declared, so an SDK cannot refuse an older runtime at discovery as it does
+  for a socket route. How does an older runtime refuse a process that waits? → A: At the call. The
+  process starts; its first wait is answered `UNIMPLEMENTED` by the older runtime and the SDK raises an
+  error naming the protocol version waiting needs, as a recurring timer is refused today. The scenario
+  is reworded accordingly.
+- Q: Is the stream form Scala's alone, or every SDK's? → A: Every SDK's. A process gets the wait as a
+  stream of heartbeats and the end through the sidecar, so a Python or TypeScript endpoint serves a
+  long wait as server-sent events too. A module cannot stream, and gets the plain wait.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A command starts a workflow and its caller is answered with the result (Priority: P1)
@@ -182,7 +208,7 @@ step failure naming the timeout.
 - added `features/awaiting-workflows/composition.feature`: a step whose timeout passes before the other workflow ends fails as timed out
 - added `features/awaiting-workflows/languages.feature`: a handler sends a command and is answered with the state in every language
 - added `features/awaiting-workflows/languages.feature`: a handler that waits for a workflow that fails is answered with the failure in every language
-- added `features/awaiting-workflows/languages.feature`: a runtime from before waiting refuses a program that waits
+- added `features/awaiting-workflows/languages.feature`: a runtime from before waiting refuses a handler's wait, naming the protocol version
 
 ---
 
@@ -233,10 +259,12 @@ client guide lists it.
 - **Two callers await one workflow.** Each is answered; a workflow's waiters are a list.
 - **A wait across a rolling update.** An instance from before this feature answers an await with
   "no handler", and the client reports that the runtime does not await; the documentation says both
-  halves must be at this release.
-- **The failure's shape.** A failed workflow's failure carries the step and the reason as the
-  lifecycle query does; it is not `ErrorCode.Internal`, which a caller would read as the call having
-  broken.
+  halves must be at this release. A process beside an older runtime starts, and its first wait is
+  refused naming the protocol version waiting needs; nothing a process declares says it will wait.
+- **The failure's shape.** A failed workflow's failure is `ErrorCode.WorkflowFailed` with the step and
+  the reason as fields, which the lifecycle query also reports; it is not `ErrorCode.Internal`, which a
+  caller would read as the call having broken, and a caller in another language reads the fields rather
+  than parsing the message. The error's fields are a protocol change: the wire `Error` gains them.
 - **A timed-out wait and the ask.** The caller's deadline is checked by the caller; the engine's hold
   per ask is shorter than `ankka.ask-timeout`, so no single ask times out at the transport while the
   wait is healthy.
@@ -247,6 +275,8 @@ client guide lists it.
   instead.
 - **A wait from a module.** The module's import parks the calling virtual thread as any call does; a
   long wait holds a module instance for its duration, and the documentation says so.
+- **The stream's end.** A stream whose caller's timeout passes ends with the timeout, as the plain await
+  is told it; a stream whose client disconnects ends the wait, and the workflow runs on.
 - **Tracing.** A wait is one call from the caller to the workflow in the trace, open from the ask to
   the answer; a span held for minutes is recorded when it ends, as a socket's is.
 
@@ -262,9 +292,11 @@ client guide lists it.
   answered as the wait is; a command the handler refuses MUST answer the refusal at once with no wait.
 - **FR-003**: Every await MUST take a timeout from the caller; there is no default. A wait not answered
   by then MUST be told so with `ErrorCode.Timeout`, and the workflow MUST run on unaffected.
-- **FR-004**: A completed workflow MUST answer its final state. A failed one MUST answer a failure that
-  names the step and the reason, told apart from a refusal of the call and from an internal error. A
-  deleted one MUST answer a failure that says it was deleted. A paused one has not ended.
+- **FR-004**: A completed workflow MUST answer its final state. A failed one MUST answer a failure with
+  the code `WorkflowFailed`, told apart from a refusal of the call and from an internal error, carrying
+  the step and the reason as fields of the error in every language, not only in its message. A deleted
+  one MUST answer `WorkflowFailed` with no step and the reason that it was deleted. A paused one has not
+  ended.
 - **FR-005**: The runtime MUST answer a waiter when it journals the end, not at a polled interval; a
   waiter MUST be answered within one second of the end being recorded on an unloaded service.
 - **FR-006**: A wait MUST survive the workflow's shard moving or its instance stopping, by the client
@@ -273,13 +305,17 @@ client guide lists it.
 - **FR-008**: An await MUST be available to every component that may call a workflow — an endpoint, a
   workflow step, a consumer, a timed action, an agent's tool — and to a process and a module through
   the sidecar's client at the next protocol version; a runtime at an earlier version MUST refuse a
-  process that awaits, naming the version.
+  process's await when it is made, and the SDK MUST report the refusal naming the version waiting
+  needs.
 
 **Serving**
 
-- **FR-009**: The SDK MUST offer the await as a stream that carries a heartbeat while it waits and the
-  end when it comes, so an SSE route can serve a wait longer than the service's idle timeout; the
-  heartbeat interval MUST be shorter than that timeout.
+- **FR-009**: Every SDK but the module's MUST offer the await as a stream that carries a heartbeat
+  while it waits and the end when it comes, so an SSE route in Scala, Python or TypeScript can serve a
+  wait longer than the service's idle timeout; a module cannot stream and gets the plain await. The stream
+  MUST take the caller's timeout as every await does, and end with the timeout when it passes. The
+  heartbeat interval is the SDK's, a fixed fraction of the service's configured idle timeout, and MUST
+  be shorter than it; the caller does not set it.
 - **FR-010**: A wait MUST be one call in the trace and the topology, from the caller to the workflow,
   counted as handled when answered and as timed out when the caller's deadline passes.
 
@@ -303,7 +339,7 @@ client guide lists it.
 - **Await**: a caller's wait for a workflow's end, with the caller's timeout; answered with the end,
   or told it timed out.
 - **End**: how a workflow finished: completed with its final state, failed with a step and a reason,
-  or deleted.
+  or deleted; the last two answer as `WorkflowFailed`.
 - **Waiter**: what the runtime holds in memory for one caller awaiting one workflow, answered where
   the end is journalled.
 
@@ -317,8 +353,9 @@ client guide lists it.
   workflow ran for one second or ten minutes.
 - **SC-003**: On a service of three instances, an await is answered correctly when the workflow's
   instance stops mid-run, on every run of the multi-instance suite.
-- **SC-004**: The shopping cart's `CheckoutWorkflowSuite` and the platform's blueprint and task awaits
-  can be written over the new await, with no `eventually` and no interval.
+- **SC-004**: The shopping cart's `CheckoutWorkflowSuite` is written over the new await, with no
+  `eventually` and no interval. The blueprint run's and the autonomous agent's awaits poll entities, not
+  workflows, and stay as they are.
 - **SC-005**: A wait longer than the service's idle timeout is delivered to an HTTP client over an
   SSE route without the connection being cut by the service.
 
@@ -329,12 +366,13 @@ client guide lists it.
 - The hold per ask is shorter than `ankka.ask-timeout` and the client re-asks; a query-shaped ask is
   already resent within one ask by `ShardingTransport`, and the await's re-ask is the client's own
   loop over its deadline.
-- The sidecar's `Client` service can carry the await as one rpc whose reply is an `InvokeReply`, and
-  the stream form as `InvokeStream` tokens, without a new message kind.
+- The sidecar's `Client` service carries the await as two rpcs of its own — one answering an
+  `InvokeReply`, one a stream of tokens with a heartbeat and an end — so an older runtime refuses them
+  as it refuses any rpc it lacks.
 - pekko-http's idle timeout is sixty seconds by default and an SSE heartbeat resets it; the gateway's
   HTTP route request timeout is fifteen seconds and is not changed by this feature.
-- A failed workflow's failure can be told apart with an `ErrorCode` of its own or a marked message; the
-  plan chooses, and the spec needs only that a caller can tell.
+- An error can gain fields beside its message and code — on `CommandError`, on the protocol's `Error`
+  and in each SDK's error type — without changing how every other error is read.
 
 ## Dependencies
 
@@ -343,12 +381,11 @@ client guide lists it.
 - 009-polyglot-runtimes and 016-wasm-hosting: the `Client` service and the module's imports gain the
   await.
 - 028-websocket-routes and the SSE routes: what carries a long wait.
-- 036-blueprints and 015-autonomous-agents: the two polled awaits this one can replace.
+- 036-blueprints and 015-autonomous-agents: two polled awaits of entities, which this feature leaves as
+  they are; a wait on an entity's end would be a feature of its own.
 
 ## Open Questions
 
 - Whether an await should be able to end on a pause — "answer me when it pauses or ends" — for a
   caller that will supply the next command; a flag if wanted, not in this feature.
 - Whether the gateway's HTTP route timeout should be lifted for SSE as for gRPC, which 047 asks too.
-- Whether the step and reason of a failure should be a structured value on the error rather than in
-  its message, for a caller in another language.

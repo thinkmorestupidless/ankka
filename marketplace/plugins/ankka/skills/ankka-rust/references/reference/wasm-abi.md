@@ -95,6 +95,7 @@ see [the sidecar protocol](sidecar-protocol.md#stateless-conversations) for the 
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
 | `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | cancels a timer of either kind |
 | `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | a recurring timer, since protocol 1.12; a refusal is the reply's `Error`, not a trap |
+| `await_end(ptr, len) -> i64` | `AwaitEndRequest` | `InvokeReply` | `Client.AwaitEnd`: waits for a workflow's end, since protocol 1.15; blocks the calling instance for as long as the wait. A failure is the reply's `Error`, `WORKFLOW_FAILED` with `details`, not a trap |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | the service's secret store, since protocol 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | since 1.6 |
@@ -106,7 +107,8 @@ see [the sidecar protocol](sidecar-protocol.md#stateless-conversations) for the 
 
 The secret imports and `schedule_recurring` answer every refusal in the reply's `Error`. A module that
 never calls the secret store imports none of them, and one that never sets a recurring timer does not
-import `schedule_recurring`, so it runs on a runtime that predates them; the Rust crate calls them through
+import `schedule_recurring`, and one that never waits for a workflow does not import `await_end`, so it
+runs on a runtime that predates them; the Rust crate calls them through
 a function of their own for exactly that reason.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a

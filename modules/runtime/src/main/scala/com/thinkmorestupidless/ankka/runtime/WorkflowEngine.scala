@@ -4,11 +4,13 @@ import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.effect.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.runtime.WorkflowHost.{Event, Run, Status}
+import com.thinkmorestupidless.ankka.runtime.remote.{Payload, PayloadKeys, RemoteWorkflowHost}
+import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, TimerScheduler}
 import org.apache.pekko.persistence.typed.scaladsl.{Effect as PekkoEffect, EffectBuilder}
 
 import scala.concurrent.Future
-import scala.concurrent.duration.DurationLong
+import scala.concurrent.duration.{DurationLong, FiniteDuration}
 import scala.util.{Failure, Success}
 
 /**
@@ -23,7 +25,9 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     context: WorkflowContext,
     settings: WorkflowSettings,
     ctx: ActorContext[EntityProtocol.Command],
-    timers: TimerScheduler[EntityProtocol.Command]
+    timers: TimerScheduler[EntityProtocol.Command],
+    /** The longest one ask for the workflow's end is held before it is told "not yet". */
+    holdBound: FiniteDuration
 ):
   import EntityProtocol.*
 
@@ -43,6 +47,22 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
    */
   private var stepTrace: Option[TraceContext] = None
 
+  /**
+   * The callers waiting for this workflow's end, answered where the end is journalled. In memory
+   * only, and never journalled: a waiter that outlives the actor is told "not yet" from `onStop`
+   * and asks again, wherever the workflow is by then.
+   */
+  private var waiters: Vector[Waiter] = Vector.empty
+  private var nextWaiter: Long        = 0L
+
+  private final case class Waiter(
+      replyTo: ActorRef[Reply],
+      key: Long,
+      askedAtNanos: Long,
+      metadata: Metadata
+  ):
+    def heldMillis: Long = (System.nanoTime() - askedAtNanos) / 1_000_000L
+
   private val StepTimerKey     = "ankka-step-timeout"
   private val WorkflowTimerKey = "ankka-workflow-timeout"
   private val PauseTimerKey    = "ankka-pause-timeout"
@@ -61,6 +81,9 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
         )
       case WorkflowTimedOut => onWorkflowTimedOut(state)
       case PauseTimedOut    => onPauseTimedOut(state)
+      case held: WaiterHeld =>
+        onWaiterHeld(held.key)
+        PekkoEffect.none
 
       case request: InvokeStream =>
         // Workflows have no streaming surface. Answering is not optional: a caller
@@ -103,7 +126,8 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
   // ── External commands ─────────────────────────────────────────────────────
 
   private def onInvoke(state: Run[S], invoke: Invoke): PekkoEffect[Event[S], Run[S]] =
-    if invoke.method == WorkflowLifecycle.Method then onLifecycleQuery(state, invoke)
+    if invoke.method == WorkflowLifecycle.AwaitEnd then onAwaitEnd(state, invoke)
+    else if invoke.method == WorkflowLifecycle.Method then onLifecycleQuery(state, invoke)
     else
       descriptor.handler(MethodName(invoke.method)) match
         case None =>
@@ -112,7 +136,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           PekkoEffect.reply(invoke.replyTo)(
             EntityProtocol.Rejected(
               CommandError(
-                s"no handler '${invoke.method}' on workflow '${descriptor.componentId}'",
+                WorkflowEngine.noHandler(invoke.method, descriptor.componentId),
                 ErrorCode.NotFound
               )
             )
@@ -199,9 +223,13 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
                   val nextValue = effect.stateChange.getOrElse(state.value)
 
-                  val builder: EffectBuilder[Event[S], Run[S]] =
+                  val persisting: EffectBuilder[Event[S], Run[S]] =
                     if toPersist.isEmpty then PekkoEffect.none
                     else PekkoEffect.persist(toPersist.toList)
+                  // A deletion is an end to whoever waits: answered once it is journalled.
+                  val builder =
+                    if effect.deleting then persisting.thenRun(updated => answerWaiters(updated))
+                    else persisting
 
                   val withStep =
                     if effect.transition.isDefined then
@@ -252,12 +280,15 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           case None =>
             // A step that no longer exists cannot be retried into existence. Fail loudly
             // rather than retry forever — this is the "renamed a step" mistake.
-            PekkoEffect.persist(
-              Event.Failed(
-                s"workflow '${descriptor.componentId}' has no step '${ref.name}'; " +
-                  "it was renamed or removed while an instance was mid-flight"
+            PekkoEffect
+              .persist(
+                Event.Failed(
+                  s"workflow '${descriptor.componentId}' has no step '${ref.name}'; " +
+                    "it was renamed or removed while an instance was mid-flight",
+                  Some(ref.name)
+                )
               )
-            )
+              .thenRun(ended)
 
           case Some(handle) =>
             timers.startSingleTimer(
@@ -348,12 +379,12 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
         case StepOutcome.End =>
           PekkoEffect
             .persist((stateEvents :+ Event.Ended).toList)
-            .thenRun(_ => cancelLifecycleTimers())
+            .thenRun(ended)
 
         case StepOutcome.Fail(error) =>
           PekkoEffect
-            .persist((stateEvents :+ Event.Failed(error.message)).toList)
-            .thenRun(_ => cancelLifecycleTimers())
+            .persist((stateEvents :+ Event.Failed(error.message, Some(succeeded.step))).toList)
+            .thenRun(ended)
 
   /**
    * Applies the recovery strategy for a failed or timed-out step.
@@ -401,8 +432,8 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           case None =>
             ctx.log.error("step '{}' of workflow '{}' failed: {}", step, workflowId, message)
             PekkoEffect
-              .persist(Event.Failed(s"step '$step' failed: $message"))
-              .thenRun(_ => cancelLifecycleTimers())
+              .persist(Event.Failed(s"step '$step' failed: $message", Some(step)))
+              .thenRun(ended)
 
   // ── Timeouts ──────────────────────────────────────────────────────────────
 
@@ -413,10 +444,11 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
       PekkoEffect
         .persist(
           Event.Failed(
-            s"workflow timed out after ${settings.timeout.fold("its limit")(_.toString)}"
+            s"workflow timed out after ${settings.timeout.fold("its limit")(_.toString)}",
+            state.pending.map(_.name)
           )
         )
-        .thenRun(_ => cancelLifecycleTimers())
+        .thenRun(ended)
 
   private def onPauseTimedOut(state: Run[S]): PekkoEffect[Event[S], Run[S]] =
     if state.status != Status.Paused then PekkoEffect.none
@@ -427,7 +459,9 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
             .persist(Event.TransitionedTo(StepRef(step, None)))
             .thenRun(_ => ctx.self ! RunPendingStep)
         case None =>
-          PekkoEffect.persist(Event.Failed("paused workflow timed out with no timeout handler"))
+          PekkoEffect
+            .persist(Event.Failed("paused workflow timed out with no timeout handler", None))
+            .thenRun(ended)
 
   /**
    * Arms the global timeout against the *original* start, not against now — so a workflow that
@@ -452,7 +486,133 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
       if remaining <= 0L then ctx.self ! PauseTimedOut
       else timers.startSingleTimer(PauseTimerKey, PauseTimedOut, remaining.millis)
 
+  /** After an end is journalled: nothing more is due, and whoever waits is answered. */
+  private def ended(run: Run[S]): Unit =
+    cancelLifecycleTimers()
+    answerWaiters(run)
+
+  // ── Waiting for the end ───────────────────────────────────────────────────
+
+  /**
+   * A caller's wait for this workflow's end. Answered now when the workflow has ended or been
+   * deleted; otherwise held until it ends or for as long as the ask allows — what the payload
+   * names, never more than `holdBound` — and then told "not yet". Runs no handler and journals
+   * nothing.
+   */
+  private def onAwaitEnd(state: Run[S], invoke: Invoke): PekkoEffect[Event[S], Run[S]] =
+    val metadata = MetaEntry.toMetadata(invoke.metadata)
+    endOf(state) match
+      case Some(end) =>
+        observability.handled(
+          metadata,
+          componentName,
+          WorkflowLifecycle.AwaitEnd,
+          SpanOutcome.Ok,
+          0L
+        )
+        PekkoEffect.reply(invoke.replyTo)(end)
+      case None =>
+        String(invoke.payload, java.nio.charset.StandardCharsets.UTF_8).trim.toLongOption
+          .filter(_ > 0L) match
+          case None =>
+            PekkoEffect.reply(invoke.replyTo)(
+              EntityProtocol.Rejected(
+                CommandError(
+                  "a wait for a workflow's end names how long to hold it, in milliseconds",
+                  ErrorCode.BadRequest
+                )
+              )
+            )
+          case Some(asked) =>
+            nextWaiter += 1
+            val waiter = Waiter(invoke.replyTo, nextWaiter, System.nanoTime(), metadata)
+            waiters = waiters :+ waiter
+            timers.startSingleTimer(
+              waiterKey(waiter.key),
+              WaiterHeld(waiter.key),
+              asked.millis.min(holdBound)
+            )
+            PekkoEffect.none
+
+  private def waiterKey(key: Long): (String, Long) = ("ankka-waiter", key)
+
+  private def onWaiterHeld(key: Long): Unit =
+    waiters.find(_.key == key).foreach { waiter =>
+      waiter.replyTo ! NotYet(waiter.heldMillis)
+      waiters = waiters.filterNot(_.key == key)
+    }
+
+  /** Answers every waiter, once the run says the workflow has ended; otherwise nothing. */
+  private def answerWaiters(run: Run[S]): Unit =
+    if waiters.nonEmpty then
+      endOf(run).foreach { end =>
+        waiters.foreach { waiter =>
+          timers.cancel(waiterKey(waiter.key))
+          waiter.replyTo ! end
+          observability.handled(
+            waiter.metadata,
+            componentName,
+            WorkflowLifecycle.AwaitEnd,
+            SpanOutcome.Ok,
+            System.nanoTime() - waiter.askedAtNanos
+          )
+        }
+        waiters = Vector.empty
+      }
+
+  /** The actor is stopping: every waiter asks again, wherever the workflow is next. */
+  def onStop(): Unit =
+    waiters.foreach(waiter => waiter.replyTo ! NotYet(waiter.heldMillis))
+    waiters = Vector.empty
+
+  /** What a wait is answered with, when the run says the workflow has ended. */
+  private def endOf(run: Run[S]): Option[Reply] =
+    if run.deleted then Some(WorkflowFailed(None, "the workflow was deleted", deleted = true))
+    else
+      run.status match
+        case Status.Completed => Some(stateAnswer(run.value))
+        case Status.Failed =>
+          Some(WorkflowFailed(run.failedStep, run.failure.getOrElse("failed"), deleted = false))
+        case _ => None
+
+  /**
+   * The final state, with its manifest and content type beside it: the ask carries no payload a
+   * process's sidecar could take them from. A process's workflow holds the process's own payload,
+   * answered as the process wrote it.
+   */
+  private def stateAnswer(value: S): Succeeded =
+    (value: Any) match
+      case held: Payload
+          if descriptor.stateSerializer.manifest == RemoteWorkflowHost.StateManifest =>
+        Succeeded(
+          held.data,
+          Vector(
+            MetaEntry(PayloadKeys.Manifest, held.manifest),
+            MetaEntry(PayloadKeys.ContentType, held.contentType)
+          )
+        )
+      case _ =>
+        val manifest = descriptor.stateSerializer.manifest
+        Succeeded(
+          descriptor.stateSerializer.toBytes(value),
+          Vector(
+            MetaEntry(PayloadKeys.Manifest, manifest),
+            MetaEntry(PayloadKeys.ContentType, Payload.contentTypeFor(manifest))
+          )
+        )
+
   private def cancelLifecycleTimers(): Unit =
     timers.cancel(StepTimerKey)
     timers.cancel(WorkflowTimerKey)
     timers.cancel(PauseTimerKey)
+
+private[ankka] object WorkflowEngine:
+
+  /**
+   * What a workflow answers a method it has no handler for. An instance from before waiting answers
+   * a wait this way, and `ShardingTransport.fromBeforeAwaiting` reads these words: a suite holds
+   * the two together, so rewording this is a red test rather than a wait that hangs for its whole
+   * timeout.
+   */
+  def noHandler(method: String, componentId: ComponentId): String =
+    s"no handler '$method' on workflow '$componentId'"

@@ -37,6 +37,25 @@ service Client {
   // older than 1.12 answers UNIMPLEMENTED, so a timer meant to recur is never scheduled as one that
   // fires once. A refusal is an Error in the reply, as for the secret store.
   rpc ScheduleRecurring (ScheduleRecurringRequest) returns (ScheduleRecurringReply);
+
+  // Waits for a workflow's end and answers it (protocol 1.15): the final state as a reply, or an
+  // Error whose code is WORKFLOW_FAILED with the step and the reason in details, or TIMEOUT when
+  // timeout_millis passed first and the workflow runs on. A runtime older than 1.15 answers
+  // UNIMPLEMENTED, and the SDK says which protocol waiting needs.
+  rpc AwaitEnd (AwaitEndRequest) returns (InvokeReply);
+
+  // The same wait as a stream (protocol 1.15): a heartbeat token while it waits, then one ended or
+  // failed token, then the stream completes. For an endpoint serving the wait as server-sent
+  // events past the runtime's idle timeout. Cancelling the stream ends the wait, not the workflow.
+  rpc AwaitEndStream (AwaitEndRequest) returns (stream StreamToken);
+}
+
+// 1.15: a wait for a workflow's end.
+message AwaitEndRequest {
+  string component_id = 1;     // the workflow's component id
+  string entity_id = 2;        // the workflow id
+  int64 timeout_millis = 3;    // the caller's; required, more than zero
+  Metadata metadata = 4;       // the handler's, so the wait is attributed and traced
 }
 
 message InvokeRequest {
@@ -62,6 +81,8 @@ message StreamToken {
     Empty completed = 2;
     Error failed = 3;
     ApprovalAwaited approval = 4;   // 1.11: terminal, in place of completed
+    Empty heartbeat = 5;            // 1.15: an AwaitEndStream's wait goes on
+    Payload ended = 6;              // 1.15: terminal; the workflow completed with this state
   }
 }
 

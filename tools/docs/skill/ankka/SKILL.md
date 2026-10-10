@@ -66,7 +66,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | Port, migrate or rebuild an existing system on ankka, holding the rebuild to what the original does | `ankka-port` |
 | Write or change an event sourced or key value entity, its events, state or serializers | `ankka-entities` |
 | Project changes into a queryable table, react to changes, read or publish a broker topic | `ankka-views-consumers` |
-| A durable multi-step process, compensation, deadlines and timers | `ankka-workflows` |
+| A durable multi-step process, compensation, deadlines and timers, waiting for a workflow's end | `ankka-workflows` |
 | An agent, its tools, guardrails, session memory, model, streaming, or several agents together | `ankka-agents` |
 | An HTTP endpoint, its routes, ACL, errors and server-sent events | `ankka-endpoints` |
 | A service in Python beside the sidecar | `ankka-python` |

@@ -50,7 +50,9 @@ Every component guide in the other ankka skills applies; this skill holds what d
    `.delete_entity()`, `.expire_after(d)`, `effects::reply(r)`, `effects::error(ErrorCode::Conflict, msg)`
    (`.into()` in a command); key value `effects::update_state(s)`, `delete_state()`; workflow
    `workflow::update_state(s).transition_to("step")`, `step_effects::update_state(s).then_transition_to(..)`,
-   `.then_pause_for(d, "step")`, `.then_end()`; views `view::update_row`, `delete_row`, `ignore`; consumers
+   `.then_pause_for(d, "step")`, `.then_end()` — and a caller waits for a workflow's end with
+   `ctx.client().await_end(Workflow, id, timeout)` or `invoke_then_await_end(...)`, from a step, a route
+   or a tool, since the instance is held for the wait; views `view::update_row`, `delete_row`, `ignore`; consumers
    `consumer::produce`, `done`, `ignore`; agents `agent::system_message(..).user_message(..).tools([..])
    .then_reply()`.
 7. **Endpoints declare `acl()` and typed routes.** `Routes::new().get("/{cartId}", Self::get_cart)

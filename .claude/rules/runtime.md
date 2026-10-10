@@ -60,6 +60,20 @@ A recurring timer whose handler this instance lacks is deferred, not dropped: an
 service may hold the sweeper during a deploy that adds the handler. `TimerProbe` (testkit) is what a test
 reads due times from.
 
+## A wait for a workflow's end is a reserved method, a hold and a re-ask
+
+Feature 048. `forWorkflow(id).awaitEnd(Companion, timeout)` and `call(cmd).thenAwaitEnd(timeout)` send an
+`Invoke` of the reserved `ankka:await-end` (`WorkflowLifecycle.AwaitEnd`) whose payload is the millis the
+caller has left. `WorkflowEngine` answers at once when the run has ended or is `deleted`, otherwise holds a
+`Waiter` for at most half `ankka.ask-timeout` (`holdBound`, read by `WorkflowHost.behavior`) and answers
+`NotYet`; every journalled end — `Ended`, `Failed` from all five sites, `Deleted` — answers every waiter in
+the `thenRun` after the persist (`ended`, `answerWaiters`), and `PostStop` answers them `NotYet`.
+`ShardingTransport.awaitEnd` loops on `NotYet` and on an unanswered ask until the caller's deadline, as one
+`Client` span (`reserve`/`record`) counted once. Nothing about a wait is journalled. A failure records its
+step (`Event.Failed(_, step)`, `WorkflowRecord.step`, `WorkflowSnapshot.failedStep`) and answers
+`WorkflowFailed` with `details`; a completed state carries its manifest and content type as reply metadata
+for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Heartbeat.interval`.
+
 ## Traps
 
 - **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers
@@ -160,6 +174,16 @@ reads due times from.
   cut off after a minute on a laptop, gateway or no gateway, unless it is pinged. The shim builds pekko's
   message stack itself, so the keep-alive is the `WebSocketSettings` handed to it — setting it on the
   server binding does nothing — and a keep-alive not shorter than the idle timeout fails startup.
+- **A count per "not yet" grows with the wait.** The engine counts a waiter `handled` once, when it is
+  answered with the end, never when it is told `NotYet`; the transport counts `unanswered` once, at the
+  caller's deadline, never per ask. `awaiting.feature`'s topology scenario waits across a hold and goes red
+  when either is counted per ask.
+- **An old instance is known by its words.** A runtime from before waiting answers `ankka:await-end` as an
+  unknown handler; `ShardingTransport.fromBeforeAwaiting` matches `WorkflowEngine.noHandler`'s text, and
+  `AwaitTransportSuite` holds the two together. Rewording that message without the matcher makes a wait
+  across a rolling update hang for its whole timeout.
+- **pekko writes `infinite` for an idle timeout Scala's `Duration` cannot parse.** `Heartbeat.interval`
+  reads the setting as pekko does; `Duration(config.getString(...))` threw `NumberFormatException` on it.
 - **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
   enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
   `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.

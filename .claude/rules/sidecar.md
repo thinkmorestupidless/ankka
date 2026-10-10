@@ -15,6 +15,13 @@ paths:
   that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers
   `UNIMPLEMENTED` and each SDK reports as too old.
 
+- **A long wait is two calls of its own, not a field.** `AwaitEnd` and `AwaitEndStream` (1.15) are rpcs an
+  older runtime answers `UNIMPLEMENTED`, which every SDK reports naming 1.15. The hold and the re-ask are
+  the runtime's; a process sees one call. `Error.details` is read by every SDK (`error.details`) and is
+  filled only by a wait; prost's struct literals need `..Default::default()` for it.
+- **A module's panic message does not cross its trap.** A Rust step that panics fails with "Trapped on
+  unreachable instruction", not its text, so a conformance case may assert a failed workflow's step but
+  only that its reason is non-empty.
 - **A Python endpoint without its own `__init__` was handed a client and failed its first request**:
   `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
   so nothing noticed until the conformance suite's caller cases.

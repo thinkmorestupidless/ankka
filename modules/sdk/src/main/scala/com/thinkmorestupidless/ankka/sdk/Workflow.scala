@@ -224,14 +224,24 @@ object Workflow:
           readOnly = false,
           in,
           out,
-          (w, i) => f(w)(i)
+          (w, i) => f(w)(i),
+          Some(stateSerializer)
         )
       )
 
     protected final def command[O](name: String)(
         f: W => WorkflowEffect[S, O]
     )(using out: Serializer[O]): NoArgHandle[W, O] =
-      addHandler(new NoArgHandle[W, O](componentId, MethodName(name), readOnly = false, out, f))
+      addHandler(
+        new NoArgHandle[W, O](
+          componentId,
+          MethodName(name),
+          readOnly = false,
+          out,
+          f,
+          Some(stateSerializer)
+        )
+      )
 
     protected final def query[I, O](name: String)(
         f: W => I => WorkflowReadOnlyEffect[S, O]
@@ -243,14 +253,24 @@ object Workflow:
           readOnly = true,
           in,
           out,
-          (w, i) => f(w)(i)
+          (w, i) => f(w)(i),
+          Some(stateSerializer)
         )
       )
 
     protected final def query[O](name: String)(
         f: W => WorkflowReadOnlyEffect[S, O]
     )(using out: Serializer[O]): NoArgHandle[W, O] =
-      addHandler(new NoArgHandle[W, O](componentId, MethodName(name), readOnly = true, out, f))
+      addHandler(
+        new NoArgHandle[W, O](
+          componentId,
+          MethodName(name),
+          readOnly = true,
+          out,
+          f,
+          Some(stateSerializer)
+        )
+      )
 
     private def addHandler[H <: HandlerBinding[W]](handle: H): H =
       handlers += handle

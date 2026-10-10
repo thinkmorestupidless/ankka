@@ -65,9 +65,11 @@ object Protocol:
    * timed action's request (feature 032). 1.13 added a view's declared queries, the keyed view with
    * several entity sources and row changes by key, and a version on a view that reads entities
    * (feature 031). 1.14 added a topic source's contract, broker and parallel flag and a consumer's
-   * publication with its contract and broker (feature 037).
+   * publication with its contract and broker (feature 037). 1.15 added waiting for a workflow's
+   * end: `AwaitEnd` and `AwaitEndStream` on `Client`, the heartbeat and ended stream tokens,
+   * `WORKFLOW_FAILED` and `Error.details`, and the `await_end` module import (feature 048).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 14)
+  val version: ProtocolVersion = ProtocolVersion(1, 15)
 
 object Compatibility:
 

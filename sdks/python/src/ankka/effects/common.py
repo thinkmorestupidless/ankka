@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -26,6 +26,9 @@ class ErrorCode(Enum):
     TIMEOUT = payload_pb2.TIMEOUT
     UNAVAILABLE = payload_pb2.UNAVAILABLE
     INTERNAL = payload_pb2.INTERNAL
+    # A workflow a caller waited for failed or was deleted (protocol 1.15): the call was answered,
+    # and the step and the reason are in the error's details.
+    WORKFLOW_FAILED = payload_pb2.WORKFLOW_FAILED
 
     @staticmethod
     def from_pb(value: int) -> ErrorCode:
@@ -46,6 +49,7 @@ class ErrorCode(Enum):
             ErrorCode.TIMEOUT: 504,
             ErrorCode.UNAVAILABLE: 503,
             ErrorCode.INTERNAL: 500,
+            ErrorCode.WORKFLOW_FAILED: 424,
         }[self]
 
 
@@ -53,9 +57,12 @@ class ErrorCode(Enum):
 class Error:
     message: str
     code: ErrorCode = ErrorCode.BAD_REQUEST
+    # What a caller reads without parsing the message (protocol 1.15). A WORKFLOW_FAILED carries
+    # ``step`` (when one failed), ``reason``, and ``deleted`` = "true" for a deleted workflow.
+    details: Mapping[str, str] = field(default_factory=dict)
 
     def to_pb(self) -> payload_pb2.Error:
-        return payload_pb2.Error(message=self.message, code=self.code.value)
+        return payload_pb2.Error(message=self.message, code=self.code.value, details=dict(self.details))
 
 
 @dataclass(frozen=True)

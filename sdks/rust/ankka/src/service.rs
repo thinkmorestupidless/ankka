@@ -19,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.14";
+pub const PROTOCOL_VERSION: &str = "1.15";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -243,6 +243,7 @@ impl Service {
                     error: Some(proto::Error {
                         message: format!("no endpoint '{}' in this service", request.endpoint_id),
                         code: proto::ErrorCode::NotFound as i32,
+                        ..Default::default()
                     }),
                 })),
             },
@@ -363,6 +364,7 @@ fn not_found(component_id: &str) -> proto::Failure {
         error: Some(proto::Error {
             message: format!("no component '{component_id}' in this service"),
             code: proto::ErrorCode::NotFound as i32,
+            ..Default::default()
         }),
     }
 }

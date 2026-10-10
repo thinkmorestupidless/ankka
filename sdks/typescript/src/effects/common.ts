@@ -13,6 +13,8 @@ export const ErrorCode = Object.freeze({
   Conflict: "CONFLICT",
   Timeout: "TIMEOUT",
   Unavailable: "UNAVAILABLE",
+  /** A workflow a caller waited for failed or was deleted (protocol 1.15); the step and the reason are in `details`. */
+  WorkflowFailed: "WORKFLOW_FAILED",
 } as const)
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
 
@@ -25,6 +27,7 @@ const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = Object.freeze({
   CONFLICT: 409,
   TIMEOUT: 504,
   UNAVAILABLE: 503,
+  WORKFLOW_FAILED: 424,
 })
 
 export function httpStatusOf(code: ErrorCode): number {
@@ -35,18 +38,22 @@ export function httpStatusOf(code: ErrorCode): number {
 export interface ErrorDetail {
   readonly message: string
   readonly code: ErrorCode
+  /** What a caller reads without parsing the message: a failed workflow's `step`, `reason` and `deleted`. */
+  readonly details?: Readonly<Record<string, string>>
 }
 
 /** Thrown by the component client when the callee refused. */
 export class CommandError extends Error {
   readonly code: ErrorCode
+  readonly details: Readonly<Record<string, string>>
   constructor(detail: ErrorDetail) {
     super(detail.message)
     this.name = "CommandError"
     this.code = detail.code
+    this.details = detail.details ?? {}
   }
   get detail(): ErrorDetail {
-    return { message: this.message, code: this.code }
+    return { message: this.message, code: this.code, details: this.details }
   }
 }
 

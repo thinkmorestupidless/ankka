@@ -102,3 +102,17 @@ class TranslateSuite extends munit.FunSuite:
         )
       case other => fail(s"expected rows, got $other")
   }
+
+  test("a failed workflow's code and details cross both ways") {
+    import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+    assertEquals(Translate.toCode(ErrorCode.WorkflowFailed), pb.ErrorCode.WORKFLOW_FAILED)
+    assertEquals(Translate.fromCode(pb.ErrorCode.WORKFLOW_FAILED), ErrorCode.WorkflowFailed)
+    val wire =
+      pb.Error("it failed", pb.ErrorCode.WORKFLOW_FAILED, Map("step" -> "boil", "reason" -> "dry"))
+    assertEquals(
+      Translate.fromError(pb.Error.parseFrom(wire.toByteArray)),
+      CommandError("it failed", ErrorCode.WorkflowFailed, Map("step" -> "boil", "reason" -> "dry"))
+    )
+    // Every code there is crosses and comes back as itself.
+    ErrorCode.values.foreach(code => assertEquals(Translate.fromCode(Translate.toCode(code)), code))
+  }

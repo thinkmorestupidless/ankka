@@ -12,7 +12,10 @@ import scala.concurrent.duration.FiniteDuration
 final case class CloudObservation(
     generation: Long,
     createdAt: Instant,
-    status: Option[CloudResourceStatus]
+    status: Option[CloudResourceStatus],
+    /** What the request asks as it stands, and its annotations (feature 039 keeps some of it). */
+    spec: Option[com.thinkmorestupidless.ankka.crd.CloudResourceSpec] = None,
+    annotations: Map[String, String] = Map.empty
 ):
   /** A provider has read this request as it now is. */
   def acknowledged: Boolean = status.flatMap(_.observedGeneration).exists(_ >= generation)

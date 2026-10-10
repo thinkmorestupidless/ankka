@@ -147,6 +147,7 @@ class RenderingGoldenSuite extends munit.FunSuite:
           settings,
           cloud,
           None,
+          None,
           Some("cart@acct.scripted"),
           Some("acct-checkout-cart")
         )

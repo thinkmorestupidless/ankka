@@ -155,33 +155,55 @@ object ObjectStorage:
    * kept, the installation's soft-delete window and name prefix, the descriptor's origins while it
    * is reachable from the internet, and the age at which a noncurrent version goes. It is made in
    * its project's location when the project names one, else the installation's.
+   *
+   * Once the request exists (`existingBucket`), its location is never rewritten, and its
+   * soft-delete window and wrapping key are kept as they were asked: the installation's are taken
+   * again only when a member raises the service's `objectStorageSettingsGeneration` above the one
+   * the request was stamped with, which it then carries.
    */
   def cloudRequests(
       resource: AnkkaService,
       settings: Settings,
       cloud: CloudSettings,
       projectLocation: Option[String],
+      existingBucket: Option[CloudObservation],
       identity: Option[String],
       bucket: Option[String]
   ): Vector[CloudResource] =
-    val spec = resource.getSpec
-    val by   = CloudRequests.Requester.of(resource)
+    val spec  = resource.getSpec
+    val by    = CloudRequests.Requester.of(resource)
+    val asked = existingBucket.flatMap(_.spec).map(_.parameters)
+    val stamped = existingBucket
+      .flatMap(_.annotations.get(Labels.SettingsGenerationKey))
+      .flatMap(_.toIntOption)
+      .getOrElse(0)
+    val keep = asked.filter(_ => spec.objectStorageSettingsGeneration <= stamped)
     val ask = CloudRequests.BucketAsk(
       versioning = true,
-      softDeleteDays = settings.gcs.fold(GcsSettings.DefaultSoftDeleteDays)(_.softDeleteDays),
+      softDeleteDays = keep
+        .flatMap(_.get(CloudRequests.Keys.SoftDeleteDays))
+        .flatMap(_.toIntOption)
+        .getOrElse(settings.gcs.fold(GcsSettings.DefaultSoftDeleteDays)(_.softDeleteDays)),
       corsOrigins =
         if spec.exposeObjectStorage then spec.objectStorageOrigins.toVector else Vector.empty,
       namePrefix = settings.gcs.fold("")(_.prefix),
-      noncurrentVersionDays = spec.objectStorageVersionAgeDays
+      noncurrentVersionDays = spec.objectStorageVersionAgeDays,
+      kmsKey = keep.map(_.getOrElse(CloudRequests.Keys.KmsKey, ""))
     )
+    val location = asked
+      .flatMap(_.get(CloudRequests.Keys.Location))
+      .filter(_.nonEmpty)
+      .getOrElse(projectLocation.getOrElse(cloud.location))
+    val generation = if keep.isDefined then stamped else spec.objectStorageSettingsGeneration
     Vector(
       CloudRequests.identity(cloud, by, Names.serviceAccount(spec.serviceName)),
       CloudRequests.bucket(
         cloud,
         by,
         CloudRequests.Purpose.Service,
-        projectLocation.getOrElse(cloud.location),
-        ask
+        location,
+        ask,
+        annotations = Map(Labels.SettingsGenerationKey -> generation.toString)
       )
     ) ++ (for
       i <- identity

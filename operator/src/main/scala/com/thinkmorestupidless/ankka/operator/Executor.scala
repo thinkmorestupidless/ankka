@@ -937,7 +937,10 @@ final class Fabric8Executor(
       CloudObservation(
         generation = Option(found.getMetadata.getGeneration).map(_.longValue).getOrElse(0L),
         createdAt = parseTimestamp(found.getMetadata.getCreationTimestamp).getOrElse(Instant.EPOCH),
-        status = Option(found.getStatus)
+        status = Option(found.getStatus),
+        spec = Option(found.getSpec),
+        annotations =
+          Option(found.getMetadata.getAnnotations).map(_.asScala.toMap).getOrElse(Map.empty)
       )
     }
 

@@ -96,7 +96,8 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
       seen.requests.map(_.getMetadata.getName),
       Vector("reports-identity", "reports-bucket")
     )
-    assertEquals(asked, Vector("reports-identity", "reports-bucket"))
+    // The bucket's request is read first, once: what it already asks is kept (feature 039).
+    assertEquals(asked, Vector("reports-bucket", "reports-identity"))
     assertEquals(seen.plans.credential, None)
     assert(seen.unacknowledged, "nothing has answered, so look again at the bound")
   }

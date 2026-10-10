@@ -441,7 +441,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         withCloud,
         ProvisioningPlan.Supplied,
         objectStoragePlan = plan,
-        cloudRequests = ObjectStorage.cloudRequests(r, withCloud, cloud, None, identity, bucket)
+        cloudRequests =
+          ObjectStorage.cloudRequests(r, withCloud, cloud, None, None, identity, bucket)
       )
       .fold(p => fail(p.mkString("; ")), identity => identity)
 
@@ -450,15 +451,86 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
 
   // Feature 039 (research R1a D3): what the descriptor and the installation ask of the bucket.
 
+  private def bucketRequestOf(
+      spec: AnkkaServiceSpec,
+      settings: Settings = withCloud,
+      projectLocation: Option[String] = None,
+      existing: Option[CloudObservation] = None
+  ) =
+    ObjectStorage
+      .cloudRequests(
+        resource(spec),
+        settings,
+        settings.cloud.getOrElse(cloud),
+        projectLocation,
+        existing,
+        None,
+        None
+      )
+      .collectFirst { case r if r.getSpec.kind == "bucket" => r }
+      .get
+
   private def bucketAsked(
       spec: AnkkaServiceSpec,
       settings: Settings = withCloud,
       projectLocation: Option[String] = None
-  ): Map[String, String] =
-    ObjectStorage
-      .cloudRequests(resource(spec), settings, cloud, projectLocation, None, None)
-      .collectFirst { case r if r.getSpec.kind == "bucket" => r.getSpec.parameters }
-      .get
+  ): Map[String, String] = bucketRequestOf(spec, settings, projectLocation).getSpec.parameters
+
+  /** A bucket request already written, as asked then and stamped with a settings generation. */
+  private def existing(stamped: Int, parameters: (String, String)*): Option[CloudObservation] =
+    Some(
+      CloudObservation(
+        generation = 1L,
+        createdAt = java.time.Instant.EPOCH,
+        status = None,
+        spec =
+          Some(com.thinkmorestupidless.ankka.crd.CloudResourceSpec(parameters = parameters.toMap)),
+        annotations = Map(Labels.SettingsGenerationKey -> stamped.toString)
+      )
+    )
+
+  private def settingsOf(r: com.thinkmorestupidless.ankka.crd.CloudResource) =
+    (
+      r.getSpec.parameters("softDeleteDays"),
+      r.getSpec.parameters("kmsKey"),
+      r.getMetadata.getAnnotations.asScala.get(Labels.SettingsGenerationKey)
+    )
+
+  private val now30 = withCloud.copy(gcs = Some(GcsSettings("t", 30)))
+  private val keyed = cloud.copy(kmsKey = Some("keys/new"))
+
+  test("settings: a bucket asked for the first time takes the installation's window and key") {
+    val r = bucketRequestOf(asks, now30.copy(cloud = Some(keyed)))
+    assertEquals(settingsOf(r), ("30", "keys/new", Some("0")))
+  }
+
+  test("settings: a bucket already asked keeps its window and key when the installation's change") {
+    val was =
+      existing(0, "softDeleteDays" -> "7", "kmsKey" -> "keys/old", "location" -> "europe-west2")
+    val r = bucketRequestOf(asks, now30.copy(cloud = Some(keyed)), existing = was)
+    assertEquals(settingsOf(r), ("7", "keys/old", Some("0")))
+  }
+
+  test("settings: a member's raised generation takes the installation's again, and stamps it") {
+    val was =
+      existing(0, "softDeleteDays" -> "7", "kmsKey" -> "keys/old", "location" -> "europe-west2")
+    val r = bucketRequestOf(
+      asks.copy(objectStorageSettingsGeneration = 1),
+      now30.copy(cloud = Some(keyed)),
+      existing = was
+    )
+    assertEquals(settingsOf(r), ("30", "keys/new", Some("1")))
+  }
+
+  test("settings: a bucket's location is never rewritten, whatever its project says now") {
+    val was = existing(0, "softDeleteDays" -> "7", "kmsKey" -> "", "location" -> "us-east1")
+    val r = bucketRequestOf(
+      asks.copy(objectStorageSettingsGeneration = 1),
+      projectLocation = Some("europe-west2"),
+      existing = was
+    )
+    assertEquals(r.getSpec.parameters("location"), "us-east1")
+  }
 
   test("cloud: a bucket keeps versions, with the installation's soft-delete window and prefix") {
     val p = bucketAsked(asks, withCloud.copy(gcs = Some(GcsSettings("acme", 30))))

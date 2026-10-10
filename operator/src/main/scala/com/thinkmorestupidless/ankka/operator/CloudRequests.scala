@@ -133,7 +133,9 @@ object CloudRequests:
       softDeleteDays: Int = 0,
       corsOrigins: Vector[String] = Vector.empty,
       namePrefix: String = "",
-      noncurrentVersionDays: Option[Int] = None
+      noncurrentVersionDays: Option[Int] = None,
+      /** The wrapping key to ask for, when not the installation's as it is now. */
+      kmsKey: Option[String] = None
   )
 
   /** A cloud identity for a Kubernetes ServiceAccount in the request's namespace. */
@@ -191,7 +193,8 @@ object CloudRequests:
       by: Requester,
       purpose: String,
       location: String,
-      ask: BucketAsk
+      ask: BucketAsk,
+      annotations: Map[String, String] = Map.empty
   ): CloudResource =
     request(
       cloud,
@@ -205,10 +208,11 @@ object CloudRequests:
         Keys.Versioning            -> ask.versioning.toString,
         Keys.SoftDeleteDays        -> ask.softDeleteDays.toString,
         Keys.CorsOrigins           -> list(ask.corsOrigins),
-        Keys.KmsKey                -> cloud.kmsKey.getOrElse(""),
+        Keys.KmsKey                -> ask.kmsKey.orElse(cloud.kmsKey).getOrElse(""),
         Keys.NamePrefix            -> ask.namePrefix,
         Keys.NoncurrentVersionDays -> ask.noncurrentVersionDays.fold("")(_.toString)
-      )
+      ),
+      annotations = annotations
     )
 
   /**
@@ -258,17 +262,18 @@ object CloudRequests:
       kind: String,
       suffix: String,
       parameters: Map[String, String],
-      credentialGeneration: Long = 0L
+      credentialGeneration: Long = 0L,
+      annotations: Map[String, String] = Map.empty
   ): CloudResource =
     val resource = new CloudResource
-    resource.setMetadata(
-      new ObjectMetaBuilder()
-        .withNamespace(by.namespace)
-        .withName(by.name(suffix))
-        .withLabels(by.labels.asJava)
-        .withOwnerReferences(by.owner)
-        .build()
-    )
+    val meta = new ObjectMetaBuilder()
+      .withNamespace(by.namespace)
+      .withName(by.name(suffix))
+      .withLabels(by.labels.asJava)
+      .withOwnerReferences(by.owner)
+      .build()
+    if annotations.nonEmpty then meta.setAnnotations(annotations.asJava)
+    resource.setMetadata(meta)
     resource.setSpec(
       CloudResourceSpec(
         provider = cloud.provider,

@@ -416,6 +416,9 @@
   "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
   "kind" : "CloudResource",
   "metadata" : {
+    "annotations" : {
+      "ankka.thinkmorestupidless.com/settings-generation" : "0"
+    },
     "labels" : {
       "app.kubernetes.io/managed-by" : "ankka",
       "app.kubernetes.io/name" : "cart",

@@ -37,6 +37,13 @@ object Labels:
   val RestartsKey: String = "ankka.thinkmorestupidless.com/restarts"
 
   /**
+   * On a bucket's cloud request: the `objectStorageSettingsGeneration` its soft-delete window and
+   * wrapping key were last taken at (feature 039). They are taken from the installation again only
+   * when a member raises the service's generation above it.
+   */
+  val SettingsGenerationKey: String = "ankka.thinkmorestupidless.com/settings-generation"
+
+  /**
    * On the pod template: the generation of the storage credential the pods read (feature 039).
    * Changes only once a credential issued again is in its Secret, which is what rolls the pods.
    */

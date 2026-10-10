@@ -194,21 +194,37 @@ final class ServiceReconciler(
       if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource))
     yield
       val now = Instant.now(clock)
+      // The bucket's request as it stands, read once: what it asked is kept (feature 039).
+      val bucketName =
+        Names.CloudRequest.ofService(spec.serviceName, Names.CloudRequest.BucketSuffix)
+      val existingBucket = executor.observeCloudResource(ref.namespace, bucketName)
       def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
-        val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
+        val name = request.getMetadata.getName
+        val seen =
+          if name == bucketName then existingBucket
+          else executor.observeCloudResource(ref.namespace, name)
         seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
       def output(plan: CloudPlan, key: String) = plan match
         case CloudPlan.Ready(outputs, _, _, _) => outputs.get(key)
         case _                                 => None
       val projectLocation = executor.projectLocation(ref.namespace, spec.projectId)
       val first =
-        ObjectStorage.cloudRequests(resource, settings, cloud, projectLocation, None, None)
+        ObjectStorage.cloudRequests(
+          resource,
+          settings,
+          cloud,
+          projectLocation,
+          existingBucket,
+          None,
+          None
+        )
       val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
       val requests = ObjectStorage.cloudRequests(
         resource,
         settings,
         cloud,
         projectLocation,
+        existingBucket,
         output(idPlan, CloudRequests.Keys.Identity),
         output(bucketPlan, CloudRequests.Keys.Bucket)
       )

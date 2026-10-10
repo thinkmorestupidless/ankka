@@ -680,7 +680,10 @@ object Rendering:
               StorageEnv.Endpoint -> cloud.endpoint,
               StorageEnv.Region   -> cloud.region,
               StorageEnv.Bucket   -> cloud.bucket
-            ),
+            ) ++
+              // A bucket reachable from the internet is reached there at the cloud's own address,
+              // which is the one the provider answered (feature 039): no route of the installation's.
+              Option.when(spec.exposeObjectStorage)(StorageEnv.PublicEndpoint -> cloud.endpoint),
             credentialGeneration = cloud.credentialGeneration.toInt
           )
         )

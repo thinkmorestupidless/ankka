@@ -341,10 +341,16 @@ object ObjectStorage:
         s.copy(
           store = "gcs",
           credentialGeneration = cloudGeneration(plan),
-          // Where the provider made it, as it reported (feature 039).
+          // Where the provider made it, as it reported, and the window it was asked to keep a
+          // deleted object for (feature 039); an exposed bucket's address is the cloud's own.
           location = plan match
             case ObjectStoragePlan.Ready(_, Some(cloud)) => Some(cloud.location).filter(_.nonEmpty)
-            case _                                       => None
+            case _                                       => None,
+          softDeleteDays = settings.gcs.map(_.softDeleteDays),
+          publicAddress = plan match
+            case ObjectStoragePlan.Ready(_, Some(cloud)) if spec.exposeObjectStorage =>
+              Some(s"${cloud.endpoint.stripSuffix("/")}/${cloud.bucket}")
+            case _ => None
         )
       else if spec.provisionObjectStorage then
         s.copy(store = "garage", credentialGeneration = credentialGeneration(plan, spec, inPlace))

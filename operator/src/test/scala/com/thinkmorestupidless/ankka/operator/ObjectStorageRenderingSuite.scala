@@ -514,6 +514,37 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     )
   }
 
+  test("cloud: an exposed bucket is told, and reports, the cloud's own address for it") {
+    val exposed = asks.copy(exposeObjectStorage = true)
+    val cs      = containers(renderCloud(exposed, cloudReady))
+    assertEquals(
+      storageVariables(developers(exposed, cs)).get("ANKKA_S3_PUBLIC_ENDPOINT"),
+      Some("https://storage.scripted.invalid")
+    )
+    assertEquals(
+      ObjectStorage.status(cloudReady, exposed, withCloud, None).flatMap(_.publicAddress),
+      Some("https://storage.scripted.invalid/acct-shop-reports")
+    )
+    // Not exposed: neither.
+    assertEquals(
+      storageVariables(developers(asks, containers(renderCloud(asks, cloudReady))))
+        .get("ANKKA_S3_PUBLIC_ENDPOINT"),
+      None
+    )
+    assertEquals(
+      ObjectStorage.status(cloudReady, asks, withCloud, None).flatMap(_.publicAddress),
+      None
+    )
+  }
+
+  test("cloud: the status says how long a deleted object is kept, as the bucket was asked") {
+    val settings = withCloud.copy(gcs = Some(GcsSettings("t", 30)))
+    assertEquals(
+      ObjectStorage.status(cloudReady, asks, settings, None).flatMap(_.softDeleteDays),
+      Some(30)
+    )
+  }
+
   test("cloud: the ServiceAccount carries what the cloud provider said binds it to its identity") {
     val annotations =
       Map("iam.gke.io/gcp-service-account" -> "reports@acct.iam.gserviceaccount.com")

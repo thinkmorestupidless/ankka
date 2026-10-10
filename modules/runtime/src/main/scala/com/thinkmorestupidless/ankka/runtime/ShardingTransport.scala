@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.sdk.{CallTransport, ComponentClient}
+import com.thinkmorestupidless.ankka.sdk.{CallTransport, ComponentClient, WorkflowLifecycle}
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, EntityTypeKey}
 import org.apache.pekko.util.Timeout
@@ -97,6 +97,112 @@ private[ankka] final class ShardingTransport(
         }
     answered(call, attempt()).map(_._1)(using ExecutionContext.parasitic)
 
+  /**
+   * Waits for a workflow's end by asking it to hold the ask until it ends, and asking again each
+   * time it says "not yet" or an ask goes unanswered, until the caller's own deadline. A hold is
+   * never longer than half an ask, so the engine answers before the ask gives up on a healthy wait;
+   * an ask that is not answered — the workflow's actor stopped, its shard moved, the message was
+   * dropped at a hand-off — costs one ask and is asked again wherever the workflow is by then.
+   * Nothing about a wait is journalled.
+   *
+   * One call however many asks it takes: one span from the first ask to the answer, recorded whole
+   * when the wait ends, and counted once — handled by the workflow that answered it, or unanswered
+   * here when the deadline passes.
+   */
+  override def awaitEnd(
+      componentId: ComponentId,
+      entityId: EntityId,
+      timeout: FiniteDuration,
+      metadata: Metadata
+  ): Future[(Array[Byte], Metadata)] =
+    if timeout <= Duration.Zero then
+      return Future.failed(
+        CommandError(
+          s"a wait for a workflow's end needs a timeout of more than zero, not $timeout",
+          ErrorCode.BadRequest
+        )
+      )
+    val call =
+      Call(componentId, entityId, WorkflowLifecycle.AwaitEnd, Array.emptyByteArray, metadata)
+    val observability = Observability(system)
+    val recorder      = observability.recorder
+    val parent        = Trace.currentContext
+    val span = recorder.reserve(
+      parent.fold(Trace.mintHigh())(_.traceIdHigh),
+      parent.fold(Trace.mint())(_.traceId),
+      observability.names.intern(componentId.toString),
+      observability.names.intern(WorkflowLifecycle.AwaitEnd)
+    )
+    val parentSpanId = parent.fold(Recorder.UnknownCaller)(_.spanId)
+    val deadline     = timeout.fromNow
+
+    def timedOut(): Future[(Array[Byte], Metadata)] =
+      observability.unanswered(
+        call.origin,
+        componentId,
+        WorkflowLifecycle.AwaitEnd,
+        Unanswered.TimedOut
+      )
+      Future.failed(
+        CommandError(
+          s"workflow $componentId '$entityId' had not ended within $timeout",
+          ErrorCode.Timeout
+        )
+      )
+
+    def attempt(): Future[(Array[Byte], Metadata)] =
+      val left = deadline.timeLeft
+      if left <= Duration.Zero then timedOut()
+      else
+        val within = left.min(askTimeout)
+        sharding
+          .entityRefFor(EntityKeys.forComponent(componentId), entityId)
+          .ask[EntityProtocol.Reply](replyTo =>
+            EntityProtocol.Invoke(
+              call.method,
+              left.toMillis.max(1L).toString.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+              MetaEntry.from(call.carried),
+              replyTo
+            )
+          )(using Timeout(within))
+          .transformWith {
+            case Success(EntityProtocol.Succeeded(bytes, replyMetadata)) =>
+              Future.successful((bytes, MetaEntry.toMetadata(replyMetadata)))
+            case Success(failed: EntityProtocol.WorkflowFailed) =>
+              Future.failed(failed.toCommandError(componentId.toString, entityId.toString))
+            case Success(_: EntityProtocol.NotYet) => attempt()
+            case Success(rejected: EntityProtocol.Rejected) =>
+              Future.failed(
+                if ShardingTransport.fromBeforeAwaiting(rejected, componentId) then
+                  CommandError(
+                    s"the instance hosting workflow $componentId '$entityId' is from before waiting " +
+                      "for a workflow's end; every instance must be at this release",
+                    ErrorCode.Unavailable
+                  )
+                else rejected.toCommandError
+              )
+            case Failure(_: java.util.concurrent.TimeoutException) => attempt()
+            case Failure(NonFatal(other)) =>
+              observability.unanswered(
+                call.origin,
+                componentId,
+                WorkflowLifecycle.AwaitEnd,
+                Unanswered.Undelivered
+              )
+              Future.failed(CommandError(other.getMessage, ErrorCode.Unavailable))
+            case Failure(fatal) => Future.failed(fatal)
+          }
+
+    attempt().andThen { result =>
+      val outcome = result match
+        case Success(_) => SpanOutcome.Ok
+        case Failure(error: CommandError) if error.code == ErrorCode.WorkflowFailed =>
+          SpanOutcome.Ok
+        case Failure(error: CommandError) => Observability.outcomeOf(error)
+        case Failure(_)                   => SpanOutcome.Failed
+      recorder.record(span, parentSpanId, SpanKind.Client, outcome)
+    }
+
   /** One call, as made on the calling thread: what it carries, and who made it. */
   private final class Call(
       val componentId: ComponentId,
@@ -132,6 +238,10 @@ private[ankka] final class ShardingTransport(
       case Success(rejected: EntityProtocol.Rejected) =>
         Failure(rejected.toCommandError)
 
+      // Only a wait is answered these, and a wait never comes this way.
+      case Success(other @ (_: EntityProtocol.NotYet | _: EntityProtocol.WorkflowFailed)) =>
+        Failure(CommandError(s"unexpected reply to a call: $other", ErrorCode.Internal))
+
       case Failure(_: java.util.concurrent.TimeoutException) =>
         // Only the caller can see this. If a handler ran and threw, its host counted that too,
         // as a failure: one call, seen from both ends, and the two are never added together.
@@ -153,6 +263,18 @@ private[ankka] final class ShardingTransport(
     }
 
 private[ankka] object ShardingTransport:
+
+  /**
+   * Whether `rejected` is how an instance from before waiting answers a wait: the reserved method
+   * is an unknown handler to it. Matched on that release's words, which a test holds to the
+   * engine's.
+   */
+  private[ankka] def fromBeforeAwaiting(
+      rejected: EntityProtocol.Rejected,
+      componentId: ComponentId
+  ): Boolean =
+    rejected.code == ErrorCode.NotFound.toString &&
+      rejected.message == s"no handler '${WorkflowLifecycle.AwaitEnd}' on workflow '$componentId'"
 
   /** `ankka.query-resend-after`'s default, for a transport built without a configuration. */
   val DefaultResendAfter: FiniteDuration = 2.seconds

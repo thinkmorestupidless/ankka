@@ -1,6 +1,7 @@
 //! What every kind of effect shares: outcomes, refusals, retention.
 
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::codec::time::Duration;
@@ -27,6 +28,9 @@ pub enum ErrorCode {
     Timeout,
     /// Something needed is not there right now; trying again may work.
     Unavailable,
+    /// A workflow a caller waited for failed or was deleted (protocol 1.15). The call was answered;
+    /// the step and the reason are in the error's `details`.
+    WorkflowFailed,
 }
 
 impl ErrorCode {
@@ -41,6 +45,7 @@ impl ErrorCode {
             ErrorCode::Timeout => 504,
             ErrorCode::Unavailable => 503,
             ErrorCode::Internal => 500,
+            ErrorCode::WorkflowFailed => 424,
         }
     }
 
@@ -55,6 +60,7 @@ impl ErrorCode {
             ErrorCode::Conflict => proto::ErrorCode::Conflict,
             ErrorCode::Timeout => proto::ErrorCode::Timeout,
             ErrorCode::Unavailable => proto::ErrorCode::Unavailable,
+            ErrorCode::WorkflowFailed => proto::ErrorCode::WorkflowFailed,
         };
         code as i32
     }
@@ -69,6 +75,7 @@ impl ErrorCode {
             Ok(proto::ErrorCode::Conflict) => ErrorCode::Conflict,
             Ok(proto::ErrorCode::Timeout) => ErrorCode::Timeout,
             Ok(proto::ErrorCode::Unavailable) => ErrorCode::Unavailable,
+            Ok(proto::ErrorCode::WorkflowFailed) => ErrorCode::WorkflowFailed,
             _ => ErrorCode::Internal,
         }
     }
@@ -81,6 +88,9 @@ pub struct CommandError {
     pub code: ErrorCode,
     /// What to tell the caller.
     pub message: String,
+    /// What a caller reads without parsing the message (protocol 1.15): a failed workflow's `step`
+    /// (when one failed), its `reason`, and `deleted` = `"true"` for a deleted one.
+    pub details: BTreeMap<String, String>,
 }
 
 impl CommandError {
@@ -89,6 +99,7 @@ impl CommandError {
         CommandError {
             code,
             message: message.into(),
+            details: BTreeMap::new(),
         }
     }
 
@@ -97,6 +108,11 @@ impl CommandError {
         proto::Error {
             message: self.message.clone(),
             code: self.code.to_proto(),
+            details: self
+                .details
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }
     }
 
@@ -105,6 +121,11 @@ impl CommandError {
         CommandError {
             code: ErrorCode::from_proto(error.code),
             message: error.message.clone(),
+            details: error
+                .details
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }
     }
 }

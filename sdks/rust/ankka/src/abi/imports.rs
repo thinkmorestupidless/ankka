@@ -41,6 +41,9 @@ pub enum Import {
     DeleteSecret,
     /// `request`: `ServiceRequest` in, `ServiceReply` out. Called through [`call_request`].
     Request,
+    /// `await_end`: `AwaitEndRequest` in, `InvokeReply` out (protocol 1.15). Called through
+    /// [`call_await`].
+    AwaitEnd,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -109,6 +112,13 @@ pub fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
     host::call_schedule_recurring(request)
 }
 
+/// Calls `await_end`: waits for a workflow's end. Apart from [`call`] for the reason
+/// [`call_secret`] is: a module that never waits must not import it, or it would need a runtime
+/// that offers one (protocol 1.15).
+pub fn call_await(request: &[u8]) -> Vec<u8> {
+    host::call_await(request)
+}
+
 /// Sends a line to the runtime's log, under the module's logger.
 pub fn log(level: Level, text: &str) {
     host::log(level, text)
@@ -167,6 +177,12 @@ mod host {
         fn schedule_recurring(ptr: u32, len: u32) -> u64;
     }
 
+    // Reached only from `call_await`, so a module that never waits for a workflow does not import it.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn await_end(ptr: u32, len: u32) -> u64;
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -187,6 +203,7 @@ mod host {
                 Import::ScheduleRecurring => {
                     panic!("schedule_recurring is called through call_schedule_recurring")
                 }
+                Import::AwaitEnd => panic!("await_end is called through call_await"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -214,6 +231,15 @@ mod host {
         let (ptr, len) = (asked.as_ptr() as usize as u32, asked.len() as u32);
         // SAFETY: as for `call`.
         let packed = unsafe { request(ptr, len) };
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn call_await(request: &[u8]) -> Vec<u8> {
+        let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
+        // SAFETY: as for `call`.
+        let packed = unsafe { await_end(ptr, len) };
         let (rptr, rlen) = memory::unpack(packed);
         // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
         unsafe { memory::take(rptr as i32, rlen as i32) }
@@ -362,6 +388,7 @@ mod native {
             result: Some(proto::service_reply::Result::Error(proto::Error {
                 message: NO_RUNTIME.into(),
                 code: proto::ErrorCode::Unavailable as i32,
+                ..Default::default()
             })),
         }
         .encode_to_vec()
@@ -406,6 +433,7 @@ mod native {
         let refused = |message: String| proto::Error {
             message,
             code: proto::ErrorCode::BadRequest as i32,
+            ..Default::default()
         };
         match import {
             Import::PutSecret => {
@@ -453,13 +481,14 @@ mod native {
         let unavailable = proto::Error {
             message: NO_RUNTIME.into(),
             code: proto::ErrorCode::Unavailable as i32,
+            ..Default::default()
         };
         match import {
             Import::Config => proto::ConfigReply { value: None }.encode_to_vec(),
             // Sent and not waited for: with no runtime, there is nobody to send it to, and nobody
             // is told.
             Import::Send => Vec::new(),
-            Import::Invoke => proto::InvokeReply {
+            Import::Invoke | Import::AwaitEnd => proto::InvokeReply {
                 result: Some(proto::invoke_reply::Result::Error(unavailable)),
             }
             .encode_to_vec(),
@@ -491,6 +520,10 @@ mod native {
 
     pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
         call(Import::ScheduleRecurring, request)
+    }
+
+    pub(super) fn call_await(request: &[u8]) -> Vec<u8> {
+        call(Import::AwaitEnd, request)
     }
 
     pub(super) fn log(level: Level, text: &str) {

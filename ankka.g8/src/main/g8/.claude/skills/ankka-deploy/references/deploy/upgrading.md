@@ -147,6 +147,21 @@ broker is, and the certificate it holds is reissued with its name, so each servi
 replaced once, as a rolling update that refuses no request. A service whose descriptor names a broker of
 its own is left as it is. See [The installation's broker](../platform/broker.md).
 
+## Keeping buckets in Google Cloud Storage
+
+An installation that keeps its buckets in Garage can keep new ones in Google Cloud Storage by naming
+`gcp` as its cloud provider, installing `ankka-gcp`, and setting `objectStoreBackend: gcs` with its
+`objectStorePrefix` in the `ankka-platform` ConfigMap (see [Install on GKE](../platform/install-gke.md)).
+Nothing already running changes: every bucket made in Garage stays there, with its credential, until a
+member moves it with `ankka services storage move`. Keep Garage installed beside it until every service has
+moved.
+
+The operator's grant includes `batch/jobs`, for the mover a move runs as a Job, and its Deployment names
+the mover's image. A storage credential issued before credentials could be issued again is generation 0
+and is replaced only when a member asks with `ankka services storage reissue`; the old one then goes on
+working for the installation's rotation grace (`cloudRotationGrace`, an hour as shipped), which governs a
+replaced credential in Garage as in Google Cloud Storage.
+
 ## The move to mutual TLS
 
 The first deployment of a service on a runtime that speaks mutual TLS, when its running instances do not,

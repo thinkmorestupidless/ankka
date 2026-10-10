@@ -175,8 +175,8 @@ renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMO
 removing a test formula once auto-removed the JDK an installed `ankka` from an untapped tap needed.
 
 **The images ship through GitHub Container Registry**, public: `ghcr.io/thinkmorestupidless/<image>`
-for the operator, the control plane, the sidecar, the proxy, the console and the shopping cart
-sample, from the release
+for the operator, the control plane, the sidecar, the proxy, the storage mover (feature 039), the
+console and the shopping cart sample, from the release
 workflow's `images` job, pushed with the workflow's own token (each image's
 `org.opencontainers.image.source` label links its package to this repository). Public because a Python
 or TypeScript developer runs the sidecar on their own machine. **A package ghcr.io has not seen before

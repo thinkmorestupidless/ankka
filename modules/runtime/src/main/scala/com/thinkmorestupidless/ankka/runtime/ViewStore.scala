@@ -39,20 +39,61 @@ private[ankka] object ViewStore:
     )
 
   /**
-   * Insert-or-replace. Uses `EXCLUDED.payload` rather than binding the payload twice, because
-   * parameters are numbered by position and a repeated placeholder would need the value bound
-   * again.
+   * The channel every write of a view's row is announced on, as `<table>|<row key>`, and a rebuild
+   * as `<table>|!rebuilt`. Postgres delivers a notification when the transaction that raised it
+   * commits and never when it rolls back, so a watcher on any instance hears of a write exactly
+   * when it can read it.
+   */
+  val Channel: String = "ankka_views"
+
+  /** What a rebuild is announced as, after the table's name. */
+  val Rebuilt: String = "!rebuilt"
+
+  /**
+   * Postgres refuses a notification of 8000 bytes or more, and a refused notification would fail
+   * the write: a row whose key is longer is written and not announced.
+   */
+  val AnnouncedKeyBytes: Int = 7900
+
+  /**
+   * Announces the keys `written` returns, in the same statement as the write: whatever runs a write
+   * — a projection's session, a transaction, a guard — runs its announcement with it, and no path
+   * can take one without the other. One row of one column, so the statement still reports a count
+   * to a session that reads one.
+   */
+  private def announcing(table: String, written: SqlFragment): SqlFragment =
+    SqlFragment.raw("WITH written AS (") ++ written ++ SqlFragment.raw(
+      s") SELECT count(pg_notify('$Channel', '$table|' || row_key)) FROM written " +
+        s"WHERE octet_length(row_key) < $AnnouncedKeyBytes"
+    )
+
+  /**
+   * Insert-or-replace, announced. Uses `EXCLUDED.payload` rather than binding the payload twice,
+   * because parameters are numbered by position and a repeated placeholder would need the value
+   * bound again.
    */
   def upsert(table: String, key: String, payload: String): SqlFragment =
-    SqlFragment.raw(s"INSERT INTO $table (row_key, payload, updated_at) VALUES (") ++
-      sql"$key, $payload" ++
-      SqlFragment.raw(
-        ", now()) ON CONFLICT (row_key) DO UPDATE SET " +
-          "payload = EXCLUDED.payload, updated_at = now()"
-      )
+    announcing(
+      table,
+      SqlFragment.raw(s"INSERT INTO $table (row_key, payload, updated_at) VALUES (") ++
+        sql"$key, $payload" ++
+        SqlFragment.raw(
+          ", now()) ON CONFLICT (row_key) DO UPDATE SET " +
+            "payload = EXCLUDED.payload, updated_at = now() RETURNING row_key"
+        )
+    )
 
+  /** Removes a row, announced when there was one to remove. */
   def delete(table: String, key: String): SqlFragment =
-    SqlFragment.raw(s"DELETE FROM $table WHERE row_key = ") ++ sql"$key"
+    announcing(
+      table,
+      SqlFragment.raw(s"DELETE FROM $table WHERE row_key = ") ++ sql"$key" ++
+        SqlFragment.raw(" RETURNING row_key")
+    )
+
+  /** Announces that `table` was emptied for a rebuild, in the rebuild's own transaction. */
+  def announceRebuilt(table: String): SqlFragment =
+    SqlFragment.raw(s"SELECT pg_notify('$Channel', '$table|$Rebuilt')")
 
   def selectByKey(table: String, key: String): SqlFragment =
     SqlFragment.raw(s"SELECT payload FROM $table WHERE row_key = ") ++ sql"$key"

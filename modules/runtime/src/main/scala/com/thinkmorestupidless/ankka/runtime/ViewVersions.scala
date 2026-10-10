@@ -104,6 +104,8 @@ private[ankka] object ViewVersions:
           if recorded < declared then
             for
               _ <- tx.execute(SqlFragment.raw(s"TRUNCATE $table"))
+              // Every watch of the view, on every instance, ends when this commits.
+              _ <- tx.execute(ViewStore.announceRebuilt(table))
               _ <- tx.execute(
                 SqlFragment.raw("UPDATE ankka_view_versions SET version = ") ++ sql"$declared" ++
                   SqlFragment.raw(", built_at = now() WHERE component_id = ") ++ sql"$componentId"

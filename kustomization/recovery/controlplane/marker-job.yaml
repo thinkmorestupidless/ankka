@@ -1,0 +1,42 @@
+# The restore's last step: once the restored database answers, the marker that holds the control
+# plane's projection. With the owner's credential, which owns the table after bootstrap.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ankka-controlplane-restore-marker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  backoffLimit: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ankka-controlplane-restore-marker
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: marker
+          image: postgres:17-alpine
+          env:
+            - name: PGHOST
+              value: SET-rw
+            - name: PGDATABASE
+              value: ankka
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: { name: ankka-controlplane-db-app, key: username }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: ankka-controlplane-db-app, key: password }
+            - name: TARGET_TIME
+              value: SET
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -q; do sleep 2; done
+              psql -v ON_ERROR_STOP=1 -v target="$TARGET_TIME" <<'SQL'
+              insert into ankka_restore_marker (restored_at, target_time)
+              select now(), :'target'
+              where not exists (select 1 from ankka_restore_marker where released_at is null);
+              SQL

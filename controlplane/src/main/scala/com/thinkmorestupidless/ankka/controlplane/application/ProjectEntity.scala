@@ -46,6 +46,141 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     case ProjectBrokerRemoved(name, _, _)   => currentState.onBrokerRemoved(name)
     case ProjectLocationSet(location, _, _) => currentState.onLocationSet(location)
     case ProjectTopicRemoved(name, _, _)    => currentState.onTopicRemoved(name)
+    case ProjectRestoreRequested(name, line, targetTime, actor, at) =>
+      currentState.onRestoreRequested(name, line, targetTime, actor, at)
+    case ProjectRestoreEnded(name, succeeded, reachedAt, detail, at) =>
+      currentState.onRestoreEnded(name, succeeded, reachedAt, detail, at)
+    case ProjectDatabaseSet(setting, actor, at) => currentState.onDatabaseSet(setting, actor, at)
+    case ProjectBackupCredentialReissued(generation, actor, at) =>
+      currentState.onBackupCredentialReissued(generation, actor, at)
+    case ProjectRehearsalRequested(name, line, targetTime, actor, at) =>
+      currentState.onRehearsalRequested(name, line, targetTime, actor, at)
+    case ProjectRehearsalEnded(name, line, targetTime, outcome, elapsed, detail, at) =>
+      currentState.onRehearsalEnded(name, line, targetTime, outcome, elapsed, detail, at)
+
+  /** A new backup credential (FR-003a): the next generation, each ask its own. */
+  def reissueBackupCredential(request: ReissueBackupCredential): Effect[Int] =
+    val _ = request
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else
+      val next = currentState.backupCredentialGeneration + 1
+      effects.persist(ProjectBackupCredentialReissued(next, actor, at)).thenReply(_ => next)
+
+  def backupCredentialGeneration: ReadOnlyEffect[Int] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.backupCredentialGeneration)
+
+  /** A rehearsal (feature 041): refused while another runs, and a name is never used twice. */
+  def requestRehearsal(request: RequestRehearsal): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      currentState.rehearsalInProgress match
+        case Some(running) =>
+          effects.error(
+            s"a rehearsal of ${context.entityId} is in progress: $running",
+            ErrorCode.Conflict
+          )
+        case None if currentState.rehearsals.contains(request.name) =>
+          effects.error(s"a rehearsal named ${request.name} already exists", ErrorCode.Conflict)
+        case None =>
+          effects
+            .persist(
+              ProjectRehearsalRequested(request.name, request.line, request.targetTime, actor, at)
+            )
+            .thenReply(_ => Done)
+
+  /** What the operator reported of a rehearsal: its end, once; anything else records nothing. */
+  def observeRehearsal(observed: ObserveRehearsal): Effect[Done] =
+    if !currentState.exists then notFound
+    else if currentState.rehearsals.get(observed.name).exists(_.outcome.isDefined) then
+      effects.reply(Done)
+    else if !Set("Completed", "Failed", "NotRemoved").contains(observed.outcome) then
+      effects.reply(Done)
+    else
+      effects
+        .persist(
+          ProjectRehearsalEnded(
+            observed.name,
+            observed.line,
+            observed.targetTime,
+            observed.outcome,
+            observed.elapsedSeconds,
+            observed.detail,
+            at
+          )
+        )
+        .thenReply(_ => Done)
+
+  def rehearsals: ReadOnlyEffect[Map[String, Rehearsal]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.rehearsals)
+
+  /**
+   * What the project asks of its database (feature 041); the same setting again records nothing.
+   */
+  def setDatabase(request: SetDatabase): Effect[Done] =
+    if !currentState.exists then notFound
+    else if currentState.database.contains(request.setting) then effects.reply(Done)
+    else effects.persist(ProjectDatabaseSet(request.setting, actor, at)).thenReply(_ => Done)
+
+  def database: ReadOnlyEffect[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else
+      effects.reply(
+        currentState.database.getOrElse(
+          com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting()
+        )
+      )
+
+  /**
+   * A restore of the project's database (feature 041). Refused while another has not ended, and a
+   * name already used is refused: a restore's cluster is never made twice. The moment's window and
+   * the line are the endpoint's to check, from what the cluster reports.
+   */
+  def requestRestore(request: RequestRestore): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      currentState.restoreInProgress match
+        case Some(running) =>
+          effects.error(
+            s"a restore of ${context.entityId} is in progress: $running",
+            ErrorCode.Conflict
+          )
+        case None if currentState.restores.contains(request.name) =>
+          effects.error(s"a restore named ${request.name} already exists", ErrorCode.Conflict)
+        case None =>
+          effects
+            .persist(
+              ProjectRestoreRequested(request.name, request.line, request.targetTime, actor, at)
+            )
+            .thenReply(_ => Done)
+
+  /** What the operator reported of a restore; it ends once, and a repeat records nothing. */
+  def observeRestore(observed: ObserveRestore): Effect[Done] =
+    currentState.restores.get(observed.name) match
+      case None => effects.error(s"no restore named ${observed.name}", ErrorCode.NotFound)
+      case Some(restore) if restore.outcome.isDefined => effects.reply(Done)
+      case Some(_) =>
+        observed.phase match
+          case "Verified" | "InUse" =>
+            effects
+              .persist(ProjectRestoreEnded(observed.name, true, observed.reachedAt, None, at))
+              .thenReply(_ => Done)
+          case "Failed" =>
+            effects
+              .persist(
+                ProjectRestoreEnded(observed.name, false, None, observed.detail, at)
+              )
+              .thenReply(_ => Done)
+          case _ => effects.reply(Done)
+
+  def restores: ReadOnlyEffect[Map[String, Restore]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.restores)
+
+  def history: ReadOnlyEffect[Vector[ProjectHistoryEntry]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.history)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -336,6 +471,30 @@ object ProjectEntity
   given declaredBrokersSerializer: Serializer[Map[String, DeclaredBroker]] =
     Codecs.serializer[Map[String, DeclaredBroker]]("declared-brokers")
 
+  given requestRehearsalSerializer: Serializer[RequestRehearsal] =
+    Codecs.serializer[RequestRehearsal]("request-rehearsal")
+  given observeRehearsalSerializer: Serializer[ObserveRehearsal] =
+    Codecs.serializer[ObserveRehearsal]("observe-rehearsal")
+  given rehearsalsSerializer: Serializer[Map[String, Rehearsal]] =
+    Codecs.serializer[Map[String, Rehearsal]]("project-rehearsals")
+  given reissueSerializer: Serializer[ReissueBackupCredential] =
+    Codecs.serializer[ReissueBackupCredential]("reissue-backup-credential")
+  given setDatabaseSerializer: Serializer[SetDatabase] =
+    Codecs.serializer[SetDatabase]("set-database")
+  given databaseSettingSerializer
+      : Serializer[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] =
+    Codecs.serializer[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting](
+      "project-database"
+    )
+  given requestRestoreSerializer: Serializer[RequestRestore] =
+    Codecs.serializer[RequestRestore]("request-restore")
+  given observeRestoreSerializer: Serializer[ObserveRestore] =
+    Codecs.serializer[ObserveRestore]("observe-restore")
+  given restoresSerializer: Serializer[Map[String, Restore]] =
+    Codecs.serializer[Map[String, Restore]]("project-restores")
+  given projectHistorySerializer: Serializer[Vector[ProjectHistoryEntry]] =
+    Codecs.serializer[Vector[ProjectHistoryEntry]]("project-history")
+
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
   val createProject = command("create")(_.create)
@@ -364,3 +523,18 @@ object ProjectEntity
     Codecs.serializer[SetProjectLocation]("set-project-location")
   val setLocation    = command("set-location")(_.setLocation)
   val bucketLocation = query("bucket-location")(_.bucketLocation)
+  val requestRestore = command("request-restore")(_.requestRestore)
+  val observeRestore = command("observe-restore")(_.observeRestore)
+  val restores       = query("restores")(_.restores)
+  val history        = query("history")(_.history)
+
+  val setDatabase = command("set-database")(_.setDatabase)
+
+  val reissueBackupCredential = command("reissue-backup-credential")(_.reissueBackupCredential)
+  val backupCredentialGeneration =
+    query("backup-credential-generation")(_.backupCredentialGeneration)
+
+  val requestRehearsal = command("request-rehearsal")(_.requestRehearsal)
+  val observeRehearsal = command("observe-rehearsal")(_.observeRehearsal)
+  val rehearsals       = query("rehearsals")(_.rehearsals)
+  val database         = query("database")(_.database)

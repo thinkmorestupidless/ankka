@@ -19,14 +19,25 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, topics, brokers, page] = await Promise.all([
+    const [project, services, secrets, topics, brokers, page, backups, rehearsals, restores, history, setting] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
       ctx.client.listTopics(id),
       ctx.client.listBrokers(id),
       pageData(ctx),
+      // The database's backups are the project's, read as the person; a control plane that cannot
+      // say leaves the section saying so rather than failing the page.
+      ctx.client.projectStatus(id).catch(() => undefined),
+      ctx.client.listRehearsals(id).catch(() => []),
+      ctx.client.listRestores(id).catch(() => []),
+      ctx.client.projectHistory(id).catch(() => []),
+      ctx.client.projectDatabase(id).catch(() => undefined),
     ]);
+    // A verified restore says what the broker holds past its moment, asked as it is read.
+    const reports = await Promise.all(
+      restores.filter((r) => r.phase === "Verified" || r.phase === "InUse").map((r) => ctx.client.getRestore(id, r.name).catch(() => r)),
+    );
     const organization = await ctx.client.getOrganization(project.organizationId);
     const primary = { label: "Apply a descriptor", to: `projects/${encodeURIComponent(id)}/services/apply`, operation: "service.apply" as const };
     return {
@@ -37,6 +48,11 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       secrets,
       topics,
       brokers,
+      backups,
+      rehearsals,
+      restores: restores.map((r) => reports.find((d) => d.name === r.name) ?? r),
+      history,
+      setting,
       panels: await loadPanels(ctx, "project", project),
     };
   });
@@ -53,6 +69,27 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "rename":
         await ctx.client.renameProject(id, text(form, "name"));
         return redirect(self);
+      case "restore": {
+        const restore = await ctx.client.restoreProject(id, new Date(text(form, "moment")).toISOString(), text(form, "line") || undefined);
+        return redirect(`${self}#restore-${restore.name}`);
+      }
+      case "rehearse":
+        await ctx.client.rehearseProject(id, text(form, "moment") ? new Date(text(form, "moment")).toISOString() : undefined);
+        return redirect(`${self}#rehearsals`);
+      case "reissue":
+        await ctx.client.reissueBackupCredential(id);
+        return redirect(`${self}#database`);
+      case "database":
+        await ctx.client.setProjectDatabase(id, {
+          replicas: Number(text(form, "replicas") || "0"),
+          synchronous: form.get("synchronous") === "on",
+          retentionDays: text(form, "retentionDays") ? Number(text(form, "retentionDays")) : undefined,
+          rehearse: text(form, "rehearse") || undefined,
+        });
+        return redirect(`${self}#database`);
+      case "switch":
+        await ctx.client.switchService(id, text(form, "service"), text(form, "cluster"));
+        return redirect(`${self}#database`);
       case "delete": {
         const project = await ctx.client.getProject(id);
         await ctx.client.deleteProject(id);
@@ -121,7 +158,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 }
 
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, topics, brokers, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, brokers, backups, rehearsals, restores, history, setting, panels } = useLoaderData<typeof loader>();
+  const databaseRefusal = useRefusal("database");
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
@@ -554,6 +592,203 @@ export default function Project() {
           </div>
         )}
         <Refused intent="broker-unset" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="database-title" id="database">
+        <h2 id="database-title">Database</h2>
+        {!backups ? (
+          <p className="ac-empty">The control plane could not say how the project's database is backed up.</p>
+        ) : (
+          <>
+            <p data-backed-up={backups.backedUp ? "yes" : "no"}>
+              {backups.backedUp ? "Backed up." : "Not backed up."}
+              {backups.detail ? ` ${backups.detail}` : ""}
+            </p>
+            {backups.database ? (
+              <p>
+                {backups.database.readyInstances} of {backups.database.instances} instances ready
+                {backups.database.primary ? `, primary ${backups.database.primary}` : ""}
+                {backups.database.synchronous ? ", synchronous" : ""}
+                {backups.database.writesWaitingOn ? ` — ${backups.database.writesWaitingOn}` : ""}
+              </p>
+            ) : null}
+            {backups.lines.length > 0 ? (
+              <div className="ac-table-wrap">
+                <table className="ac-table" aria-label="Lines of history">
+                  <thead>
+                    <tr>
+                      <th scope="col">Line</th>
+                      <th scope="col">Backups</th>
+                      <th scope="col">Last base backup</th>
+                      <th scope="col">Restorable from</th>
+                      <th scope="col">To</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backups.lines.map((l) => (
+                      <tr key={l.line} data-line={l.line}>
+                        <td>
+                          <code>{l.line}</code>
+                        </td>
+                        <td>
+                          {l.phase}
+                          {l.failing ? ` — ${l.failing}` : ""}
+                        </td>
+                        <td>{l.lastBaseBackup ? when(l.lastBaseBackup) : "—"}</td>
+                        <td>{l.firstRestorable ? when(l.firstRestorable) : "—"}</td>
+                        <td>{l.lastRestorable ? when(l.lastRestorable) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {backups.clusters.length > 0 ? (
+              <ul className="ac-topics" aria-label="Database clusters">
+                {backups.clusters.map((c) => (
+                  <li key={c.name} data-cluster={c.name} data-phase={c.phase}>
+                    <code>{c.name}</code> ({c.phase}
+                    {c.leftAt ? `, left ${when(c.leftAt)}` : ""}
+                    {c.since ? `, since ${when(c.since)}` : ""}): {c.services.length === 0 ? "no service" : c.services.join(", ")}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {restores.map((r) => (
+              <div key={r.name} className="ac-card" id={`restore-${r.name}`} data-restore={r.name} data-phase={r.phase}>
+                <h3>
+                  Restore <code>{r.name}</code> of {r.line} at {when(r.moment)}: {r.phase}
+                </h3>
+                {r.detail ? <p>{r.detail}</p> : null}
+                {r.services.length > 0 ? (
+                  <ul className="ac-topics">
+                    {r.services.map((v) => (
+                      <li key={v.name} data-verified={v.name}>
+                        {v.name}: {v.present ? `${v.journalRows} journal rows, highest sequence ${v.highestSequence}` : "no database at the moment"}
+                        {v.changedSecrets.length > 0 ? `; secrets changed since: ${v.changedSecrets.join(", ")}` : ""}
+                        {v.present && (r.phase === "Verified" || r.phase === "InUse") && shows("service.switch") ? (
+                          <ConsoleForm intent="switch" className="ac-inline">
+                            <input type="hidden" name="service" value={v.name} />
+                            <input type="hidden" name="cluster" value={r.name} />
+                            <Submit intent="switch">{`Switch ${v.name} to ${r.name}`}</Submit>
+                          </ConsoleForm>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {r.broker.length > 0 ? (
+                  <ul className="ac-topics" aria-label={`What ${r.name} cannot take back`}>
+                    {r.broker.map((d) => (
+                      <li key={`${d.topic}/${d.group ?? ""}`} data-diverged={d.topic}>
+                        <code>{d.topic}</code>
+                        {d.group ? ` read by ${d.group}: ${d.read ?? 0} of` : ":"} {d.after} messages newer than the moment
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {r.note ? <p className="ac-hint">{r.note}</p> : null}
+              </div>
+            ))}
+            <Refused intent="switch" />
+          </>
+        )}
+        {setting ? (
+          <p data-setting={`${setting.replicas}`}>
+            Asks for {setting.replicas === 0 ? "a primary alone" : `${setting.replicas} replica${setting.replicas === 1 ? "" : "s"}`}
+            {setting.synchronous ? ", synchronous" : ""}
+            {setting.retentionDays ? `, backups kept ${setting.retentionDays} days` : ""}
+            {setting.rehearse ? `, rehearsed ${setting.rehearse}` : ""}.
+          </p>
+        ) : null}
+        {shows("project.database") ? (
+          <details className="ac-more" open={databaseRefusal !== undefined || undefined}>
+            <summary>Replicas, retention and rehearsals</summary>
+            <ConsoleForm intent="database" className="ac-form">
+              <Field label="Replicas" name="replicas" type="number" defaultValue={databaseRefusal?.values.replicas ?? String(setting?.replicas ?? 0)} hint="Beside the primary, 0 to 4; one takes its place if it is lost." />
+              <div className="ac-field">
+                <label htmlFor="synchronous">
+                  <input id="synchronous" name="synchronous" type="checkbox" defaultChecked={setting?.synchronous} /> Synchronous
+                </label>
+                <p className="ac-hint">Every write waits until a replica holds it, so none is lost with the primary.</p>
+              </div>
+              <Field label="Keep backups for (days)" name="retentionDays" type="number" defaultValue={databaseRefusal?.values.retentionDays ?? (setting?.retentionDays ? String(setting.retentionDays) : "")} />
+              <div className="ac-field">
+                <label htmlFor="rehearse">Rehearse a restore</label>
+                <select id="rehearse" name="rehearse" defaultValue={setting?.rehearse ?? ""}>
+                  <option value="">never</option>
+                  <option value="daily">daily</option>
+                  <option value="weekly">weekly</option>
+                </select>
+              </div>
+              <Refused intent="database" />
+              <div>
+                <Submit intent="database">Save</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+        ) : null}
+        {shows("project.backup-credential") ? (
+          <ConsoleForm intent="reissue" className="ac-inline">
+            <Submit intent="reissue">Issue the backup credential again</Submit>
+            <Refused intent="reissue" />
+          </ConsoleForm>
+        ) : null}
+        {shows("project.restore") ? (
+          <details className="ac-more">
+            <summary>Restore to a moment</summary>
+            <ConsoleForm intent="restore" className="ac-form">
+              <Field label="Moment" name="moment" type="datetime-local" required hint="A new cluster beside the current one; nothing in the current database changes. Owners only." />
+              <Field label="Line" name="line" placeholder="ankka-db" hint="Only when the project's services are on more than one cluster." />
+              <Refused intent="restore" />
+              <div>
+                <Submit intent="restore">Restore</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+        ) : null}
+      </section>
+
+      <section className="ac-card" aria-labelledby="rehearsals-title" id="rehearsals">
+        <h2 id="rehearsals-title">Rehearsals</h2>
+        {rehearsals.length === 0 ? (
+          <p className="ac-empty">No rehearsals yet. A rehearsal restores into a namespace of its own, checks it, times it and removes it.</p>
+        ) : (
+          <ul className="ac-topics">
+            {rehearsals.map((r) => (
+              <li key={r.name} data-rehearsal={r.name} data-outcome={r.outcome}>
+                <code>{r.name}</code> to {when(r.moment)}: {r.outcome}
+                {r.elapsedSeconds !== undefined ? `, in ${r.elapsedSeconds}s` : ""}
+                {r.requestedBy ? `, asked by ${r.requestedBy}` : ", on the schedule"}
+                {r.detail ? ` — ${r.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+        {shows("project.rehearse") ? (
+          <ConsoleForm intent="rehearse" className="ac-inline">
+            <Submit intent="rehearse">Rehearse a restore</Submit>
+          </ConsoleForm>
+        ) : null}
+        <Refused intent="rehearse" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="database-history">
+        <h2 id="database-history">Database history</h2>
+        {history.length === 0 ? (
+          <p className="ac-empty">Nothing has been done to the project's database yet.</p>
+        ) : (
+          <ul className="ac-topics">
+            {history.map((h, i) => (
+              <li key={i} data-history={h.kind}>
+                {h.kind}
+                {h.by ? ` by ${h.by}` : ""}
+                {h.at ? `, ${when(h.at)}` : ""}
+                {h.detail ? `: ${h.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <Panels kind="project" entity={p} loaded={panels} />

@@ -49,6 +49,22 @@ final class BrokerProbe private (k3s: K3sContainer, namespace: String, val pod: 
         s"--consumer.config $Config"
     )
 
+  /** As `read`, each message after its headers, `key:value` comma-separated, then a tab. */
+  def readWithHeaders(
+      topic: String,
+      group: String,
+      max: Int = 100,
+      waitMs: Int = 20000
+  ): BrokerProbe.Result =
+    run(
+      s"$Bin/kafka-console-consumer.sh --bootstrap-server $Bootstrap --topic ${quoted(topic)} " +
+        s"--group ${quoted(group)} --from-beginning --max-messages $max --timeout-ms $waitMs " +
+        s"--property print.headers=true --consumer.config $Config"
+    )
+
+  /** One of the broker's tools, under `/opt/kafka/bin`, with this credential. */
+  def tool(command: String): BrokerProbe.Result = run(s"$Bin/$command --command-config $Config")
+
   /** The topics the broker lets this credential see. */
   def topics(): BrokerProbe.Result =
     run(s"$Bin/kafka-topics.sh --bootstrap-server $Bootstrap --list --command-config $Config")

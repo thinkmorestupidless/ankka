@@ -262,6 +262,29 @@ enum Action:
    */
   case RemoveBackendTlsPolicy(namespace: String, name: String, ownerUid: String)
 
+  /**
+   * Feature 041: where a namespace's clusters archive. Server-side applied, unowned, never removed:
+   * the archive in the bucket outlives everything in the cluster.
+   */
+  case EnsureObjectStore(store: cnpg.BarmanObjectStore)
+
+  /** Feature 041: a cluster's base backup on a schedule, owned by the cluster. */
+  case EnsureScheduledBackup(schedule: cnpg.PostgresScheduledBackup)
+
+  /**
+   * Feature 041: a backup bucket's credential, in the Secret `ankka-db-backups` of `namespace`, for
+   * the key `keyName` with `permission` on `bucket`. Issued once, as a storage credential is, and
+   * issued again into the same Secret when `generation` passes the last one this process issued at.
+   * Carries no key: this value is printed and logged.
+   */
+  case EnsureBackupCredential(
+      namespace: String,
+      bucket: String,
+      keyName: String,
+      permission: BucketPermission,
+      generation: Int
+  )
+
   def describe: String = this match
     case EnsureNamespace(name) => s"ensure namespace $name"
     case ApplyDeployment(d) =>
@@ -333,3 +356,10 @@ enum Action:
     case EnsureBackendTlsPolicy(p) =>
       s"ensure backendtlspolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
     case RemoveBackendTlsPolicy(ns, name, _) => s"remove backendtlspolicy $ns/$name if owned"
+    case EnsureObjectStore(o) =>
+      s"ensure objectstore ${o.getMetadata.getNamespace}/${o.getMetadata.getName}"
+    case EnsureScheduledBackup(b) =>
+      s"ensure scheduledbackup ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
+    case EnsureBackupCredential(ns, bucket, key, permission, generation) =>
+      s"ensure backup credential $ns/${com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret} " +
+        s"for key $key ($permission) on bucket $bucket at generation $generation"

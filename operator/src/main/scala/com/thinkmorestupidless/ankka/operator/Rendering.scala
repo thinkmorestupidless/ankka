@@ -217,7 +217,11 @@ object Rendering:
       // (feature 039): put on the ServiceAccount as they are. None for every other service.
       serviceAccountAnnotations: Map[String, String] = Map.empty,
       // What a move of the service's bucket does this pass (feature 039), from `moveActions`.
-      moveActions: Vector[Action] = Vector.empty
+      moveActions: Vector[Action] = Vector.empty,
+      // The project's resource (feature 041): its database's replicas and retention, and the
+      // backup credential's generation, which shape the cluster and its archiving. Read by the
+      // caller for the same reason.
+      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -253,7 +257,7 @@ object Rendering:
     else
       Right(
         (Action.EnsureNamespace(namespace) +:
-          databaseActions(resource, spec, namespace, settings, databasePlan)) ++
+          databaseActions(resource, spec, namespace, settings, databasePlan, project)) ++
           identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
@@ -1196,17 +1200,28 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String,
       settings: Settings,
-      plan: ProvisioningPlan
+      plan: ProvisioningPlan,
+      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec]
   ): Vector[Action] =
+    val database = project.flatMap(_.database)
     def tls: Vector[Action] =
       CnpgRendering.projectAuthority(namespace).map {
         case issuer if issuer.getKind == "Issuer" => Action.EnsureIssuer(issuer)
         case certificate                          => Action.EnsureCertificate(certificate)
-      } ++ Vector(
-        Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings)),
-        Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
-        Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
-      )
+      } ++
+        // Feature 041: where the cluster archives, before the cluster that names it. Nothing
+        // without a backup target.
+        CnpgRendering.backupActions(
+          namespace,
+          spec.projectId,
+          settings,
+          database,
+          project.flatMap(_.backups).map(_.credentialGeneration).getOrElse(0)
+        ) ++ Vector(
+          Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings, database)),
+          Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
+          Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
+        )
     // On every pass that provisions, because the operator never reads a Secret to learn whether it
     // is there: a `create` answered with a conflict is how it finds out, once per process.
     def credentials: Action =
@@ -1293,7 +1308,12 @@ object Rendering:
     // The project's declarations (feature 037) ride beside the TLS volumes on every pod: optional,
     // so a project without them starts as before.
     val tlsVolumes =
-      ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec) ++
+      ZeroTrust.volumes(
+        held,
+        spec,
+        spec.databaseCluster.getOrElse(CnpgRendering.projectClusterName)
+      ) ++
+        moduleVolumes(spec) ++
         projectVolumes(spec)
     val moduleInit = moduleInitContainers(spec)
 
@@ -1326,7 +1346,9 @@ object Rendering:
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-            .withInitContainers((moduleInit :+ SchemaInit.container(spec.serviceName))*)
+            .withInitContainers(
+              (moduleInit :+ SchemaInit.container(spec.serviceName, spec.databaseCluster))*
+            )
             .withContainers(containers*)
             .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
             // The database key is mounted readable by this group and nobody else, which is what
@@ -1869,7 +1891,10 @@ object Rendering:
         (spec.env.map(
           environment
         ) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++ secretKeyEnv ++
-          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty)
+          (if withDatabaseEnv then
+             (ZeroTrust.Database.Environment ++ ZeroTrust.Database.switched(spec.databaseCluster))
+               .map(literal)
+           else Vector.empty)
           ++ projectEnvironment(spec))*
       )
       .withEnvFrom(envFrom*)

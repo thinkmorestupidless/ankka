@@ -41,31 +41,164 @@ object CnpgRendering:
       "10-journal-postgres.sql",
       "20-projection-postgres.sql",
       "30-timers-postgres.sql",
-      "40-secrets-postgres.sql"
+      "40-secrets-postgres.sql",
+      "50-recovery-postgres.sql"
     )
 
   /**
    * A project's shared Postgres capacity. No `bootstrap.initdb` — its databases arrive as
    * `Database` objects, one per service, never a single named database nobody owns.
    */
-  def projectCluster(projectId: String, settings: Settings): PostgresCluster =
+  def projectCluster(
+      projectId: String,
+      settings: Settings,
+      database: Option[com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec] = None
+  ): PostgresCluster =
     val namespace = Names.namespace(settings.namespacePrefix, projectId)
     PostgresCluster(
       namespace,
       projectClusterName,
-      ClusterSpec(
-        instances = 1,
-        storage = Some(StorageSpec(settings.databaseStorageSize)),
-        certificates = Some(
-          CertificatesSpec(
-            clientCASecret = clientCaName,
-            replicationTLSSecret = replicationName
-          )
-        ),
-        postgresql = Some(PostgresqlSpec(pgHba = Vector(CertificateRule))),
-        managed = Some(ManagedSpec(roles = Vector(ManagedRole(name = TlsGroup, login = false))))
-      )
+      projectClusterSpec(settings, database, line = Some(projectClusterName))
     )
+
+  /**
+   * A project's cluster's spec, the project database's and a restore's in use alike (feature 041):
+   * a primary and the project's replicas, the certificate rule, and, when the installation has a
+   * backup target and the cluster is a line of history, the archiver under that line's name.
+   */
+  def projectClusterSpec(
+      settings: Settings,
+      database: Option[com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec],
+      line: Option[String]
+  ): ClusterSpec =
+    val replicas    = database.map(_.replicas).filter(_ > 0).getOrElse(0)
+    val archiving   = line.filter(_ => settings.backups.enabled)
+    val synchronous = database.exists(_.synchronous) && replicas > 0
+    ClusterSpec(
+      instances = 1 + replicas,
+      storage = Some(StorageSpec(settings.databaseStorageSize)),
+      certificates = Some(
+        CertificatesSpec(
+          clientCASecret = clientCaName,
+          replicationTLSSecret = replicationName
+        )
+      ),
+      postgresql = Some(
+        PostgresqlSpec(
+          pgHba = Vector(CertificateRule),
+          parameters = archiving.map(_ => Map("archive_timeout" -> ArchiveTimeout)),
+          synchronous = Option.when(synchronous)(SynchronousSpec())
+        )
+      ),
+      managed = Some(ManagedSpec(roles = Vector(ManagedRole(name = TlsGroup, login = false)))),
+      plugins = archiving.map(l => Vector(archiver(l)))
+    )
+
+  // ── Backups (feature 041) ────────────────────────────────────────────────
+
+  /** The archiver's ObjectStore in every namespace that holds an archiving cluster. */
+  val BackupObjectStoreName: String = "ankka-backups"
+
+  /**
+   * How long Postgres waits before archiving a segment that is not full: the bound on the archive's
+   * lag at a low write rate (SC-002). CNPG's default is five minutes.
+   */
+  val ArchiveTimeout: String = "60s"
+
+  /** The plugin as a cluster's archiver, archiving under `line`, its server name in the bucket. */
+  def archiver(line: String): PluginConfiguration =
+    PluginConfiguration(
+      name = BarmanObjectStore.Plugin,
+      isWALArchiver = Some(true),
+      parameters = Map("barmanObjectName" -> BackupObjectStoreName, "serverName" -> line)
+    )
+
+  /** A project's retention: its own when it is longer, the installation's floor otherwise. */
+  def retentionDays(
+      settings: Settings,
+      database: Option[com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec]
+  ): Int =
+    math.max(settings.backups.retentionDays, database.flatMap(_.retentionDays).getOrElse(0))
+
+  /**
+   * Where the clusters of `namespace` archive: the project's backup bucket, with the credential in
+   * `ankka-db-backups`. `None` without a backup target or an object store, so nothing is rendered.
+   */
+  def backupObjectStore(
+      namespace: String,
+      projectId: String,
+      settings: Settings,
+      retention: Int
+  ): Option[BarmanObjectStore] =
+    for
+      _     <- settings.backups.target
+      store <- settings.objectStore
+    yield
+      def key(entry: String) =
+        SecretKeyRef(com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret, entry)
+      BarmanObjectStore(
+        namespace,
+        BackupObjectStoreName,
+        BarmanObjectStoreSpec(
+          retentionPolicy = Some(s"${retention}d"),
+          configuration = BarmanConfiguration(
+            destinationPath =
+              s"s3://${com.thinkmorestupidless.ankka.crd.Buckets.backup(projectId)}/",
+            endpointURL = Some(store.endpoint),
+            s3Credentials = Some(
+              S3Credentials(
+                accessKeyId = key(StorageCredential.BackupAccessKeyEntry),
+                secretAccessKey = key(StorageCredential.BackupSecretKeyEntry),
+                region = Some(key(StorageCredential.BackupRegionEntry))
+              )
+            ),
+            // lz4: the fastest both allow, for SC-007's hour; two at a time each way.
+            wal = Some(WalConfiguration(compression = Some("lz4"), maxParallel = Some(2))),
+            data = Some(DataConfiguration(compression = Some("lz4"), jobs = Some(2)))
+          )
+        )
+      )
+
+  /** A cluster's base backup on the installation's schedule, the first one at once. */
+  def scheduledBackup(
+      namespace: String,
+      cluster: String,
+      settings: Settings
+  ): PostgresScheduledBackup =
+    PostgresScheduledBackup(
+      namespace,
+      s"$cluster-base",
+      ScheduledBackupSpec(schedule = settings.backups.schedule, cluster = ClusterRef(cluster))
+    )
+
+  /**
+   * Everything a backed-up project database needs beside the cluster, for the service pass that
+   * ensures the cluster: the bucket, its credential, where to archive, and the schedule. Nothing
+   * without a backup target, so an installation that names none renders what it rendered before.
+   */
+  def backupActions(
+      namespace: String,
+      projectId: String,
+      settings: Settings,
+      database: Option[com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec],
+      credentialGeneration: Int
+  ): Vector[Action] =
+    backupObjectStore(namespace, projectId, settings, retentionDays(settings, database)).toVector
+      .flatMap { store =>
+        val bucket = com.thinkmorestupidless.ankka.crd.Buckets.backup(projectId)
+        Vector(
+          Action.EnsureBucket(bucket),
+          Action.EnsureBackupCredential(
+            namespace,
+            bucket,
+            bucket,
+            BucketPermission.ReadWrite,
+            credentialGeneration
+          ),
+          Action.EnsureObjectStore(store),
+          Action.EnsureScheduledBackup(scheduledBackup(namespace, projectClusterName, settings))
+        )
+      }
 
   /**
    * The group every provisioned role joins (feature 014). Matching the group rather than `all` is
@@ -160,7 +293,9 @@ object CnpgRendering:
    * stolen client certificate is worth nothing from outside the project. Unowned, like the cluster.
    */
   def databasePolicy(
-      namespace: String
+      namespace: String,
+      // Feature 041: a restore's cluster has a policy of its own, named and selected for it.
+      cluster: String = projectClusterName
   ): io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy =
     import io.fabric8.kubernetes.api.model.{IntOrString, LabelSelectorBuilder}
     import io.fabric8.kubernetes.api.model.networking.v1.*
@@ -168,11 +303,11 @@ object CnpgRendering:
       new NetworkPolicyPortBuilder().withProtocol("TCP").withPort(new IntOrString(port)).build()
     def selector(labels: (String, String)*) =
       new LabelSelectorBuilder().withMatchLabels(labels.toMap.asJava).build()
-    val instances = "cnpg.io/cluster" -> projectClusterName
+    val instances = "cnpg.io/cluster" -> cluster
     new NetworkPolicyBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
-          .withName(databasePolicyName)
+          .withName(s"$cluster-database")
           .withNamespace(namespace)
           .withLabels(Map(Labels.ManagedByKey -> Labels.ManagedByAnkka).asJava)
           .build()

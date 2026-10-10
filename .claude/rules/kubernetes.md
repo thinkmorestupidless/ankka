@@ -569,3 +569,69 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
   service rolling on upgrade, and is never accepted.
+
+## Backups and recovery (feature 041)
+
+Every project database archives through the Barman Cloud plugin into `platform.backups.<project>` when the
+installation names a target (`ANKKA_BACKUP_*`, `BackupSettings`), rendered in the service pass beside the
+cluster (`CnpgRendering.backupActions`) because a project may have no `AnkkaProject`. The project
+reconciler reports lines, restores, rehearsals and clusters on the project's status; the control plane
+journals a restore's or rehearsal's end from there. A restore is a second cluster beside `ankka-db`
+(`RestoreRendering`); a switched service is told `ANKKA_DB_HOST` and `ANKKA_DB_LINE` literally on its pod.
+A rehearsal runs in `ankka-<project>-rehearsal`, the one namespace the operator may delete a cluster in,
+granted by a RoleBinding the control plane writes there (`bind` on `ankka-operator-rehearsal` alone).
+
+- **Adding the plugin to a running cluster restarts its instance once** (about 20 seconds, measured). So
+  turning backups on restarts every project database once; it rolls no service pod.
+- **CNPG refuses to archive into a non-empty archive.** A restore archives nothing until a service is
+  switched to it, and then under its own name; it never reuses the line it was made from.
+- **A recovery that cannot reach its moment is never `Failed`.** CNPG leaves it `Setting up primary`; the
+  operator reports a restore or rehearsal failed after `restoreTimeout` (30 minutes).
+- **A restore gets no `Database` or `DatabaseRole` objects.** Its roles and databases come with the
+  restored data, and the same CNPG objects on two clusters in one namespace collide.
+- **The operator reads inside a database by `psql` over `pods/exec`**, as `postgres` on the socket,
+  with every statement in `DatabaseQueries`; a literal `env` value beats the same key from `envFrom`.
+- **CNPG's release limits its operator to 100m CPU.** With the plugin and a cluster per scenario on one
+  k3s node, its health check timed out and the kubelet killed it every minute, and every write to a CNPG
+  resource then failed with `no endpoints available for service "cnpg-webhook-service"`. `BackupStack`
+  raises the limit on the test node; an installation with many projects may need to as well.
+- **Garage's NetworkPolicy must admit CNPG's pods**, which carry `cnpg.io/cluster`, not the platform's
+  managed-by label; `zero-trust.yaml` has a rule for project namespaces and one for `ankka-controlplane`.
+- **The suite's operator runs with admin credentials**, so taking a RoleBinding away refuses it nothing.
+  `RehearsalsClusterFeatures` refuses a delete with a ValidatingAdmissionPolicy, which binds everyone.
+- **A Garage node that replaces a lost one has a new id, and refuses requests until it has a role.**
+  Garage answers `500 Layout not ready` (or "no such key" on S3) for about one request in three, since
+  the `garage` Service still routes to it. So `garage-layout` is a Deployment that reconciles every 15
+  seconds and gives the new node the lost one's zone, not a Job someone has to run again. A role whose
+  node is merely down, with nothing new to take its place, is left alone.
+- **Every reconciler's executor comes from `Fabric8Executor.of(client, settings)`.** The project
+  reconciler built a bare `Fabric8Executor(client)`, with no store, and every rehearsal failed with "an
+  object storage action was rendered with no store" — in production as much as in the suite.
+- **A base backup scheduled before the cluster archives fails, and the next is a day away.** The
+  ScheduledBackup's `immediate` backup ran while CNPG was still adding the plugin ("requested plugin
+  is not available", or "instance manager was restarted during backup"), for every project that
+  existed before backups and every switched restore. Gating the schedule on `ContinuousArchiving` is
+  not enough: on a cluster that existed before backups the condition is already `True` before the
+  plugin is added ("the cluster has no plugin configured"). So the executor also takes the first base
+  backup again (`BaseBackupRetry`): two minutes after the last failure, at most five times, and only
+  while none has completed.
+- **A rehearsal leaves the operator's report when its cluster is removed.** The rehearsal gauge read
+  the report and missed it; the projector builds the same view the status route does, from the
+  entity's record, and sets every backup metric from that.
+- **A rehearsal schedule needs a namespace only the control plane can make.** `PUT
+  /projects/{id}/database` with `rehearse` ensures the rehearsal namespace before it records the
+  schedule, as `POST /projects/{id}/rehearsals` does; without it the operator had nowhere to rehearse.
+- **An untyped resource's `status` is Scala collections in the control plane, not Java ones.** The
+  platform registers Jackson's Scala module with fabric8's mapper, so `GenericKubernetesResource`'s
+  additional properties come back as Scala `Map`s and `List`s; a read matching `java.util.Map` found
+  nothing, silently, and the control plane never reported its own backups. An offline probe passed
+  because it unmarshalled with fabric8's plain mapper. `ControlPlaneLine` accepts both.
+- **The archive's lag says when a segment was sent, not what it held.** `lastRestorable` is
+  `last_archived_time`, and a segment holding only commits from before a moment can be archived after
+  it; a recovery to that moment replays everything, meets no later commit and fails "recovery ended
+  before configured recovery target was reached", for ever. Before a restore's or a rehearsal's cluster
+  is first rendered, `RecoveryPoint` writes an empty transaction on the source, switches the segment
+  and waits for the archive to hold it.
+- **A held control plane writes nothing to the cluster.** After its own database's restore it starts on a
+  marker row (`ankka_restore_marker`) and its projector's client is a `HeldClient`, which compares every
+  write with the cluster and records the difference, until `ankka installation restore --release`.

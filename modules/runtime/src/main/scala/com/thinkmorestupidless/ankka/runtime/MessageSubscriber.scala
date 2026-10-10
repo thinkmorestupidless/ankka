@@ -81,6 +81,18 @@ trait MessageSubscriber:
     val _ = subscription
     Future.successful(None)
 
+  /**
+   * Of `topic`, the messages after `at` over every partition, and for `group` how many of those it
+   * has read (feature 041); `None` when this broker cannot say, as the in-memory one cannot.
+   */
+  def positionsSince(
+      topic: String,
+      group: Option[String],
+      at: Instant
+  ): Future[Option[Divergence.Positions]] =
+    val _ = (topic, group, at)
+    Future.successful(None)
+
   /** Stops every subscription. */
   def stop(): Unit
 

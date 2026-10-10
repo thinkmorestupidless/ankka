@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: garage
+  namespace: garage-system
+spec:
+  replicas: 3
+  template:
+    spec:
+      # One node per machine, or losing a machine could lose two copies of an object.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: { app.kubernetes.io/name: garage }
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: garage
+          # Laid out by the garage-layout Deployment: a node of several refuses `--single-node`.
+          args: ["/garage", "server"]

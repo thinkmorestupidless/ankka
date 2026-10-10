@@ -110,6 +110,7 @@ Usage:
     ankka login
     ankka logout
     ankka whoami
+    ankka status
     ankka installation
     ankka organizations
     ankka projects
@@ -133,6 +134,8 @@ Subcommands:
         Forget the saved login for the control plane.
     whoami
         Show who the control plane thinks you are.
+    status
+        Show where the installation's backups go, for how long, and how safely.
     installation
         Show the installation: its version, and its cloud provider, account and location.
     organizations
@@ -205,16 +208,64 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka status`
+
+```text
+Usage: ankka status [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Show where the installation's backups go, for how long, and how safely.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka installation`
 
 ```text
-Usage: ankka installation [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+Usage:
+    ankka installation restore
+    ankka installation [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Show the installation: its version, and its cloud provider, account and location.
 
 Options and flags:
     --help
         Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+
+Subcommands:
+    restore
+        Show whether the control plane is held after its database was restored, and what differs.
+```
+
+### `ankka installation restore`
+
+```text
+Usage: ankka installation restore [--release] [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Show whether the control plane is held after its database was restored, and what differs.
+
+Options and flags:
+    --help
+        Display this help text.
+    --release
+        Release the hold, so the control plane projects again (admins).
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>
@@ -758,6 +809,14 @@ Options and flags:
 Usage:
     ankka projects list
     ankka projects get
+    ankka projects status
+    ankka projects restore
+    ankka projects restores
+    ankka projects history
+    ankka projects database
+    ankka projects rehearse
+    ankka projects rehearsals
+    ankka projects backups
     ankka projects create
     ankka projects rename
     ankka projects delete
@@ -778,6 +837,22 @@ Subcommands:
         List projects, optionally in one organization.
     get
         Show one project.
+    status
+        Show whether a project is backed up, how far back it can be restored, and its database.
+    restore
+        Restore a project's database to a moment, into a new cluster beside the current one.
+    restores
+        List a project's restores, or show one.
+    history
+        Who did what to a project's database, newest first.
+    database
+        Show or set what a project asks of its database: replicas, retention, rehearsals.
+    rehearse
+        Rehearse a restore of a project, in a namespace of its own; it changes nothing of the project.
+    rehearsals
+        List a project's rehearsals: who asked, when, the moment, the outcome and how long it took.
+    backups
+        A project's backups.
     create
         Create a project.
     rename
@@ -824,6 +899,274 @@ Options and flags:
 Usage: ankka projects get [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
 
 Show one project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects status`
+
+```text
+Usage: ankka projects status [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Show whether a project is backed up, how far back it can be restored, and its database.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects restore`
+
+```text
+Usage: ankka projects restore [--line <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id> <moment>
+
+Restore a project's database to a moment, into a new cluster beside the current one.
+
+Options and flags:
+    --help
+        Display this help text.
+    --line <string>
+        The line of history, when services are on more than one.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects restores`
+
+```text
+Usage:
+    ankka projects restores list
+    ankka projects restores get
+
+List a project's restores, or show one.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List the project's restores, oldest first.
+    get
+        Show one restore: what each service's database holds.
+```
+
+### `ankka projects restores list`
+
+```text
+Usage: ankka projects restores list [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+List the project's restores, oldest first.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects restores get`
+
+```text
+Usage: ankka projects restores get [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id> <name>
+
+Show one restore: what each service's database holds.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects history`
+
+```text
+Usage: ankka projects history [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Who did what to a project's database, newest first.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects database`
+
+```text
+Usage:
+    ankka projects database get
+    ankka projects database set
+
+Show or set what a project asks of its database: replicas, retention, rehearsals.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    get
+        Show what the project asks of its database.
+    set
+        Set what the project asks of its database, whole; anything not given is the default.
+```
+
+### `ankka projects database get`
+
+```text
+Usage: ankka projects database get [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Show what the project asks of its database.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects database set`
+
+```text
+Usage: ankka projects database set [--replicas <integer>] [--synchronous] [--retention-days <integer>] [--rehearse <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Set what the project asks of its database, whole; anything not given is the default.
+
+Options and flags:
+    --help
+        Display this help text.
+    --replicas <integer>
+        Replicas beside the primary, 0 to 4.
+    --synchronous
+        Every write waits for a replica to hold it.
+    --retention-days <integer>
+        Days the project's backups are kept.
+    --rehearse <string>
+        Rehearse a restore daily or weekly.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects rehearse`
+
+```text
+Usage: ankka projects rehearse [--line <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id> [<moment>]
+
+Rehearse a restore of a project, in a namespace of its own; it changes nothing of the project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --line <string>
+        The line of history to rehearse.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects rehearsals`
+
+```text
+Usage: ankka projects rehearsals [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+List a project's rehearsals: who asked, when, the moment, the outcome and how long it took.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects backups`
+
+```text
+Usage: ankka projects backups reissue-credential
+
+A project's backups.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    reissue-credential
+        Issue the project's backup credential again; the old key stops working. Owners only.
+```
+
+### `ankka projects backups reissue-credential`
+
+```text
+Usage: ankka projects backups reissue-credential [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Issue the project's backup credential again; the old key stops working. Owners only.
 
 Options and flags:
     --help
@@ -1347,6 +1690,7 @@ Usage:
     ankka services restart
     ankka services storage
     ankka services rollback
+    ankka services switch
     ankka services logs
     ankka services topology
     ankka services history
@@ -1379,6 +1723,8 @@ Subcommands:
         Act on a service's bucket and its credential.
     rollback
         Apply the descriptor of an earlier generation again, as a new generation.
+    switch
+        Move a service onto another of its project's database clusters: a verified restore, or back.
     logs
         Print a deployed service's recent output.
     topology
@@ -1634,6 +1980,28 @@ Options and flags:
         Display this help text.
     --to-generation <integer>
         The generation to roll back to; otherwise the most recent with a different descriptor.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services switch`
+
+```text
+Usage: ankka services switch --to <string> [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Move a service onto another of its project's database clusters: a verified restore, or back.
+
+Options and flags:
+    --help
+        Display this help text.
+    --to <string>
+        The cluster: a restore's name, or ankka-db for the project database.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

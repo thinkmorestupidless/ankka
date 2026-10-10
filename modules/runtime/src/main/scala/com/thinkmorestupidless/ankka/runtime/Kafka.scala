@@ -455,6 +455,60 @@ final class KafkaSubscriber private (
       .recover { case NonFatal(_) => None }(using system.executionContext)
 
   /**
+   * The broker's offset at `at` on each partition (`offsetsForTimes`: the first message published
+   * at or after it, or the end when none was), against the end and the group's commit. Nothing is
+   * read and nothing committed: the consumer joins no group, and a group id only names whose commit
+   * is asked for.
+   */
+  override def positionsSince(
+      declared: String,
+      group: Option[String],
+      at: Instant
+  ): Future[Option[Divergence.Positions]] =
+    val topic = connection.qualified(declared)
+    Future {
+      blocking {
+        val properties = Properties()
+        connection.properties.foreach((key, value) => properties.put(key, value))
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, connection.bootstrapServers)
+        group.foreach(g => properties.put(ConsumerConfig.GROUP_ID_CONFIG, g))
+        properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
+        val consumer =
+          KafkaConsumer[Array[Byte], Array[Byte]](
+            properties,
+            ByteArrayDeserializer(),
+            ByteArrayDeserializer()
+          )
+        try
+          val partitions = consumer
+            .partitionsFor(topic, JDuration.ofSeconds(10))
+            .asScala
+            .toVector
+            .map(info => TopicPartition(topic, info.partition))
+          val ends = consumer.endOffsets(partitions.asJava).asScala
+          val atMoment = consumer
+            .offsetsForTimes(
+              partitions.map(p => p -> java.lang.Long.valueOf(at.toEpochMilli)).toMap.asJava
+            )
+            .asScala
+          def offsetAt(p: TopicPartition) =
+            Option(atMoment.getOrElse(p, null)).map(_.offset).getOrElse(ends(p).longValue)
+          val after = partitions.map(p => (ends(p).longValue - offsetAt(p)).max(0L)).sum
+          val read = group.map { _ =>
+            val committed = consumer.committed(partitions.toSet.asJava).asScala
+            partitions.map { p =>
+              Option(committed.getOrElse(p, null))
+                .map(c => (c.offset - offsetAt(p)).max(0L))
+                .getOrElse(0L)
+            }.sum
+          }
+          Some(Divergence.Positions(after, read))
+        finally consumer.close()
+      }
+    }(using system.executionContext)
+      .recover { case NonFatal(_) => None }(using system.executionContext)
+
+  /**
    * A consumer with no group, assigned every partition and moved to the beginning: the first record
    * of each says when the oldest message it holds was published. It commits nothing, and fails when
    * the broker cannot be asked, or a partition that holds messages yields none in time.

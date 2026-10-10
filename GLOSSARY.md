@@ -2184,6 +2184,10 @@ the one each service is on.
 
 Avoid: Postgres cluster, database cluster
 
+### backup
+*Proposed.* What the platform keeps of a project database outside it, from which the project
+database can be brought back: its base backups and its archive, in its backup bucket.
+
 ### backup target
 *Proposed.* Where an installation's backups go: its object store, named once for the installation.
 With none named, nothing is backed up and every status says so.
@@ -2211,9 +2215,9 @@ bucket, and, where the installation requires a copy outside the failure domain, 
 backup has one.
 
 ### retention window
-*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation,
-and a project may set its own. A base backup or archive older than it is removed only once a newer
-base backup has completed.
+*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation
+as a floor, and a project may set a longer one of its own, never a shorter. A base backup or archive
+older than it is removed only once a newer base backup has completed.
 
 ### restore
 *Proposed.* A project database made anew at a moment in the retention window, beside the current
@@ -2229,7 +2233,7 @@ Avoid: point-in-time recovery, PITR
 
 ### switch
 *Proposed.* Moving one service of a project from the project database it is on to another of the
-project's, a restore or one it left, at the service's next rolling update. An owner switches one
+project's, a restore or one it left, by a rolling update the switch starts. An owner switches one
 service at a time; the project database the service leaves is kept, and switching back is the same
 action.
 
@@ -2438,9 +2442,8 @@ one before it is gone. The erasure of a data subject's objects becomes final whe
 It is defined by object storage on Google Cloud (spec 039).
 
 ### switched
-*Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
-service that is switched is not ready until it has applied the erasure log to the restored
-database.
+*Proposed.* Of a service: moved by a switch (spec 041) to a restore, or back to a project database
+it left. A service switched to a restore is not ready until it has applied the erasure log to it.
 
 ## Cloud provider
 
@@ -2532,10 +2535,6 @@ its buckets encrypted with the cloud's own key. It is not a secret key, which a 
 store encrypts with.
 
 Avoid: KMS key, root key
-
-### backup
-*Proposed.* A copy of a project's database that the platform keeps outside it, from which the
-database can be brought back.
 
 ### credential generation
 *Proposed.* A count on a cloud request. Raising it asks the cloud provider for a new credential

@@ -1,0 +1,20 @@
+# The three of the operator's backup settings the control plane needs, with the same values: it
+# reports the target, refuses a project's retention below the floor, and judges "backed up" under
+# the copy requirement. The container's name must be the control plane's own.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_BACKUP_TARGET
+              value: "object-store"
+            - name: ANKKA_BACKUP_RETENTION_DAYS
+              value: "30"
+            - name: ANKKA_BACKUP_COPY_REQUIRED
+              value: "off"

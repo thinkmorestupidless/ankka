@@ -34,6 +34,9 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !kubectl
 
+  // The first case to touch an overlay renders it, which takes longer than munit's default allows.
+  override val munitTimeout = scala.concurrent.duration.Duration(3, "min")
+
   private def repoRoot: Path =
     Iterator
       .iterate(Paths.get("").toAbsolutePath)(_.getParent)
@@ -71,6 +74,70 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       // second time in this suite that a substring found a Kubernetes word in a schema rather
       // than in a resource.
       .filter(_.linesIterator.exists(_ == s"kind: $kind"))
+
+  /** The recovery kustomization with its two values set, as the procedure says to set them. */
+  private def renderRecovery(step: String, values: Map[String, String]): String =
+    val source = repoRoot.resolve(s"kustomization/recovery/controlplane/$step")
+    val copy   = Files.createTempDirectory("ankka-recovery")
+    Files.list(source).iterator.asScala.filter(Files.isRegularFile(_)).foreach { file =>
+      val text = Files.readString(file)
+      val set =
+        if file.getFileName.toString == "kustomization.yaml" then
+          values.foldLeft(text)((t, kv) => t.replace(s"${kv._1}=SET", s"${kv._1}=${kv._2}"))
+        else text
+      Files.writeString(copy.resolve(file.getFileName), set)
+    }
+    Process(Seq("kubectl", "kustomize", copy.toString)).!!
+
+  test(
+    "the control plane's restore makes its cluster from the line, and the marker, as set (041)"
+  ) {
+    val name = "ankka-controlplane-db-r202610081012"
+    val rendered =
+      renderRecovery("", Map("restoreName" -> name, "targetTime" -> "2026-10-08T09:20:00Z"))
+    val cluster = documentsOfKind(rendered, "Cluster").head
+    assert(cluster.contains(s"name: $name"), cluster)
+    assert(
+      cluster.contains("targetTime: \"2026-10-08T09:20:00Z\"") || cluster.contains(
+        "targetTime: 2026-10-08T09:20:00Z"
+      ),
+      cluster
+    )
+    assert(cluster.contains("serverName: ankka-controlplane-db"), cluster)
+    assert(
+      cluster.linesIterator.exists(_.trim == "name: ankka-controlplane-db-app"),
+      "the owner's credential"
+    )
+    val job = documentsOfKind(rendered, "Job").head
+    assert(job.contains(s"value: $name-rw"), job)
+    assert(job.contains("insert into ankka_restore_marker"), job)
+    assert(!rendered.contains("SET"), "every value set")
+    val archive = renderRecovery("archive", Map("restoreName" -> name))
+    assert(archive.contains(s"serverName: $name"), archive)
+    assert(archive.contains(s"name: $name-base"), archive)
+    assert(!archive.contains("SET"), archive)
+  }
+
+  test(
+    "an installation runs Garage on three machines and copies it out; a laptop does neither (041)"
+  ) {
+    def garage(render: String) =
+      documentsOfKind(render, "StatefulSet")
+        .find(_.contains("name: garage\n"))
+        .getOrElse(fail("no Garage"))
+    assert(garage(remote).contains("replicas: 3"), "three machines remotely")
+    assert(garage(remote).contains("topologyKey: kubernetes.io/hostname"), "one per machine")
+    assert(!garage(remote).contains("--single-node"), "laid out, not single")
+    assert(documentsOfKind(remote, "ConfigMap").exists(_.contains("replication_factor = 3")))
+    assert(documentsOfKind(remote, "Deployment").exists(_.contains("name: garage-layout")))
+    assert(documentsOfKind(remote, "CronJob").exists(_.contains("name: garage-copy")))
+    assert(
+      !documentsOfKind(remote, "Secret").exists(_.contains("name: garage-secondary")),
+      "the development secondary's credential is not shipped remotely"
+    )
+    assert(garage(local).contains("replicas: 1") && garage(local).contains("--single-node"))
+    assert(documentsOfKind(local, "CronJob").forall(!_.contains("garage-copy")), "no copy locally")
+  }
 
   test("the remote overlay renders at all") {
     // kustomize is strict about patch targets: a component that renames or moves the object a
@@ -286,6 +353,8 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     val issuers = (documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer"))
       .filterNot(d => internal.exists(n => d.linesIterator.contains(s"  name: $n")))
       .filterNot(_.contains("app.kubernetes.io/name: trust-manager"))
+      // So does the Barman Cloud plugin (feature 041), for its channel to CNPG inside cnpg-system.
+      .filterNot(d => d.contains("name: selfsigned-issuer") && d.contains("namespace: cnpg-system"))
     assert(issuers.nonEmpty, "the remote overlay issues no public certificates at all")
     assert(
       issuers.forall(_.contains("acme:")),
@@ -928,4 +997,88 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
         rules.filter(_.getResources.contains(resource)).flatMap(_.getVerbs.asScala).toSet
       assertEquals(verbs("cloudresources"), Set("get", "list", "watch", "create", "patch"), name)
       assertEquals(verbs("cloudresources/status"), Set("get"), name)
+  }
+
+  // ── Backups (feature 041) ─────────────────────────────────────────────────
+
+  /** One named container's environment variables of a name, by shape rather than by text. */
+  private def variablesNamed(render: String, deployment: String, variable: String) =
+    deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+      .find(_.getName == deployment)
+      .getOrElse(fail(s"$deployment has no container of its own name"))
+      .getEnv
+      .asScala
+      .toVector
+      .filter(_.getName == variable)
+
+  test("both overlays tell the operator and the control plane where backups go, once each") {
+    val operatorVariables = Vector(
+      "ANKKA_BACKUP_TARGET",
+      "ANKKA_BACKUP_RETENTION_DAYS",
+      "ANKKA_BACKUP_SCHEDULE",
+      "ANKKA_BACKUP_COPY_REQUIRED",
+      "ANKKA_REHEARSAL_TTL_HOURS"
+    )
+    val shared =
+      Vector("ANKKA_BACKUP_TARGET", "ANKKA_BACKUP_RETENTION_DAYS", "ANKKA_BACKUP_COPY_REQUIRED")
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      for variable <- operatorVariables do
+        assertEquals(
+          variablesNamed(render, "ankka-operator", variable).size,
+          1,
+          s"$name: $variable"
+        )
+      for variable <- shared do
+        val onControlPlane = variablesNamed(render, "ankka-controlplane", variable)
+        assertEquals(onControlPlane.size, 1, s"$name: $variable on the control plane")
+        // The two read the same values, or the control plane reports a floor the operator ignores.
+        assertEquals(
+          onControlPlane.head.getValue,
+          variablesNamed(render, "ankka-operator", variable).head.getValue,
+          s"$name: the operator and the control plane disagree about $variable"
+        )
+      assertEquals(
+        variablesNamed(render, "ankka-operator", "ANKKA_BACKUP_TARGET").head.getValue,
+        "object-store"
+      )
+      // A patch that named a container the Deployment lacks would have added one.
+      for deployment <- Vector("ankka-operator", "ankka-controlplane") do
+        assert(
+          deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+            .forall(_.getImage != null),
+          s"$name: $deployment has a container with no image"
+        )
+  }
+
+  test("both overlays install the archiver, pinned") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val plugin = deploymentNamed(render, "barman-cloud")
+      val images = plugin.getSpec.getTemplate.getSpec.getContainers.asScala.map(_.getImage)
+      assertEquals(
+        images.toVector,
+        Vector("ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.15.1"),
+        name
+      )
+      assertEquals(plugin.getMetadata.getNamespace, "cnpg-system", name)
+  }
+
+  test("the object store admits the database instances, and only by the label CNPG gives them") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val policy = io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
+        documentsOfKind(render, "NetworkPolicy")
+          .find(d => d.contains("name: garage") && d.contains("namespace: garage-system"))
+          .getOrElse(fail(s"$name: no store policy")),
+        classOf[io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy]
+      )
+      val s3 = policy.getSpec.getIngress.asScala
+        .find(_.getPorts.asScala.exists(_.getPort.getIntVal == 3900))
+        .getOrElse(fail(s"$name: no rule for 3900"))
+      val byCnpgLabel = s3.getFrom.asScala.filter(peer =>
+        Option(peer.getPodSelector)
+          .flatMap(s => Option(s.getMatchExpressions))
+          .exists(_.asScala.exists(e => e.getKey == "cnpg.io/cluster" && e.getOperator == "Exists"))
+      )
+      assertEquals(byCnpgLabel.size, 2, s"$name: a project's databases and the control plane's")
+      // Each is held to a namespace: a pod anywhere that labels itself cnpg.io/cluster is not admitted.
+      assert(byCnpgLabel.forall(_.getNamespaceSelector != null), name)
   }

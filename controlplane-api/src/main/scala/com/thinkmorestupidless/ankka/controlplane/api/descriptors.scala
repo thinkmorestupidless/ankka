@@ -106,8 +106,20 @@ object ProjectId:
    * 63 is the DNS label ceiling; the default prefix `ankka` plus a separator takes six. A longer
    * prefix narrows it further, which the server checks when it projects — this bound catches the
    * obvious case early rather than being the only check.
+   *
+   * Since feature 041 the tighter bound is the project's backup bucket, `platform.backups.<id>`,
+   * which must fit in a bucket's 63 characters: 46. `crd`'s `Buckets.BackedUpProjectMaxLength` is
+   * the derivation; this module cannot see `crd`, so `BackupNamesAgreeSuite` in the control plane
+   * holds the two to each other.
    */
-  val MaxLength: Int = 63 - "ankka".length - 1
+  val MaxLength: Int = 63 - "platform.backups.".length
+
+  /**
+   * A project id may not end so (feature 041): `ankka-<id>-rehearsal` is the namespace a project's
+   * rehearsals run in, where the operator may delete a cluster, and `shop-rehearsal` would name
+   * `shop`'s. `crd`'s `Recovery.RehearsalSuffix` is the same string.
+   */
+  val RehearsalSuffix: String = "-rehearsal"
 
   /**
    * Ids no project may take, because the platform's own workloads use them.
@@ -147,6 +159,11 @@ object ProjectId:
         s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
       )
     else if Reserved.contains(id) then Vector(reservedBecause(id))
+    else if id.endsWith(RehearsalSuffix) then
+      Vector(
+        s"project id '$id' ends in '$RehearsalSuffix', which names another project's rehearsal " +
+          "namespace"
+      )
     else Vector.empty
 
   def isValid(id: String): Boolean = problems(id).isEmpty
@@ -980,7 +997,12 @@ final case class ServiceStatus(
      * Where a move of the bucket from Garage is, as a phrase: `copying`, `write pause`,
      * `verifying`, `moved`, `move failed`. Its detail is in `detail`.
      */
-    storageMove: Option[String] = None
+    storageMove: Option[String] = None,
+    /**
+     * The project database cluster the service is switched to (feature 041): a restore, or one it
+     * left. Absent is the project database.
+     */
+    databaseCluster: Option[String] = None
 )
 
 /**
@@ -1011,7 +1033,9 @@ final case class HistoryEntry(
     /** `ServiceDescriptor.digest` of the descriptor this entry recorded, all 64 characters. */
     digest: Option[String] = None,
     /** On a `rolled-back` entry: the generation whose descriptor was applied again. */
-    rolledBackTo: Option[Long] = None
+    rolledBackTo: Option[Long] = None,
+    /** On a `switched` entry (feature 041): the database clusters it moved from and to. */
+    detail: Option[String] = None
 )
 
 /**
@@ -1063,9 +1087,13 @@ final case class OrganizationMembership(id: String, name: String, role: Role)
 /** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
 /**
  * What the installation is (feature 044, `GET /installation`): its version, and its cloud when it
- * names a provider.
+ * names a provider; and its backups (feature 041), which `ankka status` shows.
  */
-final case class Installation(platformVersion: String, cloud: Option[CloudInstallation] = None)
+final case class Installation(
+    platformVersion: String,
+    cloud: Option[CloudInstallation] = None,
+    backups: Option[InstallationStatus] = None
+)
 
 /**
  * The installation's cloud: its provider, the one account its cloud resources are made in, the
@@ -1822,6 +1850,26 @@ object Wire:
     Codecs.make[Vector[ProjectBroker]]
   given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
     Codecs.make[TopicDeclarationRequest]
+  // Feature 041.
+  given projectStatusCodec: JsonValueCodec[ProjectStatus] = Codecs.make[ProjectStatus]
+  given installationStatusCodec: JsonValueCodec[InstallationStatus] =
+    Codecs.make[InstallationStatus]
+  given restoreRequestCodec: JsonValueCodec[RestoreRequest]   = Codecs.make[RestoreRequest]
+  given restoreViewCodec: JsonValueCodec[RestoreView]         = Codecs.make[RestoreView]
+  given databaseSettingCodec: JsonValueCodec[DatabaseSetting] = Codecs.make[DatabaseSetting]
+  given restoreHoldCodec: JsonValueCodec[RestoreHoldStatus]   = Codecs.make[RestoreHoldStatus]
+  given credentialReissuedCodec: JsonValueCodec[CredentialReissued] =
+    Codecs.make[CredentialReissued]
+  given rehearsalRequestCodec: JsonValueCodec[RehearsalRequest] = Codecs.make[RehearsalRequest]
+  given rehearsalViewCodec: JsonValueCodec[RehearsalView]       = Codecs.make[RehearsalView]
+  given rehearsalViewsCodec: JsonValueCodec[Vector[RehearsalView]] =
+    Codecs.make[Vector[RehearsalView]]
+  given restoreViewsCodec: JsonValueCodec[Vector[RestoreView]] = Codecs.make[Vector[RestoreView]]
+  given switchRequestCodec: JsonValueCodec[SwitchRequest]      = Codecs.make[SwitchRequest]
+  given projectHistoryEntryCodec: JsonValueCodec[ProjectHistoryView] =
+    Codecs.make[ProjectHistoryView]
+  given projectHistoryCodec: JsonValueCodec[Vector[ProjectHistoryView]] =
+    Codecs.make[Vector[ProjectHistoryView]]
   given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]
   given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]

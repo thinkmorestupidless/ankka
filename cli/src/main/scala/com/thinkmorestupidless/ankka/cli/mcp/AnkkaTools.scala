@@ -125,6 +125,22 @@ private[cli] final class AnkkaTools(
       idempotent = true
     )(args => ToolResult(json(client.listProjects(args.string("organization"))))),
     Tool(
+      "project_status",
+      "Project backups",
+      "Whether a project is backed up: each line of history's last base backup, the earliest and latest moments it can be restored to, the archive's lag in seconds and why it is failing; and the project database's instances, primary and whether a synchronous write is waiting.",
+      schema(Nil, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args => ToolResult(json(client.projectStatus(project(args))))),
+    Tool(
+      "installation_status",
+      "Installation backups",
+      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted.",
+      schema(Nil),
+      readOnly = true,
+      idempotent = true
+    )(_ => ToolResult(json(client.installation()))),
+    Tool(
       "list_services",
       "List services",
       "Every service in a project with its lifecycle state, ready and desired instances, generation and image.",

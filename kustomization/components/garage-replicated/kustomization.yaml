@@ -1,0 +1,18 @@
+# Garage on three machines, each object on all three (feature 041, research R20). Listed after
+# `garage`, which it changes: the StatefulSet at three replicas, one per node, laid out by the
+# `garage-layout` Deployment rather than by `--single-node`, and every object kept three times. Losing
+# a node and its volume loses nothing, and the node that replaces it is given the lost one's role
+# within a pass of the layout loop.
+#
+# The StatefulSet's governing Service is `garage`'s, which is not headless and cannot become so on
+# an installation that already runs it, so its pods have no names of their own. `garage-peers` is
+# headless: its name answers every pod's address, which is how the layout loop finds the nodes and
+# connects them, every pass, so a restart of every pod at once heals too.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - peers.yaml
+  - layout.yaml
+patches:
+  - path: statefulset-patch.yaml
+  - path: config-patch.yaml

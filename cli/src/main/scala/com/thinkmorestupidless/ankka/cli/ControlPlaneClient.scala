@@ -139,6 +139,21 @@ final class ControlPlaneClient(settings: Settings):
 
   def getProject(id: String): ProjectSummary = get[ProjectSummary](s"/projects/${segment(id)}")
 
+  /** A project's backups and database (feature 041). */
+  def projectStatus(id: String): ProjectStatus =
+    get[ProjectStatus](s"/projects/${segment(id)}/status")
+
+  /** Where the installation's backups go, and how safely (feature 041): `GET /installation`'s. */
+  def backups(): InstallationStatus =
+    installation().backups.getOrElse(
+      throw new IllegalStateException("the control plane reported nothing of its backups")
+    )
+
+  def restoreHold(): RestoreHoldStatus = get[RestoreHoldStatus]("/installation/restore")
+
+  def releaseRestoreHold(): RestoreHoldStatus =
+    decode[RestoreHoldStatus](send("POST", "/installation/restore/release", None))
+
   def createProject(id: String, name: String, organizationId: String): Unit =
     send(
       "POST",
@@ -318,6 +333,68 @@ final class ControlPlaneClient(settings: Settings):
         "POST",
         s"/services/${segment(projectId)}/${segment(name)}/storage/move",
         Some(writeToString(StorageMoveRequest(writePauseBound)))
+      )
+    )
+
+  /** Restores a project's database to a moment (feature 041). */
+  def restoreProject(
+      projectId: String,
+      moment: java.time.Instant,
+      line: Option[String]
+  ): RestoreView =
+    decode[RestoreView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/restores",
+        Some(writeToString(RestoreRequest(moment, line)))
+      )
+    )
+
+  def restores(projectId: String): Vector[RestoreView] =
+    get[Vector[RestoreView]](s"/projects/${segment(projectId)}/restores")
+
+  def restore(projectId: String, name: String): RestoreView =
+    get[RestoreView](s"/projects/${segment(projectId)}/restores/${segment(name)}")
+
+  def projectDatabase(projectId: String): DatabaseSetting =
+    get[DatabaseSetting](s"/projects/${segment(projectId)}/database")
+
+  def setProjectDatabase(projectId: String, setting: DatabaseSetting): DatabaseSetting =
+    decode[DatabaseSetting](
+      send("PUT", s"/projects/${segment(projectId)}/database", Some(writeToString(setting)))
+    )
+
+  def rehearseProject(
+      projectId: String,
+      moment: Option[java.time.Instant],
+      line: Option[String]
+  ): RehearsalView =
+    decode[RehearsalView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/rehearsals",
+        Some(writeToString(RehearsalRequest(moment, line)))
+      )
+    )
+
+  def reissueBackupCredential(projectId: String): CredentialReissued =
+    decode[CredentialReissued](
+      send("POST", s"/projects/${segment(projectId)}/backups/credential", None)
+    )
+
+  def rehearsals(projectId: String): Vector[RehearsalView] =
+    get[Vector[RehearsalView]](s"/projects/${segment(projectId)}/rehearsals")
+
+  def projectHistory(projectId: String): Vector[ProjectHistoryView] =
+    get[Vector[ProjectHistoryView]](s"/projects/${segment(projectId)}/history")
+
+  /** Switches a service to another of its project's database clusters (feature 041). */
+  def switchService(projectId: String, name: String, cluster: String): ServiceStatus =
+    decode[ServiceStatus](
+      send(
+        "POST",
+        s"/services/${segment(projectId)}/${segment(name)}/switch",
+        Some(writeToString(SwitchRequest(cluster)))
       )
     )
 

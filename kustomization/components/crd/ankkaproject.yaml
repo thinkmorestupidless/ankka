@@ -106,6 +106,75 @@ spec:
                         description: The project secret holding the credential, mounted as a directory.
                       declaredAt:
                         type: string
+                database:
+                  type: object
+                  description: >-
+                    The project database's settings (feature 041): replicas beside the primary,
+                    synchronous replication, a retention longer than the installation's, and a
+                    rehearsal schedule. Absent is a primary alone and the installation's retention.
+                  properties:
+                    replicas:
+                      type: integer
+                      minimum: 0
+                    synchronous:
+                      type: boolean
+                    retentionDays:
+                      type: integer
+                      minimum: 1
+                    rehearsalSchedule:
+                      type: string
+                      enum:
+                        - daily
+                        - weekly
+                backups:
+                  type: object
+                  description: Raising credentialGeneration re-issues the backup credential.
+                  properties:
+                    credentialGeneration:
+                      type: integer
+                      minimum: 0
+                restores:
+                  type: array
+                  description: >-
+                    Every restore of the project asked for (feature 041): a cluster beside the
+                    project database, at a moment of a line of history. Never removed.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - line
+                      - targetTime
+                    properties:
+                      name:
+                        type: string
+                      line:
+                        type: string
+                      targetTime:
+                        type: string
+                        description: RFC 3339, in UTC.
+                      requestedAt:
+                        type: string
+                rehearsals:
+                  type: array
+                  description: >-
+                    Rehearsals asked for and not yet reported: a restore into the project's
+                    rehearsal namespace, checked, timed and removed.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - line
+                      - targetTime
+                    properties:
+                      name:
+                        type: string
+                      line:
+                        type: string
+                      targetTime:
+                        type: string
+                        description: RFC 3339, in UTC.
+                      requestedAt:
+                        type: string
             status:
               type: object
               properties:
@@ -129,3 +198,169 @@ spec:
                         type: string
                       compacted:
                         type: boolean
+                # Feature 041. Every time below is RFC 3339.
+                backups:
+                  type: object
+                  properties:
+                    target:
+                      type: string
+                      enum:
+                        - none
+                        - object-store
+                    detail:
+                      type: string
+                    lines:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          line:
+                            type: string
+                          cluster:
+                            type: string
+                          phase:
+                            type: string
+                            enum:
+                              - NotBackedUp
+                              - BackingUp
+                              - Failing
+                          lastBaseBackup:
+                            type: string
+                          firstRestorable:
+                            type: string
+                          lastRestorable:
+                            type: string
+                          archiveLagSeconds:
+                            type: number
+                          failing:
+                            type: string
+                          copiedAt:
+                            type: string
+                database:
+                  type: object
+                  properties:
+                    cluster:
+                      type: string
+                    instances:
+                      type: integer
+                    readyInstances:
+                      type: integer
+                    primary:
+                      type: string
+                    synchronous:
+                      type: boolean
+                    writesWaitingOn:
+                      type: string
+                clusters:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      line:
+                        type: string
+                      phase:
+                        type: string
+                        enum:
+                          - live
+                          - restore
+                          - left
+                      services:
+                        type: array
+                        items:
+                          type: string
+                      since:
+                        type: string
+                      leftAt:
+                        type: string
+                restores:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      line:
+                        type: string
+                      targetTime:
+                        type: string
+                      phase:
+                        type: string
+                        enum:
+                          - Restoring
+                          - Verified
+                          - Failed
+                          - InUse
+                      reachedAt:
+                        type: string
+                      detail:
+                        type: string
+                      services:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            present:
+                              type: boolean
+                            journalRows:
+                              type: integer
+                            stateRows:
+                              type: integer
+                            offsetRows:
+                              type: integer
+                            timerRows:
+                              type: integer
+                            highestSequence:
+                              type: integer
+                            changedSecrets:
+                              type: array
+                              items:
+                                type: string
+                rehearsals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      targetTime:
+                        type: string
+                      outcome:
+                        type: string
+                        enum:
+                          - Running
+                          - Completed
+                          - Failed
+                          - NotRemoved
+                      startedAt:
+                        type: string
+                      elapsedSeconds:
+                        type: integer
+                      detail:
+                        type: string
+                      services:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            present:
+                              type: boolean
+                            journalRows:
+                              type: integer
+                            stateRows:
+                              type: integer
+                            offsetRows:
+                              type: integer
+                            timerRows:
+                              type: integer
+                            highestSequence:
+                              type: integer
+                            changedSecrets:
+                              type: array
+                              items:
+                                type: string

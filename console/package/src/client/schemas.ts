@@ -66,10 +66,15 @@ export const cloudInstallationSchema = z.object({
 });
 export type CloudInstallation = z.infer<typeof cloudInstallationSchema>;
 
-/** `GET /installation`: the platform's version, and its cloud when it names a provider. */
+/**
+ * `GET /installation`: the platform's version, and its cloud when it names a provider; and its
+ * backups (feature 041).
+ */
 export const installationSchema = z.object({
   platformVersion: z.string(),
   cloud: optional(cloudInstallationSchema),
+  // Lazily: its schema is with the other backup schemas, below.
+  backups: optional(z.lazy(() => installationStatusSchema)),
 });
 export type Installation = z.infer<typeof installationSchema>;
 
@@ -179,6 +184,8 @@ export const serviceStatusSchema = z.object({
   softDeleteDays: optional(z.number().int()),
   /** Where a move of the bucket from Garage is, as a phrase; its detail is in `detail`. */
   storageMove: optional(z.string()),
+  /** The project database cluster the service is on, when a member switched it to a restore. */
+  databaseCluster: optional(z.string()),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -207,6 +214,8 @@ export const historyEntrySchema = z.object({
   digest: optional(z.string()),
   /** On a rollback: the generation whose descriptor was applied again. */
   rolledBackTo: optional(z.number().int()),
+  /** What else the entry says: for a switch, which cluster the service left and which it is on. */
+  detail: optional(z.string()),
 });
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 
@@ -495,6 +504,188 @@ export const projectSecretSummarySchema = z.object({
 });
 export type ProjectSecretSummary = z.infer<typeof projectSecretSummarySchema>;
 
+// ── Backups and recovery (feature 041) ──────────────────────────────────────
+
+/** One line of history's backups: `phase` is `backing up`, `failing` or `not backed up`. */
+export const backupLineSchema = z.object({
+  line: z.string(),
+  cluster: z.string(),
+  phase: z.string(),
+  lastBaseBackup: optional(z.string()),
+  firstRestorable: optional(z.string()),
+  lastRestorable: optional(z.string()),
+  archiveLagSeconds: optional(z.number()),
+  failing: optional(z.string()),
+  copiedAt: optional(z.string()),
+});
+export type BackupLine = z.infer<typeof backupLineSchema>;
+
+export const projectDatabaseSchema = z.object({
+  cluster: z.string(),
+  instances: z.number().int(),
+  readyInstances: z.number().int(),
+  primary: optional(z.string()),
+  synchronous: z.boolean().default(false),
+  writesWaitingOn: optional(z.string()),
+});
+export type ProjectDatabase = z.infer<typeof projectDatabaseSchema>;
+
+/** One of the project's database clusters: `live`, a `restore`, or `left` once every service has left it. */
+export const projectClusterSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  phase: z.string(),
+  services: z.array(z.string()).default([]),
+  since: optional(z.string()),
+  leftAt: optional(z.string()),
+});
+export type ProjectCluster = z.infer<typeof projectClusterSchema>;
+
+/** What one service's database holds in a restore or a rehearsal; secrets by name only. */
+export const serviceVerificationSchema = z.object({
+  name: z.string(),
+  present: z.boolean(),
+  journalRows: z.number().int().default(0),
+  stateRows: z.number().int().default(0),
+  offsetRows: z.number().int().default(0),
+  timerRows: z.number().int().default(0),
+  highestSequence: z.number().int().default(0),
+  changedSecrets: z.array(z.string()).default([]),
+});
+export type ServiceVerification = z.infer<typeof serviceVerificationSchema>;
+
+/** A topic past a restore's moment: messages newer than it, and how many of them a group has read. */
+export const topicDivergenceSchema = z.object({
+  topic: z.string(),
+  group: optional(z.string()),
+  after: z.number().int().default(0),
+  read: optional(z.number().int()),
+  services: z.array(z.string()).default([]),
+});
+export type TopicDivergence = z.infer<typeof topicDivergenceSchema>;
+
+/** A restore: `Restoring`, `Verified`, `Failed` or `InUse`, with what each service's database holds. */
+export const restoreViewSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  moment: z.string(),
+  phase: z.string(),
+  requestedBy: optional(z.string()),
+  requestedAt: optional(z.string()),
+  reachedAt: optional(z.string()),
+  services: z.array(serviceVerificationSchema).default([]),
+  detail: optional(z.string()),
+  broker: z.array(topicDivergenceSchema).default([]),
+  notAsked: z.array(z.string()).default([]),
+  note: optional(z.string()),
+});
+export type RestoreView = z.infer<typeof restoreViewSchema>;
+
+/** A rehearsal: `Running`, `Completed`, `Failed` or `NotRemoved`, and how long it took. */
+export const rehearsalViewSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  moment: z.string(),
+  outcome: z.string(),
+  requestedBy: optional(z.string()),
+  requestedAt: optional(z.string()),
+  elapsedSeconds: optional(z.number().int()),
+  detail: optional(z.string()),
+  services: z.array(serviceVerificationSchema).default([]),
+});
+export type RehearsalView = z.infer<typeof rehearsalViewSchema>;
+
+export const projectStatusSchema = z.object({
+  id: z.string(),
+  backedUp: z.boolean(),
+  target: z.string(),
+  lines: z.array(backupLineSchema).default([]),
+  database: optional(projectDatabaseSchema),
+  detail: optional(z.string()),
+  clusters: z.array(projectClusterSchema).default([]),
+  restores: z.array(restoreViewSchema).default([]),
+  rehearsal: optional(rehearsalViewSchema),
+});
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+
+export const secondaryStoreSchema = z.object({
+  lastCompleted: optional(z.string()),
+  lastFailed: optional(z.string()),
+  failure: optional(z.string()),
+  buckets: optional(z.number().int()),
+  deletedObjects: optional(z.number().int()),
+});
+export type SecondaryStore = z.infer<typeof secondaryStoreSchema>;
+
+export const installationStatusSchema = z.object({
+  backupTarget: z.string(),
+  retentionDays: z.number().int(),
+  copyRequired: z.boolean(),
+  sharesFailureDomain: z.boolean(),
+  encryption: z.string(),
+  controlPlane: optional(backupLineSchema),
+  notBackedUp: optional(z.string()),
+  secondaryStore: optional(secondaryStoreSchema),
+});
+export type InstallationStatus = z.infer<typeof installationStatusSchema>;
+
+export const serviceDifferenceSchema = z.object({
+  project: z.string(),
+  service: z.string(),
+  recordedGeneration: optional(z.number().int()),
+  clusterGeneration: optional(z.number().int()),
+  recordedImage: optional(z.string()),
+  clusterImage: optional(z.string()),
+});
+export type ServiceDifference = z.infer<typeof serviceDifferenceSchema>;
+
+/** Whether the control plane is held after its own database was restored, and what differs. */
+export const restoreHoldStatusSchema = z.object({
+  held: z.boolean(),
+  restoredAt: optional(z.string()),
+  targetTime: optional(z.string()),
+  releasedAt: optional(z.string()),
+  releasedBy: optional(z.string()),
+  services: z.array(serviceDifferenceSchema).default([]),
+  topics: z.array(z.string()).default([]),
+  unknownProjects: z.array(z.string()).default([]),
+  reconciled: z.array(z.string()).default([]),
+});
+export type RestoreHoldStatus = z.infer<typeof restoreHoldStatusSchema>;
+
+/** `POST /projects/{id}/restores`: the moment, and the line when services are on more than one. */
+export const restoreRequestSchema = z.object({ moment: z.string(), line: optional(z.string()) });
+export type RestoreRequest = z.input<typeof restoreRequestSchema>;
+
+/** `POST /services/{p}/{n}/switch`: the cluster to move the service to. */
+export const switchRequestSchema = z.object({ cluster: z.string() });
+export type SwitchRequest = z.input<typeof switchRequestSchema>;
+
+/** `POST /projects/{id}/rehearsals`: both may be left out, for the latest restorable moment. */
+export const rehearsalRequestSchema = z.object({ moment: optional(z.string()), line: optional(z.string()) });
+export type RehearsalRequest = z.input<typeof rehearsalRequestSchema>;
+
+export const credentialReissuedSchema = z.object({ project: z.string(), generation: z.number().int() });
+export type CredentialReissued = z.infer<typeof credentialReissuedSchema>;
+
+/** What a project asks of its database, whole. */
+export const databaseSettingSchema = z.object({
+  replicas: z.number().int().default(0),
+  synchronous: z.boolean().default(false),
+  retentionDays: optional(z.number().int()),
+  rehearse: optional(z.string()),
+});
+export type DatabaseSetting = z.infer<typeof databaseSettingSchema>;
+
+/** Who did what to a project's database. */
+export const projectHistoryViewSchema = z.object({
+  kind: z.string(),
+  by: optional(z.string()),
+  at: optional(z.string()),
+  detail: optional(z.string()),
+});
+export type ProjectHistoryView = z.infer<typeof projectHistoryViewSchema>;
+
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -543,4 +734,15 @@ export const schemasByType: Record<string, z.ZodType> = {
   Contract: contractSchema,
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,
+  ProjectStatus: projectStatusSchema,
+  InstallationStatus: installationStatusSchema,
+  RestoreRequest: restoreRequestSchema,
+  RestoreView: restoreViewSchema,
+  SwitchRequest: switchRequestSchema,
+  ProjectHistoryView: projectHistoryViewSchema,
+  DatabaseSetting: databaseSettingSchema,
+  RehearsalRequest: rehearsalRequestSchema,
+  RehearsalView: rehearsalViewSchema,
+  RestoreHoldStatus: restoreHoldStatusSchema,
+  CredentialReissued: credentialReissuedSchema,
 };

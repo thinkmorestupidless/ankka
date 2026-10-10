@@ -1,0 +1,32 @@
+# Every Garage pod's address, by one name, ready or not: a node joins the layout before it serves.
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-peers
+  namespace: garage-system
+  labels:
+    app.kubernetes.io/name: garage
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - { name: rpc, port: 3901, targetPort: rpc }
+    - { name: admin, port: 3903, targetPort: admin }
+---
+# The layout loop asks each node's administration API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: garage-layout
+  namespace: garage-system
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: garage }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 3903 }]
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: garage-layout }

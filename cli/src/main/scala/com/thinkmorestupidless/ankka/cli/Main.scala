@@ -330,6 +330,124 @@ object Main:
       }
     }
 
+    val status = Opts.subcommand(
+      "status",
+      "Show whether a project is backed up, how far back it can be restored, and its database."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        Output.projectStatus(ctx.client.projectStatus(id), ctx.format)
+      }
+    }
+
+    val restore = Opts.subcommand(
+      "restore",
+      "Restore a project's database to a moment, into a new cluster beside the current one."
+    ) {
+      (
+        Opts.argument[String]("id"),
+        Opts.argument[String]("moment").mapValidated(Moments.parse),
+        Opts
+          .option[String]("line", "The line of history, when services are on more than one.")
+          .orNone,
+        contextOpt
+      ).mapN { (id, moment, line, ctx) => () =>
+        Output.restore(ctx.client.restoreProject(id, moment, line), ctx.format)
+      }
+    }
+
+    val restores = Opts.subcommand("restores", "List a project's restores, or show one.") {
+      val list = Opts.subcommand("list", "List the project's restores, oldest first.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.restores(ctx.client.restores(id), ctx.format)
+        }
+      }
+      val get = Opts.subcommand("get", "Show one restore: what each service's database holds.") {
+        (Opts.argument[String]("id"), Opts.argument[String]("name"), contextOpt).mapN {
+          (id, name, ctx) => () => Output.restore(ctx.client.restore(id, name), ctx.format)
+        }
+      }
+      list.orElse(get)
+    }
+
+    val history =
+      Opts.subcommand("history", "Who did what to a project's database, newest first.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.projectHistory(ctx.client.projectHistory(id), ctx.format)
+        }
+      }
+
+    val backupsCommand = Opts.subcommand("backups", "A project's backups.") {
+      Opts.subcommand(
+        "reissue-credential",
+        "Issue the project's backup credential again; the old key stops working. Owners only."
+      ) {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          val issued = ctx.client.reissueBackupCredential(id)
+          s"the backup credential of '$id' is issued again, at generation ${issued.generation}"
+        }
+      }
+    }
+
+    val rehearse = Opts.subcommand(
+      "rehearse",
+      "Rehearse a restore of a project, in a namespace of its own; it changes nothing of the project."
+    ) {
+      (
+        Opts.argument[String]("id"),
+        Opts.argument[String]("moment").mapValidated(Moments.parse).orNone,
+        Opts.option[String]("line", "The line of history to rehearse.").orNone,
+        contextOpt
+      ).mapN { (id, moment, line, ctx) => () =>
+        Output.rehearsal(ctx.client.rehearseProject(id, moment, line), ctx.format)
+      }
+    }
+
+    val rehearsals = Opts.subcommand(
+      "rehearsals",
+      "List a project's rehearsals: who asked, when, the moment, the outcome and how long it took."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        Output.rehearsals(ctx.client.rehearsals(id), ctx.format)
+      }
+    }
+
+    val database = Opts.subcommand(
+      "database",
+      "Show or set what a project asks of its database: replicas, retention, rehearsals."
+    ) {
+      val show = Opts.subcommand("get", "Show what the project asks of its database.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.databaseSetting(ctx.client.projectDatabase(id), ctx.format)
+        }
+      }
+      val set = Opts.subcommand(
+        "set",
+        "Set what the project asks of its database, whole; anything not given is the default."
+      ) {
+        (
+          Opts.argument[String]("id"),
+          Opts.option[Int]("replicas", "Replicas beside the primary, 0 to 4.").withDefault(0),
+          Opts
+            .flag("synchronous", "Every write waits for a replica to hold it.")
+            .orFalse,
+          Opts
+            .option[Int]("retention-days", "Days the project's backups are kept.")
+            .orNone,
+          Opts.option[String]("rehearse", "Rehearse a restore daily or weekly.").orNone,
+          contextOpt
+        ).mapN { (id, replicas, synchronous, retention, rehearse, ctx) => () =>
+          Output.databaseSetting(
+            ctx.client.setProjectDatabase(
+              id,
+              DatabaseSetting(replicas, synchronous, retention, rehearse)
+            ),
+            ctx.format
+          )
+        }
+      }
+      show.orElse(set)
+    }
+
     val create = Opts.subcommand("create", "Create a project.") {
       (Opts.argument[String]("id"), nameOpt, organizationOpt, contextOpt).mapN {
         (id, name, organization, ctx) => () =>
@@ -575,6 +693,14 @@ object Main:
 
     list
       .orElse(get)
+      .orElse(status)
+      .orElse(restore)
+      .orElse(restores)
+      .orElse(history)
+      .orElse(database)
+      .orElse(rehearse)
+      .orElse(rehearsals)
+      .orElse(backupsCommand)
       .orElse(create)
       .orElse(rename)
       .orElse(delete)
@@ -759,6 +885,22 @@ object Main:
       }
     }
 
+    val switch = Opts.subcommand(
+      "switch",
+      "Move a service onto another of its project's database clusters: a verified restore, or back."
+    ) {
+      (
+        Opts.argument[String]("name"),
+        Opts.option[String](
+          "to",
+          "The cluster: a restore's name, or ankka-db for the project database."
+        ),
+        contextOpt
+      ).mapN { (name, cluster, ctx) => () =>
+        Output.service(ctx.client.switchService(ctx.project, name, cluster), ctx.format)
+      }
+    }
+
     val expose = Opts.subcommand(
       "expose",
       "Make a service reachable outside the cluster at its platform-derived hostname."
@@ -798,6 +940,7 @@ object Main:
       .orElse(restart)
       .orElse(storage)
       .orElse(rollback)
+      .orElse(switch)
       .orElse(logs)
       .orElse(topology)
       .orElse(history)
@@ -930,17 +1073,45 @@ object Main:
       }
     }
 
+  private val whoamiCommand =
+    Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
+      contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
+    }
+
+  private val statusCommand =
+    Opts.subcommand(
+      "status",
+      "Show where the installation's backups go, for how long, and how safely."
+    ) {
+      contextOpt.map(ctx => () => Output.installation(ctx.client.backups(), ctx.format))
+    }
+
   private val installationCommand =
     Opts.subcommand(
       "installation",
       "Show the installation: its version, and its cloud provider, account and location."
     ) {
-      contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
-    }
-
-  private val whoamiCommand =
-    Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
-      contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
+      Opts
+        .subcommand(
+          "restore",
+          "Show whether the control plane is held after its database was restored, and what differs."
+        ) {
+          (
+            Opts
+              .flag("release", "Release the hold, so the control plane projects again (admins).")
+              .orFalse,
+            contextOpt
+          ).mapN { (release, ctx) => () =>
+            Output.restoreHold(
+              if release then ctx.client.releaseRestoreHold() else ctx.client.restoreHold(),
+              ctx.format
+            )
+          }
+        }
+        .orElse(
+          // With no subcommand, the installation itself (feature 044).
+          contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
+        )
     }
 
   private val versionCommand = Opts.subcommand("version", "Print the ankka version of this CLI.") {
@@ -1191,6 +1362,7 @@ object Main:
     loginCommand
       .orElse(logoutCommand)
       .orElse(whoamiCommand)
+      .orElse(statusCommand)
       .orElse(installationCommand)
       .orElse(organizationsCommand)
       .orElse(projectsCommand)

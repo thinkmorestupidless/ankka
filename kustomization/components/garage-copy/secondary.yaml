@@ -1,0 +1,26 @@
+# Development values, public in this repository: the cloud overlay deletes this Secret, and the
+# installation creates its own, naming a store outside the cluster's failure domain.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: garage-secondary
+  namespace: garage-system
+type: Opaque
+stringData:
+  ENDPOINT: "http://garage-secondary.garage-system.svc:3900"
+  ACCESS_KEY_ID: "SET"
+  SECRET_ACCESS_KEY: "SET"
+  REGION: "garage"
+---
+# The key the copy reads Garage with, imported into Garage by the copy itself when Garage does not
+# hold it. Development values, public in this repository: the cloud overlay deletes this Secret too,
+# and the installation creates one with `GK` and 24 hex digits for the id and 64 for the secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: garage-copy-key
+  namespace: garage-system
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: "GK0123456789abcdef01234567"
+  SECRET_ACCESS_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

@@ -138,10 +138,11 @@ class CnpgRenderingSuite extends munit.FunSuite:
     )
   }
 
-  test("the schema ConfigMap carries all four DDL files, keyed by filename") {
+  test("the schema ConfigMap carries all five DDL files, keyed by filename") {
     val configMap = CnpgRendering.schemaConfigMap("ankka-checkout")
     val keys      = configMap.getData.keySet()
-    assertEquals(keys.size, 4, keys.toString)
+    assertEquals(keys.size, 5, keys.toString)
+    assert(keys.contains("50-recovery-postgres.sql"), keys.toString)
     assert(keys.contains("10-journal-postgres.sql"), keys.toString)
     assert(keys.contains("20-projection-postgres.sql"), keys.toString)
     assert(keys.contains("30-timers-postgres.sql"), keys.toString)
@@ -153,4 +154,112 @@ class CnpgRenderingSuite extends munit.FunSuite:
       CnpgRendering.schemaConfigMap("ankka-checkout").getMetadata.getName,
       "ankka-schema"
     )
+  }
+
+  // ── Backups (feature 041) ─────────────────────────────────────────────────
+
+  private val store = ObjectStoreSettings(
+    adminUrl = "http://garage.garage-system.svc.cluster.local:3903",
+    adminToken = "a-token",
+    endpoint = "http://garage.garage-system.svc.cluster.local:3900",
+    region = "garage",
+    service = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3900)
+  )
+
+  private val backedUp = settings.copy(
+    objectStore = Some(store),
+    backups = BackupSettings(target = Some(BackupTarget.ObjectStore))
+  )
+
+  test("without a backup target the project database is exactly what it was before the feature") {
+    val serialization = com.thinkmorestupidless.ankka.crd.AnkkaSerialization()
+    val json = serialization.asJson(CnpgRendering.projectCluster("checkout", settings).getSpec)
+    for absent <- Vector("plugins", "parameters", "synchronous", "externalClusters") do
+      assert(!json.contains(absent), s"$absent in $json")
+    assertEquals(
+      CnpgRendering.backupActions("ankka-checkout", "checkout", settings, None, 0),
+      Vector.empty
+    )
+  }
+
+  test(
+    "with a backup target the project database archives under its own line, every minute at least"
+  ) {
+    val cluster = CnpgRendering.projectCluster("checkout", backedUp).getSpec
+    val plugin  = cluster.plugins.flatMap(_.headOption).getOrElse(fail("no archiver"))
+    assertEquals(plugin.name, "barman-cloud.cloudnative-pg.io")
+    assertEquals(plugin.isWALArchiver, Some(true))
+    assertEquals(plugin.parameters("serverName"), "ankka-db")
+    assertEquals(plugin.parameters("barmanObjectName"), "ankka-backups")
+    assertEquals(cluster.postgresql.flatMap(_.parameters), Some(Map("archive_timeout" -> "60s")))
+  }
+
+  test("the archive goes to the project's backup bucket, with the credential no service can name") {
+    val store = CnpgRendering
+      .backupObjectStore("ankka-checkout", "checkout", backedUp, 30)
+      .getOrElse(fail("no ObjectStore"))
+      .getSpec
+    assertEquals(store.retentionPolicy, Some("30d"))
+    assertEquals(store.configuration.destinationPath, "s3://platform.backups.checkout/")
+    assertEquals(
+      store.configuration.endpointURL,
+      Some("http://garage.garage-system.svc.cluster.local:3900")
+    )
+    val credentials = store.configuration.s3Credentials.getOrElse(fail("no credential"))
+    assertEquals(credentials.accessKeyId.name, "ankka-db-backups")
+    assertEquals(credentials.secretAccessKey.key, StorageCredential.BackupSecretKeyEntry)
+    assertEquals(credentials.region.map(_.key), Some(StorageCredential.BackupRegionEntry))
+  }
+
+  test(
+    "a project keeps its backups for its own retention when longer, never for less than the floor"
+  ) {
+    import com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec
+    assertEquals(CnpgRendering.retentionDays(backedUp, None), 30)
+    assertEquals(
+      CnpgRendering.retentionDays(backedUp, Some(ProjectDatabaseSpec(retentionDays = Some(45)))),
+      45
+    )
+    assertEquals(
+      CnpgRendering.retentionDays(backedUp, Some(ProjectDatabaseSpec(retentionDays = Some(7)))),
+      30
+    )
+  }
+
+  test("a base backup on the installation's schedule, the first at once, owned by the cluster") {
+    val schedule = CnpgRendering.scheduledBackup("ankka-checkout", "ankka-db", backedUp)
+    assertEquals(schedule.getMetadata.getName, "ankka-db-base")
+    assertEquals(schedule.getSpec.schedule, "0 0 0 * * *")
+    assertEquals(schedule.getSpec.immediate, true)
+    assertEquals(schedule.getSpec.backupOwnerReference, "cluster")
+    assertEquals(schedule.getSpec.cluster.name, "ankka-db")
+  }
+
+  test("the archiving objects come in the order they depend on each other, and carry no key") {
+    val actions = CnpgRendering.backupActions("ankka-checkout", "checkout", backedUp, None, 2)
+    assertEquals(
+      actions.map(_.getClass.getSimpleName),
+      Vector("EnsureBucket", "EnsureBackupCredential", "EnsureObjectStore", "EnsureScheduledBackup")
+    )
+    assertEquals(actions.head, Action.EnsureBucket("platform.backups.checkout"))
+    actions.collectFirst { case a: Action.EnsureBackupCredential => a } match
+      case Some(credential) =>
+        assertEquals(credential.permission, BucketPermission.ReadWrite)
+        assertEquals(credential.generation, 2)
+      case None => fail("no credential")
+  }
+
+  test("a project's replicas are instances beside the primary, and synchronous only with one") {
+    import com.thinkmorestupidless.ankka.crd.ProjectDatabaseSpec
+    val two = CnpgRendering
+      .projectCluster("checkout", settings, Some(ProjectDatabaseSpec(2, synchronous = true)))
+      .getSpec
+    assertEquals(two.instances, 3)
+    assertEquals(two.postgresql.flatMap(_.synchronous).map(_.dataDurability), Some("required"))
+    assertEquals(two.postgresql.flatMap(_.synchronous).map(_.number), Some(1))
+    val none = CnpgRendering
+      .projectCluster("checkout", settings, Some(ProjectDatabaseSpec(0, synchronous = true)))
+      .getSpec
+    assertEquals(none.instances, 1)
+    assertEquals(none.postgresql.flatMap(_.synchronous), None)
   }

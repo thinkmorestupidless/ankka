@@ -196,6 +196,20 @@ final class ServiceEntity(context: EventSourcedEntityContext)
         .persist(StorageSettingsReapplied(currentState.storageSettingsGeneration + 1, actor, at))
         .thenReply(_.toStatus)
 
+  /**
+   * Switches the service to another of its project's database clusters (feature 041). A new
+   * generation, so the projection rolls the service onto it; switching to where it is records
+   * nothing. Whether the cluster may be switched to is the endpoint's to check, from the cluster.
+   */
+  def switchDatabase(request: SwitchDatabase): Effect[ServiceStatus] =
+    val target = request.cluster.filterNot(_ == Service.ProjectDatabase)
+    if !currentState.exists then notFound
+    else if currentState.databaseCluster == target then effects.reply(currentState.toStatus)
+    else
+      effects
+        .persist(ServiceSwitched(target, currentState.generation + 1, actor, at))
+        .thenReply(_.toStatus)
+
   def pause: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.isPaused then effects.reply(currentState.toStatus)
@@ -308,7 +322,9 @@ object ServiceEntity
       eventSerializer = Codecs.serializer[ServiceEvent]("service-event")
     ):
 
-  given Serializer[ApplyService]    = Codecs.serializer[ApplyService]("apply-service")
+  given Serializer[ApplyService] = Codecs.serializer[ApplyService]("apply-service")
+  given switchDatabaseSerializer: Serializer[SwitchDatabase] =
+    Codecs.serializer[SwitchDatabase]("switch-database")
   given Serializer[RollbackService] = Codecs.serializer[RollbackService]("rollback-service")
   given Serializer[RollbackRequest] = Codecs.serializer[RollbackRequest]("rollback-request")
   given Serializer[StorageMoveRequest] =
@@ -339,6 +355,7 @@ object ServiceEntity
   val rollbackTarget = query("rollback-target")(_.rollbackTarget)
   val descriptorAt   = query("descriptor-at")(_.descriptorAt)
   val pause          = command("pause")(_.pause)
+  val switchDatabase = command("switch-database")(_.switchDatabase)
   val resume         = command("resume")(_.resume)
   val expose         = command("expose")(_.expose)
   val unexpose       = command("unexpose")(_.unexpose)

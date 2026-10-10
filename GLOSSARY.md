@@ -2578,11 +2578,13 @@ was deleted: the row key and no row.
 *Proposed.* The platform setting that bounds how many watches one instance holds open at once.
 
 ### idle timeout
-*Proposed.* How long a connection may be quiet before the service ends it.
+How long a connection may be quiet before the service ends it.
 
 ### heartbeat
-*Proposed.* A part of a stream that carries nothing but that the connection is alive, sent while a
+A part of a stream that carries nothing but that the connection is alive, sent while a
 wait goes on.
+
+Avoid: keep-alive, ping
 
 ## Everyday words
 

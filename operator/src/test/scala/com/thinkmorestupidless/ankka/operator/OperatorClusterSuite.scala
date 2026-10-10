@@ -929,6 +929,25 @@ class OperatorClusterSuite extends munit.FunSuite:
         restricted.secrets().inNamespace(probeNamespace).withName("probe-cloud-storage").get(): Unit
       }
       assertEquals(moverSecret.getCode, 403, moverSecret.getMessage)
+      // The Job's pod waits on an image this node lacks, holding what it requests of the node:
+      // left, it starves the cases after this one that scale real instances (case 30).
+      client
+        .batch()
+        .v1()
+        .jobs()
+        .inNamespace(probeNamespace)
+        .withName(moveJob.getMetadata.getName)
+        .withPropagationPolicy(io.fabric8.kubernetes.api.model.DeletionPropagation.FOREGROUND)
+        .delete(): Unit
+      waitFor(60.seconds)(
+        client
+          .pods()
+          .inNamespace(probeNamespace)
+          .withLabel("job-name", moveJob.getMetadata.getName)
+          .list()
+          .getItems
+          .isEmpty
+      )
 
       // Feature 034: a storage credential, under the same real identity. Its Secret is written with
       // `create` alone, a conflict is how an existing one is learned of, and no `get` is ever sent —

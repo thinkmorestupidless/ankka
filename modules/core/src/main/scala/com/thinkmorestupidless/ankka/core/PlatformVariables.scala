@@ -148,7 +148,11 @@ private[ankka] object PlatformVariables:
       "ANKKA_MCP_",
       // A declared broker's address and credential (feature 037): the platform's program connects;
       // the process never sees them.
-      "ANKKA_TOPIC_BROKER_"
+      "ANKKA_TOPIC_BROKER_",
+      // A view's watch and stream limits, and the SSE heartbeat: the platform's program holds the
+      // watches and serves the streams.
+      "ANKKA_VIEW_",
+      "ANKKA_SSE_"
     )
   val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
 

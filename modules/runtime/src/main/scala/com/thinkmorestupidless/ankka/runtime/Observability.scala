@@ -126,11 +126,12 @@ final class Observability(
       callee: String,
       handler: String,
       outcome: SpanOutcome,
-      durationNanos: Long
+      durationNanos: Long,
+      streaming: Boolean = false
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
       keyOf(believed(origin), callee, handler)
-        .foreach(calls.handled(_, outcome, durationNanos, false, System.currentTimeMillis()))
+        .foreach(calls.handled(_, outcome, durationNanos, streaming, System.currentTimeMillis()))
 
   /** As `made`, for a call that got no answer: another service that timed out or was not there. */
   private[ankka] def madeUnanswered(

@@ -8,8 +8,8 @@ and the rules that hold them.
 
 ### `DeclaredQuery`
 
-`final case class DeclaredQuery(view: ComponentId, name: String, statement: String, watched: Boolean = false)`
-— `watched` is set by `.watched` on the companion's `query(name)(statement)`. Unchanged for every
+`final case class DeclaredQuery(view: ComponentId, name: String, statement: String, watchable: Boolean = false)`
+— `watchable` is set by `.watched`, an extension on each companion that replaces the declared entry (a case-class member named `watched` would shadow it). Unchanged for every
 query declared today (the default is `false`; descriptors and discovery read absent as `false`).
 
 ### `WatchEvent[Row]`

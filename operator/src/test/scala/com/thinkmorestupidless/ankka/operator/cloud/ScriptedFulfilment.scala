@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudSubject
 }
 import com.thinkmorestupidless.ankka.operator.CloudRequests.{Keys, Purpose}
+import com.thinkmorestupidless.ankka.operator.{ObjectStore, StorageCredential}
 
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -36,6 +37,61 @@ final class ScriptedMemory:
   final case class Made(account: String, location: String, outputs: Map[String, String])
   private[cloud] val made = mutable.Map.empty[(String, CloudSubject), Made]
 
+/**
+ * Where the scripted cloud provider makes what it is asked for: nowhere, with visibly made-up
+ * answers (`MadeUp`, as feature 044's suite runs it), or in a Garage standing in for the cloud
+ * (`InGarage`, feature 039), so a service on the cloud path in a k3s suite keeps and reads objects
+ * for real and a replaced credential is refused once its grace has passed.
+ */
+trait ScriptedStore:
+  /** Make the bucket or find it, set its origins, and say where it is reached: endpoint, region. */
+  def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String)
+
+  /** A new credential allowed on one bucket: its key id, and the two entries its Secret holds. */
+  def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String])
+
+  /** End a credential at `at`, by the store's own clock. */
+  def end(keyId: String, at: Instant): Unit
+
+object ScriptedStore:
+
+  object MadeUp extends ScriptedStore:
+    def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String) =
+      "https://storage.scripted.invalid" -> location
+
+    def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String]) =
+      val id = s"scripted-$secretName-$generation"
+      id -> Map(
+        StorageCredential.AccessKeyEntry -> id,
+        StorageCredential.SecretKeyEntry ->
+          s"scripted-secret-$secretName-$generation-${java.util.UUID.randomUUID()}"
+      )
+
+    def end(keyId: String, at: Instant): Unit = ()
+
+  /**
+   * A Garage as the cloud: its buckets under the contract's names, its keys as the credentials, its
+   * S3 port as the endpoint, and its own key expiry as the end of a replaced credential.
+   */
+  final class InGarage(store: ObjectStore, endpoint: String, region: String) extends ScriptedStore:
+    def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String) =
+      val made = store.bucket(name).getOrElse(store.createBucket(name))
+      store.setCors(made.id, corsOrigins)
+      endpoint -> region
+
+    def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String]) =
+      val made = store
+        .bucket(bucket)
+        .getOrElse(throw IllegalStateException(s"no bucket $bucket to grant a credential on"))
+      val key = store.createKey(s"$secretName#$generation")
+      store.allow(made.id, key.accessKeyId)
+      key.accessKeyId -> Map(
+        StorageCredential.AccessKeyEntry -> key.accessKeyId,
+        StorageCredential.SecretKeyEntry -> key.secretAccessKey
+      )
+
+    def end(keyId: String, at: Instant): Unit = store.expire(keyId, at)
+
 /** A credential issued, for which Secret and generation, and when. */
 final case class Issued(secretName: String, generation: Long, at: Instant)
 
@@ -59,9 +115,13 @@ final class ScriptedFulfilment(
     val location: String,
     val grace: FiniteDuration,
     clock: () => Instant = () => Instant.now(),
-    val memory: ScriptedMemory = new ScriptedMemory
+    val memory: ScriptedMemory = new ScriptedMemory,
+    store: ScriptedStore = ScriptedStore.MadeUp
 ):
   val version: String = "scripted 0.1.0"
+
+  /** The key id of each credential minted, by Secret and generation, so a replaced one is ended. */
+  private val keys = mutable.Map.empty[(String, Long), String]
 
   private val issuedLog = mutable.ArrayBuffer.empty[Issued]
   private val endedLog  = mutable.ArrayBuffer.empty[Ended]
@@ -180,12 +240,14 @@ final class ScriptedFulfilment(
         secrets.patch(namespace, p(Keys.SecretName), entries)
         Right(Map(Keys.EntryGeneration -> p(Keys.EntryGeneration)) -> None)
       case CloudKinds.Bucket =>
-        val bucket = before.flatMap(_.get(Keys.Bucket)).getOrElse(bucketName(spec))
+        val bucket  = before.flatMap(_.get(Keys.Bucket)).getOrElse(bucketName(spec))
+        val origins = p.get(Keys.CorsOrigins).toVector.flatMap(_.split(',')).filter(_.nonEmpty)
+        val (endpoint, region) = store.bucket(bucket, p.getOrElse(Keys.Location, location), origins)
         Right(
           Map(
             Keys.Bucket   -> bucket,
-            Keys.Endpoint -> "https://storage.scripted.invalid",
-            Keys.Region   -> p.getOrElse(Keys.Location, location)
+            Keys.Endpoint -> endpoint,
+            Keys.Region   -> region
           ) -> None
         )
       case CloudKinds.BucketCredential => credential(namespace, spec, now, previous, secrets)
@@ -242,21 +304,26 @@ final class ScriptedFulfilment(
           )
         case Some(older) =>
           issuedLog += Issued(secretName, wanted, now)
-          secrets.patch(namespace, secretName, keyPair(secretName, wanted))
-          due += Ended(secretName, older, now, "rotated") -> now.plusMillis(grace.toMillis)
+          secrets.patch(namespace, secretName, mint(p(Keys.Bucket), secretName, wanted))
+          val endsAt = now.plusMillis(grace.toMillis)
+          // The store ends the old key by its own clock, as a cloud's would; the record is the
+          // provider's, kept when the grace has passed.
+          keys.get(secretName -> older).foreach(store.end(_, endsAt))
+          due += Ended(secretName, older, now, "rotated") -> endsAt
           Right(outputs -> Some(wanted -> now))
         case None =>
           issuedLog += Issued(secretName, wanted, now)
-          secrets.create(namespace, secretName, keyPair(secretName, wanted)) match
+          secrets.create(namespace, secretName, mint(p(Keys.Bucket), secretName, wanted)) match
             case SecretWrites.Outcome.Created =>
               Right(outputs -> Some(wanted -> now))
             case SecretWrites.Outcome.Exists =>
               // Someone wrote this Secret before: what is in it stays, and the key just issued is
               // in no Secret, so it is ended now.
+              keys.get(secretName -> wanted).foreach(store.end(_, now))
               endedLog += Ended(secretName, wanted, now, "conflict")
               Right(outputs -> Some(wanted -> now))
 
-  private def keyPair(secretName: String, generation: Long): Map[String, String] = Map(
-    "ANKKA_S3_ACCESS_KEY" -> s"scripted-$secretName-$generation",
-    "ANKKA_S3_SECRET_KEY" -> s"scripted-secret-$secretName-$generation-${java.util.UUID.randomUUID()}"
-  )
+  private def mint(bucket: String, secretName: String, generation: Long): Map[String, String] =
+    val (id, entries) = store.mint(bucket, secretName, generation)
+    keys(secretName -> generation) = id
+    entries

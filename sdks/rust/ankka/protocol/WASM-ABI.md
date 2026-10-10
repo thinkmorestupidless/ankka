@@ -89,6 +89,7 @@ declared.
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
 | `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | cancels a timer of either kind |
 | `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `Client.ScheduleRecurring`: a recurring timer, since 1.12; blocks the calling instance. A refusal is the reply's `Error`, not a trap |
+| `await_end(ptr, len) -> i64` | `AwaitEndRequest` | `InvokeReply` | `Client.AwaitEnd`: waits for a workflow's end, since 1.15; blocks the calling instance for as long as the wait. A failed or deleted workflow is the reply's `Error`, `WORKFLOW_FAILED` with `details`, not a trap |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.6 |
@@ -102,7 +103,8 @@ The three secret imports answer every refusal and fault in the reply's `Error`, 
 `Error(UNAVAILABLE)` before the service has started, as `invoke` does. A module that never calls the
 secret store imports none of them, and so runs on a runtime that predates them. `schedule_recurring`
 is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service has started, and a
-module that never sets a recurring timer does not import it.
+module that never sets a recurring timer does not import it. `await_end` is the same: a module that never
+waits for a workflow's end does not import it, and so runs on a runtime from before 1.15.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

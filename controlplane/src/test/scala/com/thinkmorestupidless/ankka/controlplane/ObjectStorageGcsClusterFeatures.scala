@@ -105,6 +105,7 @@ class ObjectStorageGcsClusterFeatures
   private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val Tag         = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')
   private val SampleImage = s"sample-shopping-cart:$Tag"
+  private val MoverImage  = s"ankka-storage-mover:$Tag"
   private val Prefix      = "ankka"
   private val NamePrefix  = "t"
   private val Projects    = Vector("shop", "shop-a")
@@ -144,6 +145,7 @@ class ObjectStorageGcsClusterFeatures
       k3s = new K3sContainer(DockerImageName.parse(K3sImage))
       k3s.start()
       ClusterImages.importInto(k3s, SampleImage)
+      ClusterImages.importInto(k3s, MoverImage)
       k8s = new KubernetesClientBuilder()
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
         .withKubernetesSerialization(AnkkaSerialization())
@@ -194,7 +196,8 @@ class ObjectStorageGcsClusterFeatures
         objectStoreBackend = Some(ObjectStoreBackend.Gcs),
         gcs = Some(GcsSettings(NamePrefix, GcsSettings.DefaultSoftDeleteDays)),
         cloud = Some(cloud),
-        rotationGrace = Grace
+        rotationGrace = Grace,
+        storageMoverImage = MoverImage
       )
       operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
       operator.start()

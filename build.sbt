@@ -540,6 +540,8 @@ lazy val controlPlane = project
           (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
           // The proxy the operator runs beside every web-hosted process (feature 021).
           (proxy / Docker / publishLocal).value
+          // The mover a move of a bucket runs as a Job (feature 039).
+          (storageMover / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built = scala.sys.process

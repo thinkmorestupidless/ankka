@@ -4,7 +4,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromArray, JsonValueCodec}
 import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.http.{Heartbeat, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{CallCounts, Observability}
 import com.thinkmorestupidless.ankka.sdk.{CallTransport, ComponentClient, WorkflowLifecycle}
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
@@ -634,6 +634,91 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
       assertEquals(kyc.steps, Vector("documents", "decision"))
   }
 
+  // ── serving ───────────────────────────────────────────────────────────────
+
+  /** What the browser read: the lines, whether the connection was cut, and when it ended. */
+  final case class Read(lines: Vector[String], cut: Option[Throwable], endedAt: Long)
+
+  private var route: Option[String] = None
+  private var read: Option[Read]    = None
+
+  Given(
+    "a service {string} with a workflow {string} whose steps take longer than the service's idle timeout"
+  ) { (_: String, workflow: String) =>
+    assertEquals(workflow, "report")
+    // Eight seconds of steps, under an idle timeout of three.
+    pending =
+      StepScript(durations = Map("rates" -> 2.seconds, "margin" -> 2.seconds, "offer" -> 4.seconds))
+    assert(Heartbeat.interval(kit.service.system.settings.config) < 3.seconds)
+  }
+
+  Given(
+    "an HTTP endpoint of {string} that serves the end of the workflow {string} of {string} as server-sent events"
+  ) { (_: String, name: String, _: String) =>
+    route = Some(s"/quotes/${id(name)}/events")
+  }
+
+  Given(
+    "an HTTP endpoint of {string} that answers the end of the workflow {string} of {string} as one whole answer"
+  ) { (_: String, name: String, _: String) =>
+    route = Some(s"/quotes/${id(name)}/whole")
+  }
+
+  When("a browser reads the route while {string} runs") { (name: String) =>
+    start(name)
+    val request = HttpRequest
+      .newBuilder(URI.create(s"http://127.0.0.1:${server.boundPort.get}${route.get}"))
+      .header("Accept", "text/event-stream")
+      .build()
+    val lines = Vector.newBuilder[String]
+    val cut =
+      try
+        val response = http.send(request, HttpResponse.BodyHandlers.ofLines())
+        if response.statusCode() != 200 then
+          Some(RuntimeException(s"status ${response.statusCode()}"))
+        else
+          response.body().forEach(line => lines += line)
+          None
+      catch case e: java.io.IOException => Some(e)
+    read = Some(Read(lines.result(), cut, System.nanoTime()))
+  }
+
+  /**
+   * The events read, as (name, data): one per block of lines, in whatever order its fields came.
+   */
+  private def events: Vector[(String, String)] =
+    val blocks = read.get.lines.foldLeft(Vector(Vector.empty[String])) { (acc, line) =>
+      if line.isEmpty then acc :+ Vector.empty else acc.init :+ (acc.last :+ line)
+    }
+    blocks.filter(_.nonEmpty).map { block =>
+      def field(name: String) =
+        block.find(_.startsWith(s"$name:")).map(_.stripPrefix(s"$name:").trim).getOrElse("")
+      field("event") -> field("data")
+    }
+
+  Then("the browser receives a heartbeat while it waits") { () =>
+    assert(events.count(_._1 == "heartbeat") >= 2, read.get.lines.toString)
+  }
+
+  Then("the browser then receives the state {string} ended with") { (name: String) =>
+    val ended = events.filter(_._1 == "ended")
+    assertEquals(ended.size, 1, read.get.lines.toString)
+    assertEquals(events.last._1, "ended", "nothing after the end")
+    assertEquals(readFromArray[Quote](ended.head._2.getBytes), stateOf(name))
+  }
+
+  Then("the connection was not cut") { () =>
+    assertEquals(read.get.cut, None)
+  }
+
+  Then("the connection is cut before {string} ends") { (name: String) =>
+    val cut = read.get.cut.getOrElse(fail(s"the whole answer arrived: ${read.get.lines}"))
+    assert(cut.isInstanceOf[java.io.IOException], cut.toString)
+    val ended = StepScript.finishedAt(id(name), "offer")
+    assert(ended.forall(_ > read.get.endedAt), "the connection lasted until the end")
+    until(s"$name runs on to its end")(lifecycle(name).isCompleted)
+  }
+
   // ── every language ────────────────────────────────────────────────────────
 
   private def languageRow(language: String): Unit =
@@ -696,6 +781,12 @@ final class AwaitingFeatures
     extends AwaitSteps("../../features/awaiting-workflows/awaiting.feature")
 final class CompositionFeatures
     extends AwaitSteps("../../features/awaiting-workflows/composition.feature")
+
+final class ServingFeatures extends AwaitSteps("../../features/awaiting-workflows/serving.feature"):
+  override protected def settings: Config =
+    ConfigFactory.parseString(
+      "pekko.http.server.idle-timeout = 3s\nankka.http.socket.keep-alive = 1s"
+    )
 
 final class InstancesFeatures
     extends AwaitSteps("../../features/awaiting-workflows/instances.feature"):

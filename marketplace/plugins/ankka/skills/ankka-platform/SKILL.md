@@ -116,5 +116,5 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/reference/cli.md` — Every `ankka` command and option, how the CLI resolves its settings and credentials, its output formats and its exit codes.
 - `references/reference/lifecycle-states.md` — What each of a deployed service's eight lifecycle states means, what usually causes it, what to do about it, and what an unconfirmed status is.
 - `references/reference/control-plane-api.md` — Every route the control plane serves, with its parameters, request body, response and who may call it, plus how requests are authenticated and how errors are reported.
-- `references/reference/error-codes.md` — The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
+- `references/reference/error-codes.md` — The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
 - `references/reference/console-package.md` — Build a web application of your own on the ankka-console npm package — mount its pages under your prefix and layout, keep sessions your way, and add panels and actions.

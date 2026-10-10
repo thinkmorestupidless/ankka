@@ -36,6 +36,16 @@ final class QuoteEndpoint(clients: EndpointClients) extends HttpEndpoint("/quote
   }
   // docs:end await-later
 
+  // docs:start sse-await
+  /**
+   * A quote's end as server-sent events: a heartbeat while it is worked out, then the quote, on one
+   * connection however long that takes.
+   */
+  sseEvents("/{id}/events") { (id: String) =>
+    clients.awaitEnd(EntityId(id), QuoteWorkflow, 10.minutes)
+  }
+  // docs:end sse-await
+
   // docs:start whole-await
   /** A wait answered as one whole response, which the service's idle timeout cuts if it is long. */
   get("/{id}/whole") { (id: String) =>

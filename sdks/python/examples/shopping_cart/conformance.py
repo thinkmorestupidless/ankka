@@ -615,6 +615,18 @@ class ConformanceEndpoint(Endpoint):
         checkout = await self._scoped().for_workflow("checkout", id).call("status").invoke(reply=Checkout)
         return str(checkout.status)
 
+    @post("/checkout-await/{id}")
+    async def start_and_await_checkout(self, id: str, mode: str) -> str:
+        """Starts a checkout and answers with how it ended, as one request; a failed one is 424."""
+        try:
+            checkout = await self._scoped().for_workflow("checkout", id).call("start").then_await_end(30.0).invoke(mode, reply=Checkout)
+        except CommandError as refused:
+            if refused.error.code == ErrorCode.WORKFLOW_FAILED:
+                details = refused.error.details
+                raise HttpProblem(424, f"{details.get('step', '')}: {details.get('reason', '')}") from refused
+            raise
+        return str(checkout.status)
+
     @post("/remind/{id}")
     async def remind(self, id: str) -> Done:
         await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)

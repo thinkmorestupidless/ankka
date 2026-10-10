@@ -167,7 +167,10 @@ object ConformanceReference:
         )
         .build
 
-    /** `mode`: `ok`, `fail` (charge is declined) or `pause` (a pause before charging). */
+    /**
+     * `mode`: `ok`, `fail` (charge is declined), `pause` (a pause before charging) or `doomed`
+     * (charge is declined and compensation fails too, so the workflow fails).
+     */
     def start(mode: String): Effect[String] =
       if currentState.status != "new" then effects.error("already started", ErrorCode.Conflict)
       else
@@ -189,9 +192,11 @@ object ConformanceReference:
         .updateState(currentState.copy(status = "waiting"))
         .thenPause(1500.millis, Checkout.charge.ref)
     def chargeStep: StepEffect =
-      if currentState.mode == "fail" then throw RuntimeException("payment declined")
+      if currentState.mode == "fail" || currentState.mode == "doomed" then
+        throw RuntimeException("payment declined")
       else stepEffects.updateState(currentState.copy(status = "charged")).thenEnd
     def compensateStep: StepEffect =
+      if currentState.mode == "doomed" then throw RuntimeException("compensation failed too")
       stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
     def status: ReadOnlyEffect[String] = effects.reply(currentState.status)
 
@@ -931,6 +936,14 @@ object ConformanceReference:
       checkout(id).call(Checkout.start).invoke(mode)
     }
     get("/checkout/{id}")((id: String) => checkout(id).call(Checkout.status).invoke())
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    postBody("/checkout-await/{id}") { (id: String, mode: String) =>
+      try checkout(id).call(Checkout.start).thenAwaitEnd(30.seconds).invoke(mode).status
+      catch
+        case failed: CommandError if failed.code == ErrorCode.WorkflowFailed =>
+          val end = WorkflowEnd.failure(failed).get
+          throw HttpProblem(424, s"${end.step.getOrElse("")}: ${end.reason}")
+    }
     post[String, Done]("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))
       Done

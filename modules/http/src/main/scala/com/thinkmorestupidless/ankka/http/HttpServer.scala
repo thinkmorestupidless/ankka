@@ -69,7 +69,8 @@ final class HttpServer private (
         service.componentClient,
         service.viewClient,
         service.services,
-        service.secrets
+        service.secrets,
+        Heartbeat.interval(config)
       )
     serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout)
 

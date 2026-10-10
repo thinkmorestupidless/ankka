@@ -17,8 +17,8 @@ object Heartbeat:
 
   def interval(config: Config): FiniteDuration =
     val path = "pekko.http.server.idle-timeout"
-    if !config.hasPath(path) then WhenIdleIsInfinite
+    // Read as pekko reads it: `infinite`, or a duration HOCON understands.
+    if !config.hasPath(path) || config.getString(path).trim == "infinite" then WhenIdleIsInfinite
     else
-      Duration(config.getString(path)) match
-        case idle: FiniteDuration if idle > Duration.Zero => (idle / 3).max(100.millis)
-        case _                                            => WhenIdleIsInfinite
+      val idle = config.getDuration(path).toMillis.millis
+      if idle > Duration.Zero then (idle / 3).max(100.millis) else WhenIdleIsInfinite

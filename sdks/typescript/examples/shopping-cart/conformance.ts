@@ -58,7 +58,7 @@ import {
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
 import { CartRows } from "./cartRows.ts"
-import { CheckoutWorkflow } from "./checkoutWorkflow.ts"
+import { CheckoutWorkflow, type Checkout } from "./checkoutWorkflow.ts"
 import type { ShoppingCartEvent } from "./domain.ts"
 
 // ── conformance: an entity whose handlers are the protocol's edge cases ──
@@ -639,6 +639,18 @@ export class ConformanceEndpoint extends Endpoint {
       return "started"
     }),
     checkoutStatus: get("/checkout/{id}", s.string, async (ep: ConformanceEndpoint, req) => (await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.status).invoke()).status),
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    startAndAwaitCheckout: post("/checkout-await/{id}", s.string, s.string, async (ep: ConformanceEndpoint, req, mode) => {
+      try {
+        const checkout = await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode)
+        return checkout.status
+      } catch (refused) {
+        if (refused instanceof CommandError && refused.code === ErrorCode.WorkflowFailed) {
+          throw new HttpProblem(424, `${refused.details.step ?? ""}: ${refused.details.reason ?? ""}`)
+        }
+        throw refused
+      }
+    }),
     remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
       return done

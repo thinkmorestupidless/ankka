@@ -413,6 +413,12 @@ abstract class HttpEndpoint(val prefix: String):
       handler(pathArg[A](args, 0, template))
     )
 
+  /** `GET $prefix$template`, with no path parameter, answered as server-sent events it names. */
+  protected def sseEvents(template: String)(
+      handler: () => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit =
+    addEventStream("GET", template, 0, needsBody = false)((_, _) => handler())
+
   /** `POST $prefix$template` with a decoded body, answered as server-sent events it names. */
   protected def sseEventsBody[A: FromPath, Body: FromBody](template: String)(
       handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]

@@ -179,6 +179,7 @@ value is that `Long`. See [Publish a graph](../build/graph.md).
 | Settings | `WorkflowSettings.builder.timeout(d).defaultStepTimeout(d).stepTimeout(step, d).defaultRecovery(r).stepRecovery(step, r).build` |
 | Recovery | `RecoverStrategy.fail`, `RecoverStrategy.maxRetries(n)`, `.failoverTo(step)` |
 | Engine state | `componentClient.forWorkflow(id).lifecycle(Companion).invoke()` |
+| Waiting for the end | `componentClient.forWorkflow(id).awaitEnd(Companion, timeout)`; `call(Companion.handler).thenAwaitEnd(timeout).invoke(input)` to start and wait as one call; `EndpointClients.awaitEnd(id, Companion, timeout)` as server-sent events; a failure is `CommandError` with `ErrorCode.WorkflowFailed`, read by `WorkflowEnd.failure` |
 
 See [Workflows](../build/workflows.md).
 

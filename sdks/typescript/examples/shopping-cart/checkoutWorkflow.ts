@@ -52,7 +52,7 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   async charge() {
-    if (this.state.mode === "fail") throw new PaymentDeclined("payment declined")
+    if (this.state.mode === "fail" || this.state.mode === "doomed") throw new PaymentDeclined("payment declined")
     // Not idempotent — a retry after the cart was checked out is refused — which is why `charge` is
     // allowed one retry and then fails over, and why compensation exists.
     if (this.state.reserved > 0) await this.cart().call(ShoppingCartEntity.handlers.checkout).invoke()
@@ -60,6 +60,7 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   compensate() {
+    if (this.state.mode === "doomed") throw new Error("compensation failed too")
     return this.stepEffects.updateState({ ...this.state, status: "compensated", reserved: 0 }).thenEnd()
   }
 

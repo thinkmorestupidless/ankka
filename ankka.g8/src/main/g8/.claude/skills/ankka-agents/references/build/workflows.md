@@ -213,7 +213,8 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @command("start")
     def start(self, mode: str) -> WorkflowEffect[Checkout, Done]:
-        """``mode``: ``ok``, ``fail`` (the charge is declined) or ``pause`` (a pause before it)."""
+        """``mode``: ``ok``, ``fail`` (the charge is declined), ``pause`` (a pause before it) or
+        ``doomed`` (the charge is declined and compensation fails too)."""
         if self.state.status != "new":
             return self.effects.error(f"checkout is already {self.state.status}", ErrorCode.CONFLICT)
         return self.effects.update_state(replace(self.state, status="reserving", mode=mode)).then_transition_to("reserve").then_reply(lambda _: DONE)
@@ -235,7 +236,7 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("charge")
     async def charge(self) -> WorkflowStepEffect[Checkout]:
-        if self.state.mode == "fail":
+        if self.state.mode in ("fail", "doomed"):
             raise PaymentDeclined("payment declined")
         # Not idempotent — a retry after the cart was checked out is refused — which is why
         # ``charge`` is allowed one retry and then fails over, and why compensation exists.
@@ -245,6 +246,8 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("compensate")
     def compensate(self) -> WorkflowStepEffect[Checkout]:
+        if self.state.mode == "doomed":
+            raise RuntimeError("compensation failed too")
         return self.step_effects.update_state(replace(self.state, status="compensated", reserved=0)).then_end()
 
     def _cart(self) -> Calls:
@@ -296,7 +299,7 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   async charge() {
-    if (this.state.mode === "fail") throw new PaymentDeclined("payment declined")
+    if (this.state.mode === "fail" || this.state.mode === "doomed") throw new PaymentDeclined("payment declined")
     // Not idempotent — a retry after the cart was checked out is refused — which is why `charge` is
     // allowed one retry and then fails over, and why compensation exists.
     if (this.state.reserved > 0) await this.cart().call(ShoppingCartEntity.handlers.checkout).invoke()
@@ -304,6 +307,7 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   compensate() {
+    if (this.state.mode === "doomed") throw new Error("compensation failed too")
     return this.stepEffects.updateState({ ...this.state, status: "compensated", reserved: 0 }).thenEnd()
   }
 
@@ -453,6 +457,178 @@ get("/{planId}/lifecycle") { (planId: String) =>
 count of retries per step, and the failure reason when there is one. `isTerminal` is true once the
 workflow has completed or failed. Handler names beginning `ankka:` are reserved for queries like this one,
 and registering one is refused.
+
+## Waiting for the end
+
+A command's reply says the workflow started, not how it finished. A caller that needs the result waits
+for the workflow's end. The runtime answers the wait when the end is recorded, so there is no query to
+poll and no interval to choose, and the answer comes within the time it takes to record the end and
+reply, however long the workflow ran.
+
+### Starting a workflow and waiting for its end
+
+Sending a command and waiting for the end is one call. The command is sent first; once it is accepted,
+the caller waits for the end, within the same timeout.
+
+**Scala**
+
+```scala
+/** Starts the quote and answers the request with the quote, once the workflow has ended. */
+postBody("/{id}") { (id: String, request: QuoteRequest) =>
+  client
+    .forWorkflow(EntityId(id))
+    .call(QuoteWorkflow.start)
+    .thenAwaitEnd(30.seconds)
+    .invoke(request)
+}
+```
+
+**Python**
+
+```python
+@post("/{cartId}/checkouts/wait")
+async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
+    """Starts the checkout and answers with how it ended, as one request."""
+    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
+```
+
+**TypeScript**
+
+```typescript
+/** Starts the checkout and answers with how it ended, as one request. */
+checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
+),
+```
+
+The command's own reply is not kept: a caller that wants both sends the command, then waits. A command the
+workflow refuses is answered with that refusal at once, and no wait begins.
+
+### Waiting for a workflow already started
+
+Any caller that may call a workflow can wait for its end, whoever started it: an endpoint asked for a
+result an event started, a caller that reconnects, or several callers at once, each of which is answered.
+
+**Scala**
+
+```scala
+/**
+ * Answers with a quote started earlier, by anyone: at once if it has ended, when it ends if not.
+ */
+get("/{id}/wait") { (id: String) =>
+  client.forWorkflow(EntityId(id)).awaitEnd(QuoteWorkflow, 10.seconds)
+}
+```
+
+**Python**
+
+```python
+@get("/{cartId}/checkouts/end")
+async def checkout_end(self, cartId: str) -> Checkout:
+    """How a checkout someone else started ended: at once if it has, when it does if not."""
+    return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).await_end(10.0, reply=Checkout)
+```
+
+**TypeScript**
+
+```typescript
+/** How a checkout someone else started ended: at once if it has, when it does if not. */
+checkoutEnd: get("/{cartId}/checkouts/end", Checkout, (ep: ShoppingCartEndpoint, req) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEnd<Checkout>(10_000),
+),
+```
+
+### What each ending answers
+
+| The workflow | The wait answers |
+|---|---|
+| completed | the state it ended with |
+| failed | an error whose code is `WorkflowFailed`, whose details name the step that failed and the reason |
+| deleted | `WorkflowFailed`, whose details say it was deleted and name no step |
+| paused | nothing yet: a paused workflow has not ended, and the wait goes on |
+
+A workflow that has already ended is answered at once, from what was recorded. `WorkflowFailed` is neither
+a refusal of the call nor a fault: the call was answered, and what it waited for failed. In Scala
+`WorkflowEnd.failure(error)` reads its step and reason; in Python they are `error.details["step"]` and
+`["reason"]`, and in TypeScript `error.details.step` and `.reason`. An endpoint answers it with HTTP 424.
+
+### The caller says how long it waits
+
+Every wait takes a timeout from the caller, and there is no default. A wait not answered in time fails
+with `Timeout`, and the workflow runs on; a wait made again is answered when it ends. The timeout is the
+caller's, not `ankka.ask-timeout`: the runtime holds each ask for at most half of that and asks again
+until the caller's time is up, so a workflow that moves to another instance, or whose instance stops,
+loses no caller. Nothing about a wait is recorded.
+
+A wait holds the workflow in memory while it waits. A wait is for a workflow that will end: one whose
+commands only update its state never moves to a step and never ends, and every wait for it times out.
+
+Wait from an endpoint, a workflow step, a timed action or an agent's tool. A consumer may wait too, but
+it holds that slice of the consumer's events for as long as the wait lasts: start the workflow from a
+consumer and wait for it from an endpoint instead. A step that waits for another workflow is bounded by
+its own timeout, and fails as timed out if the other has not ended by then; the other runs on.
+
+```scala
+def verifyStep: StepEffect =
+  val kyc = context.componentClient
+    .forWorkflow(EntityId(s"kyc-\$id"))
+    .call(KycWorkflow.start)
+    .thenAwaitEnd(OnboardingWorkflow.VerifyTimeout)
+    .invoke(currentState.applicant)
+  if kyc.decision.contains("approved") then
+    stepEffects.thenTransitionTo(OnboardingWorkflow.welcome)
+  else stepEffects.thenTransitionTo(OnboardingWorkflow.decline)
+```
+
+### Serving a wait as a stream
+
+Serve a wait as server-sent events when it may outlast a connection's idle timeout. The service ends an
+HTTP connection that is quiet for `pekko.http.server.idle-timeout`, sixty seconds unless it is set, so a
+wait answered as one whole response is cut if the workflow takes longer. The stream form sends a
+`heartbeat` event while the wait goes on, a third of the idle timeout apart, then one event with the end
+— `ended` with the state, `failed`, or `timed-out` — and closes.
+
+**Scala**
+
+```scala
+/**
+ * A quote's end as server-sent events: a heartbeat while it is worked out, then the quote, on one
+ * connection however long that takes.
+ */
+sseEvents("/{id}/events") { (id: String) =>
+  clients.awaitEnd(EntityId(id), QuoteWorkflow, 10.minutes)
+}
+```
+
+**Python**
+
+```python
+@sse("/{cartId}/checkouts/events")
+async def checkout_events(self, cartId: str) -> AsyncIterator[str]:
+    """A heartbeat while the checkout goes on, then how it ended, on one connection."""
+    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+    async for part in checkout.await_end_parts(600.0, reply=Checkout):
+        yield part.to_json()
+```
+
+**TypeScript**
+
+```typescript
+/** A heartbeat while the checkout goes on, then how it ended, on one connection. */
+checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {
+  for await (const part of ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEndParts<Checkout>(600_000)) yield awaitPartJson(part)
+}),
+```
+
+A gateway in front of the service still bounds the response, as it bounds any stream through it; see
+[limitations](../reference/limitations.md). In Rust, a module waits with `Client::await_end` and
+`invoke_then_await_end`; a module cannot stream, and its instance is held for as long as the wait, so
+wait from a step, a route or a tool rather than a command.
+
+Every instance of the service, and the runtime beside a process, must be at a release that can wait. An
+instance from before waiting answers a wait as an unknown handler, and the caller is told so; a process
+beside an older runtime is refused when it waits, naming the protocol version waiting needs.
 
 ## Calling agents and entities from steps
 

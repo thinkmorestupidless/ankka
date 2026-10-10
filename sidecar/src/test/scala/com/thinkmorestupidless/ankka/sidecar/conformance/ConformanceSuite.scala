@@ -356,6 +356,24 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     eventually(30.seconds)(Some(checkoutStatus("w4")).filter(_ == "charged"))
   }
 
+  test("wf.start-and-await") {
+    val statusBefore = spans("checkout", "status").size
+    val answer       = post("/conformance/checkout-await/w5", "ok")
+    assertEquals(answer.status, 200, answer.body)
+    assertEquals(answer.body, "charged")
+    // One request, and nobody asked the workflow how it was getting on.
+    assertEquals(spans("checkout", "status").size, statusBefore)
+    assertEquals(checkoutStatus("w5"), "charged")
+  }
+
+  test("wf.await-failed") {
+    val answer = post("/conformance/checkout-await/w6", "doomed")
+    assertEquals(answer.status, 424, answer.body)
+    // The step, and a reason: a process says its own words, a module's trap says it trapped.
+    assert(answer.body.startsWith("compensate: "), answer.body)
+    assert(answer.body.stripPrefix("compensate: ").trim.nonEmpty, answer.body)
+  }
+
   // ── View and consumer ──────────────────────────────────────────────────────
 
   test("view.row-updated") {

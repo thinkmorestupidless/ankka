@@ -64,7 +64,7 @@ component by its id and the handler by its wire name, and every call is awaited.
 |---|---|---|---|
 | an event sourced entity instance | `forEventSourcedEntity(entityId)` | `for_event_sourced_entity(component_id, entity_id)` | `of(Entity, entityId)` |
 | a key value entity instance | `forKeyValueEntity(entityId)` | `for_key_value_entity(component_id, entity_id)` | `of(Entity, entityId)` |
-| a workflow instance | `forWorkflow(workflowId)`; `lifecycle(companion)` for the engine's state | `for_workflow(component_id, workflow_id)` | `of(Workflow, workflowId)` |
+| a workflow instance | `forWorkflow(workflowId)`; `lifecycle(companion)` for the engine's state; `awaitEnd(companion, timeout)` and `call(command).thenAwaitEnd(timeout)` to wait for its end | `for_workflow(component_id, workflow_id)`; `await_end(timeout, reply=…)` and `call(name).then_await_end(timeout)` | `of(Workflow, workflowId)`; `awaitEnd(timeoutMillis)` and `call(handler).thenAwaitEnd(timeoutMillis)` |
 | an agent session | `forAgent(sessionId)`, with `import com.thinkmorestupidless.ankka.agent.*` | `for_agent(component_id, session_id)` | `of(Agent, sessionId)` |
 | a view's rows | the view client; see [Views](views.md) | `views.get(view_id, key, Row)`, `views.all(view_id, Row)` | `views.get(viewId, key, Row)`, `views.all(viewId, Row)` |
 | timers | the timer scheduler; see [Timers](timers.md) | `timers.schedule(...)`, `timers.cancel(timer_id)` | `timers.schedule(...)`, `timers.cancel(timerId)` |
@@ -136,6 +136,10 @@ ankka.ask-timeout = 30s
 A timeout says the reply did not arrive in time, not that the command did not happen. A command that
 timed out may still have been applied. When a caller retries after a timeout, the command must be safe to
 receive twice.
+
+A wait for a workflow's end does not use `ankka.ask-timeout`. Every wait takes a timeout of its own from
+the caller, and the runtime asks again for as long as that allows; see
+[Workflows](workflows.md#waiting-for-the-end).
 
 Agent calls usually take longer than an entity call. A workflow step that calls an agent should await
 with an explicit timeout, as `ComponentClient.await(answer, 90.seconds)` does, and declare a step timeout

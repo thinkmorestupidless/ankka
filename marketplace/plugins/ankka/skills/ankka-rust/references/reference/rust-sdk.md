@@ -412,6 +412,7 @@ let answer: String = ctx.client().invoke_by_name(Kind::Agent, "assistant", sessi
 | `invoke_stream(...)` | a streaming handler's tokens, delivered whole once the stream ends |
 | `query(View, name, key)`, `query_by_name(...)` | a view's rows |
 | `schedule(...)`, `schedule_recurring(...)`, `cancel(timer_id)` | timers; `schedule_recurring` since protocol 1.12 |
+| `await_end(Workflow, workflow_id, timeout)`, `invoke_then_await_end(Workflow, workflow_id, name, input, timeout)`, `await_end_by_name(...)` | waits for a workflow's end and answers its state, as `S`; a failed or deleted workflow is an `Err` whose code is `WorkflowFailed` and whose `details` hold `step` and `reason`. Since protocol 1.15. The instance is held for as long as the wait, so a module waits from a step, a route or a tool, not a command |
 
 A call blocks the handler until the runtime answers; a refusal is an `Err(CommandError)` whose `code` is the
 refusal's. Inside a handler `ctx.client()` carries the request's trace, so the call is a child span. See

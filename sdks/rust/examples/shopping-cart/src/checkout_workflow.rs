@@ -74,7 +74,7 @@ impl CheckoutWorkflow {
     }
 
     fn charge(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
-        if checkout.mode == "fail" {
+        if checkout.mode == "fail" || checkout.mode == "doomed" {
             panic!("payment declined");
         }
         // Not idempotent — a retry after the cart was checked out is refused — which is why
@@ -93,6 +93,9 @@ impl CheckoutWorkflow {
     }
 
     fn compensate(checkout: &Checkout, _: (), _: &Context) -> StepEffect<Checkout> {
+        if checkout.mode == "doomed" {
+            panic!("compensation failed too");
+        }
         let compensated = Checkout {
             status: "compensated".into(),
             reserved: 0,

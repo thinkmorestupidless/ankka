@@ -1,14 +1,12 @@
 package shoppingcart.api
 
 import com.thinkmorestupidless.ankka.core.EntityId
+import com.thinkmorestupidless.ankka.sdk.WatchEvent
 import com.thinkmorestupidless.ankka.grpc.GrpcEndpoint
 import com.thinkmorestupidless.ankka.http.{Acl, Callers, EndpointClients}
-import org.apache.pekko.stream.scaladsl.Source
-import shoppingcart.application.ShoppingCartEntity
+import shoppingcart.application.{CartRow, CartRows, ShoppingCartEntity}
 import shoppingcart.domain
 import shoppingcart.v1.cart.{Cart, CartStreamsGrpc, ImportSummary, Line, LineItem}
-
-import scala.concurrent.duration.DurationInt
 
 /** The cart's streaming methods: one of each kind a stream can go. */
 final class CartStreamsEndpoint(clients: EndpointClients)
@@ -17,15 +15,16 @@ final class CartStreamsEndpoint(clients: EndpointClients)
   val acl: Acl = Acl.allowCallers(Callers.anyInProject, Callers.internet)
 
   // docs:start server-stream
-  // The cart after each change, for as long as the caller watches. An entity does not stream its
-  // state, so this reads it every half second and sends it when it differs; the caller's going
-  // away cancels the stream.
+  // The cart as the view writes it, for as long as the caller watches: a watch of the cart's row,
+  // which the view announces on every write, so nothing polls. A row given twice is sent once; the
+  // caller's going away ends the watch.
   serverStream(CartStreamsGrpc.METHOD_WATCH_CART) { request =>
-    Source
-      .tick(0.seconds, 500.millis, ())
-      .map(_ => cart(request.cartId).call(ShoppingCartEntity.getCart).invoke())
-      .statefulMap(() => Option.empty[domain.ShoppingCart])(
-        (last, now) => (Some(now), Option.when(!last.contains(now))(toProto(now))),
+    clients.viewClient
+      .forView(CartRows)
+      .watchRow(request.cartId)
+      .collect { case WatchEvent.Row(_, row) => toProto(row) }
+      .statefulMap(() => Option.empty[Cart])(
+        (last, now) => (Some(now), Option.when(!last.contains(now))(now)),
         _ => None
       )
       .collect { case Some(changed) => changed }
@@ -57,9 +56,9 @@ final class CartStreamsEndpoint(clients: EndpointClients)
   private def cart(cartId: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(cartId))
 
-  private def toProto(cart: domain.ShoppingCart): Cart =
+  private def toProto(row: CartRow): Cart =
     Cart(
-      cartId = cart.cartId,
-      items = cart.items.map(i => LineItem(i.productId, i.name, i.quantity)),
-      checkedOut = cart.checkedOut
+      cartId = row.cartId,
+      items = row.productIds.map(p => LineItem(p, row.names.getOrElse(p, ""), row.quantities(p))),
+      checkedOut = row.checkedOut
     )

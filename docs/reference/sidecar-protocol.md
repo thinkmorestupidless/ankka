@@ -78,6 +78,8 @@ The table is generated from the `.proto` files.
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
 | `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
 | `Client` | `ScheduleRecurring` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `client.proto` |
+| `Client` | `QueryStream` | `QueryRequest` | `stream RowFrame` | `client.proto` |
+| `Client` | `Watch` | `WatchRequest` | `stream RowFrame` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |

@@ -36,8 +36,12 @@ import com.thinkmorestupidless.ankka.runtime.{
   Trace,
   ViewQueries
 }
+import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.sdk.{
   DeferredCall,
+  WatchEnded,
+  WatchEvent,
+  Watching,
   ServiceIdentityMismatch,
   ServiceResponse,
   ServiceUnanswered,
@@ -45,8 +49,10 @@ import com.thinkmorestupidless.ankka.sdk.{
   TimerScheduler,
   ViewDescriptor
 }
+import org.apache.pekko.NotUsed
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.stream.scaladsl.Source
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
@@ -396,6 +402,110 @@ final class ClientLogic(
               QueryReply(QueryReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
           }
 
+  /** A view's queries as the sidecar reads them: rows as stored, the watches the service's own. */
+  private def viewQueries(viewId: ComponentId): ViewQueries[Array[Byte]] =
+    ViewQueries(
+      viewId.toString,
+      ViewDescriptor.tableFor(viewId),
+      Serializer.bytes,
+      database,
+      settings.commandTimeout,
+      declared.getOrElse(viewId, Vector.empty),
+      Some(service.viewClient.watchRegistry)
+    )
+
+  private def failedFrame(failure: Throwable): RowFrame = failure match
+    case e: CommandError => RowFrame(RowFrame.Frame.Failed(error(e)))
+    case e =>
+      RowFrame(RowFrame.Frame.Failed(pb.Error(String.valueOf(e.getMessage), pb.ErrorCode.INTERNAL)))
+
+  private def rowFrame(key: String, row: Array[Byte]): RowFrame =
+    RowFrame(
+      RowFrame.Frame.Row(
+        WatchedRow(key, Some(pb.Payload("application/json", "row", ByteString.copyFrom(row))))
+      )
+    )
+
+  /**
+   * A query as a stream of frames (1.15): every row of `all` or a declared query, as the database
+   * yields it, with no limit unless the request gives one; a refusal or a fault as the last frame.
+   * Asked as the handler the process was running, as a whole query is.
+   */
+  def queryStream(request: QueryRequest): Source[RowFrame, NotUsed] =
+    servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
+      case Some(refused) => Source.single(failedFrame(refused))
+      case None =>
+        val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
+        val limit   = request.limit.map(_.toInt)
+        val rows = asCaller(metadata(request.metadata)) {
+          request.name match
+            case "all" => queries.allStream(limit)
+            case "get" | "by-id" | "by-key" =>
+              queries.allStream(None).take(0) ++
+                Source
+                  .future(queries.getAsync(String(payload(request.payload), "UTF-8")))
+                  .mapConcat(_.toList)
+            case other => queries.askNamedStream(other, request.values, limit)
+        }
+        // The row's key is not in a plain row stream; a process reads only the rows.
+        rows.map(row => rowFrame("", row)).recover { case e => failedFrame(e) }
+
+  /**
+   * A watch as frames (1.15): the rows now, `caught_up`, then rows and removals; a reason it ended
+   * as `ended`, a refusal or a fault as `failed`, each the last frame.
+   */
+  def watch(request: WatchRequest): Source[RowFrame, NotUsed] =
+    servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
+      case Some(refused) => Source.single(failedFrame(refused))
+      case None =>
+        val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
+        val watching = Watching(
+          unread = request.unreadBound.map(_.toInt),
+          overflow = request.overflow match
+            case Overflow.DROP_TAIL => sdk.Overflow.DropTail
+            case Overflow.DROP_NEW  => sdk.Overflow.DropNew
+            case Overflow.DROP_ALL  => sdk.Overflow.DropAll
+            case Overflow.FAIL      => sdk.Overflow.Fail
+            case _                  => sdk.Overflow.DropHead
+        )
+        val events = asCaller(metadata(request.metadata)) {
+          request.target match
+            case WatchRequest.Target.Named(named) =>
+              queries.watchNamed(named.name, named.values, watching)
+            case WatchRequest.Target.Key(key) => queries.watchRow(key, watching)
+            case WatchRequest.Target.Empty =>
+              Source.failed(
+                CommandError("a watch names a declared query or a row key", ErrorCode.BadRequest)
+              )
+        }
+        events
+          .map {
+            case WatchEvent.Row(key, row) => rowFrame(key, row)
+            case WatchEvent.Removed(key)  => RowFrame(RowFrame.Frame.Removed(Removed(key)))
+            case WatchEvent.CaughtUp      => RowFrame(RowFrame.Frame.CaughtUp(pb.Empty()))
+          }
+          .recover {
+            case WatchEnded(reason) => RowFrame(RowFrame.Frame.Ended(Ended(reason.wire)))
+            case e                  => failedFrame(e)
+          }
+
+  private def BadRequest(message: String): CommandError =
+    CommandError(message, ErrorCode.BadRequest)
+
+  /**
+   * The minor that introduced view streams: a process declaring an earlier one cannot ask for one.
+   */
+  private val ViewStreamsSince = "1.15"
+
+  private def servesViewStreams: Option[CommandError] =
+    declaredProtocol.filterNot(ClientLogic.servesViewStreams).map { declared =>
+      CommandError(
+        s"this process declared protocol $declared, and a view stream needs protocol " +
+          s"$ViewStreamsSince; the sidecar speaks ${Discovery.ProtocolVersion}",
+        ErrorCode.BadRequest
+      )
+    }
+
   def schedule(request: ScheduleRequest): Future[pb.Empty] =
     timers() match
       case None => Future.failed(CommandError("timers are not running", ErrorCode.Unavailable))
@@ -610,6 +720,12 @@ object ClientLogic:
   private val NamePattern = "[A-Za-z0-9._-]+".r
 
   private[sidecar] def isName(value: String): Boolean = NamePattern.matches(value)
+
+  /** Whether a process that declared `declared` may ask for a view stream or a watch. */
+  private[sidecar] def servesViewStreams(declared: String): Boolean =
+    declared.split('.').toList match
+      case _ :: minor :: _ => minor.toIntOption.exists(_ >= 15)
+      case _               => false
 
   /** Whether a process that declared `declared` may be served `Request`. */
   private[sidecar] def servesRequests(declared: Option[String]): Boolean =

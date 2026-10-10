@@ -42,6 +42,9 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
 
   private val bucketMillis = math.max(1L, windowMillis / buckets)
   private val edges        = new ConcurrentHashMap[java.lang.Long, Edge]()
+  // A streamed call is a pair of its own: a handler that both asks a view's query whole and watches
+  // it makes two calls of different kinds, and one pair would paint the whole answers as streams.
+  private val streams = new ConcurrentHashMap[java.lang.Long, Edge]()
 
   /** A call a host ran a handler for, how the handler ended, and how long it took. */
   def handled(
@@ -51,7 +54,7 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
       streaming: Boolean,
       nowMillis: Long
   ): Unit =
-    val edge = edgeFor(key)
+    val edge = edgeFor(if streaming then streams else edges, key)
     val slot = edge.slotFor(nowMillis / bucketMillis)
     outcome match
       case SpanOutcome.Ok      => edge.add(slot, Ok)
@@ -60,11 +63,10 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
       // host is a handler that did not finish, which is a failure of it.
       case SpanOutcome.Failed | SpanOutcome.TimedOut => edge.add(slot, Failed)
     edge.add(slot, Histogram + bucketOf(durationNanos))
-    if streaming then edge.streaming = true
 
   /** A call no handler answered, as its caller or the platform saw it. */
   def unanswered(key: Long, kind: Unanswered, nowMillis: Long): Unit =
-    val edge = edgeFor(key)
+    val edge = edgeFor(edges, key)
     val slot = edge.slotFor(nowMillis / bucketMillis)
     kind match
       case Unanswered.TimedOut    => edge.add(slot, TimedOut)
@@ -74,7 +76,9 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
   def snapshot(nowMillis: Long): Snapshot =
     val present = nowMillis / bucketMillis
     val oldest  = present - buckets + 1
-    val pairs = edges.asScala.iterator.flatMap { (key, edge) =>
+    val held = edges.asScala.iterator.map((k, e) => (k, e, false)) ++
+      streams.asScala.iterator.map((k, e) => (k, e, true))
+    val pairs = held.flatMap { (key, edge, streaming) =>
       val totals = edge.total(oldest, present)
       Option.when(totals.exists(_ != 0L))(
         Pair(
@@ -88,7 +92,7 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
           timedOut = totals(TimedOut),
           undelivered = totals(Undelivered),
           histogram = totals.slice(Histogram, Histogram + HistogramBuckets).toVector,
-          streaming = edge.streaming
+          streaming = streaming
         )
       )
     }.toVector
@@ -99,15 +103,15 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
     )
 
   /** How many pairs are held, in or out of the window: what memory is proportional to. */
-  def size: Int = edges.size
+  def size: Int = edges.size + streams.size
 
-  private def edgeFor(key: Long): Edge =
+  private def edgeFor(held: ConcurrentHashMap[java.lang.Long, Edge], key: Long): Edge =
     val boxed    = java.lang.Long.valueOf(key)
-    val existing = edges.get(boxed)
+    val existing = held.get(boxed)
     if existing ne null then existing
     else
       val created = Edge(buckets)
-      val raced   = edges.putIfAbsent(boxed, created)
+      val raced   = held.putIfAbsent(boxed, created)
       if raced ne null then raced else created
 
 object CallCounts:
@@ -210,9 +214,8 @@ object CallCounts:
   /** One pair's ring of buckets. */
   private final class Edge(buckets: Int):
     // The slice of time each bucket last held; `Long.MinValue` for one never written.
-    private val epochs               = new AtomicLongArray(buckets)
-    private val counts               = new AtomicLongArray(buckets * Width)
-    @volatile var streaming: Boolean = false
+    private val epochs = new AtomicLongArray(buckets)
+    private val counts = new AtomicLongArray(buckets * Width)
 
     (0 until buckets).foreach(epochs.set(_, Long.MinValue))
 

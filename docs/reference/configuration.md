@@ -47,6 +47,9 @@ The table is generated from the runtime's configuration files.
 | Variable | Configuration key | Default | Applies in |
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
+| `ANKKA_VIEW_WATCH_BOUND` | `ankka.view.watch-bound` | `1000` | every service |
+| `ANKKA_VIEW_UNREAD_BOUND` | `ankka.view.unread-bound` | `256` | every service |
+| `ANKKA_VIEW_FETCH_SIZE` | `ankka.view.fetch-size` | `256` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
@@ -64,6 +67,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
 | `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
 | `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
+| `ANKKA_SSE_HEARTBEAT` | `ankka.http.sse.heartbeat` | `15s` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
@@ -84,6 +88,8 @@ Settings with no environment variable, overridable in the service's own `applica
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
 | `ankka.query-resend-after` | `2s` | every service |
+| `ankka.view.listener-backoff.min` | `1s` | every service |
+| `ankka.view.listener-backoff.max` | `30s` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |
@@ -143,6 +149,10 @@ Settings with no environment variable, overridable in the service's own `applica
   which would otherwise cut a quiet socket off; a service whose keep-alive is not shorter does not start.
   A process-hosted service's sidecar holds its sockets, so all three are given to the sidecar and never
   to the process.
+- `ANKKA_SSE_HEARTBEAT` is how long a stream of server-sent events may be quiet before the service sends
+  a heartbeat, an event with no data that a browser does not dispatch, `15s` by default. When it is not
+  shorter than `pekko.http.server.idle-timeout`, the heartbeat is sent at half the idle timeout instead,
+  so a quiet stream — a watch of a view that writes nothing for a minute, say — is never ended by it.
 
 ### gRPC
 
@@ -177,6 +187,20 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
   opens no connection — the secret store is unavailable and the timer scheduler refuses every timer — and
   an entity, a view, a workflow or a timed action registered in the service refuses the start, naming
   itself. Empty, the default, the service has a database, the platform's or its own.
+
+A view's query can be answered as a stream of rows, and a declared query watched
+([Views](../build/views.md#watching-a-query)):
+
+- `ANKKA_VIEW_WATCH_BOUND` is how many watches one instance holds open, every view together, `1000` by
+  default. One more is refused, naming the bound.
+- `ANKKA_VIEW_UNREAD_BOUND` is how many rows a watch holds for a watcher that has not read them, one per
+  row key, `256` by default, unless the watcher gives its own. Past it, the watcher's overflow strategy
+  decides.
+- `ANKKA_VIEW_FETCH_SIZE` is how many rows the database yields per fetch of a stream, `256` by default:
+  what a stream holds in hand however many rows it gives.
+
+Each reaches the runtime that holds the watches — beside a Python or TypeScript process, the sidecar,
+never the process.
 
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.

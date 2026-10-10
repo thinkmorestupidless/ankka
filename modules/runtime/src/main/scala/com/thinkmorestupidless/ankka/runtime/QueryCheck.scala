@@ -9,12 +9,14 @@ import com.thinkmorestupidless.ankka.sdk.{DeclaredQuery, KeyedViewDescriptor, Vi
 import net.sf.jsqlparser.JSQLParserException
 import net.sf.jsqlparser.expression.{Function, JdbcNamedParameter, JdbcParameter}
 import net.sf.jsqlparser.parser.CCJSqlParserUtil
-import net.sf.jsqlparser.schema.Table
+import net.sf.jsqlparser.schema.{Column, Table}
 import net.sf.jsqlparser.statement.{Statement, StatementVisitor}
 import net.sf.jsqlparser.statement.select.{
+  AllColumns,
   ParenthesedSelect,
   PlainSelect,
   Select,
+  SelectItem,
   SetOperationList,
   WithItem
 }
@@ -24,8 +26,16 @@ import java.util.Locale
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters.*
 
-/** A declared query as it is run: the statement with `$n` for each value, and the values' names. */
-private[ankka] final case class CheckedQuery(name: String, sql: String, values: Vector[String])
+/**
+ * A declared query as it is run: the statement with `$n` for each value, the values' names, and
+ * whether it may be watched.
+ */
+private[ankka] final case class CheckedQuery(
+    name: String,
+    sql: String,
+    values: Vector[String],
+    watchable: Boolean = false
+)
 
 /**
  * What a view's declared statement may be, checked once when the service starts, for a view written
@@ -190,9 +200,95 @@ private[ankka] object QueryCheck:
                         s"${values.mkString(", ")}; the parser ${found.named.distinct.mkString(", ")}); " +
                         "write each value as :name outside a string or a comment"
                     )
+                  else if query.watchable then
+                    watchedProblem(statement) match
+                      case Some(why) =>
+                        Left(s"view '$view' declares the watched query '${query.name}', $why")
+                      case None => Right(CheckedQuery(query.name, sql, values, watchable = true))
                   else Right(CheckedQuery(query.name, sql, values))
                 case other =>
                   refused(s"which is ${kindOf(other)}; a declared query only reads")
+
+  /** Functions that answer one row for many: what a watched statement may not select. */
+  private val Aggregates: Set[String] = Set(
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "array_agg",
+    "string_agg",
+    "json_agg",
+    "jsonb_agg",
+    "json_object_agg",
+    "jsonb_object_agg",
+    "bool_and",
+    "bool_or",
+    "every",
+    "bit_and",
+    "bit_or"
+  )
+
+  /**
+   * What stops a statement from being watched, if anything. A watch decides each written row alone,
+   * by running the statement for that row's key: so the statement must give the view's rows by
+   * their keys, and must not limit them (a row that comes to match could push another out, and the
+   * row pushed out is never written) or aggregate them (an aggregate's rows have no key). Only the
+   * outermost select is held to this; what a `WITH` item or a subquery does inside it is its own.
+   */
+  private def watchedProblem(statement: Statement): Option[String] =
+    def outermost(select: Select): Select = select match
+      case parenthesed: ParenthesedSelect => outermost(parenthesed.getSelect)
+      case other                          => other
+    def named(item: SelectItem[?], wanted: String): Boolean =
+      Option(item.getAlias).map(a => fold(a.getName)).contains(wanted) ||
+        (item.getExpression match
+          case column: Column => fold(column.getColumnName) == wanted
+          case _              => false)
+    def plainProblem(plain: PlainSelect): Option[String] =
+      val items = plain.getSelectItems.asScala.toVector
+      val every = items.exists(_.getExpression.isInstanceOf[AllColumns])
+      // Anywhere in an item, not only outermost: `json_build_object('n', count(*))` aggregates.
+      val aggregate = items
+        .flatMap(item => functionsIn(item.getExpression))
+        .find(name => Aggregates(fold(name.split('.').last)))
+      if !every && !(items.exists(named(_, "row_key")) && items.exists(named(_, "payload"))) then
+        Some("which does not select row_key and payload; a watched query gives the view's rows")
+      else if aggregate.nonEmpty || plain.getGroupBy != null || plain.getDistinct != null then
+        Some("which aggregates; a watched query gives the view's rows")
+      else None
+    statement match
+      case select: Select =>
+        val top     = outermost(select)
+        val limited = top.getLimit != null || top.getOffset != null || top.getFetch != null
+        if limited then Some("which has a limit; a watched query decides each row alone")
+        else
+          top match
+            case plain: PlainSelect => plainProblem(plain)
+            case union: SetOperationList =>
+              union.getSelects.asScala.toVector.iterator
+                .map(outermost)
+                .map {
+                  case plain: PlainSelect => plainProblem(plain)
+                  case _ =>
+                    Some("whose outermost select cannot be read; a watched query is a select")
+                }
+                .collectFirst { case Some(why) => why }
+            case _ => Some("whose outermost select cannot be read; a watched query is a select")
+      case _ => None
+
+  /** Every function an expression calls, however deep. */
+  private def functionsIn(expression: net.sf.jsqlparser.expression.Expression): Vector[String] =
+    val found = ArrayBuffer.empty[String]
+    expression.accept(
+      new net.sf.jsqlparser.expression.ExpressionVisitorAdapter[Void]:
+        override def visit[S](function: Function, context: S): Void =
+          found += function.getName
+          super.visit(function, context)
+      ,
+      null
+    ): Unit
+    found.toVector
 
   private def parse(text: String): Either[String, Statement] =
     try

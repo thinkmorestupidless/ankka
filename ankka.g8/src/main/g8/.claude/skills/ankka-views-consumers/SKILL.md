@@ -69,6 +69,14 @@ in a service with the projection runtime registered.
     not remove. Publishing is safe to repeat as it stands. A deletion (event sourced or key value) reaches
     the deletion handler above every earlier version; an **expired** entity is not deleted and nothing is
     tombstoned.
+13. **Read a large view as a stream, and keep a listing open with a watch.** `allStream`, `whereStream`,
+    `orderedStream` and `askStream` give rows as the database yields them, with no limit unless given. A
+    declared query is watched only when declared `.watched`, and its statement selects `row_key` beside
+    `payload`, with no `LIMIT` and no aggregate at its outermost select. A watch gives the rows now,
+    `CaughtUp`, then rows and removals; serve one as server-sent events with `asSse`. It is live, not a
+    record: coalesced, bounded by its unread rows (choose `Overflow.Fail` to be told rather than lose
+    rows), not replayed, and ended with a reason a watcher answers by watching again. A reader of every
+    change is a consumer. Read the request before returning the stream: it is drained on another thread.
 
 ## Before writing a view
 

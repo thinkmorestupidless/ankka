@@ -264,3 +264,68 @@ class QueryCheckSuite extends munit.FunSuite:
     val thrown = intercept[IllegalStateException](Node.lateQuery)
     assert(thrown.getMessage.contains("'late'"))
   }
+
+  // ── A watched query (feature 047, FR-010a) ────────────────────────────────
+
+  private def watched(statement: String): Either[String, CheckedQuery] =
+    QueryCheck.check(view, table, DeclaredQuery(view, "open", statement, watchable = true))
+
+  private def refusedWatching(statement: String, because: String): Unit =
+    watched(statement) match
+      case Left(problem) =>
+        assert(problem.startsWith("view 'nodes' declares the watched query 'open', "), problem)
+        assert(problem.contains(because), problem)
+      case Right(checked) => fail(s"watching $statement was allowed: $checked")
+
+  test("a watched statement that selects its rows by key is watchable") {
+    assertEquals(
+      watched(s"SELECT row_key, payload FROM $table WHERE payload::jsonb->>'kind' = :kind")
+        .map(_.watchable),
+      Right(true)
+    )
+    assert(watched(s"SELECT * FROM $table").isRight)
+    assert(watched(s"SELECT n.row_key, n.payload FROM $table n ORDER BY n.updated_at").isRight)
+    assert(watched(s"SELECT row_key AS row_key, payload FROM $table").isRight)
+  }
+
+  test("a watched statement may walk a tree, and limit inside it") {
+    val walk = recursive.replace("SELECT payload FROM under", "SELECT row_key, payload FROM under")
+    assert(watched(walk).isRight, watched(walk).toString)
+    assert(
+      watched(
+        s"WITH few AS (SELECT row_key, payload FROM $table LIMIT 5) SELECT row_key, payload FROM few"
+      ).isRight
+    )
+  }
+
+  test("a watched statement must select row_key beside payload") {
+    refusedWatching(s"SELECT payload FROM $table", "does not select row_key and payload")
+    refusedWatching(recursive, "does not select row_key and payload")
+  }
+
+  test("a watched statement may not limit its rows") {
+    refusedWatching(s"SELECT row_key, payload FROM $table ORDER BY row_key LIMIT 10", "has a limit")
+    refusedWatching(s"SELECT row_key, payload FROM $table OFFSET 3", "has a limit")
+    refusedWatching(s"SELECT row_key, payload FROM $table FETCH FIRST 3 ROWS ONLY", "has a limit")
+  }
+
+  test("a watched statement may not aggregate") {
+    refusedWatching(
+      s"SELECT row_key, count(*) AS payload FROM $table GROUP BY row_key",
+      "aggregates"
+    )
+    refusedWatching(s"SELECT DISTINCT row_key, payload FROM $table", "aggregates")
+    refusedWatching(
+      s"SELECT max(row_key) AS row_key, max(payload) AS payload FROM $table",
+      "aggregates"
+    )
+  }
+
+  test("a query not declared watched is held to none of this") {
+    val plain = QueryCheck.check(
+      view,
+      table,
+      DeclaredQuery(view, "open", s"SELECT payload FROM $table LIMIT 10")
+    )
+    assertEquals(plain.map(_.watchable), Right(false))
+  }

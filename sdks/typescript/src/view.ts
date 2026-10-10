@@ -29,11 +29,16 @@ type MaybePromise<T> = T | Promise<T>
 export interface DeclaredQuery {
   readonly name: string
   readonly statement: string
+  /** Whether it may be watched: its statement selects `row_key` beside `payload`, with no limit and no aggregate. */
+  readonly watched?: boolean
 }
 
-/** Declares a query for a view's `static declared`. The SDK sends the statement as written. */
-export function declaredQuery(name: string, statement: string): DeclaredQuery {
-  return Object.freeze({ name, statement })
+/**
+ * Declares a query for a view's `static declared`. The SDK sends the statement as written.
+ * `{ watched: true }` declares that it may also be watched, which the platform checks at start.
+ */
+export function declaredQuery(name: string, statement: string, options: { readonly watched?: boolean } = {}): DeclaredQuery {
+  return Object.freeze({ name, statement, watched: options.watched ?? false })
 }
 
 /** The table a view's rows are kept in, for a declared query's statement to name. */

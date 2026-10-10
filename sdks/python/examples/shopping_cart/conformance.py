@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail
+from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail, SseEvent, sse_events
 from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
@@ -834,6 +834,9 @@ class TreeRows(View[Placed, TreeRow]):
 )
 SELECT payload FROM below ORDER BY row_key""",
     )
+    # docs:start watched-query
+    all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+    # docs:end watched-query
 
     def on_change(self, event: Placed) -> ViewEffect:
         return self.effects.update_row(TreeRow(self.metadata.subject or "", event.under))
@@ -865,6 +868,22 @@ class TreeEndpoint(Endpoint):
         views = self.client.with_metadata(self.request.metadata).views
         rows = await views.ask("tree-rows", "under", TreeRow, {"row": nodeId})
         return [row.key for row in rows]
+
+    # docs:start stream
+    @sse("/streamed")
+    async def streamed(self) -> AsyncIterator[str]:
+        views = self.client.with_metadata(self.request.metadata).views
+        async for row in views.stream("tree-rows", "all-rows", TreeRow):
+            yield row.key
+    # docs:end stream
+
+    # docs:start watch
+    @sse("/watched")
+    async def watched(self) -> AsyncIterator[str | SseEvent]:
+        views = self.client.with_metadata(self.request.metadata).views
+        async for event in sse_events(views.watch("tree-rows", "all-rows", TreeRow)):
+            yield event
+    # docs:end watch
 
 
 # ── joined-left, joined-right, joined-rows: a keyed view of two sources ──

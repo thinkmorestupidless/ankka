@@ -558,6 +558,11 @@ final class AnkkaService private[ankka] (
       catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
       observability = None
 
+      // Before the extensions: a watch served as server-sent events is told why it ended while
+      // the server can still send it.
+      try viewClient.stopWatches()
+      catch case failure: Throwable => system.log.warn("view watches failed to stop", failure)
+
       extensions.reverse.foreach { extension =>
         try extension.stop()
         catch

@@ -163,3 +163,53 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
       "ignored events must not be published"
     )
   }
+
+  test("a watcher of the open carts is given them, then told it is caught up, then each change") {
+    import com.thinkmorestupidless.ankka.sdk.WatchEvent
+    import org.apache.pekko.stream.scaladsl.Sink
+    given org.apache.pekko.stream.Materializer =
+      org.apache.pekko.stream.Materializer(testKit.service.system)
+    val id = "watched-open"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1))
+    val _ =
+      eventually("the cart is in the view")(testKit.service.viewClient.forView(CartRows).get(id))
+    val events =
+      java.util.concurrent.LinkedBlockingQueue[WatchEvent[shoppingcart.application.CartRow]]()
+    val running = testKit.service.viewClient
+      .forView(CartRows)
+      .watch(CartRows.openCarts)
+      .filter {
+        case WatchEvent.Row(key, _)  => key == id
+        case WatchEvent.Removed(key) => key == id
+        case WatchEvent.CaughtUp     => true
+      }
+      .take(4)
+      .runWith(Sink.foreach(events.put))
+    def next() = Option(events.poll(30, java.util.concurrent.TimeUnit.SECONDS))
+    assertEquals(next().collect { case WatchEvent.Row(_, row) => row.productIds }, Some(List("p1")))
+    assertEquals(next(), Some(WatchEvent.CaughtUp))
+    val _ = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p2", "Gadget", 1))
+    assertEquals(
+      next().collect { case WatchEvent.Row(_, row) => row.productIds },
+      Some(List("p1", "p2"))
+    )
+    val _ = cart(id).call(ShoppingCartEntity.checkout).invoke()
+    assertEquals(next(), Some(WatchEvent.Removed(id)))
+    scala.concurrent.Await.result(running, 10.seconds): Unit
+  }
+
+  test("every row of the view is given as a stream, past the limit of a whole answer") {
+    import org.apache.pekko.stream.scaladsl.Sink
+    given org.apache.pekko.stream.Materializer =
+      org.apache.pekko.stream.Materializer(testKit.service.system)
+    val id = "streamed"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1))
+    val _  = eventually("the cart is in the view")(rows.get(id))
+    // docs:start stream
+    // Every row, as the database yields it: nothing is collected, and there is no limit.
+    val everyCart = rows.allStream().runWith(Sink.seq)
+    // docs:end stream
+    val streamed = scala.concurrent.Await.result(everyCart, 30.seconds)
+    assert(streamed.exists(_.cartId == id), s"$streamed")
+    assertEquals(streamed.size.toLong, rows.count())
+  }

@@ -23,5 +23,14 @@ import com.thinkmorestupidless.ankka.core.ComponentId
  * }}}
  *
  * The answer is rows of the view's own row type, read from the statement's `payload` column.
+ *
+ * A query declared `.watched` can also be watched: its statement selects `row_key` beside
+ * `payload`, has no limit and does not aggregate, because a watch decides each written row alone.
+ * That too is checked when the service starts.
  */
-final case class DeclaredQuery(view: ComponentId, name: String, statement: String)
+final case class DeclaredQuery(
+    view: ComponentId,
+    name: String,
+    statement: String,
+    watchable: Boolean = false
+)

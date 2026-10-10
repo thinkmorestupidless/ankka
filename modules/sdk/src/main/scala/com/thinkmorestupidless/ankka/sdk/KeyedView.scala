@@ -149,6 +149,25 @@ object KeyedView:
         query
       }
 
+    extension (query: DeclaredQuery)
+      /**
+       * Declares this query as one that can be watched: `query("open")(statement).watched`. Its
+       * statement must select `row_key` beside `payload`, have no limit and not aggregate; that is
+       * checked when the service starts.
+       */
+      protected final def watched: DeclaredQuery =
+        declaring(s"the query '${query.name}' as watched") {
+          val watchable = query.copy(watchable = true)
+          val at        = declared.indexWhere(_.name == query.name)
+          if at < 0 then
+            throw IllegalStateException(
+              s"view '$componentId' does not declare the query '${query.name}'; watch a query this " +
+                "companion declares"
+            )
+          declared(at) = watchable
+          watchable
+        }
+
     final def descriptor: KeyedViewDescriptor[V, Row] =
       val (taking, queries) = synchronized {
         taken = true

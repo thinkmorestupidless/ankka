@@ -266,6 +266,8 @@ impl<C: View> Registered for Registration<C> {
                     .map(|q| proto::DeclaredQuery {
                         name: q.name,
                         statement: q.statement,
+                        // A module reads a view whole: it never declares a query watched.
+                        watched: false,
                     })
                     .collect(),
             })),

@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.14")
+    assertEquals(Discovery.ProtocolVersion, "1.15")
   }
 
   test(
@@ -362,6 +362,50 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
       Some(
         SdkPublication("enriched", Some(CoreContract("enriched.v1", "sha256:cd")), Some("legacy"))
       )
+    )
+  }
+
+  test(
+    "discovery 1.15: a watched query reaches the remote view, and is refused from an earlier minor"
+  ) {
+    val source =
+      Some(Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart"))))
+    val watching = Component(
+      Kind.VIEW,
+      "carts",
+      Vector.empty,
+      Component.Detail.View(
+        ViewDetail(
+          source,
+          "row",
+          declaredQueries = Seq(
+            DeclaredQuery(
+              "open-carts",
+              "SELECT row_key, payload FROM ankka_view_carts",
+              watched = true
+            )
+          )
+        )
+      )
+    )
+    val entity = Component(
+      Kind.EVENT_SOURCED_ENTITY,
+      "cart",
+      Vector.empty,
+      Component.Detail.EventSourced(EventSourcedDetail(100))
+    )
+    val discovered =
+      validateSpec(topicSpec("1.15", entity, watching)).fold(p => fail(p.mkString), identity)
+    val carts = discovered.descriptors.collectFirst { case v: RemoteViewDescriptor => v }.get
+    assertEquals(
+      carts.declaredQueries.map(q => (q.name, q.watchable)),
+      Vector(("open-carts", true))
+    )
+    val refused =
+      validateSpec(topicSpec("1.14", entity, watching)).left.toOption.getOrElse(Vector.empty)
+    assert(
+      refused.exists(p => p.contains("query 'open-carts' is watched, which needs protocol 1.15")),
+      refused.toString
     )
   }
 

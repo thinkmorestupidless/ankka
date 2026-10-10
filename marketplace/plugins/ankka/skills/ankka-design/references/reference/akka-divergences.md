@@ -1,6 +1,6 @@
 # Divergences from Akka
 
-> Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
+> Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views and their streams and watches, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 
 Source: https://docs.ankka.cloud/reference/akka-divergences/
 ankka reimplements Akka's component model — entities, views, consumers, workflows, timers, agents and HTTP
@@ -15,6 +15,7 @@ will recognise every component. The differences below are deliberate, and each h
 | `Entity::method` lambda inspection | typed handles declared on a companion | No reflection; the compiler checks every call site. |
 | `@FunctionTool` and reflection | the `FunctionTool` builder | A tool's schema and its argument decoder come from one instance and cannot disagree. |
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
+| `QueryStreamEffect` and `@Query(streamUpdates = true)` | a row stream, and a watch of a query declared watchable, with a caught-up marker and removals | A page knows when it has the whole listing and which rows left it, and a statement a watch cannot decide per row is refused at start. |
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` works whether it is declared before or after `/users/{id}`. |
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
 | A gRPC endpoint as an annotated class implementing the generated service, asynchronously | a `GrpcEndpoint` declaring a blocking handler per method against the generated descriptors | The same handler shape as every other ankka handler, and every method checked at startup. |
@@ -69,6 +70,17 @@ Akka views have their own query language. An ankka view stores each row as JSON 
 queried with SQL fragments over that JSON, through the view client. There is no parser to learn, any
 condition Postgres can express is available, and an index is something you create rather than something the
 platform infers.
+
+## Views stream and are watched
+
+Akka answers a view query as a stream with `QueryStreamEffect`, and keeps one open with
+`@Query(streamUpdates = true)`. ankka offers both: a query asked as a stream of rows, and a watch of a
+query its view declares watchable. A watch says when it has given every row that matched as it began —
+the caught-up marker — and gives a removal naming the key of each row it gave that stops matching, so a
+page can show a complete listing and keep it right. A watched statement selects each row's key, has no
+limit and does not aggregate, because a watch decides each written row alone; a statement it could not
+decide is refused when the service starts rather than silently missing rows. Like Akka's, a watch is live
+and not a record: it guarantees no delivery, and a reader of every change reads the source.
 
 ## Literal path segments win
 

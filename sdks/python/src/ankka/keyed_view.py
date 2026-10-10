@@ -185,7 +185,8 @@ class KeyedView(Generic[Row]):
                 version=cls.version,
                 sources=[source.to_pb() for source in cls._sources.values()],
                 declared_queries=[
-                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement) for q in cls._declared_queries
+                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement, watched=q.watched)
+                    for q in cls._declared_queries
                 ],
             ),
         )

@@ -70,8 +70,11 @@ object Protocol:
    * (feature 040). 1.16 added a workflow as the source of a view or a consumer, and its standing on
    * their requests (feature 046). 1.17 added a view's query answered as a stream and a watch:
    * `QueryStream` and `Watch` on `Client`, and `DeclaredQuery.watched` in discovery (feature 047).
+   * 1.18 added waiting for a workflow's end: `AwaitEnd` and `AwaitEndStream` on `Client`, the
+   * heartbeat and ended stream tokens, `WORKFLOW_FAILED` and `Error.details`, and the `await_end`
+   * module import (feature 048).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 17)
+  val version: ProtocolVersion = ProtocolVersion(1, 18)
 
 object Compatibility:
 

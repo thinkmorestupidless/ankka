@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime.remote
 
+import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
 import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome}
 import com.thinkmorestupidless.ankka.core.{
   CommandError,
@@ -130,7 +131,9 @@ final case class ViewRequest(
     metadata: Metadata,
     row: Option[Payload],
     /** A keyed view's change: the component it came from. A keyed view is sent no row. */
-    sourceId: Option[ComponentId] = None
+    sourceId: Option[ComponentId] = None,
+    /** A change from a workflow: where it stood once the effect was applied (protocol 1.15). */
+    standing: Option[WorkflowLifecycle] = None
 )
 
 enum ViewOutcome:
@@ -145,7 +148,9 @@ enum ViewOutcome:
 final case class ConsumerRequest(
     componentId: ComponentId,
     message: Option[Payload],
-    metadata: Metadata
+    metadata: Metadata,
+    /** A change from a workflow: where it stood once the effect was applied (protocol 1.15). */
+    standing: Option[WorkflowLifecycle] = None
 )
 
 /** One message of several a consumer produced. `key` absent means the message's subject. */
@@ -175,7 +180,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.14"
+  val Version: String     = "1.15"
   val MetadataKey: String = "ankka.protocol"
 
 /**

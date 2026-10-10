@@ -51,3 +51,12 @@ message Retention {
 }
 
 message Empty {}
+
+// 1.15: where a workflow stood once the effect that recorded a state was applied. Carried on a
+// view's or a consumer's request for a change from a workflow source, and on nothing else.
+message WorkflowStanding {
+  string status = 1;                 // NotStarted, Running, Paused, Completed, Failed, or Unknown for a state recorded before 1.15
+  optional string step = 2;          // the step the workflow is on, or the step a pause names or follows
+  map<string, int32> retries = 3;    // retries so far, per step
+  optional string failure = 4;       // why it failed, when it did
+}

@@ -23,7 +23,8 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     context: WorkflowContext,
     settings: WorkflowSettings,
     ctx: ActorContext[EntityProtocol.Command],
-    timers: TimerScheduler[EntityProtocol.Command]
+    timers: TimerScheduler[EntityProtocol.Command],
+    fold: (Run[S], Event[S]) => Run[S]
 ):
   import EntityProtocol.*
 
@@ -42,6 +43,24 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
    * to, and is a trace of its own.
    */
   private var stepTrace: Option[TraceContext] = None
+
+  /**
+   * `events` with their recorded state stamped with the standing once all of them are applied (spec
+   * 046): a view or a consumer of this workflow is handed the state, and where the effect that
+   * recorded it left the workflow. `pausedAfter` is the step a pause in `events` follows.
+   */
+  private def stamped(
+      state: Run[S],
+      events: Vector[Event[S]],
+      pausedAfter: Option[String]
+  ): Vector[Event[S]] =
+    if !events.exists { case Event.StateUpdated(_, _) => true; case _ => false } then events
+    else
+      val standing = WorkflowHost.standingOf(events.foldLeft(state)(fold), pausedAfter)
+      events.map {
+        case Event.StateUpdated(value, _) => Event.StateUpdated(value, Some(standing))
+        case other                        => other
+      }
 
   private val StepTimerKey     = "ankka-step-timeout"
   private val WorkflowTimerKey = "ankka-workflow-timeout"
@@ -195,7 +214,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
                   if effect.deleting then events += Event.Deleted
                   effect.stateChange.foreach(value => events += Event.StateUpdated(value))
                   effect.transition.foreach(step => events += Event.TransitionedTo(step))
-                  val toPersist = events.result()
+                  val toPersist = stamped(state, events.result(), None)
 
                   val nextValue = effect.stateChange.getOrElse(state.value)
 
@@ -334,25 +353,31 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
       succeeded.next match
         case StepOutcome.TransitionTo(next) =>
           PekkoEffect
-            .persist((stateEvents :+ Event.TransitionedTo(next)).toList)
+            .persist(stamped(state, stateEvents :+ Event.TransitionedTo(next), None).toList)
             .thenRun(_ => ctx.self ! RunPendingStep)
 
         case StepOutcome.Pause(after, onTimeout) =>
           val deadline = after.map(d => System.currentTimeMillis() + d.toMillis).getOrElse(0L)
           PekkoEffect
-            .persist((stateEvents :+ Event.Paused(onTimeout.map(_.name), deadline)).toList)
+            .persist(
+              stamped(
+                state,
+                stateEvents :+ Event.Paused(onTimeout.map(_.name), deadline),
+                Some(succeeded.step)
+              ).toList
+            )
             // The timeout target is read back from the persisted state, not held in a
             // field, so it survives a restart while the workflow is paused.
             .thenRun(updated => armPauseTimeout(updated))
 
         case StepOutcome.End =>
           PekkoEffect
-            .persist((stateEvents :+ Event.Ended).toList)
+            .persist(stamped(state, stateEvents :+ Event.Ended, None).toList)
             .thenRun(_ => cancelLifecycleTimers())
 
         case StepOutcome.Fail(error) =>
           PekkoEffect
-            .persist((stateEvents :+ Event.Failed(error.message)).toList)
+            .persist(stamped(state, stateEvents :+ Event.Failed(error.message), None).toList)
             .thenRun(_ => cancelLifecycleTimers())
 
   /**

@@ -43,7 +43,11 @@ private[ankka] object WorkflowHost:
 
   /** In-memory event type; the adapter maps these to `WorkflowRecord`. */
   enum Event[+S]:
-    case StateUpdated(state: S)
+    /**
+     * `standing` is where the workflow stands once the whole effect is applied; the engine stamps
+     * it.
+     */
+    case StateUpdated(state: S, standing: Option[StandingRecord] = None)
     case TransitionedTo(step: StepRef)
     case Paused(onTimeout: Option[String], deadlineMillis: Long)
     case Ended
@@ -85,7 +89,15 @@ private[ankka] object WorkflowHost:
           None
         )
 
-        val engine = WorkflowEngine(descriptor, workflowId, context, settings, ctx, timers)
+        val engine = WorkflowEngine(
+          descriptor,
+          workflowId,
+          context,
+          settings,
+          ctx,
+          timers,
+          (state, event) => applyEvent(empty, state, event)
+        )
 
         EventSourcedBehavior[EntityProtocol.Command, Event[S], Run[S]](
           persistenceId = PersistenceId(descriptor.componentId, workflowId),
@@ -102,9 +114,20 @@ private[ankka] object WorkflowHost:
       }
     }
 
+  /**
+   * Where `run` stands, as a view or a consumer of the workflow is told it (spec 046): the status
+   * by name, the step it is on — for a paused workflow the step its timeout names, else the step it
+   * paused after, which `run` itself no longer holds — its retries and why it failed.
+   */
+  def standingOf(run: Run[?], pausedAfter: Option[String]): StandingRecord =
+    val step = run.status match
+      case Status.Paused => run.pauseOnTimeout.orElse(pausedAfter)
+      case _             => run.pending.map(_.name)
+    StandingRecord(run.status.toString, step.getOrElse(""), run.retries, run.failure.getOrElse(""))
+
   private def applyEvent[S](empty: Run[S], state: Run[S], event: Event[S]): Run[S] =
     event match
-      case Event.StateUpdated(value) =>
+      case Event.StateUpdated(value, _) =>
         state.copy(value = value)
 
       case Event.TransitionedTo(step) =>
@@ -151,8 +174,8 @@ private[ankka] object WorkflowHost:
     new EventAdapter[Event[S], WorkflowRecord]:
 
       def toJournal(event: Event[S]): WorkflowRecord = event match
-        case Event.StateUpdated(state) =>
-          WorkflowRecord.stateUpdated(descriptor.stateSerializer.toBytes(state))
+        case Event.StateUpdated(state, standing) =>
+          WorkflowRecord.stateUpdated(descriptor.stateSerializer.toBytes(state), standing)
         case Event.TransitionedTo(step) =>
           WorkflowRecord.transitioned(step.name, step.input.getOrElse(Array.emptyByteArray))
         case Event.Paused(onTimeout, deadline) =>
@@ -163,18 +186,21 @@ private[ankka] object WorkflowHost:
         case Event.Deleted             => WorkflowRecord.deleted
 
       def manifest(event: Event[S]): String = event match
-        case Event.StateUpdated(_)   => "state"
-        case Event.TransitionedTo(_) => "transition"
-        case Event.Paused(_, _)      => "pause"
-        case Event.Ended             => "end"
-        case Event.Failed(_)         => "fail"
-        case Event.RetryRecorded(_)  => "retry"
-        case Event.Deleted           => "delete"
+        case Event.StateUpdated(_, _) => "state"
+        case Event.TransitionedTo(_)  => "transition"
+        case Event.Paused(_, _)       => "pause"
+        case Event.Ended              => "end"
+        case Event.Failed(_)          => "fail"
+        case Event.RetryRecorded(_)   => "retry"
+        case Event.Deleted            => "delete"
 
       def fromJournal(record: WorkflowRecord, manifest: String): EventSeq[Event[S]] =
         val event = record.kind match
           case WorkflowRecord.KindStateUpdated =>
-            Event.StateUpdated(descriptor.stateSerializer.fromBytes(record.state))
+            Event.StateUpdated(
+              descriptor.stateSerializer.fromBytes(record.state),
+              Option(record.standing).flatten
+            )
           case WorkflowRecord.KindTransitioned =>
             Event.TransitionedTo(
               StepRef(record.step, Option(record.stepInput).filter(_.nonEmpty))

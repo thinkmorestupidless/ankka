@@ -24,6 +24,7 @@ import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome, StepRef}
 import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode, Metadata}
 import com.thinkmorestupidless.ankka.runtime.remote.*
+import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
 
 import scala.concurrent.duration.*
 
@@ -161,6 +162,23 @@ private[sidecar] object Translate:
 
   // ── The stateless calls: what is sent, and what the answer means ──────────
 
+  /** A workflow's standing on the wire (protocol 1.15): its words, as the lifecycle query's. */
+  def toStanding(standing: WorkflowLifecycle): pb.WorkflowStanding =
+    pb.WorkflowStanding(
+      status = standing.status,
+      step = standing.pendingStep,
+      retries = standing.retries,
+      failure = standing.failure
+    )
+
+  def fromStanding(standing: pb.WorkflowStanding): WorkflowLifecycle =
+    WorkflowLifecycle(
+      standing.status,
+      standing.step.filter(_.nonEmpty),
+      standing.retries,
+      standing.failure.filter(_.nonEmpty)
+    )
+
   def toViewRequest(request: ViewRequest): PbViewRequest =
     PbViewRequest(
       componentId = request.componentId,
@@ -168,7 +186,8 @@ private[sidecar] object Translate:
       metadata = Some(toMetadata(request.metadata)),
       row = request.row.map(toPayload),
       deleted = request.event.isEmpty,
-      sourceId = request.sourceId.map(_.toString)
+      sourceId = request.sourceId.map(_.toString),
+      standing = request.standing.map(toStanding)
     )
 
   def fromViewEffect(effect: ViewEffect): ViewOutcome = effect.effect match
@@ -188,7 +207,8 @@ private[sidecar] object Translate:
       componentId = request.componentId,
       message = request.message.map(toPayload),
       metadata = Some(toMetadata(request.metadata)),
-      deleted = request.message.isEmpty
+      deleted = request.message.isEmpty,
+      standing = request.standing.map(toStanding)
     )
 
   def fromConsumerEffect(effect: ConsumerEffect): ConsumerOutcome = effect.effect match

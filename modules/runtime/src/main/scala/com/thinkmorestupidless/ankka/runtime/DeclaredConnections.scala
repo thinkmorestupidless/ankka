@@ -20,13 +20,16 @@ import com.thinkmorestupidless.ankka.sdk.{
   ViewDescriptor
 }
 
-/** What a view or a consumer declared it reads: one of three things, in either language. */
+/** What a view or a consumer declared it reads: one of four things, in either language. */
 private[runtime] enum DeclaredSource:
   /** Every event of an event sourced entity. */
   case Events(component: ComponentId)
 
   /** The state of a key value entity, as it changes. */
   case State(component: ComponentId)
+
+  /** Each state a workflow records, with its standing. */
+  case Workflow(component: ComponentId)
 
   /** A topic on the broker. */
   /** A topic, with the contract the component states for it and the declared broker it names. */
@@ -73,6 +76,7 @@ private[runtime] object DeclaredConnections:
   private def of(source: ChangeSource[?]): DeclaredSource = source match
     case ChangeSource.EventSourced(component, _) => DeclaredSource.Events(component)
     case ChangeSource.KeyValue(component, _)     => DeclaredSource.State(component)
+    case ChangeSource.Workflow(component, _)     => DeclaredSource.Workflow(component)
     case ChangeSource.Topic(topic, _, _, options) =>
       DeclaredSource.Topic(topic, options.contract, options.broker)
 
@@ -85,6 +89,8 @@ private[runtime] object DeclaredConnections:
       Some(DeclaredSource.Events(component))
     case RemoteSource.Component(ComponentKind.KeyValueEntity, component) =>
       Some(DeclaredSource.State(component))
+    case RemoteSource.Component(ComponentKind.Workflow, component) =>
+      Some(DeclaredSource.Workflow(component))
     case RemoteSource.Component(_, _) => None
     case RemoteSource.Topic(name, _, options) =>
       Some(DeclaredSource.Topic(name, options.contract, options.broker))

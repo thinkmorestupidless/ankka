@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import com.thinkmorestupidless.ankka.runtime.{AnkkaSerializable, WorkflowRecord}
+import com.thinkmorestupidless.ankka.runtime.{AnkkaSerializable, StandingRecord, WorkflowRecord}
 import com.thinkmorestupidless.ankka.testkit.autonomous.Fixtures
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -86,6 +86,34 @@ class WorkflowRecordCompatibilitySuite extends munit.FunSuite with LogCapturing:
       val back = serialization.deserialize(bytes, classOf[WorkflowRecord]).get
       assert(same(back, record), label)
     }
+  }
+
+  test("a state record written before the stamp reads back with no standing") {
+    val (_, bytes) = pinned.find(_._1 == "state").get
+    val back       = serialization.deserialize(bytes, classOf[WorkflowRecord]).get
+    assertEquals(Option(back.standing).flatten, None)
+  }
+
+  test("a stamped state record round-trips with its standing") {
+    val standing = StandingRecord("Paused", "charge", Map("reserve" -> 1), "")
+    val record   = WorkflowRecord.stateUpdated(state, Some(standing))
+    val back = serialization
+      .deserialize(serialization.serialize(record).get, classOf[WorkflowRecord])
+      .get
+    assert(same(back, record))
+    assertEquals(back.standing, Some(standing))
+  }
+
+  test("a stamped state record reads into the shape the release before has") {
+    val record = WorkflowRecord.stateUpdated(
+      state,
+      Some(StandingRecord("Completed", "", Map.empty, ""))
+    )
+    val back = serialization
+      .deserialize(serialization.serialize(record).get, classOf[LegacyWorkflowRecord])
+      .get
+    assertEquals(back.kind, WorkflowRecord.KindStateUpdated)
+    assert(back.state.sameElements(state))
   }
 
 /**

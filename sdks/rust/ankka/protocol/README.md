@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.14`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.15`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -37,7 +37,11 @@ which answers with `rows`, several row changes by key; and a version on a view t
 `1.14` added what a project must know about a topic source and a publication: `Source.contract`,
 `Source.broker` and `Source.parallel`, `ConsumerDetail.produces` (a `Publication` with its
 contract and broker; `produces_to` stays), and `fixtures/contracts/`, the fingerprints every SDK
-must compute for a schema document.
+must compute for a schema document. `1.15` added a workflow as the source of a view or a consumer:
+a `Source.ComponentRef` of kind `WORKFLOW`, and `WorkflowStanding` as `ViewRequest.standing` and
+`ConsumerRequest.standing`, where the workflow stood once the effect that recorded the state was
+applied. The gate holds from both ends: the sidecar refuses a workflow source from a process that
+declares an earlier minor, and an SDK refuses discovery with one from a runtime that states one.
 
 `MAJOR.MINOR`. Within a major:
 

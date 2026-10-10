@@ -363,8 +363,8 @@ final class TopologyJsonSuite extends FunSuite:
     val document = read(
       render(
         Seq(
-          descriptor("checkout", ComponentKind.Workflow),
-          remoteView("odd", remoteEntity(ComponentKind.Workflow, "checkout"))
+          descriptor("reminders", ComponentKind.TimedAction),
+          remoteView("odd", remoteEntity(ComponentKind.TimedAction, "reminders"))
         )
       )
     )

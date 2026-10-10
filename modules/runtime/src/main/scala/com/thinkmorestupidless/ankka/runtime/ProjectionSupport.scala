@@ -99,25 +99,32 @@ private[ankka] object ProjectionSupport:
       subject: String,
       sequenceNr: Long,
       row: Option[Any],
-      record: JournalRecord,
+      change: SourceChange,
       observability: Observability
   ): ViewEffect[Any] =
     view._setRow(row)
-    view._setContext(Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true)))
+    view._setContext(
+      Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true, standingOf(change)))
+    )
     // A projection has no inbound request, so this span is a trace root — correctly so. A view
     // catching up is its own piece of work, not part of whatever wrote the event minutes ago,
     // and threading the writer's trace into it would make one request appear to last for hours.
     try
       handling(observability, descriptor.componentId.toString, ViewDescriptor.OnChange.name) {
-        record.kind match
-          case JournalRecord.KindDomain =>
-            view.onChange(descriptor.source.decoder.fromBytes(record.payload))
-          case JournalRecord.KindDeleted => view.onDelete
-          // A TTL being set is a storage fact, not a domain change — nothing for a view
-          // to project. The row disappears when the deletion itself is journalled.
-          case _ => ViewEffect.Ignore
+        change match
+          case SourceChange.Changed(payload, _) =>
+            view.onChange(descriptor.source.decoder.fromBytes(payload.data))
+          case SourceChange.Deleted => view.onDelete
+          // A TTL being set, or a workflow record that holds no state: nothing for a view to
+          // project. The row disappears when the deletion itself is journalled.
+          case SourceChange.Skip => ViewEffect.Ignore
       }
     finally view._setContext(None)
+
+  /** The standing a change carries: a workflow's, and none for anything else. */
+  def standingOf(change: SourceChange): Option[WorkflowLifecycle] = change match
+    case SourceChange.Changed(_, standing) => standing
+    case _                                 => None
 
   /** Writes the row change through the projection's transaction. */
   def applyView[A](

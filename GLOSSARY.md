@@ -1465,10 +1465,11 @@ Which of idle, working, suspended or terminated an agent instance is.
 What an agent instance tells whoever is watching it about something that has just happened: its lifecycle, a task, an iteration, or a warning that a task is struggling. Notifications are not kept.
 
 ### watch
-Be given an agent instance's notifications as they happen. Whoever does is a watcher.
+Be given something as it happens: an agent instance's notifications, or the rows a view's
+declared query matches, or one row of a view, as the view writes them. Whoever does is a watcher.
 
 ### watcher
-Whoever is watching an agent instance.
+Whoever is watching an agent instance, a view's declared query or one row of a view.
 
 ### depends
 Of a task: may not start until the tasks it depends on are completed.
@@ -1561,7 +1562,8 @@ installation's console is one host, and the hosted product's website another.
 ## Graph deltas
 
 ### change
-One event, state or deletion of one entity, or one message from a topic, as a consumer is handed it.
+One event, state or deletion of one entity, one record of a workflow with the state and the
+standing after it, or one message from a topic, as a view or a consumer is handed it.
 
 ### key
 What a message is published under. Messages under one key are delivered in order, and a compacted topic keeps the last of them. A message's key is its entity's id unless the message names another; the key does not change which entity the message is about.
@@ -1929,7 +1931,8 @@ Avoid: retry delay
 
 ### source
 What a view or a consumer reads: the events of an event sourced entity, the state of a
-key value entity, or a topic. A view may read several, each in order and on its own.
+key value entity, the changes of a workflow, or a topic. A view may read several, each in order
+and on its own.
 
 ### table
 What a view keeps its rows in. Each view has exactly one, its own. It is not any other
@@ -2549,6 +2552,38 @@ made-up answers and made-up secrets and reaches no cloud.
 
 Avoid: fake provider, stub provider, mock provider
 
+## Workflow sources
+
+### standing
+*Proposed.* Of a workflow: where the platform says it has got to — running, paused, completed or
+failed — with the step it is on or waits after, how many times each step was retried and, when it
+failed, why. It is not the workflow's state, which is the developer's own type and says what the
+process decided.
+
+Avoid: workflow status
+
+### transition
+*Proposed.* A workflow moving to a step, which the platform records before the step runs.
+
+### workflow subscription
+*Proposed.* A declared connection from a workflow to a view or consumer that reads its changes.
+
+## View streams
+
+### removal
+*Proposed.* What a watcher is given for a row it has that no longer matches the watched query or
+was deleted: the row key and no row.
+
+### watch bound
+*Proposed.* The platform setting that bounds how many watches one instance holds open at once.
+
+### idle timeout
+*Proposed.* How long a connection may be quiet before the service ends it.
+
+### heartbeat
+*Proposed.* A part of a stream that carries nothing but that the connection is alive, sent while a
+wait goes on.
+
 ## Everyday words
 
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
@@ -2624,4 +2659,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year
+withdraw, withdraws, withdrew, word, year, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately

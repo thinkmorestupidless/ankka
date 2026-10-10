@@ -32,6 +32,7 @@ from ankka.context import Metadata
 from ankka.effects.keyed_view import KeyedViewEffect, KeyedViewEffects
 from ankka.event_sourced_entity import RegistrationError
 from ankka.view import DeclaredQuery
+from ankka.standing import Standing
 
 Row = TypeVar("Row")
 F = TypeVar("F", bound=Callable[..., Any])
@@ -157,6 +158,13 @@ class KeyedView(Generic[Row]):
         self.effects: KeyedViewEffects[Row] = KeyedViewEffects()
         self._metadata: Metadata = Metadata()
         self._rows: ViewRows[Row] | None = None
+        self._standing: Standing | None = None
+
+    @property
+    def standing(self) -> Standing | None:
+        """Of a change from a workflow: where it stood once the effect that recorded the state was
+        applied. None for a change from an entity."""
+        return self._standing
 
     @property
     def metadata(self) -> Metadata:
@@ -191,13 +199,19 @@ class KeyedView(Generic[Row]):
         )
 
     async def _handle(
-        self, source_id: str, event_bytes: bytes | None, metadata: Metadata, reader: RowReader
+        self,
+        source_id: str,
+        event_bytes: bytes | None,
+        metadata: Metadata,
+        reader: RowReader,
+        standing: Standing | None = None,
     ) -> KeyedViewEffect:
         """``event_bytes`` is None when the source entity was deleted."""
         source = type(self)._sources.get(source_id)
         if source is None:
             raise LookupError(f"{type(self).__name__} reads no source '{source_id}'")
         self._metadata = metadata
+        self._standing = standing
         self._rows = ViewRows(type(self).component_id, type(self).row_codec, reader)
         try:
             if event_bytes is None:

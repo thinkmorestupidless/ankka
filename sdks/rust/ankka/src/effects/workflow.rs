@@ -219,6 +219,12 @@ pub mod step {
             self.then(Next::End)
         }
 
+        /// The workflow fails, as the step decided, with the state recorded: a compensation that
+        /// says what happened before it ends the workflow, so a reader of the workflow sees it.
+        pub fn then_fail(self, error: CommandError) -> StepEffect<S> {
+            self.then(Next::Fail(error))
+        }
+
         fn then(self, next: Next) -> StepEffect<S> {
             StepEffect {
                 new_state: self.new_state,

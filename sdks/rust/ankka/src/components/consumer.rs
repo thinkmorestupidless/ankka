@@ -184,7 +184,13 @@ impl<C: Consumer> Registered for Registration<C> {
     fn consumer(&self, request: proto::ConsumerRequest) -> Option<proto::ConsumerEffect> {
         let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref())
             .with_secrets()
-            .with_services();
+            .with_services()
+            .with_standing(
+                request
+                    .standing
+                    .clone()
+                    .map(crate::standing::Standing::from),
+            );
         let effect = match request.message.filter(|_| !request.deleted) {
             Some(message) => {
                 let message: C::Message = Auto::<C::Message>::new()

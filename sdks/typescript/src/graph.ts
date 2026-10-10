@@ -22,6 +22,7 @@ import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } fro
 import { sequenceNumberOf } from "./consumer.ts"
 import { renderDouble, reviver } from "./json.ts"
 import { servicesFor, type Services } from "./services.ts"
+import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -426,6 +427,7 @@ export abstract class GraphConsumer<M> {
   readonly effects: GraphEffects = new GraphEffects()
 
   #metadata: Metadata = {}
+  #standing: Standing | undefined = undefined
   #client: ComponentClient | undefined
 
   /** The change's metadata: `ce-subject` is the source instance's id, `ankka.sequence` its sequence number. */
@@ -435,6 +437,11 @@ export abstract class GraphConsumer<M> {
 
   get subject(): string {
     return this.#metadata["ce-subject"] ?? ""
+  }
+
+  /** Of a change from a workflow: where it stood once the effect that recorded the state was applied. `undefined` for a change from an entity or a topic. */
+  get standing(): Standing | undefined {
+    return this.#standing
   }
 
   /** The change's sequence number, which is the version of every element that states none. */
@@ -484,8 +491,9 @@ export abstract class GraphConsumer<M> {
   }
 
   /** @internal */
-  _bind(metadata: Metadata, client: ComponentClient): void {
+  _bind(metadata: Metadata, client: ComponentClient, standing?: Standing): void {
     this.#metadata = metadata
+    this.#standing = standing
     this.#client = client
   }
 }

@@ -17,6 +17,7 @@ from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
+from ankka.standing import Standing
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -62,10 +63,17 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
         self.effects: ConsumerEffects[Out] = ConsumerEffects()
         self.client = client
         self._metadata: Metadata = Metadata()
+        self._standing: Standing | None = None
 
     @property
     def metadata(self) -> Metadata:
         return self._metadata
+
+    @property
+    def standing(self) -> Standing | None:
+        """Of a change from a workflow: where it stood once the effect that recorded the state was
+        applied. None for a change from an entity or a topic."""
+        return self._standing
 
     def on_message(self, message: Src) -> ConsumerEffect:
         raise NotImplementedError
@@ -84,9 +92,12 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
             detail.produces.CopyFrom(publication.to_pb())
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)
 
-    async def _handle(self, message_bytes: bytes | None, metadata: Metadata) -> ConsumerEffect:
+    async def _handle(
+        self, message_bytes: bytes | None, metadata: Metadata, standing: Standing | None = None
+    ) -> ConsumerEffect:
         """``message_bytes`` is None when the source was deleted."""
         self._metadata = metadata
+        self._standing = standing
         result = self.on_delete() if message_bytes is None else self.on_message(self.message_codec.decode(message_bytes))
         if isinstance(result, Awaitable):
             result = await typing.cast(Awaitable[ConsumerEffect], result)

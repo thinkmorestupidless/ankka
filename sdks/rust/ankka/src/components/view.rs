@@ -288,7 +288,12 @@ impl<C: View> Registered for Registration<C> {
     }
 
     fn view(&self, request: proto::ViewRequest) -> Option<proto::ViewEffect> {
-        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref());
+        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref()).with_standing(
+            request
+                .standing
+                .clone()
+                .map(crate::standing::Standing::from),
+        );
         let codec = C::row_codec();
         let row = request
             .row

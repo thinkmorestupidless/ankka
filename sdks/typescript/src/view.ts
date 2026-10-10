@@ -16,6 +16,7 @@ import type { Metadata } from "./effects/common.ts"
 import type { ComponentClient } from "./client.ts"
 import type { ComponentRef } from "./client.ts"
 import { ViewEffects, type ViewEffect } from "./effects/stateless.ts"
+import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -46,6 +47,7 @@ export abstract class View<E, Row> {
 
   #row: Row | null = null
   #metadata: Metadata = {}
+  #standing: Standing | undefined = undefined
   #client: ComponentClient | undefined
   #bound = false
 
@@ -63,6 +65,11 @@ export abstract class View<E, Row> {
   /** The id of the source instance the change came from. */
   get subject(): string {
     return this.#metadata["ce-subject"] ?? ""
+  }
+
+  /** Of a change from a workflow: where it stood once the effect that recorded the state was applied. `undefined` for a change from an entity or a topic. */
+  get standing(): Standing | undefined {
+    return this.#standing
   }
 
   get client(): ComponentClient {
@@ -84,9 +91,10 @@ export abstract class View<E, Row> {
   }
 
   /** @internal */
-  _bind(row: Row | null, metadata: Metadata, client: ComponentClient): void {
+  _bind(row: Row | null, metadata: Metadata, client: ComponentClient, standing?: Standing): void {
     this.#row = row
     this.#metadata = metadata
+    this.#standing = standing
     this.#client = client
     this.#bound = true
   }

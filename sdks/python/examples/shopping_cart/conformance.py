@@ -21,6 +21,7 @@ from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance
 from ankka.client import CommandError, ComponentClient
 from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
 from ankka.consumer import Consumer
+from ankka.standing import Standing
 from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
@@ -144,6 +145,61 @@ class CheckoutRecorder(Consumer[ShoppingCartEvent, None]):
         assert self.client is not None
         await self.client.for_event_sourced_entity("conformance", self.metadata.subject or "").call("record").invoke("checkout", reply=str)
         return self.effects.done()
+
+
+# ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+
+# docs:start workflow-view
+@dataclass(frozen=True)
+class CheckoutRow:
+    id: str
+    status: str
+    standing: str
+    step: str | None = None
+    failure: str | None = None
+
+
+class CheckoutRows(View[Checkout, CheckoutRow]):
+    """A checkout's row: its state's status, and where the workflow stood when it recorded it."""
+
+    component_id = "checkout-rows"
+    source = CheckoutWorkflow
+    event_codec = CheckoutWorkflow.state_codec
+    row_codec = json_codec(CheckoutRow, "checkout-row")
+    by_standing = declare(
+        "by-standing",
+        f"SELECT payload FROM {table_of('checkout-rows')} WHERE payload::jsonb->>'standing' = :standing",
+    )
+
+    def on_change(self, state: Checkout) -> ViewEffect:
+        # A change from a workflow carries its standing: where it stood once the effect that
+        # recorded `state` was applied.
+        standing = self.standing or Standing("Unknown")
+        return self.effects.update_row(
+            CheckoutRow(self.metadata.subject or "", state.status, standing.status, standing.step, standing.failure)
+        )
+# docs:end workflow-view
+
+
+# docs:start workflow-consumer
+class CheckoutEnds(Consumer[Checkout, None]):
+    """Records each checkout that ended, completed or failed, and nothing else."""
+
+    component_id = "checkout-ends"
+    source = CheckoutWorkflow
+    message_codec = CheckoutWorkflow.state_codec
+
+    async def on_message(self, state: Checkout) -> ConsumerEffect:  # type: ignore[override]
+        standing = self.standing
+        if standing is None or not standing.is_terminal:
+            # Running or paused: not an end, and nothing to do.
+            return self.effects.ignore()
+        end = standing.status if standing.failure is None else f"{standing.status}: {standing.failure}"
+        assert self.client is not None
+        await self.client.for_key_value_entity("profile", f"end-{self.metadata.subject or ''}").call("set").invoke(end, reply=str)
+        return self.effects.done()
+# docs:end workflow-consumer
 
 
 # ── checkout-fanout: a consumer that publishes several messages for one change ──
@@ -615,6 +671,25 @@ class ConformanceEndpoint(Endpoint):
         checkout = await self._scoped().for_workflow("checkout", id).call("status").invoke(reply=Checkout)
         return str(checkout.status)
 
+    @get("/checkout/{id}/row")
+    async def checkout_row(self, id: str) -> CheckoutRow:
+        found = await self._scoped().views.get("checkout-rows", id, CheckoutRow)
+        if found is None:
+            raise HttpProblem(404, f"no row for '{id}'")
+        return found  # type: ignore[no-any-return]
+
+    @get("/checkout-rows/{standing}")
+    async def checkout_rows(self, standing: str) -> list[str]:
+        rows = await self._scoped().views.ask("checkout-rows", "by-standing", CheckoutRow, {"standing": standing})
+        return [row.id for row in rows]
+
+    @get("/checkout/{id}/end")
+    async def checkout_end(self, id: str) -> str:
+        end = await self._scoped().for_key_value_entity("profile", f"end-{id}").call("get").invoke(reply=str)
+        if end == "none":
+            raise HttpProblem(404, f"'{id}' has not ended")
+        return str(end)
+
     @post("/remind/{id}")
     async def remind(self, id: str) -> Done:
         await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)
@@ -991,6 +1066,8 @@ def reference_service() -> ServiceBuilder:
         .register(ShoppingCartEntity)
         .register(CartRows)
         .register(CheckoutWorkflow)
+        .register(CheckoutRows)
+        .register(CheckoutEnds)
         .register(Conformance)
         .register(Profile)
         .register(CheckoutRecorder)

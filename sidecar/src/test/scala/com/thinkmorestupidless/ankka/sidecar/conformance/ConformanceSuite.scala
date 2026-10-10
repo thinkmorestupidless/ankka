@@ -1958,6 +1958,9 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("shopping-cart", "cart-graph", "events"),
         ("cart-graph", "topic:conformance-graph", "topic-publication"),
         ("profile", "profile-graph", "state"),
+        // A workflow read as a source (feature 046).
+        ("checkout", "checkout-rows", "workflow"),
+        ("checkout", "checkout-ends", "workflow"),
         ("profile-graph", "topic:conformance-profile-graph", "topic-publication"),
         ("topic:conformance-topic", "topic-rows", "topic-subscription"),
         ("topic:conformance-topic", "topic-relay", "topic-subscription"),
@@ -1971,6 +1974,95 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(kinds.get("cart-rows"), Some("View"))
     assertEquals(kinds.get("checkout-recorder"), Some("Consumer"))
     assertEquals(kinds.get("shopping-cart"), Some("EventSourcedEntity"))
+  }
+
+  // ── Workflow sources (feature 046, features/workflow-sources/languages.feature) ──
+
+  private def checkoutRow(id: String) = get(s"/conformance/checkout/$id/row")
+
+  /** The checkout's row once its standing is `standing`. */
+  private def rowStanding(id: String, standing: String): Json =
+    eventually(30.seconds)(
+      Some(checkoutRow(id))
+        .filter(_.status == 200)
+        .map(_.json)
+        .filter(_("standing").flatMap(_.asString).contains(standing))
+    )
+
+  private def end(id: String) = get(s"/conformance/checkout/$id/end")
+
+  test("view.workflow-completed: a view reads a workflow in every language") {
+    assertEquals(post("/conformance/checkout/ws1", "ok").body, "started")
+    val row = rowStanding("ws1", "Completed")
+    assertEquals(row("status").flatMap(_.asString), Some("charged"))
+    assertEquals(row("id").flatMap(_.asString), Some("ws1"))
+  }
+
+  test("view.workflow-failure-recorded: a failed workflow's standing in every language") {
+    assertEquals(post("/conformance/checkout/ws2", "abort").body, "started")
+    val row = rowStanding("ws2", "Failed")
+    assertEquals(row("status").flatMap(_.asString), Some("aborted"))
+    assertEquals(row("failure").flatMap(_.asString), Some("payment declined"))
+  }
+
+  test("view.workflow-no-change-without-state: what records no state is no change") {
+    assertEquals(post("/conformance/checkout/ws3", "drop").body, "started")
+    // The last state recorded: reserved, and running on to `charge`, which fails.
+    eventually(30.seconds)(
+      Some(checkoutRow("ws3"))
+        .filter(_.status == 200)
+        .map(_.json)
+        .filter(_("status").flatMap(_.asString).contains("reserved"))
+    )
+    // The compensation fails the workflow and records nothing: the journal has the failure...
+    eventually(30.seconds)(
+      Some(journal("checkout|ws3")).filter(_.exists(_._3.contains("payment declined")))
+    )
+    Thread.sleep(5000)
+    // ...and the row is still that last state, running on the step that failed.
+    val row = checkoutRow("ws3").json
+    assertEquals(row("standing").flatMap(_.asString), Some("Running"))
+    assertEquals(row("status").flatMap(_.asString), Some("reserved"))
+    assertEquals(row("step").flatMap(_.asString), Some("charge"))
+  }
+
+  test("view.workflow-by-standing: a declared query lists the rows of one standing") {
+    post("/conformance/checkout/ws4", "ok")
+    post("/conformance/checkout/ws5", "abort")
+    rowStanding("ws4", "Completed")
+    rowStanding("ws5", "Failed")
+    val failed = get("/conformance/checkout-rows/Failed").json.asArray.getOrElse(fail("no array"))
+    val ids    = failed.flatMap(_.asString)
+    assert(ids.contains("ws5"), ids.toString)
+    assert(!ids.contains("ws4"), ids.toString)
+  }
+
+  test("consumer.workflow-end-once: a consumer is handed a failed workflow's standing") {
+    post("/conformance/checkout/ws6", "ok")
+    post("/conformance/checkout/ws7", "abort")
+    post("/conformance/checkout/ws8", "drop")
+    assertEquals(eventually(30.seconds)(Some(end("ws6")).filter(_.status == 200)).body, "Completed")
+    assertEquals(
+      eventually(30.seconds)(Some(end("ws7")).filter(_.status == 200)).body,
+      "Failed: payment declined"
+    )
+    // A workflow that ends recording nothing hands the consumer no end.
+    eventually(30.seconds)(
+      Some(journal("checkout|ws8")).filter(_.exists(_._3.contains("payment declined")))
+    )
+    Thread.sleep(3000)
+    assertEquals(end("ws8").status, 404)
+  }
+
+  test("discovery.workflow-source-needs-1.15: a runtime too old for a workflow source is refused") {
+    onlyForProcesses()
+    val refused = target.discoverWith("1.14").get
+    assert(refused.isLeft, refused)
+    refused.left.foreach { problems =>
+      val said = problems.mkString("\n")
+      assert(said.contains("1.15") && said.contains("1.14"), said)
+      assert(said.contains("checkout-rows") || said.contains("CheckoutRows"), said)
+    }
   }
 
   // ── Contracts, declared brokers and parallel partitions (feature 037) ──────

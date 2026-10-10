@@ -22,6 +22,7 @@ import { errorCodeToProto } from "../kinds.ts"
 import { decodePayload, encodePayload } from "./payloads.ts"
 import { PayloadSchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import type { ServerContext } from "./server.ts"
+import { standingFromProto } from "../standing.ts"
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? `${e.name}: ${e.message}` : String(e)
@@ -40,7 +41,7 @@ async function handleKeyedView(req: ViewRequest, sourceId: string, ctx: ServerCo
   const view = new registered.cls() as KeyedView<unknown>
   try {
     const client = ctx.client.withMetadata(metadata)
-    view._bind(metadata, client, clientRows(client, registered.id, registered.rowCodec))
+    view._bind(metadata, client, clientRows(client, registered.id, registered.rowCodec), standingFromProto(req.standing))
     const effect = (req.deleted
       ? source.deleted
         ? await source.deleted(view)
@@ -68,7 +69,7 @@ export async function handleView(req: ViewRequest, ctx: ServerContext): Promise<
   const view = new registered.cls() as View<unknown, unknown>
   try {
     const row = req.row ? decodePayload(registered.rowCodec, req.row) : null
-    view._bind(row, metadata, ctx.client.withMetadata(metadata))
+    view._bind(row, metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
     const effect = req.deleted ? await view.onDelete() : await view.onChange(decodePayload(registered.eventCodec, req.event))
     switch (effect.kind) {
       case "update-row":
@@ -107,7 +108,7 @@ function produceAll(request: Metadata, messages: { payload: ReturnType<typeof en
 
 async function graphEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
   const consumer = new registered.cls() as GraphConsumer<unknown>
-  consumer._bind(metadata, ctx.client.withMetadata(metadata))
+  consumer._bind(metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
   const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
   switch (effect.kind) {
     case "publish":
@@ -130,7 +131,7 @@ async function graphEffect(registered: RegisteredConsumer, req: ConsumerRequest,
 
 async function consumerEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
   const consumer = new registered.cls() as Consumer<unknown, unknown>
-  consumer._bind(metadata, ctx.client.withMetadata(metadata))
+  consumer._bind(metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
   const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
   const outCodec = () => {
     if (!registered.outCodec) throw new Error(`${registered.id} produced a message but declares no out shape`)

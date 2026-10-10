@@ -369,6 +369,21 @@ fn not_found(component_id: &str) -> proto::Failure {
 
 /// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.
 pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
+    if start_from::older_than_workflow_sources(host_protocol) {
+        let reading: Vec<&str> = components
+            .iter()
+            .filter(|c| start_from::reads_workflow(c))
+            .map(|c| c.id.as_str())
+            .collect();
+        if !reading.is_empty() {
+            return Some(format!(
+                "{} read a workflow, which the runtime does not know: it speaks protocol \
+                 {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.15 \
+                 or later.",
+                reading.join(", ")
+            ));
+        }
+    }
     if start_from::older_than_contracts(host_protocol) {
         let declaring: Vec<&str> = components
             .iter()

@@ -302,6 +302,7 @@ from ankka.timed_action import TimedAction  # noqa: E402
 from ankka.effects.keyed_view import KeyedViewEffect  # noqa: E402
 from ankka.effects.keyed_view import reduce as reduce_row_changes  # noqa: E402
 from ankka.keyed_view import KeyedView  # noqa: E402
+from ankka.standing import Standing  # noqa: E402
 from ankka.view import View  # noqa: E402
 from ankka.workflow import Workflow  # noqa: E402
 
@@ -438,12 +439,19 @@ class ViewTestKit(Generic[Row]):
     def of(cls, view_cls: type[View[Any, Row]]) -> ViewTestKit[Row]:
         return cls(view_cls)
 
-    def on_change(self, key: str, event: Any) -> ViewEffect:
+    def on_change(self, key: str, event: Any, standing: Standing | None = None) -> ViewEffect:
         view = self.view_cls()
         ec, rc = self.view_cls.event_codec, self.view_cls.row_codec
         current = self.rows.get(key)
         # As the sidecar sends it: the source's id under ce-subject.
-        effect = _run(view._handle(ec.encode(event), rc.encode(current) if current is not None else None, Metadata().set("ce-subject", key)))
+        effect = _run(
+            view._handle(
+                ec.encode(event),
+                rc.encode(current) if current is not None else None,
+                Metadata().set("ce-subject", key),
+                standing,
+            )
+        )
         from ankka.effects.view import DeleteRow, UpdateRow
 
         if isinstance(effect, UpdateRow):
@@ -493,12 +501,12 @@ class KeyedViewTestKit(Generic[Row]):
         self._answers[name] = answer
         return self
 
-    def change(self, source: Any, key: str, event: Any) -> KeyedViewEffect:
+    def change(self, source: Any, key: str, event: Any, standing: Standing | None = None) -> KeyedViewEffect:
         """Hands ``event``, a change of the entity ``key`` of ``source``, to that source's handler."""
         found = self.view_cls._sources.get(source.component_id)
         if found is None:
             raise LookupError(f"{self.view_cls.__name__} reads no source '{source.component_id}'")
-        return self._apply(source.component_id, found.codec.encode(event), key)
+        return self._apply(source.component_id, found.codec.encode(event), key, standing)
 
     def deleted(self, source: Any, key: str) -> KeyedViewEffect:
         """Tells the view that the entity ``key`` of ``source`` was deleted."""
@@ -507,11 +515,11 @@ class KeyedViewTestKit(Generic[Row]):
     def get(self, key: str) -> Row | None:
         return self.rows.get(key)
 
-    def _apply(self, source_id: str, event: bytes | None, key: str) -> KeyedViewEffect:
+    def _apply(self, source_id: str, event: bytes | None, key: str, standing: Standing | None = None) -> KeyedViewEffect:
         rc = self.view_cls.row_codec
         effect = typing.cast(
             KeyedViewEffect,
-            _run(self.view_cls()._handle(source_id, event, Metadata().set("ce-subject", key), _KitRows(self))),
+            _run(self.view_cls()._handle(source_id, event, Metadata().set("ce-subject", key), _KitRows(self), standing)),
         )
         for row_key, row in reduce_row_changes(effect.changes):
             if not row_key:
@@ -577,17 +585,22 @@ class ConsumerTestKit:
     def of(cls, consumer_cls: type[Consumer[Any, Any]]) -> ConsumerTestKit:
         return cls(consumer_cls)
 
-    def on_message(self, message: Any, subject: str = "test", *, sequence: int | None = None) -> ConsumerEffect:
-        """``sequence`` is the change's sequence number, as ``self.metadata.sequence_number``."""
+    def on_message(
+        self, message: Any, subject: str = "test", *, sequence: int | None = None, standing: Standing | None = None
+    ) -> ConsumerEffect:
+        """``sequence`` is the change's sequence number, as ``self.metadata.sequence_number``;
+        ``standing``, a workflow's, as ``self.standing``."""
         mc = self.consumer_cls.message_codec
-        return self._handle(mc.encode(message), subject, sequence)
+        return self._handle(mc.encode(message), subject, sequence, standing)
 
     def on_delete(self, subject: str = "test", *, sequence: int | None = None) -> ConsumerEffect:
         return self._handle(None, subject, sequence)
 
-    def _handle(self, message_bytes: bytes | None, subject: str, sequence: int | None) -> ConsumerEffect:
+    def _handle(
+        self, message_bytes: bytes | None, subject: str, sequence: int | None, standing: Standing | None = None
+    ) -> ConsumerEffect:
         consumer = self.consumer_cls(_NoClient())
-        effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence)))
+        effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence), standing))
         from ankka.effects.consumer import Produce, ProduceAll
 
         oc = self.consumer_cls.out_codec

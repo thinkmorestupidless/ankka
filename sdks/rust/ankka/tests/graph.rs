@@ -538,6 +538,7 @@ fn a_graph_consumer_answers_with_no_deltas_a_runtime_that_has_not_said_it_takes_
             message: None,
             metadata: Some(metadata.to_proto()),
             deleted: true,
+            standing: None,
         }
     };
     assert_eq!(

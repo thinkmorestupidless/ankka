@@ -34,6 +34,7 @@ from ankka.services import (  # noqa: E402
 )
 from ankka.service import Ankka, ServiceBuilder  # noqa: E402
 from ankka.start_from import StartFrom  # noqa: E402
+from ankka.standing import Standing  # noqa: E402
 from ankka.contract import Contract, Publication  # noqa: E402
 from ankka.view import DeclaredQuery, table_of  # noqa: E402
 from ankka.effects.keyed_view import KeyedViewEffect  # noqa: E402
@@ -52,6 +53,7 @@ __all__ = [
     "KeyedViewEffect", "Metadata",
     "InMemorySecrets", "Principal", "ReadOnlyEffect", "RegistrationError", "RequestContext", "Secrets", "ServiceBuilder",
     "StartFrom",
+    "Standing",
     "ScriptedRequest", "ScriptedServices", "ServiceCallFailed", "ServiceClient", "ServiceError",
     "ServiceIdentityMismatch", "ServiceResponse", "Services", "ServiceUnanswered", "ServiceUnresolvable",
     "Socket", "SocketClosed",

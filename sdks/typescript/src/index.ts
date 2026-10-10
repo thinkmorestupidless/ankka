@@ -83,6 +83,7 @@ export { Server, type ServerOptions } from "./server/server.ts"
 export { problems as sidecarProblems } from "./server/discovery.ts"
 export { PROTOCOL_VERSION, SDK_NAME } from "./spec.ts"
 export { StartFrom } from "./startFrom.ts"
+export { isTerminal, isUnknown, type Standing, type StandingStatus } from "./standing.ts"
 export {
   materialiseEventSourced, materialiseKeyValue, materialiseWorkflowCommand, materialiseStep,
   type Materialised, type MaterialisedKeyValue, type MaterialisedWorkflowCommand, type MaterialisedStep,

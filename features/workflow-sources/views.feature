@@ -1,10 +1,11 @@
 Feature: A view reads a workflow
-  A view may read a workflow as it reads an entity. Each change it is handed carries the
-  workflow's state as it stood after what the workflow recorded and the workflow's standing:
-  running, paused, completed or failed, the step it is on or waits after, and why it failed.
-  Every record the workflow made is a change, in the order it was recorded, applied exactly once;
-  a deletion runs the deletion handler. A view that reads a workflow declares a version and is
-  rebuilt as a view that reads an entity is, and may not read a topic as well.
+  A view may read a workflow as it reads an entity. Each change it is handed is a state the
+  workflow recorded, with the workflow's standing once the whole effect that recorded it is
+  applied: running, paused, completed or failed, the step it is on or waits after, and why it
+  failed. A transition, pause, end or failure that records no state is no change. Changes arrive in
+  the order recorded and are applied exactly once; a deletion runs the deletion handler. A view
+  that reads a workflow declares a version and is rebuilt as a view that reads an entity is, and
+  may not read a topic as well.
 
   Background:
     Given a service "shop" with a workflow "checkout" of the steps "reserve" and "charge"
@@ -16,22 +17,30 @@ Feature: A view reads a workflow
     And the row "c1" holds the state "c1" ended with
     And the row "c1" has the standing completed
 
-  Scenario: a row of a failed workflow names the step it failed on and the reason
-    Given the step "charge" of "checkout" fails after its retries
+  Scenario: a row of a workflow whose compensation recorded its failure has the standing failed and the reason
+    Given the step "charge" of "checkout" fails after its retries and fails over to "refund", which records the failure in the state and fails the workflow
     When the workflow "c2" of "checkout" runs from its start
     Then the row "c2" has the standing failed
-    And the row "c2" names the step "charge" and holds the reason
+    And the row "c2" holds the reason
+
+  Scenario: a workflow that fails without recording its state delivers no change
+    Given the step "charge" of "checkout" fails after its retries and fails over to nothing
+    And "checkouts" holds the row "c4" from the state "c4" recorded before "charge"
+    When the workflow "c4" of "checkout" fails at "charge"
+    Then "checkouts" is handed no change for the failure
+    And the row "c4" is as it was
 
   Scenario: a row of a paused workflow names the step it waits after
-    Given "checkout" pauses after its step "reserve"
+    Given the step "reserve" of "checkout" records its state and pauses
     When the workflow "c3" of "checkout" runs from its start
     Then the row "c3" has the standing paused
     And the row "c3" names the step "reserve"
 
-  Scenario: a row holds the state as of the last record and the step the workflow is on
-    Given the workflow "c1" of "checkout" has run its step "reserve" and moved to "charge"
+  Scenario: a row holds the last state recorded and the step the workflow moved to with it
+    Given the step "reserve" of "checkout" records its state and moves to "charge"
+    And the workflow "c1" of "checkout" has run its step "reserve"
     When a handler reads the row "c1"
-    Then the row "c1" holds the state as of the last thing "c1" recorded
+    Then the row "c1" holds the state "reserve" recorded
     And the row "c1" has the standing running and names the step "charge"
 
   Scenario: a declared query lists the rows of one standing
@@ -40,17 +49,23 @@ Feature: A view reads a workflow
     When a handler of "shop" asks "checkouts" the query "by-standing" with "failed" as "standing"
     Then the handler is answered with the row "c3" and no other
 
-  Scenario: a view that reads a workflow at a higher version is rebuilt from every record
-    Given "checkouts" at version 1 has read every record of "checkout"
+  Scenario: a view that reads a workflow at a higher version is rebuilt from every recorded state
+    Given "checkouts" at version 1 has read every state recorded by "checkout"
     And the workflows "c1" and "c2" of "checkout" have ended
     When "shop" restarts with "checkouts" at version 2
     Then "checkouts" holds no row written at version 1
     And "checkouts" holds a row written at version 2 for "c1" and for "c2"
 
-  Scenario: a restarted view reads no record of a workflow again
-    Given "checkouts" has read every record of the workflow "c1"
+  Scenario: a restarted view reads no state of a workflow again
+    Given "checkouts" has read every state recorded by the workflow "c1"
     When "shop" restarts
-    Then "checkouts" reads no record of "c1" again
+    Then "checkouts" reads no state of "c1" again
+
+  Scenario: a state recorded before the platform stamped standings is delivered with the standing unknown
+    Given the workflow "c8" of "checkout" recorded a state on a release before workflow sources
+    When "shop" restarts with "checkouts" at version 2
+    Then the row "c8" holds the state "c8" recorded
+    And the row "c8" has the standing unknown
 
   Scenario: a view may not read a topic and a workflow together
     Given "shop" has a view "orders" that reads the topic "orders" and the workflow "checkout"

@@ -121,7 +121,7 @@ function problemsOf(cls: unknown): readonly string[] {
 
 test("a consumer's contract, broker, parallel and publication reach discovery", () => {
   const spec = specOf(consumer({ contract: orders, broker: "legacy", parallel: true, producesTo: { topic: "enriched", contract: enriched, broker: "legacy" } }))
-  assert.equal(spec.protocolVersion, "1.14")
+  assert.equal(spec.protocolVersion, "1.15")
   const d = spec.components[0].detail
   assert.equal(d.case, "consumer")
   if (d.case !== "consumer") return

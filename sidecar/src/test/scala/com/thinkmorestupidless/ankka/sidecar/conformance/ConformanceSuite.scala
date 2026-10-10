@@ -415,6 +415,78 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(below, Vector("q-b", "q-c"))
   }
 
+  // ── View streams (protocol 1.15, features/view-streams/languages.feature) ──
+
+  /**
+   * The lines of a stream of server-sent events, read as they come, until `enough` or a deadline.
+   */
+  private def readEvents(path: String)(enough: Vector[String] => Boolean): Vector[String] =
+    val response = http.send(
+      HttpRequest.newBuilder(URI.create(target.baseUrl + path)).GET().build(),
+      HttpResponse.BodyHandlers.ofLines()
+    )
+    assertEquals(response.statusCode(), 200)
+    val lines    = response.body().iterator().asScala
+    val deadline = System.nanoTime() + 30.seconds.toNanos
+    var read     = Vector.empty[String]
+    while !enough(read) && System.nanoTime() < deadline && lines.hasNext do read :+= lines.next()
+    response.body().close()
+    read
+
+  private def eventsOf(lines: Vector[String]): Vector[(String, String)] =
+    lines
+      .foldLeft(Vector(Vector.empty[String]))((acc, l) =>
+        if l.isEmpty then acc :+ Vector.empty else acc.init :+ (acc.last :+ l)
+      )
+      .flatMap { fields =>
+        val data = fields.find(_.startsWith("data:")).map(_.stripPrefix("data:").trim)
+        val name =
+          fields.find(_.startsWith("event:")).map(_.stripPrefix("event:").trim).getOrElse("")
+        data.filter(_.nonEmpty).map(d => name -> d)
+      }
+
+  test("view.stream-named") {
+    onlyWhereStreaming()
+    Seq("vs-a", "vs-b", "vs-c").foreach(k => assertEquals(post(s"/tree/$k").status, 200))
+    eventually()(Some(get("/tree/vs-c/below")).filter(_.status == 200))
+    val keys = eventually() {
+      val streamed = eventsOf(readEvents("/tree/streamed")(_ => false))
+        .map(_._2)
+        .flatMap(d => Json.parse(d).toOption.flatMap(_.asString))
+      Option.when(Seq("vs-a", "vs-b", "vs-c").forall(streamed.contains))(streamed)
+    }
+    assertEquals(keys, keys.sorted, "not in the statement's order")
+  }
+
+  test("view.watch-named") {
+    onlyWhereStreaming()
+    assertEquals(post("/tree/vw-a").status, 200)
+    // The view holds the row once a stream of every row gives it.
+    eventually()(
+      Some(eventsOf(readEvents("/tree/streamed")(_ => false)).map(_._2))
+        .filter(_.exists(_.contains("\"vw-a\"")))
+    )
+    // A writer, started once the watcher is caught up, places a row the watch must then give.
+    val placed = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val lines = readEvents("/tree/watched") { read =>
+      val events = eventsOf(read)
+      if events.exists(_._1 == "caught-up") && !placed.getAndSet(true) then
+        Thread.ofVirtual().start(() => post("/tree/vw-b"): Unit): Unit
+      events.exists((n, d) => n == "row" && d.contains("\"vw-b\""))
+    }
+    val events = eventsOf(lines)
+    val caught = events.indexWhere(_._1 == "caught-up")
+    assert(caught >= 0, s"no caught-up event: $events")
+    assert(
+      events.take(caught).exists(_._2.contains("\"vw-a\"")),
+      s"vw-a not among the rows now: $events"
+    )
+    assert(
+      events.drop(caught + 1).exists(_._2.contains("\"vw-b\"")),
+      s"vw-b not given after: $events"
+    )
+  }
+
   test(
     "a service whose view declares a statement that reads another table does not start in every language"
   ) {

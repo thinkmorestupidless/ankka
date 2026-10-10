@@ -41,6 +41,7 @@ from ankka.keyed_view import KeyedView  # noqa: E402
 from ankka import graph  # noqa: E402
 from ankka.graph import GraphConsumer  # noqa: E402
 from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
+from ankka.views import CaughtUp, Overflow, Removed, WatchEnded, sse_events  # noqa: E402
 
 __all__ = [
     "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail", "SseEvent",
@@ -57,4 +58,5 @@ __all__ = [
     "Socket", "SocketClosed",
     "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "socket", "sse",
     "table_of",
+    "CaughtUp", "Overflow", "Removed", "WatchEnded", "sse_events",
 ]

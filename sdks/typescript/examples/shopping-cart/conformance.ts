@@ -54,6 +54,7 @@ import {
   declaredQuery,
   tableOf,
   type Infer,
+  sseEvents,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
@@ -265,6 +266,9 @@ export class TreeRows extends View<TreePlaced, TreeRow> {
 )
 SELECT payload FROM below ORDER BY row_key`,
     ),
+    // docs:start watched-query
+    declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
+    // docs:end watched-query
   ]
 
   onChange(event: TreePlaced) {
@@ -286,6 +290,14 @@ export class TreeEndpoint extends Endpoint {
     below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
       (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
     ),
+    // docs:start stream
+    streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+      for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+    }),
+    // docs:end stream
+    // docs:start watch
+    watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+    // docs:end watch
   }
 }
 

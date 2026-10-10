@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf"
 import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
-import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
+import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanViewStreams } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -15,7 +15,12 @@ import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions }
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
-  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol) ?? contractRefusal(spec, sidecarProtocol)
+  return (
+    startPositionRefusal(spec, sidecarProtocol) ??
+    declaredQueryRefusal(spec, sidecarProtocol) ??
+    contractRefusal(spec, sidecarProtocol) ??
+    watchedQueryRefusal(spec, sidecarProtocol)
+  )
 }
 
 /**
@@ -39,6 +44,22 @@ function contractRefusal(spec: Spec, sidecarProtocol: string): string | undefine
   return (
     `${declaring.join(", ")} declare a topic's contract, broker or parallel reading, which the sidecar ignores: ` +
     `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.14 or later.`
+  )
+}
+
+/**
+ * A sidecar older than 1.15 would not know that a view's query may be watched, and a watch of it would
+ * be refused at its first asking. Refused at discovery, naming the views.
+ */
+function watchedQueryRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanViewStreams(sidecarProtocol)) return undefined
+  const watching = spec.components
+    .filter((c) => c.detail.case === "view" && c.detail.value.declaredQueries.some((q) => q.watched))
+    .map((c) => c.id)
+  if (watching.length === 0) return undefined
+  return (
+    `${watching.join(", ")} declare a watched query, which the sidecar does not know: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later.`
   )
 }
 

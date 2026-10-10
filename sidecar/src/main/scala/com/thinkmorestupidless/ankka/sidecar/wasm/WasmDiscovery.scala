@@ -78,6 +78,15 @@ object WasmDiscovery:
         problems += s"component '${c.id}': handler '${h.name}' streams, and a module answers a " +
           "call whole; declare it without streaming"
       }
+      // A module reads a view whole: no import streams one, so a query it declares watched could
+      // never be watched.
+      val declared = c.detail match
+        case ankka.protocol.v1.discovery.Component.Detail.View(v) => v.declaredQueries
+        case _                                                    => Nil
+      declared.filter(_.watched).foreach { q =>
+        problems += s"view '${c.id}': query '${q.name}' is watched, and a module reads a view " +
+          "whole; declare it without watched"
+      }
       needs(c, wasm.stateful.contains(c.id)).filterNot(exports.contains).foreach { missing =>
         problems += s"component '${c.id}' needs the export '$missing', which the module does not have"
       }

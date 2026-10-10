@@ -114,7 +114,9 @@ message ViewDetail {
 }
 
 // 1.13: a statement over the view's own table. Its values are the `:name`s it holds.
-message DeclaredQuery { string name = 1; string statement = 2; }
+// `watched` (1.15): the query may be watched through `Client.Watch`; its statement selects `row_key`
+// beside `payload`, has no limit and does not aggregate, which the runtime checks at start.
+message DeclaredQuery { string name = 1; string statement = 2; bool watched = 3; }
 message ConsumerDetail {
   Source source = 1;
   optional string produces_to = 2;

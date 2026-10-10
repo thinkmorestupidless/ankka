@@ -58,7 +58,9 @@ object Discovery:
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
-   * (feature 031).
+   * (feature 031). 1.14: a topic source's contract, broker and parallel flag, and a consumer's
+   * publication (feature 037). 1.15: a view's query as a stream and a watch, `QueryStream` and
+   * `Watch` on `Client`, and a declared query's `watched` (feature 047).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -140,6 +142,9 @@ object Discovery:
   /** The minor that introduced socket routes. */
   private val SocketsSince = 9
 
+  /** The minor that introduced a watched query. */
+  private val WatchedSince = 15
+
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
       case _ :: minor :: Nil => minor.toIntOption
@@ -165,6 +170,20 @@ object Discovery:
       case _ =>
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
           s"'$protocolVersion'; the major versions must match"
+
+    // A view's declared queries as discovery states them. A query declared watched needs 1.15: an
+    // older SDK cannot have meant it, and a runtime from before would refuse its every watch.
+    def declared(
+        id: ComponentId,
+        view: String,
+        queries: Seq[ankka.protocol.v1.discovery.DeclaredQuery]
+    ): Vector[DeclaredQuery] =
+      queries.foreach { q =>
+        if q.watched && minorOf(spec.protocolVersion).exists(_ < WatchedSince) then
+          problems += s"view '$view': query '${q.name}' is watched, which needs protocol " +
+            s"1.$WatchedSince; the SDK speaks ${spec.protocolVersion}"
+      }
+      queries.map(q => DeclaredQuery(id, q.name, q.statement, q.watched)).toVector
 
     val descriptors = Vector.newBuilder[RemoteDescriptor]
     val agents      = Vector.newBuilder[Component]
@@ -218,7 +237,7 @@ object Discovery:
                     read.toVector,
                     d.rowManifest,
                     d.version,
-                    d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                    declared(id, c.id, d.declaredQueries)
                   )
             case (Kind.VIEW, Component.Detail.View(d)) =>
               source(s"view '${c.id}'", c.id, d.source, problems).foreach { s =>
@@ -228,7 +247,7 @@ object Discovery:
                   d.rowManifest,
                   d.queries.map(MethodName(_)).toSet,
                   d.version,
-                  d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                  declared(id, c.id, d.declaredQueries)
                 )
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>

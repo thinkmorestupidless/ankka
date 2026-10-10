@@ -32,16 +32,25 @@ class DeclaredQuery:
 
     name: str
     statement: str
+    watched: bool = False
 
 
-def query(name: str, statement: str) -> DeclaredQuery:
-    """Declares a query a view can be asked by ``name``; keep it as a class attribute of the view."""
-    return DeclaredQuery(name, statement)
+def query(name: str, statement: str, *, watched: bool = False) -> DeclaredQuery:
+    """Declares a query a view can be asked by ``name``; keep it as a class attribute of the view.
+    ``watched=True`` declares that it may also be watched: its statement then selects ``row_key``
+    beside ``payload``, has no limit and does not aggregate, which the platform checks at start."""
+    return DeclaredQuery(name, statement, watched)
 
 
 def table_of(component_id: str) -> str:
     """The table holding a view's rows, for a declared query's statement to name."""
     return "ankka_view_" + "".join(c if c.isalnum() else "_" for c in component_id)
+
+
+def declares_watched(cls: type) -> bool:
+    """Whether ``cls`` declares a query that may be watched, which a sidecar older than 1.15 would
+    not know."""
+    return any(q.watched for q in getattr(cls, "_declared_queries", ()))
 
 
 def declares_queries(cls: type) -> bool:
@@ -134,7 +143,8 @@ class View(Generic[Src, Row]):
                 queries=list(cls.queries),
                 version=cls.version,
                 declared_queries=[
-                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement) for q in cls._declared_queries
+                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement, watched=q.watched)
+                    for q in cls._declared_queries
                 ],
             ),
         )

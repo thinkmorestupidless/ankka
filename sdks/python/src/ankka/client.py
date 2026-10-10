@@ -20,6 +20,7 @@ from ankka._proto.ankka.protocol.v1 import client_pb2, client_pb2_grpc, discover
 from ankka.approvals import APPROVALS_SINCE, Answered, ApprovalAwaited, AwaitingApproval, awaiting_of
 from ankka.codec import DONE_CODEC, UNIT, Codec, Done, default_codec_for
 from ankka.context import Metadata
+from ankka import views
 from ankka.effects.common import Error, ErrorCode
 
 if TYPE_CHECKING:
@@ -267,6 +268,104 @@ class Views:
         decoding = codec or default_codec_for(row)
         documents = json.loads(answer.rows.data.decode("utf-8"))
         return [decoding.decode(json.dumps(d).encode("utf-8")) for d in documents]
+
+
+    async def stream(
+        self,
+        view_id: str,
+        name: str,
+        row: Any,
+        values: Mapping[str, str] | None = None,
+        *,
+        limit: int | None = None,
+    ) -> AsyncIterator[Any]:
+        """The rows of ``all`` or one of the view's declared queries as the database yields them,
+        decoded as ``row``'s default codec: nothing collected, and no limit unless one is given. A
+        statement the database ends, or a reader that takes nothing for its timeout, raises."""
+        request = client_pb2.QueryRequest(
+            view_id=view_id, name=name, metadata=self._metadata.to_pb(), values=dict(values or {}), limit=limit
+        )
+        decoding = default_codec_for(row)
+        async for event in self._frames(self._stub.QueryStream(request), decoding):
+            if isinstance(event, views.Row):
+                yield event.row
+
+    async def watch(
+        self,
+        view_id: str,
+        name: str,
+        row: Any,
+        values: Mapping[str, str] | None = None,
+        *,
+        unread: int | None = None,
+        overflow: views.Overflow = views.Overflow.DROP_HEAD,
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        """A watch of one of the view's declared queries, declared ``watched=True``: every row it
+        matches now, then ``CaughtUp``, then each row as it is written and matches and a ``Removed``
+        for each given row that stops matching. Raises ``WatchEnded`` when it ends with a reason.
+        ``unread`` bounds the rows it holds for a handler that has not read them, and ``overflow``
+        says what it does past that bound."""
+        request = client_pb2.WatchRequest(
+            view_id=view_id,
+            metadata=self._metadata.to_pb(),
+            named=client_pb2.Named(name=name, values=dict(values or {})),
+            unread_bound=unread,
+            overflow=overflow.name,
+        )
+        async for event in self._frames(self._stub.Watch(request), default_codec_for(row)):
+            yield event
+
+    async def watch_row(
+        self,
+        view_id: str,
+        key: str,
+        row: Any,
+        *,
+        unread: int | None = None,
+        overflow: views.Overflow = views.Overflow.DROP_HEAD,
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        """A watch of one row by its key: the row now, then ``CaughtUp``, then each version written
+        and a ``Removed`` when it is deleted."""
+        request = client_pb2.WatchRequest(
+            view_id=view_id, metadata=self._metadata.to_pb(), key=key, unread_bound=unread, overflow=overflow.name
+        )
+        async for event in self._frames(self._stub.Watch(request), default_codec_for(row)):
+            yield event
+
+    @staticmethod
+    async def _frames(
+        frames: Any, decoding: Codec[Any]
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        try:
+            async for frame in frames:
+                which = frame.WhichOneof("frame")
+                if which == "row":
+                    yield views.Row(frame.row.key, decoding.decode(frame.row.payload.data))
+                elif which == "removed":
+                    yield views.Removed(frame.removed.key)
+                elif which == "caught_up":
+                    yield views.CaughtUp()
+                elif which == "ended":
+                    raise views.WatchEnded(frame.ended.reason)
+                elif which == "failed":
+                    raise CommandError(_error(frame.failed))
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise view_streams_unimplemented(failure) from failure
+            raise
+
+
+def view_streams_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:
+    """What a runtime before view streams answers a stream or a watch with, said as what it is."""
+    from ankka.service import PROTOCOL_VERSION
+
+    return CommandError(
+        Error(
+            f"the runtime beside this process does not offer view streams, which need protocol "
+            f"{views.VIEW_STREAMS_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+            ErrorCode.INTERNAL,
+        )
+    )
 
 
 @dataclass(frozen=True)

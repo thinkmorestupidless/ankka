@@ -280,6 +280,12 @@ object ConformanceReference:
       |  SELECT n.row_key, n.payload FROM $table n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
       |)
       |SELECT payload FROM below ORDER BY row_key""".stripMargin)
+
+    // docs:start watched-query
+    /** Every row, by key, watchable: the same statement in every language. */
+    val allRows = query("all-rows")(s"SELECT row_key, payload FROM $table ORDER BY row_key").watched
+    // docs:end watched-query
+
     def create(ctx: ViewComponentContext) = new TreeRowsView
 
   // ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
@@ -778,6 +784,16 @@ object ConformanceReference:
     get("/{nodeId}/below") { (nodeId: String) =>
       clients.viewClient.forView(TreeRows).ask(TreeRows.under, "row" -> nodeId).map(_.key)
     }
+    // docs:start stream
+    // Every row's key, as the database yields the rows: one event each, then the end.
+    sse("/streamed")(() =>
+      clients.viewClient.forView(TreeRows).askStream(TreeRows.allRows).map(_.key)
+    )
+    // docs:end stream
+    // docs:start watch
+    // The rows now, `caught-up`, then each row as it is written, as named events.
+    sseEvents("/watched")(() => clients.viewClient.forView(TreeRows).watch(TreeRows.allRows).asSse)
+    // docs:end watch
 
   final case class Echo(a: Vector[String], b: Option[String], headers: Map[String, String])
   given JsonValueCodec[Echo]           = Codecs.make[Echo]

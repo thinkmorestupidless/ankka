@@ -200,6 +200,24 @@ export interface SseEvent {
   readonly value: unknown
 }
 
+/**
+ * A watch as server-sent events, for an `sse` route: each row as `row` carrying the key and the row,
+ * each removal as `removed`, the marker as `caught-up`, and a watch that ended with a reason as a last
+ * event `ended` carrying it, so a page is told why.
+ */
+export async function* sseEvents<Row>(watch: AsyncIterable<{ readonly kind: "row"; readonly key: string; readonly row: Row } | { readonly kind: "removed"; readonly key: string } | { readonly kind: "caughtUp" }>): AsyncIterable<SseEvent> {
+  try {
+    for await (const event of watch) {
+      if (event.kind === "row") yield sseEvent("row", { key: event.key, row: event.row })
+      else if (event.kind === "removed") yield sseEvent("removed", { key: event.key })
+      else yield sseEvent("caught-up", {})
+    }
+  } catch (failure) {
+    if (failure instanceof Error && failure.name === "WatchEnded") yield sseEvent("ended", { reason: (failure as Error & { reason: string }).reason })
+    else throw failure
+  }
+}
+
 export function sseEvent(name: string, value: unknown): SseEvent {
   if (typeof name !== "string" || name === "" || /[\r\n]/.test(name)) throw new TypeError(`an event name must be one non-empty line, not ${JSON.stringify(name)}`)
   return Object.freeze({ kind: "sse-event", name, value })

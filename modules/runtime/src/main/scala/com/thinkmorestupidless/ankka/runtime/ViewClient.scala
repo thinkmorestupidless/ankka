@@ -37,6 +37,9 @@ final class ViewClient private[ankka] (
     watching = true
     ViewWatches(database, askTimeout)
 
+  /** The instance's watches, for a view read by its id rather than its companion: a sidecar's. */
+  private[ankka] def watchRegistry: () => ViewWatches = () => watches
+
   /** How many watches this instance holds open, every view together. */
   private[ankka] def openWatches: Int = if watching then watches.openCount else 0
 

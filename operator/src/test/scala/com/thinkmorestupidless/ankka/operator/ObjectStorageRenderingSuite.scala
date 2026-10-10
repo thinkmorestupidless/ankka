@@ -617,6 +617,67 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     )
   }
 
+  // Feature 039, US5: a service that declines a storage credential.
+
+  test(
+    "keyless: no credential is asked for, and the bucket is ready on the identity and bucket alone"
+  ) {
+    val keyless = asks.copy(objectStorageCredential = false)
+    val requests = ObjectStorage.cloudRequests(
+      resource(keyless),
+      withCloud,
+      cloud,
+      None,
+      None,
+      Some("reports@acct.scripted"),
+      Some("acct-shop-reports")
+    )
+    assertEquals(requests.map(_.getSpec.kind), Vector("identity", "bucket"))
+    val plans = CloudBucketPlans(
+      CloudPlan.Ready(Map("identity" -> "i"), recovered = false, credentialGeneration = None),
+      CloudPlan.Ready(
+        Map("bucket" -> "b", "endpoint" -> "https://e", "region" -> "auto"),
+        recovered = false,
+        credentialGeneration = None
+      ),
+      None
+    )
+    assert(
+      ObjectStorage
+        .decide(keyless, withCloud, ObjectStorageObservation.empty, None, Some(plans))
+        .isInstanceOf[ObjectStoragePlan.Ready]
+    )
+    // A service that asked for one still waits for it.
+    assertEquals(
+      ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, None, Some(plans)),
+      ObjectStoragePlan.Waiting(None)
+    )
+  }
+
+  test("keyless: the bucket's three variables and no key, in every hosting") {
+    for hosting <- Hostings do
+      val keyless   = asks.copy(objectStorageCredential = false, hosting = hosting)
+      val developer = developers(keyless, containers(renderCloud(keyless, cloudReady)))
+      assertEquals(
+        storageVariables(developer).keySet,
+        Set("ANKKA_S3_ENDPOINT", "ANKKA_S3_REGION", "ANKKA_S3_BUCKET"),
+        hosting
+      )
+      assertEquals(storageSecrets(developer), Vector.empty[String], hosting)
+  }
+
+  test("keyless: a bucket in Garage cannot be had without a credential") {
+    assertEquals(
+      ObjectStorage.decide(
+        asks.copy(objectStorageCredential = false),
+        settings,
+        ObjectStorageObservation.empty,
+        None
+      ),
+      ObjectStoragePlan.Failed(Vector(ObjectStorage.NoCredential))
+    )
+  }
+
   test("cloud: the ServiceAccount carries what the cloud provider said binds it to its identity") {
     val annotations =
       Map("iam.gke.io/gcp-service-account" -> "reports@acct.iam.gserviceaccount.com")

@@ -675,7 +675,8 @@ object Rendering:
       case ObjectStoragePlan.Ready(_, Some(cloud)) =>
         Some(
           StorageEnv(
-            secret = Buckets.cloudSecret(spec.serviceName),
+            secret =
+              Option.when(spec.objectStorageCredential)(Buckets.cloudSecret(spec.serviceName)),
             literals = Vector(
               StorageEnv.Endpoint -> cloud.endpoint,
               StorageEnv.Region   -> cloud.region,
@@ -706,7 +707,7 @@ object Rendering:
         base <- settings.baseDomain
       yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(base, settings.httpsPort)).toVector
       StorageEnv(
-        secret = Buckets.secret(spec.serviceName),
+        secret = Some(Buckets.secret(spec.serviceName)),
         literals = (where :+ (StorageEnv.Bucket -> bucket)) ++ public,
         credentialGeneration = credentialGeneration
       )
@@ -1402,9 +1403,11 @@ object Rendering:
         new ContainerBuilder(containers(target))
           .addToEnv(env.literals.map((name, value) => literal(name, value))*)
           .addToEnvFrom(
-            new EnvFromSourceBuilder()
-              .withSecretRef(new SecretEnvSourceBuilder().withName(env.secret).build())
-              .build()
+            env.secret.toVector.map(secret =>
+              new EnvFromSourceBuilder()
+                .withSecretRef(new SecretEnvSourceBuilder().withName(secret).build())
+                .build()
+            )*
           )
           .build()
       )
@@ -1932,7 +1935,8 @@ object Rendering:
  *   above 0 so the service rolls onto a credential issued again, and never before it is there
  */
 final case class StorageEnv(
-    secret: String,
+    /** The Secret its key comes from; none for a service that declined a credential. */
+    secret: Option[String],
     literals: Vector[(String, String)],
     credentialGeneration: Int = 0
 )

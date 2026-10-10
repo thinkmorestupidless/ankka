@@ -242,12 +242,12 @@ on k3s (T068). *2026-10-10:* 044 is merged; T066–T068 are rewritten onto its p
 
 ### Tests for User Story 5
 
-- [ ] T073 [P] [US5] Test in `OPT/CloudRequestsSuite.scala` and `OPT/ObjectStorageRenderingSuite.scala`: with `objectStorageCredential: false` no `bucket-credential` request, no `envFrom`, no `ANKKA_S3_ACCESS_KEY`/`SECRET_KEY`, the other three variables present, the annotations present; `OPT/ObjectStorageSuite.scala`: 044's `fold` answers `Ready` with no credential plan for such a service (today it waits for one), and `decide` answers `Failed("a bucket in Garage is reached only with a storage credential")` on `garage`.
-- [ ] T074 [P] [US5] Test in `CPT/ControlPlaneHttpSuite.scala` and `CPT/ServiceProjectionSuite.scala`: an apply with `objectStorageCredential: false` is refused on a `garage` installation with that message and accepted on `gcs`.
+- [X] T073 [P] [US5] Test in `OPT/CloudRequestsSuite.scala` and `OPT/ObjectStorageRenderingSuite.scala`: with `objectStorageCredential: false` no `bucket-credential` request, no `envFrom`, no `ANKKA_S3_ACCESS_KEY`/`SECRET_KEY`, the other three variables present, the annotations present; `OPT/ObjectStorageSuite.scala`: 044's `fold` answers `Ready` with no credential plan for such a service (today it waits for one), and `decide` answers `Failed("a bucket in Garage is reached only with a storage credential")` on `garage`.
+- [X] T074 [P] [US5] (`ServiceProjectionSuite`'s case; the endpoint applies the same `objectStorageProblems`.) Test in `CPT/ControlPlaneHttpSuite.scala` and `CPT/ServiceProjectionSuite.scala`: an apply with `objectStorageCredential: false` is refused on a `garage` installation with that message and accepted on `gcs`.
 
 ### Implementation for User Story 5
 
-- [ ] T075 [US5] `OP/ObjectStorage.scala` (`cloudRequests` without the credential, `fold` without waiting for it), `OP/Rendering.scala` per T073; `CP/api/ServiceEndpoint.scala` and `CP/deploy/ServiceProjection.scala` per T074.
+- [X] T075 [US5] `OP/ObjectStorage.scala` (`cloudRequests` without the credential, `fold` without waiting for it), `OP/Rendering.scala` per T073; `CP/api/ServiceEndpoint.scala` and `CP/deploy/ServiceProjection.scala` per T074.
 - [ ] T076 [US5] Steps in `CPT/ObjectStorageGcsClusterFeatures.scala` for "a service that declines a storage credential is given none" (the pod's env, the scripted provider's issue record empty for the service, the ServiceAccount's annotation) and "a descriptor that declines a storage credential is refused on an installation whose object store is Garage" (the same steps against the `garage` stack); `ranOutside` for the two workload-identity scenarios.
 
 **Checkpoint**: all 41 scenarios green or in `ranOutside` on k3s; `GcsCompatibilitySuite` green by hand.

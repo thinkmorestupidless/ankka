@@ -95,6 +95,9 @@ object ObjectStorage:
 
   val NoStore: String = "the installation has no object store"
 
+  /** Why a bucket in Garage cannot be had without a storage credential (feature 039). */
+  val NoCredential: String = "a bucket in Garage is reached only with a storage credential"
+
   /**
    * Whether the descriptor gives an object store of its own, by the one declaration of the prefix.
    */
@@ -206,6 +209,8 @@ object ObjectStorage:
         annotations = Map(Labels.SettingsGenerationKey -> generation.toString)
       )
     ) ++ (for
+      // A service that declines a credential reaches its bucket as its cloud identity alone.
+      _ <- Option.when(spec.objectStorageCredential)(())
       i <- identity
       b <- bucket
     yield CloudRequests.bucketCredential(
@@ -257,7 +262,8 @@ object ObjectStorage:
     if !spec.provisionObjectStorage then
       if supplies(spec) then ObjectStoragePlan.Supplied else ObjectStoragePlan.NotAsked
     else if takesCloudPath(spec, settings, reported) then
-      cloud.fold(ObjectStoragePlan.Waiting(None))(fold)
+      cloud.fold(ObjectStoragePlan.Waiting(None))(fold(_, spec.objectStorageCredential))
+    else if !spec.objectStorageCredential then ObjectStoragePlan.Failed(Vector(NoCredential))
     else
       val names = Buckets.problems(spec.projectId, spec.serviceName)
       if names.nonEmpty then ObjectStoragePlan.Failed(names)
@@ -277,28 +283,23 @@ object ObjectStorage:
    * The three answers, as one plan: the first refusal is the bucket's, whatever answered it; all
    * three ready is a bucket; anything else waits, saying the first thing any of them said.
    */
-  private def fold(plans: CloudBucketPlans): ObjectStoragePlan =
+  private def fold(plans: CloudBucketPlans, credentialAsked: Boolean): ObjectStoragePlan =
     val all = Vector(plans.identity, plans.bucket) ++ plans.credential
     all.collectFirst { case CloudPlan.Failed(detail) => detail } match
       case Some(detail) => ObjectStoragePlan.Failed(Vector(detail))
-      case None =>
-        (plans.identity, plans.bucket, plans.credential) match
-          case (
-                _: CloudPlan.Ready,
-                CloudPlan.Ready(o, recovered, _, location),
-                Some(c: CloudPlan.Ready)
-              ) =>
+      case None         =>
+        // The credential's generation, once it is answered; a service that declined one needs
+        // none, and its bucket is ready with the identity and the bucket answered.
+        val credential: Option[Long] = plans.credential match
+          case Some(c: CloudPlan.Ready) => Some(c.credentialGeneration.getOrElse(1L))
+          case _                        => Option.when(!credentialAsked)(0L)
+        (plans.identity, plans.bucket, credential) match
+          case (_: CloudPlan.Ready, CloudPlan.Ready(o, recovered, _, location), Some(generation)) =>
             val found = for
               bucket   <- o.get(CloudRequests.Keys.Bucket)
               endpoint <- o.get(CloudRequests.Keys.Endpoint)
               region   <- o.get(CloudRequests.Keys.Region)
-            yield CloudBucket(
-              bucket,
-              endpoint,
-              region,
-              c.credentialGeneration.getOrElse(1L),
-              location
-            )
+            yield CloudBucket(bucket, endpoint, region, generation, location)
             found match
               case Some(b) => ObjectStoragePlan.Ready(recovered, Some(b))
               case None =>

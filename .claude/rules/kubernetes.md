@@ -114,9 +114,13 @@ service's request is `<service>-<suffix>`, a project's `<project>.<suffix>` so t
 and the `ankka-cloud` ConfigMap a provider reads; `CloudProviders` in `PlatformVariables` is the one list
 of known names.
 
-A bucket takes the cloud path when the installation names a provider and runs no Garage
-(`ObjectStorage.takesCloudPath`): `identity` and `bucket` first, then `bucket-credential` naming what they
-answered. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
+A bucket takes the cloud path when the installation names a provider and the bucket's store is the
+cloud's (`ObjectStorage.takesCloudPath`): where the operator last reported a bucket made, so a bucket stays
+put until a move switches it, else the installation's backend (`Settings.bucketBackend`: the one named,
+else Garage when installed, else the cloud). A status written before stores were named (no `store`) is a
+Garage bucket. `identity` and `bucket` first, then `bucket-credential` naming what they answered, into
+`<service>-cloud-storage` (never Garage's `-storage`: a moving service holds both). One rotation grace,
+`ANKKA_CLOUD_ROTATION_GRACE`, ends old credentials in both stores. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
 unanswered `ObjectStorage.withheld` keeps the Deployment back (the endpoint is the provider's to say) and
 the service reports `UpdateInProgress` with why. A third informer on `CloudResource` wakes the owner, and a
 pass with an unacknowledged request requeues at the bound, so "no provider for gcp has answered" lands on

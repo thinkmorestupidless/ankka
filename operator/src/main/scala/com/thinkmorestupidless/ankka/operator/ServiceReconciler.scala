@@ -63,8 +63,9 @@ final class ServiceReconciler(
     val brokerSeen   = observeBroker(ref, spec)
     val brokerPlan   = BrokerProvisioning.decide(spec, settings.broker, brokerSeen)
     val cloudBucket  = decideCloudBucket(ref, resource, spec)
-    val storagePlan  = decideObjectStoragePlan(ref, spec, cloudBucket.map(_.plans))
-    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings)
+    val reported     = ObjectStorage.reported(resource)
+    val storagePlan  = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
+    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings, reported)
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
@@ -166,6 +167,7 @@ final class ServiceReconciler(
   private def decideObjectStoragePlan(
       ref: ServiceRef,
       spec: AnkkaServiceSpec,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus],
       cloud: Option[CloudBucketPlans]
   ): ObjectStoragePlan =
     val observed =
@@ -174,7 +176,7 @@ final class ServiceReconciler(
           .observeObjectStorage(Buckets.name(spec.projectId, spec.serviceName))
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
       else ObjectStorageObservation.empty
-    ObjectStorage.decide(spec, settings, observed, cloud)
+    ObjectStorage.decide(spec, settings, observed, reported, cloud)
 
   /**
    * A bucket in the installation's cloud account (feature 044): the requests it takes, what the
@@ -186,7 +188,9 @@ final class ServiceReconciler(
       resource: AnkkaService,
       spec: AnkkaServiceSpec
   ): Option[ServiceReconciler.CloudBucketPass] =
-    for cloud <- settings.cloud if ObjectStorage.takesCloudPath(spec, settings)
+    for
+      cloud <- settings.cloud
+      if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource))
     yield
       val now = Instant.now(clock)
       def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
@@ -195,11 +199,15 @@ final class ServiceReconciler(
       def output(plan: CloudPlan, key: String) = plan match
         case CloudPlan.Ready(outputs, _, _) => outputs.get(key)
         case _                              => None
-      val first = ObjectStorage.cloudRequests(resource, cloud, None, None)
+      val projectLocation = executor.projectLocation(ref.namespace, spec.projectId)
+      val first =
+        ObjectStorage.cloudRequests(resource, settings, cloud, projectLocation, None, None)
       val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
       val requests = ObjectStorage.cloudRequests(
         resource,
+        settings,
         cloud,
+        projectLocation,
         output(idPlan, CloudRequests.Keys.Identity),
         output(bucketPlan, CloudRequests.Keys.Bucket)
       )
@@ -264,6 +272,7 @@ final class ServiceReconciler(
         objectStoragePlan,
         spec,
         settings,
+        ObjectStorage.reported(resource),
         ObjectStorage.inPlace(resource)
       ),
       // A broker that failed says why where a member looks first, without changing the

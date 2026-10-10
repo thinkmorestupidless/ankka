@@ -144,7 +144,9 @@ class RenderingGoldenSuite extends munit.FunSuite:
       resource =>
         ObjectStorage.cloudRequests(
           resource,
+          settings,
           cloud,
+          None,
           Some("cart@acct.scripted"),
           Some("acct-checkout-cart")
         )

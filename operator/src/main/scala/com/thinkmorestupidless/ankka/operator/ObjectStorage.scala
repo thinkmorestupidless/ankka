@@ -99,13 +99,32 @@ object ObjectStorage:
   def supplies(spec: AnkkaServiceSpec): Boolean =
     spec.env.exists(e => PlatformVariables.objectStorage(e.name))
 
+  /** What the operator last reported of a service's bucket, from the resource's status. */
+  def reported(resource: AnkkaService): Option[ObjectStorageStatus] =
+    Option(resource.getStatus).flatMap(_.objectStorage)
+
   /**
-   * Whether this service's bucket is the installation's cloud account's (feature 044): it asks for
-   * one, the installation names a cloud provider, and has no store of its own. An installation with
-   * both keeps its own store; moving buckets into the cloud is feature 039's.
+   * Whether this service's bucket is the installation's cloud account's (features 044 and 039): it
+   * asks for one, the installation names a cloud provider, and the bucket's store is the cloud's.
+   *
+   * The store is where the operator last reported a bucket made (data-model.md, "Where the store of
+   * a bucket comes from"): a bucket stays in the store it was made in until a move switches it, and
+   * one reported before stores were named was made in Garage, the one store there was. A service
+   * with no bucket made yet takes the installation's backend.
    */
-  def takesCloudPath(spec: AnkkaServiceSpec, settings: Settings): Boolean =
-    spec.provisionObjectStorage && settings.objectStore.isEmpty && settings.cloud.isDefined
+  def takesCloudPath(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      reported: Option[ObjectStorageStatus]
+  ): Boolean =
+    val made = reported.filter(r => r.phase == "Provisioned" || r.phase == "Recovered")
+    val inCloud =
+      if reported.flatMap(_.move).exists(_.state == "Switched") then true
+      else
+        made.map(_.store) match
+          case Some(store) => store == "gcs"
+          case None        => settings.bucketBackend.contains(ObjectStoreBackend.Gcs)
+    spec.provisionObjectStorage && settings.cloud.isDefined && inCloud
 
   /**
    * Why the service's Deployment is not applied on this pass, if it is not: a cloud bucket still
@@ -115,10 +134,11 @@ object ObjectStorage:
   def withheld(
       plan: ObjectStoragePlan,
       spec: AnkkaServiceSpec,
-      settings: Settings
+      settings: Settings,
+      reported: Option[ObjectStorageStatus]
   ): Option[String] =
     plan match
-      case ObjectStoragePlan.Waiting(detail) if takesCloudPath(spec, settings) =>
+      case ObjectStoragePlan.Waiting(detail) if takesCloudPath(spec, settings, reported) =>
         Some(detail.getOrElse(WaitingOnProvider))
       case _ => None
 
@@ -128,23 +148,38 @@ object ObjectStorage:
    * The cloud requests a service's bucket takes (feature 044): a cloud identity for its
    * ServiceAccount and a bucket at once, and a credential by which the one reaches the other once
    * both are answered, since the credential's request names each by what the provider made.
+   *
+   * The bucket asks what the descriptor and the installation say of it (feature 039): versions
+   * kept, the installation's soft-delete window and name prefix, the descriptor's origins while it
+   * is reachable from the internet, and the age at which a noncurrent version goes. It is made in
+   * its project's location when the project names one, else the installation's.
    */
   def cloudRequests(
       resource: AnkkaService,
+      settings: Settings,
       cloud: CloudSettings,
+      projectLocation: Option[String],
       identity: Option[String],
       bucket: Option[String]
   ): Vector[CloudResource] =
     val spec = resource.getSpec
     val by   = CloudRequests.Requester.of(resource)
+    val ask = CloudRequests.BucketAsk(
+      versioning = true,
+      softDeleteDays = settings.gcs.fold(GcsSettings.DefaultSoftDeleteDays)(_.softDeleteDays),
+      corsOrigins =
+        if spec.exposeObjectStorage then spec.objectStorageOrigins.toVector else Vector.empty,
+      namePrefix = settings.gcs.fold("")(_.prefix),
+      noncurrentVersionDays = spec.objectStorageVersionAgeDays
+    )
     Vector(
       CloudRequests.identity(cloud, by, Names.serviceAccount(spec.serviceName)),
       CloudRequests.bucket(
         cloud,
         by,
         CloudRequests.Purpose.Service,
-        cloud.location,
-        CloudRequests.BucketAsk()
+        projectLocation.getOrElse(cloud.location),
+        ask
       )
     ) ++ (for
       i <- identity
@@ -155,7 +190,7 @@ object ObjectStorage:
       CloudRequests.Purpose.Service,
       b,
       i,
-      Buckets.secret(spec.serviceName),
+      Buckets.cloudSecret(spec.serviceName),
       // A member's count of credentials issued again, from 0 (feature 039); a provider's
       // generations start at 1 (feature 044).
       spec.storageCredentialGeneration.toLong + 1
@@ -174,11 +209,13 @@ object ObjectStorage:
       spec: AnkkaServiceSpec,
       settings: Settings,
       observed: ObjectStorageObservation,
+      reported: Option[ObjectStorageStatus],
       cloud: Option[CloudBucketPlans] = None
   ): ObjectStoragePlan =
     if !spec.provisionObjectStorage then
       if supplies(spec) then ObjectStoragePlan.Supplied else ObjectStoragePlan.NotAsked
-    else if takesCloudPath(spec, settings) then cloud.fold(ObjectStoragePlan.Waiting(None))(fold)
+    else if takesCloudPath(spec, settings, reported) then
+      cloud.fold(ObjectStoragePlan.Waiting(None))(fold)
     else
       val names = Buckets.problems(spec.projectId, spec.serviceName)
       if names.nonEmpty then ObjectStoragePlan.Failed(names)
@@ -221,11 +258,15 @@ object ObjectStorage:
           case _ => ObjectStoragePlan.Waiting(all.flatMap(_.said).headOption)
 
   /** The bucket's address on the internet, when its descriptor asks and there is a base domain. */
-  def publicAddress(spec: AnkkaServiceSpec, settings: Settings): Option[String] =
+  def publicAddress(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      reported: Option[ObjectStorageStatus]
+  ): Option[String] =
     for
       _ <- Option.when(spec.provisionObjectStorage && spec.exposeObjectStorage)(())
       // A cloud bucket is reached at the cloud's address, not through the installation's gateway.
-      _    <- Option.when(!takesCloudPath(spec, settings))(())
+      _    <- Option.when(!takesCloudPath(spec, settings, reported))(())
       base <- settings.baseDomain
     yield Buckets.publicAddress(spec.projectId, spec.serviceName, base, settings.httpsPort)
 
@@ -252,20 +293,21 @@ object ObjectStorage:
       plan: ObjectStoragePlan,
       spec: AnkkaServiceSpec,
       settings: Settings,
+      reported: Option[ObjectStorageStatus],
       inPlace: Int = 0
   ): Option[ObjectStorageStatus] =
+    val inCloud = takesCloudPath(spec, settings, reported)
     // A cloud bucket's name is the provider's, known once it has answered; the store's is derived.
     val bucket = plan match
       case ObjectStoragePlan.Ready(_, Some(cloud)) => cloud.bucket
-      case _ if takesCloudPath(spec, settings)     => ""
+      case _ if inCloud                            => ""
       case _                                       => Buckets.name(spec.projectId, spec.serviceName)
     // A bucket the platform made says which store it is in and which credential is in place; an
     // object store of the service's own is neither the platform's to name. A bucket in the cloud
     // account is in Google Cloud Storage, `gcp` being the one provider there is (feature 044), and
     // its credential's generation is the provider's answer.
-    statusOf(plan, spec, settings, bucket).map(s =>
-      if takesCloudPath(spec, settings) then
-        s.copy(store = "gcs", credentialGeneration = cloudGeneration(plan))
+    statusOf(plan, spec, settings, reported, bucket).map(s =>
+      if inCloud then s.copy(store = "gcs", credentialGeneration = cloudGeneration(plan))
       else if spec.provisionObjectStorage then
         s.copy(store = "garage", credentialGeneration = credentialGeneration(plan, spec, inPlace))
       else s
@@ -281,6 +323,7 @@ object ObjectStorage:
       plan: ObjectStoragePlan,
       spec: AnkkaServiceSpec,
       settings: Settings,
+      reported: Option[ObjectStorageStatus],
       bucket: String
   ): Option[ObjectStorageStatus] =
     plan.reportedPhase.map { phase =>
@@ -296,14 +339,14 @@ object ObjectStorage:
           ObjectStorageStatus(
             phase = phase,
             bucket = bucket,
-            publicAddress = publicAddress(spec, settings),
+            publicAddress = publicAddress(spec, settings, reported),
             detail = detail
           )
         case ObjectStoragePlan.Ready(recovered, _) =>
           ObjectStorageStatus(
             phase = phase,
             bucket = bucket,
-            publicAddress = publicAddress(spec, settings),
+            publicAddress = publicAddress(spec, settings, reported),
             recovered = recovered
           )
         case ObjectStoragePlan.NotAsked => ObjectStorageStatus(phase = phase)

@@ -101,6 +101,14 @@ trait Executor:
     Vector.empty
 
   /**
+   * Where a project's new buckets are made (feature 039), from its `AnkkaProject`; none without
+   * one, and then the installation's location.
+   */
+  def projectLocation(namespace: String, projectId: String): Option[String] =
+    val _ = (namespace, projectId)
+    None
+
+  /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
    */
@@ -840,6 +848,15 @@ final class Fabric8Executor(
         .withName(projectId)
         .get()
     ).flatMap(p => Option(p.getSpec)).map(_.brokers.toVector).getOrElse(Vector.empty)
+
+  override def projectLocation(namespace: String, projectId: String): Option[String] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec)).flatMap(_.bucketLocation).filter(_.nonEmpty)
 
   override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
     val topicClient = client

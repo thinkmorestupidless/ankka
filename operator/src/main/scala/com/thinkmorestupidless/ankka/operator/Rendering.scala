@@ -259,7 +259,11 @@ object Rendering:
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
           // provider's to say, and an instance started without them would be started wrong.
           Option
-            .when(ObjectStorage.withheld(objectStoragePlan, spec, settings).isEmpty)(
+            .when(
+              ObjectStorage
+                .withheld(objectStoragePlan, spec, settings, ObjectStorage.reported(resource))
+                .isEmpty
+            )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
                   deployment(
@@ -277,6 +281,7 @@ object Rendering:
                     storageEnv(
                       spec,
                       settings,
+                      ObjectStorage.reported(resource),
                       objectStoragePlan,
                       ObjectStorage.credentialGeneration(
                         objectStoragePlan,
@@ -376,7 +381,8 @@ object Rendering:
     val bucket = Buckets.name(spec.projectId, spec.serviceName)
     val secret = Buckets.secret(spec.serviceName)
     val provision = plan match
-      case _ if ObjectStorage.takesCloudPath(spec, settings) => Vector.empty
+      case _ if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource)) =>
+        Vector.empty
       case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, _) =>
         val inPlace = ObjectStorage.inPlace(resource)
         val asked   = spec.storageCredentialGeneration
@@ -465,11 +471,10 @@ object Rendering:
       settings: Settings,
       move: Int,
       phase: MovePhase,
-      targetBucket: String,
+      target: CloudBucket,
       deadlineSeconds: Option[Long]
   ): io.fabric8.kubernetes.api.model.batch.v1.Job =
     val source = settings.objectStore
-    val target = settings.gcs
     def literal(name: String, value: String) =
       new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(name).withValue(value).build()
     def fromSecret(name: String, secret: String, key: String) =
@@ -500,17 +505,17 @@ object Rendering:
         Buckets.secret(spec.serviceName),
         StorageCredential.SecretKeyEntry
       ),
-      literal("MOVER_TARGET_ENDPOINT", target.map(_.endpoint).getOrElse("")),
-      literal("MOVER_TARGET_REGION", GcsSettings.Region),
-      literal("MOVER_TARGET_BUCKET", targetBucket),
+      literal("MOVER_TARGET_ENDPOINT", target.endpoint),
+      literal("MOVER_TARGET_REGION", target.region),
+      literal("MOVER_TARGET_BUCKET", target.bucket),
       fromSecret(
         "MOVER_TARGET_ACCESS_KEY",
-        Buckets.gcsSecret(spec.serviceName),
+        Buckets.cloudSecret(spec.serviceName),
         StorageCredential.AccessKeyEntry
       ),
       fromSecret(
         "MOVER_TARGET_SECRET_KEY",
-        Buckets.gcsSecret(spec.serviceName),
+        Buckets.cloudSecret(spec.serviceName),
         StorageCredential.SecretKeyEntry
       )
     )
@@ -649,10 +654,11 @@ object Rendering:
   def storageEnv(
       spec: AnkkaServiceSpec,
       settings: Settings,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus],
       plan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
       credentialGeneration: Int = 0
   ): Option[StorageEnv] =
-    if ObjectStorage.takesCloudPath(spec, settings) then cloudStorageEnv(spec, plan)
+    if ObjectStorage.takesCloudPath(spec, settings, reported) then cloudStorageEnv(spec, plan)
     else garageStorageEnv(spec, settings, credentialGeneration)
 
   /**
@@ -666,7 +672,7 @@ object Rendering:
       case ObjectStoragePlan.Ready(_, Some(cloud)) =>
         Some(
           StorageEnv(
-            secret = Buckets.secret(spec.serviceName),
+            secret = Buckets.cloudSecret(spec.serviceName),
             literals = Vector(
               StorageEnv.Endpoint -> cloud.endpoint,
               StorageEnv.Region   -> cloud.region,

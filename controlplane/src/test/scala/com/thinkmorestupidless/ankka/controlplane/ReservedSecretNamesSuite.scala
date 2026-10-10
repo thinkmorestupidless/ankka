@@ -27,7 +27,7 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
       Names.telemetrySecret(service),
       ZeroTrust.mountSecretName(service),
       Buckets.secret(service),
-      Buckets.gcsSecret(service)
+      Buckets.cloudSecret(service)
     )
 
   private val projectNames: Vector[String] =
@@ -50,7 +50,7 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
     // And its credential in Google Cloud Storage, which the cloud provider writes (feature 039).
     for
       service <- services
-      secret  <- Vector(Buckets.secret(service), Buckets.gcsSecret(service))
+      secret  <- Vector(Buckets.secret(service), Buckets.cloudSecret(service))
     do
       assert(
         com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec.isPlatformSecret(secret),

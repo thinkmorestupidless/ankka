@@ -112,6 +112,8 @@ spec:
     softDeleteDays: "0"
     corsOrigins: ""
     kmsKey: ""
+    namePrefix: acme
+    noncurrentVersionDays: ""
 status:
   observedGeneration: 1
   phase: Ready
@@ -119,7 +121,7 @@ status:
   location: europe-west2
   providerVersion: "ankka-gcp 0.1.0"
   outputs:
-    bucket: acme-production-shop-reports
+    bucket: acme-shop-reports-ae7cc739
     endpoint: https://storage.googleapis.com
     region: europe-west2
 ```
@@ -135,10 +137,10 @@ and a number is its decimal text.
 
 | Kind | Asks | Answers |
 |---|---|---|
-| `identity` | `serviceAccount`: a cloud identity for this Kubernetes ServiceAccount | `identity` |
+| `identity` | `serviceAccount`: a cloud identity for this Kubernetes ServiceAccount | `identity`, and `serviceAccountAnnotations`: the annotations, as `key=value` pairs, that bind the ServiceAccount to it |
 | `secret-access` | `identity`, `own` and `read`: which secrets the identity may keep and which it may only read | nothing |
 | `secret-sync` | `secretName`, `entries` as `NAME=id`, `entryGeneration`: a Secret kept in step with secrets in the account | `entryGeneration`, the one kept |
-| `bucket` | `purpose` (`service` or `backup`), `location`, `versioning`, `softDeleteDays`, `corsOrigins`, `kmsKey` | `bucket`, `endpoint`, `region` |
+| `bucket` | `purpose` (`service` or `backup`), `location`, `versioning`, `softDeleteDays`, `corsOrigins`, `kmsKey`, `namePrefix`, `noncurrentVersionDays` (empty for none) | `bucket`, `endpoint`, `region` |
 | `bucket-credential` | `bucket`, `identity`, `secretName`, and a credential generation | `secretName` |
 | `wrapping-key` | `identity`, `key`: that the identity may wrap with the installation's key | `key` |
 
@@ -146,6 +148,17 @@ A service with `provisionObjectStorage` on an installation whose object store is
 asks for an `identity`, a `bucket` and, once both are answered, a `bucket-credential` naming what they
 answered. A `backup` bucket is named so no service's bucket can share its name, and its credential is
 granted only to its project's database.
+
+A provider names a service's bucket `<namePrefix>-<project>-<service>-<digest>`, where `digest` is the
+first eight lowercase hex characters of SHA-256 over `<project>.<service>` and is never shortened. Two
+services whose project and name join to the same hyphenated text therefore get different buckets. The
+whole name fits 63 characters of `[a-z0-9-]`: when it would not, the service's part is shortened from
+the right, then the project's, each keeping at least one character. A name another customer of the
+cloud already holds is `Failed`, naming the bucket; a provider never adopts it.
+
+The operator copies `serviceAccountAnnotations` onto the service's Kubernetes ServiceAccount as they
+are, so a provider says how its cloud binds a workload to an identity and the platform needs no
+cloud's annotation keys.
 
 ## The answer
 

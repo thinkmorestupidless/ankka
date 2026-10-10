@@ -116,7 +116,7 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
     assert(!seen.unacknowledged)
     assertEquals(
       ObjectStorage
-        .decide(resource.getSpec, settings, ObjectStorageObservation.empty, Some(seen.plans)),
+        .decide(resource.getSpec, settings, ObjectStorageObservation.empty, None, Some(seen.plans)),
       ObjectStoragePlan.Ready(
         recovered = false,
         Some(
@@ -133,11 +133,12 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
       resource.getSpec,
       settings,
       ObjectStorageObservation.empty,
+      None,
       Some(seen.plans)
     )
     assertEquals(plan, ObjectStoragePlan.Waiting(Some("no provider for gcp has answered")))
     assertEquals(
-      ObjectStorage.withheld(plan, resource.getSpec, settings),
+      ObjectStorage.withheld(plan, resource.getSpec, settings, None),
       Some("no provider for gcp has answered")
     )
   }

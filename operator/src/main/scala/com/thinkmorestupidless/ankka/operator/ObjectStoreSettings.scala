@@ -47,20 +47,13 @@ object ObjectStoreBackend:
  *   of Google's
  * @param softDeleteDays
  *   how long a new bucket keeps a deleted object, 7 to 90 days
- * @param endpoint
- *   what a workload is given as `ANKKA_S3_ENDPOINT`. Google's address as shipped; a suite points it
- *   at a store of its own
+ *
+ * Where a bucket is reached, its endpoint and region, is the cloud provider's answer for it, never
+ * a setting (research R1a D11).
  */
-final case class GcsSettings(prefix: String, softDeleteDays: Int, endpoint: String)
+final case class GcsSettings(prefix: String, softDeleteDays: Int)
 
 object GcsSettings:
-  val GoogleEndpoint: String = "https://storage.googleapis.com"
-
-  /**
-   * The region a client signs for against Google Cloud Storage's S3-compatible API: `auto`, which
-   * `GcsCompatibilitySuite` holds against a real bucket.
-   */
-  val Region: String                  = "auto"
   val DefaultSoftDeleteDays: Int      = 7
   val SoftDeleteDays: Range.Inclusive = 7 to 90
 

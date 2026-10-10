@@ -28,12 +28,13 @@ object Buckets:
   def secret(serviceName: String): String = s"$serviceName$SecretSuffix"
 
   /**
-   * The Secret the cloud provider writes a service's credential for its bucket in Google Cloud
-   * Storage into (feature 039). Not the Garage one: a service being moved holds its Garage key
-   * there while the cloud provider writes the new bucket's here. It ends as every storage
+   * The Secret the cloud provider writes a service's credential for its bucket in the
+   * installation's cloud account into (features 044 and 039). Not the Garage one: a service being
+   * moved holds its Garage key there while the cloud provider writes the new bucket's here. Named
+   * for no cloud, as the provider's contract is written for any. It ends as every storage
    * credential's does, so no descriptor may name it.
    */
-  def gcsSecret(serviceName: String): String = s"$serviceName-gcs$SecretSuffix"
+  def cloudSecret(serviceName: String): String = s"$serviceName-cloud$SecretSuffix"
 
   /**
    * A bucket in Google Cloud Storage's address on the internet: the store's, then the name the

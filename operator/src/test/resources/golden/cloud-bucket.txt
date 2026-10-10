@@ -444,9 +444,11 @@
     "parameters" : {
       "kmsKey" : "keys/ankka",
       "corsOrigins" : "",
+      "namePrefix" : "",
       "purpose" : "service",
-      "softDeleteDays" : "0",
-      "versioning" : "false",
+      "softDeleteDays" : "7",
+      "noncurrentVersionDays" : "",
+      "versioning" : "true",
       "location" : "europe-west2"
     }
   }
@@ -485,7 +487,7 @@
     "parameters" : {
       "bucket" : "acct-checkout-cart",
       "identity" : "cart@acct.scripted",
-      "secretName" : "cart-storage"
+      "secretName" : "cart-cloud-storage"
     }
   }
 }
@@ -843,7 +845,7 @@
             }
           }, {
             "secretRef" : {
-              "name" : "cart-storage"
+              "name" : "cart-cloud-storage"
             }
           } ],
           "image" : "registry.example.com/acme/cart:1.4.2",

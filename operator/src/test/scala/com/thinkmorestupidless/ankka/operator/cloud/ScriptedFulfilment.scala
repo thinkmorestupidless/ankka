@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.operator.cloud
 
+import com.thinkmorestupidless.ankka.operator.BucketNames
 import com.thinkmorestupidless.ankka.crd.{
   CloudKinds,
   CloudResourceSpec,
@@ -161,7 +162,12 @@ final class ScriptedFulfilment(
     val p = spec.parameters
     spec.kind match
       case CloudKinds.Identity =>
-        Right(Map(Keys.Identity -> s"${p(Keys.ServiceAccount)}@$account.scripted") -> None)
+        Right(
+          Map(
+            Keys.Identity                  -> s"${p(Keys.ServiceAccount)}@$account.scripted",
+            Keys.ServiceAccountAnnotations -> s"scripted.example/identity=${p(Keys.ServiceAccount)}"
+          ) -> None
+        )
       case CloudKinds.SecretAccess =>
         Right(Map.empty -> None)
       case CloudKinds.SecretSync =>
@@ -187,13 +193,20 @@ final class ScriptedFulfilment(
         Right(Map(Keys.Key -> p(Keys.Key)) -> None)
 
   /**
-   * A backup bucket's name cannot be any service's: `<account>-<project>--backup` would need a
-   * service whose name begins with a hyphen, which no name can.
+   * A service's bucket is named by the contract's rule (`BucketNames`), its prefix the request's
+   * `namePrefix` or, with none, the account. A backup bucket's name cannot be any service's:
+   * `<account>-<project>--backup` would need a service whose name begins with a hyphen, which no
+   * name can.
    */
   private def bucketName(spec: CloudResourceSpec): String =
     if spec.parameters.get(Keys.Purpose).contains(Purpose.Backup) then
       s"$account-${spec.subject.project}--backup"
-    else s"$account-${spec.subject.project}-${spec.subject.service}"
+    else
+      BucketNames.name(
+        spec.parameters.get(Keys.NamePrefix).filter(_.nonEmpty).getOrElse(account),
+        spec.subject.project,
+        spec.subject.service
+      )
 
   private def isBackupBucket(bucket: String): Boolean = bucket.endsWith("--backup")
 

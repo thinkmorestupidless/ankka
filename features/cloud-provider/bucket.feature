@@ -16,14 +16,14 @@ Feature: A bucket made by the installation's cloud provider
     When a member applies the descriptor
     Then the operator writes an identity request for "reports"
     And the operator writes a bucket request for "reports" with the purpose "service", naming the project "shop", the location of "shop" or else the installation's, and what the descriptor asks of the bucket
-    And the operator writes a bucket credential request for "reports" naming that bucket, the cloud identity of "reports" and the secret "reports-storage"
+    And the operator writes a bucket credential request for "reports" naming that bucket, the cloud identity of "reports" and the secret "reports-cloud-storage"
 
   Scenario: a service is given its bucket when the cloud provider fulfils the requests
     Given a bucket request and a bucket credential request for "reports"
     When the cloud provider fulfils them
     Then each fulfilment is acknowledged and says "Ready"
     And the fulfilment of the bucket request names the bucket as the cloud provider made it
-    And the fulfilment of the bucket credential request names the secret "reports-storage"
+    And the fulfilment of the bucket credential request names the secret "reports-cloud-storage"
     And "reports" starts with the variables "ANKKA_S3_ENDPOINT", "ANKKA_S3_REGION", "ANKKA_S3_BUCKET", "ANKKA_S3_ACCESS_KEY" and "ANKKA_S3_SECRET_KEY" set from the fulfilments and the secret
     And the status says that "reports" has a bucket, and names the bucket as the cloud provider made it
 

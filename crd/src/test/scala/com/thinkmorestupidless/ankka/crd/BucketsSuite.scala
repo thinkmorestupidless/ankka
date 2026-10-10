@@ -47,9 +47,9 @@ class BucketsSuite extends munit.FunSuite:
   test(
     "a credential in Google Cloud Storage has a Secret of its own, ending as every storage credential's does"
   ) {
-    assertEquals(Buckets.gcsSecret("kyc"), "kyc-gcs-storage")
-    assert(Buckets.gcsSecret("kyc").endsWith(Buckets.SecretSuffix))
-    assertNotEquals(Buckets.gcsSecret("kyc"), Buckets.secret("kyc"))
+    assertEquals(Buckets.cloudSecret("kyc"), "kyc-cloud-storage")
+    assert(Buckets.cloudSecret("kyc").endsWith(Buckets.SecretSuffix))
+    assertNotEquals(Buckets.cloudSecret("kyc"), Buckets.secret("kyc"))
   }
 
   test("a bucket in Google Cloud Storage is at Google's address, then the bucket's reported name") {

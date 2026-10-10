@@ -380,12 +380,20 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
   test("the status reports the generation the pass leaves in place") {
     val spec = asks.copy(storageCredentialGeneration = 2)
     assertEquals(
-      ObjectStorage.status(ready, spec, settings, inPlace = 1).map(_.credentialGeneration),
+      ObjectStorage
+        .status(ready, spec, settings, reported = None, inPlace = 1)
+        .map(_.credentialGeneration),
       Some(2)
     )
     assertEquals(
       ObjectStorage
-        .status(ObjectStoragePlan.Waiting(Some("down")), spec, settings, inPlace = 1)
+        .status(
+          ObjectStoragePlan.Waiting(Some("down")),
+          spec,
+          settings,
+          reported = None,
+          inPlace = 1
+        )
         .map(_.credentialGeneration),
       Some(1)
     )
@@ -433,12 +441,60 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         withCloud,
         ProvisioningPlan.Supplied,
         objectStoragePlan = plan,
-        cloudRequests = ObjectStorage.cloudRequests(r, cloud, identity, bucket)
+        cloudRequests = ObjectStorage.cloudRequests(r, withCloud, cloud, None, identity, bucket)
       )
       .fold(p => fail(p.mkString("; ")), identity => identity)
 
   private def cloudRequestNames(actions: Vector[Action]): Vector[String] =
     actions.collect { case Action.EnsureCloudResource(r) => r.getMetadata.getName }
+
+  // Feature 039 (research R1a D3): what the descriptor and the installation ask of the bucket.
+
+  private def bucketAsked(
+      spec: AnkkaServiceSpec,
+      settings: Settings = withCloud,
+      projectLocation: Option[String] = None
+  ): Map[String, String] =
+    ObjectStorage
+      .cloudRequests(resource(spec), settings, cloud, projectLocation, None, None)
+      .collectFirst { case r if r.getSpec.kind == "bucket" => r.getSpec.parameters }
+      .get
+
+  test("cloud: a bucket keeps versions, with the installation's soft-delete window and prefix") {
+    val p = bucketAsked(asks, withCloud.copy(gcs = Some(GcsSettings("acme", 30))))
+    assertEquals(p("versioning"), "true")
+    assertEquals(p("softDeleteDays"), "30")
+    assertEquals(p("namePrefix"), "acme")
+    // With no settings of Google Cloud Storage's, the shipped window and no prefix.
+    assertEquals(bucketAsked(asks)("softDeleteDays"), "7")
+    assertEquals(bucketAsked(asks)("namePrefix"), "")
+  }
+
+  test(
+    "cloud: the descriptor's origins reach the bucket only while it is reachable from the internet"
+  ) {
+    val origins = List("https://play.example")
+    assertEquals(
+      bucketAsked(asks.copy(exposeObjectStorage = true, objectStorageOrigins = origins))(
+        "corsOrigins"
+      ),
+      "https://play.example"
+    )
+    assertEquals(bucketAsked(asks.copy(objectStorageOrigins = origins))("corsOrigins"), "")
+  }
+
+  test("cloud: a noncurrent version's age is the descriptor's, and empty when it names none") {
+    assertEquals(
+      bucketAsked(asks.copy(objectStorageVersionAgeDays = Some(30)))("noncurrentVersionDays"),
+      "30"
+    )
+    assertEquals(bucketAsked(asks)("noncurrentVersionDays"), "")
+  }
+
+  test("cloud: a bucket is made in its project's location when the project names one") {
+    assertEquals(bucketAsked(asks)("location"), cloud.location)
+    assertEquals(bucketAsked(asks, projectLocation = Some("us-east1"))("location"), "us-east1")
+  }
 
   test("cloud: a waiting bucket asks for an identity and a bucket, and starts no instance") {
     val actions = renderCloud(asks, ObjectStoragePlan.Waiting(None))
@@ -464,7 +520,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     }.get
     assertEquals(credential.getSpec.parameters("identity"), "reports@acct.scripted")
     assertEquals(credential.getSpec.parameters("bucket"), "acct-shop-reports")
-    assertEquals(credential.getSpec.parameters("secretName"), "reports-storage")
+    assertEquals(credential.getSpec.parameters("secretName"), "reports-cloud-storage")
     assertEquals(credential.getSpec.credentialGeneration, 1L)
   }
 
@@ -482,7 +538,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         ),
         hosting
       )
-      assertEquals(storageSecrets(developer), Vector("reports-storage"), hosting)
+      assertEquals(storageSecrets(developer), Vector("reports-cloud-storage"), hosting)
       cs.filterNot(_ eq developer).foreach { other =>
         assertEquals(
           storageVariables(other),

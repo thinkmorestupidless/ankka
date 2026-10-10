@@ -23,7 +23,7 @@ class MoveJobRenderingSuite extends munit.FunSuite:
         ObjectStoreSettings.ServiceRef("garage-system", "garage", 3900)
       )
     ),
-    gcs = Some(GcsSettings("ankka", 7, "https://storage.googleapis.com")),
+    gcs = Some(GcsSettings("ankka", 7)),
     storageMoverImage = "ankka-storage-mover:9.9.9"
   )
 
@@ -50,7 +50,8 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       settings,
       2,
       phase,
-      "t-casino-kyc-1",
+      // The target bucket as its cloud provider answered it: where it is reached is the answer's.
+      CloudBucket("t-casino-kyc-1", "https://storage.googleapis.com", "auto", 1L),
       deadline
     )
 
@@ -98,8 +99,8 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       Map(
         "MOVER_SOURCE_ACCESS_KEY" -> ("kyc-storage", "ANKKA_S3_ACCESS_KEY"),
         "MOVER_SOURCE_SECRET_KEY" -> ("kyc-storage", "ANKKA_S3_SECRET_KEY"),
-        "MOVER_TARGET_ACCESS_KEY" -> ("kyc-gcs-storage", "ANKKA_S3_ACCESS_KEY"),
-        "MOVER_TARGET_SECRET_KEY" -> ("kyc-gcs-storage", "ANKKA_S3_SECRET_KEY")
+        "MOVER_TARGET_ACCESS_KEY" -> ("kyc-cloud-storage", "ANKKA_S3_ACCESS_KEY"),
+        "MOVER_TARGET_SECRET_KEY" -> ("kyc-cloud-storage", "ANKKA_S3_SECRET_KEY")
       )
     )
     assert(Option(container(job(MovePhase.Copy)).getEnvFrom).forall(_.isEmpty))

@@ -45,7 +45,7 @@ class ObjectStorageSuite extends munit.FunSuite:
 
   private def decide(spec: AnkkaServiceSpec, settings: Settings = withStore)(
       observed: ObjectStorageObservation = ObjectStorageObservation.empty
-  ) = ObjectStorage.decide(spec, settings, observed)
+  ) = ObjectStorage.decide(spec, settings, observed, reported = None)
 
   test("1: a service that neither asks nor supplies is not asked about") {
     assertEquals(decide(asks.copy(provisionObjectStorage = false))(), ObjectStoragePlan.NotAsked)
@@ -138,7 +138,7 @@ class ObjectStorageSuite extends munit.FunSuite:
 
   test("the status of each plan") {
     def status(plan: ObjectStoragePlan, spec: AnkkaServiceSpec = asks) =
-      ObjectStorage.status(plan, spec, withStore)
+      ObjectStorage.status(plan, spec, withStore, None)
     assertEquals(status(ObjectStoragePlan.NotAsked), None)
     assertEquals(
       status(ObjectStoragePlan.Supplied, supplies),
@@ -175,13 +175,13 @@ class ObjectStorageSuite extends munit.FunSuite:
     val settings = withStore.copy(baseDomain = Some("example.com"))
     assertEquals(
       ObjectStorage
-        .status(ObjectStoragePlan.Ready(false), exposed, settings)
+        .status(ObjectStoragePlan.Ready(false), exposed, settings, None)
         .flatMap(_.publicAddress),
       Some("https://storage.example.com/shop.reports")
     )
     assertEquals(
       ObjectStorage
-        .status(ObjectStoragePlan.Ready(false), exposed, withStore)
+        .status(ObjectStoragePlan.Ready(false), exposed, withStore, None)
         .flatMap(_.publicAddress),
       None
     )
@@ -217,7 +217,7 @@ class ObjectStorageSuite extends munit.FunSuite:
   private val credReady = CloudPlan.Ready(Map("secretName" -> "reports-storage"), false, Some(2L))
 
   private def cloudDecide(plans: CloudBucketPlans) =
-    ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, Some(plans))
+    ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, None, Some(plans))
 
   test("cloud: all three answered is a bucket, named and placed as the provider answered") {
     assertEquals(
@@ -275,28 +275,89 @@ class ObjectStorageSuite extends munit.FunSuite:
       ObjectStoragePlan.Waiting(None)
     )
     assertEquals(
-      ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withCloud),
+      ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withCloud, None),
       Some(ObjectStorage.WaitingOnProvider)
     )
     assertEquals(
-      ObjectStorage.withheld(ObjectStoragePlan.Waiting(Some("why")), asks, withCloud),
+      ObjectStorage.withheld(ObjectStoragePlan.Waiting(Some("why")), asks, withCloud, None),
       Some("why")
     )
-    assertEquals(ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withStore), None)
     assertEquals(
-      ObjectStorage.withheld(ObjectStoragePlan.Failed(Vector("x")), asks, withCloud),
+      ObjectStorage.withheld(ObjectStoragePlan.Waiting(None), asks, withStore, None),
       None
+    )
+    assertEquals(
+      ObjectStorage.withheld(ObjectStoragePlan.Failed(Vector("x")), asks, withCloud, None),
+      None
+    )
+  }
+
+  // Feature 039: the store a bucket is in (data-model.md, "Where the store of a bucket comes from").
+
+  private def reported(
+      phase: String,
+      store: String,
+      move: Option[String] = None
+  ): Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus] =
+    Some(
+      com.thinkmorestupidless.ankka.crd.ObjectStorageStatus(
+        phase = phase,
+        store = store,
+        move = move.map(state => com.thinkmorestupidless.ankka.crd.MoveStatus(state = state))
+      )
+    )
+
+  test("store: a bucket whose move has switched is in the cloud account, whatever the backend") {
+    val garageBackend = withStore.copy(cloud = Some(cloud))
+    assert(
+      ObjectStorage.takesCloudPath(
+        asks,
+        garageBackend,
+        reported("Provisioned", "garage", Some("Switched"))
+      )
+    )
+  }
+
+  test("store: a bucket made stays in the store it was made in, whatever the backend says now") {
+    val gcsBackend =
+      withStore.copy(cloud = Some(cloud), objectStoreBackend = Some(ObjectStoreBackend.Gcs))
+    val garageBackend =
+      withStore.copy(cloud = Some(cloud), objectStoreBackend = Some(ObjectStoreBackend.Garage))
+    for phase <- Vector("Provisioned", "Recovered") do
+      assert(!ObjectStorage.takesCloudPath(asks, gcsBackend, reported(phase, "garage")), phase)
+      assert(ObjectStorage.takesCloudPath(asks, garageBackend, reported(phase, "gcs")), phase)
+  }
+
+  test("store: a bucket reported before stores were named is in Garage, the one store there was") {
+    val gcsBackend =
+      withStore.copy(cloud = Some(cloud), objectStoreBackend = Some(ObjectStoreBackend.Gcs))
+    assert(!ObjectStorage.takesCloudPath(asks, gcsBackend, reported("Provisioned", "")))
+  }
+
+  test("store: a bucket not made yet, or never reported, takes the installation's backend") {
+    val gcsBackend =
+      withStore.copy(cloud = Some(cloud), objectStoreBackend = Some(ObjectStoreBackend.Gcs))
+    for seen <- Vector(None, reported("Waiting", "garage"), reported("Failed", "garage")) do
+      assert(ObjectStorage.takesCloudPath(asks, gcsBackend, seen), seen.toString)
+    assert(!ObjectStorage.takesCloudPath(asks, withStore.copy(cloud = Some(cloud)), None))
+  }
+
+  test("store: an installation as 044 served it, a provider and no Garage, takes the cloud path") {
+    assert(ObjectStorage.takesCloudPath(asks, withCloud, None))
+    assert(
+      !ObjectStorage.takesCloudPath(asks.copy(provisionObjectStorage = false), withCloud, None)
     )
   }
 
   test("cloud: an installation with its own store keeps it, whatever cloud it names") {
     val both = withStore.copy(cloud = Some(cloud))
-    assert(!ObjectStorage.takesCloudPath(asks, both))
+    assert(!ObjectStorage.takesCloudPath(asks, both, None))
     assertEquals(
       ObjectStorage.decide(
         asks,
         both,
         ready,
+        None,
         Some(CloudBucketPlans(CloudPlan.Failed("no"), bucketReady, None))
       ),
       ObjectStoragePlan.Ready(recovered = false)
@@ -307,17 +368,19 @@ class ObjectStorageSuite extends munit.FunSuite:
     val ok = ObjectStorage.status(
       cloudDecide(CloudBucketPlans(identityReady, bucketReady, Some(credReady))),
       asks,
-      withCloud
+      withCloud,
+      None
     )
     assertEquals(ok.map(_.bucket), Some("acct-shop-reports"))
     assertEquals(ok.map(_.phase), Some("Provisioned"))
-    val waiting = ObjectStorage.status(ObjectStoragePlan.Waiting(Some("w")), asks, withCloud)
+    val waiting = ObjectStorage.status(ObjectStoragePlan.Waiting(Some("w")), asks, withCloud, None)
     assertEquals(waiting.map(_.bucket), Some(""))
     assertEquals(waiting.flatMap(_.detail), Some("w"))
     val failed = ObjectStorage.status(
       ObjectStoragePlan.Failed(Vector("the location is refused")),
       asks,
-      withCloud
+      withCloud,
+      None
     )
     assertEquals(failed.flatMap(_.detail), Some("the location is refused"))
     assertEquals(failed.map(_.publicAddress), Some(None))

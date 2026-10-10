@@ -106,12 +106,15 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     val fx = Fixture()
     assertEquals(
       fx.fulfil("reports-identity", everyKind(0)).outputs,
-      Map("identity" -> "reports@acct.scripted")
+      Map(
+        "identity"                  -> "reports@acct.scripted",
+        "serviceAccountAnnotations" -> "scripted.example/identity=reports"
+      )
     )
     assertEquals(
       fx.fulfil("reports-bucket", bucket).outputs,
       Map(
-        "bucket"   -> "acct-shop-reports",
+        "bucket"   -> BucketNames.name("acct", "shop", "reports"),
         "endpoint" -> "https://storage.scripted.invalid",
         "region"   -> "europe-west2"
       )

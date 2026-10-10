@@ -145,9 +145,12 @@ image from `ANKKA_STORAGE_MOVER_IMAGE`, the two credentials by `secretKeyRef`. S
 | The service | `store` |
 |---|---|
 | has a move block `Switched` | `gcs` |
-| has a bucket in Garage (the installation names Garage and the bucket exists) | `garage` |
-| otherwise, the installation's backend is `gcs` | `gcs` |
+| was reported made (`Provisioned` or `Recovered`) with a `store` | that store |
+| was reported made before stores were named (no `store`) | `garage`, the one store there was |
+| otherwise, the installation's backend (`Settings.bucketBackend`: the one named, else Garage when installed, else the cloud when a provider is named) is `gcs` | `gcs` |
 | otherwise | `garage` |
+
+Read from the status the operator last wrote, never by asking a store (research R1a D1).
 
 ## In the control plane
 

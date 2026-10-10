@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   ObjectStoreKind,
   ServiceProjector
 }
+import com.thinkmorestupidless.ankka.crd.Buckets
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaSerialization,
   CloudKinds,
@@ -57,6 +58,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import java.time.Instant
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters.*
 
 /**
  * `features/object-storage-gcs/` on k3s (feature 039): an installation whose object store is Google
@@ -87,6 +89,20 @@ class ObjectStorageGcsClusterFeatures
       "OperatorClusterSuite, case 41, and CloudProviderClusterFeatures under the provider's own token",
     "the operator holds no Google client, credential or permission and reads only the cloud provider's status" ->
       "OperatorClusterSuite's minted-token cases and CloudProviderClusterFeatures",
+    // A move caught part way: the copy and verify of a few objects finish within a pass or two,
+    // so these are held by the suites that drive the mover and the state machine one step at a time.
+    "a move that stopped part way is finished by running it again" ->
+      "MoverSuite (a second copy sends only what changed) and StorageMoveSuite (a new request after a stop)",
+    "a move that finds an object it cannot verify does not switch the service" ->
+      "MoverSuite (an altered target fails the verify naming it) and StorageMoveSuite (a failed verify gives writes back, no switch)",
+    "objects written during the bulk copy are copied in the write pause before the switch" ->
+      "MoverSuite (an object added mid-copy is on the target after the verify) and StorageMoveSuite (the verify runs in the pause, before the switch)",
+    "during the write pause the service can read and not write, and its status says the storage is moving" ->
+      "GarageStoreSuite and StorageCredentialSuite (a key denied write still reads) and ServiceEntitySuite (the pause, since when and how long)",
+    "a move that fails during the write pause gives the service its writes back on Garage" ->
+      "StorageMoveSuite (every failure after the pause gives writes back) and GarageStoreSuite (the deny lifted)",
+    "a write pause that reaches its bound fails the move and gives the service its writes back on Garage" ->
+      "StorageMoveSuite (the bound passing in the pause fails the move and gives writes back)",
     // This installation's object store is Google Cloud Storage; the refusal is the control plane's.
     "a descriptor that declines a storage credential is refused on an installation whose object store is Garage" ->
       "ServiceProjectionSuite, which projects the same descriptor against an installation on Garage"
@@ -979,4 +995,230 @@ class ObjectStorageGcsClusterFeatures
           catch case _: software.amazon.awssdk.services.s3.model.S3Exception => false
         assert(!held, s"the bucket holds $obj")
       finally client.close()
+  }
+
+  // ── US6: a move from Garage (move.feature) ─────────────────────────────────
+
+  Given("an installation whose object store was Garage and is now Google Cloud Storage") { () =>
+    assert(operatorSettings.objectStore.isDefined, "no Garage to move from")
+    assertEquals(operatorSettings.bucketBackend, Some(ObjectStoreBackend.Gcs))
+  }
+
+  /**
+   * A service whose bucket was made in Garage, before the installation kept new buckets in Google
+   * Cloud Storage: deployed while the operator's backend was Garage, which its status then records,
+   * so the bucket stays there once the backend is Google's again.
+   */
+  private def deployInGarage(logical: String): Unit =
+    startOperator(operatorSettings.copy(objectStoreBackend = Some(ObjectStoreBackend.Garage)))
+    try
+      deploy("shop", logical): Unit
+      waitFor(60.seconds, s"${real(logical)} reported in Garage") {
+        statusOf(real(logical)).flatMap(_.objectStore).contains("garage")
+      }
+    finally startOperator(operatorSettings)
+
+  private def keepIn(logical: String, obj: String): Unit =
+    val bucket = environment(logical)("ANKKA_S3_BUCKET")
+    val (code, body) =
+      servicePods.s3("shop", real(logical), "PUT", s"/$bucket/$obj", Some(s"contents of $obj"))
+    assertEquals(code, 200, body)
+
+  private def secretKey(name: String): (String, String) =
+    val data = k8s.secrets().inNamespace(namespace("shop")).withName(name).get().getData.asScala
+    def entry(k: String) =
+      new String(java.util.Base64.getDecoder.decode(data(k)), StandardCharsets.UTF_8)
+    (entry("ANKKA_S3_ACCESS_KEY"), entry("ANKKA_S3_SECRET_KEY"))
+
+  /** An object read on the host, through the forward, with `key`; none when it is not there. */
+  private def objectIn(bucket: String, obj: String, key: (String, String)): Option[String] =
+    val client = ServicePods.s3Client(s"http://127.0.0.1:${s3Forward.getLocalPort}", "garage", key)
+    try
+      Some(
+        client
+          .getObjectAsBytes(GetObjectRequest.builder().bucket(bucket).key(obj).build())
+          .asUtf8String()
+      )
+    catch case _: software.amazon.awssdk.services.s3.model.S3Exception => None
+    finally client.close()
+
+  private def awaitMoved(logical: String): Unit =
+    waitFor(600.seconds, s"the storage of ${real(logical)} moved") {
+      statusOf(real(logical)).flatMap(_.storageMove).contains("moved")
+    }
+
+  private def move(logical: String, bound: Option[String]): Unit =
+    val args =
+      Vector("services", "storage", "move", real(logical), "-p", "shop") ++
+        bound.toVector.flatMap(b => Vector("--write-pause-bound", b))
+    ok(ankka(args*)): Unit
+
+  /** "30 minutes" as a bound is written: `30m`. */
+  private def boundOf(words: String): String =
+    words.trim.split(" ") match
+      case Array(n, unit) => n + unit.take(1)
+      case _              => fail(s"not a bound: $words")
+
+  Given(
+    "a deployed service {string} with a bucket in Garage holding the objects {string} and {string}"
+  ) { (logical: String, a: String, b: String) =>
+    deployInGarage(logical)
+    keepIn(logical, a)
+    keepIn(logical, b)
+  }
+
+  Given("a deployed service {string} with a bucket in Garage") { (logical: String) =>
+    deployInGarage(logical)
+  }
+
+  Given("a deployed service {string} with a bucket in Garage, whose storage no member has moved") {
+    (logical: String) => deployInGarage(logical)
+  }
+
+  Given("a deployed service {string} whose storage a member has moved to Google Cloud Storage") {
+    (logical: String) =>
+      deployInGarage(logical)
+      keepIn(logical, "passport.pdf")
+      move(logical, None)
+      awaitMoved(logical)
+  }
+
+  When("a member moves the storage of {string}")((logical: String) => move(logical, None))
+
+  When("a member moves the storage of {string}, naming no write pause bound") { (logical: String) =>
+    move(logical, None)
+  }
+
+  When("a member moves the storage of {string}, naming a write pause bound of {string}") {
+    (logical: String, bound: String) => move(logical, Some(boundOf(bound)))
+  }
+
+  When("{string} is restarted") { (logical: String) =>
+    ok(ankka("services", "restart", real(logical), "-p", "shop")): Unit
+  }
+
+  When("a platform administrator reads the bucket of {string} in Garage")((_: String) => ())
+
+  Then(
+    "the bucket made for {string} in Google Cloud Storage holds the objects {string} and {string}, each with the contents it had in Garage"
+  ) { (logical: String, a: String, b: String) =>
+    awaitMoved(logical)
+    val key = secretKey(Buckets.cloudSecret(real(logical)))
+    for obj <- Vector(a, b) do
+      assertEquals(objectIn(reportedBucket(logical), obj, key), Some(s"contents of $obj"), obj)
+  }
+
+  Then("the status says that the bucket of {string} is in Google Cloud Storage") {
+    (logical: String) =>
+      waitFor(120.seconds, s"${real(logical)} reported in Google Cloud Storage") {
+        statusOf(real(logical)).flatMap(_.objectStore).contains("gcs")
+      }
+  }
+
+  Then("the history of {string} says that a member moved its storage") { (logical: String) =>
+    val run = ok(ankka("services", "history", real(logical), "-p", "shop", "-o", "json"))
+    assert(run.out.contains("\"storage-moved\""), run.out)
+  }
+
+  private def copyJob(logical: String) =
+    k8s
+      .batch()
+      .v1()
+      .jobs()
+      .inNamespace(namespace("shop"))
+      .withName(
+        Names.moveJob(real(logical), 1, com.thinkmorestupidless.ankka.operator.MovePhase.Copy)
+      )
+      .get()
+
+  Then("the operator runs a mover for {string} inside the installation") { (logical: String) =>
+    waitFor(180.seconds, s"the mover's Job for ${real(logical)}")(copyJob(logical) != null)
+  }
+
+  Then(
+    "the mover holds the storage credential of {string} in Garage and the storage credential of the bucket made for {string} in Google Cloud Storage, and no other credential"
+  ) { (logical: String, _: String) =>
+    val name      = real(logical)
+    val pod       = copyJob(logical).getSpec.getTemplate.getSpec
+    val container = pod.getContainers.asScala.head
+    val secrets = container.getEnv.asScala.flatMap(e =>
+      Option(e.getValueFrom).flatMap(v => Option(v.getSecretKeyRef)).map(_.getName)
+    )
+    assertEquals(secrets.toSet, Set(Buckets.secret(name), Buckets.cloudSecret(name)))
+    assert(Option(container.getEnvFrom).forall(_.isEmpty), "it is given a whole Secret")
+    assert(Option(pod.getVolumes).forall(_.isEmpty), "it mounts something")
+    assertEquals(Option(pod.getAutomountServiceAccountToken).map(_.booleanValue), Some(false))
+  }
+
+  Then("the operator reads what the mover reports and reads neither storage credential") { () =>
+    // What it reports reaches the status through the operator: the counts of the copy. That the
+    // operator cannot read a Secret is its grant's, proved under its own token by
+    // OperatorClusterSuite.
+    val logical = projectOf.keys.headOption.getOrElse(fail("no service"))
+    waitFor(600.seconds, "the mover's report in the status") {
+      Option(
+        k8s
+          .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaService])
+          .inNamespace(namespace("shop"))
+          .withName(real(logical))
+          .get()
+      ).flatMap(r => Option(r.getStatus))
+        .flatMap(_.objectStorage)
+        .flatMap(_.move)
+        .exists(_.copied.isDefined)
+    }
+  }
+
+  Then("the cloud provider reaches no bucket in Garage") { () =>
+    val logical = projectOf.keys.headOption.getOrElse(fail("no service"))
+    val garage  = Buckets.name("shop", real(logical))
+    awaitMoved(logical)
+    assertNotEquals(reportedBucket(logical), garage)
+    assert(
+      fulfilment.issued.forall(i => !i.secretName.equals(Buckets.secret(real(logical)))),
+      "the cloud provider wrote the Garage credential"
+    )
+  }
+
+  Then(
+    "every instance of {string} that started after the restart is given the variables of its bucket in Google Cloud Storage"
+  ) { (logical: String) =>
+    val name   = real(logical)
+    val bucket = reportedBucket(logical)
+    waitFor(300.seconds, s"$name's instances on its bucket in Google Cloud Storage") {
+      val running = pods("shop", name).filter(ServicePods.running)
+      running.nonEmpty && running.forall(_ =>
+        servicePods.environment("shop", name).get("ANKKA_S3_BUCKET").contains(bucket)
+      )
+    }
+    awaitReady("shop", name)
+  }
+
+  Then("the status says that the write pause of the move of {string} may last {string} at most") {
+    (logical: String, bound: String) =>
+      waitFor(60.seconds, s"the status naming the bound $bound") {
+        statusOf(real(logical))
+          .flatMap(_.storageMove)
+          .exists(_.contains(s"may last $bound at most"))
+      }
+  }
+
+  Then("the status says that the bucket of {string} is in Garage") { (_: String) =>
+    assertEquals(lastStatus.flatMap(_.objectStore), Some("garage"))
+  }
+
+  Then("{string} is given the variables of its bucket in Garage") { (logical: String) =>
+    assertEquals(
+      environment(logical).get("ANKKA_S3_BUCKET"),
+      Some(Buckets.name("shop", real(logical)))
+    )
+  }
+
+  Then("Garage still holds the bucket of {string} with every object it had") { (logical: String) =>
+    val bucket = Buckets.name("shop", real(logical))
+    assert(admin.bucket(bucket).isDefined, s"Garage no longer holds $bucket")
+    assertEquals(
+      objectIn(bucket, "passport.pdf", secretKey(Buckets.secret(real(logical)))),
+      Some("contents of passport.pdf")
+    )
   }

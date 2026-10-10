@@ -147,6 +147,13 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       keyGeneration = 3
     )
 
+  test("the mover is given no token of the cluster's, only the two storage credentials") {
+    val pod = job(MovePhase.Copy).getSpec.getTemplate.getSpec
+    assertEquals(Option(pod.getAutomountServiceAccountToken).map(_.booleanValue), Some(false))
+    assert(Option(container(job(MovePhase.Copy)).getEnvFrom).forall(_.isEmpty))
+    assert(Option(pod.getVolumes).forall(_.isEmpty))
+  }
+
   test("a move asks for its target, then runs the copy into it") {
     val actions = acted(StorageMove.Act.AskForBucket, StorageMove.Act.Copy(target.bucket))
     assertEquals(actions.count(_.isInstanceOf[Action.EnsureCloudResource]), 1)

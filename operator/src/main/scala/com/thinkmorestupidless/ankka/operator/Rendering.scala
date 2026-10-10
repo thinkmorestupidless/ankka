@@ -579,6 +579,8 @@ object Rendering:
         new PodSpecBuilder()
           .withRestartPolicy("Never")
           .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+          // The two storage credentials are all it holds: no token of the cluster's either.
+          .withAutomountServiceAccountToken(false)
           .withContainers(container)
           .build()
       )

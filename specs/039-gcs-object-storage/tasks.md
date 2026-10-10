@@ -184,12 +184,12 @@ first"), and create the one new module.
 
 ### Tests for User Story 4
 
-- [ ] T056 [P] [US4] (Garage half done.) Test in `OPT/ObjectStorageRenderingSuite.scala`: on `gcs`, the bucket request's `corsOrigins` = the origins when exposed, empty otherwise; `ANKKA_S3_PUBLIC_ENDPOINT` = the fulfilment's `endpoint` and `publicAddress` = `<endpoint>/<bucket>` when exposed; no `EnsureHttpRoute`/`EnsureReferenceGrant` on `gcs` (044's case).
+- [X] T056 [P] [US4] (Garage half done.) Test in `OPT/ObjectStorageRenderingSuite.scala`: on `gcs`, the bucket request's `corsOrigins` = the origins when exposed, empty otherwise; `ANKKA_S3_PUBLIC_ENDPOINT` = the fulfilment's `endpoint` and `publicAddress` = `<endpoint>/<bucket>` when exposed; no `EnsureHttpRoute`/`EnsureReferenceGrant` on `gcs` (044's case).
 - [X] T057 [P] [US4] Written (runs with T003's bucket; the unnamed origin is asserted inside the named-origin test). Add to `CPT/GcsCompatibilitySuite.scala` tests named for `reachable.feature`'s "a request without a signed URL is refused by every bucket" and "a browser on an origin the descriptor does not name cannot send an object": an unsigned GET refused; a presigned PUT's preflight allowed from `ANKKA_GCS_ORIGIN` and refused from another; and one proving the AWS SDK's `PutBucketCors` is refused by GCS (FR-016's reason).
 
 ### Implementation for User Story 4
 
-- [ ] T058 [US4] (Garage half done.) The Google Cloud Storage half of T056: `corsOrigins` is T091's; `ANKKA_S3_PUBLIC_ENDPOINT` and `publicAddress` are T031's and T032's. Nothing more than those tasks; tick this when T056 passes.
+- [X] T058 [US4] (Garage half done.) The Google Cloud Storage half of T056: `corsOrigins` is T091's; `ANKKA_S3_PUBLIC_ENDPOINT` and `publicAddress` are T031's and T032's. Nothing more than those tasks; tick this when T056 passes.
 - [ ] T059 [US4] Steps in `CPT/ObjectStorageGcsClusterFeatures.scala` for `reachable.feature`'s "told the address of its bucket on the internet", "a browser on an origin the descriptor names keeps an object through a signed URL" (the preflight against Garage's rule from the scripted provider's `corsOrigins`, then the PUT), and the outline "an origin the descriptor does not name cannot send" (the service's own hostname and `https://elsewhere.example` refused on preflight); `ranOutside` for the unsigned-request scenario naming T057's test.
 - [X] T060 [US4] Steps in `CPT/ObjectStorageClusterFeatures.scala` for 034's changed scenario "a browser on an origin the descriptor names keeps an object through a signed URL without the service setting a rule on its bucket" on Garage: the operator's rule, the preflight, the PUT, and the service's code setting nothing.
 
@@ -262,7 +262,7 @@ on k3s (T068). *2026-10-10:* 044 is merged; T066–T068 are rewritten onto its p
 - [X] T080 [P] `docs/platform/object-storage.md`: the section "On Google Cloud Storage" per research R14, with the snippets included from `GcsCompatibilitySuite` (T051, T057) and FR-018's words.
 - [X] T081 [P] `docs/platform/install-gke.md`: the eight sections of `contracts/installation.md` "A GKE installation"; `mkdocs.yml` nav beside `install-cloud.md`; `docs/platform/install-cloud.md` links to it and names the three settings.
 - [X] T082 [P] `docs/reference/service-descriptor.md` (the three fields), `docs/reference/limitations.md` (Garage keeps one version, so a deletion there is final at once; an object over 5 GiB does not move; in-cluster Garage traffic unchanged), `docs/operate/status-and-history.md` (the new lines and the four history kinds).
-- [ ] T083 `just docs-sync` and `just docs` (the rendered skill and the marketplace copies regenerate); `just features`.
+- [X] T083 `just docs-sync` and `just docs` (the rendered skill and the marketplace copies regenerate); `just features`.
 - [X] T084 Update `.claude/rules/kubernetes.md`'s object storage and cloud request sections: which store a bucket is in (`storeOf`), the `-cloud-storage` Secret, the move's state in status, the mover image, the one rotation grace, and any trap found on k3s; `.claude/rules/build-and-release.md` with the new image.
 - [X] T085 Release notes in `docs/deploy/upgrading.md`: `ankka-gcp` and the three settings; `ANKKA_CLOUD_ROTATION_GRACE` now governs Garage's keys too; the operator's `batch/jobs`; a pre-existing Garage key is generation 0; a bucket already in Garage stays there when the backend becomes `gcs`; 041's `durability.feature` is not this feature's.
 - [ ] T086 `sbt scalafmtAll scalafmtSbt`, then `sbt buildAll`; `gh workflow run cluster --ref <branch> -f suite=ObjectStorageGcsClusterFeatures` and `-f suite=ObjectStorageClusterFeatures`; both green before the pull request.

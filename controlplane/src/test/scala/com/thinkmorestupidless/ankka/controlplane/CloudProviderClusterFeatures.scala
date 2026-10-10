@@ -602,9 +602,15 @@ class CloudProviderClusterFeatures
     val logical    = deployed.last.stripSuffix(s"-$scenario")
     val secretName = Buckets.cloudSecret(real(logical))
     assertEquals(credentialRequest(logical).getStatus.outputs("secretName"), secretName)
-    assertEquals(scripted.issued.size, issuedBefore + 1, "one offered")
+    // This service's alone: the provider is the suite's, and an earlier scenario's credential can
+    // be issued or end (its rotation grace passing) inside this one's window.
+    val issued = scripted.issued.drop(issuedBefore)
+    assertEquals(issued.count(_.secretName == secretName), 1, s"one offered, of $issued")
     assertEquals(
-      scripted.ended.drop(endedBefore).map(e => e.secretName -> e.why),
+      scripted.ended
+        .drop(endedBefore)
+        .filter(_.secretName == secretName)
+        .map(e => e.secretName -> e.why),
       Vector(secretName -> "conflict"),
       "and the one just made ended, since the Secret was there"
     )
@@ -812,7 +818,13 @@ class CloudProviderClusterFeatures
     val subject = CloudSubject(Project, real(logical))
     for kind <- Vector(CloudKinds.Bucket, CloudKinds.Identity, CloudKinds.BucketCredential) do
       assert(scripted.holds(kind, subject), s"$kind of $subject was deleted")
-    assertEquals(scripted.ended.size, endedBefore, "no credential ended by a removal")
+    // This service's alone, for the reason the recovery step gives.
+    val ended = scripted.ended.drop(endedBefore)
+    assertEquals(
+      ended.filter(_.secretName == Buckets.cloudSecret(real(logical))),
+      Vector.empty,
+      s"no credential ended by a removal, of $ended"
+    )
   }
 
   Then("the secret {string} still exists") { (secretName: String) =>

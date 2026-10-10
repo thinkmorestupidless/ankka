@@ -72,6 +72,15 @@ private[ankka] object ViewStore:
     val body = if condition.isEmpty then head else head ++ SqlFragment.raw(" WHERE ") ++ condition
     body ++ SqlFragment.raw(" ORDER BY ") ++ order ++ SqlFragment.raw(s" LIMIT $limit")
 
+  /** Every row matching `condition`, with no limit: what a stream reads. */
+  def selectRows(table: String, condition: SqlFragment): SqlFragment =
+    val head = SqlFragment.raw(s"SELECT payload FROM $table")
+    if condition.isEmpty then head else head ++ SqlFragment.raw(" WHERE ") ++ condition
+
+  /** Every row matching `condition`, in `order`, with no limit: what a stream reads. */
+  def selectRowsOrdered(table: String, condition: SqlFragment, order: SqlFragment): SqlFragment =
+    selectRows(table, condition) ++ SqlFragment.raw(" ORDER BY ") ++ order
+
   def countWhere(table: String, condition: SqlFragment): SqlFragment =
     val head = SqlFragment.raw(s"SELECT count(*) FROM $table")
     if condition.isEmpty then head else head ++ SqlFragment.raw(" WHERE ") ++ condition

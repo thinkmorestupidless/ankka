@@ -31,7 +31,7 @@ Feature: A bucket made by the installation's cloud provider
     Given a bucket request for "reports" that the cloud provider cannot fulfil because <why>
     When the cloud provider says "Failed" and gives its reason
     Then the status of "reports" is "Failed" with the reason the cloud provider gave, word for word
-    And "reports" starts with no variable whose name starts with "ANKKA_S3_"
+    And no instance of "reports" starts
 
     Examples:
       | why                                                |

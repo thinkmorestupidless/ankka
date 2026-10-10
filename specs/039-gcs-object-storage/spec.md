@@ -163,6 +163,10 @@ objects (042); or object storage on a developer's machine, which stays Garage.
 
 ## Clarifications
 
+### Session 2026-10-10
+
+- Q: When the cloud provider refuses a service's bucket (its name is held, its location refused), does the service start without one or not at all? → A: Not at all. A service that asked for a bucket and runs without one cannot be relied on to run correctly, so no instance starts and the service is reported failed with the provider's reason. Instances already running are left as they are. 044's `bucket.feature` scenario says so too.
+
 ### Session 2026-10-08
 
 - Q: Is a bucket's location set once per installation, or may a project choose its own? → A: The

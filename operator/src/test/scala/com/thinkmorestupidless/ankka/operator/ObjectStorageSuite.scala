@@ -287,8 +287,9 @@ class ObjectStorageSuite extends munit.FunSuite:
       None
     )
     assertEquals(
+      // A bucket the provider refused holds its Deployment too, with the provider's reason.
       ObjectStorage.withheld(ObjectStoragePlan.Failed(Vector("x")), asks, withCloud, None),
-      None
+      Some("x")
     )
   }
 

@@ -134,7 +134,8 @@ object ObjectStorage:
   /**
    * Why the service's Deployment is not applied on this pass, if it is not: a cloud bucket still
    * waiting on its provider, whose endpoint and region are the provider's to say, so there is
-   * nothing true to render yet. The one function `Rendering` and `ServiceReconciler` both ask.
+   * nothing true to render yet; or one the provider refused (`refused`). The one function
+   * `Rendering` and `ServiceReconciler` both ask.
    */
   def withheld(
       plan: ObjectStoragePlan,
@@ -145,6 +146,23 @@ object ObjectStorage:
     plan match
       case ObjectStoragePlan.Waiting(detail) if takesCloudPath(spec, settings, reported) =>
         Some(detail.getOrElse(WaitingOnProvider))
+      case _ => refused(plan, spec, settings, reported)
+
+  /**
+   * Why the cloud provider refused the service's bucket, if it did. No instance starts: a service
+   * that asked for a bucket and runs without one cannot be relied on to run correctly, so it is
+   * held back and reported failed with the provider's reason. Instances already running are left as
+   * they are; the operator never deletes a Deployment to hold one back.
+   */
+  def refused(
+      plan: ObjectStoragePlan,
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      reported: Option[ObjectStorageStatus]
+  ): Option[String] =
+    plan match
+      case ObjectStoragePlan.Failed(problems) if takesCloudPath(spec, settings, reported) =>
+        Some(problems.mkString("; "))
       case _ => None
 
   val WaitingOnProvider: String = "waiting on the cloud provider for the bucket"

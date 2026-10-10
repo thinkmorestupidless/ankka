@@ -122,7 +122,9 @@ Garage bucket. `identity` and `bucket` first, then `bucket-credential` naming wh
 `<service>-cloud-storage` (never Garage's `-storage`: a moving service holds both). One rotation grace,
 `ANKKA_CLOUD_ROTATION_GRACE`, ends old credentials in both stores. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
 unanswered `ObjectStorage.withheld` keeps the Deployment back (the endpoint is the provider's to say) and
-the service reports `UpdateInProgress` with why. A third informer on `CloudResource` wakes the owner, and a
+the service reports `UpdateInProgress` with why. A bucket the provider refused holds it back too
+(`ObjectStorage.refused`) and the service is `Failed`: a service that asked for a bucket cannot be relied on
+to run without one; instances already running are left alone. A third informer on `CloudResource` wakes the owner, and a
 pass with an unacknowledged request requeues at the bound, so "no provider for gcp has answered" lands on
 time and the status recovers within seconds of a provider starting. The control plane shows the bucket's
 name as the operator reported it (`Service.bucketNamed`), empty meaning not yet known.

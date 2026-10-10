@@ -544,13 +544,17 @@ class CloudProviderClusterFeatures
       )
   }
 
-  Then("{string} starts with no variable whose name starts with {string}") {
-    (logical: String, prefix: String) =>
-      val name = real(logical)
-      waitFor(60.seconds, s"$name's Deployment")(developer(name).isDefined)
-      val c = developer(name).get
-      assertEquals(literals(c).keySet.filter(_.startsWith(prefix)), Set.empty[String])
-      assertEquals(secretsFrom(c).filter(_.endsWith("-storage")), Vector.empty[String])
+  Then("no instance of {string} starts") { (logical: String) =>
+    // A service whose bucket was refused cannot be relied on to run correctly: the operator
+    // applies no Deployment for it at all, pass after pass.
+    val name = real(logical)
+    for _ <- 1 to 10 do
+      assert(
+        k8s.apps().deployments().inNamespace(Namespace).withName(name).get() == null,
+        s"$name has a Deployment"
+      )
+      Thread.sleep(1000)
+    assertEquals(statusOf(name).map(_.lifecycle.toString), Some("Failed"))
   }
 
   Given("a deployed service {string} with a bucket the cloud provider made") { (logical: String) =>

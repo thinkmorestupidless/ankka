@@ -790,11 +790,16 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     assertEquals(a, b, "the generation changes the template and nothing else")
   }
 
-  test("cloud: a refused bucket starts the service told of no bucket at all") {
-    val cs =
-      containers(renderCloud(asks, ObjectStoragePlan.Failed(Vector("the location is refused"))))
-    cs.foreach(c => assertEquals(storageVariables(c), Map.empty[String, String], c.getName))
-    cs.foreach(c => assertEquals(storageSecrets(c), Vector.empty[String], c.getName))
+  test("cloud: a bucket the provider refused starts no instance, and says why") {
+    val refusal = ObjectStoragePlan.Failed(Vector("the location is refused"))
+    val actions = renderCloud(asks, refusal)
+    assert(!actions.exists(_.isInstanceOf[Action.ApplyDeployment]), "an instance would start")
+    assertEquals(
+      ObjectStorage.withheld(refusal, asks, withCloud, None),
+      Some("the location is refused")
+    )
+    // On the installation's own store a refusal is the store's: no cloud provider held it back.
+    assertEquals(ObjectStorage.refused(refusal, asks, settings, None), None)
   }
 
   test("cloud: the installation's own store renders no cloud request and no generation") {

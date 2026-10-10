@@ -202,9 +202,10 @@ service's bucket is made in the installation's cloud account by that provider. T
 same, and so are the five variables: `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION` and `ANKKA_S3_BUCKET` are
 what the provider answered, and the storage credential is in `<service>-cloud-storage`, written once by
 the provider. The bucket's name is the provider's, shown by `ankka services get`. Its instances start only
-once the provider has answered: until then the service is `UpdateInProgress`, saying what it waits for,
-and a bucket the provider refuses starts the service told of no bucket at all, with the provider's
-reason in its status.
+once the provider has answered: until then the service is `UpdateInProgress`, saying what it waits for.
+A bucket the provider refuses starts no instance at all, since a service that asked for a bucket cannot be
+relied on to run correctly without one: the service is `Failed`, with the provider's reason in its status.
+Instances already running when a refusal comes are left as they are.
 
 A bucket in a cloud account is reached at the cloud's own address, not through the installation's
 gateway, so `exposeObjectStorage` gives it no route. An installation that runs its own store and names a

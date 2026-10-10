@@ -69,6 +69,7 @@ final class ServiceReconciler(
     val moveStatus  = movePass.fold(reported.flatMap(_.move))(_.step.status)
     val storagePlan = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
     val withheld    = ObjectStorage.withheld(storagePlan, spec, settings, reported)
+    val refused     = ObjectStorage.refused(storagePlan, spec, settings, reported)
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
@@ -85,10 +86,15 @@ final class ServiceReconciler(
         moveStatus
       )
       // A Deployment held back for a cloud bucket's answer is an update in progress, saying why;
-      // a failure found by rendering or a foreign Deployment says more and is kept.
+      // one held back for a bucket the provider refused is a failure, whose reason the status's
+      // object storage carries. A failure found by rendering or a foreign Deployment says more and
+      // is kept.
       withheld
         .filter(_ => problems.isEmpty)
-        .fold(observed)(why => observed.copy(lifecycle = "UpdateInProgress", detail = Some(why)))
+        .fold(observed)(why =>
+          if refused.isDefined then observed.copy(lifecycle = "Failed")
+          else observed.copy(lifecycle = "UpdateInProgress", detail = Some(why))
+        )
 
     Rendering.render(
       resource,

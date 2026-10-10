@@ -157,7 +157,9 @@ object TopologyJson:
               .orElse(
                 several
                   .find(_.kind == ComponentKind.View)
-                  .filter(_ => ViewQueries.Names.contains(handler))
+                  .filter(view =>
+                    ViewQueries.Names.contains(handler) || declaredQueries(view).contains(handler)
+                  )
               )
               .orElse(several.find(d => d.kind != ComponentKind.View))
               .map(ids)
@@ -228,6 +230,17 @@ object TopologyJson:
       s""""p99":${millis(pair.percentileMillis(0.99))},"max":${millis(pair.maxMillis)},""" +
       s""""bucketed":true},""" +
       s""""histogram":${pair.histogram.mkString("[", ",", "]")},"streaming":${pair.streaming}}"""
+
+  /** The names of the queries a view declares, which a call to the view is named by. */
+  private def declaredQueries(view: ComponentDescriptor): Set[String] = view match
+    case v: com.thinkmorestupidless.ankka.sdk.ViewDescriptor[?, ?, ?] => v.queries.map(_.name).toSet
+    case v: com.thinkmorestupidless.ankka.sdk.KeyedViewDescriptor[?, ?] =>
+      v.queries.map(_.name).toSet
+    case v: com.thinkmorestupidless.ankka.runtime.remote.RemoteViewDescriptor =>
+      v.declaredQueries.map(_.name).toSet
+    case v: com.thinkmorestupidless.ankka.runtime.remote.RemoteKeyedViewDescriptor =>
+      v.declaredQueries.map(_.name).toSet
+    case _ => Set.empty
 
   private def millis(value: Double): String =
     BigDecimal(value).bigDecimal.stripTrailingZeros.toPlainString

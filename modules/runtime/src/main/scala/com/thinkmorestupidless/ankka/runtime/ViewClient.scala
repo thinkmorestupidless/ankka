@@ -37,6 +37,9 @@ final class ViewClient private[ankka] (
     watching = true
     ViewWatches(database, askTimeout)
 
+  /** How many watches this instance holds open, every view together. */
+  private[ankka] def openWatches: Int = if watching then watches.openCount else 0
+
   /** Ends every open watch, telling each the instance is stopping, and closes their connection. */
   private[ankka] def stopWatches(): Unit =
     if watching then scala.concurrent.Await.result(watches.stop(), 10.seconds)

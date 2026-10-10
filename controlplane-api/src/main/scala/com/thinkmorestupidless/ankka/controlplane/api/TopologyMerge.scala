@@ -46,7 +46,7 @@ object TopologyMerge:
       .map { case ((from, to), edges) =>
         val pairs = edges
           .flatMap(_.pairs)
-          .groupBy(p => (p.caller, p.callee))
+          .groupBy(p => (p.caller, p.callee, p.streaming))
           .toVector
           .sortBy((names, _) => names)
           .map((_, same) => sum(same))

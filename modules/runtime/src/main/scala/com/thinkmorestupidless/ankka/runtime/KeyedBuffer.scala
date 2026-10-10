@@ -13,9 +13,18 @@ import scala.collection.mutable
  * written faster than the watcher reads reaches it as its latest version, never an older one after
  * a newer. When `bound` keys are held and another key's row arrives, `overflow` decides. The stage
  * always pulls: a watcher that does not read never holds back what feeds it.
+ *
+ * Not live from the start (`startLive = false`), it first passes everything through with ordinary
+ * backpressure — the rows a watch gives now, which are read from the database as the watcher reads
+ * and are never dropped — and goes live with the caught-up marker. It is the last stage before the
+ * watcher, so nothing between them reads ahead of the bound: a concatenation ahead of it pulls one
+ * element early from its next part, which is why it is not ahead of the concatenation.
  */
-private[ankka] final class KeyedBuffer[Row](bound: Int, overflow: Overflow)
-    extends GraphStage[FlowShape[WatchEvent[Row], WatchEvent[Row]]]:
+private[ankka] final class KeyedBuffer[Row](
+    bound: Int,
+    overflow: Overflow,
+    startLive: Boolean = true
+) extends GraphStage[FlowShape[WatchEvent[Row], WatchEvent[Row]]]:
 
   require(bound >= 1, s"a watch's unread bound is 1 or more, not $bound")
 
@@ -35,11 +44,21 @@ private[ankka] final class KeyedBuffer[Row](bound: Int, overflow: Overflow)
         case WatchEvent.Removed(key) => key
         case WatchEvent.CaughtUp     => ""
 
-      override def preStart(): Unit = pull(in)
+      private var live = startLive
+
+      override def preStart(): Unit = if live then pull(in)
 
       def onPush(): Unit =
         val event = grab(in)
-        val key   = keyOf(event)
+        if !live then
+          // Pulled only for a reader that asked, so the reader is waiting for it.
+          if event == WatchEvent.CaughtUp then live = true
+          push(out, event)
+          if live then pull(in)
+        else hold(event)
+
+      private def hold(event: WatchEvent[Row]): Unit =
+        val key = keyOf(event)
         if held.contains(key) then
           held.remove(key)
           held.update(key, event)
@@ -62,11 +81,13 @@ private[ankka] final class KeyedBuffer[Row](bound: Int, overflow: Overflow)
         if !isClosed(in) && !hasBeenPulled(in) then pull(in)
 
       def onPull(): Unit =
-        deliver()
-        if isClosed(in) && held.isEmpty then completeStage()
+        if !live then { if !isClosed(in) && !hasBeenPulled(in) then pull(in) }
+        else
+          deliver()
+          if isClosed(in) && held.isEmpty then completeStage()
 
       override def onUpstreamFinish(): Unit =
-        if held.isEmpty then completeStage()
+        if !live || held.isEmpty then completeStage()
 
       private def deliver(): Unit =
         held.headOption.foreach { (key, event) =>

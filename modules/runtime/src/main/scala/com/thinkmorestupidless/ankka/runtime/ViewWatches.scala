@@ -5,13 +5,13 @@ import com.thinkmorestupidless.ankka.sdk.{WatchEnd, WatchEnded, WatchEvent, Watc
 import org.apache.pekko.NotUsed
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.scaladsl.Source
-import org.apache.pekko.stream.{BoundedSourceQueue, Materializer, QueueOfferResult}
+import org.apache.pekko.stream.{BoundedSourceQueue, QueueOfferResult}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable
 import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
 
 /**
@@ -40,7 +40,6 @@ private[ankka] final class ViewWatches(database: Database, askTimeout: FiniteDur
 ):
 
   private given ExecutionContext = system.executionContext
-  private given Materializer     = Materializer(system)
 
   import ViewWatches.Target
 
@@ -114,34 +113,70 @@ private[ankka] final class ViewWatches(database: Database, askTimeout: FiniteDur
   def watch(table: String, target: Target, watching: Watching)(
       rowsNow: Source[(String, String), NotUsed]
   ): Source[WatchEvent[String], NotUsed] =
-    if open.incrementAndGet() > bound then
-      open.decrementAndGet()
-      Source.failed(
-        CommandError(
-          s"this instance holds $bound open watches, its watch bound; a watch is refused until one ends",
-          ErrorCode.Unavailable
+    Source
+      .lazySource { () =>
+        if open.incrementAndGet() > bound then
+          open.decrementAndGet()
+          Source.failed[WatchEvent[String]](
+            CommandError(
+              s"this instance holds $bound open watches, its watch bound; a watch is refused " +
+                "until one ends",
+              ErrorCode.Unavailable
+            )
+          )
+        else opened(table, target, watching, rowsNow)
+      }
+      .mapMaterializedValue(_ => NotUsed)
+
+  /**
+   * One graph. The live queue is materialised with the rest — a concatenation materialises every
+   * part at once — and registers the watch as it is; the rows now are read only once the
+   * registration is heard, and the live rows only once the rows now are all given. The keyed buffer
+   * is the last stage: the concatenation pulls one element early from the part after the one it is
+   * reading, and a buffer ahead of it would lose that element from its bound.
+   */
+  private def opened(
+      table: String,
+      target: Target,
+      watching: Watching,
+      rowsNow: Source[(String, String), NotUsed]
+  ): Source[WatchEvent[String], NotUsed] =
+    val made       = Promise[Watch]()
+    val subscribed = Promise[Unit]()
+    def watch      = made.future.value.flatMap(_.toOption)
+    val live = Source
+      .queue[WatchEvent[String]](math.max(1024, unreadBound * 4))
+      .mapMaterializedValue { queue =>
+        val opening = Watch(table, target, queue)
+        made.success(opening)
+        subscribed.completeWith(register(opening))
+        NotUsed
+      }
+    val now = Source
+      .futureSource(subscribed.future.map(_ => rowsNow))
+      .map { (key, json) =>
+        watch.foreach(_.gave(key))
+        WatchEvent.Row(key, json): WatchEvent[String]
+      }
+    val caughtUp = Source.lazySingle { () =>
+      watch.foreach(_.caughtUp())
+      WatchEvent.CaughtUp: WatchEvent[String]
+    }
+    (now ++ caughtUp ++ live)
+      .via(
+        KeyedBuffer[String](
+          watching.unread.getOrElse(unreadBound),
+          watching.overflow,
+          startLive = false
         )
       )
-    else
-      val (queue, live) = Source
-        .queue[WatchEvent[String]](math.max(1024, unreadBound * 4))
-        .via(KeyedBuffer[String](watching.unread.getOrElse(unreadBound), watching.overflow))
-        .preMaterialize()
-      val watch = Watch(table, target, queue)
-      Source
-        .futureSource(register(watch).map { _ =>
-          rowsNow.map { (key, json) =>
-            watch.gave(key)
-            WatchEvent.Row(key, json): WatchEvent[String]
-          } ++ Source.lazySingle { () =>
-            watch.caughtUp()
-            WatchEvent.CaughtUp: WatchEvent[String]
-          } ++ live
-        })
-        .watchTermination() { (_, ended) =>
-          ended.onComplete(_ => unregister(watch))
-          NotUsed
-        }
+      .watchTermination() { (_, ended) =>
+        ended.onComplete(_ => watch.fold(open.decrementAndGet(): Unit)(unregister))
+        NotUsed
+      }
+
+  /** How many watches are open on this instance. */
+  def openCount: Int = open.get
 
   /** Ends every watch with `InstanceStopping`, and closes the listener. */
   def stop(): Future[Unit] =

@@ -114,6 +114,10 @@ final class CartsView extends View[CartEvent, CartRow]:
       case CartEvent.Touched       => before
     effects.updateRow(after.copy(version = before.version + 1))
 
+/** The version `Carts` is declared at, raised by a scenario that rebuilds it. */
+object CartsVersion:
+  @volatile var current: Int = 1
+
 object Carts
     extends View.Companion[CartsView, CartEvent, CartRow](
       componentId = ComponentId("carts"),
@@ -135,4 +139,33 @@ object Carts
        |AND (payload::jsonb->>'dueAt')::bigint <= (extract(epoch from now()) * 1000)::bigint""".stripMargin
   ).watched
 
+  /** How many carts there are: a statement that aggregates, which may be asked and not watched. */
+  val cartCount = query("cart-count")(
+    s"""SELECT 'count' AS row_key, json_build_object('cartId', 'count', 'items', count(*),
+       |'checkedOut', false, 'dueAt', 0, 'version', 0)::text AS payload FROM $table""".stripMargin
+  )
+
+  /** The ten newest carts: a statement with a limit, which may be asked and not watched. */
+  val newestCarts = query("newest-carts")(
+    s"SELECT row_key, payload FROM $table ORDER BY updated_at DESC LIMIT 10"
+  )
+
+  override def version: Option[Int] = Some(CartsVersion.current)
+
   def create(ctx: ViewComponentContext) = new CartsView
+
+/**
+ * A view of carts declaring `queries` as watched, for a service that must not start: a fresh
+ * companion each time, since a companion's queries are fixed once it is registered.
+ */
+def cartsWatching(queries: (String, String)*): ViewDescriptor[CartsView, CartEvent, CartRow] =
+  new View.Companion[CartsView, CartEvent, CartRow](
+    ComponentId("carts"),
+    ChangeSource.eventsOf(CartEntity),
+    Codecs.serializer[CartRow]("cart-row")
+  ):
+    queries.foreach { (name, statement) =>
+      val _ = query(name)(statement).watched
+    }
+    def create(ctx: ViewComponentContext) = new CartsView
+  .descriptor

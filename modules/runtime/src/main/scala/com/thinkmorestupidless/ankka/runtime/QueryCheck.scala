@@ -248,9 +248,10 @@ private[ankka] object QueryCheck:
     def plainProblem(plain: PlainSelect): Option[String] =
       val items = plain.getSelectItems.asScala.toVector
       val every = items.exists(_.getExpression.isInstanceOf[AllColumns])
-      val aggregate = items.map(_.getExpression).collectFirst {
-        case f: Function if Aggregates(fold(f.getName.split('.').last)) => f.getName
-      }
+      // Anywhere in an item, not only outermost: `json_build_object('n', count(*))` aggregates.
+      val aggregate = items
+        .flatMap(item => functionsIn(item.getExpression))
+        .find(name => Aggregates(fold(name.split('.').last)))
       if !every && !(items.exists(named(_, "row_key")) && items.exists(named(_, "payload"))) then
         Some("which does not select row_key and payload; a watched query gives the view's rows")
       else if aggregate.nonEmpty || plain.getGroupBy != null || plain.getDistinct != null then
@@ -275,6 +276,19 @@ private[ankka] object QueryCheck:
                 .collectFirst { case Some(why) => why }
             case _ => Some("whose outermost select cannot be read; a watched query is a select")
       case _ => None
+
+  /** Every function an expression calls, however deep. */
+  private def functionsIn(expression: net.sf.jsqlparser.expression.Expression): Vector[String] =
+    val found = ArrayBuffer.empty[String]
+    expression.accept(
+      new net.sf.jsqlparser.expression.ExpressionVisitorAdapter[Void]:
+        override def visit[S](function: Function, context: S): Void =
+          found += function.getName
+          super.visit(function, context)
+      ,
+      null
+    ): Unit
+    found.toVector
 
   private def parse(text: String): Either[String, Statement] =
     try

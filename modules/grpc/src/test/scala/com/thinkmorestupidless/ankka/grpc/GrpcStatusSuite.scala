@@ -6,14 +6,15 @@ import io.grpc.Status
 class GrpcStatusSuite extends munit.FunSuite:
 
   private val expected = Map(
-    ErrorCode.BadRequest   -> Status.Code.INVALID_ARGUMENT,
-    ErrorCode.Unauthorized -> Status.Code.UNAUTHENTICATED,
-    ErrorCode.Forbidden    -> Status.Code.PERMISSION_DENIED,
-    ErrorCode.NotFound     -> Status.Code.NOT_FOUND,
-    ErrorCode.Conflict     -> Status.Code.FAILED_PRECONDITION,
-    ErrorCode.Timeout      -> Status.Code.DEADLINE_EXCEEDED,
-    ErrorCode.Unavailable  -> Status.Code.UNAVAILABLE,
-    ErrorCode.Internal     -> Status.Code.INTERNAL
+    ErrorCode.BadRequest     -> Status.Code.INVALID_ARGUMENT,
+    ErrorCode.Unauthorized   -> Status.Code.UNAUTHENTICATED,
+    ErrorCode.Forbidden      -> Status.Code.PERMISSION_DENIED,
+    ErrorCode.NotFound       -> Status.Code.NOT_FOUND,
+    ErrorCode.Conflict       -> Status.Code.FAILED_PRECONDITION,
+    ErrorCode.Timeout        -> Status.Code.DEADLINE_EXCEEDED,
+    ErrorCode.Unavailable    -> Status.Code.UNAVAILABLE,
+    ErrorCode.Internal       -> Status.Code.INTERNAL,
+    ErrorCode.WorkflowFailed -> Status.Code.ABORTED
   )
 
   test("every code maps to its status, with the message, and back to itself") {

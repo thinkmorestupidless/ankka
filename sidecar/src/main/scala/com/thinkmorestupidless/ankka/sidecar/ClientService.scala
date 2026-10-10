@@ -64,6 +64,12 @@ final class ClientService(
   def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
   def decide(request: DecideRequest): Future[InvokeReply]    = logic.decide(request)
 
+  // STUB(048 T034/T052): replaced by ClientLogic.awaitEnd and awaitEndStream.
+  def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] =
+    Future.failed(Status.UNIMPLEMENTED.asRuntimeException())
+  def awaitEndStream(request: AwaitEndRequest, out: StreamObserver[StreamToken]): Unit =
+    out.onError(Status.UNIMPLEMENTED.asRuntimeException())
+
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match
       case ErrorCode.Unavailable => Status.UNAVAILABLE

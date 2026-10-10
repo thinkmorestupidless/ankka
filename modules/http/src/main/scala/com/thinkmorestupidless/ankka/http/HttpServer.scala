@@ -677,12 +677,23 @@ private final class Router(
    * else's (a gRPC status, an exception), and a tab or other control character left raw makes the
    * whole body unparseable — so the client loses the error it was being told about.
    */
+  /** `,"details":{…}` for a problem that carries some, and nothing for one that does not. */
+  private def detailsJson(details: Map[String, String]): String =
+    if details.isEmpty then ""
+    else
+      details.toVector
+        .sortBy(_._1)
+        .map((k, v) => s"${JsonText.encode(k)}:${JsonText.encode(v)}")
+        .mkString(",\"details\":{", ",", "}")
+
   private def problem(failure: HttpProblem): HttpResponse =
     HttpResponse(
       StatusCode.int2StatusCode(failure.status),
       entity = HttpEntity(
         ContentTypes.`application/json`,
-        s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}}"""
+        s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}${detailsJson(
+            failure.details
+          )}}"""
       )
     )
 

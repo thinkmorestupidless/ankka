@@ -5,7 +5,12 @@ import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import scala.collection.mutable
 
 /** A problem to report back to the caller. */
-final case class HttpProblem(status: Int, message: String) extends RuntimeException(message):
+final case class HttpProblem(
+    status: Int,
+    message: String,
+    /** What a caller reads without parsing the message: a failed workflow's step and reason. */
+    details: Map[String, String] = Map.empty
+) extends RuntimeException(message):
   override def fillInStackTrace(): Throwable = this
 
 object HttpProblem:
@@ -32,7 +37,10 @@ object HttpProblem:
       case ErrorCode.Timeout      => 504
       case ErrorCode.Unavailable  => 503
       case ErrorCode.Internal     => 500
-    HttpProblem(status, error.message)
+      // Failed Dependency: the call was answered, and what it waited on failed. Told apart from
+      // every refusal (400–409) and from the call itself breaking (500, 503, 504).
+      case ErrorCode.WorkflowFailed => 424
+    HttpProblem(status, error.message, error.details)
 
 /**
  * Who a request came from, as an ACL established it.

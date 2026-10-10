@@ -339,7 +339,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       case RemoteOutcome.Reply(payload, _) => assertEquals(String(payload.data, "UTF-8"), "hello")
       case other                           => fail(s"GREETING answered $other")
     ask("ANKKA_DB_PASSWORD") match
-      case RemoteOutcome.Error(CommandError(_, ErrorCode.NotFound)) => ()
+      case RemoteOutcome.Error(CommandError(_, ErrorCode.NotFound, _)) => ()
       case other => fail(s"ANKKA_DB_PASSWORD answered $other")
   }
 

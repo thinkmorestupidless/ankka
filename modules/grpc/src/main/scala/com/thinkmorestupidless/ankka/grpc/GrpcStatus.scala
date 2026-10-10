@@ -22,7 +22,9 @@ object GrpcStatus:
     ErrorCode.Conflict     -> Status.Code.FAILED_PRECONDITION,
     ErrorCode.Timeout      -> Status.Code.DEADLINE_EXCEEDED,
     ErrorCode.Unavailable  -> Status.Code.UNAVAILABLE,
-    ErrorCode.Internal     -> Status.Code.INTERNAL
+    ErrorCode.Internal     -> Status.Code.INTERNAL,
+    // No other code uses ABORTED, so the reverse map stays one to one.
+    ErrorCode.WorkflowFailed -> Status.Code.ABORTED
   )
 
   private val toCode   = table.toMap

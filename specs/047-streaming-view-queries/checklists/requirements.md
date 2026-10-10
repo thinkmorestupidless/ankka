@@ -34,6 +34,6 @@
 - The Context section names the code the feature changes, as every ankka spec does; the requirements and
   success criteria themselves name behaviour, not mechanism. The plan chooses the mechanism where the
   spec says so (the Assumptions and Open Questions list each such choice).
-- Every acceptance scenario lives in `features/` and the checker reports 0 findings over 2280 scenarios
-  and 49 specs.
+- Every acceptance scenario lives in `features/` and the checker reports 0 findings over 2290 scenarios
+  and 49 specs (after the clarification session of 2026-10-10, which added five scenarios).
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`

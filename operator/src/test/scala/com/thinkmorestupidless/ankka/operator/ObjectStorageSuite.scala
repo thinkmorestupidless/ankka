@@ -342,6 +342,16 @@ class ObjectStorageSuite extends munit.FunSuite:
     assert(!ObjectStorage.takesCloudPath(asks, withStore.copy(cloud = Some(cloud)), None))
   }
 
+  test(
+    "store: a name too long for Garage is no refusal in the cloud, whose provider names the bucket"
+  ) {
+    val long = asks.copy(projectId = "p" * 40, serviceName = "s" * 30)
+    assertEquals(
+      ObjectStorage.decide(long, withCloud, ObjectStorageObservation.empty, None),
+      ObjectStoragePlan.Waiting(None)
+    )
+  }
+
   test("store: an installation as 044 served it, a provider and no Garage, takes the cloud path") {
     assert(ObjectStorage.takesCloudPath(asks, withCloud, None))
     assert(

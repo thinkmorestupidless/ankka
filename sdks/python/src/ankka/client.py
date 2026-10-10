@@ -72,12 +72,13 @@ def _seconds(timeout: float | timedelta) -> float:
     return seconds
 
 
-def _state_codec(reply: Any, reply_codec: Codec[Any] | None) -> Codec[Any]:
+def _state_codec(reply: Any, reply_codec: Codec[R] | None) -> Codec[R]:
     if reply_codec is not None:
         return reply_codec
     if reply is None:
         raise TypeError("a wait for a workflow's end needs the state's type: reply=... or reply_codec=...")
-    return default_codec_for(reply)
+    codec: Codec[R] = default_codec_for(reply)
+    return codec
 
 
 @dataclass(frozen=True)
@@ -303,10 +304,10 @@ class AwaitingInvocation:
         self,
         input: Any = None,
         *,
-        reply: Any = None,
+        reply: type[R] | None = None,
         codec: Codec[Any] | None = None,
-        reply_codec: Codec[Any] | None = None,
-    ) -> Any:
+        reply_codec: Codec[R] | None = None,
+    ) -> R:
         seconds = _seconds(self.timeout)
         state = _state_codec(reply, reply_codec)
         deadline = time.monotonic() + seconds
@@ -336,7 +337,9 @@ class Calls:
             metadata=self.metadata.to_pb(),
         )
 
-    async def await_end(self, timeout: float | timedelta, *, reply: Any = None, reply_codec: Codec[Any] | None = None) -> Any:
+    async def await_end(
+        self, timeout: float | timedelta, *, reply: type[R] | None = None, reply_codec: Codec[R] | None = None
+    ) -> R:
         """Waits for this workflow's end, for at most ``timeout`` (seconds, or a ``timedelta``), and
         returns the state it ended with, decoded as ``reply`` — at once when it has already ended. A
         workflow that failed or was deleted raises ``CommandError`` with ``WORKFLOW_FAILED`` (its
@@ -351,7 +354,8 @@ class Calls:
             raise
         if answer.HasField("error"):
             raise CommandError(_error(answer.error))
-        return state.decode(answer.reply.payload.data)
+        decoded: R = state.decode(answer.reply.payload.data)
+        return decoded
 
     async def await_end_parts(
         self, timeout: float | timedelta, *, reply: Any = None, reply_codec: Codec[Any] | None = None

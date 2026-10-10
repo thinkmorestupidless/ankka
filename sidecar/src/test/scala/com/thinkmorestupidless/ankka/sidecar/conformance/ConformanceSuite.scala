@@ -369,9 +369,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test("wf.await-failed") {
     val answer = post("/conformance/checkout-await/w6", "doomed")
     assertEquals(answer.status, 424, answer.body)
-    // The step, and a reason: a process says its own words, a module's trap says it trapped.
-    assert(answer.body.startsWith("compensate: "), answer.body)
-    assert(answer.body.stripPrefix("compensate: ").trim.nonEmpty, answer.body)
+    // The step, and a reason: a process says its own words, a module's trap says it trapped. The
+    // message is the body as a process answers it, and the problem's `error` as the JVM does.
+    val reason = "compensate: ([^\"]+)".r.findFirstMatchIn(answer.body).map(_.group(1).trim)
+    assert(reason.exists(_.nonEmpty), answer.body)
   }
 
   // ── View and consumer ──────────────────────────────────────────────────────

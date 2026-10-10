@@ -6,7 +6,7 @@ import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.{CheckoutWorkflow, ShoppingCartEntity}
 import shoppingcart.domain.LineItem
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.DurationInt
 
 /**
  * The checkout workflow against real sharding, persistence and recovery.
@@ -29,26 +29,9 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
   private def cart(id: String)     = testKit.componentClient.forEventSourcedEntity(EntityId(id))
   private def checkout(id: String) = testKit.componentClient.forWorkflow(EntityId(id))
 
-  private def eventually[A](description: String, within: FiniteDuration = 40.seconds)(
-      check: => Option[A]
-  ): A =
-    val deadline        = System.nanoTime() + within.toNanos
-    var last: Option[A] = None
-    while last.isEmpty && System.nanoTime() < deadline do
-      last = check
-      if last.isEmpty then Thread.sleep(100)
-    last.getOrElse(fail(s"$description did not happen within $within"))
-
-  private def statusOf(id: String): String =
-    checkout(id).call(CheckoutWorkflow.status).invoke().status
-
-  /**
-   * Retries on the value that changes, and asserts on it — never on a value read outside the wait.
-   */
-  private def awaitStatus(id: String, expected: String): Unit =
-    val _ = eventually(s"checkout $id reaches '$expected'")(
-      Option(statusOf(id)).filter(_ == expected)
-    )
+  /** Starts the checkout and answers with the state it ended with: one call, nothing polled. */
+  private def checkOut(id: String, mode: String) =
+    checkout(id).call(CheckoutWorkflow.start).thenAwaitEnd(40.seconds).invoke(mode)
 
   private def fill(id: String): Unit =
     val _ = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))
@@ -57,10 +40,8 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
   test("a checkout reserves what the cart holds, charges, and checks the cart out") {
     fill("cart-ok")
 
-    assertEquals(checkout("cart-ok").call(CheckoutWorkflow.start).invoke("ok"), Done)
-    awaitStatus("cart-ok", "charged")
-
-    val state = checkout("cart-ok").call(CheckoutWorkflow.status).invoke()
+    val state = checkOut("cart-ok", "ok")
+    assertEquals(state.status, "charged")
     assertEquals(state.reserved, 3, "the reserve step should have read the cart's total quantity")
     // The charge step checked the cart out, and a checked-out cart keeps what it held.
     val checkedOut = cart("cart-ok").call(ShoppingCartEntity.getCart).invoke()
@@ -71,10 +52,9 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
   test("a declined charge is retried, fails over to compensation, and leaves the cart alone") {
     fill("cart-fail")
 
-    assertEquals(checkout("cart-fail").call(CheckoutWorkflow.start).invoke("fail"), Done)
-    awaitStatus("cart-fail", "compensated")
-
-    val state = checkout("cart-fail").call(CheckoutWorkflow.status).invoke()
+    // Compensation is how this workflow ends when the charge is declined: it completes, it does not fail.
+    val state = checkOut("cart-fail", "fail")
+    assertEquals(state.status, "compensated")
     assertEquals(state.reserved, 0, "compensation should release the reservation")
     // The charge threw before it could call the entity, so the cart is untouched and still buyable.
     assertEquals(cart("cart-fail").call(ShoppingCartEntity.totalQuantity).invoke(), 3)
@@ -83,10 +63,9 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
   test("a paused checkout resumes on its own timeout and still charges") {
     fill("cart-pause")
 
-    assertEquals(checkout("cart-pause").call(CheckoutWorkflow.start).invoke("pause"), Done)
     // The wait step pauses for 1.5s with `charge` as its timeout target, so this proves the pause
-    // resumes without anything nudging it.
-    awaitStatus("cart-pause", "charged")
+    // resumes without anything nudging it — and that a wait goes on through a pause.
+    assertEquals(checkOut("cart-pause", "pause").status, "charged")
 
     val checkedOut = cart("cart-pause").call(ShoppingCartEntity.getCart).invoke()
     assert(checkedOut.checkedOut, checkedOut.toString)

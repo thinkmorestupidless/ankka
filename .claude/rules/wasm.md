@@ -60,6 +60,8 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
 
 ## Traps
 
+- **`await_end` has a link block of its own** (`call_await`), so a module that never waits does not import
+  it; `WasmHostSuite` checks the plain example does not and the conformance reference does.
 - **A Rust import referenced from a shared `match` is imported by every module.** `abi::imports::call`
   dispatches every import in one function, so all of them are in any module that makes one call — a new
   import there would make every module built with the new crate need a runtime that provides it. The

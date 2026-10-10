@@ -265,7 +265,7 @@ on k3s (T068). *2026-10-10:* 044 is merged; T066–T068 are rewritten onto its p
 - [X] T083 `just docs-sync` and `just docs` (the rendered skill and the marketplace copies regenerate); `just features`.
 - [X] T084 Update `.claude/rules/kubernetes.md`'s object storage and cloud request sections: which store a bucket is in (`storeOf`), the `-cloud-storage` Secret, the move's state in status, the mover image, the one rotation grace, and any trap found on k3s; `.claude/rules/build-and-release.md` with the new image.
 - [X] T085 Release notes in `docs/deploy/upgrading.md`: `ankka-gcp` and the three settings; `ANKKA_CLOUD_ROTATION_GRACE` now governs Garage's keys too; the operator's `batch/jobs`; a pre-existing Garage key is generation 0; a bucket already in Garage stays there when the backend becomes `gcs`; 041's `durability.feature` is not this feature's.
-- [ ] T086 `sbt scalafmtAll scalafmtSbt`, then `sbt buildAll`; `gh workflow run cluster --ref <branch> -f suite=ObjectStorageGcsClusterFeatures` and `-f suite=ObjectStorageClusterFeatures`; both green before the pull request.
+- [X] T086 `sbt scalafmtAll scalafmtSbt`, then `sbt buildAll`; `gh workflow run cluster --ref <branch> -f suite=ObjectStorageGcsClusterFeatures` and `-f suite=ObjectStorageClusterFeatures`; both green before the pull request.
 
 ---
 

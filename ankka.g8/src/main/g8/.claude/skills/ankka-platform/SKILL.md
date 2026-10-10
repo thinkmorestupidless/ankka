@@ -92,6 +92,10 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/concepts/control-plane.md` — How the control plane records what you asked for, how the operator makes the cluster match it, and how the status you read is kept honest with generations and confirmation.
 - `references/concepts/tenancy-and-access.md` — How organizations, projects and services divide an installation, who may operate each of them, and how the identity provider and the control plane share the work of authentication and authorization.
 
+### Run and deploy
+
+- `references/deploy/custom-hostnames.md` — Add a custom hostname such as app.example.com to an exposed service, prove the project controls the name with a TXT record, point the name at the installation, read where each hostname stands, and remove one again.
+
 ### Observe and operate
 
 - `references/operate/console.md` — Use an installation's web console at console.<base domain> to sign in, manage organizations, projects, members and deploy tokens, and deploy, operate and watch services without the CLI.

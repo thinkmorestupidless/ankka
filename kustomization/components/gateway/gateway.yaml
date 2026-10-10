@@ -10,15 +10,32 @@ spec:
       group: gateway.envoyproxy.io
       kind: EnvoyProxy
       name: ankka
+  # A custom hostname is a listener in a ListenerSet the operator renders in the service's own
+  # namespace, with the certificate cert-manager issued there (feature 045). The Gateway admits
+  # sets from the namespaces it admits routes from, and its own listeners win every conflict, so a
+  # set naming `*.BASE_DOMAIN` or `api.BASE_DOMAIN` is marked Conflicted and changes nothing about
+  # how the base domain is reached. The operator holds no verb on this object.
+  allowedListeners:
+    namespaces:
+      from: Selector
+      selector:
+        matchLabels:
+          app.kubernetes.io/managed-by: ankka
   listeners:
-    # Plain HTTP exists only to redirect: the one route allowed here is redirect-route.yaml, from
-    # this namespace. Nothing an operator renders can attach to it.
+    # Plain HTTP exists to redirect (redirect-route.yaml, which names no hostname and so redirects
+    # every name) and to carry cert-manager's HTTP-01 solver routes for custom hostnames, which it
+    # writes in the namespace of the certificate: hence the managed namespaces, not only this one.
+    # Their match is an exact path, more specific than the redirect's. The operator renders nothing
+    # against this listener.
     - name: http
       port: 80
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: Same
+          from: Selector
+          selector:
+            matchLabels:
+              app.kubernetes.io/managed-by: ankka
     # One label under the base domain, because a wildcard — the certificate's and this listener's
     # alike — is exactly one label deep. That is why a service's hostname is <service>-<project>
     # and not <service>.<project> (research R2).

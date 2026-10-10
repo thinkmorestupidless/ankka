@@ -61,6 +61,8 @@ database    provisioned
 | `hosting` | `embedded` for a service whose image is an ankka runtime, `process` for one that runs beside a sidecar. |
 | `protocol` | For a process-hosted service, the sidecar protocol version it declared. |
 | `hostname` | The external URL, `not exposed`, or a note that it is exposed but the control plane has no base domain configured. |
+| `custom hostnames` | Each name under your own domain the service answers at: `pending`, `serving` or `rejected` with the reason, and the record to create. See [Serve a service at your own domain](../deploy/custom-hostnames.md). |
+| `proof record` | The `TXT` record that proves the project controls a name it brings, shown with the custom hostnames. |
 | `database` | What the platform did about the service's database, once something has reported: `waiting for database`, `provisioned`, `recovered existing data`, `supplied` or `database provisioning failed`. |
 | `object storage` | What the platform did about the service's bucket, for a service that has object storage: `waiting for object storage`, `provisioned`, `recovered existing bucket`, `supplied` or `object storage provisioning failed`. Why it waits or failed is in `detail`, after `object storage:`. |
 | `bucket` | The bucket the platform gives the service, when its descriptor asks for one. |
@@ -123,8 +125,9 @@ WHEN                      KIND              GEN  IMAGE   DIGEST        BY
 ```
 
 Each row is one change, newest first: `applied`, `rolled-back`, `restarted`, `paused`, `resumed`,
-`exposed`, `unexposed`, `deleted`, `suspended`, `reinstated`, `storage-credential-reissued`,
-`storage-moved` or `storage-settings-reapplied`. `GEN` is the generation the service had after the
+`exposed`, `unexposed`, `hostname added`, `hostname removed`, `hostname taken away`, `deleted`,
+`suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved` or
+`storage-settings-reapplied`. `GEN` is the generation the service had after the
 change, and `BY` is who asked, by display name or subject. `(admin)` marks a change that was allowed by
 the platform-admin role rather than by membership of the organization. A service keeps its last 50
 changes. Reports from the cluster are not changes and do not appear.

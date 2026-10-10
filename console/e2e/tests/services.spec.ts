@@ -355,3 +355,34 @@ test("a service shows each topic source with how far behind it is, and what one 
   await expect(byDay).toContainText("cannot decode offset 4711");
   await audit(page);
 });
+
+// features/exposure/custom-hostnames.feature: the console shows a service's custom hostnames beside the
+// one the platform derived. The fake serves a hostname at once; a real control plane needs an issuer and
+// a proof record, which the compose stack has neither of.
+test("US3-9 the console shows a service's custom hostnames beside the one the platform derived", async ({ page, target, signIn, unique }) => {
+  test.skip(target.kind !== "fake", "a control plane needs an issuer and a proof record for a custom hostname");
+  const { project } = await tenancy(page, target, signIn, unique);
+  await apply(page, target, project, { name: "shop", service: { image: "shop:1" } });
+  await page.waitForURL(`${target.url}/projects/${project}/services/shop`);
+  await ops(page).getByRole("button", { name: "Expose" }).click();
+  await expect(page.getByRole("link", { name: `https://shop-${project}.example.test` })).toBeVisible();
+
+  const hostnames = page.locator("[data-hostnames]");
+  const operations = page.locator("[data-hostname-operations]");
+  const name = `app-${project}.example.com`;
+  await operations.getByLabel("Add a custom hostname").fill(name);
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Add" }).click()]);
+  const row = hostnames.locator(`[data-custom-hostname="${name}"]`);
+  await expect(row).toContainText("serving");
+  await expect(row).toContainText(`Create CNAME ${name} → shop-${project}.example.test`);
+  await expect(hostnames.locator("[data-proof-record]")).toHaveText(`TXT _ankka.<hostname> "ankka-project=${project}"`);
+
+  // A name the project has not proved is refused, in the control plane's words.
+  await operations.getByLabel("Add a custom hostname").fill("unproved.example.com");
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Add" }).click()]);
+  await expect(operations).toContainText("does not carry the proof record");
+
+  await operations.getByLabel("Remove a custom hostname").selectOption(name);
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Remove" }).click()]);
+  await expect(hostnames.locator(`[data-custom-hostname="${name}"]`)).toHaveCount(0);
+});

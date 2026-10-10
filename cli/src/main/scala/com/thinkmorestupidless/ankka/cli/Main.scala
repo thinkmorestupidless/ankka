@@ -789,6 +789,38 @@ object Main:
       }
     }
 
+    val hostnames = Opts.subcommand(
+      "hostnames",
+      "Custom hostnames: names under domains you bring, served beside the one the platform " +
+        "derives. Each is proved by a TXT record the control plane reads once."
+    ) {
+      val add = Opts.subcommand(
+        "add",
+        "Add a custom hostname to an exposed service. Refused until the proof record exists."
+      ) {
+        (Opts.argument[String]("service"), Opts.argument[String]("hostname"), contextOpt).mapN {
+          (name, hostname, ctx) => () =>
+            val status = ctx.client.addHostname(ctx.project, name, hostname)
+            ctx.format match
+              case Format.Json  => Output.service(status, ctx.format)
+              case Format.Table => Output.hostnameAdded(status, hostname)
+        }
+      }
+      val remove = Opts.subcommand(
+        "remove",
+        "Remove a custom hostname from a service. Nothing answers at it once removed."
+      ) {
+        (Opts.argument[String]("service"), Opts.argument[String]("hostname"), contextOpt).mapN {
+          (name, hostname, ctx) => () =>
+            val status = ctx.client.removeHostname(ctx.project, name, hostname)
+            ctx.format match
+              case Format.Json  => Output.service(status, ctx.format)
+              case Format.Table => s"removed '$hostname' from service '$name'"
+        }
+      }
+      add.orElse(remove)
+    }
+
     list
       .orElse(get)
       .orElse(applyCommand)
@@ -803,6 +835,7 @@ object Main:
       .orElse(history)
       .orElse(expose)
       .orElse(unexpose)
+      .orElse(hostnames)
       .orElse(delete)
   }
 

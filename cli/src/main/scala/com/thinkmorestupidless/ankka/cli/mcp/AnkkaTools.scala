@@ -96,6 +96,31 @@ private[cli] final class AnkkaTools(
       idempotent = idempotent
     )(args => ToolResult(json(call(client, project(args), required(args, "name")))))
 
+  private val hostnameArg =
+    "hostname" -> string("The custom hostname, a name alone: no scheme, path or port.")
+
+  private def hostnameAction(
+      toolName: String,
+      title: String,
+      description: String,
+      destructive: Boolean
+  )(
+      call: (ControlPlaneClient, String, String, String) => ServiceStatus
+  ): Tool =
+    Tool(
+      toolName,
+      title,
+      description,
+      schema(Seq("name", "hostname"), serviceArg, hostnameArg, projectArg),
+      readOnly = false,
+      destructive = destructive,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(call(client, project(args), required(args, "name"), required(args, "hostname")))
+      )
+    )
+
   private val controlPlane: Vector[Tool] = Vector(
     Tool(
       "whoami",
@@ -224,6 +249,18 @@ private[cli] final class AnkkaTools(
       destructive = false,
       idempotent = true
     )(_.exposeService(_, _)),
+    hostnameAction(
+      "add_hostname",
+      "Add a custom hostname",
+      "Serve an exposed service at a hostname under a domain you bring, beside its platform-derived one. Refused until the proof record _ankka.<hostname> TXT \"ankka-project=<project>\" exists; the answer says the record that points the name at the installation. At most five per service.",
+      destructive = false
+    )(_.addHostname(_, _, _)),
+    hostnameAction(
+      "remove_hostname",
+      "Remove a custom hostname",
+      "Stop serving a service at one of its custom hostnames and free the name for another service. Nothing else about the service changes.",
+      destructive = true
+    )(_.removeHostname(_, _, _)),
     serviceAction(
       "unexpose_service",
       "Unexpose a service",

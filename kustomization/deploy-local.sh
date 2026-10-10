@@ -298,7 +298,8 @@ echo "==> exporting the local certificate authority"
 # nothing is made to: the CLI is told about it (config set ca) and so is curl (--cacert). No step
 # here or in the README ever turns verification off.
 mkdir -p "$HOME/.ankka"
-kubectl -n ankka-gateway get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
+# In cert-manager's namespace, beside the ClusterIssuer that signs with it (feature 045).
+kubectl -n cert-manager get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
 
 API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 CONSOLE_URL="https://console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"

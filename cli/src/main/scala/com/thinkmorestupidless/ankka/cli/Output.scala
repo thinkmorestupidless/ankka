@@ -172,7 +172,7 @@ object Output:
               s"${row.readyInstances}/${row.desiredInstances}",
               row.generation.toString,
               row.image,
-              row.hostname.getOrElse("-")
+              hostnames(row)
             )
           }
         )
@@ -186,6 +186,37 @@ object Output:
    */
   private def status(row: ServiceStatus): String =
     if row.confirmed then row.lifecycle.toString else s"${row.lifecycle} (unconfirmed)"
+
+  /**
+   * The listing's column: the derived hostname, then each custom one, a `!` after one that is not
+   * serving (feature 045).
+   */
+  private def hostnames(row: ServiceStatus): String =
+    val custom =
+      row.customHostnames.map(h => if h.state == "serving" then h.hostname else s"${h.hostname}!")
+    val all = row.hostname.toVector ++ custom
+    if all.isEmpty then "-" else all.mkString(", ")
+
+  /** `CNAME app.example.com → cart-checkout.example.test`. */
+  private def record(r: DnsRecord): String = s"${r.kind} ${r.name} → ${r.value}"
+
+  /** What `services hostnames add` prints: the record to create, or why there is none. */
+  def hostnameAdded(row: ServiceStatus, requested: String): String =
+    val hostname = row.customHostnames
+      .find(_.hostname == requested.trim.toLowerCase(java.util.Locale.ROOT).stripSuffix("."))
+    hostname match
+      case None => s"service '${row.name}' holds no hostname '$requested'"
+      case Some(h) =>
+        val point = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
+        (s"added '${h.hostname}' to service '${row.name}'" +: point :+
+          "keep the proof record: it is not read again, but it is how the claim was made")
+          .mkString("\n")
+
+  /** One custom hostname, as `services get` shows it: where it stands, then the record. */
+  private def customHostnameLines(h: CustomHostname): String =
+    val stands = h.reason.fold(h.state)(r => s"${h.state}: $r")
+    val point  = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
+    (s"${h.hostname}  $stands" +: point.map("  " + _)).mkString("\n")
 
   /** Always a row: a service that is private should say so, not show nothing. */
   private def hostname(row: ServiceStatus): String =
@@ -240,6 +271,17 @@ object Output:
           row.bucketLocation.map("bucket location" -> _) ++
           row.softDeleteDays.map(days => "soft delete" -> s"$days days") ++
           row.storageMove.map("storage move" -> _) ++
+          // Feature 045: the proof record and each custom hostname, only when there is one.
+          Option
+            .when(row.customHostnames.nonEmpty)(
+              "custom hostnames" -> row.customHostnames.map(customHostnameLines).mkString("\n")
+            )
+            .toVector ++
+          Option
+            .when(row.customHostnames.nonEmpty)(row.proofRecord)
+            .flatten
+            .map(r => "proof record" -> s"${r.kind} ${r.name} \"${r.value}\"")
+            .toVector ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.

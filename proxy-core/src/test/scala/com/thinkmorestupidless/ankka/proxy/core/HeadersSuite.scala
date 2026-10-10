@@ -68,6 +68,29 @@ class HeadersSuite extends munit.FunSuite:
     assertEquals(values(headers, "Forwarded"), Vector.empty)
   }
 
+  test("a custom hostname the gateway routed is the address, and the request cannot say another") {
+    val headers = inbound(
+      Sender.Internet(Some("app.example.com")),
+      web,
+      "X-Forwarded-Host"  -> "bank.example",
+      "X-Forwarded-Proto" -> "http",
+      "X-Forwarded-Port"  -> "80",
+      "Forwarded"         -> "host=bank.example",
+      "Host"              -> "app.example.com"
+    )
+    assertEquals(values(headers, "X-Forwarded-Host"), Vector("app.example.com"))
+    assertEquals(values(headers, "X-Forwarded-Proto"), Vector("https"))
+    assertEquals(values(headers, "X-Forwarded-Port"), Vector("443"))
+    assertEquals(values(headers, "Host"), Vector("app.example.com"))
+    assertEquals(values(headers, "Forwarded"), Vector.empty)
+  }
+
+  test("a routed hostname keeps the port the browser used") {
+    val headers = inbound(Sender.Internet(Some("app.example.com:8443")), web)
+    assertEquals(values(headers, "X-Forwarded-Host"), Vector("app.example.com:8443"))
+    assertEquals(values(headers, "X-Forwarded-Port"), Vector("8443"))
+  }
+
   test("every header starting X-Ankka- is removed, whatever its case") {
     val headers = inbound(internet, web, "x-ankka-anything" -> "1", "X-ANKKA-OTHER" -> "2")
     assert(headers.forall((n, _) => !n.toLowerCase.startsWith("x-ankka-") || n == "X-Ankka-Caller"))

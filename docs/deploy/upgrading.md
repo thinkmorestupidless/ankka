@@ -86,6 +86,19 @@ of a service's storage credential and its mount certificate. One that already ex
 and its entries can be removed; a descriptor that takes a variable from one is refused at its next apply.
 Rename it and point the descriptor at the new name.
 
+A project secret whose name has a `.` can no longer be set either: names with a dot are a custom hostname's
+certificate. One that exists is kept and listed, and its entries can be removed.
+
+## Custom hostnames change three things an installation applies
+
+The Gateway admits listener sets and challenge routes from project namespaces, and cert-manager's
+controller runs with its Gateway API integration on. Both come with the components. The local overlay's
+root authority moves to the `cert-manager` namespace and `ankka-ca` becomes a `ClusterIssuer`, so a
+re-deployed kind cluster issues a new root: export it again with `deploy-local.sh` and run `ankka config
+set ca` with it. A cloud installation that wants custom hostnames adds the `letsencrypt-hostnames` issuer
+and sets `hostnameIssuer` and `gatewayAddress` on its `ankka-platform` ConfigMap; until it does, adding a
+custom hostname is refused, naming the setting.
+
 ## Consumer groups are named for the service
 
 Each view or consumer that reads a topic reads under a Kafka consumer group named for the service it

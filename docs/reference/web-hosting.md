@@ -43,8 +43,10 @@ headers set by the proxy, and any copy the request carried removed first:
 | `Host` | the same authority |
 
 The caller is read from the certificate of whoever connected, never from the request, so a request
-cannot say that a service sent it. The address is derived from the service's hostname, never from the
-request, so a request cannot say it was sent somewhere else. From another service, the address is the
+cannot say that a service sent it. From the internet, the address is the hostname the gateway routed the
+request at: the service's derived hostname, or one of its [custom hostnames](../deploy/custom-hostnames.md),
+since the gateway sends a hostname only to the service that holds it. A forwarded header the request
+carries is never believed, so a request cannot say it was sent somewhere else. From another service, the address is the
 web-hosted service's in-cluster address, `<service>.ankka-<project>.svc.cluster.local:<port>`.
 
 Removed from every request, whoever sent it: any header whose name starts `X-Ankka-`, `Forwarded`, and

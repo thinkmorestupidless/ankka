@@ -215,7 +215,26 @@ final case class AnkkaServiceSpec(
      */
     objectStorageSettingsGeneration: Int = 0,
     /** A member's request to move this service's bucket from Garage (feature 039). */
-    objectStorageMove: Option[ObjectStorageMoveRequest] = None
+    objectStorageMove: Option[ObjectStorageMoveRequest] = None,
+    /**
+     * The custom hostnames the service holds (feature 045): names under domains their owners bring,
+     * each proved by the control plane before it was recorded and unique across the installation.
+     * Rendered only while `exposed`. Unlike the derived hostname these are read from the resource,
+     * since nothing could derive them; the control plane is what refuses a name the project has not
+     * proved or another service holds, and the Gateway's own listeners win every conflict with one,
+     * so a name here cannot change how the base domain is reached.
+     */
+    customHostnames: List[String] = Nil
+)
+
+/** Where one custom hostname stands, as the operator read it from what serves it. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class HostnameStatus(
+    hostname: String = "",
+    /** `pending`, `serving` or `rejected`. */
+    state: String = "pending",
+    /** The authority's or the gateway's words; absent when serving with nothing to say. */
+    reason: Option[String] = None
 )
 
 /**
@@ -408,7 +427,12 @@ final case class AnkkaServiceStatus(
      * What the platform did about this service's bucket (feature 034). Absent only when the service
      * neither asks for one nor gives an object store of its own.
      */
-    objectStorage: Option[ObjectStorageStatus] = None
+    objectStorage: Option[ObjectStorageStatus] = None,
+    /**
+     * One entry per custom hostname on the spec, in its order, while the service is exposed
+     * (feature 045). Empty otherwise.
+     */
+    hostnames: List[HostnameStatus] = Nil
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: AnkkaServiceStatus): Boolean =

@@ -177,6 +177,33 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+  # Custom hostnames (feature 045): the ClusterIssuer that obtains each one's certificate, for both
+  # Deployments, and the address an apex hostname's record points at, for the control plane.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.hostnameIssuer
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HOSTNAME_ISSUER].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HOSTNAME_ISSUER].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.gatewayAddress
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_GATEWAY_ADDRESS].value
   # The installation's object store (feature 039): which store new buckets are made in, and Google
   # Cloud Storage's bucket name prefix and soft-delete window. The operator and the control plane
   # read the same three.

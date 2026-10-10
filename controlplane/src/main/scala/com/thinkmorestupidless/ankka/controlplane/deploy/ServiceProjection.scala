@@ -216,6 +216,9 @@ object ServiceProjection:
               // Feature 039: what the descriptor says of its bucket, as it says it.
               objectStorageOrigins = descriptor.service.objectStorageOrigins.toList,
               objectStorageCredential = descriptor.service.objectStorageCredential,
-              objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays
+              objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays,
+              // Whole, whether or not exposed: the operator renders them only while it is, so an
+              // unexposed service keeps its names and exposing it again brings them back.
+              customHostnames = service.customHostnames.toList
             )
           )

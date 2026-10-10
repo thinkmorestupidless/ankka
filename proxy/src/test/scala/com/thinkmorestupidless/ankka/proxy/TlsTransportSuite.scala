@@ -80,16 +80,19 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
     context.init(null, tmf.getTrustManagers, null)
     context
 
-  private def get(context: SSLContext, path: String): HttpResponse[String] =
+  private def get(
+      context: SSLContext,
+      path: String,
+      headers: (String, String)*
+  ): HttpResponse[String] =
+    val request = HttpRequest.newBuilder(URI.create(s"https://localhost:$port$path"))
+    headers.foreach((name, value) => request.header(name, value): Unit)
     HttpClient
       .newBuilder()
       .sslContext(context)
       .version(HttpClient.Version.HTTP_1_1)
       .build()
-      .send(
-        HttpRequest.newBuilder(URI.create(s"https://localhost:$port$path")).build(),
-        BodyHandlers.ofString()
-      )
+      .send(request.build(), BodyHandlers.ofString())
 
   private def lastCaller: Option[String] = process.requests.last.header("x-ankka-caller")
 
@@ -113,11 +116,29 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
     assertEquals(process.requests.size, before)
   }
 
-  test("a gateway certificate is the internet") {
-    val response = get(presenting(authority, Seq("ankka://gateway")), "/from-the-gateway")
+  test("a gateway certificate is the internet, sent to the hostname the gateway routed") {
+    val response = get(
+      presenting(authority, Seq("ankka://gateway")),
+      "/from-the-gateway",
+      "Host" -> "web-shop.example.test"
+    )
     assertEquals(response.statusCode, 200)
     assertEquals(lastCaller, Some("internet"))
     assertEquals(process.requests.last.header("host"), Some("web-shop.example.test"))
+  }
+
+  // features/web-hosting/requests.feature: the process is told the custom hostname a request was
+  // sent to, and a request cannot say that it was sent to another address (feature 045).
+  test("from the gateway, a custom hostname is the address, and a forwarded header is not") {
+    val response = get(
+      presenting(authority, Seq("ankka://gateway")),
+      "/at-a-custom-hostname",
+      "Host"             -> "app.example.com",
+      "X-Forwarded-Host" -> "bank.example"
+    )
+    assertEquals(response.statusCode, 200)
+    assertEquals(process.requests.last.header("host"), Some("app.example.com"))
+    assertEquals(process.requests.last.header("x-forwarded-host"), Some("app.example.com"))
   }
 
   test("a service's certificate is that service") {

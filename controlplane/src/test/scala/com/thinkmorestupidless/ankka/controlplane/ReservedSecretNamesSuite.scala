@@ -62,3 +62,16 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
     for name <- Vector("checkout", "stripe", "payments-live") do
       assertEquals(ProjectSecrets.nameProblems(name), Vector.empty, name)
   }
+
+  test(
+    "a custom hostname's certificate Secret is refused as a project secret and to a descriptor"
+  ) {
+    // Named by the hostname (feature 045); held to the operator's naming of it.
+    for hostname <- Vector("app.example.com", "example.com") do
+      val name = com.thinkmorestupidless.ankka.operator.HostnameRendering.secretName(hostname)
+      assert(ProjectSecrets.nameProblems(name).nonEmpty, s"'$name' must be refused")
+      assert(
+        com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec.isPlatformSecret(name),
+        name
+      )
+  }

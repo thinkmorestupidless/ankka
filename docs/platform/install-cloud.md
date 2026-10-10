@@ -92,6 +92,21 @@ namespaced `Issuer` from its own namespace. Put the DNS provider's credential wh
 will look for it. A webhook solver may add its own rule: the example overlay's webhook reads its token
 with its own permissions in cert-manager's namespace, which is why it uses a `ClusterIssuer`.
 
+### Custom hostnames
+
+A service can answer at a name under a domain its owner brings (see [Serve a service at your own
+domain](../deploy/custom-hostnames.md)). Each such name gets a certificate of its own, since the wildcard
+covers only the base domain. The example overlay names a second `ClusterIssuer`, `letsencrypt-hostnames`,
+in `hostnameIssuer` on the `ankka-platform` ConfigMap: ACME over HTTP-01, answered through the gateway's
+port-80 listener, because the installation cannot write to another domain's zone. The load balancer must
+therefore pass port 80 as well as 443. The components already carry what that needs: cert-manager's
+controller runs with `--enable-gateway-api`, and the Gateway admits listener sets and challenge routes
+from project namespaces. Leave `hostnameIssuer` empty to refuse every custom hostname.
+
+Set `gatewayAddress` on the same ConfigMap to the load balancer's address so the control plane can tell a
+member the `A` record for an apex name, which cannot be a `CNAME`. Left empty, an apex is told that this
+installation has published no address.
+
 ### The identity provider's administrator
 
 The local platform's Keycloak administrator is `admin`/`admin`, in a Secret that is public in the ankka

@@ -53,6 +53,9 @@ matches the same wildcard. `*.example.com` covers `cart-checkout.example.com` an
 Two services with the same name in different projects never collide, because the project is part of the
 hostname.
 
+An exposed service can also answer at names under a domain you own, such as `app.example.com`, beside
+the derived one. See [Serve a service at your own domain](custom-hostnames.md).
+
 ## When expose is refused
 
 `expose` refuses rather than produce a hostname that would not work:

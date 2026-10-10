@@ -132,7 +132,21 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         objectStore = Some("gcs"),
         bucketLocation = Some("europe-west2"),
         softDeleteDays = Some(7),
-        storageMove = Some("write pause")
+        storageMove = Some("write pause"),
+        customHostnames = Vector(
+          CustomHostname(
+            "app.example.com",
+            "serving",
+            record = Some(DnsRecord("app.example.com", "CNAME", "cart-shop.example.com"))
+          ),
+          CustomHostname(
+            "example.com",
+            "pending",
+            Some("the certificate is being issued"),
+            note = Some("an apex cannot be a CNAME; this installation has published no address")
+          )
+        ),
+        proofRecord = Some(DnsRecord("_ankka.<hostname>", "TXT", "ankka-project=shop"))
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -153,7 +167,8 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
           image = Some("cart:1"),
           digest = Some("3f9a1c0be2d4" + "0" * 52),
           rolledBackTo = Some(1)
-        )
+        ),
+        HistoryEntry("hostname added", 3, hostname = Some("app.example.com"))
       ),
       Vector(HistoryEntry("restarted", 1))
     ),

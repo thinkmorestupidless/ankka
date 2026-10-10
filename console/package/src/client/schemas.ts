@@ -141,6 +141,24 @@ export const mountStatusSchema = z.object({
 });
 export type MountStatus = z.infer<typeof mountStatusSchema>;
 
+/** A DNS record a member creates at their provider; the platform writes none. */
+export const dnsRecordSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  value: z.string(),
+});
+export type DnsRecord = z.infer<typeof dnsRecordSchema>;
+
+/** One custom hostname of a service: where it stands, and the record that points it at the installation. */
+export const customHostnameSchema = z.object({
+  hostname: z.string(),
+  state: z.string().default("pending"),
+  reason: optional(z.string()),
+  record: optional(dnsRecordSchema),
+  note: optional(z.string()),
+});
+export type CustomHostname = z.infer<typeof customHostnameSchema>;
+
 export const serviceStatusSchema = z.object({
   name: z.string(),
   projectId: z.string(),
@@ -179,6 +197,10 @@ export const serviceStatusSchema = z.object({
   softDeleteDays: optional(z.number().int()),
   /** Where a move of the bucket from Garage is, as a phrase; its detail is in `detail`. */
   storageMove: optional(z.string()),
+  /** Names under domains the project's owner brings, served beside the derived hostname. */
+  customHostnames: z.array(customHostnameSchema).default([]),
+  /** The TXT record that proves the project controls a name it brings; on a read of one service. */
+  proofRecord: optional(dnsRecordSchema),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -205,6 +227,8 @@ export const historyEntrySchema = z.object({
   /** On an entry that recorded a descriptor: its image, and a digest two such entries share exactly when the descriptors are the same. */
   image: optional(z.string()),
   digest: optional(z.string()),
+  /** On a custom hostname's entry: the name it added or removed. */
+  hostname: optional(z.string()),
   /** On a rollback: the generation whose descriptor was applied again. */
   rolledBackTo: optional(z.number().int()),
 });

@@ -949,6 +949,107 @@ class OperatorClusterSuite extends munit.FunSuite:
           .isEmpty
       )
 
+      // Feature 045: a custom hostname's listener set and certificate, under the same real identity,
+      // and the two things the operator must never be able to do about how traffic enters: write
+      // the Gateway, or make an issuer the whole installation would use.
+      val gatewayWrite = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted
+          .resource(
+            new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewayBuilder()
+              .withMetadata(
+                new ObjectMetaBuilder()
+                  .withName(Rendering.GatewayName)
+                  .withNamespace(Rendering.GatewayNamespace)
+                  .build()
+              )
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewaySpecBuilder()
+                  .withGatewayClassName("ankka")
+                  .build()
+              )
+              .build()
+          )
+          .serverSideApply(): Unit
+      }
+      assertEquals(
+        gatewayWrite.getCode,
+        403,
+        s"the Gateway was writable: ${gatewayWrite.getMessage}"
+      )
+      val issuerWrite = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted
+          .genericKubernetesResources("cert-manager.io/v1", "ClusterIssuer")
+          .resource(
+            new io.fabric8.kubernetes.api.model.GenericKubernetesResourceBuilder()
+              .withApiVersion("cert-manager.io/v1")
+              .withKind("ClusterIssuer")
+              .withMetadata(new ObjectMetaBuilder().withName("mine").build())
+              .withAdditionalProperties(
+                Map[String, AnyRef]("spec" -> Map("selfSigned" -> Map.empty.asJava).asJava).asJava
+              )
+              .build()
+          )
+          .create(): Unit
+      }
+      assertEquals(
+        issuerWrite.getCode,
+        403,
+        s"a ClusterIssuer was creatable: ${issuerWrite.getMessage}"
+      )
+
+      val hostnameSpec =
+        probeSpec.copy(exposed = true, customHostnames = List("probe.example.com"))
+      asOperator.execute(
+        Action.EnsureListenerSet(
+          HostnameRendering.listenerSet(
+            owner,
+            hostnameSpec,
+            probeNamespace,
+            Vector("probe.example.com")
+          )
+        )
+      )
+      asOperator.execute(
+        Action.EnsureCertificate(
+          HostnameRendering.certificate(
+            owner,
+            hostnameSpec,
+            probeNamespace,
+            "probe.example.com",
+            "ankka-service"
+          )
+        )
+      )
+      def probeSet = Option(
+        client
+          .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.ListenerSet])
+          .inNamespace(probeNamespace)
+          .withName("probe-hostnames")
+          .get()
+      )
+      def probeCertificate = Option(
+        client
+          .genericKubernetesResources("cert-manager.io/v1", "Certificate")
+          .inNamespace(probeNamespace)
+          .withName("probe.example.com")
+          .get()
+      )
+      assert(probeSet.isDefined, "the operator's own ServiceAccount could not apply a ListenerSet")
+      assert(probeCertificate.isDefined, "the operator could not ask for a hostname's certificate")
+      // Reading what serves a hostname, challenges included, is within the grant.
+      val _ = asOperator.observeHostnames(probeNamespace, "probe", Vector("probe.example.com"))
+      asOperator.execute(
+        Action.RemoveListenerSet(probeNamespace, "probe-hostnames", "not-the-owner")
+      )
+      assert(probeSet.isDefined, "RemoveListenerSet removed a set for an owner it does not have")
+      asOperator.execute(
+        Action.RemoveListenerSet(probeNamespace, "probe-hostnames", owner.getMetadata.getUid)
+      )
+      asOperator.execute(
+        Action.PruneHostnameCertificates(probeNamespace, owner.getMetadata.getUid, Vector.empty)
+      )
+      waitFor(30.seconds)(probeSet.isEmpty && probeCertificate.isEmpty)
+
       // Feature 034: a storage credential, under the same real identity. Its Secret is written with
       // `create` alone, a conflict is how an existing one is learned of, and no `get` is ever sent —
       // so this holds with the grant as it is and after the grant loses `get`.

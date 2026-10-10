@@ -1357,6 +1357,7 @@ Usage:
     ankka services history
     ankka services expose
     ankka services unexpose
+    ankka services hostnames
     ankka services delete
 
 Manage services.
@@ -1394,6 +1395,8 @@ Subcommands:
         Make a service reachable outside the cluster at its platform-derived hostname.
     unexpose
         Remove a service's external route, and nothing else.
+    hostnames
+        Custom hostnames: names under domains you bring, served beside the one the platform derives. Each is proved by a TXT record the control plane reads once.
     delete
         Delete a service.
 ```
@@ -1747,6 +1750,66 @@ Options and flags:
 Usage: ankka services unexpose [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Remove a service's external route, and nothing else.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services hostnames`
+
+```text
+Usage:
+    ankka services hostnames add
+    ankka services hostnames remove
+
+Custom hostnames: names under domains you bring, served beside the one the platform derives. Each is proved by a TXT record the control plane reads once.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    add
+        Add a custom hostname to an exposed service. Refused until the proof record exists.
+    remove
+        Remove a custom hostname from a service. Nothing answers at it once removed.
+```
+
+### `ankka services hostnames add`
+
+```text
+Usage: ankka services hostnames add [--url <string>] [--token <string>] [--project <string>] [--output <string>] <service> <hostname>
+
+Add a custom hostname to an exposed service. Refused until the proof record exists.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services hostnames remove`
+
+```text
+Usage: ankka services hostnames remove [--url <string>] [--token <string>] [--project <string>] [--output <string>] <service> <hostname>
+
+Remove a custom hostname from a service. Nothing answers at it once removed.
 
 Options and flags:
     --help

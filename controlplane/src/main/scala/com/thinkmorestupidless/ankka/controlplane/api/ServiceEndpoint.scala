@@ -38,7 +38,8 @@ final class ServiceEndpoint(
     deploy: DeployConfig = DeployConfig.default,
     logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
     protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
-    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix),
+    proofs: ProofLookup = ProofLookup.jndi(None)
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -63,7 +64,9 @@ final class ServiceEndpoint(
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
     authz.project(principal, projectId, write = false)
     withUndeclaredTopics(
-      withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+      withMountStates(
+        withProof(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+      )
     )
   }
 
@@ -297,6 +300,83 @@ final class ServiceEndpoint(
     )
   }
 
+  /**
+   * Adds a custom hostname (feature 045). Every refusal is a 409 naming what is wrong, checked in
+   * the order a member is told them: the name itself, the installation, the service, the cap, the
+   * holder, and last the proof — the one check that costs a DNS read, so none is made for a name
+   * that would be refused anyway. The entity checks exposure and the cap again, as the single
+   * writer. A name this service already holds is answered unchanged.
+   */
+  put("/{projectId}/{name}/hostnames/{hostname}") {
+    (projectId: String, name: String, raw: String) =>
+      val metadata = access(projectId, write = true)
+      // A path segment arrives as sent: a `/` a member typed is `%2F`, and must be judged as the
+      // `/` it is, in a name that is not a name alone.
+      val requested                       = decoded(raw)
+      val hostname                        = CustomHostnames.normalise(requested)
+      def refuse(reason: String): Nothing = throw CommandError(reason, ErrorCode.Conflict)
+      CustomHostnames.problem(requested, deploy.baseDomain).foreach(refuse)
+      if deploy.hostnameIssuer.isEmpty then
+        refuse(
+          "the installation names no authority for custom hostnames (ANKKA_HOSTNAME_ISSUER)"
+        )
+      val current = entity(projectId, name)
+        .call(ServiceEntity.desiredState)
+        .invoke()
+        .getOrElse(
+          throw CommandError(s"no such service '$name' in project '$projectId'", ErrorCode.NotFound)
+        )
+      if !current.holds(hostname) then
+        if !current.exposed then refuse(ServiceEntity.notExposed(name))
+        if current.customHostnames.size >= CustomHostnames.MaxPerService then
+          refuse(ServiceEntity.atCap(name))
+        customHostnameHolder(hostname, current.key).foreach { holder =>
+          refuse(
+            s"'$hostname' is held by service '${holder.name}' in project '${holder.projectId}'"
+          )
+        }
+        proofs.proves(hostname, projectId) match
+          case Right(true) => ()
+          case Right(false) | Left(ProofLookup.Failure.NoRecord) =>
+            refuse(
+              s"'$hostname' does not carry the proof record of project '$projectId': create " +
+                s"TXT ${ProofLookup.recordName(hostname)} with the value " +
+                s"\"${ProofLookup.recordValue(projectId)}\""
+            )
+          case Left(ProofLookup.Failure.Unreachable(detail)) =>
+            refuse(
+              s"could not look up ${ProofLookup.recordName(hostname)}: $detail; the proof record " +
+                "was not checked"
+            )
+      withHostname(
+        entity(projectId, name)
+          .call(ServiceEntity.addHostname)
+          .withMetadata(metadata)
+          .invoke(hostname)
+      )
+  }
+
+  /**
+   * Removes a custom hostname. By a platform administrator it is recorded as taken away, with the
+   * attribution that says the role, not membership, let them: the decision to take a domain from a
+   * project that no longer controls it is made over the members' heads.
+   */
+  delete("/{projectId}/{name}/hostnames/{hostname}") {
+    (projectId: String, name: String, raw: String) =>
+      val hostname = CustomHostnames.normalise(decoded(raw))
+      val call =
+        if authz.isAdmin(principal) then
+          authz.project(principal, projectId, write = true)
+          entity(projectId, name)
+            .call(ServiceEntity.takeHostnameAway)
+            .withMetadata(authz.administrator(principal))
+        else
+          entity(projectId, name)
+            .call(ServiceEntity.removeHostname)
+            .withMetadata(access(projectId, write = true))
+      withHostname(call.invoke(hostname))
+  }
+
   /** The URL an exposed service answers at, added on the way out: the entity does not know it. */
   /**
    * What is behind each of a web-hosted service's mounts (feature 021), decided when one service is
@@ -324,9 +404,23 @@ final class ServiceEndpoint(
         else Some(address)
       )
     )
+    val withRecords = located.copy(
+      // The records to create, which need the installation's settings the entity does not have.
+      customHostnames = status.customHostnames.map { h =>
+        val (record, note) = deploy.recordFor(status.projectId, status.name, h.hostname)
+        h.copy(record = record, note = note)
+      }
+    )
     if status.exposed then
-      located.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
-    else located
+      withRecords.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
+    else withRecords
+
+  private def decoded(segment: String): String =
+    java.net.URLDecoder.decode(segment.replace("+", "%2B"), java.nio.charset.StandardCharsets.UTF_8)
+
+  /** On a read of one service, the proof record too: the same for every hostname it brings. */
+  private def withProof(status: ServiceStatus): ServiceStatus =
+    status.copy(proofRecord = Some(deploy.proofRecord(status.projectId)))
 
   /**
    * Another exposed service whose derived label equals this one's — `a-b` in `c` against `a` in
@@ -339,6 +433,21 @@ final class ServiceEndpoint(
       .ordered(jsonText("exposed") ++ sql" = 'true'", order = jsonText("name"))
       .map(row => ServiceKey(row.projectId, row.name))
       .find(other => other != key && Hostnames.label(other.name, other.projectId) == label)
+
+  /**
+   * Another service holding a custom hostname (feature 045), across the installation. From the
+   * listing view, as the derived label's holder is, so it can lag: two adds within one projection
+   * interval may both be recorded, and the gateway then serves the older listener set's and marks
+   * the other's Conflicted, which the status shows.
+   */
+  private def customHostnameHolder(hostname: String, key: ServiceKey): Option[ServiceKey] =
+    services
+      .ordered(jsonText("customHostnames") ++ sql" is not null", order = jsonText("name"))
+      .find(row =>
+        ServiceKey(row.projectId, row.name) != key && row.customHostnames
+          .exists(_.hostname == hostname)
+      )
+      .map(row => ServiceKey(row.projectId, row.name))
 
   /**
    * A deployed service's output.

@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudResourceSpec,
   CloudResourceStatus,
   CloudSubject,
+  HostnameStatus,
   ObjectStorageStatus,
   ProjectTopicEntry,
   ProjectTopicStatus
@@ -140,6 +141,27 @@ class CrdSchemaSuite extends munit.FunSuite:
     val inClass  = fieldsOf(classOf[ObjectStorageStatus])
     assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
     assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+  }
+
+  test("a custom hostname's status is declared field for field, in both directions") {
+    // An array's items are a nested object a closed schema checks as well (feature 045).
+    val inSchema = declared("status", "hostnames", "items")
+    val inClass  = fieldsOf(classOf[HostnameStatus])
+    assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
+    assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+    val states = crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+      .get("status")
+      .getProperties
+      .get("hostnames")
+      .getItems
+      .getSchema
+      .getProperties
+      .get("state")
+      .getEnum
+      .asScala
+      .map(_.asText)
+      .toSet
+    assertEquals(states, Set("pending", "serving", "rejected"))
   }
 
   test("a move's request and its state are declared field for field, in both directions") {

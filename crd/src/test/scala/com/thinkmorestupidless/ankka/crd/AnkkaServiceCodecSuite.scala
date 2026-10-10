@@ -309,6 +309,47 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     assert(!json.contains("objectStorage"), json)
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("a resource from before custom hostnames has none") {
+    val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
+    assertEquals(serialization.unmarshal(sparse, classOf[AnkkaServiceSpec]).customHostnames, Nil)
+    val status = serialization.unmarshal(
+      """{"generation":1,"lifecycle":"Ready"}""",
+      classOf[AnkkaServiceStatus]
+    )
+    assertEquals(status.hostnames, Nil)
+  }
+
+  test("custom hostnames round-trip in order") {
+    val spec = fullSpec.copy(customHostnames = List("app.example.com", "example.com"))
+    val back = serialization.unmarshal(serialization.asJson(spec), classOf[AnkkaServiceSpec])
+    assertEquals(back.customHostnames, List("app.example.com", "example.com"))
+  }
+
+  test("a hostname's status round-trips with and without a reason") {
+    val status = AnkkaServiceStatus(
+      lifecycle = "Ready",
+      hostnames = List(
+        HostnameStatus("app.example.com", "serving"),
+        HostnameStatus("example.com", "pending", Some("the certificate is being issued"))
+      )
+    )
+    val json = serialization.asJson(status)
+    assert(!json.contains("null"), json)
+    assertEquals(
+      serialization.unmarshal(json, classOf[AnkkaServiceStatus]).hostnames,
+      status.hostnames
+    )
+  }
+
+  test("a report that differs only in a hostname's state is a different report") {
+    val a = AnkkaServiceStatus(hostnames = List(HostnameStatus("app.example.com", "pending")))
+    val b = a.copy(hostnames = List(HostnameStatus("app.example.com", "serving")))
+    assert(!a.sameReport(b))
+    assert(a.sameReport(a.copy(lastTransitionTime = "later")))
+  }
+
   test("a raised storage credential generation is read back, and its absence is the first") {
     // The member's count of credentials issued again (feature 039), which a cloud request asks
     // for plus one (feature 044).

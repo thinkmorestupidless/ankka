@@ -134,8 +134,13 @@ feature also says what that feature does not do.
   headless address named `<service>-grpc-peers`. If another service in the project is called that, the
   platform leaves that service's address alone and does not create the peers address, and callers then
   balance by connection rather than by call.
-- **No custom hostnames.** An exposed service's hostname is derived by the platform as
-  `<service>-<project>.<base domain>`. A domain of your own is not supported.
+- **Custom hostnames have limits.** A service can answer at names under domains you own, beside its
+  derived hostname (see [Serve a service at your own domain](../deploy/custom-hostnames.md)), up to five
+  per service. The platform writes no DNS: you create the proof record and the record that points the
+  name at the installation. It does not accept a certificate you supply; it obtains one. The control
+  plane, the console, the identity provider and the object store keep their derived names. Two services
+  cannot share one hostname by path. An apex name needs the installation to publish its gateway's
+  address.
 
 ## Observability
 

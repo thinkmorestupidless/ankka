@@ -219,13 +219,19 @@ class ControlPlaneRestoreClusterFeatures
 
   private def recordOnce(): Unit =
     controlPlaneDatabase
+    // A completed base backup, not only a ready instance: a recovery has nothing to start from
+    // without one, and waits for ever rather than failing.
     waitFor(10.minutes, "the control plane's database backed up") {
-      val c = k8s
-        .resources(classOf[com.thinkmorestupidless.ankka.operator.cnpg.PostgresCluster])
+      k8s
+        .resources(classOf[com.thinkmorestupidless.ankka.operator.cnpg.PostgresBackup])
         .inNamespace("ankka-controlplane")
-        .withName("ankka-controlplane-db")
-        .get()
-      c != null && Option(c.getStatus).exists(_.readyInstances >= 1)
+        .list()
+        .getItems
+        .asScala
+        .exists(b =>
+          Option(b.getSpec).exists(_.cluster.name == "ankka-controlplane-db") &&
+            Option(b.getStatus).flatMap(_.phase).contains("completed")
+        )
     }
     startControlPlane("ankka-controlplane-db")
     val owner = identity.token("root", roles = Set("platform-admin"), expiresIn = 3.hours)

@@ -16,6 +16,9 @@ object PlatformBackups:
   /** Where the control plane and its database run: the `controlplane` component's namespace. */
   val ControlPlaneNamespace: String = "ankka-controlplane"
 
+  /** The control plane's database, as the `postgres` component names it. */
+  val ControlPlaneCluster: String = "ankka-controlplane-db"
+
   /** Nothing without a backup target, as for a project. */
   def actions(settings: Settings): Vector[Action] =
     if !settings.backups.enabled || settings.objectStore.isEmpty then Vector.empty
@@ -29,5 +32,8 @@ object PlatformBackups:
           bucket,
           BucketPermission.ReadWrite,
           0
-        )
+        ),
+        // Its schedule is the `backups` component's, so its first base backup runs the moment the
+        // database exists. Run before the credential above, it fails, and the next is a day away.
+        Action.RetryBaseBackup(ControlPlaneNamespace, ControlPlaneCluster)
       )

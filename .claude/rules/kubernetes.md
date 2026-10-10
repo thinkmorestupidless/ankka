@@ -614,7 +614,9 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
   not enough: on a cluster that existed before backups the condition is already `True` before the
   plugin is added ("the cluster has no plugin configured"). So the executor also takes the first base
   backup again (`BaseBackupRetry`): two minutes after the last failure, at most five times, and only
-  while none has completed.
+  while none has completed. The control plane's own database, whose schedule is the `backups`
+  component's, is retried the same way from `PlatformBackups`: its first base backup can run before the
+  operator has issued its credential, and a restore with no base backup waits for ever, never failing.
 - **A rehearsal leaves the operator's report when its cluster is removed.** The rehearsal gauge read
   the report and missed it; the projector builds the same view the status route does, from the
   entity's record, and sets every backup metric from that.

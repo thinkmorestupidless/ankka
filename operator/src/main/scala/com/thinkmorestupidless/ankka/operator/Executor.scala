@@ -592,6 +592,9 @@ final class Fabric8Executor(
         baseBackupAgain(namespace, cluster)
       else log.debug("{}/{}: no base backup scheduled until it archives", namespace, cluster)
 
+    case Action.RetryBaseBackup(namespace, cluster) =>
+      baseBackupAgain(namespace, cluster)
+
     case Action.EnsureBackupCredential(namespace, bucket, keyName, permission, generation) =>
       requireStore(): Unit
       val entries  = StorageCredential.backupEntries(objectStoreRegion)

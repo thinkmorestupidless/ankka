@@ -272,6 +272,12 @@ enum Action:
   case EnsureScheduledBackup(schedule: cnpg.PostgresScheduledBackup)
 
   /**
+   * Feature 041: another base backup of a cluster whose every one failed (`BaseBackupRetry`), for a
+   * cluster whose schedule the operator does not render: the control plane's own database.
+   */
+  case RetryBaseBackup(namespace: String, cluster: String)
+
+  /**
    * Feature 041: a backup bucket's credential, in the Secret `ankka-db-backups` of `namespace`, for
    * the key `keyName` with `permission` on `bucket`. Issued once, as a storage credential is, and
    * issued again into the same Secret when `generation` passes the last one this process issued at.
@@ -360,6 +366,8 @@ enum Action:
       s"ensure objectstore ${o.getMetadata.getNamespace}/${o.getMetadata.getName}"
     case EnsureScheduledBackup(b) =>
       s"ensure scheduledbackup ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
+    case RetryBaseBackup(ns, cluster) =>
+      s"take a base backup of $ns/$cluster again if every one failed"
     case EnsureBackupCredential(ns, bucket, key, permission, generation) =>
       s"ensure backup credential $ns/${com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret} " +
         s"for key $key ($permission) on bucket $bucket at generation $generation"

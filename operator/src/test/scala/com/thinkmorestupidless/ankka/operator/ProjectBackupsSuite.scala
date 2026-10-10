@@ -147,4 +147,9 @@ class ProjectBackupsSuite extends munit.FunSuite:
         assertEquals(credential.namespace, "ankka-controlplane")
         assertEquals(credential.permission, BucketPermission.ReadWrite)
       case None => fail("no credential")
+    // Its first base backup can run before the credential exists; it is taken again.
+    assert(
+      actions.contains(Action.RetryBaseBackup("ankka-controlplane", "ankka-controlplane-db")),
+      actions.map(_.describe).mkString("\n")
+    )
   }

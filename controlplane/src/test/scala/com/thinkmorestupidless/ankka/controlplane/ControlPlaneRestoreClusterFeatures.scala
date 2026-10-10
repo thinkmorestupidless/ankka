@@ -371,6 +371,29 @@ class ControlPlaneRestoreClusterFeatures
 
   Then("the restore ends by writing the restore marker") { () =>
     val pod = s"$restoreName-1"
+    // The instance can still be restarting when the marker Job ends ("container not found"), so
+    // the read is retried; the marker itself is asserted once it answers.
+    waitFor(2.minutes, "the restored database to answer") {
+      val r = k3s.execInContainer(
+        "kubectl",
+        "exec",
+        "-n",
+        "ankka-controlplane",
+        pod,
+        "-c",
+        "postgres",
+        "--",
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "ankka",
+        "-tA",
+        "-c",
+        "select 1"
+      )
+      r.getExitCode == 0
+    }
     val r = k3s.execInContainer(
       "kubectl",
       "exec",

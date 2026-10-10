@@ -20,7 +20,7 @@ import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
 import org.apache.pekko.http.scaladsl.marshalling.Marshal
 import org.apache.pekko.http.impl.engine.ws.AnkkaSocketUpgrade
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.math.Ordering.Implicits.seqOrdering
 import scala.util.control.NonFatal
@@ -199,7 +199,8 @@ final class HttpServer private (
         )
     }
 
-    val upgrades = SocketUpgrades.from(system, sockets)
+    val upgrades  = SocketUpgrades.from(system, sockets)
+    val heartbeat = SseSettings.heartbeat(system)
 
     val tls = serviceTls(config)
     // A machine's token is read only under TLS, where the gateway's certificate says the request
@@ -222,7 +223,7 @@ final class HttpServer private (
         )
         grantsCheck = Some(system.scheduler.scheduleAtFixedRate(every, every)(() => file.check()))
       case _ => ()
-    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades), grants).handle
+    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades), grants, Some(heartbeat)).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(
@@ -411,7 +412,8 @@ private final class Router(
     bodyTimeout: FiniteDuration,
     callers: CallerSource = CallerSource.local,
     configuredUpgrades: Option[SocketUpgrades] = None,
-    grants: Grants = Grants.none
+    grants: Grants = Grants.none,
+    heartbeat: Option[FiniteDuration] = None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -780,7 +782,12 @@ private final class Router(
                 open
               }
         // JSON per event, named or not: see SseEvent for why raw text is not safe here.
-        Marshal(served).to[HttpResponse]
+        // An event with no data on a quiet stream, which a browser does not dispatch: pekko-http ends a
+        // connection idle for its idle timeout, and a watch of a quiet view would end with no
+        // reason given.
+        val kept =
+          heartbeat.fold(served)(every => served.keepAlive(every, () => ServerSentEvent.heartbeat))
+        Marshal(kept).to[HttpResponse]
       }
       .recover {
         case failure: HttpProblem => problem(failure)
@@ -1092,6 +1099,26 @@ private[http] final class SocketUpgrades(
       upgradeSettings,
       log
     )
+
+private[http] object SseSettings:
+
+  /**
+   * How long an event stream may be quiet before the service sends a heartbeat, refused when it is
+   * not shorter than pekko-http's own idle timeout, which would end a quiet stream first.
+   */
+  def heartbeat(system: ActorSystem[?]): FiniteDuration =
+    val every =
+      FiniteDuration(system.settings.config.getDuration("ankka.http.sse.heartbeat").toMillis, "ms")
+    val idle = org.apache.pekko.http.scaladsl.settings.ServerSettings(system).timeouts.idleTimeout
+    if every <= Duration.Zero then
+      throw IllegalArgumentException(s"ankka.http.sse.heartbeat must be positive, not $every")
+    if idle.isFinite && every >= idle then
+      throw IllegalArgumentException(
+        s"invalid ankka http configuration:\n  - the SSE heartbeat, ankka.http.sse.heartbeat " +
+          s"(${every.toCoarsest}), must be shorter than pekko.http.server.idle-timeout ($idle), " +
+          "which would otherwise end a quiet stream"
+      )
+    every
 
 private[http] object SocketUpgrades:
 

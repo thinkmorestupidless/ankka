@@ -2,6 +2,7 @@ package shoppingcart
 
 import com.thinkmorestupidless.ankka.grpc.{GrpcChannels, GrpcClients, GrpcServer}
 import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpServer}
+import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
 import io.grpc.ManagedChannel
 import io.grpc.reflection.v1.{
@@ -11,7 +12,7 @@ import io.grpc.reflection.v1.{
 }
 import io.grpc.stub.StreamObserver
 import shoppingcart.api.{CartGrpcEndpoint, CartStreamsEndpoint, GrpcCallersEndpoint}
-import shoppingcart.application.ShoppingCartEntity
+import shoppingcart.application.{CartRows, ShoppingCartEntity}
 import shoppingcart.v1.cart.*
 
 import java.net.URI
@@ -42,7 +43,10 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   private var channel: ManagedChannel = null
 
   override def beforeAll(): Unit =
-    testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(grpc, grpcClients, http))
+    testKit = AnkkaTestKit.start(
+      Seq(ShoppingCartEntity.descriptor, CartRows.descriptor),
+      Seq(ProjectionRuntime(), grpc, grpcClients, http)
+    )
     channel = GrpcChannels.plaintext(grpc.boundPort.getOrElse(fail("the gRPC server did not bind")))
 
   override def afterAll(): Unit =

@@ -22,6 +22,12 @@ final case class WorkflowLifecycle(
   def isFailed: Boolean    = status == "Failed"
   def isTerminal: Boolean  = isCompleted || isFailed
 
+  /**
+   * Of a change a view or a consumer is handed: the state was recorded before the platform stamped
+   * standings, so where the workflow stood then is not known. The lifecycle query never answers it.
+   */
+  def isUnknown: Boolean = status == WorkflowLifecycle.UnknownStatus
+
 object WorkflowLifecycle:
 
   /**
@@ -33,6 +39,12 @@ object WorkflowLifecycle:
   val MethodPrefix: String = "ankka:"
 
   private[ankka] val Method: MethodName = MethodName("ankka:lifecycle")
+
+  /** The status of a standing nothing was recorded for. */
+  val UnknownStatus: String = "Unknown"
+
+  /** A standing nothing was recorded for: a state written before standings were stamped. */
+  val unknown: WorkflowLifecycle = WorkflowLifecycle(UnknownStatus, None, Map.empty, None)
 
   private[ankka] val serializer: Serializer[WorkflowLifecycle] =
     Codecs.serializer[WorkflowLifecycle]("workflow-lifecycle")

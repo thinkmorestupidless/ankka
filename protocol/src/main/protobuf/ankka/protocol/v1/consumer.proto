@@ -12,6 +12,7 @@ message ConsumerRequest {
   Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence;
                                                 // ankka.protocol: what the runtime speaks (1.3)
   bool deleted = 4;                             // the source was deleted
+  optional WorkflowStanding standing = 5;       // 1.15: a change from a workflow source: where it stood once the effect was applied
 }
 
 message ConsumerEffect {

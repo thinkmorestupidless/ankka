@@ -53,12 +53,12 @@ class KeyedViewRulesSuite extends munit.FunSuite:
   test("K5: a discovered source that is no entity is refused") {
     val remote = RemoteKeyedViewDescriptor(
       ComponentId("joined"),
-      Vector(RemoteSource.Component(ComponentKind.Workflow, ComponentId("checkout"))),
+      Vector(RemoteSource.Component(ComponentKind.TimedAction, ComponentId("reminders"))),
       "row"
     )
     val found = problems(remote)
     assert(
-      found.exists(_.contains("'checkout'")) && found.exists(_.contains("change stream")),
+      found.exists(_.contains("'reminders'")) && found.exists(_.contains("change stream")),
       found.toString
     )
   }

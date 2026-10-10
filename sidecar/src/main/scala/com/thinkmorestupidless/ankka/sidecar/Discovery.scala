@@ -58,8 +58,11 @@ object Discovery:
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
-   * (feature 031). 1.14: a topic source's contract, broker and parallel flag (feature 037). 1.15:
-   * the granted-caller matcher, the machine caller, and another project's topic (feature 040).
+   * (feature 031). 1.14: a topic source's contract, broker and parallel flag, and a consumer's
+   * publication (feature 037). 1.15: the granted-caller matcher, the machine caller, and another
+   * project's topic (feature 040). 1.16: a workflow as the source of a view or a consumer, and its
+   * standing on their requests (feature 046); refused from a process that declares an earlier
+   * minor.
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -149,6 +152,12 @@ object Discovery:
    * topic.
    */
   private def beforeGrants(version: String): Boolean = minorOf(version).exists(_ < GrantsSince)
+
+  /**
+   * The first minor that reads a workflow as a source (feature 046). A process declaring an earlier
+   * one cannot have meant one, and would be handed changes with no standing and no error.
+   */
+  private val WorkflowSourcesSince = 16
 
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
@@ -323,6 +332,21 @@ object Discovery:
           case _ => ()
       case _ => ()
     }
+
+    // A workflow read as a source needs 1.15, from both ends: a runtime before it refuses the
+    // source as having no change stream, and one at it refuses a process that says it is older.
+    if minorOf(spec.protocolVersion).exists(_ < WorkflowSourcesSince) then
+      def workflows(named: String, sources: Seq[RemoteSource]) =
+        sources.collect { case RemoteSource.Component(ComponentKind.Workflow, id) =>
+          problems += s"$named reads workflow '$id', which needs protocol 1.$WorkflowSourcesSince; " +
+            s"the SDK speaks ${spec.protocolVersion}"
+        }
+      built.foreach {
+        case v: RemoteViewDescriptor      => workflows(s"view '${v.componentId}'", Seq(v.source))
+        case v: RemoteKeyedViewDescriptor => workflows(s"view '${v.componentId}'", v.sources)
+        case c: RemoteConsumerDescriptor => workflows(s"consumer '${c.componentId}'", Seq(c.source))
+        case _                           => ()
+      }
 
     ComponentRegistry.from(built) match
       case Left(more) => problems ++= more

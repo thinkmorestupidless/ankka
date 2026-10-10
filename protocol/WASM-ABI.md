@@ -57,7 +57,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 module. The rest are required by what the module declares: `ankka1_handle` for any entity or
 workflow, `ankka1_fold` for an event sourced entity, `ankka1_run_step` for a workflow, `ankka1_close`
 for a component declared stateful, `ankka1_view`, `ankka1_consumer` and `ankka1_timed_action` for
-those kinds, `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
+those kinds (a view's or consumer's request carries `standing` when its source is a workflow), `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
 `ankka1_check_guardrail` when it declares guardrails), `ankka1_check_task_result` for an autonomous
 agent (with the same two when it declares tools or guardrails), and `ankka1_http` for an endpoint. A module
 missing one it needs is refused at start, naming the export and what needs it.

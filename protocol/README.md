@@ -44,6 +44,11 @@ registered on an organization, proven by a token the control plane issued; and `
 sidecar refuses a `Spec` that uses any of them and declares an earlier minor, and an SDK refuses
 discovery from a runtime stating an earlier one, as for socket routes: a runtime that did not know
 `granted` would read the matcher as nothing.
+`1.16` added a workflow as the source of a view or a consumer:
+a `Source.ComponentRef` of kind `WORKFLOW`, and `WorkflowStanding` as `ViewRequest.standing` and
+`ConsumerRequest.standing`, where the workflow stood once the effect that recorded the state was
+applied. The gate holds from both ends: the sidecar refuses a workflow source from a process that
+declares an earlier minor, and an SDK refuses discovery with one from a runtime that states one.
 
 `MAJOR.MINOR`. Within a major:
 

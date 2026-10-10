@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
+import com.thinkmorestupidless.ankka.runtime.remote.Payload
+import com.thinkmorestupidless.ankka.core.effect.ViewEffect
 import com.thinkmorestupidless.ankka.core.{
   ComponentDescriptor,
   ComponentId,
@@ -385,7 +386,8 @@ final class ProjectionRuntime private (
           // A source `DeclaredConnections` does not read as one: a component with no change stream.
           case (None, RemoteSource.Component(kind, sourceId)) =>
             problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
-              "a view or consumer follows an event sourced entity, a key value entity or a topic"
+              "a view or consumer follows an event sourced entity, a key value entity, a workflow " +
+              "or a topic"
           case _ => ()
     }
 
@@ -763,7 +765,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => ViewEventHandler(typed, client, guard(projection))
+              () => ViewEventHandler(typed, client, guard(projection), ChangeReader.journal)
             )
           }
         }
@@ -779,6 +781,27 @@ final class ProjectionRuntime private (
               sourceId,
               range,
               () => ViewStateHandler(typed, client, guard(projection))
+            )
+          }
+        }
+
+      case ChangeSource.Workflow(sourceId, decoder) =>
+        startEntityView(id, declared) {
+          daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
+            val range = eventSliceRanges(typed.parallelism)(index)
+            val projection =
+              ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
+            exactlyOnceWorkflowProjection(
+              projection,
+              sourceId,
+              range,
+              () =>
+                ViewEventHandler(
+                  typed,
+                  client,
+                  guard(projection),
+                  ChangeReader.workflow(decoder.manifest)
+                )
             )
           }
         }
@@ -822,8 +845,12 @@ final class ProjectionRuntime private (
       typed.sources.foreach { source =>
         val daemonName     = ViewProjections.daemon(id, Some(source.componentId))
         val projectionName = ViewProjections.name(id, Some(source.componentId), declared)
-        def handle(subject: String, sequence: Long, payload: Option[(Array[Byte], String)]) =
-          host.handle(source, subject, sequence, payload)
+        def handle(
+            subject: String,
+            sequence: Long,
+            payload: Option[Payload],
+            standing: Option[WorkflowLifecycle]
+        ) = host.handle(source, subject, sequence, payload, standing)
         source.source match
           case ChangeSource.EventSourced(sourceId, _) =>
             daemon(daemonName, 1) { _ =>
@@ -833,7 +860,8 @@ final class ProjectionRuntime private (
                 projection,
                 sourceId,
                 range,
-                () => KeyedViewEventHandler(host.core, guard(projection), handle)
+                () =>
+                  KeyedViewEventHandler(host.core, guard(projection), handle, ChangeReader.journal)
               )
             }
           case ChangeSource.KeyValue(sourceId, _) =>
@@ -845,6 +873,23 @@ final class ProjectionRuntime private (
                 sourceId,
                 range,
                 () => KeyedViewStateHandler(host.core, guard(projection), handle)
+              )
+            }
+          case ChangeSource.Workflow(sourceId, decoder) =>
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceWorkflowProjection(
+                projection,
+                sourceId,
+                range,
+                () =>
+                  KeyedViewEventHandler(
+                    host.core,
+                    guard(projection),
+                    handle,
+                    ChangeReader.workflow(decoder.manifest)
+                  )
               )
             }
           case ChangeSource.Topic(_, _, _, _) => () // refused by KeyedViewRules
@@ -885,7 +930,8 @@ final class ProjectionRuntime private (
                 Observability(system),
                 secrets,
                 services,
-                HistoryLines(system)
+                HistoryLines(system),
+                ChangeReader.journal
               )
           )
         }
@@ -906,6 +952,27 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 HistoryLines(system)
+              )
+          )
+        }
+
+      case ChangeSource.Workflow(sourceId, decoder) =>
+        daemon(processName, typed.parallelism) { index =>
+          val range = eventSliceRanges(typed.parallelism)(index)
+          atLeastOnceWorkflowProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () =>
+              ConsumerEventHandler(
+                typed,
+                target,
+                client,
+                Observability(system),
+                secrets,
+                services,
+                HistoryLines(system),
+                ChangeReader.workflow(decoder.manifest)
               )
           )
         }
@@ -959,7 +1026,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => RemoteViewEventHandler(view(), guard(projection))
+              () => RemoteViewEventHandler(view(), guard(projection), ChangeReader.journal)
             )
           }
         }
@@ -974,6 +1041,20 @@ final class ProjectionRuntime private (
               sourceId,
               range,
               () => RemoteViewStateHandler(view(), Database(), guard(projection))
+            )
+          }
+        }
+
+      case RemoteSource.Component(ComponentKind.Workflow, sourceId) =>
+        startEntityView(id, declared) {
+          daemon(daemonName, parallelism) { index =>
+            val range      = eventSliceRanges(parallelism)(index)
+            val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+            exactlyOnceWorkflowProjection(
+              projection,
+              sourceId,
+              range,
+              () => RemoteViewEventHandler(view(), guard(projection), ChangeReader.remoteWorkflow)
             )
           }
         }
@@ -1023,7 +1104,7 @@ final class ProjectionRuntime private (
                 projection,
                 sourceId,
                 range,
-                () => KeyedViewEventHandler(core, guard(projection), handle)
+                () => KeyedViewEventHandler(core, guard(projection), handle, ChangeReader.journal)
               )
             }
           else if kind == ComponentKind.KeyValueEntity then
@@ -1035,6 +1116,23 @@ final class ProjectionRuntime private (
                 sourceId,
                 range,
                 () => KeyedViewStateHandler(core, guard(projection), handle)
+              )
+            }
+          else if kind == ComponentKind.Workflow then
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceWorkflowProjection(
+                projection,
+                sourceId,
+                range,
+                () =>
+                  KeyedViewEventHandler(
+                    core,
+                    guard(projection),
+                    handle,
+                    ChangeReader.remoteWorkflow
+                  )
               )
             }
         case RemoteSource.Topic(_, _, _) => () // refused by KeyedViewRules
@@ -1066,7 +1164,7 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system))
+            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system), ChangeReader.journal)
           )
         }
 
@@ -1078,6 +1176,17 @@ final class ProjectionRuntime private (
             sourceId,
             range,
             () => RemoteConsumerStateHandler(consumer(), HistoryLines(system))
+          )
+        }
+
+      case RemoteSource.Component(ComponentKind.Workflow, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = eventSliceRanges(parallelism)(index)
+          atLeastOnceWorkflowProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system), ChangeReader.remoteWorkflow)
           )
         }
 
@@ -1146,6 +1255,33 @@ final class ProjectionRuntime private (
       range.min,
       range.max
     )
+
+  private def workflowSource(sourceId: ComponentId, range: Range)(using
+      system: ActorSystem[?]
+  ): SourceProvider[org.apache.pekko.persistence.query.Offset, EventEnvelope[WorkflowRecord]] =
+    EventSourcedProvider.eventsBySlices[WorkflowRecord](
+      system,
+      R2dbcReadJournal.Identifier,
+      sourceId,
+      range.min,
+      range.max
+    )
+
+  private def exactlyOnceWorkflowProjection(
+      id: ProjectionId,
+      sourceId: ComponentId,
+      range: Range,
+      handler: () => R2dbcHandler[EventEnvelope[WorkflowRecord]]
+  )(using system: ActorSystem[?]): Projection[EventEnvelope[WorkflowRecord]] =
+    R2dbcProjection.exactlyOnce(id, None, workflowSource(sourceId, range), handler)
+
+  private def atLeastOnceWorkflowProjection(
+      id: ProjectionId,
+      sourceId: ComponentId,
+      range: Range,
+      handler: () => Handler[EventEnvelope[WorkflowRecord]]
+  )(using system: ActorSystem[?]): Projection[EventEnvelope[WorkflowRecord]] =
+    R2dbcProjection.atLeastOnceAsync(id, None, workflowSource(sourceId, range), handler)
 
   private def exactlyOnceEventProjection(
       id: ProjectionId,
@@ -1294,13 +1430,17 @@ object ProjectionRuntime:
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-/** Applies a view's effect and the projection offset in one transaction. */
-private final class ViewEventHandler(
+/**
+ * Applies a view's effect and the projection offset in one transaction, over an entity's journal or
+ * a workflow's: `reader` is how a record of that journal becomes a change.
+ */
+private final class ViewEventHandler[A](
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
     client: ComponentClient,
-    guard: EntityViewGuard
+    guard: EntityViewGuard,
+    reader: ChangeReader[A]
 )(using system: ActorSystem[?])
-    extends R2dbcHandler[EventEnvelope[JournalRecord]]:
+    extends R2dbcHandler[EventEnvelope[A]]:
 
   private given ExecutionContext = system.executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
@@ -1310,9 +1450,9 @@ private final class ViewEventHandler(
   // you are still somewhere it is safe to take it.
   private val observability = Observability(system)
 
-  def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    val change  = reader.read(envelope.event)
 
     guard
       .inSession(session)
@@ -1320,7 +1460,7 @@ private final class ViewEventHandler(
       .flatMap { row =>
         val effect =
           ProjectionSupport
-            .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
+            .runView(view, descriptor, subject, envelope.sequenceNr, row, change, observability)
         ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
       }
 
@@ -1384,44 +1524,56 @@ private final class ViewStateHandler(
     case updated: UpdatedDurableState[StateRecord] => updated.revision
     case deleted: DeletedDurableState[StateRecord] => deleted.revision
 
-/** Runs a consumer over an entity's events, publishing anything it produces. */
-private final class ConsumerEventHandler(
+/**
+ * Runs a consumer over an entity's events or a workflow's recorded states, publishing anything it
+ * produces: `reader` is how a record of that journal becomes a change.
+ */
+private final class ConsumerEventHandler[A](
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
     publisher: Option[MessagePublisher],
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
     services: ServiceClients,
-    lines: HistoryLines
-) extends Handler[EventEnvelope[JournalRecord]]:
+    lines: HistoryLines,
+    reader: ChangeReader[A]
+) extends Handler[EventEnvelope[A]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
-  def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    reader.read(envelope.event) match
+      // No change: the consumer is not called, and no span says it was.
+      case SourceChange.Skip => Future.successful(Done)
+      case change =>
+        consumer._setContext(
+          Some(
+            SimpleChangeContext(
+              subject,
+              envelope.sequenceNr,
+              localOrigin = true,
+              ProjectionSupport.standingOf(change)
+            )
+          )
+        )
+        val (effect, context) =
+          try
+            ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
+              change match
+                case SourceChange.Changed(payload, _) =>
+                  consumer.onMessage(descriptor.source.decoder.fromBytes(payload.data))
+                case _ => consumer.onDelete
+            }
+          finally consumer._setContext(None)
 
-    consumer._setContext(
-      Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
-    )
-    val (effect, context) =
-      try
-        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
-          record.kind match
-            case JournalRecord.KindDomain =>
-              consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
-            case JournalRecord.KindDeleted => consumer.onDelete
-            case _                         => ConsumerEffect.Ignore
-        }
-      finally consumer._setContext(None)
-
-    val eventId = lines
-      .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
-      .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)
+        val eventId = lines
+          .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
+          .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
+        ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(

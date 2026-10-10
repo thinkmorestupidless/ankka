@@ -6,6 +6,8 @@ Decisions, each with what it rests on. File references are to the worktree at th
 
 ## R1. Feature 044 is the contract, and it is not built yet
 
+*Written before 044 was built; R1a records what 044 built and what 039 does about each amendment below.*
+
 **Decision**: 039 is implemented *on top of* 044, which lands first on its own branch. This plan
 names exactly what 039 consumes of 044 and the four amendments it asks of 044's spec, so 044's plan
 can carry them. 039 adds no cloud code and no second contract.
@@ -52,6 +54,30 @@ session before its plan):
    keyless service needs the identity and no credential, and the credential request then names
    the identity's `principal`. 044's US1 scenario and `bucket.feature` change to say so.
 
+## R1a. Feature 044 as merged, and what 039 does about each difference
+
+044 merged as #101 (`a5b4b06c`, 2026-10-10), rebased onto 039's Garage half (#98). It built the
+`CloudResource` contract, the operator's cloud path for a bucket and a scripted provider, but none of
+the amendments R1 asked of its spec. Neither feature has been released, so nothing below changes
+anything an installation runs, and 039 makes each change itself, in 044's code.
+
+| What 039 assumed | What 044 built | Decision |
+|---|---|---|
+| The path a bucket takes is the installation's backend, `garage` or `gcs` | `ObjectStorage.takesCloudPath`: a provider is named and no Garage is installed | **D1.** `ObjectStorage.storeOf(spec, settings, observed, status)` per `data-model.md`'s table replaces `takesCloudPath`. A backend left unset is `garage` when Garage is installed, else `gcs` when a provider is named, so every installation 044 served takes the path it took. |
+| The credential's Secret on GCS is `<service>-gcs-storage` | `<service>-storage`, the Garage Secret's name | **D2.** `<service>-cloud-storage` (`Buckets.cloudSecret`, renamed from `gcsSecret`) for every bucket in the cloud account: a moving service holds both Secrets at once, so the cloud's cannot be Garage's name, and one name keeps the rendering one rule. Not `-gcs-`: 044's contract and `features/cloud-provider/` are written for any cloud, and a Secret's name is the platform's, not a cloud's. |
+| `bucket` takes `namePrefix` and `noncurrentVersionDays` | Neither; `BucketAsk()` is sent with versioning off, no soft-delete window and no origins, and the location is always the installation's | **D3.** The two keys join `CloudRequests.Keys.parameters` for `bucket`; `BucketAsk` is filled from the descriptor and the installation (versioning on, the window, the origins while exposed, the age); the location is the project's when it names one. The settings-generation rule of `contracts/operator.md` holds the window and the key. |
+| `identity` answers `principal` and `serviceAccountAnnotations` | It answers `identity` (the principal) only | **D4.** `serviceAccountAnnotations` joins the outputs, as `key=value` pairs comma-separated like every list in the contract; `principal` is 044's `identity`, and 039's documents say `identity`. |
+| `bucket-credential` answers `credentialId` | No; a provider ends an old credential from the status and its own listing | **D5.** Dropped. Nothing in ankka would read it, and 044's contract already makes pruning the provider's. |
+| The name rule `<namePrefix>-<project>-<service>-<digest8>` is the contract's | The scripted provider names `<account>-<project>-<service>` | **D6.** The rule goes into `docs/platform/cloud-provider.md`'s `bucket` kind, and the scripted provider names by `BucketNames` (T023). |
+| 039 extends a `FakeCloudProvider` | `ScriptedCloudProvider` and `ScriptedFulfilment`, with made-up outputs (`storage.scripted.invalid`) | **D7.** `ScriptedFulfilment` gains a Garage-backed mode: a `bucket` makes a Garage bucket under the rule and applies `corsOrigins`, a `bucket-credential` mints a Garage key allowed on it, and the endpoint is Garage's S3 port, so a pod on `gcs` keeps and reads objects for real. Its made-up mode stays for 044's own suite. |
+| One rotation grace | `ANKKA_CLOUD_ROTATION_GRACE` (the provider's) beside 039's `ANKKA_ROTATION_GRACE_SECONDS` (Garage's keys) | **D8.** One setting: the operator reads `ANKKA_CLOUD_ROTATION_GRACE` for Garage's keys too, whether or not a provider is named, and `ANKKA_ROTATION_GRACE_SECONDS` goes. Clarify's 2026-10-08 answer ("044's rotation grace governs every store") is then literally true. |
+| The request's `credentialGeneration` is the spec's | Settled in the rebase: the spec's count plus one | **D9.** Kept. 039's count starts at 0 and the control plane owns it; a provider's generations start at 1. |
+| A service on `gcs` is told `ANKKA_S3_ENDPOINT` from `ANKKA_OBJECT_STORE_GCS_ENDPOINT` and region `auto` | The bucket fulfilment's `endpoint` and `region` outputs | **D11.** The fulfilment's: where a bucket is reached is the provider's to say (`ankka-gcp` answers `https://storage.googleapis.com` and `auto`), and the scripted provider's Garage-backed mode answers Garage's S3 port. `GcsSettings.endpoint` and `ANKKA_OBJECT_STORE_GCS_ENDPOINT` go; an exposed bucket's `ANKKA_S3_PUBLIC_ENDPOINT` is the same `endpoint` and its address `<endpoint>/<bucket>`. |
+| `ObjectStorageGcsClusterFeatures` builds its own stack | `CloudProviderStack` starts the scripted provider under the shipped ServiceAccount | **D10.** The suite reuses `CloudProviderStack` with the Garage-backed mode and `ObjectStoreStack`, and the operator with backend `gcs`. |
+
+Amendment 5 of R1 (a service's own `identity` request beside the bucket and the credential) is what
+044 built, and `features/cloud-provider/bucket.feature` names the requests as built.
+
 ## R2. The backend is an installation setting, and both stores may be configured at once
 
 **Decision**: three new platform variables, declared in `core`'s `PlatformVariables` and set on the
@@ -85,9 +111,9 @@ this order and each a server-side apply of a `CloudResource` owned by the `Ankka
 |---|---|---|---|
 | `identity` | `<service>-identity` | `serviceAccount: <service>` | — |
 | `bucket` | `<service>-bucket` | `purpose: service`, `location`, `namePrefix`, `versioning: true`, `softDeleteDays`, `corsOrigins`, `noncurrentVersionDays`, `kmsKey` | — |
-| `bucket-credential` | `<service>-storage-credential` | `bucket` (from the bucket's fulfilment), `principal` (from the identity's), `secretName: <service>-gcs-storage`, `credentialGeneration` | both `Ready`; not rendered when the descriptor declines a credential |
+| `bucket-credential` | `<service>-storage-credential` | `bucket` (from the bucket's fulfilment), `principal` (from the identity's), `secretName: <service>-cloud-storage`, `credentialGeneration` | both `Ready`; not rendered when the descriptor declines a credential |
 
-The developer's container gets `envFrom: <service>-gcs-storage` and the literals `ANKKA_S3_ENDPOINT=
+The developer's container gets `envFrom: <service>-cloud-storage` and the literals `ANKKA_S3_ENDPOINT=
 https://storage.googleapis.com` (an operator setting with that default, see R12),
 `ANKKA_S3_REGION=auto`, `ANKKA_S3_BUCKET=<name from the bucket's fulfilment>`, and
 `ANKKA_S3_PUBLIC_ENDPOINT=https://storage.googleapis.com` when exposed. No `HTTPRoute` and no
@@ -95,9 +121,9 @@ https://storage.googleapis.com` (an operator setting with that default, see R12)
 not ask gets. The `ObjectStore` trait and `GarageStore` are untouched by the GCS path; the
 backend choice is one `match` in `ObjectStorage.decide` and `Rendering.objectStorageActions`.
 
-**The credential Secret is `<service>-gcs-storage`, always, on GCS.** One rule, no special case
+**The credential Secret is `<service>-cloud-storage`, always, on GCS.** One rule, no special case
 for a moved service: during a move the service keeps `<service>-storage` (Garage) while the
-provider writes the new bucket's key into `<service>-gcs-storage`, and the switch is an `envFrom`
+provider writes the new bucket's key into `<service>-cloud-storage`, and the switch is an `envFrom`
 change. The suffix `-storage` keeps the Secret under 034's reserved-name rule
 (`PlatformSecretSuffixes`, `Buckets.SecretSuffix`), so no descriptor can read it.
 
@@ -200,7 +226,7 @@ verify`, `n` the move's generation — in the project's namespace, owned by the 
 `backoffLimit: 0`, `ttlSecondsAfterFinished: 86400`, `activeDeadlineSeconds` = the write pause
 bound on the verify Job, the service's identity labels, the platform's zero-trust labels, the
 image from `ANKKA_STORAGE_MOVER_IMAGE` (as `ANKKA_SIDECAR_IMAGE`), and the credentials as
-`env.valueFrom.secretKeyRef` from `<service>-storage` (source) and `<service>-gcs-storage`
+`env.valueFrom.secretKeyRef` from `<service>-storage` (source) and `<service>-cloud-storage`
 (target) under distinct names. It observes the Job's `succeeded`/`failed` and the pod's
 termination message, as `StartRefusal` reads a container's. New RBAC: `batch` `jobs`
 `get, list, watch, create, patch`. An object is copied with one `PutObject`, which both stores
@@ -324,7 +350,7 @@ it"), FR-013, FR-021, FR-023.
    `features/object-storage-gcs/`, discovered by `cluster-suites.py` through its
    `ankka.cluster.tests` gate): the installation runs the `garage` component *and* the fake
    provider with `ANKKA_OBJECT_STORE_BACKEND=gcs`; the fake "makes" each requested bucket in that
-   same Garage under the contract's name rule and mints a Garage key into `<service>-gcs-storage`;
+   same Garage under the contract's name rule and mints a Garage key into `<service>-cloud-storage`;
    the operator's GCS endpoint setting (`ANKKA_OBJECT_STORE_GCS_ENDPOINT`, default
    `https://storage.googleapis.com`) points at Garage's S3 port. Every scenario about requests,
    status, names, keyless rendering, re-issue timing, the move's states, the write pause, its

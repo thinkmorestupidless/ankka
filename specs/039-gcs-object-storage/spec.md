@@ -509,7 +509,7 @@ object copied twice into a changed state.
 - **FR-007**: A bucket that exists under the derived name in a Google project other than the
   installation's, or that GCS reports as taken, MUST be reported `Failed`, and the cloud provider MUST NOT
   grant anything on it.
-- **FR-008**: The HMAC secret MUST be written once to `<service>-gcs-storage`, as 034 FR-003
+- **FR-008**: The HMAC secret MUST be written once to `<service>-cloud-storage`, as 034 FR-003
   writes Garage's key to `<service>-storage`, by the cloud provider, and neither the operator nor
   the cloud provider MUST read it from the cluster or from Google afterwards. The two Secrets are
   distinct so that a service being moved holds its Garage key while the cloud provider writes the
@@ -620,7 +620,7 @@ object copied twice into a changed state.
 - **Cloud identity** (formerly referred to as "storage account"): 044's, one Google service account
   per service, granted on its bucket only, bound to the service's Kubernetes ServiceAccount, owning
   the service's HMAC key.
-- **Storage credential**: the HMAC key's id and secret, in `<service>-gcs-storage` (Garage's
+- **Storage credential**: the HMAC key's id and secret, in `<service>-cloud-storage` (Garage's
   stays in `<service>-storage`), written once and replaced only by re-issue; a move's pause
   replaces the Garage one with a read-only credential.
 - **Origins**: the list on the descriptor's storage section naming who may upload or read from a

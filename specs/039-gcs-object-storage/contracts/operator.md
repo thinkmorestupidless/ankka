@@ -82,7 +82,7 @@ always issues:
 | 3 | `secrets.patch(namespace, secretName, entries)` |
 | 4 | `expire(k, expireAt)` for every other key of the bucket with no expiry yet; an expiry already set is never moved |
 
-`expireAt` is now plus the rotation grace (`ANKKA_ROTATION_GRACE_SECONDS`, an hour as shipped, 044's).
+`expireAt` is now plus the rotation grace (`ANKKA_CLOUD_ROTATION_GRACE`, an hour as shipped, 044's, read for Garage's keys too: research R1a D8).
 The reconciler records the generation in the status and on the pod template. `ensure` takes the
 generation in place and looks for that key, so a pass after an operator restart never mistakes an
 expired generation-0 key's absence for a lost credential. A later pass's `DeleteExpiredKeys` removes
@@ -111,7 +111,7 @@ Order within `render`: storage actions after the secret key's and before zero-tr
 | Store | `envFrom` | `ANKKA_S3_ENDPOINT` | `ANKKA_S3_REGION` | `ANKKA_S3_BUCKET` | `ANKKA_S3_PUBLIC_ENDPOINT` |
 |---|---|---|---|---|---|
 | `garage` | `<service>-storage` | the store's | `garage` | `<project>.<service>` | `https://storage.<base>` when exposed |
-| `gcs` | `<service>-gcs-storage`, or none when the credential is declined | `ANKKA_OBJECT_STORE_GCS_ENDPOINT` | `auto` | the fulfilment's name | `https://storage.googleapis.com` when exposed |
+| `gcs` | `<service>-cloud-storage`, or none when the credential is declined | `ANKKA_OBJECT_STORE_GCS_ENDPOINT` | `auto` | the fulfilment's name | `https://storage.googleapis.com` when exposed |
 
 On `gcs` the variables are rendered only once the bucket request is `Ready` (the name is not
 known before), and the `envFrom` once the credential request is; on `garage` as 034. The
@@ -191,8 +191,8 @@ spec:
             - { name: MOVER_TARGET_ENDPOINT, value: "https://storage.googleapis.com" }
             - { name: MOVER_TARGET_REGION,   value: "auto" }
             - { name: MOVER_TARGET_BUCKET,   value: "ankka-casino-kyc-3f9a1c2e" }
-            - { name: MOVER_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: kyc-gcs-storage, key: ANKKA_S3_ACCESS_KEY } } }
-            - { name: MOVER_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: kyc-gcs-storage, key: ANKKA_S3_SECRET_KEY } } }
+            - { name: MOVER_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: kyc-cloud-storage, key: ANKKA_S3_ACCESS_KEY } } }
+            - { name: MOVER_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: kyc-cloud-storage, key: ANKKA_S3_SECRET_KEY } } }
           resources: { requests: { cpu: 250m, memory: 256Mi }, limits: { memory: 512Mi } }
 ```
 

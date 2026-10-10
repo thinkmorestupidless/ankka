@@ -20,7 +20,8 @@ enforced by a read-only credential. Local development and every suite that runs 
 are unchanged.
 
 Technically (research R1 to R15): **044 lands first** and this feature consumes its contract,
-asking five amendments of its spec (R1). The backend is one installation setting beside the
+asking five amendments of its spec (R1; 044 merged without them, and R1a says what 039 does
+instead). The backend is one installation setting beside the
 Garage settings, so both stores can be configured at once (R2). On GCS `ObjectStorage.decide` and
 `Rendering` emit `CloudResource`s instead of calling `ObjectStore`; `GarageStore` is untouched
 except for two operations the admin API already offers, a read-only grant and CORS rules (R3,
@@ -48,7 +49,7 @@ control plane. The new `storage-mover` module depends on the AWS SDK for Java's 
 in `controlplane` for `GcsCompatibilitySuite`. No Google library anywhere (044 FR-014).
 
 **Storage**: `CloudResource`s (044's) per service on GCS; Kubernetes Secrets `<service>-storage`
-(Garage) and `<service>-gcs-storage` (GCS); `batch/v1` Jobs for a move. `AnkkaServiceSpec` gains
+(Garage) and `<service>-cloud-storage` (GCS); `batch/v1` Jobs for a move. `AnkkaServiceSpec` gains
 six fields, `AnkkaProjectSpec` one, `ObjectStorageStatus` five, with the schema. The control
 plane's journal gains defaulted fields on `ServiceObserved`, three new events on `Service` and one
 on `Project`. No DDL.
@@ -103,7 +104,7 @@ scenarios) and 2 changed in `features/object-storage/`.
 | A field on the resource needs the schema | pass | twelve new fields across the two resources' spec and status, `CrdSchemaSuite` in both directions |
 | Never render what must not roll | pass | a service on Garage renders what it rendered; the credential annotation changes only when a new key is in the Secret (R5); the move's rollouts are the two the spec names |
 | No secret value in the control plane's journal | pass | the control plane journals phases, states, a name and an address; never a key |
-| A credential is written where the pod reads it and never read back | pass | the provider writes `<service>-gcs-storage` by `create`; the operator patches `<service>-storage` with a key it just issued and reads neither; the mover reads both as the pod does, by `secretKeyRef` (R3, R5, R7) |
+| A credential is written where the pod reads it and never read back | pass | the provider writes `<service>-cloud-storage` by `create`; the operator patches `<service>-storage` with a key it just issued and reads neither; the mover reads both as the pod does, by `secretKeyRef` (R3, R5, R7) |
 | Nothing the platform does may destroy data | pass | no bucket, object or Secret is deleted; a Garage key is deleted only when expired or never written to a Secret; the Garage bucket outlives the move (R5, R8) |
 | Stored forms stay readable both ways | pass | every new journaled field defaults; `EventCompatibilitySuite` pins each new event and field |
 | Which variables are the platform's is said once | pass | three new names in `PlatformVariables`, compiled into the operator as today (R2) |
@@ -149,7 +150,7 @@ modules/core/…/core/PlatformVariables.scala                    # ObjectStoreBa
 
 crd/…/crd/AnkkaService.scala                                   # six spec fields; ObjectStorageStatus + MoveStatus
 crd/…/crd/AnkkaProject.scala                                   # bucketLocation
-crd/…/crd/Buckets.scala                                        # gcsSecret, gcsPublicAddress; name rule stays Garage's
+crd/…/crd/Buckets.scala                                        # cloudSecret, gcsPublicAddress; name rule stays Garage's
 kustomization/components/crd/ankkaservice.yaml, ankkaproject.yaml   # the same, declared
 
 controlplane-api/…/api/descriptors.scala                       # ServiceSpec's three fields and rules; ServiceStatus's four fields;
@@ -174,7 +175,7 @@ operator/…/operator/Action.scala, Executor.scala               # EnsureCloudRe
 operator/…/operator/Rendering.scala                            # objectStorageActions per store; variables per store; the credential annotation;
                                                                # ServiceAccount annotations; the Job
 operator/…/operator/ServiceReconciler.scala                    # the move's transition per pass; project location
-operator/src/test/…/FakeCloudProvider.scala                    # 044's, extended: buckets and keys in Garage under BucketNames
+operator/src/test/…/cloud/ScriptedFulfilment.scala             # 044's, given a Garage-backed mode: buckets and keys in Garage under BucketNames
 operator/src/test/…/BucketNames.scala                          # the contract's name rule, test code
 operator/src/test/resources/golden/object-storage-gcs.txt      # new
 
@@ -257,7 +258,7 @@ widens the platform's surface, each with the simpler thing rejected.
 
 | Departure | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| The GCS credential Secret is `<service>-gcs-storage`, where 034 named `<service>-storage` (R3) | a moving service holds its Garage key in `<service>-storage` while the provider writes the new bucket's; the provider's 409 rule would otherwise end the key it just made | naming per situation ("`-storage` unless moving") is two rules where one will do; the suffix keeps the Secret reserved |
+| The GCS credential Secret is `<service>-cloud-storage`, where 034 named `<service>-storage` (R3) | a moving service holds its Garage key in `<service>-storage` while the provider writes the new bucket's; the provider's 409 rule would otherwise end the key it just made | naming per situation ("`-storage` unless moving") is two rules where one will do; the suffix keeps the Secret reserved |
 | The operator reads its own status as memory for a move's state (R8) | the facts it would derive — which key a Secret holds, whether a Job that TTL removed succeeded — it may not read or cannot | keeping the state in the control plane makes every transition a round trip through a status it is reading from; a long Job doing the whole move needs the operator's powers |
 | A new module and image, `storage-mover` (R7) | the operator may carry no S3 client, and a second main in its image puts one on its classpath | a SigV4 client over the JDK's HTTP in the operator is a second S3 client in this repository, for one job |
 | `GherkinSuite.ranOutside` (R12) | six scenarios in this repository's features are provable only against Google, by ankka-gcp | `ranElsewhere` fails on a suite it cannot find; `@ignore` hides the scenario's name from the report, which is how a skipped check becomes a forgotten one |

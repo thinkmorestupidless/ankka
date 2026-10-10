@@ -51,7 +51,9 @@ final class CommandHandle[C, I, O] private[ankka] (
     val readOnly: Boolean,
     private[ankka] val inputSerializer: Serializer[I],
     private[ankka] val outputSerializer: Serializer[O],
-    private[ankka] val run: (C, I) => Any
+    private[ankka] val run: (C, I) => Any,
+    /** A workflow's state, which a wait for its end answers; set by `Workflow.Companion` only. */
+    private[ankka] val stateSerializer: Option[Serializer[?]] = None
 ) extends HandlerBinding[C]:
 
   private[ankka] def decodeAndInvoke(component: C, payload: Array[Byte]): Any =
@@ -73,7 +75,9 @@ final class NoArgHandle[C, O] private[ankka] (
     val name: MethodName,
     val readOnly: Boolean,
     private[ankka] val outputSerializer: Serializer[O],
-    private[ankka] val run: C => Any
+    private[ankka] val run: C => Any,
+    /** A workflow's state, which a wait for its end answers; set by `Workflow.Companion` only. */
+    private[ankka] val stateSerializer: Option[Serializer[?]] = None
 ) extends HandlerBinding[C]:
 
   private[ankka] def decodeAndInvoke(component: C, payload: Array[Byte]): Any =

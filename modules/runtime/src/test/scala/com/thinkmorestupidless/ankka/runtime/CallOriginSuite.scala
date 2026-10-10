@@ -107,7 +107,10 @@ final class CallOriginSuite extends FunSuite:
   }
 
   test("the names to intern are counted once each, however many pairs use them") {
-    // shopping-cart, add-item, get-cart, checkout, start, reserve, the endpoint and its route.
-    assertEquals(declared.names, 8)
-    assertEquals(declared.size, 5)
+    // shopping-cart, add-item, get-cart, checkout, start, reserve, the endpoint and its route, and
+    // the wait for its end that the checkout workflow answers, as every workflow does.
+    assertEquals(declared.names, 9)
+    assertEquals(declared.size, 6)
+    assert(declared.validate("checkout", "ankka:await-end"))
+    assert(!declared.validate("shopping-cart", "ankka:await-end"), "an entity answers no wait")
   }

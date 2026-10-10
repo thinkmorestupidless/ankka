@@ -157,6 +157,7 @@ fn a_refusal_by_the_runtime_keeps_its_code_and_an_empty_answer_is_a_fault() {
         result: Some(proto::service_reply::Result::Error(proto::Error {
             message: "'not a name' is not a name".into(),
             code: proto::ErrorCode::BadRequest as i32,
+            ..Default::default()
         })),
     };
     let refused = with_native_host(Answering(refusal), || wallet().get_text("/x")).unwrap_err();

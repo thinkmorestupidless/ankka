@@ -46,10 +46,13 @@ private[ankka] object RemoteWorkflowHost:
   /** The state the engine journals: the process's bytes, or the empty marker before any. */
   val NoState: Payload = Payload(Payload.Json, "", Array.emptyByteArray)
 
+  /** The manifest the engine's state serializer has for a process's workflow. */
+  val StateManifest: String = "ankka.remote.workflow"
+
   private val stateSerializer: Serializer[Payload] = new Serializer[Payload]:
     // The manifest the journal records is fixed per kind for the in-process host, but a remote
     // workflow's is the process's; carried inside the bytes so recovery gets it back.
-    val manifest = "ankka.remote.workflow"
+    val manifest = StateManifest
     def toBytes(value: Payload): Array[Byte] =
       val m = value.manifest.getBytes("UTF-8")
       val c = value.contentType.getBytes("UTF-8")

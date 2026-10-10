@@ -480,6 +480,7 @@ fn a_missing_dependency_is_refused_before_anything_is_written() {
         Err(proto::Error {
             message: "no task".into(),
             code: proto::ErrorCode::NotFound as i32,
+            ..Default::default()
         })
     });
     let refused = with_native_host(host.clone(), || {
@@ -502,6 +503,7 @@ fn a_generated_id_that_is_taken_is_tried_again() {
                 return Err(proto::Error {
                     message: "exists".into(),
                     code: proto::ErrorCode::Conflict as i32,
+                    ..Default::default()
                 });
             }
         }

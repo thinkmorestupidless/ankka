@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.sdk
 
 import com.thinkmorestupidless.ankka.core.*
 
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
 
 /**
@@ -78,6 +78,22 @@ trait CallTransport:
   /** How long a blocking `invoke` waits before failing with `ErrorCode.Timeout`. */
   def askTimeout: FiniteDuration
 
+  /**
+   * Waits for the end of the workflow `entityId` of `componentId`, for at most `timeout`: its final
+   * state's bytes, with the state's manifest and content type in the metadata. Fails with
+   * `WorkflowFailed` when the workflow failed or was deleted, and with `Timeout` when `timeout`
+   * passes first, the workflow running on. A transport that cannot wait refuses.
+   */
+  def awaitEnd(
+      @scala.annotation.unused componentId: ComponentId,
+      @scala.annotation.unused entityId: EntityId,
+      @scala.annotation.unused timeout: FiniteDuration,
+      @scala.annotation.unused metadata: Metadata
+  ): Future[(Array[Byte], Metadata)] =
+    Future.failed(
+      CommandError("this transport cannot wait for a workflow's end", ErrorCode.Unavailable)
+    )
+
 /**
  * How components call each other.
  *
@@ -134,12 +150,50 @@ final class KeyValueEntityCalls private[ankka] (transport: CallTransport, entity
     NoArgInvocation(transport, entityId, handle)
 
 /** Entry point for calls to workflows. */
-final class WorkflowCalls private[ankka] (transport: CallTransport, workflowId: EntityId):
-  def call[W <: Workflow[?], I, O](handle: CommandHandle[W, I, O]): Invocation[I, O] =
-    Invocation(transport, workflowId, handle)
+final class WorkflowCalls private[ankka] (
+    transport: CallTransport,
+    workflowId: EntityId,
+    metadata: Metadata = Metadata.empty
+):
+  /** The same calls, carrying `metadata`: a wait carries it as a command does. */
+  def withMetadata(metadata: Metadata): WorkflowCalls =
+    WorkflowCalls(transport, workflowId, metadata)
 
-  def call[W <: Workflow[?], O](handle: NoArgHandle[W, O]): NoArgInvocation[O] =
-    NoArgInvocation(transport, workflowId, handle)
+  def call[W <: Workflow[?], I, O](handle: CommandHandle[W, I, O]): WorkflowInvocation[W, I, O] =
+    WorkflowInvocation(transport, workflowId, handle, metadata)
+
+  def call[W <: Workflow[?], O](handle: NoArgHandle[W, O]): WorkflowNoArgInvocation[W, O] =
+    WorkflowNoArgInvocation(transport, workflowId, handle, metadata)
+
+  /**
+   * Waits for this workflow's end, for at most `timeout`, and answers the state it ended with — at
+   * once when it has already ended. Throws `CommandError` with `WorkflowFailed` when it failed or
+   * was deleted (`WorkflowEnd.failure` reads the step and the reason), and with `Timeout` when
+   * `timeout` passes first; the workflow runs on, and a wait made again is answered when it ends. A
+   * paused workflow has not ended. There is no default: the caller says how long it waits.
+   */
+  def awaitEnd[W <: Workflow[S], S](
+      companion: Workflow.Companion[W, S],
+      timeout: FiniteDuration
+  ): S =
+    ComponentClient.await(
+      awaitEndAsync(companion, timeout),
+      WorkflowCalls.blockFor(transport, timeout)
+    )
+
+  /** `awaitEnd` without blocking. */
+  def awaitEndAsync[W <: Workflow[S], S](
+      companion: Workflow.Companion[W, S],
+      timeout: FiniteDuration
+  ): Future[S] =
+    WorkflowCalls.awaitEnd(
+      transport,
+      companion.componentId,
+      workflowId,
+      timeout,
+      metadata,
+      companion.stateSerializer
+    )
 
   /**
    * Asks the engine where this workflow has got to.
@@ -161,6 +215,146 @@ final class WorkflowCalls private[ankka] (transport: CallTransport, workflowId: 
         _ => throw IllegalStateException("the lifecycle query is answered by the runtime")
       )
     )
+
+private[ankka] object WorkflowCalls:
+
+  /** How long a blocking wait blocks: the wait's own time, and an ask's for the last answer. */
+  def blockFor(transport: CallTransport, timeout: FiniteDuration): FiniteDuration =
+    timeout + transport.askTimeout
+
+  def awaitEnd[S](
+      transport: CallTransport,
+      componentId: ComponentId,
+      workflowId: EntityId,
+      timeout: FiniteDuration,
+      metadata: Metadata,
+      state: Serializer[S]
+  ): Future[S] =
+    if timeout <= Duration.Zero then Future.failed(nonPositive(timeout))
+    else
+      transport
+        .awaitEnd(componentId, workflowId, timeout, metadata)
+        .map((bytes, _) => state.fromBytes(bytes))(using ExecutionContext.parasitic)
+
+  def nonPositive(timeout: FiniteDuration): CommandError =
+    CommandError(
+      s"a wait for a workflow's end needs a timeout of more than zero, not $timeout",
+      ErrorCode.BadRequest
+    )
+
+  /** The state a handle's workflow ends with, as its companion declared it. */
+  def stateOf[S](handle: Any, declared: Option[Serializer[?]]): Serializer[S] =
+    declared match
+      case Some(serializer) => serializer.asInstanceOf[Serializer[S]]
+      case None =>
+        throw IllegalArgumentException(
+          s"$handle was not declared by a workflow's companion, which names the state a wait answers"
+        )
+
+/**
+ * A call to a workflow's one-argument handler: an `Invocation`, and the means to wait for the
+ * workflow's end after it.
+ */
+final class WorkflowInvocation[W <: Workflow[?], I, O] private[ankka] (
+    transport: CallTransport,
+    workflowId: EntityId,
+    handle: CommandHandle[W, I, O],
+    metadata: Metadata = Metadata.empty
+):
+  private val plain = Invocation(transport, workflowId, handle, metadata)
+
+  def withMetadata(metadata: Metadata): WorkflowInvocation[W, I, O] =
+    WorkflowInvocation(transport, workflowId, handle, metadata)
+
+  /** Issues the call and waits for its reply. Throws `CommandError` if the handler rejected it. */
+  def invoke(input: I): O = plain.invoke(input)
+
+  def invokeAsync(input: I): Future[O] = plain.invokeAsync(input)
+
+  /**
+   * Sends the command, then waits for the workflow's end, as one call: answered with the state the
+   * workflow ended with, within `timeout` of the command being sent. A refusal of the command is
+   * thrown at once and no wait begins; the command's own reply is not kept — a caller that wants
+   * both sends the command and then waits.
+   */
+  def thenAwaitEnd[S](timeout: FiniteDuration)(using W <:< Workflow[S]): AwaitingInvocation[I, S] =
+    AwaitingInvocation(
+      transport,
+      timeout,
+      input => plain.invokeAsync(input),
+      left =>
+        WorkflowCalls.awaitEnd(
+          transport,
+          handle.componentId,
+          workflowId,
+          left,
+          metadata,
+          WorkflowCalls.stateOf[S](handle, handle.stateSerializer)
+        )
+    )
+
+/** A call to a workflow's no-argument handler, and the means to wait for its end after it. */
+final class WorkflowNoArgInvocation[W <: Workflow[?], O] private[ankka] (
+    transport: CallTransport,
+    workflowId: EntityId,
+    handle: NoArgHandle[W, O],
+    metadata: Metadata = Metadata.empty
+):
+  private val plain = NoArgInvocation(transport, workflowId, handle, metadata)
+
+  def withMetadata(metadata: Metadata): WorkflowNoArgInvocation[W, O] =
+    WorkflowNoArgInvocation(transport, workflowId, handle, metadata)
+
+  def invoke(): O = plain.invoke()
+
+  def invokeAsync(): Future[O] = plain.invokeAsync()
+
+  /** As `WorkflowInvocation.thenAwaitEnd`, for a handler that takes nothing. */
+  def thenAwaitEnd[S](
+      timeout: FiniteDuration
+  )(using W <:< Workflow[S]): AwaitingNoArgInvocation[S] =
+    AwaitingNoArgInvocation(
+      AwaitingInvocation[Unit, S](
+        transport,
+        timeout,
+        _ => plain.invokeAsync(),
+        left =>
+          WorkflowCalls.awaitEnd(
+            transport,
+            handle.componentId,
+            workflowId,
+            left,
+            metadata,
+            WorkflowCalls.stateOf[S](handle, handle.stateSerializer)
+          )
+      )
+    )
+
+/** A command to a workflow followed by a wait for its end, with one deadline from the send. */
+final class AwaitingInvocation[I, S] private[ankka] (
+    transport: CallTransport,
+    timeout: FiniteDuration,
+    send: I => Future[?],
+    await: FiniteDuration => Future[S]
+):
+  /** Sends the command and waits for the end. Throws as `WorkflowCalls.awaitEnd` does. */
+  def invoke(input: I): S =
+    ComponentClient.await(
+      invokeAsync(input),
+      WorkflowCalls.blockFor(transport, timeout) + transport.askTimeout
+    )
+
+  def invokeAsync(input: I): Future[S] =
+    if timeout <= Duration.Zero then Future.failed(WorkflowCalls.nonPositive(timeout))
+    else
+      val deadline = timeout.fromNow
+      send(input)
+        .flatMap(_ => await(deadline.timeLeft.max(1.milli)))(using ExecutionContext.parasitic)
+
+/** As `AwaitingInvocation`, for a handler that takes nothing. */
+final class AwaitingNoArgInvocation[S] private[ankka] (awaiting: AwaitingInvocation[Unit, S]):
+  def invoke(): S              = awaiting.invoke(())
+  def invokeAsync(): Future[S] = awaiting.invokeAsync(())
 
 /** A resolved, not-yet-issued call to a one-argument handler. */
 final class Invocation[I, O] private[ankka] (

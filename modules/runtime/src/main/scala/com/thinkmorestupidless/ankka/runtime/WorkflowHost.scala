@@ -5,7 +5,7 @@ import com.thinkmorestupidless.ankka.core.effect.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.Behavior
+import org.apache.pekko.actor.typed.{Behavior, PostStop}
 import org.apache.pekko.persistence.typed.scaladsl.{EventSourcedBehavior, RetentionCriteria}
 import org.apache.pekko.persistence.typed.{
   EventAdapter,
@@ -37,7 +37,14 @@ private[ankka] object WorkflowHost:
       startedAtMillis: Long,
       pauseDeadlineMillis: Long,
       pauseOnTimeout: Option[String],
-      failure: Option[String]
+      failure: Option[String],
+      /** The step that failed, when the workflow failed at one. */
+      failedStep: Option[String] = None,
+      /**
+       * The workflow's state was deleted and nothing has been recorded since: what a wait for its
+       * end is answered with, since a deleted run is otherwise the empty one.
+       */
+      deleted: Boolean = false
   ):
     def isTerminal: Boolean = status == Status.Completed || status == Status.Failed
 
@@ -47,7 +54,7 @@ private[ankka] object WorkflowHost:
     case TransitionedTo(step: StepRef)
     case Paused(onTimeout: Option[String], deadlineMillis: Long)
     case Ended
-    case Failed(message: String)
+    case Failed(message: String, step: Option[String])
     case RetryRecorded(step: String)
     case Deleted
 
@@ -85,7 +92,16 @@ private[ankka] object WorkflowHost:
           None
         )
 
-        val engine = WorkflowEngine(descriptor, workflowId, context, settings, ctx, timers)
+        // A wait is held for at most half an ask, so the engine always answers before the asking
+        // transport gives up on a healthy wait.
+        val holdBound =
+          scala.concurrent.duration.FiniteDuration(
+            ctx.system.settings.config.getDuration("ankka.ask-timeout").toMillis / 2,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+          )
+
+        val engine =
+          WorkflowEngine(descriptor, workflowId, context, settings, ctx, timers, holdBound)
 
         EventSourcedBehavior[EntityProtocol.Command, Event[S], Run[S]](
           persistenceId = PersistenceId(descriptor.componentId, workflowId),
@@ -96,8 +112,10 @@ private[ankka] object WorkflowHost:
           .eventAdapter(eventAdapter(descriptor))
           .snapshotAdapter(snapshotAdapter(descriptor))
           .withRetention(RetentionCriteria.snapshotEvery(100, 2))
-          .receiveSignal { case (state, RecoveryCompleted) =>
-            engine.onRecovered(state)
+          .receiveSignal {
+            case (state, RecoveryCompleted) => engine.onRecovered(state)
+            // Passivated, moved or stopping: whoever waits asks again, now, wherever it lands.
+            case (_, PostStop) => engine.onStop()
           }
       }
     }
@@ -105,12 +123,13 @@ private[ankka] object WorkflowHost:
   private def applyEvent[S](empty: Run[S], state: Run[S], event: Event[S]): Run[S] =
     event match
       case Event.StateUpdated(value) =>
-        state.copy(value = value)
+        state.copy(value = value, deleted = false)
 
       case Event.TransitionedTo(step) =>
         state.copy(
           status = Status.Running,
           pending = Some(step),
+          deleted = false,
           pauseDeadlineMillis = 0L,
           pauseOnTimeout = None,
           startedAtMillis =
@@ -129,19 +148,20 @@ private[ankka] object WorkflowHost:
       case Event.Ended =>
         state.copy(status = Status.Completed, pending = None, pauseOnTimeout = None)
 
-      case Event.Failed(message) =>
+      case Event.Failed(message, step) =>
         state.copy(
           status = Status.Failed,
           pending = None,
           pauseOnTimeout = None,
-          failure = Some(message)
+          failure = Some(message),
+          failedStep = step
         )
 
       case Event.RetryRecorded(step) =>
         state.copy(retries = state.retries.updated(step, state.retries.getOrElse(step, 0) + 1))
 
       case Event.Deleted =>
-        empty
+        empty.copy(deleted = true)
 
   // ── Storage adapters ──────────────────────────────────────────────────────
 
@@ -157,17 +177,17 @@ private[ankka] object WorkflowHost:
           WorkflowRecord.transitioned(step.name, step.input.getOrElse(Array.emptyByteArray))
         case Event.Paused(onTimeout, deadline) =>
           WorkflowRecord.paused(onTimeout.getOrElse(""), deadline)
-        case Event.Ended               => WorkflowRecord.ended
-        case Event.Failed(message)     => WorkflowRecord.failed(message)
-        case Event.RetryRecorded(step) => WorkflowRecord.retryRecorded(step)
-        case Event.Deleted             => WorkflowRecord.deleted
+        case Event.Ended                 => WorkflowRecord.ended
+        case Event.Failed(message, step) => WorkflowRecord.failed(message, step.getOrElse(""))
+        case Event.RetryRecorded(step)   => WorkflowRecord.retryRecorded(step)
+        case Event.Deleted               => WorkflowRecord.deleted
 
       def manifest(event: Event[S]): String = event match
         case Event.StateUpdated(_)   => "state"
         case Event.TransitionedTo(_) => "transition"
         case Event.Paused(_, _)      => "pause"
         case Event.Ended             => "end"
-        case Event.Failed(_)         => "fail"
+        case Event.Failed(_, _)      => "fail"
         case Event.RetryRecorded(_)  => "retry"
         case Event.Deleted           => "delete"
 
@@ -181,8 +201,9 @@ private[ankka] object WorkflowHost:
             )
           case WorkflowRecord.KindPaused =>
             Event.Paused(Option(record.step).filter(_.nonEmpty), record.deadlineMillis)
-          case WorkflowRecord.KindEnded         => Event.Ended
-          case WorkflowRecord.KindFailed        => Event.Failed(record.message)
+          case WorkflowRecord.KindEnded => Event.Ended
+          case WorkflowRecord.KindFailed =>
+            Event.Failed(record.message, Option(record.step).filter(_.nonEmpty))
           case WorkflowRecord.KindRetryRecorded => Event.RetryRecorded(record.step)
           case WorkflowRecord.KindDeleted       => Event.Deleted
           case other =>
@@ -207,7 +228,9 @@ private[ankka] object WorkflowHost:
           state.startedAtMillis,
           state.pauseDeadlineMillis,
           state.pauseOnTimeout.getOrElse(""),
-          state.failure.getOrElse("")
+          state.failure.getOrElse(""),
+          state.failedStep.getOrElse(""),
+          state.deleted
         )
 
       def fromJournal(from: Any): Run[S] =
@@ -222,7 +245,10 @@ private[ankka] object WorkflowHost:
           snapshot.startedAtMillis,
           snapshot.pauseDeadlineMillis,
           Option(snapshot.pauseOnTimeout).filter(_.nonEmpty),
-          Option(snapshot.failure).filter(_.nonEmpty)
+          Option(snapshot.failure).filter(_.nonEmpty),
+          // Absent from a snapshot written before waiting: read as no step and not deleted.
+          Option(snapshot.failedStep).filter(_.nonEmpty),
+          snapshot.deleted
         )
 
 /** A workflow snapshot on the wire. */
@@ -235,5 +261,7 @@ final case class WorkflowSnapshot(
     startedAtMillis: Long,
     pauseDeadlineMillis: Long,
     pauseOnTimeout: String,
-    failure: String
+    failure: String,
+    failedStep: String,
+    deleted: Boolean
 ) extends AnkkaSerializable

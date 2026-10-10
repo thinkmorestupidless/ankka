@@ -251,6 +251,7 @@ pub(crate) fn unsupported(component_id: &str, what: &str) -> proto::Failure {
                 "component '{component_id}' does not take {what} in this version of the library"
             ),
             code: proto::ErrorCode::Internal as i32,
+            ..Default::default()
         }),
     }
 }

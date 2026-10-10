@@ -583,6 +583,7 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                     error: Some(proto::Error {
                         message: format!("unknown route {}/{}", E::ENDPOINT_ID, request.route_id),
                         code: proto::ErrorCode::NotFound as i32,
+                        ..Default::default()
                     }),
                 })),
             };

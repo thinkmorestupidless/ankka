@@ -243,6 +243,7 @@ impl Service {
                     error: Some(proto::Error {
                         message: format!("no endpoint '{}' in this service", request.endpoint_id),
                         code: proto::ErrorCode::NotFound as i32,
+                        ..Default::default()
                     }),
                 })),
             },
@@ -363,6 +364,7 @@ fn not_found(component_id: &str) -> proto::Failure {
         error: Some(proto::Error {
             message: format!("no component '{component_id}' in this service"),
             code: proto::ErrorCode::NotFound as i32,
+            ..Default::default()
         }),
     }
 }

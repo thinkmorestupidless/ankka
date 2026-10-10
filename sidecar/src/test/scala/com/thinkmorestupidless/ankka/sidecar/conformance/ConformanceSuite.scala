@@ -2055,14 +2055,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("discovery.workflow-source-needs-1.15: a runtime too old for a workflow source is refused") {
-    onlyForProcesses()
-    val refused = target.discoverWith("1.14").get
-    assert(refused.isLeft, refused)
-    refused.left.foreach { problems =>
-      val said = problems.mkString("\n")
-      assert(said.contains("1.15") && said.contains("1.14"), said)
-      assert(said.contains("checkout-rows") || said.contains("CheckoutRows"), said)
-    }
+    // The target's own refusal, asked once: a sidecar retries a refused discovery until answered.
+    val refused = target.refusalAt("1.14") match
+      case None          => assume(false, "a target in this process has no discovery to refuse"); ""
+      case Some(None)    => fail("a runtime stating 1.14 was answered")
+      case Some(Some(m)) => m
+    assert(refused.contains("1.15") && refused.contains("1.14"), refused)
+    assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
+    assertEquals(target.refusalAt("1.15"), Some(None))
   }
 
   // ── Contracts, declared brokers and parallel partitions (feature 037) ──────

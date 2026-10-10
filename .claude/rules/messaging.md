@@ -55,8 +55,34 @@ gave topic views theirs): its projections' ids carry the version (`ViewProjectio
 view's projection is named), and every write of such a view is guarded by the recorded version
 (`EntityViewGuard`), which pauses a projection that finds the view behind.
 
+## A workflow is a source, and a change from one carries its standing
+
+Feature 046. `ChangeSource.stateOf(workflowCompanion)` (and `RemoteSource.Component(Workflow, id)` from a
+process) is read from the event journal like an entity's events, by `eventsBySlices[WorkflowRecord]`, with
+the same exactly-once view projection and at-least-once consumer. Only a `state` record is a change: the
+engine stamps it with the standing once the whole effect is applied (`WorkflowRecord.standing`,
+`WorkflowHost.standingOf`, the engine's `stamped`), and a transition, pause, end, failure or retry that
+records no state is no change. `ChangeReader` is the one place a journal record becomes a `SourceChange`
+for every event handler (in process, remote, keyed); `WorkflowChanges.read` the one reader of a workflow
+record, `RemoteWorkflowHost.pack`/`unpack` the one form of a process's state. The standing rides on
+`ChangeContext.standing`/`KeyedChange.standing` and, from protocol 1.15, `ViewRequest.standing` and
+`ConsumerRequest.standing`; the topology draws a `workflow` connection.
+
 ## Traps
 
+- **Jackson writes an absent `Option` as a `null` property.** `WorkflowRecord.standing` added with a default
+  of `None` changed the bytes of every record of every kind, and the pinned journal
+  (`workflow-record.txt`) was rewritten on the first run. `@JsonInclude(NON_ABSENT)` on the field keeps an
+  unstamped record byte for byte the old form; the fixture was pinned before the field existed, so it is
+  the release before's journal, and `WorkflowRecordCompatibilitySuite` also reads the new form into a copy
+  of the old case class.
+- **A record wrongly read as a change can stall a projection instead of reaching a view.** A workflow's
+  `fail` or `transition` record holds no state, so a reader that delivered one would fail decoding empty
+  bytes and be retried: a running service then shows *no* change, which is what the "no change" scenario
+  asserts. The red proof for "a record that holds no state is no change" is `WorkflowChangesSuite`, which is
+  pure. A negative check in a running service must also first wait for the last change it expects to be
+  there (the conformance case waits for the `reserved` row before the failure): a projection three seconds
+  behind looks exactly like one that skipped the record.
 - **A projection's `R2dbcSession` reads a row count from every statement, and a `SET` reports none.**
   `SET LOCAL statement_timeout` through `session.updateOne` failed every keyed view change with a
   `NullPointerException` deep in pekko-persistence-r2dbc's `updateOneInTx`. Set a transaction-local setting

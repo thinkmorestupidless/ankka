@@ -23,6 +23,7 @@ will recognise every component. The differences below are deliberate, and each h
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
 | A gRPC endpoint as an annotated class implementing the generated service, asynchronously | a `GrpcEndpoint` declaring a blocking handler per method against the generated descriptors | The same handler shape as every other ankka handler, and every method checked at startup. |
 | `BACKOFFICE` among the callers an ACL can name | no equivalent | There is no backoffice proxy to be the caller. |
+| `@Consume.FromWorkflow` hands a view or a consumer the workflow's state | a workflow source hands the state and the workflow's standing | A listing of failed workflows uses the engine's word for where each stands, not a status field every author must remember to write. |
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
@@ -30,6 +31,15 @@ will recognise every component. The differences below are deliberate, and each h
 | A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
 | `Question.choice("…").option(…)` built inline in the effect | questions declared once as values, with declared wire ids and option keys | A question is checked where it is built, and reading an answer through the question that asked it is typed. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
+
+## A workflow source carries the standing
+
+In Akka a view's table updater or a consumer annotated `@Consume.FromWorkflow` is handed each state the
+workflow records, and a reader that wants to know how far the workflow has got reads a status field its
+author wrote into the state. In ankka the same source, `ChangeSource.stateOf(workflow)`, hands each state
+with the workflow's standing: running, paused, completed or failed, the step, the retries and the failure
+reason, as the lifecycle query answers them. As in Akka, a transition or an end that records no state is
+no change. See [Reading a workflow](../build/views.md#reading-a-workflow).
 
 ## Registration is explicit
 

@@ -72,6 +72,10 @@ paths:
 - **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
   matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
   a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
+- **A workflow source is gated from both ends, as a socket route is.** A 1.14 SDK declaring one against a
+  1.15 runtime would be handed changes with no standing and no error, so `Discovery` refuses a workflow
+  source from a `Spec` below `WorkflowSourcesSince`, and each SDK refuses discovery from a runtime below
+  1.15 when it declares one.
 - **A socket field the runtime does not know is a plain GET to it.** A runtime before protocol 1.9 reads
   `Route.socket` as nothing and would serve the route as a request, so a socket route is refused from
   both ends: the sidecar refuses a `Spec` declaring one under an earlier minor — the first minor it gates

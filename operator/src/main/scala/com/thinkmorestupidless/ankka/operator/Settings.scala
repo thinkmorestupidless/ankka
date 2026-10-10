@@ -92,10 +92,21 @@ final case class Settings(
     storageMoverImage: String = "ankka-storage-mover:latest",
     /**
      * How long an old storage credential goes on working after a new one is in place: feature 044's
-     * rotation grace, an hour as shipped, which feature 039 applies to Garage's keys too.
+     * rotation grace (`ANKKA_CLOUD_ROTATION_GRACE`), an hour as shipped, which feature 039 applies
+     * to Garage's keys too.
      */
     rotationGrace: FiniteDuration = 1.hour
 ):
+  /**
+   * The store new buckets are made in (research R1a D1): the backend the installation names, else
+   * Garage when it is installed, else the cloud account when a provider is named. One rule, so a
+   * `Settings` built in a test with `copy` answers as one read from the environment does.
+   */
+  def bucketBackend: Option[ObjectStoreBackend] =
+    objectStoreBackend
+      .orElse(objectStore.map(_ => ObjectStoreBackend.Garage))
+      .orElse(cloud.map(_ => ObjectStoreBackend.Gcs))
+
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
    *
@@ -174,11 +185,12 @@ object Settings:
       ),
       proxyImage = string("ankka.operator.proxy-image", "ANKKA_PROXY_IMAGE", default.proxyImage),
       httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort),
-      rotationGrace = seconds(
-        "ankka.operator.rotation-grace-seconds",
-        "ANKKA_ROTATION_GRACE_SECONDS",
-        default.rotationGrace
-      ),
+      // One rotation grace for every store (feature 039, research R1a D8): the one a cloud
+      // provider honours, read whether or not the installation names a provider.
+      rotationGrace =
+        raw("ankka.operator.cloud-rotation-grace", PlatformVariables.CloudRotationGrace)
+          .map(CloudSettings.duration(_, PlatformVariables.CloudRotationGrace))
+          .getOrElse(default.rotationGrace),
       otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
@@ -202,9 +214,17 @@ object Settings:
       val named = raw("ankka.operator.object-store.backend", PlatformVariables.ObjectStoreBackend)
       named.map(ObjectStoreBackend.parse) match
         case None =>
-          settings.copy(objectStoreBackend =
-            settings.objectStore.map(_ => ObjectStoreBackend.Garage)
-          )
+          // Unset: Garage when it is installed, else the cloud account when a provider is named,
+          // with no prefix of the installation's (research R1a D1). Every installation keeps the
+          // store it had before the setting existed.
+          if settings.objectStore.isDefined then
+            settings.copy(objectStoreBackend = Some(ObjectStoreBackend.Garage))
+          else if settings.cloud.isDefined then
+            settings.copy(
+              objectStoreBackend = Some(ObjectStoreBackend.Gcs),
+              gcs = Some(GcsSettings(prefix = "", softDeleteDays = softDeleteDays()))
+            )
+          else settings
         case Some(Left(bad)) =>
           throw new IllegalArgumentException(
             s"${PlatformVariables.ObjectStoreBackend} is '$bad'; it must be garage or gcs"
@@ -233,29 +253,27 @@ object Settings:
                   "Cloud Storage starts with the installation's prefix"
               )
             )
-          val days = raw(
-            "ankka.operator.object-store.soft-delete-days",
-            PlatformVariables.ObjectStoreSoftDeleteDays
-          ) match
-            case None => GcsSettings.DefaultSoftDeleteDays
-            case Some(value) =>
-              value.toIntOption
-                .filter(GcsSettings.SoftDeleteDays.contains)
-                .getOrElse(
-                  throw new IllegalArgumentException(
-                    s"${PlatformVariables.ObjectStoreSoftDeleteDays} is '$value'; it must be a " +
-                      s"number of days from ${GcsSettings.SoftDeleteDays.start} to " +
-                      s"${GcsSettings.SoftDeleteDays.end}"
-                  )
-                )
-          val endpoint = string(
-            "ankka.operator.object-store.gcs-endpoint",
-            "ANKKA_OBJECT_STORE_GCS_ENDPOINT",
-            GcsSettings.GoogleEndpoint
-          )
           settings.copy(
             objectStoreBackend = Some(ObjectStoreBackend.Gcs),
-            gcs = Some(GcsSettings(prefix, days, endpoint))
+            gcs = Some(GcsSettings(prefix, softDeleteDays()))
+          )
+
+  /** How many days a new bucket in Google Cloud Storage keeps a deleted object: 7 to 90. */
+  private def softDeleteDays(): Int =
+    raw(
+      "ankka.operator.object-store.soft-delete-days",
+      PlatformVariables.ObjectStoreSoftDeleteDays
+    ) match
+      case None => GcsSettings.DefaultSoftDeleteDays
+      case Some(value) =>
+        value.toIntOption
+          .filter(GcsSettings.SoftDeleteDays.contains)
+          .getOrElse(
+            throw new IllegalArgumentException(
+              s"${PlatformVariables.ObjectStoreSoftDeleteDays} is '$value'; it must be a " +
+                s"number of days from ${GcsSettings.SoftDeleteDays.start} to " +
+                s"${GcsSettings.SoftDeleteDays.end}"
+            )
           )
 
   /**

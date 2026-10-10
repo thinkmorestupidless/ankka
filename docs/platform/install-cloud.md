@@ -208,6 +208,9 @@ The overlay carries the `cloud-provider` component and the installation's cloud 
 `cloudLocation` there, and install the provider's own Deployment into `ankka-cloud-provider` after the
 overlay; see [The cloud provider](cloud-provider.md).
 
+An installation whose buckets are in Google Cloud Storage names its object store there too
+(`objectStoreBackend`, `objectStorePrefix`, `objectStoreSoftDeleteDays`); see [Install on GKE](install-gke.md).
+
 The controllers go first because each brings custom resource definitions that the overlay's resources
 are instances of, and a single `kubectl apply -k` gives no ordering guarantee between a definition and a
 resource of that kind. Apply with `--server-side`: CloudNativePG's definitions are too large for

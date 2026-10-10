@@ -93,7 +93,9 @@ test("a bucket in Garage is moved to Google Cloud Storage with a write pause bou
     await expect(ops(page).getByLabel("Write pause bound")).toHaveValue("30s");
     await ops(page).getByLabel("Write pause bound").fill("30m");
     await post(page, ops(page).getByRole("button", { name: "Move bucket" }));
-    await expect(fact(page, "Bucket move")).toHaveText("waiting for its bucket in Google Cloud Storage");
+    await expect(fact(page, "Bucket move")).toHaveText(
+      "waiting for its bucket in Google Cloud Storage; its write pause may last 30 minutes at most",
+    );
     await audit(page);
     await history(page, target, project, "reports");
     await expect(page.getByRole("table")).toContainText("Bucket move asked for");

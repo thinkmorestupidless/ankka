@@ -212,7 +212,12 @@ object Rendering:
       declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty,
       // The requests to the installation's cloud provider this service needs (feature 044), already
       // rendered by the caller, which observes their answers to decide `objectStoragePlan`.
-      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
+      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty,
+      // What the cloud provider says binds the service's ServiceAccount to its cloud identity
+      // (feature 039): put on the ServiceAccount as they are. None for every other service.
+      serviceAccountAnnotations: Map[String, String] = Map.empty,
+      // What a move of the service's bucket does this pass (feature 039), from `moveActions`.
+      moveActions: Vector[Action] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -249,17 +254,22 @@ object Rendering:
       Right(
         (Action.EnsureNamespace(namespace) +:
           databaseActions(resource, spec, namespace, settings, databasePlan)) ++
-          identityActions(resource, spec, namespace) ++
+          identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
           objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
+          moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
           // provider's to say, and an instance started without them would be started wrong.
           Option
-            .when(ObjectStorage.withheld(objectStoragePlan, spec, settings).isEmpty)(
+            .when(
+              ObjectStorage
+                .withheld(objectStoragePlan, spec, settings, ObjectStorage.reported(resource))
+                .isEmpty
+            )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
                   deployment(
@@ -277,6 +287,7 @@ object Rendering:
                     storageEnv(
                       spec,
                       settings,
+                      ObjectStorage.reported(resource),
                       objectStoragePlan,
                       ObjectStorage.credentialGeneration(
                         objectStoragePlan,
@@ -376,7 +387,8 @@ object Rendering:
     val bucket = Buckets.name(spec.projectId, spec.serviceName)
     val secret = Buckets.secret(spec.serviceName)
     val provision = plan match
-      case _ if ObjectStorage.takesCloudPath(spec, settings) => Vector.empty
+      case _ if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource)) =>
+        Vector.empty
       case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, _) =>
         val inPlace = ObjectStorage.inPlace(resource)
         val asked   = spec.storageCredentialGeneration
@@ -458,6 +470,37 @@ object Rendering:
    * @param deadlineSeconds
    *   for the verify: what remains of the write pause bound, after which Kubernetes stops it
    */
+  /**
+   * A move's acts this pass as actions (feature 039): the target's requests while it runs, the
+   * mover's Job for the phase in hand into the target bucket as its provider answered it, and the
+   * write pause on the service's key in Garage, which `keyGeneration` names. The switch itself is
+   * the status's: the next pass finds the bucket in the cloud and renders its variables.
+   */
+  def moveActions(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      move: Int,
+      acts: Vector[StorageMove.Act],
+      target: Option[CloudBucket],
+      requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
+      keyGeneration: Int
+  ): Vector[Action] =
+    val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    def job(phase: MovePhase, deadline: Option[Long]) =
+      target.map(t =>
+        Action.EnsureMoveJob(moveJob(resource, spec, namespace, settings, move, phase, t, deadline))
+      )
+    acts.distinct.flatMap {
+      case StorageMove.Act.AskForBucket       => requests.map(Action.EnsureCloudResource(_))
+      case StorageMove.Act.Copy(_)            => job(MovePhase.Copy, None).toVector
+      case StorageMove.Act.PauseWrites        => Vector(Action.PauseWrites(bucket, keyGeneration))
+      case StorageMove.Act.Verify(_, seconds) => job(MovePhase.Verify, Some(seconds)).toVector
+      case StorageMove.Act.ResumeWrites       => Vector(Action.ResumeWrites(bucket, keyGeneration))
+      case StorageMove.Act.Switch(_)          => Vector.empty
+    }
+
   def moveJob(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
@@ -465,11 +508,10 @@ object Rendering:
       settings: Settings,
       move: Int,
       phase: MovePhase,
-      targetBucket: String,
+      target: CloudBucket,
       deadlineSeconds: Option[Long]
   ): io.fabric8.kubernetes.api.model.batch.v1.Job =
     val source = settings.objectStore
-    val target = settings.gcs
     def literal(name: String, value: String) =
       new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(name).withValue(value).build()
     def fromSecret(name: String, secret: String, key: String) =
@@ -500,17 +542,17 @@ object Rendering:
         Buckets.secret(spec.serviceName),
         StorageCredential.SecretKeyEntry
       ),
-      literal("MOVER_TARGET_ENDPOINT", target.map(_.endpoint).getOrElse("")),
-      literal("MOVER_TARGET_REGION", GcsSettings.Region),
-      literal("MOVER_TARGET_BUCKET", targetBucket),
+      literal("MOVER_TARGET_ENDPOINT", target.endpoint),
+      literal("MOVER_TARGET_REGION", target.region),
+      literal("MOVER_TARGET_BUCKET", target.bucket),
       fromSecret(
         "MOVER_TARGET_ACCESS_KEY",
-        Buckets.gcsSecret(spec.serviceName),
+        Buckets.cloudSecret(spec.serviceName),
         StorageCredential.AccessKeyEntry
       ),
       fromSecret(
         "MOVER_TARGET_SECRET_KEY",
-        Buckets.gcsSecret(spec.serviceName),
+        Buckets.cloudSecret(spec.serviceName),
         StorageCredential.SecretKeyEntry
       )
     )
@@ -537,6 +579,8 @@ object Rendering:
         new PodSpecBuilder()
           .withRestartPolicy("Never")
           .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+          // The two storage credentials are all it holds: no token of the cluster's either.
+          .withAutomountServiceAccountToken(false)
           .withContainers(container)
           .build()
       )
@@ -649,10 +693,11 @@ object Rendering:
   def storageEnv(
       spec: AnkkaServiceSpec,
       settings: Settings,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus],
       plan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
       credentialGeneration: Int = 0
   ): Option[StorageEnv] =
-    if ObjectStorage.takesCloudPath(spec, settings) then cloudStorageEnv(spec, plan)
+    if ObjectStorage.takesCloudPath(spec, settings, reported) then cloudStorageEnv(spec, plan)
     else garageStorageEnv(spec, settings, credentialGeneration)
 
   /**
@@ -666,12 +711,16 @@ object Rendering:
       case ObjectStoragePlan.Ready(_, Some(cloud)) =>
         Some(
           StorageEnv(
-            secret = Buckets.secret(spec.serviceName),
+            secret =
+              Option.when(spec.objectStorageCredential)(Buckets.cloudSecret(spec.serviceName)),
             literals = Vector(
               StorageEnv.Endpoint -> cloud.endpoint,
               StorageEnv.Region   -> cloud.region,
               StorageEnv.Bucket   -> cloud.bucket
-            ),
+            ) ++
+              // A bucket reachable from the internet is reached there at the cloud's own address,
+              // which is the one the provider answered (feature 039): no route of the installation's.
+              Option.when(spec.exposeObjectStorage)(StorageEnv.PublicEndpoint -> cloud.endpoint),
             credentialGeneration = cloud.credentialGeneration.toInt
           )
         )
@@ -694,7 +743,7 @@ object Rendering:
         base <- settings.baseDomain
       yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(base, settings.httpsPort)).toVector
       StorageEnv(
-        secret = Buckets.secret(spec.serviceName),
+        secret = Some(Buckets.secret(spec.serviceName)),
         literals = (where :+ (StorageEnv.Bucket -> bucket)) ++ public,
         credentialGeneration = credentialGeneration
       )
@@ -797,15 +846,16 @@ object Rendering:
   private def identityActions(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      annotations: Map[String, String]
   ): Vector[Action] =
     // A web-hosted pod names the account and mounts no token for it; it has no peers to find, so
     // it is granted nothing (feature 021).
     if spec.hosting == WebHosting then
-      Vector(Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)))
+      Vector(Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace, annotations)))
     else
       Vector(
-        Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)),
+        Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace, annotations)),
         Action.EnsureRole(peersRole(resource, spec, namespace)),
         Action.EnsureRoleBinding(peersRoleBinding(resource, spec, namespace))
       )
@@ -826,11 +876,13 @@ object Rendering:
   def serviceAccount(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      annotations: Map[String, String] = Map.empty
   ): ServiceAccount =
-    new ServiceAccountBuilder()
-      .withMetadata(identityMeta(resource, spec, namespace, Names.serviceAccount(spec.serviceName)))
-      .build()
+    val meta = identityMeta(resource, spec, namespace, Names.serviceAccount(spec.serviceName))
+    // Only when a cloud provider named some, so every other ServiceAccount is what it was.
+    if annotations.nonEmpty then meta.setAnnotations(annotations.asJava)
+    new ServiceAccountBuilder().withMetadata(meta).build()
 
   def peersRole(resource: AnkkaService, spec: AnkkaServiceSpec, namespace: String): Role =
     new RoleBuilder()
@@ -1387,9 +1439,11 @@ object Rendering:
         new ContainerBuilder(containers(target))
           .addToEnv(env.literals.map((name, value) => literal(name, value))*)
           .addToEnvFrom(
-            new EnvFromSourceBuilder()
-              .withSecretRef(new SecretEnvSourceBuilder().withName(env.secret).build())
-              .build()
+            env.secret.toVector.map(secret =>
+              new EnvFromSourceBuilder()
+                .withSecretRef(new SecretEnvSourceBuilder().withName(secret).build())
+                .build()
+            )*
           )
           .build()
       )
@@ -1917,7 +1971,8 @@ object Rendering:
  *   above 0 so the service rolls onto a credential issued again, and never before it is there
  */
 final case class StorageEnv(
-    secret: String,
+    /** The Secret its key comes from; none for a service that declined a credential. */
+    secret: Option[String],
     literals: Vector[(String, String)],
     credentialGeneration: Int = 0
 )

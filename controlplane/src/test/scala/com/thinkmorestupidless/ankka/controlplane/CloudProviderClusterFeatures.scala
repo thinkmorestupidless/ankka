@@ -246,7 +246,7 @@ class CloudProviderClusterFeatures
 
   /** `reports-storage` in a feature is this scenario's service's storage Secret. */
   private def realSecret(logical: String): String =
-    Names.CloudRequest.ofService(real(logical.stripSuffix("-storage")), "storage")
+    Buckets.cloudSecret(real(logical.stripSuffix("-cloud-storage")))
 
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
@@ -406,9 +406,10 @@ class CloudProviderClusterFeatures
     assertEquals(r.getSpec.kind, CloudKinds.Bucket)
     assertEquals(r.getSpec.subject.project, project)
     assertEquals(r.getSpec.parameters("purpose"), purpose)
-    // A project names no location of its own until feature 039: the installation's, verbatim.
+    // This project names no location of its own: the installation's, verbatim.
     assertEquals(r.getSpec.parameters("location"), cloud.location)
-    assertEquals(r.getSpec.parameters("versioning"), "false")
+    // A service's bucket keeps versions (feature 039), and a bucket nobody exposed admits no origin.
+    assertEquals(r.getSpec.parameters("versioning"), "true")
     assertEquals(r.getSpec.parameters("corsOrigins"), "")
   }
 
@@ -451,7 +452,12 @@ class CloudProviderClusterFeatures
       val logical = deployed.last.stripSuffix(s"-$scenario")
       val bucket  = bucketRequest(logical).getStatus.outputs("bucket")
       assert(bucket.nonEmpty)
-      if external.isEmpty then assertEquals(bucket, s"${cloud.account}-$Project-${real(logical)}")
+      if external.isEmpty then
+        assertEquals(
+          bucket,
+          com.thinkmorestupidless.ankka.operator.BucketNames
+            .name(cloud.account, Project, real(logical))
+        )
   }
 
   Then("the fulfilment of the bucket credential request names the secret {string}") {
@@ -483,9 +489,9 @@ class CloudProviderClusterFeatures
       assertEquals(literals(c)(endpoint), outputs("endpoint"))
       assertEquals(literals(c)(region), outputs("region"))
       assertEquals(literals(c)(bucket), outputs("bucket"))
-      assertEquals(secretsFrom(c), Vector(Buckets.secret(name)))
+      assertEquals(secretsFrom(c), Vector(Buckets.cloudSecret(name)))
       val held =
-        secret(Buckets.secret(name)).getOrElse(fail("no storage credential")).getData.asScala
+        secret(Buckets.cloudSecret(name)).getOrElse(fail("no storage credential")).getData.asScala
       assert(held.contains(access) && held.contains(secretKey), held.keySet.toString)
   }
 
@@ -538,13 +544,17 @@ class CloudProviderClusterFeatures
       )
   }
 
-  Then("{string} starts with no variable whose name starts with {string}") {
-    (logical: String, prefix: String) =>
-      val name = real(logical)
-      waitFor(60.seconds, s"$name's Deployment")(developer(name).isDefined)
-      val c = developer(name).get
-      assertEquals(literals(c).keySet.filter(_.startsWith(prefix)), Set.empty[String])
-      assertEquals(secretsFrom(c).filter(_.endsWith("-storage")), Vector.empty[String])
+  Then("no instance of {string} starts") { (logical: String) =>
+    // A service whose bucket was refused cannot be relied on to run correctly: the operator
+    // applies no Deployment for it at all, pass after pass.
+    val name = real(logical)
+    for _ <- 1 to 10 do
+      assert(
+        k8s.apps().deployments().inNamespace(Namespace).withName(name).get() == null,
+        s"$name has a Deployment"
+      )
+      Thread.sleep(1000)
+    assertEquals(statusOf(name).map(_.lifecycle.toString), Some("Failed"))
   }
 
   Given("a deployed service {string} with a bucket the cloud provider made") { (logical: String) =>
@@ -590,7 +600,7 @@ class CloudProviderClusterFeatures
     "the cloud provider offers a storage credential, is told that one is already there, and names the secret that holds it"
   ) { () =>
     val logical    = deployed.last.stripSuffix(s"-$scenario")
-    val secretName = Buckets.secret(real(logical))
+    val secretName = Buckets.cloudSecret(real(logical))
     assertEquals(credentialRequest(logical).getStatus.outputs("secretName"), secretName)
     assertEquals(scripted.issued.size, issuedBefore + 1, "one offered")
     assertEquals(
@@ -645,7 +655,7 @@ class CloudProviderClusterFeatures
   Then(
     "the cloud provider makes a storage credential that reaches the bucket of {string} and no other"
   ) { (logical: String) =>
-    val secretName = Buckets.secret(real(logical))
+    val secretName = Buckets.cloudSecret(real(logical))
     assertEquals(scripted.issued.filter(_.secretName == secretName).map(_.generation), Vector(1L))
     assertEquals(
       credentialRequest(logical).getSpec.parameters("bucket"),
@@ -676,7 +686,7 @@ class CloudProviderClusterFeatures
 
   Then("the cloud provider ends the storage credential it had just made") { () =>
     val logical    = deployed.last.stripSuffix(s"-$scenario")
-    val secretName = Buckets.secret(real(logical))
+    val secretName = Buckets.cloudSecret(real(logical))
     assertEquals(
       scripted.ended.filter(_.secretName == secretName).map(e => e.generation -> e.why),
       Vector(1L -> "conflict")
@@ -684,7 +694,7 @@ class CloudProviderClusterFeatures
   }
 
   Then("the storage credential of {string} is the one it had before") { (logical: String) =>
-    assertEquals(keyIn(Buckets.secret(real(logical))), "before")
+    assertEquals(keyIn(Buckets.cloudSecret(real(logical))), "before")
   }
 
   Given("a deployed service {string} with a storage credential at credential generation {string}") {
@@ -694,7 +704,7 @@ class CloudProviderClusterFeatures
         credentialRequest(logical).getStatus.credentialGeneration,
         Some(generation.toLong)
       )
-      keyBefore = keyIn(Buckets.secret(real(logical)))
+      keyBefore = keyIn(Buckets.cloudSecret(real(logical)))
   }
 
   When(
@@ -764,7 +774,7 @@ class CloudProviderClusterFeatures
     "the storage credential of credential generation {string} reaches the bucket until the rotation grace has passed since the fulfilment, and is refused by the bucket afterwards"
   ) { (generation: String) =>
     val logical    = deployed.last.stripSuffix(s"-$scenario")
-    val secretName = Buckets.secret(real(logical))
+    val secretName = Buckets.cloudSecret(real(logical))
     def ended      = scripted.ended.filter(e => e.secretName == secretName && e.why == "rotated")
     waitUntil(reportedAt.plusMillis(Grace.toMillis).plusSeconds(30), "the old credential ended")(
       ended.nonEmpty

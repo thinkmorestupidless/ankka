@@ -298,21 +298,11 @@ class ObjectStorageClusterFeatures
 
   private def namespace(project: String) = s"$Prefix-$project"
 
-  private def pods(project: String, name: String): Vector[Pod] =
-    k8s
-      .pods()
-      .inNamespace(namespace(project))
-      .withLabel("app.kubernetes.io/name", name)
-      .list()
-      .getItems
-      .asScala
-      .toVector
-      .filter(_.getMetadata.getDeletionTimestamp == null)
+  private def servicePods = ServicePods(k3s, k8s, namespace)
 
-  private def running(pod: Pod): Boolean =
-    Option(pod.getStatus)
-      .flatMap(s => Option(s.getContainerStatuses))
-      .exists(_.asScala.exists(c => Option(c.getState).exists(_.getRunning != null)))
+  private def pods(project: String, name: String): Vector[Pod] = servicePods.pods(project, name)
+
+  private def running(pod: Pod): Boolean = ServicePods.running(pod)
 
   private def descriptor(
       name: String,
@@ -364,28 +354,8 @@ class ObjectStorageClusterFeatures
       ) && pods(project, name).exists(running)
     }
 
-  /** A shell command run inside the service's own container, with its environment. */
-  private def inPod(project: String, name: String, script: String): (Int, String) =
-    val pod = pods(project, name).find(running).getOrElse(fail(s"$name has no running pod"))
-    val r = k3s.execInContainer(
-      "kubectl",
-      "exec",
-      "-n",
-      namespace(project),
-      pod.getMetadata.getName,
-      "-c",
-      name,
-      "--",
-      "sh",
-      "-c",
-      script
-    )
-    (r.getExitCode, r.getStdout + r.getStderr)
-
   private def environment(project: String, name: String): Map[String, String] =
-    inPod(project, name, "env")._2.linesIterator
-      .flatMap(l => l.split("=", 2) match { case Array(k, v) => Some(k -> v); case _ => None })
-      .toMap
+    servicePods.environment(project, name)
 
   /** A signed request from inside the pod: its status, and the body. */
   private def s3(
@@ -395,21 +365,7 @@ class ObjectStorageClusterFeatures
       path: String,
       upload: Option[String] = None
   ): (Int, String) =
-    // The payload's hash, sent as its own header: a curl before 8 signs without it, and the store
-    // refuses a request that does not say it (`Missing X-Amz-Content-Sha256`).
-    val body = upload.fold("printf '' > /tmp/upload && ")(content =>
-      s"printf '%s' '$content' > /tmp/upload && "
-    ) + "hash=$(sha256sum /tmp/upload | cut -d' ' -f1) && "
-    val send = upload.fold("")(_ => "-T /tmp/upload ")
-    val (_, out) = inPod(
-      project,
-      name,
-      body +
-        s"""curl -s -o /tmp/answer -w '%{http_code}' -X $method $send-H "x-amz-content-sha256: $$hash" --aws-sigv4 "aws:amz:$$ANKKA_S3_REGION:s3" """ +
-        s"""--user "$$ANKKA_S3_ACCESS_KEY:$$ANKKA_S3_SECRET_KEY" "$$ANKKA_S3_ENDPOINT$path"; echo; cat /tmp/answer"""
-    )
-    val lines = out.linesIterator.toVector
-    (lines.headOption.flatMap(_.trim.toIntOption).getOrElse(0), lines.drop(1).mkString("\n"))
+    servicePods.s3(project, name, method, path, upload)
 
   private def keep(project: String, logical: String, obj: String): Unit =
     val (code, body) =
@@ -526,21 +482,7 @@ class ObjectStorageClusterFeatures
 
   /** An S3 client on the host, through a forward to the store, holding `key`. */
   private def storeClient(key: (String, String)): software.amazon.awssdk.services.s3.S3Client =
-    software.amazon.awssdk.services.s3.S3Client
-      .builder()
-      .endpointOverride(URI.create(s"http://127.0.0.1:${s3Forward.getLocalPort}"))
-      .region(Region.of("garage"))
-      .forcePathStyle(true)
-      .requestChecksumCalculation(
-        software.amazon.awssdk.core.checksums.RequestChecksumCalculation.WHEN_REQUIRED
-      )
-      .responseChecksumValidation(
-        software.amazon.awssdk.core.checksums.ResponseChecksumValidation.WHEN_REQUIRED
-      )
-      .credentialsProvider(
-        StaticCredentialsProvider.create(AwsBasicCredentials.create(key._1, key._2))
-      )
-      .build()
+    ServicePods.s3Client(s"http://127.0.0.1:${s3Forward.getLocalPort}", "garage", key)
 
   /** An object read with the service's own credential through a forward to the store. */
   private def objectInStore(project: String, logical: String, obj: String): Option[String] =
@@ -573,19 +515,7 @@ class ObjectStorageClusterFeatures
 
   /** The storage access key one instance of a service was started with. */
   private def accessKeyIn(project: String, name: String, pod: Pod): Option[String] =
-    val r = k3s.execInContainer(
-      "kubectl",
-      "exec",
-      "-n",
-      namespace(project),
-      pod.getMetadata.getName,
-      "-c",
-      name,
-      "--",
-      "printenv",
-      "ANKKA_S3_ACCESS_KEY"
-    )
-    Option.when(r.getExitCode == 0)(r.getStdout.trim).filter(_.nonEmpty)
+    servicePods.accessKeyIn(project, name, pod)
 
   private def credentialOf(project: String, logical: String): (String, String) =
     val s =

@@ -63,20 +63,38 @@ final class ServiceReconciler(
     val brokerSeen   = observeBroker(ref, spec)
     val brokerPlan   = BrokerProvisioning.decide(spec, settings.broker, brokerSeen)
     val cloudBucket  = decideCloudBucket(ref, resource, spec)
-    val storagePlan  = decideObjectStoragePlan(ref, spec, cloudBucket.map(_.plans))
-    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings)
+    val movePass     = decideMove(ref, resource, spec)
+    val reported     = ObjectStorage.reported(resource)
+    // The move's state as this pass leaves it, or as the last pass did once it is over.
+    val moveStatus  = movePass.fold(reported.flatMap(_.move))(_.step.status)
+    val storagePlan = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
+    val withheld    = ObjectStorage.withheld(storagePlan, spec, settings, reported)
+    val refused     = ObjectStorage.refused(storagePlan, spec, settings, reported)
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
         resource: AnkkaService
     ) =
-      val observed =
-        this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan, storagePlan)
+      val observed = this.status(
+        spec,
+        snapshot,
+        problems,
+        resource,
+        databasePlan,
+        brokerPlan,
+        storagePlan,
+        moveStatus
+      )
       // A Deployment held back for a cloud bucket's answer is an update in progress, saying why;
-      // a failure found by rendering or a foreign Deployment says more and is kept.
+      // one held back for a bucket the provider refused is a failure, whose reason the status's
+      // object storage carries. A failure found by rendering or a foreign Deployment says more and
+      // is kept.
       withheld
         .filter(_ => problems.isEmpty)
-        .fold(observed)(why => observed.copy(lifecycle = "UpdateInProgress", detail = Some(why)))
+        .fold(observed)(why =>
+          if refused.isDefined then observed.copy(lifecycle = "Failed")
+          else observed.copy(lifecycle = "UpdateInProgress", detail = Some(why))
+        )
 
     Rendering.render(
       resource,
@@ -85,7 +103,21 @@ final class ServiceReconciler(
       BrokerProvisioning.known(spec, settings.broker),
       storagePlan,
       executor.projectBrokers(ref.namespace, spec.projectId),
-      cloudBucket.map(_.requests).getOrElse(Vector.empty)
+      cloudBucket.map(_.requests).getOrElse(Vector.empty),
+      cloudBucket.map(c => ObjectStorage.serviceAccountAnnotations(c.plans)).getOrElse(Map.empty),
+      movePass.fold(Vector.empty)(m =>
+        Rendering.moveActions(
+          resource,
+          spec,
+          namespace,
+          settings,
+          m.generation,
+          m.step.actions,
+          m.target,
+          m.bucket.requests,
+          ObjectStorage.inPlace(resource)
+        )
+      )
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -133,7 +165,7 @@ final class ServiceReconciler(
             // A request nobody has acknowledged yet: look again when the bound passes, so its
             // absence is reported then, not at the next resync (feature 044, SC-004).
             for
-              seen  <- cloudBucket if seen.unacknowledged
+              seen  <- cloudBucket.orElse(movePass.map(_.bucket)) if seen.unacknowledged
               cloud <- settings.cloud
             do later(ref, cloud.acknowledgementBound)
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
@@ -166,6 +198,7 @@ final class ServiceReconciler(
   private def decideObjectStoragePlan(
       ref: ServiceRef,
       spec: AnkkaServiceSpec,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus],
       cloud: Option[CloudBucketPlans]
   ): ObjectStoragePlan =
     val observed =
@@ -174,7 +207,7 @@ final class ServiceReconciler(
           .observeObjectStorage(Buckets.name(spec.projectId, spec.serviceName))
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
       else ObjectStorageObservation.empty
-    ObjectStorage.decide(spec, settings, observed, cloud)
+    ObjectStorage.decide(spec, settings, observed, reported, cloud)
 
   /**
    * A bucket in the installation's cloud account (feature 044): the requests it takes, what the
@@ -186,30 +219,95 @@ final class ServiceReconciler(
       resource: AnkkaService,
       spec: AnkkaServiceSpec
   ): Option[ServiceReconciler.CloudBucketPass] =
-    for cloud <- settings.cloud if ObjectStorage.takesCloudPath(spec, settings)
+    for
+      cloud <- settings.cloud
+      if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource))
+    yield cloudBucketPass(ref, resource, spec, cloud)
+
+  /**
+   * A move of the service's bucket from Garage (feature 039), one transition per pass: the target's
+   * requests and what they answered, the mover's Job for the phase in hand, and the step. None when
+   * no move was asked for, and once it has switched, after which the bucket is the cloud's and
+   * `decideCloudBucket` takes it.
+   */
+  private[operator] def decideMove(
+      ref: ServiceRef,
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec
+  ): Option[ServiceReconciler.MovePass] =
+    val current = ObjectStorage.reported(resource).flatMap(_.move)
+    for
+      cloud   <- settings.cloud
+      request <- spec.objectStorageMove
+      if !current.exists(_.state == StorageMove.State.Switched.toString)
     yield
-      val now = Instant.now(clock)
-      def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
-        val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
-        seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
-      def output(plan: CloudPlan, key: String) = plan match
-        case CloudPlan.Ready(outputs, _, _) => outputs.get(key)
-        case _                              => None
-      val first = ObjectStorage.cloudRequests(resource, cloud, None, None)
-      val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
-      val requests = ObjectStorage.cloudRequests(
+      val pass               = cloudBucketPass(ref, resource, spec, cloud)
+      val (requests, target) = ObjectStorage.moveRequests(pass.plans)
+      val phase = current.map(_.state) match
+        case Some(s) if s == StorageMove.State.Copying.toString   => Some(MovePhase.Copy)
+        case Some(s) if s == StorageMove.State.Verifying.toString => Some(MovePhase.Verify)
+        case _                                                    => None
+      val job = phase.fold(StorageMove.JobOutcome.Absent)(p =>
+        executor.observeMoveJob(
+          ref.namespace,
+          Names.moveJob(spec.serviceName, request.generation, p)
+        )
+      )
+      val step = StorageMove.next(
+        Some(request),
+        current,
+        StorageMove.MoveObservation(requests, job, Instant.now(clock))
+      )
+      ServiceReconciler.MovePass(pass, step, target, request.generation)
+
+  private def cloudBucketPass(
+      ref: ServiceRef,
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      cloud: CloudSettings
+  ): ServiceReconciler.CloudBucketPass =
+    val now = Instant.now(clock)
+    // The bucket's request as it stands, read once: what it asked is kept (feature 039).
+    val bucketName =
+      Names.CloudRequest.ofService(spec.serviceName, Names.CloudRequest.BucketSuffix)
+    val existingBucket = executor.observeCloudResource(ref.namespace, bucketName)
+    def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
+      val name = request.getMetadata.getName
+      val seen =
+        if name == bucketName then existingBucket
+        else executor.observeCloudResource(ref.namespace, name)
+      seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
+    def output(plan: CloudPlan, key: String) = plan match
+      case CloudPlan.Ready(outputs, _, _, _) => outputs.get(key)
+      case _                                 => None
+    val projectLocation = executor.projectLocation(ref.namespace, spec.projectId)
+    val first =
+      ObjectStorage.cloudRequests(
         resource,
+        settings,
         cloud,
-        output(idPlan, CloudRequests.Keys.Identity),
-        output(bucketPlan, CloudRequests.Keys.Bucket)
+        projectLocation,
+        existingBucket,
+        None,
+        None
       )
-      val credential = requests.drop(2).headOption.map(answered)
-      ServiceReconciler.CloudBucketPass(
-        requests = requests,
-        plans = CloudBucketPlans(idPlan, bucketPlan, credential.map(_._2)),
-        unacknowledged =
-          (Vector(idSeen, bucketSeen) ++ credential.map(_._1)).exists(!_.exists(_.acknowledged))
-      )
+    val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
+    val requests = ObjectStorage.cloudRequests(
+      resource,
+      settings,
+      cloud,
+      projectLocation,
+      existingBucket,
+      output(idPlan, CloudRequests.Keys.Identity),
+      output(bucketPlan, CloudRequests.Keys.Bucket)
+    )
+    val credential = requests.drop(2).headOption.map(answered)
+    ServiceReconciler.CloudBucketPass(
+      requests = requests,
+      plans = CloudBucketPlans(idPlan, bucketPlan, credential.map(_._2)),
+      unacknowledged =
+        (Vector(idSeen, bucketSeen) ++ credential.map(_._1)).exists(!_.exists(_.acknowledged))
+    )
 
   /**
    * What the broker has for this service (feature 027), read only when the service is known to an
@@ -240,7 +338,8 @@ final class ServiceReconciler(
       resource: AnkkaService,
       databasePlan: ProvisioningPlan,
       brokerPlan: BrokerPlan,
-      objectStoragePlan: ObjectStoragePlan
+      objectStoragePlan: ObjectStoragePlan,
+      move: Option[com.thinkmorestupidless.ankka.crd.MoveStatus]
   ) =
     val base = LifecycleRules.observe(
       spec,
@@ -260,12 +359,15 @@ final class ServiceReconciler(
         spec.serviceName
       ),
       broker = LifecycleRules.brokerStatus(brokerPlan),
-      objectStorage = ObjectStorage.status(
-        objectStoragePlan,
-        spec,
-        settings,
-        ObjectStorage.inPlace(resource)
-      ),
+      objectStorage = ObjectStorage
+        .status(
+          objectStoragePlan,
+          spec,
+          settings,
+          ObjectStorage.reported(resource),
+          ObjectStorage.inPlace(resource)
+        )
+        .map(_.copy(move = move)),
       // A broker that failed says why where a member looks first, without changing the
       // service's lifecycle: a service whose credential cannot be had is still deployed.
       detail = base.detail.orElse(brokerPlan match
@@ -304,6 +406,14 @@ object ServiceReconciler:
       requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
       plans: CloudBucketPlans,
       unacknowledged: Boolean
+  )
+
+  /** One pass of a move (feature 039): its target's requests, the step, and the target as made. */
+  final case class MovePass(
+      bucket: CloudBucketPass,
+      step: StorageMove.Step,
+      target: Option[CloudBucket],
+      generation: Int
   )
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
     new ServiceReconciler(

@@ -41,20 +41,33 @@ object CloudRequests:
     val Endpoint: String        = "endpoint"
     val Region: String          = "region"
     val Key: String             = "key"
+    // Feature 039 (research R1a D3, D4).
+    val NamePrefix: String                = "namePrefix"
+    val NoncurrentVersionDays: String     = "noncurrentVersionDays"
+    val ServiceAccountAnnotations: String = "serviceAccountAnnotations"
 
     /** What each kind asks: exactly these keys, no more and no fewer. */
     val parameters: Map[String, Set[String]] = Map(
       CloudKinds.Identity     -> Set(ServiceAccount),
       CloudKinds.SecretAccess -> Set(Identity, Own, Read),
       CloudKinds.SecretSync   -> Set(SecretName, Entries, EntryGeneration),
-      CloudKinds.Bucket -> Set(Purpose, Location, Versioning, SoftDeleteDays, CorsOrigins, KmsKey),
+      CloudKinds.Bucket -> Set(
+        Purpose,
+        Location,
+        Versioning,
+        SoftDeleteDays,
+        CorsOrigins,
+        KmsKey,
+        NamePrefix,
+        NoncurrentVersionDays
+      ),
       CloudKinds.BucketCredential -> Set(Bucket, Identity, SecretName),
       CloudKinds.WrappingKey      -> Set(Identity, Key)
     )
 
     /** What each kind's fulfilment answers with. */
     val outputs: Map[String, Set[String]] = Map(
-      CloudKinds.Identity         -> Set(Identity),
+      CloudKinds.Identity         -> Set(Identity, ServiceAccountAnnotations),
       CloudKinds.SecretAccess     -> Set.empty,
       CloudKinds.SecretSync       -> Set(EntryGeneration),
       CloudKinds.Bucket           -> Set(Bucket, Endpoint, Region),
@@ -107,11 +120,22 @@ object CloudRequests:
   /**
    * What a descriptor asks of a bucket beyond having one. Feature 034's descriptor asks nothing
    * more; feature 039 adds these, and their defaults are what a bucket had without them.
+   *
+   * @param namePrefix
+   *   the installation's prefix, which starts the bucket's name in a namespace shared with every
+   *   other customer of the cloud's; empty for none
+   * @param noncurrentVersionDays
+   *   after how many days a version no longer current is deleted; none keeps it until the
+   *   soft-delete window and a member's deletion say otherwise
    */
   final case class BucketAsk(
       versioning: Boolean = false,
       softDeleteDays: Int = 0,
-      corsOrigins: Vector[String] = Vector.empty
+      corsOrigins: Vector[String] = Vector.empty,
+      namePrefix: String = "",
+      noncurrentVersionDays: Option[Int] = None,
+      /** The wrapping key to ask for, when not the installation's as it is now. */
+      kmsKey: Option[String] = None
   )
 
   /** A cloud identity for a Kubernetes ServiceAccount in the request's namespace. */
@@ -169,7 +193,8 @@ object CloudRequests:
       by: Requester,
       purpose: String,
       location: String,
-      ask: BucketAsk
+      ask: BucketAsk,
+      annotations: Map[String, String] = Map.empty
   ): CloudResource =
     request(
       cloud,
@@ -178,13 +203,16 @@ object CloudRequests:
       if purpose == Purpose.Backup then Names.CloudRequest.BackupBucketSuffix
       else Names.CloudRequest.BucketSuffix,
       Map(
-        Keys.Purpose        -> purpose,
-        Keys.Location       -> location,
-        Keys.Versioning     -> ask.versioning.toString,
-        Keys.SoftDeleteDays -> ask.softDeleteDays.toString,
-        Keys.CorsOrigins    -> list(ask.corsOrigins),
-        Keys.KmsKey         -> cloud.kmsKey.getOrElse("")
-      )
+        Keys.Purpose               -> purpose,
+        Keys.Location              -> location,
+        Keys.Versioning            -> ask.versioning.toString,
+        Keys.SoftDeleteDays        -> ask.softDeleteDays.toString,
+        Keys.CorsOrigins           -> list(ask.corsOrigins),
+        Keys.KmsKey                -> ask.kmsKey.orElse(cloud.kmsKey).getOrElse(""),
+        Keys.NamePrefix            -> ask.namePrefix,
+        Keys.NoncurrentVersionDays -> ask.noncurrentVersionDays.fold("")(_.toString)
+      ),
+      annotations = annotations
     )
 
   /**
@@ -234,17 +262,18 @@ object CloudRequests:
       kind: String,
       suffix: String,
       parameters: Map[String, String],
-      credentialGeneration: Long = 0L
+      credentialGeneration: Long = 0L,
+      annotations: Map[String, String] = Map.empty
   ): CloudResource =
     val resource = new CloudResource
-    resource.setMetadata(
-      new ObjectMetaBuilder()
-        .withNamespace(by.namespace)
-        .withName(by.name(suffix))
-        .withLabels(by.labels.asJava)
-        .withOwnerReferences(by.owner)
-        .build()
-    )
+    val meta = new ObjectMetaBuilder()
+      .withNamespace(by.namespace)
+      .withName(by.name(suffix))
+      .withLabels(by.labels.asJava)
+      .withOwnerReferences(by.owner)
+      .build()
+    if annotations.nonEmpty then meta.setAnnotations(annotations.asJava)
+    resource.setMetadata(meta)
     resource.setSpec(
       CloudResourceSpec(
         provider = cloud.provider,

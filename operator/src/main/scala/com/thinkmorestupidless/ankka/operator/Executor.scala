@@ -101,6 +101,14 @@ trait Executor:
     Vector.empty
 
   /**
+   * Where a project's new buckets are made (feature 039), from its `AnkkaProject`; none without
+   * one, and then the installation's location.
+   */
+  def projectLocation(namespace: String, projectId: String): Option[String] =
+    val _ = (namespace, projectId)
+    None
+
+  /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
    */
@@ -841,6 +849,15 @@ final class Fabric8Executor(
         .get()
     ).flatMap(p => Option(p.getSpec)).map(_.brokers.toVector).getOrElse(Vector.empty)
 
+  override def projectLocation(namespace: String, projectId: String): Option[String] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec)).flatMap(_.bucketLocation).filter(_.nonEmpty)
+
   override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
     val topicClient = client
       .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaTopicResource])
@@ -920,7 +937,10 @@ final class Fabric8Executor(
       CloudObservation(
         generation = Option(found.getMetadata.getGeneration).map(_.longValue).getOrElse(0L),
         createdAt = parseTimestamp(found.getMetadata.getCreationTimestamp).getOrElse(Instant.EPOCH),
-        status = Option(found.getStatus)
+        status = Option(found.getStatus),
+        spec = Option(found.getSpec),
+        annotations =
+          Option(found.getMetadata.getAnnotations).map(_.asScala.toMap).getOrElse(Map.empty)
       )
     }
 

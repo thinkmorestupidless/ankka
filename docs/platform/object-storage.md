@@ -196,23 +196,158 @@ service's program as declared, by the same rule as any other variable:
 The check is by name, so a value taken from a project secret counts. A descriptor that both asks for a
 bucket and declares an `ANKKA_S3_` variable is refused, naming the variable.
 
-No descriptor may take a variable from a Secret named `<service>-storage`, its own service's included, and
-no project secret may be given such a name: a storage credential reaches its own service and no other.
+No descriptor may take a variable from a Secret named `<service>-storage` or `<service>-cloud-storage`, its
+own service's included, and no project secret may be given such a name: a storage credential reaches its
+own service and no other.
 
-## A bucket in the installation's cloud account
+## On Google Cloud Storage
 
-On an installation that names a [cloud provider](cloud-provider.md) and runs no store of its own, a
-service's bucket is made in the installation's cloud account by that provider. The descriptor is the
-same, and so are the five variables: `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION` and `ANKKA_S3_BUCKET` are
-what the provider answered, and the storage credential is in `<service>-storage`, written once by the
-provider. The bucket's name is the provider's, shown by `ankka services get`. Its instances start only
-once the provider has answered: until then the service is `UpdateInProgress`, saying what it waits for,
-and a bucket the provider refuses starts the service told of no bucket at all, with the provider's
-reason in its status.
+An installation may keep its buckets in Google Cloud Storage instead of Garage, made in the installation's
+cloud account by its [cloud provider](cloud-provider.md); [Installing on GKE](install-gke.md) sets one up.
+The descriptor is the same on either store, and so are the variables and the client: a service written
+against Garage runs unchanged.
 
-A bucket in a cloud account is reached at the cloud's own address, not through the installation's
-gateway, so `exposeObjectStorage` gives it no route. An installation that runs its own store and names a
-provider as well keeps its buckets in its own store.
+```json title="service.json"
+{
+  "name": "reports",
+  "service": {
+    "image": "registry.example.com/acme/reports:1.0.0",
+    "provisionObjectStorage": true
+  }
+}
+```
+
+**Which store a bucket is in.** The installation names the store new buckets are made in
+(`ANKKA_OBJECT_STORE_BACKEND`, `garage` or `gcs`). A bucket stays in the store it was made in: an
+installation that turns to Google Cloud Storage keeps every bucket it already has in Garage until a member
+moves it, and `ankka services get` says which store a service's bucket is in, its name and its location.
+
+**The variables.** `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION` and `ANKKA_S3_BUCKET` are what the cloud provider
+answered for the bucket: Google Cloud Storage's XML API, the region `auto`, and the bucket's name. The
+storage credential is in `<service>-cloud-storage`, written once by the provider; it is an HMAC key of the
+service's own cloud identity, granted on its bucket and on nothing else. Configure the client as for
+Garage:
+
+<!-- include: controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GcsCompatibilitySuite.scala#gcs-client -->
+```scala
+private lazy val s3: S3Client =
+  S3Client
+    .builder()
+    .endpointOverride(URI.create(endpoint)) // ANKKA_S3_ENDPOINT
+    .region(Region.of(region))              // ANKKA_S3_REGION
+    .forcePathStyle(true)
+    .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+    .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
+    .credentialsProvider(credentials) // ANKKA_S3_ACCESS_KEY, ANKKA_S3_SECRET_KEY
+    .build()
+```
+
+**The name.** A bucket's name in Google Cloud Storage is shared with every other customer of Google's,
+so it is the installation's prefix, the project, the service and a digest of the two:
+`acme-shop-reports-ae7cc739`. The cloud provider names it and the status reports it; read it from
+`ANKKA_S3_BUCKET`, never derive it. A name another Google customer holds is a bucket the provider refuses.
+
+**Until the provider has answered.** The service's instances start only once the provider has answered:
+until then the service is `UpdateInProgress`, saying what it waits for. A bucket the provider refuses
+starts no instance at all, since a service that asked for a bucket cannot be relied on to run correctly
+without one: the service is `Failed`, with the provider's reason in its status. Instances already running
+when a refusal comes are left as they are.
+
+### Reachable from the internet, and a browser's origin
+
+A bucket in Google Cloud Storage is reachable from the internet by anyone holding a valid signature,
+whether or not its descriptor asks for `exposeObjectStorage`: Google's address answers every signed
+request. Exposure decides only two things: the service is given `ANKKA_S3_PUBLIC_ENDPOINT`, Google's
+address, and `ankka services get` shows the bucket's address on the internet; and the bucket's CORS rule
+admits the descriptor's `objectStorageOrigins`. A request without a signature is refused by every bucket.
+The cloud provider sets the CORS rule from the descriptor, as the operator does on Garage, and the service
+sets none: a rule a service sets through S3 is refused by Google Cloud Storage.
+
+### Versions are kept, and every version can be deleted
+
+Every bucket in Google Cloud Storage keeps versions. An object overwritten or deleted stays readable as a
+noncurrent version, and a deleted object can be recovered for the installation's soft-delete window
+(`ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS`, 7 days as shipped), which `ankka services get` shows. No bucket has
+a retention policy: the platform refuses no deletion on account of an object's age, and keeping a
+document for as long as a rule requires is the service's own to do. Deleting every version of an object
+removes it once the soft-delete window has passed:
+
+<!-- include: controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GcsCompatibilitySuite.scala#delete-every-version -->
+```scala
+test("deleting every version of an object leaves none listed") {
+  val key = fresh("passport.pdf")
+  put(key, "first")
+  put(key, "second")
+  for (id, _) <- versions(key) do
+    s3.deleteObject(
+      DeleteObjectRequest.builder().bucket(bucket.get).key(key).versionId(id).build()
+    ): Unit
+  assertEquals(versions(key), Vector.empty)
+}
+```
+
+Versions are stored and paid for. `objectStorageVersionAgeDays` deletes a version that is no longer current
+after that many days; Garage, which keeps one version, accepts it and does nothing.
+
+A bucket is encrypted, with the installation's wrapping key when it names one (`ANKKA_CLOUD_KMS_KEY`). The
+window and the key are the installation's when the bucket is made, and stay as they were when the
+installation changes them, until a member applies them again:
+
+```bash
+ankka services storage reapply-settings reports -p shop
+```
+
+### Where a bucket is made
+
+A bucket is made in its project's location when the project names one, and in the installation's
+(`ANKKA_CLOUD_LOCATION`) otherwise. A bucket's location is fixed when it is made.
+
+```bash
+ankka projects location set europe-west6 -p shop
+ankka projects location clear -p shop
+```
+
+### A service with no storage credential
+
+A service written with Google's own client can reach its bucket as its cloud identity, with no key at
+all: its Kubernetes ServiceAccount is bound to that identity, so the client's default credentials reach
+its bucket and no other. Its descriptor declines the credential:
+
+```json title="service.json"
+{
+  "name": "reports",
+  "service": {
+    "image": "registry.example.com/acme/reports:1.0.0",
+    "provisionObjectStorage": true,
+    "objectStorageCredential": false
+  }
+}
+```
+
+Such a service is given `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION` and `ANKKA_S3_BUCKET` and no key, and none is
+issued for it. It cannot sign URLs with an HMAC key. An installation whose store is Garage refuses the
+descriptor, since a bucket there is reached only with a storage credential.
+
+### Moving a bucket from Garage
+
+A member moves one service's bucket from Garage to Google Cloud Storage:
+
+```bash
+ankka services storage move reports -p shop --write-pause-bound 30m
+```
+
+A mover the operator runs inside the installation, holding the service's two storage credentials and no
+other, copies every object into a bucket made for the service in Google Cloud Storage while the service
+goes on writing. Then, for a write pause no longer than its bound (10 minutes as shipped, from one minute
+to a day), the service's key in Garage reads and does not write, what changed since the copy began is
+copied, and every object is checked on both sides. Once they match, the service is given the variables of
+its new bucket and its instances are replaced. `ankka services get` says where the move is: the pause,
+since when and how long it may last.
+
+A move that fails, or whose write pause reaches its bound, gives the service its writes back in Garage,
+and the status says why; it may be asked for again, and a second run copies only what is missing. The
+bucket in Garage is left as it was: the platform deletes nothing. An object larger than 5 GiB does not
+move.
 
 ## The store in an installation
 

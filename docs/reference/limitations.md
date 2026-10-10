@@ -45,13 +45,17 @@ feature also says what that feature does not do.
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
-- **One object store, of one node.** A bucket is in the installation's own store, a single Garage node with
-  one volume, so its durability is that volume's, unless the installation names a cloud provider and runs no
-  store, when it is in the cloud account. A bucket and its objects are never deleted by the platform.
+- **One object store for new buckets, of one node when it is Garage.** A bucket is made in the store the
+  installation names: its own Garage, a single node with one volume whose durability is that volume's, or
+  Google Cloud Storage in its cloud account. A bucket stays where it was made until a member moves it. A
+  bucket and its objects are never deleted by the platform.
+- **Garage keeps one version of an object.** An object overwritten or deleted in Garage is gone at once;
+  only Google Cloud Storage keeps noncurrent versions and a soft-delete window.
+- **A move from Garage does not move an object larger than 5 GiB**, and moves one service's bucket at a
+  time. Traffic to Garage inside the cluster stays plain HTTP while a bucket is there.
 - **One cloud provider and one cloud account per installation.** A project names no account of its own. The
   platform deletes nothing in a cloud account, ever: removing what a provider made is the administrator's
-  task. A storage credential in a cloud account is replaced by raising its generation on the service's
-  resource; there is no command for it, and the installation's own store's credential is never rotated.
+  task.
 - **No storage client in the SDKs.** A service keeps and reads objects with its own language's S3 client. A
   service run on a developer's own machine is given no bucket.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a

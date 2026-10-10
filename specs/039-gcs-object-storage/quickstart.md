@@ -6,7 +6,7 @@ be mistaken for. Contracts are in [contracts/](contracts/); the data is in
 
 ## 0. Before anything: 044, and the spikes
 
-- 044 is merged (`CloudResource`, the fake provider, the settings). Without it slices 5 to 7 have
+- 044 is merged (`CloudResource`, the scripted provider, the settings; research R1a). Without it slices 5 to 7 have
   nothing to render against.
 - **S1** — `sbt 'operator/testOnly *GarageStoreSuite'`: three new cases against `dxflrs/garage:v2.3.0`
   prove `UpdateBucket.corsRules` is honoured (a preflight from a named origin answers the
@@ -35,7 +35,7 @@ be mistaken for. Contracts are in [contracts/](contracts/); the data is in
 | `RenderingGoldenSuite` | `golden/object-storage-gcs.txt` |
 | `RenderingUnchangedSuite` | a service on Garage renders exactly what it rendered — **no repin** |
 | `CrdSchemaSuite` | every new field on both resources, inside `objectStorage` and `move` |
-| `ReservedSecretNamesSuite` | `<service>-gcs-storage` cannot be read by a descriptor |
+| `ReservedSecretNamesSuite` | `<service>-cloud-storage` cannot be read by a descriptor |
 | `MoverSuite` (`storage-mover`) | contracts/mover.md's eight cases against two Garage containers (S4) |
 | CLI suites | the five commands and the eight output lines |
 | console unit tests | the fact, the three actions, the fake's answers |
@@ -44,7 +44,7 @@ be mistaken for. Contracts are in [contracts/](contracts/); the data is in
 
 The S1 cases above, run as part of the suite from now on.
 
-## 3. k3s with the fake provider (`caffeinate -i sbt 'controlPlane/testOnly *ObjectStorageGcsClusterFeatures'`)
+## 3. k3s with the scripted provider in its Garage-backed mode (`caffeinate -i sbt 'controlPlane/testOnly *ObjectStorageGcsClusterFeatures'`)
 
 The installation: PKI, the `garage` component, the fake provider, the operator with
 `ANKKA_OBJECT_STORE_BACKEND=gcs`, `ANKKA_OBJECT_STORE_PREFIX=t`, `ANKKA_CLOUD_PROVIDER=fake`,
@@ -94,7 +94,7 @@ nothing.
 1. Set the seven settings; deploy the cloud overlay; `kubectl get cloudresources -A` shows
    nothing yet.
 2. Apply the shopping cart with `provisionObjectStorage: true`: three `CloudResource`s, a Secret
-   `cart-gcs-storage`, `services get` shows `object store gcs` and a bucket named with the prefix
+   `cart-cloud-storage`, `services get` shows `object store gcs` and a bucket named with the prefix
    and digest; a put and a get from the pod.
 3. `ankka services storage reissue`: a new key in place within a minute, the pods roll, the old
    key refused an hour later.

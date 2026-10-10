@@ -163,6 +163,10 @@ objects (042); or object storage on a developer's machine, which stays Garage.
 
 ## Clarifications
 
+### Session 2026-10-10
+
+- Q: When the cloud provider refuses a service's bucket (its name is held, its location refused), does the service start without one or not at all? → A: Not at all. A service that asked for a bucket and runs without one cannot be relied on to run correctly, so no instance starts and the service is reported failed with the provider's reason. Instances already running are left as they are. 044's `bucket.feature` scenario says so too.
+
 ### Session 2026-10-08
 
 - Q: Is a bucket's location set once per installation, or may a project choose its own? → A: The
@@ -509,7 +513,7 @@ object copied twice into a changed state.
 - **FR-007**: A bucket that exists under the derived name in a Google project other than the
   installation's, or that GCS reports as taken, MUST be reported `Failed`, and the cloud provider MUST NOT
   grant anything on it.
-- **FR-008**: The HMAC secret MUST be written once to `<service>-gcs-storage`, as 034 FR-003
+- **FR-008**: The HMAC secret MUST be written once to `<service>-cloud-storage`, as 034 FR-003
   writes Garage's key to `<service>-storage`, by the cloud provider, and neither the operator nor
   the cloud provider MUST read it from the cluster or from Google afterwards. The two Secrets are
   distinct so that a service being moved holds its Garage key while the cloud provider writes the
@@ -620,7 +624,7 @@ object copied twice into a changed state.
 - **Cloud identity** (formerly referred to as "storage account"): 044's, one Google service account
   per service, granted on its bucket only, bound to the service's Kubernetes ServiceAccount, owning
   the service's HMAC key.
-- **Storage credential**: the HMAC key's id and secret, in `<service>-gcs-storage` (Garage's
+- **Storage credential**: the HMAC key's id and secret, in `<service>-cloud-storage` (Garage's
   stays in `<service>-storage`), written once and replaced only by re-issue; a move's pause
   replaces the Garage one with a read-only credential.
 - **Origins**: the list on the descriptor's storage section naming who may upload or read from a

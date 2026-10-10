@@ -151,18 +151,35 @@ class SettingsSuite extends munit.FunSuite:
     }
   }
 
-  test(
-    "Google Cloud Storage is read with its prefix, a soft-delete window of 7 days, and Google's address"
-  ) {
+  test("Google Cloud Storage is read with its prefix and a soft-delete window of 7 days") {
     withProperties(gcs*) {
       val settings = Settings.fromEnvironment()
       assertEquals(settings.objectStoreBackend, Some(ObjectStoreBackend.Gcs))
-      assertEquals(
-        settings.gcs,
-        Some(GcsSettings("ankka", softDeleteDays = 7, "https://storage.googleapis.com"))
-      )
+      assertEquals(settings.gcs, Some(GcsSettings("ankka", softDeleteDays = 7)))
       assertEquals(settings.objectStore, None)
     }
+  }
+
+  test(
+    "an unset backend is Garage where it is installed, else the cloud account where a provider is named"
+  ) {
+    // Research R1a D1: every installation keeps the store it had before the setting.
+    withProperties((store ++ gcs.filterNot(_._1.startsWith("ankka.operator.object-store")))*) {
+      assertEquals(Settings.fromEnvironment().bucketBackend, Some(ObjectStoreBackend.Garage))
+    }
+    withProperties(gcs.filterNot(_._1.startsWith("ankka.operator.object-store"))*) {
+      val settings = Settings.fromEnvironment()
+      assertEquals(settings.bucketBackend, Some(ObjectStoreBackend.Gcs))
+      assertEquals(settings.gcs, Some(GcsSettings("", softDeleteDays = 7)))
+    }
+    assertEquals(Settings.fromEnvironment().bucketBackend, None)
+    // Built in a test with `copy`, the same rule answers.
+    assertEquals(
+      Settings.default
+        .copy(cloud = Some(CloudSettings("gcp", "a", "l", None, 2.minutes, 1.hour)))
+        .bucketBackend,
+      Some(ObjectStoreBackend.Gcs)
+    )
   }
 
   test(
@@ -176,17 +193,9 @@ class SettingsSuite extends munit.FunSuite:
     }
   }
 
-  test("the soft-delete window and the address of Google Cloud Storage are read when given") {
-    withProperties(
-      (gcs ++ Vector(
-        "ankka.operator.object-store.soft-delete-days" -> "30",
-        "ankka.operator.object-store.gcs-endpoint"     -> "http://garage.garage-system.svc:3900"
-      ))*
-    ) {
-      assertEquals(
-        Settings.fromEnvironment().gcs,
-        Some(GcsSettings("ankka", 30, "http://garage.garage-system.svc:3900"))
-      )
+  test("the soft-delete window of Google Cloud Storage is read when given") {
+    withProperties((gcs :+ ("ankka.operator.object-store.soft-delete-days" -> "30"))*) {
+      assertEquals(Settings.fromEnvironment().gcs, Some(GcsSettings("ankka", 30)))
     }
   }
 
@@ -240,6 +249,20 @@ class SettingsSuite extends munit.FunSuite:
         Settings.fromEnvironment().storageMoverImage,
         "ghcr.io/example/ankka-storage-mover:1.2.3"
       )
+    }
+  }
+
+  // One rotation grace for every store (feature 039, research R1a D8).
+
+  test("Garage's keys end after the cloud's rotation grace, an hour unless it names another") {
+    assertEquals(Settings.fromEnvironment().rotationGrace, 1.hour)
+    // No provider is named: the grace is the installation's all the same.
+    withProperties("ankka.operator.cloud-rotation-grace" -> "20s") {
+      assertEquals(Settings.fromEnvironment().rotationGrace, 20.seconds)
+    }
+    withProperties("ankka.operator.cloud-rotation-grace" -> "an hour") {
+      val e = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_CLOUD_ROTATION_GRACE"), e.getMessage)
     }
   }
 

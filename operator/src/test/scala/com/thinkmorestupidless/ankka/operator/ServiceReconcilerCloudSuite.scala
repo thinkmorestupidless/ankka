@@ -96,7 +96,8 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
       seen.requests.map(_.getMetadata.getName),
       Vector("reports-identity", "reports-bucket")
     )
-    assertEquals(asked, Vector("reports-identity", "reports-bucket"))
+    // The bucket's request is read first, once: what it already asks is kept (feature 039).
+    assertEquals(asked, Vector("reports-bucket", "reports-identity"))
     assertEquals(seen.plans.credential, None)
     assert(seen.unacknowledged, "nothing has answered, so look again at the bound")
   }
@@ -116,7 +117,7 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
     assert(!seen.unacknowledged)
     assertEquals(
       ObjectStorage
-        .decide(resource.getSpec, settings, ObjectStorageObservation.empty, Some(seen.plans)),
+        .decide(resource.getSpec, settings, ObjectStorageObservation.empty, None, Some(seen.plans)),
       ObjectStoragePlan.Ready(
         recovered = false,
         Some(
@@ -133,11 +134,12 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
       resource.getSpec,
       settings,
       ObjectStorageObservation.empty,
+      None,
       Some(seen.plans)
     )
     assertEquals(plan, ObjectStoragePlan.Waiting(Some("no provider for gcp has answered")))
     assertEquals(
-      ObjectStorage.withheld(plan, resource.getSpec, settings),
+      ObjectStorage.withheld(plan, resource.getSpec, settings, None),
       Some("no provider for gcp has answered")
     )
   }

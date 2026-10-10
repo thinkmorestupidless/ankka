@@ -23,7 +23,7 @@ class MoveJobRenderingSuite extends munit.FunSuite:
         ObjectStoreSettings.ServiceRef("garage-system", "garage", 3900)
       )
     ),
-    gcs = Some(GcsSettings("ankka", 7, "https://storage.googleapis.com")),
+    gcs = Some(GcsSettings("ankka", 7)),
     storageMoverImage = "ankka-storage-mover:9.9.9"
   )
 
@@ -50,7 +50,8 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       settings,
       2,
       phase,
-      "t-casino-kyc-1",
+      // The target bucket as its cloud provider answered it: where it is reached is the answer's.
+      CloudBucket("t-casino-kyc-1", "https://storage.googleapis.com", "auto", 1L),
       deadline
     )
 
@@ -98,8 +99,8 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       Map(
         "MOVER_SOURCE_ACCESS_KEY" -> ("kyc-storage", "ANKKA_S3_ACCESS_KEY"),
         "MOVER_SOURCE_SECRET_KEY" -> ("kyc-storage", "ANKKA_S3_SECRET_KEY"),
-        "MOVER_TARGET_ACCESS_KEY" -> ("kyc-gcs-storage", "ANKKA_S3_ACCESS_KEY"),
-        "MOVER_TARGET_SECRET_KEY" -> ("kyc-gcs-storage", "ANKKA_S3_SECRET_KEY")
+        "MOVER_TARGET_ACCESS_KEY" -> ("kyc-cloud-storage", "ANKKA_S3_ACCESS_KEY"),
+        "MOVER_TARGET_SECRET_KEY" -> ("kyc-cloud-storage", "ANKKA_S3_SECRET_KEY")
       )
     )
     assert(Option(container(job(MovePhase.Copy)).getEnvFrom).forall(_.isEmpty))
@@ -126,4 +127,64 @@ class MoveJobRenderingSuite extends munit.FunSuite:
     val labels = pod.getMetadata.getLabels.asScala.toMap
     Labels.identity("casino", "kyc").foreach((k, v) => assertEquals(labels.get(k), Some(v), k))
     assertEquals(labels.get(Labels.RoleKey), Some("storage-mover"))
+  }
+
+  // A move's acts as actions (feature 039).
+
+  private val target = CloudBucket("t-casino-kyc-1", "https://storage.googleapis.com", "auto", 1L)
+  private val asked  = Vector(new com.thinkmorestupidless.ankka.crd.CloudResource)
+
+  private def acted(acts: StorageMove.Act*): Vector[Action] =
+    Rendering.moveActions(
+      resource,
+      spec,
+      "ankka-casino",
+      settings,
+      2,
+      acts.toVector,
+      Some(target),
+      asked,
+      keyGeneration = 3
+    )
+
+  test("the mover is given no token of the cluster's, only the two storage credentials") {
+    val pod = job(MovePhase.Copy).getSpec.getTemplate.getSpec
+    assertEquals(Option(pod.getAutomountServiceAccountToken).map(_.booleanValue), Some(false))
+    assert(Option(container(job(MovePhase.Copy)).getEnvFrom).forall(_.isEmpty))
+    assert(Option(pod.getVolumes).forall(_.isEmpty))
+  }
+
+  test("a move asks for its target, then runs the copy into it") {
+    val actions = acted(StorageMove.Act.AskForBucket, StorageMove.Act.Copy(target.bucket))
+    assertEquals(actions.count(_.isInstanceOf[Action.EnsureCloudResource]), 1)
+    val jobs = actions.collect { case Action.EnsureMoveJob(j) => j.getMetadata.getName }
+    assertEquals(jobs, Vector(Names.moveJob("kyc", 2, MovePhase.Copy)))
+  }
+
+  test("the write pause is on the key in place, and the verify runs within what is left of it") {
+    val actions = acted(StorageMove.Act.PauseWrites, StorageMove.Act.Verify(target.bucket, 120L))
+    assert(actions.contains(Action.PauseWrites("casino.kyc", 3)), actions.toString)
+    val verify = actions.collectFirst { case Action.EnsureMoveJob(j) => j }.get
+    assertEquals(verify.getMetadata.getName, Names.moveJob("kyc", 2, MovePhase.Verify))
+    assertEquals(verify.getSpec.getActiveDeadlineSeconds.longValue, 120L)
+  }
+
+  test("a failed move gives the key its writes back, and a switch acts on nothing here") {
+    assertEquals(acted(StorageMove.Act.ResumeWrites), Vector(Action.ResumeWrites("casino.kyc", 3)))
+    assertEquals(acted(StorageMove.Act.Switch(target.bucket)), Vector.empty[Action])
+  }
+
+  test("no Job is run before the target bucket is answered") {
+    val actions = Rendering.moveActions(
+      resource,
+      spec,
+      "ankka-casino",
+      settings,
+      2,
+      Vector(StorageMove.Act.Copy("x")),
+      None,
+      Vector.empty,
+      keyGeneration = 0
+    )
+    assertEquals(actions, Vector.empty[Action])
   }

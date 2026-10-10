@@ -65,6 +65,10 @@ database    provisioned
 | `object storage` | What the platform did about the service's bucket, for a service that has object storage: `waiting for object storage`, `provisioned`, `recovered existing bucket`, `supplied` or `object storage provisioning failed`. Why it waits or failed is in `detail`, after `object storage:`. |
 | `bucket` | The bucket the platform gives the service, when its descriptor asks for one. |
 | `bucket address` | The bucket's address on the internet, when its descriptor asks that it be reachable. |
+| `object store` | Which store the bucket is in: `garage`, or `gcs` for Google Cloud Storage. |
+| `bucket location` | Where a bucket in Google Cloud Storage was made, as the cloud provider reported it. |
+| `soft delete` | How many days a deleted object in a bucket in Google Cloud Storage can still be recovered. |
+| `storage move` | Where a move of the bucket from Garage is: `waiting for its bucket in Google Cloud Storage`, `copying`, its write pause (since when, and how long it may last), `verifying`, `moved` or `move failed`, with why it failed in `detail`. |
 | `detail` | Why the service is in its state, when there is something to say: a rollout problem, a refused version, an unreachable cluster, or a route the gateway has not accepted (`route rejected: <reason>`). |
 
 `detail` is shown only by `get`, which is why `list` marks unconfirmed readings in the status column

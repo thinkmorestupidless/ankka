@@ -782,7 +782,7 @@ final case class Service(
       objectStore = storage.flatMap(_.store),
       bucketLocation = storage.flatMap(_.location),
       softDeleteDays = storage.flatMap(_.softDeleteDays),
-      storageMove = storage.flatMap(_.move).map(Service.storageMovePhrase)
+      storageMove = Service.moveStatus(storageMove, storage)
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -930,6 +930,41 @@ object Service:
     case other         => other
 
   /** A move's state as the operator wrote it (feature 039), as the phrase a member reads. */
+  /**
+   * Where a move is, as `services get` says it (feature 039): the operator's state for the move a
+   * member last asked for — `Requested` until the operator has reported on that one — with how long
+   * its write pause may last, and since when once it has begun.
+   */
+  def moveStatus(asked: Option[MoveRequest], storage: Option[StorageReport]): Option[String] =
+    val reported = storage
+      .flatMap(_.move)
+      .filter(_ => asked.forall(a => storage.flatMap(_.moveGeneration).exists(_ >= a.generation)))
+    reported
+      .orElse(asked.map(_ => "Requested"))
+      .map(state =>
+        storageMovePhrase(state, asked.map(_.writePauseBound), storage.flatMap(_.movePausedAt))
+      )
+
+  /** A move's state with its write pause bound and, once paused, when the pause began. */
+  def storageMovePhrase(state: String, bound: Option[String], pausedAt: Option[String]): String =
+    val limit = bound.map(b => s"may last ${boundWords(b)} at most")
+    val since = pausedAt.map(at => s"since $at")
+    state match
+      case "Requested" | "Copying" =>
+        (Vector(storageMovePhrase(state)) ++ limit.map(l => s"its write pause $l")).mkString("; ")
+      case "Pausing" | "Verifying" =>
+        val pause = (Vector("write pause") ++ since ++ limit.map("that " + _)).mkString(" ")
+        if state == "Pausing" then pause else s"verifying, in a $pause"
+      case _ => storageMovePhrase(state)
+
+  /** A bound as a member reads it: `10m` is "10 minutes", `1h` "1 hour". */
+  def boundWords(bound: String): String =
+    val units = Map('s' -> "second", 'm' -> "minute", 'h' -> "hour")
+    bound.dropRight(1).toLongOption.zip(bound.lastOption.flatMap(units.get)) match
+      case Some((1, unit)) => s"1 $unit"
+      case Some((n, unit)) => s"$n ${unit}s"
+      case None            => bound
+
   def storageMovePhrase(state: String): String = state match
     case "Requested" => "waiting for its bucket in Google Cloud Storage"
     case "Copying"   => "copying"

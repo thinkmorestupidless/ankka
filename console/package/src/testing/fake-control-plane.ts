@@ -1174,7 +1174,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     if (!m) throw new HttpError(400, `writePauseBound '${bound}' is not a duration such as 90s, 10m or 2h`);
     const seconds = Number(m[1]) * (m[2] === "s" ? 1 : m[2] === "m" ? 60 : 3600);
     if (seconds < 60 || seconds > 86400) throw new HttpError(400, `writePauseBound '${bound}' is outside one minute to 24 hours`);
-    s.storageMove = "waiting for its bucket in Google Cloud Storage";
+    // As the control plane says it: how long the write pause may last, from the moment it is asked.
+    const unit = m[2] === "s" ? "second" : m[2] === "m" ? "minute" : "hour";
+    const words = `${m[1]} ${unit}${m[1] === "1" ? "" : "s"}`;
+    s.storageMove = `waiting for its bucket in Google Cloud Storage; its write pause may last ${words} at most`;
     s.history.push({ kind: "storage-moved", generation: s.generation, actor: actor(c), at: now() });
     return serviceStatus(s);
   });

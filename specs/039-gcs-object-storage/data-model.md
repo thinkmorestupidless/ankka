@@ -30,7 +30,7 @@ Everything 034 defined stays as it was unless named here.
 | | |
 |---|---|
 | Per identity | one in place; one more between a re-issue and the end of the rotation grace; never more than ten |
-| Secret | returned once to the provider, written into `<service>-gcs-storage`, held nowhere else |
+| Secret | returned once to the provider, written into `<service>-cloud-storage`, held nowhere else |
 | Ended | by the provider, one rotation grace after the fulfilment that replaced it |
 
 ## In Garage (made by the operator, as 034)
@@ -56,7 +56,7 @@ list clears them.
 | Secret | Store | Entries | Written by | Patched when |
 |---|---|---|---|---|
 | `<service>-storage` | Garage | `ANKKA_S3_ACCESS_KEY`, `ANKKA_S3_SECRET_KEY` | the operator, `create` | a re-issue; a move's pause (read-only key); a move's failure (a writing key) |
-| `<service>-gcs-storage` | GCS | the same two | the cloud provider, `create` | a credential generation raised |
+| `<service>-cloud-storage` | GCS | the same two | the cloud provider, `create` | a credential generation raised |
 
 Neither is ever read, listed or deleted by the operator, the provider or the control plane. Both
 end in `-storage`, so no descriptor can name them.
@@ -145,9 +145,12 @@ image from `ANKKA_STORAGE_MOVER_IMAGE`, the two credentials by `secretKeyRef`. S
 | The service | `store` |
 |---|---|
 | has a move block `Switched` | `gcs` |
-| has a bucket in Garage (the installation names Garage and the bucket exists) | `garage` |
-| otherwise, the installation's backend is `gcs` | `gcs` |
+| was reported made (`Provisioned` or `Recovered`) with a `store` | that store |
+| was reported made before stores were named (no `store`) | `garage`, the one store there was |
+| otherwise, the installation's backend (`Settings.bucketBackend`: the one named, else Garage when installed, else the cloud when a provider is named) is `gcs` | `gcs` |
 | otherwise | `garage` |
+
+Read from the status the operator last wrote, never by asking a store (research R1a D1).
 
 ## In the control plane
 

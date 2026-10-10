@@ -114,11 +114,17 @@ service's request is `<service>-<suffix>`, a project's `<project>.<suffix>` so t
 and the `ankka-cloud` ConfigMap a provider reads; `CloudProviders` in `PlatformVariables` is the one list
 of known names.
 
-A bucket takes the cloud path when the installation names a provider and runs no Garage
-(`ObjectStorage.takesCloudPath`): `identity` and `bucket` first, then `bucket-credential` naming what they
-answered. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
+A bucket takes the cloud path when the installation names a provider and the bucket's store is the
+cloud's (`ObjectStorage.takesCloudPath`): where the operator last reported a bucket made, so a bucket stays
+put until a move switches it, else the installation's backend (`Settings.bucketBackend`: the one named,
+else Garage when installed, else the cloud). A status written before stores were named (no `store`) is a
+Garage bucket. `identity` and `bucket` first, then `bucket-credential` naming what they answered, into
+`<service>-cloud-storage` (never Garage's `-storage`: a moving service holds both). One rotation grace,
+`ANKKA_CLOUD_ROTATION_GRACE`, ends old credentials in both stores. `CloudProvisioning.decide` acts on no status whose `observedGeneration` is behind; while any is
 unanswered `ObjectStorage.withheld` keeps the Deployment back (the endpoint is the provider's to say) and
-the service reports `UpdateInProgress` with why. A third informer on `CloudResource` wakes the owner, and a
+the service reports `UpdateInProgress` with why. A bucket the provider refused holds it back too
+(`ObjectStorage.refused`) and the service is `Failed`: a service that asked for a bucket cannot be relied on
+to run without one; instances already running are left alone. A third informer on `CloudResource` wakes the owner, and a
 pass with an unacknowledged request requeues at the bound, so "no provider for gcp has answered" lands on
 time and the status recovers within seconds of a provider starting. The control plane shows the bucket's
 name as the operator reported it (`Service.bucketNamed`), empty meaning not yet known.
@@ -127,6 +133,19 @@ control plane owns (`ankka services storage reissue`); a cloud request asks for 
 since a provider's generations start at 1. The scripted provider
 (`operator/src/test/.../cloud/`) is what `CloudProviderClusterFeatures` runs `features/cloud-provider/`
 against; `-Dankka.cloud.external=<kubeconfig>` points the same suite at a real provider.
+
+A member moves one service's bucket from Garage to the cloud (feature 039). `StorageMove.next` is a pure
+state machine, one transition per reconcile pass, its state kept in `status.objectStorage.move` because a
+Job its time-to-live removed says nothing afterwards. While it runs, the reconciler asks for the target's
+three cloud requests as the cloud path does, and `Rendering.moveActions` runs the mover (`storage-mover`,
+its own image, `ANKKA_STORAGE_MOVER_IMAGE`) as a copy and then a verify Job into the target as its provider
+answered it, holding the two storage credentials by `secretKeyRef` and no ServiceAccount token; the write
+pause is `DenyBucketKey` on the Garage key in place. `Switched` in the status is what moves the bucket:
+the next pass finds it in the cloud. A bucket the provider refuses holds the Deployment back and the
+service is `Failed`. `ObjectStorageGcsClusterFeatures` runs `features/object-storage-gcs/` with the
+scripted provider in its Garage-backed mode (`ScriptedStore.InGarage`), so a pod keeps real objects; a
+move caught part way finishes in a pass or two with a few objects, so those scenarios are held by
+`MoverSuite` and `StorageMoveSuite` and named in `ranElsewhere`.
 
 ## Deploying locally
 

@@ -1,9 +1,9 @@
 # Contract: the requests 039 renders, and what it asks of 044
 
-Feature 044 defines `CloudResource`, the six kinds, the credential rules and the fake provider.
-This page says how 039 uses three of the kinds, the name rule every provider follows, how the
-fake answers in this repository's suites, and the four amendments 039 asks of 044's spec
-(research R1). Nothing here is implemented until 044 is.
+Feature 044 defines `CloudResource`, the six kinds, the credential rules and the scripted
+provider, and is merged (research R1a). This page says how 039 uses three of the kinds, the name
+rule every provider follows, how the scripted provider answers in this repository's suites, and
+what 039 adds to 044's contract itself, since 044 made none of the amendments R1 asked for.
 
 ## The three requests of a service on GCS
 
@@ -18,8 +18,8 @@ All in the project's namespace, owned by the `AnkkaService`, `spec.provider` cop
 
 | Output | Used for |
 |---|---|
-| `principal` | the `bucket-credential` request's `principal` |
-| `serviceAccountAnnotations` | copied onto the service's ServiceAccount verbatim (amendment 2) |
+| `identity` | the `bucket-credential` request's `identity` |
+| `serviceAccountAnnotations` | `key=value` pairs, comma-separated, copied onto the service's ServiceAccount verbatim (added by 039, R1a D4) |
 
 ### `<service>-bucket` (`bucket`)
 
@@ -27,11 +27,11 @@ All in the project's namespace, owned by the `AnkkaService`, `spec.provider` cop
 |---|---|
 | `purpose` | `service` |
 | `location` | the project's `bucketLocation`, else `ANKKA_CLOUD_LOCATION`; never rewritten |
-| `namePrefix` | `ANKKA_OBJECT_STORE_PREFIX` (amendment 1) |
+| `namePrefix` | `ANKKA_OBJECT_STORE_PREFIX` (added by 039, R1a D3) |
 | `versioning` | `true`, always |
 | `softDeleteDays` | `ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS` at first render; rewritten only on a settings reapply |
 | `corsOrigins` | the descriptor's `objectStorageOrigins` when `exposeObjectStorage`, else empty; every pass |
-| `noncurrentVersionDays` | the descriptor's `objectStorageVersionAgeDays`, absent when absent (amendment 1); every pass |
+| `noncurrentVersionDays` | the descriptor's `objectStorageVersionAgeDays`, empty when absent (added by 039, R1a D3); every pass |
 | `kmsKey` | `ANKKA_CLOUD_KMS_KEY` at first render; rewritten only on a settings reapply |
 
 | Output | Used for |
@@ -50,15 +50,14 @@ Rendered only once the two above are `Ready` and the descriptor's `objectStorage
 | Parameter | Value |
 |---|---|
 | `bucket` | the bucket fulfilment's `bucket` |
-| `principal` | the identity fulfilment's `principal` |
-| `secretName` | `<service>-gcs-storage` |
-| `credentialGeneration` | the resource's `storageCredentialGeneration` |
+| `identity` | the identity fulfilment's `identity` |
+| `secretName` | `<service>-cloud-storage` (R1a D2; 044 built `<service>-storage`) |
+| `credentialGeneration` (the spec's field, not a parameter) | the resource's `storageCredentialGeneration` plus one: the member's count starts at 0, a provider's generations at 1 (R1a D9) |
 
 | Output | Used for |
 |---|---|
 | `secretName` | the developer's container's `envFrom` |
-| `credentialGeneration` | `status.objectStorage.credentialGeneration` and the pod template's credential annotation: the service rolls when this changes |
-| `credentialId` | nothing in ankka; the provider's own pruning (amendment 3) |
+| `credentialGeneration` (the status's field) | `status.objectStorage.credentialGeneration` and the pod template's credential annotation: the service rolls when this changes |
 
 ## Folding into the service's status
 
@@ -72,7 +71,7 @@ Rendered only once the two above are `Ready` and the descriptor's `objectStorage
 
 A keyless service has two requests to fold, not three.
 
-## The bucket name rule (amendment 4)
+## The bucket name rule (added by 039, R1a D6)
 
 Every provider — `ankka-gcp`, the fake, any other — names a `purpose: service` bucket:
 
@@ -88,39 +87,36 @@ Every provider — `ankka-gcp`, the fake, any other — names a `purpose: servic
 - A name held by someone outside the installation's account is `Failed` naming the bucket; no
   provider adopts it.
 
-`BucketNames` in `operator`'s test sources holds this rule for the fake and for the name
-scenario; no main source set computes it (FR-005).
+`BucketNames` in `operator`'s test sources holds this rule for the scripted provider and for
+the name scenario; no main source set computes it (FR-005). `docs/platform/cloud-provider.md`'s
+`bucket` kind states it for every provider.
 
-## The fake provider in 039's suites
+## The scripted provider in 039's suites
 
-044's fake fulfils every kind with dummy outputs. 039's k3s suite extends it so a `bucket`
-request makes a real bucket in the installation's Garage under the rule above, and a
-`bucket-credential` request mints a Garage key allowed on it and writes it into `secretName` by
-`create`; a raised `credentialGeneration` mints a new key, patches the Secret, reports the
-generation, and expires the old key after a grace the suite shortens to seconds. The operator's
-`ANKKA_OBJECT_STORE_GCS_ENDPOINT` points at Garage's S3 port, so a service "on GCS" in the suite
-reads and keeps objects for real, and a move copies between two Garage buckets. The fake applies
-`corsOrigins` through Garage's admin API and ignores `versioning`, `softDeleteDays`, `kmsKey`
-and `noncurrentVersionDays`, reporting them back unchanged.
+044's `ScriptedCloudProvider` fulfils every kind with made-up outputs, which 044's own suite
+keeps. 039 gives `ScriptedFulfilment` a Garage-backed mode (R1a D7): a `bucket` request makes a
+real bucket in the installation's Garage under the rule above, and a `bucket-credential` request
+mints a Garage key allowed on it and writes it into `secretName` by `create`; a raised
+`credentialGeneration` mints a new key, patches the Secret, reports the generation, and expires
+the old key after `ANKKA_CLOUD_ROTATION_GRACE`, which the suite shortens to seconds. The bucket's
+`endpoint` output is Garage's S3 port, so a service "on GCS" in the suite reads and keeps objects
+for real, and a move copies between two Garage buckets. The mode applies `corsOrigins` through
+Garage's admin API, answers `identity` with `serviceAccountAnnotations`
+`scripted.example/identity=<service>`, and ignores `versioning`, `softDeleteDays`, `kmsKey` and
+`noncurrentVersionDays`, which it echoes in nothing.
 
-## The amendments asked of 044's spec
+## What 039 adds to 044's contract
 
-1. **`bucket` gains `namePrefix` and `noncurrentVersionDays`** (FR-005 there). Without the
-   prefix a provider needs configuration of its own; without the age FR-017 here has no carrier.
-2. **`identity` returns `serviceAccountAnnotations`**, a map the operator copies onto the
-   Kubernetes ServiceAccount. It keeps Google's annotation key out of the operator and lets a
-   keyless service reach its bucket (FR-019 here) with no cloud-specific rendering.
-3. **`bucket-credential` returns `credentialId`** (the access key id of the generation in
-   place), so a provider can prune keys no Secret holds and stay under Google's ten per account.
-4. **The name rule above is the contract's**, written into 044's `bucket` kind, and the fake
-   follows it.
-5. **A service with a bucket renders an `identity` request of its own**, beside the bucket and
-   credential requests, so that a service that declines a credential (US5 here) still has a cloud
-   identity bound to its ServiceAccount. 044's User Story 1 and
-   `features/cloud-provider/bucket.feature` say "a bucket request and a bucket credential
-   request", with the identity made inside the credential; they change to name all three, and the
-   credential request takes the identity's `principal` rather than making one.
+044 is merged without the amendments R1 asked of its spec, so 039 makes them in 044's code and
+documents (R1a):
 
-And one confirmation rather than a change: 044's rotation grace governs when an old credential
-ends on every store, the operator rolls the service on the generation in place, and no
-rollout-completion signal is added (039's clarify session, 2026-10-08).
+1. **`bucket` takes `namePrefix` and `noncurrentVersionDays`** (D3), in `CloudRequests.Keys`,
+   `docs/platform/cloud-provider.md` and the scripted provider.
+2. **`identity` answers `serviceAccountAnnotations`** (D4), which the operator copies onto the
+   service's ServiceAccount, keeping Google's annotation key out of the operator.
+3. **The name rule above is the contract's** (D6).
+
+R1's third amendment (`credentialId`) is dropped (D5); its fifth (a service's own `identity`
+request) is what 044 built. 044's rotation grace governs when an old credential ends on every
+store (D8), the operator rolls the service on the generation in place, and no rollout-completion
+signal is added (039's clarify session, 2026-10-08).

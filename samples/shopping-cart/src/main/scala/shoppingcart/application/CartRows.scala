@@ -14,7 +14,10 @@ import shoppingcart.domain.ShoppingCartEvent.*
 final case class CartRow(
     cartId: String,
     quantities: Map[String, Int],
-    checkedOut: Boolean
+    checkedOut: Boolean,
+    // Each product's name, so the row says all a watcher of the cart needs. Absent from rows
+    // written before it was added, which read as no names.
+    names: Map[String, String] = Map.empty
 ):
   def productIds: List[String] = quantities.keys.toList.sorted
   def totalQuantity: Int       = quantities.values.sum
@@ -27,12 +30,18 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
       case ItemAdded(item) =>
         val existing = current.quantities.getOrElse(item.productId, 0)
         effects.updateRow(
-          current.copy(quantities =
-            current.quantities.updated(item.productId, existing + item.quantity)
+          current.copy(
+            quantities = current.quantities.updated(item.productId, existing + item.quantity),
+            names = current.names.updated(item.productId, item.name)
           )
         )
       case ItemRemoved(productId) =>
-        effects.updateRow(current.copy(quantities = current.quantities - productId))
+        effects.updateRow(
+          current.copy(
+            quantities = current.quantities - productId,
+            names = current.names - productId
+          )
+        )
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
       // The deletion that follows removes the row: a discarded cart leaves the listing, which is
@@ -46,4 +55,11 @@ object CartRows
       source = ChangeSource.eventsOf(ShoppingCartEntity),
       rowSerializer = Codecs.serializer[CartRow]("cart-row")
     ):
+  // docs:start watched-query
+  /** The carts not checked out. Watchable: it selects each row's key beside the row. */
+  val openCarts = query("open-carts")(
+    s"SELECT row_key, payload FROM $table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+  ).watched
+  // docs:end watched-query
+
   def create(ctx: ViewComponentContext) = new CartRowsView

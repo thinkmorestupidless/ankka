@@ -8,6 +8,7 @@ import shoppingcart.api.{
   CartStreamsEndpoint,
   CheckoutsSeenEndpoint,
   GrpcCallersEndpoint,
+  OpenCartsEndpoint,
   QuestionsEndpoint,
   ServiceCallerEndpoint,
   ShoppingCartEndpoint
@@ -133,6 +134,7 @@ import shoppingcart.application.*
       HttpServer.of(
         Seq[EndpointClients => HttpEndpoint](
           clients => ShoppingCartEndpoint(clients.componentClient),
+          clients => OpenCartsEndpoint(clients.viewClient),
           clients => CallersEndpoint(clients.services),
           clients => QuestionsEndpoint(clients.componentClient),
           _ => GrpcCallersEndpoint(grpcClients)

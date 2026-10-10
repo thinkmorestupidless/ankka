@@ -198,6 +198,24 @@ object ObjectStorage:
       spec.storageCredentialGeneration.toLong + 1
     ))
 
+  /**
+   * The annotations the cloud provider's answer for the service's cloud identity says its
+   * ServiceAccount carries (feature 039): how the cloud binds a workload to that identity, in the
+   * provider's words, as `key=value` pairs. None until the identity is answered.
+   */
+  def serviceAccountAnnotations(plans: CloudBucketPlans): Map[String, String] =
+    plans.identity match
+      case CloudPlan.Ready(outputs, _, _, _) =>
+        outputs
+          .get(CloudRequests.Keys.ServiceAccountAnnotations)
+          .toVector
+          .flatMap(_.split(','))
+          .flatMap(_.split("=", 2) match
+            case Array(k, v) if k.trim.nonEmpty => Some(k.trim -> v.trim)
+            case _                              => None)
+          .toMap
+      case _ => Map.empty
+
   /** Whether the store is to be asked anything for this service at all. */
   def observes(spec: AnkkaServiceSpec, settings: Settings): Boolean =
     spec.provisionObjectStorage && settings.objectStore.isDefined &&

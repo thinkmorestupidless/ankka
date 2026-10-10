@@ -86,7 +86,8 @@ final class ServiceReconciler(
       BrokerProvisioning.known(spec, settings.broker),
       storagePlan,
       executor.projectBrokers(ref.namespace, spec.projectId),
-      cloudBucket.map(_.requests).getOrElse(Vector.empty)
+      cloudBucket.map(_.requests).getOrElse(Vector.empty),
+      cloudBucket.map(c => ObjectStorage.serviceAccountAnnotations(c.plans)).getOrElse(Map.empty)
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says

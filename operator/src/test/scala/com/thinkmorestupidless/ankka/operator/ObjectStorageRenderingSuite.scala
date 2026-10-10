@@ -514,6 +514,50 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     )
   }
 
+  test("cloud: the ServiceAccount carries what the cloud provider said binds it to its identity") {
+    val annotations =
+      Map("iam.gke.io/gcp-service-account" -> "reports@acct.iam.gserviceaccount.com")
+    val actions = Rendering
+      .render(
+        resource(asks),
+        withCloud,
+        ProvisioningPlan.Supplied,
+        objectStoragePlan = cloudReady,
+        serviceAccountAnnotations = annotations
+      )
+      .fold(p => fail(p.mkString("; ")), identity => identity)
+    val account = actions.collectFirst { case Action.EnsureServiceAccount(sa) => sa }.get
+    assertEquals(account.getMetadata.getAnnotations.asScala.toMap, annotations)
+    // Every other ServiceAccount is rendered as it was: no annotations at all.
+    val plain = render(asks, ObjectStoragePlan.Ready(recovered = false)).collectFirst {
+      case Action.EnsureServiceAccount(sa) => sa
+    }.get
+    assertEquals(Option(plain.getMetadata.getAnnotations).map(_.size).getOrElse(0), 0)
+  }
+
+  test("cloud: the identity's annotations are read from its answer, and none before it") {
+    val answered = CloudBucketPlans(
+      CloudPlan.Ready(
+        Map(
+          "identity"                  -> "reports@acct.scripted",
+          "serviceAccountAnnotations" -> "a.example/one=x, b.example/two=y=z"
+        ),
+        recovered = false,
+        credentialGeneration = None
+      ),
+      CloudPlan.Waiting(None),
+      None
+    )
+    assertEquals(
+      ObjectStorage.serviceAccountAnnotations(answered),
+      Map("a.example/one" -> "x", "b.example/two" -> "y=z")
+    )
+    assertEquals(
+      ObjectStorage.serviceAccountAnnotations(answered.copy(identity = CloudPlan.Waiting(None))),
+      Map.empty[String, String]
+    )
+  }
+
   test("cloud: a waiting bucket asks for an identity and a bucket, and starts no instance") {
     val actions = renderCloud(asks, ObjectStoragePlan.Waiting(None))
     assertEquals(cloudRequestNames(actions), Vector("reports-identity", "reports-bucket"))

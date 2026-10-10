@@ -212,7 +212,10 @@ object Rendering:
       declaredBrokers: Vector[com.thinkmorestupidless.ankka.crd.ProjectBrokerEntry] = Vector.empty,
       // The requests to the installation's cloud provider this service needs (feature 044), already
       // rendered by the caller, which observes their answers to decide `objectStoragePlan`.
-      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
+      cloudRequests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty,
+      // What the cloud provider says binds the service's ServiceAccount to its cloud identity
+      // (feature 039): put on the ServiceAccount as they are. None for every other service.
+      serviceAccountAnnotations: Map[String, String] = Map.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -249,7 +252,7 @@ object Rendering:
       Right(
         (Action.EnsureNamespace(namespace) +:
           databaseActions(resource, spec, namespace, settings, databasePlan)) ++
-          identityActions(resource, spec, namespace) ++
+          identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
           objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
@@ -803,15 +806,16 @@ object Rendering:
   private def identityActions(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      annotations: Map[String, String]
   ): Vector[Action] =
     // A web-hosted pod names the account and mounts no token for it; it has no peers to find, so
     // it is granted nothing (feature 021).
     if spec.hosting == WebHosting then
-      Vector(Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)))
+      Vector(Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace, annotations)))
     else
       Vector(
-        Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)),
+        Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace, annotations)),
         Action.EnsureRole(peersRole(resource, spec, namespace)),
         Action.EnsureRoleBinding(peersRoleBinding(resource, spec, namespace))
       )
@@ -832,11 +836,13 @@ object Rendering:
   def serviceAccount(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      annotations: Map[String, String] = Map.empty
   ): ServiceAccount =
-    new ServiceAccountBuilder()
-      .withMetadata(identityMeta(resource, spec, namespace, Names.serviceAccount(spec.serviceName)))
-      .build()
+    val meta = identityMeta(resource, spec, namespace, Names.serviceAccount(spec.serviceName))
+    // Only when a cloud provider named some, so every other ServiceAccount is what it was.
+    if annotations.nonEmpty then meta.setAnnotations(annotations.asJava)
+    new ServiceAccountBuilder().withMetadata(meta).build()
 
   def peersRole(resource: AnkkaService, spec: AnkkaServiceSpec, namespace: String): Role =
     new RoleBuilder()

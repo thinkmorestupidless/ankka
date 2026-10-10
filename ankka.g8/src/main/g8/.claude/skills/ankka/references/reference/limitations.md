@@ -217,7 +217,14 @@ feature also says what that feature does not do.
   to align a timer, and give a period from there. A recurring timer whose due times passed while it could
   not run fires once and goes on, and never catches the missed ones up. The local console does not list
   timers.
-- **Only agents stream.** Entities and workflows refuse a streaming request.
+- **Agents stream their replies and views their rows; nothing else streams.** Entities and workflows
+  refuse a streaming request.
+- **A watch of a view guarantees no delivery.** It is live, not a record: it may give a watcher fewer
+  versions of a row than were written, drops unread rows past its bound as the watcher chose, gives
+  nothing written while it was not open, and ends — for a rebuild, a stopping instance or a lost
+  connection — with the reason, to be watched again. A reader that must see every change reads the
+  source with a consumer. A watched query is decided for each written row alone, so a match that depends
+  on the time or on another row changes on the row's next write.
 - **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
   open: presence, fan-out and catching a reconnecting client up are a service's own entities and
@@ -238,6 +245,8 @@ feature also says what that feature does not do.
   routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
   cannot stream, and it cannot declare a socket route; a module declaring either is refused at start.
+- **A module reads a view whole.** It cannot ask a query as a stream or watch one, and a module whose view
+  declares a watchable query is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
   has loaded; its `log` calls go to the runtime's log, and its unit tests run natively.
 - **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into

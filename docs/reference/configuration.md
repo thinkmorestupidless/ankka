@@ -47,6 +47,9 @@ The table is generated from the runtime's configuration files.
 | Variable | Configuration key | Default | Applies in |
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
+| `ANKKA_VIEW_WATCH_BOUND` | `ankka.view.watch-bound` | `1000` | every service |
+| `ANKKA_VIEW_UNREAD_BOUND` | `ankka.view.unread-bound` | `256` | every service |
+| `ANKKA_VIEW_FETCH_SIZE` | `ankka.view.fetch-size` | `256` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
@@ -64,6 +67,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
 | `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
 | `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
+| `ANKKA_SSE_HEARTBEAT` | `ankka.http.sse.heartbeat` | `15s` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
@@ -84,6 +88,8 @@ Settings with no environment variable, overridable in the service's own `applica
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
 | `ankka.query-resend-after` | `2s` | every service |
+| `ankka.view.listener-backoff.min` | `1s` | every service |
+| `ankka.view.listener-backoff.max` | `30s` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |

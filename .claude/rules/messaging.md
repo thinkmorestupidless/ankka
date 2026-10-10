@@ -55,8 +55,25 @@ gave topic views theirs): its projections' ids carry the version (`ViewProjectio
 view's projection is named), and every write of such a view is guarded by the recorded version
 (`EntityViewGuard`), which pauses a projection that finds the view behind.
 
+## A view's rows can be streamed and watched
+
+Feature 047. `ViewQueries.allStream`/`whereStream`/`orderedStream`/`askStream` run one statement under a
+portal for the stream's life (`Database.stream`); `watch`/`watchRow` keep a declared query declared
+`.watched`, or one row, open (`ViewWatches`). **Every write of a view's row announces itself in the same
+statement**: `ViewStore.upsert` and `delete` are data-modifying CTEs whose outer select calls
+`pg_notify('ankka_views', '<table>|<key>')`, and a rebuild's `TRUNCATE` is followed by `<table>|!rebuilt`
+in its transaction. Postgres delivers on commit and never on rollback, which is the whole reason the
+announcement is the database's and not the cluster's: a projection's session commits after its handler's
+`Future`, outside ankka's code. One unpooled `LISTEN` connection per instance (`ViewListener`) calls each
+view's registry; the evaluator re-runs the watched statement for each written key
+(`SELECT payload FROM (<sql>) ankka_watched WHERE row_key = $n`), which is why a watched statement selects
+`row_key` and has no limit or aggregate (`QueryCheck.watchedProblem`).
+
 ## Traps
 
+- **A new way of writing a view's row must go through `ViewStore.upsert` or `delete`**, or no watcher
+  hears of it. `ViewAnnounceSuite` writes through a projection and a transaction and reads the
+  notification from another connection.
 - **A projection's `R2dbcSession` reads a row count from every statement, and a `SET` reports none.**
   `SET LOCAL statement_timeout` through `session.updateOne` failed every keyed view change with a
   `NullPointerException` deep in pekko-persistence-r2dbc's `updateOneInTx`. Set a transaction-local setting

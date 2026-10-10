@@ -350,3 +350,42 @@ their marker when the feature ships.
 | V7 | Postgres folds identical `pg_notify` payloads in one transaction, so a row written twice in one projection batch is announced once | `ViewAnnounceSuite` |
 | V8 | The sidecar's `Streams.drain` loop is reusable from `ClientService` (it lives in `grpc`, which `sidecar` depends on) | compile |
 | V9 | `QueryCheck` admits `pg_sleep` (its refused list is by name and prefix: `set_config`, `pg_read_file`, `pg_advisory*`, `dblink*`, `lo_*`), so the slow-statement fixture can be `…, pg_sleep(0.05)`; if not, the fixture is a self cross join large enough to outlast the timeout | `QueryCheckSuite` |
+
+## Verified during implementation
+
+| # | What the database, the driver or Pekko actually did |
+|---|---|
+| V1 | An unpooled `PostgresqlConnectionFactory` built from the pool's block through `DatabaseTls` listens and receives (`ViewAnnounceSuite`, every case). The TLS path itself is the k3s `SidecarClusterSuite`'s, still to run in CI. |
+| V2 | Held. `statement_timeout` is per portal `Execute`: a stream fetched two rows at a time, read one row per 300 ms under a 1 s timeout, completes; a `pg_sleep(1)` per row under 200 ms fails `57014`, which arrives wrapped by Reactor (`DatabaseStreamSuite`). |
+| V3 | Held. Fifty streams cancelled after ten rows each leave a ten-connection pool answering at once. |
+| V4 | Held where the view's id is its own; where an entity shares it, a declared query's name now places the call on the view (`TopologyJson.declaredQueries`). |
+| V5 | Pekko's `ServerSentEvent.heartbeat` is an event with **no data**, not a comment line; an `EventSource` does not dispatch it. And a heartbeat that refused to start beside a short idle timeout broke the socket suites, which run with a 3 s idle timeout: the heartbeat is now the configured interval or half the idle timeout, whichever is sooner, and never refuses. |
+| V6 | Did not hold. `CartRow` kept quantities, not names; it gained `names: Map[String, String] = Map.empty`, which a row written before reads as no names. |
+| V7 | Held. Two upserts of one key in one transaction are announced once. |
+| V8 | Did not hold: the sidecar does not depend on `grpc`. `ClientService.drain` is the same ready-aware loop, small, on `ServerCallStreamObserver`. |
+| V9 | Held: `QueryCheck` admits `pg_sleep`. |
+
+## Changed from the plan, and why
+
+- **The announcement is in the write's own statement**, a data-modifying CTE (`WITH written AS (INSERT …
+  RETURNING row_key) SELECT count(pg_notify(…)) FROM written`) in `ViewStore.upsert` and `delete`, not a
+  second statement paired by a `ViewWrites` helper. Every path that writes a row announces it, projection
+  sessions included, and none can take one without the other. A key of 7 900 bytes or more is written and
+  not announced, in SQL.
+- **The listener calls each watch's registry directly**, registered before the rows now are read; a
+  `BroadcastHub` attaches a consumer asynchronously, and a write committed in that gap would be missed.
+- **The keyed buffer is the watch's last stage**, passing the rows now through with backpressure and
+  bounding only what follows the caught-up marker. Pekko's eager concatenation pulls one element early
+  from its next part, which let one row past the bound when the buffer sat ahead of it.
+- **Streamed calls are pairs of their own** in `CallCounts` (a second map under the same key), since the
+  packed key has no bit to spare.
+- **A reader of server-sent events that goes away** is learned of only when the server next writes, so a
+  quiet watch served that way is held until a heartbeat or two after its page closes. The documentation says
+  so.
+- **The row frame is `WatchedRow`**, not `Row`, so that no language's generated code holds a bare `Row`.
+- **`DeclaredQuery.watchable`** is the field; `.watched` is the companion's declaration, since a case-class
+  member of that name would shadow it.
+- **Conformance** holds `view.stream-named` and `view.watch-named` in the Scala, Python and TypeScript
+  references. The thousand-row past-the-limit measure and the watch of one row are held by the Scala
+  features rather than by the conformance suite, whose cases run through each language's HTTP routes.
+

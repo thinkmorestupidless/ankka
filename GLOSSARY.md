@@ -2571,23 +2571,23 @@ Avoid: workflow status
 ## View streams
 
 ### removal
-*Proposed.* What a watcher is given for a row it has that no longer matches the watched query or
+What a watcher is given for a row it has that no longer matches the watched query or
 was deleted: the row key and no row.
 
 ### caught up
-*Proposed.* What a watcher is told once, after the rows the watched query matches now and before any
+What a watcher is told once, after the rows the watched query matches now and before any
 change, so that it knows it holds the whole listing; told at once when nothing matches now.
 
 ### watch bound
-*Proposed.* The platform setting that bounds how many watches one instance holds open at once:
+The platform setting that bounds how many watches one instance holds open at once:
 1000 as shipped.
 
 ### unread bound
-*Proposed.* How many rows one watch holds for a watcher that has not read them yet, one per row
+How many rows one watch holds for a watcher that has not read them yet, one per row
 key: 256 as shipped, set for the platform and overridable by the watcher.
 
 ### overflow strategy
-*Proposed.* What a watch does when it holds as many unread rows as its unread bound and another
+What a watch does when it holds as many unread rows as its unread bound and another
 arrives: drop-head, which drops the oldest unread row, unless the watcher chose drop-tail, drop-new,
 drop-all or fail. A watcher is never backpressured into the view's writes.
 

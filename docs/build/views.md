@@ -69,7 +69,10 @@ import shoppingcart.domain.ShoppingCartEvent.*
 final case class CartRow(
     cartId: String,
     quantities: Map[String, Int],
-    checkedOut: Boolean
+    checkedOut: Boolean,
+    // Each product's name, so the row says all a watcher of the cart needs. Absent from rows
+    // written before it was added, which read as no names.
+    names: Map[String, String] = Map.empty
 ):
   def productIds: List[String] = quantities.keys.toList.sorted
   def totalQuantity: Int       = quantities.values.sum
@@ -82,12 +85,18 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
       case ItemAdded(item) =>
         val existing = current.quantities.getOrElse(item.productId, 0)
         effects.updateRow(
-          current.copy(quantities =
-            current.quantities.updated(item.productId, existing + item.quantity)
+          current.copy(
+            quantities = current.quantities.updated(item.productId, existing + item.quantity),
+            names = current.names.updated(item.productId, item.name)
           )
         )
       case ItemRemoved(productId) =>
-        effects.updateRow(current.copy(quantities = current.quantities - productId))
+        effects.updateRow(
+          current.copy(
+            quantities = current.quantities - productId,
+            names = current.names - productId
+          )
+        )
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
       // The deletion that follows removes the row: a discarded cart leaves the listing, which is
@@ -101,6 +110,11 @@ object CartRows
       source = ChangeSource.eventsOf(ShoppingCartEntity),
       rowSerializer = Codecs.serializer[CartRow]("cart-row")
     ):
+  /** The carts not checked out. Watchable: it selects each row's key beside the row. */
+  val openCarts = query("open-carts")(
+    s"SELECT row_key, payload FROM $table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+  ).watched
+
   def create(ctx: ViewComponentContext) = new CartRowsView
 ```
 
@@ -483,11 +497,43 @@ A whole answer is collected before the caller sees its first row, and stops at i
 stream, the same query gives each row as the database yields it, in the statement's order, with no limit
 unless the caller gives one — the way to read every row of a large view without holding them all:
 
+/// tab | Scala
+
 <!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CartViewSuite.scala#stream -->
 ```scala
 // Every row, as the database yields it: nothing is collected, and there is no limit.
 val everyCart = rows.allStream().runWith(Sink.seq)
 ```
+
+///
+
+/// tab | Python
+
+`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#stream -->
+```python
+@sse("/streamed")
+async def streamed(self) -> AsyncIterator[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for row in views.stream("tree-rows", "all-rows", TreeRow):
+        yield row.key
+```
+
+///
+
+/// tab | TypeScript
+
+`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#stream -->
+```ts
+streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+}),
+```
+
+///
 
 | Method | Streams |
 |---|---|
@@ -520,6 +566,8 @@ aggregate function) at its outermost select; an `ORDER BY` orders the rows given
 or a subquery may do what it likes inside. A service declaring a watchable query that breaks one of these
 does not start, naming the rule. The same query may still be asked whole or as a stream.
 
+/// tab | Scala
+
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/CartRows.scala#watched-query -->
 ```scala
 /** The carts not checked out. Watchable: it selects each row's key beside the row. */
@@ -527,6 +575,26 @@ val openCarts = query("open-carts")(
   s"SELECT row_key, payload FROM $table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
 ).watched
 ```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#watched-query -->
+```python
+all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#watched-query -->
+```ts
+declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
+```
+
+///
 
 `watch(query, values*)` watches a declared query; `watchRow(key)` watches one row by its key and needs no
 declaration. Each answers a `Source[WatchEvent[Row], NotUsed]`:
@@ -541,10 +609,44 @@ An HTTP endpoint serves a watch as server-sent events with `asSse` (from
 `com.thinkmorestupidless.ankka.http`), which names each event `row`, `caught-up` or `removed`, its data the
 key and the row as JSON:
 
+/// tab | Scala
+
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/OpenCartsEndpoint.scala#watch-sse -->
 ```scala
 sseEvents("/")(() => views.forView(CartRows).watch(CartRows.openCarts).asSse)
 ```
+
+///
+
+/// tab | Python
+
+`views.watch(view_id, name, row, values, unread=…, overflow=…)` and `views.watch_row(view_id, key, row)`
+yield `Row`, `CaughtUp` and `Removed`, and raise `WatchEnded`; `sse_events` serves a watch from an `@sse`
+route:
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#watch -->
+```python
+@sse("/watched")
+async def watched(self) -> AsyncIterator[str | SseEvent]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for event in sse_events(views.watch("tree-rows", "all-rows", TreeRow)):
+        yield event
+```
+
+///
+
+/// tab | TypeScript
+
+`views.watch(viewId, name, values, row, { unread, overflow })` and `views.watchRow(viewId, key, row)`
+yield `{ kind: "row" | "removed" | "caughtUp" }` and throw `WatchEnded`; `sseEvents` serves a watch from
+an `sse` route:
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#watch -->
+```ts
+watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+```
+
+///
 
 A route handler reads anything it needs from the request — the caller, a path value — before it returns
 the stream: the stream is read later, on another thread, where the request is no longer at hand. The

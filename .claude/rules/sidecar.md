@@ -76,3 +76,8 @@ paths:
   `Route.socket` as nothing and would serve the route as a request, so a socket route is refused from
   both ends: the sidecar refuses a `Spec` declaring one under an earlier minor — the first minor it gates
   on — and an SDK refuses discovery from a runtime stating an earlier version.
+- **A server-streaming rpc on `Client` sends only as the process reads.** `InvokeStream` calls `onNext`
+  from an actor with no flow control; `QueryStream` and `Watch` (1.15) go through `ClientService.drain`,
+  which takes a frame from the stream only when the call is ready. The sidecar does not depend on `grpc`,
+  so `Streams.drain` is not reachable from it.
+

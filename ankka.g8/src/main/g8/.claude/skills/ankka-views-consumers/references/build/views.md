@@ -62,7 +62,10 @@ import shoppingcart.domain.ShoppingCartEvent.*
 final case class CartRow(
     cartId: String,
     quantities: Map[String, Int],
-    checkedOut: Boolean
+    checkedOut: Boolean,
+    // Each product's name, so the row says all a watcher of the cart needs. Absent from rows
+    // written before it was added, which read as no names.
+    names: Map[String, String] = Map.empty
 ):
   def productIds: List[String] = quantities.keys.toList.sorted
   def totalQuantity: Int       = quantities.values.sum
@@ -75,12 +78,18 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
       case ItemAdded(item) =>
         val existing = current.quantities.getOrElse(item.productId, 0)
         effects.updateRow(
-          current.copy(quantities =
-            current.quantities.updated(item.productId, existing + item.quantity)
+          current.copy(
+            quantities = current.quantities.updated(item.productId, existing + item.quantity),
+            names = current.names.updated(item.productId, item.name)
           )
         )
       case ItemRemoved(productId) =>
-        effects.updateRow(current.copy(quantities = current.quantities - productId))
+        effects.updateRow(
+          current.copy(
+            quantities = current.quantities - productId,
+            names = current.names - productId
+          )
+        )
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
       // The deletion that follows removes the row: a discarded cart leaves the listing, which is
@@ -94,6 +103,11 @@ object CartRows
       source = ChangeSource.eventsOf(ShoppingCartEntity),
       rowSerializer = Codecs.serializer[CartRow]("cart-row")
     ):
+  /** The carts not checked out. Watchable: it selects each row's key beside the row. */
+  val openCarts = query("open-carts")(
+    s"SELECT row_key, payload FROM \$table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+  ).watched
+
   def create(ctx: ViewComponentContext) = new CartRowsView
 ```
 
@@ -409,7 +423,8 @@ const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowSh
 
 The statement must select the rows' `payload` column: the answer is rows of the view's own row type. A
 value is text; a statement that needs a number casts it, as `(:depth)::int`. A query answers with at most
-1000 rows unless the caller gives another limit, in the order the statement gives them.
+1000 rows unless the caller gives another limit, in the order the statement gives them; asked as a
+stream, it has no limit (see [Streaming a query](#streaming-a-query)).
 
 ### What stops a service from starting
 
@@ -444,6 +459,197 @@ A recursive query follows rows to any depth in one statement. A view of a tree k
 holding its parent's key, and the `under` query above answers every row under a node, however deep the
 tree. Write it with `UNION` rather than `UNION ALL`: rows already found are not followed again, so a cycle
 in the data ends the walk instead of running until the timeout.
+
+## Streaming a query
+
+A whole answer is collected before the caller sees its first row, and stops at its limit. Asked as a
+stream, the same query gives each row as the database yields it, in the statement's order, with no limit
+unless the caller gives one — the way to read every row of a large view without holding them all:
+
+**Scala**
+
+```scala
+// Every row, as the database yields it: nothing is collected, and there is no limit.
+val everyCart = rows.allStream().runWith(Sink.seq)
+```
+
+**Python**
+
+`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
+
+```python
+@sse("/streamed")
+async def streamed(self) -> AsyncIterator[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for row in views.stream("tree-rows", "all-rows", TreeRow):
+        yield row.key
+```
+
+**TypeScript**
+
+`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
+
+```ts
+streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+}),
+```
+
+| Method | Streams |
+|---|---|
+| `allStream(limit = None)` | Every row. |
+| `whereStream(condition, limit = None)` | Every row matching a condition. |
+| `orderedStream(condition, order, limit = None)` | Matching rows in an order. |
+| `askStream(query, values*)` | A declared query's rows; `askStream(query, limit, values*)` reads at most `limit`. |
+
+Each answers a Pekko Streams `Source`, which an `sse` route, a gRPC server stream or a socket route serves
+as it is. A stream is produced no faster than its reader reads, and stops being produced when the reader
+goes away. It runs in one read-only transaction on a connection of its own for as long as it lasts, and
+gives the connection back however it ends.
+
+A stream may run longer than a whole answer is allowed to: the database's statement timeout bounds each
+fetch of rows, not the stream. A statement the database ends fails the stream with a timeout, and so does
+a reader that takes nothing for that long, which would otherwise hold the database's cursor open. A stream
+that fails is never a shorter answer: the reader is told.
+
+## Watching a query
+
+A watch is a query kept open. It gives every row the query matches now, then a marker saying it is
+caught up, then, for as long as the watcher reads, each row as the view writes it and matches, and a
+removal for each row it gave that is written so it no longer matches, or is deleted. A page listing open
+carts watches the open carts, shows the listing once it is caught up, and keeps it current with no
+polling.
+
+A query is watched only when its view declares it watchable. Its statement selects `row_key` beside
+`payload`, has no `LIMIT`, `OFFSET` or `FETCH`, and does not aggregate (no `GROUP BY`, `DISTINCT` or
+aggregate function) at its outermost select; an `ORDER BY` orders the rows given now, and a `WITH`, a join
+or a subquery may do what it likes inside. A service declaring a watchable query that breaks one of these
+does not start, naming the rule. The same query may still be asked whole or as a stream.
+
+**Scala**
+
+```scala
+/** The carts not checked out. Watchable: it selects each row's key beside the row. */
+val openCarts = query("open-carts")(
+  s"SELECT row_key, payload FROM \$table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+).watched
+```
+
+**Python**
+
+```python
+all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+```
+
+**TypeScript**
+
+```ts
+declaredQuery("all-rows", `SELECT row_key, payload FROM \${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
+```
+
+`watch(query, values*)` watches a declared query; `watchRow(key)` watches one row by its key and needs no
+declaration. Each answers a `Source[WatchEvent[Row], NotUsed]`:
+
+| Element | Means |
+|---|---|
+| `WatchEvent.Row(key, row)` | The row under `key`, as the query sees it now. |
+| `WatchEvent.CaughtUp` | Given once, after the rows matched when the watch began and before any change; at once when nothing matched. |
+| `WatchEvent.Removed(key)` | The row under `key`, given earlier, no longer matches or was deleted. |
+
+An HTTP endpoint serves a watch as server-sent events with `asSse` (from
+`com.thinkmorestupidless.ankka.http`), which names each event `row`, `caught-up` or `removed`, its data the
+key and the row as JSON:
+
+**Scala**
+
+```scala
+sseEvents("/")(() => views.forView(CartRows).watch(CartRows.openCarts).asSse)
+```
+
+**Python**
+
+`views.watch(view_id, name, row, values, unread=…, overflow=…)` and `views.watch_row(view_id, key, row)`
+yield `Row`, `CaughtUp` and `Removed`, and raise `WatchEnded`; `sse_events` serves a watch from an `@sse`
+route:
+
+```python
+@sse("/watched")
+async def watched(self) -> AsyncIterator[str | SseEvent]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for event in sse_events(views.watch("tree-rows", "all-rows", TreeRow)):
+        yield event
+```
+
+**TypeScript**
+
+`views.watch(viewId, name, values, row, { unread, overflow })` and `views.watchRow(viewId, key, row)`
+yield `{ kind: "row" | "removed" | "caughtUp" }` and throw `WatchEnded`; `sseEvents` serves a watch from
+an `sse` route:
+
+```ts
+watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+```
+
+A route handler reads anything it needs from the request — the caller, a path value — before it returns
+the stream: the stream is read later, on another thread, where the request is no longer at hand. The
+route's ACL admits the watch when the request opens it, and nothing is checked again while it is open.
+
+### A watch is live, not a record
+
+- **Evaluated on writes.** Whether a row matches is decided when the view writes it, by the watched
+  statement for that row alone. A statement whose match depends on the time gives a row that comes to
+  match by the clock alone on its next write, not before. A row's match does not change when another row
+  is written: a tree page watching everything under a node sees a moved subtree's rows only as each is
+  written. A cheap statement makes a cheap watch, since it runs once for every written row.
+- **Coalesced.** A watcher is never given an older version of a row after a newer one, and a row written
+  faster than the watcher reads reaches it fewer times than it was written. The same version may be given
+  twice.
+- **Any instance.** A row written on any instance of the service reaches a watcher on any instance, once
+  the write has committed.
+- **Not replayed.** What was written while nobody watched is not given to a later watcher, beyond the
+  rows the query matches when it begins. A reader that must see every change — to count them, to act on
+  each — reads the source itself with a [consumer](consumers.md).
+
+### Unread rows
+
+A watch holds the rows its watcher has not read yet, one per row key: 256 unless the watcher gives
+another bound, as `watch(query, Watching(unread = Some(1000)), values*)`. When it holds that many and a row
+for another key arrives, the watcher's overflow strategy decides:
+
+| `Overflow` | Does |
+|---|---|
+| `DropHead` | Drops the row changed longest ago. The default. |
+| `DropTail` | Drops the row changed most recently. |
+| `DropNew` | Drops the row that arrived. |
+| `DropAll` | Drops every unread row. |
+| `Fail` | Ends the watch, telling the watcher it ended unread. |
+
+No strategy slows the view: a watcher never holds back the view's writes. Under a dropping strategy a
+watcher that falls behind may be left holding a row that is gone, when the removal is what was dropped,
+until that row is written again or it watches again; a row it never had appears on its next write. A
+watcher that would rather know chooses `Fail`, and watches again.
+
+### How a watch ends
+
+A watch ends when its watcher stops reading. It also ends, with a reason, when:
+
+| Reason | When |
+|---|---|
+| rebuilt | the view is emptied to be rebuilt at a higher version |
+| instance stopping | the instance serving the watch stops |
+| listener lost | the instance loses its connection for hearing of the view's writes |
+| unread | the watcher's unread bound was reached under `Fail` |
+
+The stream fails with `WatchEnded(reason)`; served with `asSse`, the last event is `ended`, its data the
+reason. A watcher that still wants the rows watches again, and is given the rows the query matches now —
+so a page that reconnects shows the current listing again.
+
+An instance holds at most 1000 open watches, every view together; one more is refused, naming that bound.
+A watch is counted as one call in the service's topology, marked as a stream, when it ends. A server
+learns that a reader of server-sent events has gone only when it next writes to the connection, which a
+quiet watch does once a heartbeat, so a watch served that way is held for up to about two heartbeats
+after its page closes. Through the platform's gateway, a watch served as server-sent events is bounded by
+the gateway's route timeout, as any long response is.
 
 ## Keyed views
 
@@ -561,6 +767,9 @@ a race; it is the consistency model the view actually has.
 - A view over a topic starts at the earliest message the broker holds unless it says otherwise, and is
   rebuilt by raising its version, as far back as the broker retains. See
   [Broker topics](topics.md#rebuilding-by-version).
+- A watch is live, not a record: it may give a watcher fewer versions of a row than were written, and
+  gives nothing written while it was not open. A watched query is decided for each written row alone.
+- A WebAssembly module reads a view whole: it cannot stream a query or watch one.
 
 See [Limitations](../reference/limitations.md) for the full list.
 

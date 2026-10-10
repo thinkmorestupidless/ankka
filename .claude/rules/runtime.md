@@ -163,3 +163,24 @@ reads due times from.
 - **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
   enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
   `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.
+- **`statement_timeout` bounds each fetch of a portal, not the stream.** A row stream fetched
+  `ankka.view.fetch-size` rows at a time is one `Execute` per fetch, so a long export runs past the
+  timeout — and a reader that stops reading holds the cursor with nothing to end it. `Database.stream`
+  adds `backpressureTimeout` at the same timeout and fails `Database.NotRead`; `DatabaseStreamSuite`
+  holds both halves.
+- **Pekko's eager `++` pulls one element early from its next part.** A bounded stage placed *ahead* of a
+  concatenation lets that element past its bound; `KeyedBuffer` is therefore a watch's last stage, passing
+  the rows now through with backpressure and going live at the caught-up marker. Found when an unread
+  bound of ten gave eleven rows.
+- **A `BroadcastHub` attaches a consumer asynchronously.** Anything that must hear every event from a
+  moment on registers synchronously instead (`ViewListener`'s callback set); the gap is exactly where a
+  watch reads its rows now.
+- **pekko-http learns that a reader of server-sent events left only when it next writes.** The SSE
+  heartbeat (`ankka.http.sse.heartbeat`, or half the idle timeout when sooner) is what ends a quiet
+  watch whose page closed; a test reading a watch over SSE closes its own socket and runs a short
+  heartbeat. The JDK's HTTP client does not close the connection when its body stream is closed.
+- **A `given` in a test suite is a lazy val bound to the first actor system.** After
+  `kit.restartService` a `given Materializer = Materializer(kit.service.system)` is the dead system's;
+  `inline given` re-evaluates. A watch on a peer runs on the peer's own materializer, or restarting the
+  first instance kills it.
+

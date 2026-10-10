@@ -15,14 +15,14 @@ service Client {
 // as the view writes, and `ended` or `failed` before it completes.
 message RowFrame {
   oneof frame {
-    Row     row       = 1;
+    WatchedRow row    = 1;
     Removed removed   = 2;
     Empty   caught_up = 3;
     Ended   ended     = 4;
     Error   failed    = 5;
   }
 }
-message Row     { string key = 1; Payload payload = 2; }   // payload: the stored row, application/json
+message WatchedRow { string key = 1; Payload payload = 2; }   // payload: the stored row, application/json
 message Removed { string key = 1; }
 message Ended   { string reason = 1; }   // "rebuilt" | "instance-stopping" | "listener-lost" | "unread"
 

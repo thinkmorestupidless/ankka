@@ -162,15 +162,16 @@ part already produced:
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/CartStreamsEndpoint.scala#server-stream -->
 ```scala
-// The cart after each change, for as long as the caller watches. An entity does not stream its
-// state, so this reads it every half second and sends it when it differs; the caller's going
-// away cancels the stream.
+// The cart as the view writes it, for as long as the caller watches: a watch of the cart's row,
+// which the view announces on every write, so nothing polls. A row given twice is sent once; the
+// caller's going away ends the watch.
 serverStream(CartStreamsGrpc.METHOD_WATCH_CART) { request =>
-  Source
-    .tick(0.seconds, 500.millis, ())
-    .map(_ => cart(request.cartId).call(ShoppingCartEntity.getCart).invoke())
-    .statefulMap(() => Option.empty[domain.ShoppingCart])(
-      (last, now) => (Some(now), Option.when(!last.contains(now))(toProto(now))),
+  clients.viewClient
+    .forView(CartRows)
+    .watchRow(request.cartId)
+    .collect { case WatchEvent.Row(_, row) => toProto(row) }
+    .statefulMap(() => Option.empty[Cart])(
+      (last, now) => (Some(now), Option.when(!last.contains(now))(now)),
       _ => None
     )
     .collect { case Some(changed) => changed }

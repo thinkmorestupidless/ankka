@@ -250,13 +250,39 @@ spec:
                     Whether that bucket is reachable from the internet, for URLs the service signs.
                     The bucket's name and address are never in the resource: the operator derives
                     them.
-                storageCredentialGeneration:
+                objectStorageOrigins:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    The origins a browser may send from to the bucket, which its CORS rule admits
+                    while it is reachable from the internet. The platform sets the rule; empty is no
+                    rule.
+                objectStorageCredential:
+                  type: boolean
+                  description: >-
+                    Whether the service is given a storage credential. false reaches its bucket in
+                    Google Cloud Storage as its workload identity, with no key.
+                objectStorageVersionAgeDays:
                   type: integer
                   minimum: 1
+                  description: After how many days a noncurrent version is deleted, where versions are kept.
+                storageCredentialGeneration:
+                  type: integer
+                  description: Raised by one each time a member asks for the storage credential to be issued again.
+                objectStorageSettingsGeneration:
+                  type: integer
                   description: >-
-                    The generation of the storage credential a cloud provider issues for that
-                    bucket (feature 044). Raising it asks for a new credential in the same Secret.
-                    Absent means 1; the control plane never sets it.
+                    Raised by one each time a member asks for the installation's bucket settings to
+                    be applied again to this service's bucket.
+                objectStorageMove:
+                  type: object
+                  description: A member's request to move this service's bucket from Garage to Google Cloud Storage.
+                  properties:
+                    generation:
+                      type: integer
+                    writePauseBound:
+                      type: string
             status:
               type: object
               properties:
@@ -349,3 +375,43 @@ spec:
                       type: boolean
                     detail:
                       type: string
+                    store:
+                      type: string
+                      description: Where the bucket is, garage or gcs. Empty in a status from before feature 039, read as garage.
+                    location:
+                      type: string
+                    softDeleteDays:
+                      type: integer
+                    credentialGeneration:
+                      type: integer
+                    move:
+                      type: object
+                      description: The service's move from Garage to Google Cloud Storage, while one exists.
+                      properties:
+                        generation:
+                          type: integer
+                        state:
+                          type: string
+                          enum:
+                            - Requested
+                            - Copying
+                            - Pausing
+                            - Verifying
+                            - Switched
+                            - Failed
+                        startedAt:
+                          type: string
+                        pauseStartedAt:
+                          type: string
+                        pauseBound:
+                          type: string
+                        counted:
+                          type: integer
+                        copied:
+                          type: integer
+                        verified:
+                          type: integer
+                        failedObject:
+                          type: string
+                        detail:
+                          type: string

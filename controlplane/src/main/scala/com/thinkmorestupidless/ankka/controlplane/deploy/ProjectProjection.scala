@@ -23,7 +23,9 @@ object ProjectProjection:
       projectId: String,
       topics: Map[String, DeclaredTopic],
       brokers: Map[String, DeclaredBroker] = Map.empty,
-      secrets: Vector[ProjectSecretSummary] = Vector.empty
+      secrets: Vector[ProjectSecretSummary] = Vector.empty,
+      /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+      bucketLocation: Option[String] = None
   ): AnkkaProjectSpec =
     val sortedSecrets = secrets.sortBy(_.name).map(s => s.copy(entries = s.entries.sorted))
     AnkkaProjectSpec(
@@ -50,7 +52,8 @@ object ProjectProjection:
       sortedSecrets.toList.map(s =>
         ProjectSecretEntry(s.name, s.entries.toList, s.setAt.fold(0L)(_.toEpochMilli))
       ),
-      Option.when(sortedSecrets.nonEmpty)(fingerprint(sortedSecrets))
+      Option.when(sortedSecrets.nonEmpty)(fingerprint(sortedSecrets)),
+      bucketLocation
     )
 
   /**

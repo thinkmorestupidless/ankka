@@ -299,14 +299,6 @@ class ProjectorSuite extends munit.FunSuite with LogCapturing:
     eventually()(fake.current(Namespace, Service).exists(_.spec.image == "cart:7.0"))
   }
 
-  test("the projection never sets a storage credential's generation, so a raised one stays") {
-    // A field the control plane's apply never carries is a field its manager never owns: an
-    // administrator's raise on the resource survives every later projection (the cloud provider's
-    // credential rotation). `None` is omitted from the wire, so the apply says nothing about it.
-    eventually()(fake.current(Namespace, Service).isDefined)
-    assertEquals(fake.current(Namespace, Service).flatMap(_.spec.storageCredentialGeneration), None)
-  }
-
   test("the resource names the project's pull secret, and stops when the registry is cleared") {
     // The credential belongs to the project and the resource belongs to the service, so this is the
     // one path where a projection has to read another entity. It reads it on *every* pass, which is

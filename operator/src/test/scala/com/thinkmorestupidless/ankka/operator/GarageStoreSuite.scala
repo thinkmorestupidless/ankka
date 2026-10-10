@@ -216,6 +216,94 @@ class GarageStoreSuite extends munit.FunSuite:
     assertEquals(response.body(), "hello")
   }
 
+  private def preflight(bucket: String, origin: String): java.net.http.HttpResponse[String] =
+    java.net.http.HttpClient
+      .newHttpClient()
+      .send(
+        java.net.http.HttpRequest
+          .newBuilder(s3Endpoint.resolve(s"/$bucket/upload.pdf"))
+          .method("OPTIONS", java.net.http.HttpRequest.BodyPublishers.noBody())
+          .header("Origin", origin)
+          .header("Access-Control-Request-Method", "PUT")
+          .build(),
+        java.net.http.HttpResponse.BodyHandlers.ofString()
+      )
+
+  private def admits(origin: String, response: java.net.http.HttpResponse[String]): Boolean =
+    response.statusCode() == 200 &&
+      response.headers().firstValue("Access-Control-Allow-Origin").orElse("") == origin
+
+  // Feature 039, research S1: the platform sets a bucket's CORS rules, not the service.
+  test("CORS rules set on a bucket admit the named origin's preflight and no other, and clear") {
+    val bucket = store.createBucket("casino.cors")
+    store.setCors(bucket.id, Seq("https://play.example"))
+    assert(admits("https://play.example", preflight("casino.cors", "https://play.example")))
+    assert(
+      !admits("https://elsewhere.example", preflight("casino.cors", "https://elsewhere.example"))
+    )
+    store.setCors(bucket.id, Nil)
+    assert(!admits("https://play.example", preflight("casino.cors", "https://play.example")))
+  }
+
+  // Feature 039, research S1: a move's write pause is a key that reads and cannot write.
+  test("a key allowed to read and not write reads an object and is refused a write") {
+    val bucket = store.createBucket("casino.paused")
+    val writer = store.createKey("casino.paused")
+    store.allow(bucket.id, writer.accessKeyId)
+    put(s3(writer), "casino.paused", "passport.pdf", "a passport")
+    val reader = store.createKey("casino.paused#ro1")
+    store.allow(bucket.id, reader.accessKeyId, write = false)
+    assertEquals(get(s3(reader), "casino.paused", "passport.pdf"), "a passport")
+    val refused = intercept[S3Exception](put(s3(reader), "casino.paused", "proof.pdf", "proof"))
+    assertEquals(refused.statusCode(), 403)
+  }
+
+  // Feature 039, research S1: an old key ends by the store's own clock.
+  test("a key whose expiry has passed is reported expired and refused") {
+    val bucket = store.createBucket("casino.expiry")
+    val key    = store.createKey("casino.expiry")
+    store.allow(bucket.id, key.accessKeyId)
+    put(s3(key), "casino.expiry", "a", "b")
+    assertEquals(store.keyInfo(key.accessKeyId).map(_.expired), Some(false))
+    store.expire(key.accessKeyId, Instant.now().minusSeconds(60))
+    assertEquals(store.keyInfo(key.accessKeyId).map(_.expired), Some(true))
+    val refused = intercept[S3Exception](get(s3(key), "casino.expiry", "a"))
+    assertEquals(refused.statusCode(), 403)
+  }
+
+  test("a key's information names it and says whether it has expired, and a lost key is none") {
+    val key  = store.createKey("casino.info#2")
+    val info = store.keyInfo(key.accessKeyId).getOrElse(fail("the key was not found"))
+    assertEquals(info, KeyInfo(key.accessKeyId, "casino.info#2", expired = false))
+    assertEquals(store.keyInfo("GK000000000000000000000000"), None)
+  }
+
+  // Feature 039: a move's write pause, on the key the service already holds.
+  test(
+    "a key denied write keeps reading, is refused a write at once, and writes again when allowed"
+  ) {
+    val bucket = store.createBucket("casino.deny")
+    val key    = store.createKey("casino.deny")
+    store.allow(bucket.id, key.accessKeyId)
+    put(s3(key), "casino.deny", "passport.pdf", "a passport")
+    store.deny(bucket.id, key.accessKeyId)
+    assertEquals(get(s3(key), "casino.deny", "passport.pdf"), "a passport")
+    val refused = intercept[S3Exception](put(s3(key), "casino.deny", "proof.pdf", "proof"))
+    assertEquals(refused.statusCode(), 403)
+    store.allow(bucket.id, key.accessKeyId)
+    put(s3(key), "casino.deny", "proof.pdf", "proof")
+  }
+
+  test("a bucket's keys are those named for it and for it and a generation, with their expiry") {
+    val first  = store.createKey("casino.keys")
+    val second = store.createKey("casino.keys#2")
+    store.createKey("casino.keys-other"): Unit
+    val at = Instant.parse("2030-01-01T00:00:00Z")
+    store.expire(first.accessKeyId, at)
+    val found = store.keysOf("casino.keys").map(k => k.accessKeyId -> k.expiration).toMap
+    assertEquals(found, Map(first.accessKeyId -> Some(at), second.accessKeyId -> None))
+  }
+
   test("a store nothing answers at is unavailable") {
     val nowhere = GarageStore("http://127.0.0.1:1", Token)
     intercept[ObjectStoreUnavailable](nowhere.bucket("shop.reports"))

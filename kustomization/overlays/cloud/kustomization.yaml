@@ -336,6 +336,52 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+  # The installation's object store (feature 039), read by the operator and the control plane alike.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.objectStoreBackend
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_OBJECT_STORE_BACKEND].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OBJECT_STORE_BACKEND].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.objectStorePrefix
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_OBJECT_STORE_PREFIX].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OBJECT_STORE_PREFIX].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.objectStoreSoftDeleteDays
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS].value
   # The installation's secret store settings (feature 038): the operator passes them
   # to each service's platform program, the control plane chooses its project secret writer and
   # refuses secret-manager without a cloud provider. Unset or default renders nothing.

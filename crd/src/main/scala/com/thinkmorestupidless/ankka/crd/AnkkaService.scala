@@ -190,14 +190,45 @@ final case class AnkkaServiceSpec(
      */
     exposeObjectStorage: Boolean = false,
     /**
-     * The generation of the storage credential a cloud provider issues for that bucket (feature
-     * 044): raising it asks for a new credential in the same Secret. Absent means 1. An `Option` so
-     * that the control plane, which does not set it, writes nothing here and never owns the field:
-     * a value raised on the resource is not reverted by the next projection.
+     * The origins a browser may send from to the bucket, which its CORS rule admits while it is
+     * reachable from the internet (feature 039). The platform sets the rule on either store; the
+     * service sets none. Empty is no rule.
      */
-    @JsonDeserialize(contentAs = classOf[java.lang.Long])
-    storageCredentialGeneration: Option[Long] = None
+    objectStorageOrigins: List[String] = Nil,
+    /**
+     * Whether the service is given a storage credential (feature 039). `false` is a service that
+     * reaches its bucket in Google Cloud Storage as its workload identity, with no key at all; the
+     * control plane refuses it on Garage.
+     */
+    objectStorageCredential: Boolean = true,
+    /** After how many days a noncurrent version is deleted, on a store that keeps versions. */
+    objectStorageVersionAgeDays: Option[Int] = None,
+    /**
+     * Raised by one each time a member asks for the storage credential to be issued again (feature
+     * 039). The operator issues a new one when this is above the generation the status says is in
+     * place, and the old one ends once the rotation grace has passed.
+     */
+    storageCredentialGeneration: Int = 0,
+    /**
+     * Raised by one each time a member asks for the installation's bucket settings to be applied
+     * again to this service's bucket (feature 039): its soft-delete window and wrapping key.
+     */
+    objectStorageSettingsGeneration: Int = 0,
+    /** A member's request to move this service's bucket from Garage (feature 039). */
+    objectStorageMove: Option[ObjectStorageMoveRequest] = None
 )
+
+/**
+ * A member's request to move a service's bucket from Garage to Google Cloud Storage (feature 039).
+ *
+ * @param generation
+ *   raised by one per request, so a move that failed can be asked for again
+ * @param writePauseBound
+ *   how long the service's writes may be paused, as a duration (`10m`); always present, the control
+ *   plane filling in the shipped bound when the member named none
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ObjectStorageMoveRequest(generation: Int = 0, writePauseBound: String = "10m")
 
 /** One mount of a web-hosted service: a path, and the service of its project that answers it. */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -273,6 +304,52 @@ final case class ObjectStorageStatus(
      */
     recovered: Boolean = false,
     /** Why it is waiting or failed. Never contains a secret. */
+    detail: Option[String] = None,
+    /**
+     * Where the bucket is, "garage" or "gcs" (feature 039). Empty in a status written before the
+     * feature, which a reader takes as Garage.
+     */
+    store: String = "",
+    /** The bucket's location, as the cloud provider reported it; Google Cloud Storage only. */
+    location: Option[String] = None,
+    /** How many days the bucket keeps a deleted object; Google Cloud Storage only. */
+    softDeleteDays: Option[Int] = None,
+    /**
+     * The generation of the storage credential the Secret holds, which the pod template carries, so
+     * the service rolls onto a new one and never before it is there.
+     */
+    credentialGeneration: Int = 0,
+    /** The service's move from Garage, while one exists (feature 039). */
+    move: Option[MoveStatus] = None
+)
+
+/**
+ * Where a move of a service's bucket from Garage to Google Cloud Storage is (feature 039). The
+ * operator keeps it here because the facts it would otherwise derive — which key a Secret holds,
+ * whether a Job its time-to-live removed had succeeded — are ones it may not read or that do not
+ * last.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class MoveStatus(
+    /** The request this state belongs to. */
+    generation: Int = 0,
+    /** "Requested", "Copying", "Pausing", "Verifying", "Switched" or "Failed". */
+    state: String = "",
+    /** RFC 3339: when the operator first saw the request. */
+    startedAt: String = "",
+    /** RFC 3339: when the service was given a read-only credential. */
+    pauseStartedAt: Option[String] = None,
+    /** The write pause bound in force, as a duration (`10m`). */
+    pauseBound: Option[String] = None,
+    /** Objects listed on the source by the last run of the mover. */
+    counted: Option[Int] = None,
+    /** Objects the last run uploaded. */
+    copied: Option[Int] = None,
+    /** Objects whose hashes matched on both sides. */
+    verified: Option[Int] = None,
+    /** The object a run stopped at. */
+    failedObject: Option[String] = None,
+    /** Why it failed, or what it waits on. Never contains a secret. */
     detail: Option[String] = None
 )
 

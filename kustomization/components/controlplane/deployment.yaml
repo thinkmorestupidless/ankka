@@ -112,6 +112,14 @@ spec:
             - name: ANKKA_OTLP_HEADERS
               valueFrom:
                 secretKeyRef: { name: ankka-telemetry, key: headers, optional: true }
+            # The installation's object store, as the operator holds it (feature 039): the control
+            # plane refuses what that store cannot give. Replaced by the overlay from ankka-platform.
+            - name: ANKKA_OBJECT_STORE_BACKEND
+              value: ""
+            - name: ANKKA_OBJECT_STORE_PREFIX
+              value: ""
+            - name: ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS
+              value: "7"
             # The installation's secret store settings (feature 038), replaced by the overlay
             # from ankka-platform; empty is the default.
             - name: ANKKA_SECRET_BACKEND

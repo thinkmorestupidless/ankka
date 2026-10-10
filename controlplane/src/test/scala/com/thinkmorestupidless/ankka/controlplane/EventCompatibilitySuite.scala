@@ -7,7 +7,12 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ProjectEntity,
   ServiceEntity
 }
-import com.thinkmorestupidless.ankka.controlplane.api.{Mount, ServiceDescriptor, ServiceSpec}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  Mount,
+  ServiceDescriptor,
+  ServiceLifecycle,
+  ServiceSpec
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 
 import scala.jdk.CollectionConverters.*
@@ -98,6 +103,98 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
         assertEquals(observed.readyInstances, 1); assert(observed.confirmed)
       case other => fail(s"not an event the fixture holds: $other")
     }
+  }
+
+  test(
+    "a storage credential issued again round-trips, and its stored form names no key (feature 039)"
+  ) {
+    val event: ServiceEvent = ServiceEvent.StorageCredentialReissued(3)
+    val bytes               = ServiceEntity.eventSerializer.toBytes(event)
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
+    val json = String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+    assert(!json.toLowerCase.contains("secret") && !json.toLowerCase.contains("key\""), json)
+  }
+
+  test(
+    "a move asked for, and an observation reporting a store and a move, round-trip (feature 039)"
+  ) {
+    val events: Vector[ServiceEvent] = Vector(
+      ServiceEvent.StorageMoveRequested(2, "30m"),
+      ServiceEvent.ServiceObserved(
+        3L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        None,
+        storage = Some(
+          StorageReport(
+            store = Some("gcs"),
+            bucket = Some("ankka-casino-kyc-3f9a1c2e"),
+            bucketAddress = Some("https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"),
+            location = Some("europe-west2"),
+            softDeleteDays = Some(7),
+            move = Some("Switched"),
+            moveGeneration = Some(2)
+          )
+        )
+      )
+    )
+    for event <- events do
+      assertEquals(
+        ServiceEntity.eventSerializer.fromBytes(ServiceEntity.eventSerializer.toBytes(event)),
+        event
+      )
+  }
+
+  test("a project's location, named and taken back, round-trips (feature 039)") {
+    for event <- Vector[ProjectEvent](
+        ProjectEvent.ProjectLocationSet(Some("europe-west6")),
+        ProjectEvent.ProjectLocationSet(None)
+      )
+    do
+      assertEquals(
+        ProjectEntity.eventSerializer.fromBytes(ProjectEntity.eventSerializer.toBytes(event)),
+        event
+      )
+  }
+
+  test("an observation from before feature 039 reports no store") {
+    val observed = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case o: ServiceEvent.ServiceObserved => o }
+      .getOrElse(fail("the fixture has no ServiceObserved"))
+    assertEquals(observed.storage, None)
+  }
+
+  test("a descriptor of feature 039 round-trips through the event, its new fields whole") {
+    val descriptor = ServiceDescriptor(
+      "kyc",
+      ServiceSpec(
+        "kyc:1",
+        provisionObjectStorage = true,
+        exposeObjectStorage = true,
+        objectStorageOrigins = Vector("https://play.example"),
+        objectStorageCredential = false,
+        objectStorageVersionAgeDays = Some(365)
+      )
+    )
+    val event: ServiceEvent = ServiceEvent.ServiceApplied("casino", descriptor, 1L)
+    val bytes               = ServiceEntity.eventSerializer.toBytes(event)
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
+  }
+
+  test(
+    "a descriptor applied before feature 039 names no origins, takes a credential and keeps every version"
+  ) {
+    val applied = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case a: ServiceEvent.ServiceApplied => a }
+      .getOrElse(fail("the fixture has no ServiceApplied"))
+    val spec = applied.descriptor.service
+    assertEquals(
+      (spec.objectStorageOrigins, spec.objectStorageCredential, spec.objectStorageVersionAgeDays),
+      (Vector.empty, true, None)
+    )
   }
 
   test("a descriptor applied before web hosting decodes with no mounts, callers or process port") {

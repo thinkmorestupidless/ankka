@@ -142,6 +142,30 @@ class CrdSchemaSuite extends munit.FunSuite:
     assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
   }
 
+  test("a move's request and its state are declared field for field, in both directions") {
+    // Feature 039: two more nested objects, each refused on every write if it drifted from its class.
+    assertEquals(
+      declared("spec", "objectStorageMove"),
+      fieldsOf(classOf[com.thinkmorestupidless.ankka.crd.ObjectStorageMoveRequest])
+    )
+    assertEquals(
+      declared("status", "objectStorage", "move"),
+      fieldsOf(classOf[com.thinkmorestupidless.ankka.crd.MoveStatus])
+    )
+  }
+
+  test("a move's states are exactly the ones the operator writes") {
+    val state = crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+      .get("status")
+      .getProperties
+      .get("objectStorage")
+      .getProperties
+      .get("move")
+      .getProperties
+      .get("state")
+    assertEquals(state.getEnum.asScala.map(_.asText).toSet, StorageMove.States)
+  }
+
   test("the object storage phases are the database's") {
     def phases(block: String) =
       crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties

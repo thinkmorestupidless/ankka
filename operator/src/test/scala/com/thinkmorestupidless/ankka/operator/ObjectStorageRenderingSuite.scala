@@ -88,7 +88,13 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       val actions = render(asks, plan)
       val bucket  = actions.indexWhere(_ == Action.EnsureBucket("shop.reports"))
       val credential = actions.indexWhere {
-        case Action.EnsureStorageCredential("ankka-shop", "reports-storage", _, "shop.reports") =>
+        case Action.EnsureStorageCredential(
+              "ankka-shop",
+              "reports-storage",
+              _,
+              "shop.reports",
+              0
+            ) =>
           true
         case _ => false
       }
@@ -295,6 +301,117 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     assertEquals(routes(actions), Vector.empty)
   }
 
+  // Feature 039: a credential issued again, on Garage.
+
+  private def withStatus(spec: AnkkaServiceSpec, inPlace: Int): AnkkaService =
+    val r = resource(spec)
+    r.setStatus(
+      com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus(objectStorage =
+        Some(
+          com.thinkmorestupidless.ankka.crd
+            .ObjectStorageStatus(phase = "Provisioned", credentialGeneration = inPlace)
+        )
+      )
+    )
+    r
+
+  private def renderOn(r: AnkkaService, plan: ObjectStoragePlan): Vector[Action] =
+    Rendering
+      .render(r, settings, ProvisioningPlan.Supplied, objectStoragePlan = plan)
+      .fold(p => fail(p.mkString("; ")), identity)
+
+  private def credentialAnnotation(actions: Vector[Action]): Option[String] =
+    actions
+      .collectFirst { case Action.ApplyDeployment(d) => d }
+      .flatMap(d => Option(d.getSpec.getTemplate.getMetadata.getAnnotations))
+      .flatMap(a => Option(a.get(Labels.StorageCredentialKey)))
+
+  private val ready = ObjectStoragePlan.Ready(recovered = false)
+
+  test("a credential never issued again renders as before: no annotation, no re-issue, no sweep") {
+    val actions = render(asks, ready)
+    assertEquals(credentialAnnotation(actions), None)
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assert(!actions.exists(_.isInstanceOf[Action.DeleteExpiredKeys]), actions.toString)
+    assertEquals(
+      actions.collect { case a: Action.EnsureStorageCredential => a.generation },
+      Vector(0)
+    )
+  }
+
+  test(
+    "a generation asked above the one in place is issued before the Deployment that rolls onto it"
+  ) {
+    val actions =
+      renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 1), ready)
+    val reissue = actions.indexWhere {
+      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2) => true
+      case _                                                                        => false
+    }
+    assert(reissue >= 0, actions.toString)
+    assert(reissue < actions.indexWhere(_.isInstanceOf[Action.ApplyDeployment]), actions.toString)
+    assert(!actions.exists(_.isInstanceOf[Action.EnsureStorageCredential]), actions.toString)
+    assertEquals(credentialAnnotation(actions), Some("2"))
+    assert(actions.contains(Action.DeleteExpiredKeys("shop.reports")), actions.toString)
+  }
+
+  test("a generation in place is ensured, not issued again, and the pods stay on it") {
+    val actions =
+      renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 2), ready)
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assertEquals(
+      actions.collect { case a: Action.EnsureStorageCredential => a.generation },
+      Vector(2)
+    )
+    assertEquals(credentialAnnotation(actions), Some("2"))
+  }
+
+  test(
+    "a store that cannot be reached issues nothing, and the pods stay on the generation in place"
+  ) {
+    val actions = renderOn(
+      withStatus(asks.copy(storageCredentialGeneration = 3), inPlace = 2),
+      ObjectStoragePlan.Waiting(Some("down"))
+    )
+    assert(!actions.exists(_.isInstanceOf[Action.ReissueStorageCredential]), actions.toString)
+    assertEquals(credentialAnnotation(actions), Some("2"))
+  }
+
+  test("the status reports the generation the pass leaves in place") {
+    val spec = asks.copy(storageCredentialGeneration = 2)
+    assertEquals(
+      ObjectStorage
+        .status(ready, spec, settings, reported = None, inPlace = 1)
+        .map(_.credentialGeneration),
+      Some(2)
+    )
+    assertEquals(
+      ObjectStorage
+        .status(
+          ObjectStoragePlan.Waiting(Some("down")),
+          spec,
+          settings,
+          reported = None,
+          inPlace = 1
+        )
+        .map(_.credentialGeneration),
+      Some(1)
+    )
+  }
+
+  // Feature 039: the platform sets a Garage bucket's CORS rule, from the descriptor.
+
+  test("an exposed bucket's rule admits the descriptor's origins, and any other bucket has none") {
+    val origins = List("https://play.example")
+    val exposed = asks.copy(exposeObjectStorage = true, objectStorageOrigins = origins)
+    assert(render(exposed, ready).contains(Action.SetBucketCors("shop.reports", origins)))
+    // Not exposed: the origins name nobody until it is, and a rule left from before is removed.
+    assert(
+      render(asks.copy(objectStorageOrigins = origins), ready)
+        .contains(Action.SetBucketCors("shop.reports", Nil))
+    )
+  }
+
   // A bucket in the installation's cloud account (feature 044).
 
   private val cloud = CloudSettings(
@@ -324,12 +441,286 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         withCloud,
         ProvisioningPlan.Supplied,
         objectStoragePlan = plan,
-        cloudRequests = ObjectStorage.cloudRequests(r, cloud, identity, bucket)
+        cloudRequests =
+          ObjectStorage.cloudRequests(r, withCloud, cloud, None, None, identity, bucket)
       )
       .fold(p => fail(p.mkString("; ")), identity => identity)
 
   private def cloudRequestNames(actions: Vector[Action]): Vector[String] =
     actions.collect { case Action.EnsureCloudResource(r) => r.getMetadata.getName }
+
+  // Feature 039 (research R1a D3): what the descriptor and the installation ask of the bucket.
+
+  private def bucketRequestOf(
+      spec: AnkkaServiceSpec,
+      settings: Settings = withCloud,
+      projectLocation: Option[String] = None,
+      existing: Option[CloudObservation] = None
+  ) =
+    ObjectStorage
+      .cloudRequests(
+        resource(spec),
+        settings,
+        settings.cloud.getOrElse(cloud),
+        projectLocation,
+        existing,
+        None,
+        None
+      )
+      .collectFirst { case r if r.getSpec.kind == "bucket" => r }
+      .get
+
+  private def bucketAsked(
+      spec: AnkkaServiceSpec,
+      settings: Settings = withCloud,
+      projectLocation: Option[String] = None
+  ): Map[String, String] = bucketRequestOf(spec, settings, projectLocation).getSpec.parameters
+
+  /** A bucket request already written, as asked then and stamped with a settings generation. */
+  private def existing(stamped: Int, parameters: (String, String)*): Option[CloudObservation] =
+    Some(
+      CloudObservation(
+        generation = 1L,
+        createdAt = java.time.Instant.EPOCH,
+        status = None,
+        spec =
+          Some(com.thinkmorestupidless.ankka.crd.CloudResourceSpec(parameters = parameters.toMap)),
+        annotations = Map(Labels.SettingsGenerationKey -> stamped.toString)
+      )
+    )
+
+  private def settingsOf(r: com.thinkmorestupidless.ankka.crd.CloudResource) =
+    (
+      r.getSpec.parameters("softDeleteDays"),
+      r.getSpec.parameters("kmsKey"),
+      r.getMetadata.getAnnotations.asScala.get(Labels.SettingsGenerationKey)
+    )
+
+  private val now30 = withCloud.copy(gcs = Some(GcsSettings("t", 30)))
+  private val keyed = cloud.copy(kmsKey = Some("keys/new"))
+
+  test("settings: a bucket asked for the first time takes the installation's window and key") {
+    val r = bucketRequestOf(asks, now30.copy(cloud = Some(keyed)))
+    assertEquals(settingsOf(r), ("30", "keys/new", Some("0")))
+  }
+
+  test("settings: a bucket already asked keeps its window and key when the installation's change") {
+    val was =
+      existing(0, "softDeleteDays" -> "7", "kmsKey" -> "keys/old", "location" -> "europe-west2")
+    val r = bucketRequestOf(asks, now30.copy(cloud = Some(keyed)), existing = was)
+    assertEquals(settingsOf(r), ("7", "keys/old", Some("0")))
+  }
+
+  test("settings: a member's raised generation takes the installation's again, and stamps it") {
+    val was =
+      existing(0, "softDeleteDays" -> "7", "kmsKey" -> "keys/old", "location" -> "europe-west2")
+    val r = bucketRequestOf(
+      asks.copy(objectStorageSettingsGeneration = 1),
+      now30.copy(cloud = Some(keyed)),
+      existing = was
+    )
+    assertEquals(settingsOf(r), ("30", "keys/new", Some("1")))
+  }
+
+  test("settings: a bucket's location is never rewritten, whatever its project says now") {
+    val was = existing(0, "softDeleteDays" -> "7", "kmsKey" -> "", "location" -> "us-east1")
+    val r = bucketRequestOf(
+      asks.copy(objectStorageSettingsGeneration = 1),
+      projectLocation = Some("europe-west2"),
+      existing = was
+    )
+    assertEquals(r.getSpec.parameters("location"), "us-east1")
+  }
+
+  test("cloud: a bucket keeps versions, with the installation's soft-delete window and prefix") {
+    val p = bucketAsked(asks, withCloud.copy(gcs = Some(GcsSettings("acme", 30))))
+    assertEquals(p("versioning"), "true")
+    assertEquals(p("softDeleteDays"), "30")
+    assertEquals(p("namePrefix"), "acme")
+    // With no settings of Google Cloud Storage's, the shipped window and no prefix.
+    assertEquals(bucketAsked(asks)("softDeleteDays"), "7")
+    assertEquals(bucketAsked(asks)("namePrefix"), "")
+  }
+
+  test(
+    "cloud: the descriptor's origins reach the bucket only while it is reachable from the internet"
+  ) {
+    val origins = List("https://play.example")
+    assertEquals(
+      bucketAsked(asks.copy(exposeObjectStorage = true, objectStorageOrigins = origins))(
+        "corsOrigins"
+      ),
+      "https://play.example"
+    )
+    assertEquals(bucketAsked(asks.copy(objectStorageOrigins = origins))("corsOrigins"), "")
+  }
+
+  test("cloud: a noncurrent version's age is the descriptor's, and empty when it names none") {
+    assertEquals(
+      bucketAsked(asks.copy(objectStorageVersionAgeDays = Some(30)))("noncurrentVersionDays"),
+      "30"
+    )
+    assertEquals(bucketAsked(asks)("noncurrentVersionDays"), "")
+  }
+
+  test("cloud: a bucket is made in its project's location when the project names one") {
+    assertEquals(bucketAsked(asks)("location"), cloud.location)
+    assertEquals(bucketAsked(asks, projectLocation = Some("us-east1"))("location"), "us-east1")
+  }
+
+  test(
+    "cloud: the status names the bucket, its store and its location as the provider reported them"
+  ) {
+    val ready = ObjectStoragePlan.Ready(
+      recovered = false,
+      Some(CloudBucket("t-shop-reports-1", "https://e", "auto", 1L, location = "europe-west2"))
+    )
+    val s = ObjectStorage.status(ready, asks, withCloud, None).get
+    assertEquals(s.store, "gcs")
+    assertEquals(s.bucket, "t-shop-reports-1")
+    assertEquals(s.location, Some("europe-west2"))
+    // Until the provider has answered, it names no location.
+    assertEquals(
+      ObjectStorage.status(ObjectStoragePlan.Waiting(None), asks, withCloud, None).get.location,
+      None
+    )
+  }
+
+  test("cloud: an exposed bucket is told, and reports, the cloud's own address for it") {
+    val exposed = asks.copy(exposeObjectStorage = true)
+    val cs      = containers(renderCloud(exposed, cloudReady))
+    assertEquals(
+      storageVariables(developers(exposed, cs)).get("ANKKA_S3_PUBLIC_ENDPOINT"),
+      Some("https://storage.scripted.invalid")
+    )
+    assertEquals(
+      ObjectStorage.status(cloudReady, exposed, withCloud, None).flatMap(_.publicAddress),
+      Some("https://storage.scripted.invalid/acct-shop-reports")
+    )
+    // Not exposed: neither.
+    assertEquals(
+      storageVariables(developers(asks, containers(renderCloud(asks, cloudReady))))
+        .get("ANKKA_S3_PUBLIC_ENDPOINT"),
+      None
+    )
+    assertEquals(
+      ObjectStorage.status(cloudReady, asks, withCloud, None).flatMap(_.publicAddress),
+      None
+    )
+  }
+
+  test("cloud: the status says how long a deleted object is kept, as the bucket was asked") {
+    val settings = withCloud.copy(gcs = Some(GcsSettings("t", 30)))
+    assertEquals(
+      ObjectStorage.status(cloudReady, asks, settings, None).flatMap(_.softDeleteDays),
+      Some(30)
+    )
+  }
+
+  // Feature 039, US5: a service that declines a storage credential.
+
+  test(
+    "keyless: no credential is asked for, and the bucket is ready on the identity and bucket alone"
+  ) {
+    val keyless = asks.copy(objectStorageCredential = false)
+    val requests = ObjectStorage.cloudRequests(
+      resource(keyless),
+      withCloud,
+      cloud,
+      None,
+      None,
+      Some("reports@acct.scripted"),
+      Some("acct-shop-reports")
+    )
+    assertEquals(requests.map(_.getSpec.kind), Vector("identity", "bucket"))
+    val plans = CloudBucketPlans(
+      CloudPlan.Ready(Map("identity" -> "i"), recovered = false, credentialGeneration = None),
+      CloudPlan.Ready(
+        Map("bucket" -> "b", "endpoint" -> "https://e", "region" -> "auto"),
+        recovered = false,
+        credentialGeneration = None
+      ),
+      None
+    )
+    assert(
+      ObjectStorage
+        .decide(keyless, withCloud, ObjectStorageObservation.empty, None, Some(plans))
+        .isInstanceOf[ObjectStoragePlan.Ready]
+    )
+    // A service that asked for one still waits for it.
+    assertEquals(
+      ObjectStorage.decide(asks, withCloud, ObjectStorageObservation.empty, None, Some(plans)),
+      ObjectStoragePlan.Waiting(None)
+    )
+  }
+
+  test("keyless: the bucket's three variables and no key, in every hosting") {
+    for hosting <- Hostings do
+      val keyless   = asks.copy(objectStorageCredential = false, hosting = hosting)
+      val developer = developers(keyless, containers(renderCloud(keyless, cloudReady)))
+      assertEquals(
+        storageVariables(developer).keySet,
+        Set("ANKKA_S3_ENDPOINT", "ANKKA_S3_REGION", "ANKKA_S3_BUCKET"),
+        hosting
+      )
+      assertEquals(storageSecrets(developer), Vector.empty[String], hosting)
+  }
+
+  test("keyless: a bucket in Garage cannot be had without a credential") {
+    assertEquals(
+      ObjectStorage.decide(
+        asks.copy(objectStorageCredential = false),
+        settings,
+        ObjectStorageObservation.empty,
+        None
+      ),
+      ObjectStoragePlan.Failed(Vector(ObjectStorage.NoCredential))
+    )
+  }
+
+  test("cloud: the ServiceAccount carries what the cloud provider said binds it to its identity") {
+    val annotations =
+      Map("iam.gke.io/gcp-service-account" -> "reports@acct.iam.gserviceaccount.com")
+    val actions = Rendering
+      .render(
+        resource(asks),
+        withCloud,
+        ProvisioningPlan.Supplied,
+        objectStoragePlan = cloudReady,
+        serviceAccountAnnotations = annotations
+      )
+      .fold(p => fail(p.mkString("; ")), identity => identity)
+    val account = actions.collectFirst { case Action.EnsureServiceAccount(sa) => sa }.get
+    assertEquals(account.getMetadata.getAnnotations.asScala.toMap, annotations)
+    // Every other ServiceAccount is rendered as it was: no annotations at all.
+    val plain = render(asks, ObjectStoragePlan.Ready(recovered = false)).collectFirst {
+      case Action.EnsureServiceAccount(sa) => sa
+    }.get
+    assertEquals(Option(plain.getMetadata.getAnnotations).map(_.size).getOrElse(0), 0)
+  }
+
+  test("cloud: the identity's annotations are read from its answer, and none before it") {
+    val answered = CloudBucketPlans(
+      CloudPlan.Ready(
+        Map(
+          "identity"                  -> "reports@acct.scripted",
+          "serviceAccountAnnotations" -> "a.example/one=x, b.example/two=y=z"
+        ),
+        recovered = false,
+        credentialGeneration = None
+      ),
+      CloudPlan.Waiting(None),
+      None
+    )
+    assertEquals(
+      ObjectStorage.serviceAccountAnnotations(answered),
+      Map("a.example/one" -> "x", "b.example/two" -> "y=z")
+    )
+    assertEquals(
+      ObjectStorage.serviceAccountAnnotations(answered.copy(identity = CloudPlan.Waiting(None))),
+      Map.empty[String, String]
+    )
+  }
 
   test("cloud: a waiting bucket asks for an identity and a bucket, and starts no instance") {
     val actions = renderCloud(asks, ObjectStoragePlan.Waiting(None))
@@ -355,7 +746,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     }.get
     assertEquals(credential.getSpec.parameters("identity"), "reports@acct.scripted")
     assertEquals(credential.getSpec.parameters("bucket"), "acct-shop-reports")
-    assertEquals(credential.getSpec.parameters("secretName"), "reports-storage")
+    assertEquals(credential.getSpec.parameters("secretName"), "reports-cloud-storage")
     assertEquals(credential.getSpec.credentialGeneration, 1L)
   }
 
@@ -373,7 +764,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         ),
         hosting
       )
-      assertEquals(storageSecrets(developer), Vector("reports-storage"), hosting)
+      assertEquals(storageSecrets(developer), Vector("reports-cloud-storage"), hosting)
       cs.filterNot(_ eq developer).foreach { other =>
         assertEquals(
           storageVariables(other),
@@ -388,22 +779,27 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       renderCloud(asks, plan)
         .collectFirst { case Action.ApplyDeployment(d) => d }
         .flatMap(d => Option(d.getSpec.getTemplate.getMetadata.getAnnotations))
-        .flatMap(a => Option(a.get(Labels.StorageCredentialGenerationKey)))
+        .flatMap(a => Option(a.get(Labels.StorageCredentialKey)))
     assertEquals(annotation(cloudReady), Some("2"))
     val third = cloudReady.copy(cloud = cloudReady.cloud.map(_.copy(credentialGeneration = 3L)))
     assertEquals(annotation(third), Some("3"))
     val a = renderCloud(asks, cloudReady).collectFirst { case Action.ApplyDeployment(d) => d }.get
     val b = renderCloud(asks, third).collectFirst { case Action.ApplyDeployment(d) => d }.get
-    a.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialGenerationKey)
-    b.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialGenerationKey)
+    a.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialKey)
+    b.getSpec.getTemplate.getMetadata.getAnnotations.remove(Labels.StorageCredentialKey)
     assertEquals(a, b, "the generation changes the template and nothing else")
   }
 
-  test("cloud: a refused bucket starts the service told of no bucket at all") {
-    val cs =
-      containers(renderCloud(asks, ObjectStoragePlan.Failed(Vector("the location is refused"))))
-    cs.foreach(c => assertEquals(storageVariables(c), Map.empty[String, String], c.getName))
-    cs.foreach(c => assertEquals(storageSecrets(c), Vector.empty[String], c.getName))
+  test("cloud: a bucket the provider refused starts no instance, and says why") {
+    val refusal = ObjectStoragePlan.Failed(Vector("the location is refused"))
+    val actions = renderCloud(asks, refusal)
+    assert(!actions.exists(_.isInstanceOf[Action.ApplyDeployment]), "an instance would start")
+    assertEquals(
+      ObjectStorage.withheld(refusal, asks, withCloud, None),
+      Some("the location is refused")
+    )
+    // On the installation's own store a refusal is the store's: no cloud provider held it back.
+    assertEquals(ObjectStorage.refused(refusal, asks, settings, None), None)
   }
 
   test("cloud: the installation's own store renders no cloud request and no generation") {
@@ -413,7 +809,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       val template =
         actions.collectFirst { case Action.ApplyDeployment(d) => d }.get.getSpec.getTemplate
       assert(
-        !template.getMetadata.getAnnotations.containsKey(Labels.StorageCredentialGenerationKey)
+        !template.getMetadata.getAnnotations.containsKey(Labels.StorageCredentialKey)
       )
   }
 

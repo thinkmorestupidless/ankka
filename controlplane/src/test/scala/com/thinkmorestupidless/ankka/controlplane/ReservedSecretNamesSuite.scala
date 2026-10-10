@@ -26,7 +26,8 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
       Names.secretKeySecret(service),
       Names.telemetrySecret(service),
       ZeroTrust.mountSecretName(service),
-      Buckets.secret(service)
+      Buckets.secret(service),
+      Buckets.cloudSecret(service)
     )
 
   private val projectNames: Vector[String] =
@@ -46,11 +47,14 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
 
   test("every Secret a descriptor may not read includes each per-service Secret holding a secret") {
     // A storage credential is a secret key a sibling's descriptor could otherwise name (feature 034).
-    for service <- services do
+    // And its credential in Google Cloud Storage, which the cloud provider writes (feature 039).
+    for
+      service <- services
+      secret  <- Vector(Buckets.secret(service), Buckets.cloudSecret(service))
+    do
       assert(
-        com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec
-          .isPlatformSecret(Buckets.secret(service)),
-        Buckets.secret(service)
+        com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec.isPlatformSecret(secret),
+        secret
       )
   }
 

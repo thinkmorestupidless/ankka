@@ -513,6 +513,26 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val location = Opts.subcommand(
+      "location",
+      "Where a project's new buckets in Google Cloud Storage are made; a bucket's location is fixed " +
+        "when it is made."
+    ) {
+      val set = Opts.subcommand("set", "Name the location, in the installation's own words.") {
+        (Opts.argument[String]("location"), contextOpt).mapN { (location, ctx) => () =>
+          ctx.client.setProjectLocation(ctx.project, location)
+          s"'${ctx.project}' makes its new buckets in $location"
+        }
+      }
+      val clear = Opts.subcommand("clear", "Let the installation's default location apply again.") {
+        contextOpt.map { ctx => () =>
+          ctx.client.clearProjectLocation(ctx.project)
+          s"'${ctx.project}' makes its new buckets in the installation's default location"
+        }
+      }
+      set.orElse(clear)
+    }
+
     val secrets = Opts.subcommand(
       "secrets",
       "Project secrets: values a descriptor's variables take by secretKeyRef, which the control " +
@@ -586,6 +606,7 @@ object Main:
       .orElse(secretReads)
       .orElse(topics)
       .orElse(brokers)
+      .orElse(location)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -654,6 +675,44 @@ object Main:
       (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
         Output.service(ctx.client.restartService(ctx.project, name), ctx.format)
       }
+    }
+
+    val storage = Opts.subcommand("storage", "Act on a service's bucket and its credential.") {
+      val reissue = Opts.subcommand(
+        "reissue",
+        "Issue the service's storage credential again; the old one ends after the rotation grace."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          Output.service(ctx.client.reissueStorageCredential(ctx.project, name), ctx.format)
+        }
+      }
+      val move = Opts.subcommand(
+        "move",
+        "Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly."
+      ) {
+        (
+          Opts.argument[String]("name"),
+          Opts
+            .option[String](
+              "write-pause-bound",
+              "How long the service's writes may be paused, such as 10m or 1h; 10m when not given."
+            )
+            .orNone,
+          contextOpt
+        ).mapN { (name, bound, ctx) => () =>
+          Output.service(ctx.client.moveStorage(ctx.project, name, bound), ctx.format)
+        }
+      }
+      val reapply = Opts.subcommand(
+        "reapply-settings",
+        "Apply the installation's current soft-delete window and key to the bucket in Google Cloud " +
+          "Storage."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          Output.service(ctx.client.reapplyStorageSettings(ctx.project, name), ctx.format)
+        }
+      }
+      reissue.orElse(move).orElse(reapply)
     }
 
     val logs = Opts.subcommand("logs", "Print a deployed service's recent output.") {
@@ -761,6 +820,7 @@ object Main:
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
+      .orElse(storage)
       .orElse(rollback)
       .orElse(logs)
       .orElse(topology)

@@ -130,7 +130,8 @@ object ControlPlane:
           topics,
           schemas,
           topology,
-          secretRecords
+          secretRecords,
+          deploy.objectStore
         ),
       _ => SecretReadsEndpoint(secretRecords),
       // The real readers keep their own defaults rather than being built from `deploy`: that is

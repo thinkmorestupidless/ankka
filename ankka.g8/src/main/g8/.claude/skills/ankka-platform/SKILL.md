@@ -100,6 +100,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/platform/install-local.md` — Run the whole ankka platform on your own machine in a kind cluster — operator, control plane, identity provider, databases, gateway and TLS — with one script, and point the CLI at it.
 - `references/platform/install-cloud.md` — Install ankka on a real Kubernetes cluster with a production kustomize overlay — a load balancer, a public wildcard certificate over DNS-01, a real base domain, images from a registry and an identity provider with no default credentials.
+- `references/platform/install-gke.md` — Run ankka on Google Kubernetes Engine with buckets in Google Cloud Storage — Workload Identity, the ankka-gcp cloud provider, the object store settings, and what a service gets, keeps, rotates and moves there.
 - `references/platform/organizations.md` — Create organizations and projects, invite members by email, manage roles, and disable or delete an organization, with the rules the control plane enforces on each.
 - `references/platform/identity.md` — How people and machines authenticate to the ankka control plane through the installation's Keycloak — logging in with the CLI, adding users, platform administrators, machine accounts and the realm.
 - `references/platform/console.md` — Install the web console at console.<base domain>, give it its realm client and secrets, add it to an installation whose realm predates it, run it locally, or leave it out.

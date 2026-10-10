@@ -59,6 +59,24 @@ private[ankka] object PlatformVariables:
   val SecretVersionsKept: String = "ANKKA_SECRET_VERSIONS_KEPT"
 
   /**
+   * Which object store the installation makes new buckets in, `garage` or `gcs` (feature 039). Read
+   * by the operator, which renders a service's bucket in it, and the control plane, which refuses
+   * what that store cannot give. Beside it the installation may still run Garage, where a bucket
+   * made earlier stays until a member moves it.
+   *
+   * These three are the installation's settings, read from the operator's and the control plane's
+   * own environment, and are never rendered on a service's pod, so they are in none of the lists
+   * below: a descriptor that gives one gives its program a variable nothing reads.
+   */
+  val ObjectStoreBackend: String = "ANKKA_OBJECT_STORE_BACKEND"
+
+  /** The installation's prefix for a bucket's name in Google Cloud Storage (feature 039). */
+  val ObjectStorePrefix: String = "ANKKA_OBJECT_STORE_PREFIX"
+
+  /** How many days a new bucket in Google Cloud Storage keeps a deleted object (feature 039). */
+  val ObjectStoreSoftDeleteDays: String = "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"
+
+  /**
    * The installation's cloud provider (feature 044): `none`, or a name in `CloudProviders`. Read by
    * the operator, the control plane and the provider; never a descriptor's to give.
    */

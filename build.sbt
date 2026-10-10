@@ -170,6 +170,9 @@ lazy val commonSettings = Seq(
     // The fixture suites (contract fingerprints, graph deltas) rewrite their files instead of
     // refusing a difference, which is only ever right for a change meant to alter them.
     "ankka.fixtures.regenerate",
+    // GcsCompatibilitySuite (feature 039): `on` makes it fail rather than skip when its bucket's
+    // variables are missing, which is how the `gcs` workflow asks for it.
+    "ankka.gcs.tests",
     // A kubeconfig naming a cluster that runs a real cloud provider (feature 044):
     // CloudProviderClusterFeatures then starts no k3s and no scripted provider and runs its
     // scenarios against that cluster instead.
@@ -544,6 +547,8 @@ lazy val controlPlane = project
           (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
           // The proxy the operator runs beside every web-hosted process (feature 021).
           (proxy / Docker / publishLocal).value
+          // The mover a move of a bucket runs as a Job (feature 039).
+          (storageMover / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built = scala.sys.process
@@ -729,6 +734,25 @@ lazy val proxy = project
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // Named, not discovered: ankka-testkit and http's tests both ship a logback-test.xml here.
     Test / javaOptions += "-Dlogback.configurationFile=logback-proxy-test.xml"
+  )
+
+/**
+ * The storage mover (feature 039): copies one service's objects from its bucket in Garage to its
+ * bucket in Google Cloud Storage, and checks every object on both sides. The operator runs it as a
+ * Job, holding the service's two storage credentials and nothing else. Its own module and image
+ * because the operator may carry no S3 client; it depends on nothing of ankka's.
+ */
+lazy val storageMover = project
+  .in(file("storage-mover"))
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                 := "ankka-storage-mover",
+    publish / skip       := true,
+    Docker / packageName := "ankka-storage-mover",
+    Compile / mainClass  := Some("com.thinkmorestupidless.ankka.mover.Main"),
+    libraryDependencies ++= Seq(awsS3, logback, testcontainers % Test)
   )
 
 /** The `ankka` command-line client. */
@@ -958,6 +982,7 @@ lazy val root = project
     sidecar,
     proxyCore,
     proxy,
+    storageMover,
     shoppingCart,
     shoppingCartApi,
     multiAgentPlanner,

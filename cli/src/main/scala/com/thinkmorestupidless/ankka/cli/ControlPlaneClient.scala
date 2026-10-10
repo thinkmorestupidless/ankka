@@ -244,6 +244,17 @@ final class ControlPlaneClient(settings: Settings):
   def listBrokers(projectId: String): Vector[ProjectBroker] =
     get[Vector[ProjectBroker]](s"/projects/${segment(projectId)}/brokers")
 
+  /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
+  def setProjectLocation(projectId: String, location: String): Unit =
+    send(
+      "PUT",
+      s"/projects/${segment(projectId)}/location",
+      Some(writeToString(SetProjectLocation(location)))
+    ): Unit
+
+  def clearProjectLocation(projectId: String): Unit =
+    send("DELETE", s"/projects/${segment(projectId)}/location", None): Unit
+
   // ── Services ──────────────────────────────────────────────────────────────
 
   def listServices(projectId: String): Vector[ServiceStatus] =
@@ -269,6 +280,10 @@ final class ControlPlaneClient(settings: Settings):
 
   def restartService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "restart"))
+
+  /** Issues the service's storage credential again (feature 039). */
+  def reissueStorageCredential(projectId: String, name: String): ServiceStatus =
+    decode[ServiceStatus](action(projectId, name, "storage-credential"))
 
   def exposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "expose"))
@@ -313,6 +328,20 @@ final class ControlPlaneClient(settings: Settings):
     )
 
   /** Rolls a service back; with no generation, the control plane chooses (feature 033). */
+  /** Applies the installation's bucket settings to the service's bucket (feature 039). */
+  def reapplyStorageSettings(projectId: String, name: String): ServiceStatus =
+    decode[ServiceStatus](action(projectId, name, "storage/settings"))
+
+  /** Moves the service's bucket from Garage to Google Cloud Storage (feature 039). */
+  def moveStorage(projectId: String, name: String, writePauseBound: Option[String]): ServiceStatus =
+    decode[ServiceStatus](
+      send(
+        "POST",
+        s"/services/${segment(projectId)}/${segment(name)}/storage/move",
+        Some(writeToString(StorageMoveRequest(writePauseBound)))
+      )
+    )
+
   def rollbackService(projectId: String, name: String, generation: Option[Long]): RolledBack =
     decode[RolledBack](
       send(

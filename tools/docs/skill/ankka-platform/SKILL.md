@@ -4,6 +4,7 @@ description: Install, configure and operate the ankka platform itself — a loca
 pages:
   - platform/install-local.md
   - platform/install-cloud.md
+  - platform/install-gke.md
   - platform/organizations.md
   - platform/identity.md
   - platform/console.md

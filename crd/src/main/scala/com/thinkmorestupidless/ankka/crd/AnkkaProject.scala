@@ -25,7 +25,12 @@ final case class AnkkaProjectSpec(
      * A fingerprint of `secrets` and when each entry was last set: the provider reports the one it
      * has synced, and a service that takes a variable from an entry waits until the two are equal.
      */
-    secretsFingerprint: Option[String] = None
+    secretsFingerprint: Option[String] = None,
+    /**
+     * Where the project's new buckets in Google Cloud Storage are made (feature 039), in the
+     * installation's own words; `None` is the installation's default. A member sets it.
+     */
+    bucketLocation: Option[String] = None
 )
 
 /** One project secret: its name and its entries' names. */

@@ -1476,10 +1476,11 @@ Which of idle, working, suspended or terminated an agent instance is.
 What an agent instance tells whoever is watching it about something that has just happened: its lifecycle, a task, an iteration, or a warning that a task is struggling. Notifications are not kept.
 
 ### watch
-Be given an agent instance's notifications as they happen. Whoever does is a watcher.
+Be given something as it happens: an agent instance's notifications, or the rows a view's
+declared query matches, or one row of a view, as the view writes them. Whoever does is a watcher.
 
 ### watcher
-Whoever is watching an agent instance.
+Whoever is watching an agent instance, a view's declared query or one row of a view.
 
 ### depends
 Of a task: may not start until the tasks it depends on are completed.
@@ -1572,7 +1573,8 @@ installation's console is one host, and the hosted product's website another.
 ## Graph deltas
 
 ### change
-One event, state or deletion of one entity, or one message from a topic, as a consumer is handed it.
+One event, state or deletion of one entity, one record of a workflow with the state and the
+standing after it, or one message from a topic, as a view or a consumer is handed it.
 
 ### key
 What a message is published under. Messages under one key are delivered in order, and a compacted topic keeps the last of them. A message's key is its entity's id unless the message names another; the key does not change which entity the message is about.
@@ -1940,7 +1942,8 @@ Avoid: retry delay
 
 ### source
 What a view or a consumer reads: the events of an event sourced entity, the state of a
-key value entity, or a topic. A view may read several, each in order and on its own.
+key value entity, the changes of a workflow, or a topic. A view may read several, each in order
+and on its own.
 
 ### table
 What a view keeps its rows in. Each view has exactly one, its own. It is not any other
@@ -2011,8 +2014,8 @@ Avoid: presigned URL
 *Proposed.* Google's object store, which an installation in Google's cloud may keep its buckets in
 instead of Garage. A bucket in it is reachable from the internet by anyone holding a signed URL,
 whether or not its descriptor asked, and by nobody else; it keeps every version of an object; and
-its name is shared with every other customer of Google's, so the provider names it and reports the
-name, and nothing derives it.
+its name is shared with every other customer of Google's, so the cloud provider names it and
+reports the name, and nothing derives it.
 
 Avoid: GCS
 
@@ -2022,22 +2025,9 @@ one a local platform has: on one machine as shipped, or on three with each objec
 them. A bucket in it holds one version of each object, is named from the project and the service,
 and is reached from the internet only when its descriptor asks.
 
-### provider
-*Proposed.* The program an installation deploys beside the operator to make what a cloud's object
-store needs for a bucket: the bucket, the storage account, its grant and the storage credential.
-It reaches the cloud as its own workload identity and holds no key of the cloud's. The operator
-asks it for a bucket and reads what it reports, and never reaches the cloud itself.
-
-### storage account
-*Proposed.* The identity in Google Cloud that the provider makes for one service with a bucket in
-Google Cloud Storage, granted on that bucket and on nothing else. The service's storage credential
-belongs to it, and the service's workload identity is it.
-
-Avoid: service account, Google account
-
 ### workload identity
 *Proposed.* What a deployed service is, to Google Cloud, without holding any credential: its
-storage account. A service that reaches its bucket as its workload identity needs no storage
+cloud identity. A service that reaches its bucket as its workload identity needs no storage
 credential, and can make no signed URL.
 
 ### retention policy
@@ -2054,16 +2044,39 @@ bucket in Garage keeps none.
 ### move
 *Proposed.* Copying every object of one service's bucket in Garage into a bucket made for it in
 Google Cloud Storage, so that the service reads and keeps objects there once it is next
-restarted. A member asks for it; it checks every object on both sides; it finishes if it is asked
-for again after stopping part way; and it leaves the bucket in Garage as it was.
+restarted. A member asks for it; a mover does it; it checks every object on both sides; it
+finishes if it is asked for again after stopping part way; and it leaves the bucket in Garage as
+it was.
 
 Avoid: migration
 
+### mover
+*Proposed.* What the operator runs inside the installation to do one move: it holds the service's
+storage credential in Garage and the storage credential of the bucket made for the service in
+Google Cloud Storage, and no other credential, so it reaches exactly what the service reaches.
+The operator reads what it reports and neither credential; the cloud provider reaches no bucket
+in Garage. It is not a job, which runs on GitHub.
+
+Avoid: move job, migration job, copier
+
+### write pause
+*Proposed.* The span of a move in which the service holds a read-only credential, while the mover
+copies what changed since the copy began and checks every object on both sides. It ends when the
+service is restarted onto Google Cloud Storage or the move fails. It is not a pause, which stops
+a service's instances: during a write pause the service runs and reads.
+
+Avoid: freeze, write lock
+
+### write pause bound
+*Proposed.* How long a write pause may last: "10 minutes" unless the member asking for the move
+names another. A write pause that reaches its bound fails the move, and the service is given a
+storage credential that writes to its bucket in Garage.
+
 ### read-only credential
 *Proposed.* A storage credential that reads a bucket and cannot keep, change or delete an object in
-it. A move gives a service one while it copies what changed and checks every object, and the
-service's status says that its storage is moving; the service is given a storage credential that
-writes again when the move ends, on whichever object store it ends on.
+it. A move gives a service one for its write pause, and the service's status says that its storage
+is moving; the service is given a storage credential that writes again when the move ends, on
+whichever object store it ends on.
 
 ## Cross-project access
 
@@ -2453,7 +2466,9 @@ Avoid: cloud project, GCP project
 *Proposed.* A program outside the platform that fulfils the installation's cloud requests, under
 an identity of its own in the cloud account. It holds the power over the cloud account that the
 operator never does, and the two hold nothing of each other's. An installation names its cloud
-provider once, or names "none" and has no cloud request written.
+provider once, or names "none" and has no cloud request written. For a bucket in Google Cloud
+Storage it makes the bucket, the service's cloud identity, its grant and the storage credential,
+reaching Google Cloud as an identity of its own and holding no key of Google Cloud's.
 
 Avoid: cloud operator, connector
 
@@ -2490,10 +2505,12 @@ that no cloud provider has answered: "2 minutes".
 
 ### cloud identity
 *Proposed.* What a cloud account knows a service, or a project's database, as, under which access
-to a bucket, a secret or a wrapping key is granted. It is not a principal, which is who a call came
-from.
+to a bucket, a secret or a wrapping key is granted. For a service with a bucket in Google Cloud
+Storage, the cloud provider makes it, grants it on that bucket and on nothing else, the service's
+storage credential belongs to it, and the service's workload identity is it. It is not a
+principal, which is who a call came from.
 
-Avoid: service account
+Avoid: service account, storage account, Google account
 
 ### secret access request
 *Proposed.* A cloud request that a cloud identity may own some secrets of the cloud account and
@@ -2545,6 +2562,38 @@ working: "1 hour".
 made-up answers and made-up secrets and reaches no cloud.
 
 Avoid: fake provider, stub provider, mock provider
+
+## Workflow sources
+
+### standing
+*Proposed.* Of a workflow: where the platform says it has got to — running, paused, completed or
+failed — with the step it is on or waits after, how many times each step was retried and, when it
+failed, why. It is not the workflow's state, which is the developer's own type and says what the
+process decided.
+
+Avoid: workflow status
+
+### transition
+*Proposed.* A workflow moving to a step, which the platform records before the step runs.
+
+### workflow subscription
+*Proposed.* A declared connection from a workflow to a view or consumer that reads its changes.
+
+## View streams
+
+### removal
+*Proposed.* What a watcher is given for a row it has that no longer matches the watched query or
+was deleted: the row key and no row.
+
+### watch bound
+*Proposed.* The platform setting that bounds how many watches one instance holds open at once.
+
+### idle timeout
+*Proposed.* How long a connection may be quiet before the service ends it.
+
+### heartbeat
+*Proposed.* A part of a stream that carries nothing but that the connection is alive, sent while a
+wait goes on.
 
 ## Everyday words
 
@@ -2621,4 +2670,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year
+withdraw, withdraws, withdrew, word, year, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately

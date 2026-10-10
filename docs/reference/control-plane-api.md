@@ -121,6 +121,8 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/topics` | |
 | `PUT` | `/projects/{projectId}/brokers/{name}` | |
 | `DELETE` | `/projects/{projectId}/brokers/{name}` | |
+| `PUT` | `/projects/{projectId}/location` | |
+| `DELETE` | `/projects/{projectId}/location` | |
 | `GET` | `/projects/{projectId}/brokers` | |
 | `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/projects/{projectId}/secret-reads` | |
@@ -133,6 +135,9 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/pause` | |
 | `POST` | `/services/{projectId}/{name}/resume` | |
 | `POST` | `/services/{projectId}/{name}/restart` | |
+| `POST` | `/services/{projectId}/{name}/storage-credential` | |
+| `POST` | `/services/{projectId}/{name}/storage/settings` | |
+| `POST` | `/services/{projectId}/{name}/storage/move` | |
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
@@ -542,6 +547,19 @@ nothing.
 Stops declaring a broker. Answers `204`, or `404` when the project declares no broker of that name. A
 service whose component names the broker is refused at its next start.
 
+### `PUT /projects/{projectId}/location`
+
+Names where the project's new buckets in Google Cloud Storage are made, `{ "location": "europe-west6" }`,
+in the installation's own words; its cloud provider says what they mean. A bucket's location is fixed
+when it is made, so this moves no bucket, and each service's status shows where its bucket is. Members
+with write access. Answers `204`; `400` for an empty location; `409` where the installation keeps new
+buckets in Garage, which has no location to choose.
+
+### `DELETE /projects/{projectId}/location`
+
+Lets the installation's default location apply to the project's new buckets again. Answers `204`, or
+`409` where the installation keeps new buckets in Garage.
+
 ### `GET /projects/{projectId}/brokers`
 
 The project's declared brokers, by name: `[{ "name": "legacy", "bootstrap": "kafka.legacy:9094",
@@ -601,6 +619,37 @@ Starts a paused service again. Answers with the status.
 
 Replaces every instance by a rolling update, and increments the generation. Refused with `409` while the
 service is paused. Answers with the status.
+
+### `POST /services/{projectId}/{name}/storage-credential`
+
+Issues the service's storage credential again. A new credential is written where the service's
+instances read it, the instances are replaced by a rolling update once it is there, and the old
+credential goes on working until the rotation grace (an hour as shipped) has passed, after which it is
+refused. The service's generation is unchanged. Refused with `409` when the service's descriptor asks
+for no bucket, since the platform holds no credential of its own for it. Answers with the status, and
+the history records `storage-credential-reissued`.
+
+### `POST /services/{projectId}/{name}/storage/settings`
+
+Applies the installation's current bucket settings — how long a deleted object can be recovered, and
+the key the bucket is encrypted with — to the service's bucket in Google Cloud Storage. A changed
+setting reaches a new bucket by itself and an existing one only this way, since shortening how long a
+deleted document can be recovered is a decision, not something the platform does on its own. Refused
+with `409` for a bucket that is not in Google Cloud Storage. Answers with the status; the history
+records `storage-settings-reapplied`.
+
+### `POST /services/{projectId}/{name}/storage/move`
+
+Moves the service's bucket from Garage to Google Cloud Storage. The body may name how long the
+service's writes may be paused, `{ "writePauseBound": "30m" }`, from one minute to 24 hours; `{}` is
+ten minutes. Every object is copied while the service goes on writing; then its writes are paused,
+what changed is copied, every object is checked on both sides, and the service is replaced onto its
+new bucket. A pause that reaches its bound, or an object that does not check, fails the move and gives
+the service its writes back, still on Garage. The bucket in Garage is kept. Refused with `409` where
+the installation keeps new buckets in Garage, for a service whose descriptor asks for no bucket, for a
+bucket already in Google Cloud Storage, and while a move is in progress; `400` for a bound that is not
+one. A move that failed may be asked for again. Answers with the status, whose `storageMove` says
+where the move is; the history records `storage-moved`.
 
 ### `POST /services/{projectId}/{name}/rollback`
 
@@ -694,7 +743,7 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended` or `reinstated`. `administrative` is `true` when the platform administrator role
+`deleted`, `suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved` or `storage-settings-reapplied`. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

@@ -118,6 +118,21 @@ class SecretAccessSuite extends munit.FunSuite:
     assert(got.hold.isDefined, "access is not granted yet")
   }
 
+  test("a service with no bucket has its ServiceAccount bound to the identity it was given") {
+    val bound = "payments-identity" -> answered(
+      "Ready",
+      None,
+      "identity"                  -> "payments@acct.scripted",
+      "serviceAccountAnnotations" -> "iam.gke.io/gcp-service-account=payments@acct.scripted"
+    )
+    val got = pass(Map(bound, access))._1
+    assertEquals(
+      ServiceReconciler.serviceAccountAnnotations(None, got),
+      Map("iam.gke.io/gcp-service-account" -> "payments@acct.scripted")
+    )
+    assertEquals(ServiceReconciler.serviceAccountAnnotations(None, pass(Map.empty)._1), Map.empty)
+  }
+
   test("access granted holds nothing, and leaves nothing to look again for") {
     val got = pass(Map(identity, access))._1.get
     assertEquals(got.hold, None)

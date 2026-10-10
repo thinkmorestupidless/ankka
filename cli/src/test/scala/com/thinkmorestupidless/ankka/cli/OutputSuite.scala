@@ -265,6 +265,37 @@ class OutputSuite extends munit.FunSuite:
     )
   }
 
+  test(
+    "a bucket in Google Cloud Storage says its store, location, window and a move, each when present"
+  ) {
+    val rendered = Output.service(
+      status("kyc", database = Some("provisioned")).copy(
+        objectStorage = Some("provisioned"),
+        bucket = Some("ankka-casino-kyc-3f9a1c2e"),
+        bucketAddress = Some("https://storage.googleapis.com/ankka-casino-kyc-3f9a1c2e"),
+        objectStore = Some("gcs"),
+        bucketLocation = Some("europe-west2"),
+        softDeleteDays = Some(7),
+        storageMove = Some("moved")
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    val at    = lines.indexWhere(_.startsWith("object store"))
+    assertEquals(
+      lines.slice(at, at + 4),
+      Vector(
+        "object store     gcs",
+        "bucket location  europe-west2",
+        "soft delete      7 days",
+        "storage move     moved"
+      )
+    )
+    val garage = Output.service(status("reports", database = Some("provisioned")), Format.Table)
+    for label <- Vector("object store", "bucket location", "soft delete", "storage move") do
+      assert(!garage.linesIterator.exists(_.startsWith(label)), garage)
+  }
+
   test("the token is never printed, in either format") {
     val settings = Settings("http://cp", Some("super-secret-token"), Some("checkout"))
 

@@ -85,7 +85,7 @@ object ProjectSecretSync:
    */
   def hold(secret: ProjectSecretEntry, plan: CloudPlan): Option[SecretAccess.Hold] =
     plan match
-      case CloudPlan.Ready(outputs, _, _)
+      case CloudPlan.Ready(outputs, _, _, _)
           if outputs
             .get(CloudRequests.Keys.EntryGeneration)
             .flatMap(_.toLongOption)

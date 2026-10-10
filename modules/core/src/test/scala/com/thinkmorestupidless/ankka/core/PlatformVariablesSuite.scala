@@ -196,3 +196,18 @@ class PlatformVariablesSuite extends munit.FunSuite:
       assert(!shared(name), name)
       assert(!withheldFromModule(name), name)
   }
+
+  test("the installation's object store settings are named once and rendered on no pod") {
+    assertEquals(
+      Vector(ObjectStoreBackend, ObjectStorePrefix, ObjectStoreSoftDeleteDays),
+      Vector(
+        "ANKKA_OBJECT_STORE_BACKEND",
+        "ANKKA_OBJECT_STORE_PREFIX",
+        "ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS"
+      )
+    )
+    for name <- Vector(ObjectStoreBackend, ObjectStorePrefix, ObjectStoreSoftDeleteDays) do
+      assert(!platformOnly(name), name)
+      assert(!runtimeOnly(name), name)
+      assert(!objectStorage(name), name)
+  }

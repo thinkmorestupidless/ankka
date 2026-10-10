@@ -1,0 +1,43 @@
+# What the docs promise a service of an S3 client against Google Cloud Storage, held against a real
+# bucket: a signature for the region `auto`, every version of an object listed and deleted, an
+# unsigned request refused, a browser's preflight from a named origin and not another, and the
+# platform, not the service, setting a bucket's CORS rule. The only suite of this repository that
+# reaches Google.
+#
+# Nightly on `main` and on demand, never on a pull request: it needs a bucket and a key, which a pull
+# request from a fork must not be handed. `-Dankka.gcs.tests=on` makes the suite fail rather than skip
+# when the secrets are missing, so a run cannot report green having run nothing.
+#
+# The bucket is prepared once by hand in the test project (contracts/installation.md of feature 039):
+# versioning on, soft delete 7 days, public access prevention, uniform access, a CORS rule admitting
+# ANKKA_GCS_ORIGIN, and an HMAC key of a service account granted on that bucket alone.
+name: gcs
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gcs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      ANKKA_GCS_ENDPOINT: https://storage.googleapis.com
+      ANKKA_GCS_REGION: auto
+      ANKKA_GCS_ORIGIN: https://play.example
+      ANKKA_GCS_BUCKET: ${{ secrets.ANKKA_GCS_BUCKET }}
+      ANKKA_GCS_ACCESS_KEY: ${{ secrets.ANKKA_GCS_ACCESS_KEY }}
+      ANKKA_GCS_SECRET_KEY: ${{ secrets.ANKKA_GCS_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off -Dankka.gcs.tests=on 'controlPlane/testOnly *GcsCompatibilitySuite'

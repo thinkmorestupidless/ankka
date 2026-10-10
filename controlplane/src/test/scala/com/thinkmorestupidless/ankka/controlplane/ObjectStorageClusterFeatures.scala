@@ -92,6 +92,8 @@ class ObjectStorageClusterFeatures
   private val Prefix      = "ankka"
   private val Projects    = Vector("shop", "bank")
 
+  private val RotationGrace = 30.seconds
+
   private lazy val identity = TestIdentity()
   private lazy val Token = identity.token(
     "tester",
@@ -170,7 +172,10 @@ class ObjectStorageClusterFeatures
         resyncInterval = 2.seconds,
         baseDomain = Some(BaseDomain),
         httpsPort = httpsPort,
-        objectStore = Some(store.settings)
+        objectStore = Some(store.settings),
+        // An old storage credential ends this long after a new one is issued (feature 039): an hour
+        // by default, which no scenario can wait out.
+        rotationGrace = RotationGrace
       )
       startOperator(operatorSettings)
 
@@ -230,6 +235,8 @@ class ObjectStorageClusterFeatures
   private var last: Run                                        = Run(0, "", "")
   private var lastStatus: Option[ServiceStatus]                = None
   private var credentialBefore: (String, String)               = ("", "")
+  private var keyBefore: (String, String)                      = ("", "")
+  private var originsNamed: Vector[String]                     = Vector.empty
   private var signedUrl: String                                = ""
   private var browserReply: (Int, Map[String, String], String) = (0, Map.empty, "")
   private var operatorChanged: Boolean                         = false
@@ -291,32 +298,26 @@ class ObjectStorageClusterFeatures
 
   private def namespace(project: String) = s"$Prefix-$project"
 
-  private def pods(project: String, name: String): Vector[Pod] =
-    k8s
-      .pods()
-      .inNamespace(namespace(project))
-      .withLabel("app.kubernetes.io/name", name)
-      .list()
-      .getItems
-      .asScala
-      .toVector
-      .filter(_.getMetadata.getDeletionTimestamp == null)
+  private def servicePods = ServicePods(k3s, k8s, namespace)
 
-  private def running(pod: Pod): Boolean =
-    Option(pod.getStatus)
-      .flatMap(s => Option(s.getContainerStatuses))
-      .exists(_.asScala.exists(c => Option(c.getState).exists(_.getRunning != null)))
+  private def pods(project: String, name: String): Vector[Pod] = servicePods.pods(project, name)
+
+  private def running(pod: Pod): Boolean = ServicePods.running(pod)
 
   private def descriptor(
       name: String,
       provision: Boolean = false,
       expose: Boolean = false,
-      env: Vector[String] = Vector.empty
+      env: Vector[String] = Vector.empty,
+      origins: Vector[String] = Vector.empty
   ): String =
     val fields = Vector(
       Some(s""""image":"$SampleImage""""),
       Option.when(provision)(""""provisionObjectStorage":true"""),
       Option.when(expose)(""""exposeObjectStorage":true"""),
+      Option.when(origins.nonEmpty)(
+        origins.map(o => s""""$o"""").mkString(""""objectStorageOrigins":[""", ",", "]")
+      ),
       Option.when(env.nonEmpty)(env.mkString(""""env":[""", ",", "]"))
     ).flatten
     s"""{"name":"$name","service":{${fields.mkString(",")}}}"""
@@ -334,10 +335,11 @@ class ObjectStorageClusterFeatures
       project: String,
       logical: String,
       provision: Boolean,
-      expose: Boolean = false
+      expose: Boolean = false,
+      origins: Vector[String] = Vector.empty
   ): String =
     val name = real(logical)
-    ok(applyJson(project, descriptor(name, provision, expose)))
+    ok(applyJson(project, descriptor(name, provision, expose, origins = origins)))
     deployed = deployed :+ (project -> name)
     awaitReady(project, name)
     name
@@ -352,28 +354,8 @@ class ObjectStorageClusterFeatures
       ) && pods(project, name).exists(running)
     }
 
-  /** A shell command run inside the service's own container, with its environment. */
-  private def inPod(project: String, name: String, script: String): (Int, String) =
-    val pod = pods(project, name).find(running).getOrElse(fail(s"$name has no running pod"))
-    val r = k3s.execInContainer(
-      "kubectl",
-      "exec",
-      "-n",
-      namespace(project),
-      pod.getMetadata.getName,
-      "-c",
-      name,
-      "--",
-      "sh",
-      "-c",
-      script
-    )
-    (r.getExitCode, r.getStdout + r.getStderr)
-
   private def environment(project: String, name: String): Map[String, String] =
-    inPod(project, name, "env")._2.linesIterator
-      .flatMap(l => l.split("=", 2) match { case Array(k, v) => Some(k -> v); case _ => None })
-      .toMap
+    servicePods.environment(project, name)
 
   /** A signed request from inside the pod: its status, and the body. */
   private def s3(
@@ -383,21 +365,7 @@ class ObjectStorageClusterFeatures
       path: String,
       upload: Option[String] = None
   ): (Int, String) =
-    // The payload's hash, sent as its own header: a curl before 8 signs without it, and the store
-    // refuses a request that does not say it (`Missing X-Amz-Content-Sha256`).
-    val body = upload.fold("printf '' > /tmp/upload && ")(content =>
-      s"printf '%s' '$content' > /tmp/upload && "
-    ) + "hash=$(sha256sum /tmp/upload | cut -d' ' -f1) && "
-    val send = upload.fold("")(_ => "-T /tmp/upload ")
-    val (_, out) = inPod(
-      project,
-      name,
-      body +
-        s"""curl -s -o /tmp/answer -w '%{http_code}' -X $method $send-H "x-amz-content-sha256: $$hash" --aws-sigv4 "aws:amz:$$ANKKA_S3_REGION:s3" """ +
-        s"""--user "$$ANKKA_S3_ACCESS_KEY:$$ANKKA_S3_SECRET_KEY" "$$ANKKA_S3_ENDPOINT$path"; echo; cat /tmp/answer"""
-    )
-    val lines = out.linesIterator.toVector
-    (lines.headOption.flatMap(_.trim.toIntOption).getOrElse(0), lines.drop(1).mkString("\n"))
+    servicePods.s3(project, name, method, path, upload)
 
   private def keep(project: String, logical: String, obj: String): Unit =
     val (code, body) =
@@ -500,8 +468,8 @@ class ObjectStorageClusterFeatures
   private def storeAnswered(reply: (Int, Map[String, String], String)): Boolean =
     reply._3.contains("<Error>") || reply._3.contains("<?xml")
 
-  /** An object read with the service's own credential through a forward to the store. */
-  private def objectInStore(project: String, logical: String, obj: String): Option[String] =
+  /** The access key and secret the platform holds for a service's bucket now. */
+  private def storageKeyOf(project: String, logical: String): (String, String) =
     val secret = k8s
       .secrets()
       .inNamespace(namespace(project))
@@ -510,23 +478,15 @@ class ObjectStorageClusterFeatures
     val data = secret.getData.asScala.view.mapValues(v =>
       new String(java.util.Base64.getDecoder.decode(v), StandardCharsets.UTF_8)
     )
-    val client = software.amazon.awssdk.services.s3.S3Client
-      .builder()
-      .endpointOverride(URI.create(s"http://127.0.0.1:${s3Forward.getLocalPort}"))
-      .region(Region.of("garage"))
-      .forcePathStyle(true)
-      .requestChecksumCalculation(
-        software.amazon.awssdk.core.checksums.RequestChecksumCalculation.WHEN_REQUIRED
-      )
-      .responseChecksumValidation(
-        software.amazon.awssdk.core.checksums.ResponseChecksumValidation.WHEN_REQUIRED
-      )
-      .credentialsProvider(
-        StaticCredentialsProvider.create(
-          AwsBasicCredentials.create(data("ANKKA_S3_ACCESS_KEY"), data("ANKKA_S3_SECRET_KEY"))
-        )
-      )
-      .build()
+    (data("ANKKA_S3_ACCESS_KEY"), data("ANKKA_S3_SECRET_KEY"))
+
+  /** An S3 client on the host, through a forward to the store, holding `key`. */
+  private def storeClient(key: (String, String)): software.amazon.awssdk.services.s3.S3Client =
+    ServicePods.s3Client(s"http://127.0.0.1:${s3Forward.getLocalPort}", "garage", key)
+
+  /** An object read with the service's own credential through a forward to the store. */
+  private def objectInStore(project: String, logical: String, obj: String): Option[String] =
+    val client = storeClient(storageKeyOf(project, logical))
     try
       Some(
         client
@@ -537,6 +497,25 @@ class ObjectStorageClusterFeatures
       )
     catch case _: Exception => None
     finally client.close()
+
+  /** The store's answer to a listing of `bucket` with `key`: 200, or the status it refused with. */
+  private def storeAnswer(key: (String, String), bucket: String): Int =
+    val client = storeClient(key)
+    try
+      client.listObjectsV2(
+        software.amazon.awssdk.services.s3.model.ListObjectsV2Request
+          .builder()
+          .bucket(bucket)
+          .maxKeys(1)
+          .build()
+      ): Unit
+      200
+    catch case e: software.amazon.awssdk.services.s3.model.S3Exception => e.statusCode()
+    finally client.close()
+
+  /** The storage access key one instance of a service was started with. */
+  private def accessKeyIn(project: String, name: String, pod: Pod): Option[String] =
+    servicePods.accessKeyIn(project, name, pod)
 
   private def credentialOf(project: String, logical: String): (String, String) =
     val s =
@@ -639,6 +618,21 @@ class ObjectStorageClusterFeatures
   }
 
   Given(
+    "a deployed service {string} whose bucket is reachable from the internet, whose descriptor names the origin {string}"
+  ) { (logical: String, origin: String) =>
+    originsNamed = Vector(origin)
+    deploy("shop", logical, provision = true, expose = true, origins = originsNamed): Unit
+  }
+
+  Given("{string} has set nothing on its bucket") { (logical: String) =>
+    // Nothing in this scenario writes the bucket's rule but the operator, and its rule names the
+    // descriptor's origins and no other: whatever admits the browser is the platform's.
+    waitFor(120.seconds, "the operator setting the bucket's rule") {
+      admin.bucket(bucketOf("shop", logical)).exists(_.corsOrigins == originsNamed)
+    }
+  }
+
+  Given(
     "a deployed service {string} with a bucket, whose descriptor does not ask that the bucket be reachable from the internet"
   ) { (logical: String) =>
     deploy("shop", logical, provision = true): Unit
@@ -700,6 +694,13 @@ class ObjectStorageClusterFeatures
     "a member applies the descriptor of {string} without asking that the bucket be reachable from the internet"
   ) { (logical: String) =>
     ok(applyJson("shop", descriptor(real(logical), provision = true)))
+  }
+
+  When("a member asks for the storage credential of {string} to be issued again") {
+    (logical: String) =>
+      keyBefore = storageKeyOf("shop", logical)
+      assertEquals(storeAnswer(keyBefore, bucketOf("shop", logical)), 200)
+      ok(ankka("services", "storage", "reissue", real(logical), "-p", "shop")): Unit
   }
 
   When("a member deletes {string}") { (logical: String) =>
@@ -766,17 +767,10 @@ class ObjectStorageClusterFeatures
   }
 
   When(
-    "a browser sends the object {string} to a signed URL that {string} made for keeping {string}"
-  ) { (obj: String, logical: String, same: String) =>
+    "a browser on the origin {string} sends the object {string} to a signed URL that {string} made for keeping {string}"
+  ) { (origin: String, obj: String, logical: String, same: String) =>
     assertEquals(obj, same)
-    val origin = "https://web.example.test"
-    // The bucket's owner sets its CORS rule with its own credential; the platform sets none.
-    val rule =
-      s"<CORSConfiguration><CORSRule><AllowedOrigin>$origin</AllowedOrigin>" +
-        "<AllowedMethod>PUT</AllowedMethod><AllowedHeader>*</AllowedHeader></CORSRule></CORSConfiguration>"
-    val (cors, corsBody) =
-      s3("shop", real(logical), "PUT", s"/${bucketOf("shop", logical)}?cors", Some(rule))
-    assertEquals(cors, 200, corsBody)
+    // The service sets no rule: the one the browser meets is the operator's, from the descriptor.
     signedUrl = signForKeeping("shop", logical, obj)
     // What a browser does first, cross-origin: ask.
     waitFor(120.seconds, "the preflight being allowed through the gateway") {
@@ -930,6 +924,35 @@ class ObjectStorageClusterFeatures
 
   Then("the storage credential of {string} is the one it had before") { (logical: String) =>
     assertEquals(credentialOf("shop", logical), credentialBefore)
+  }
+
+  Then(
+    "{string} reads its bucket with a storage credential that is not the one it had before, once it is restarted"
+  ) { (logical: String) =>
+    val name = real(logical)
+    // The credential's generation is on the pod template, so the reissue replaces every instance.
+    waitFor(300.seconds, s"every instance of $name started with a new storage credential") {
+      val now = pods("shop", name)
+      now.nonEmpty && now.forall(running) &&
+      now.forall(p => accessKeyIn("shop", name, p).exists(_ != keyBefore._1))
+    }
+    awaitReady("shop", name)
+    assertNotEquals(storageKeyOf("shop", logical)._1, keyBefore._1)
+    keep("shop", logical, "after-reissue.txt")
+    readBack("shop", logical, "after-reissue.txt")
+  }
+
+  Then("the object store refuses the storage credential {string} had before") { (logical: String) =>
+    // Refused by the store's own clock once the rotation grace has passed, which the suite sets.
+    waitFor(RotationGrace + 120.seconds, "the old storage credential being refused") {
+      storeAnswer(keyBefore, bucketOf("shop", logical)) == 403
+    }
+  }
+
+  Then("the history of {string} says that its storage credential was issued again") {
+    (logical: String) =>
+      val run = ok(ankka("services", "history", real(logical), "-p", "shop", "-o", "json"))
+      assert(run.out.contains("\"storage-credential-reissued\""), run.out)
   }
 
   Then("the object store still holds the bucket of {string} with the object {string}") {

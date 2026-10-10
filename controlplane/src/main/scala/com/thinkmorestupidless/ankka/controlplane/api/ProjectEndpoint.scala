@@ -61,7 +61,11 @@ final class ProjectEndpoint(
     /** Where each service's instances report what they state about a topic (feature 037). */
     topology: Option[TopologyReader] = None,
     /** Where the record of secret reads is kept (feature 038); `None` answers unavailable. */
-    secretRecords: Option[com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore] = None
+    secretRecords: Option[com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore] =
+      None,
+    /** The store the installation makes new buckets in (feature 039). */
+    objectStore: com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind =
+      com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind.Garage
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -380,6 +384,39 @@ final class ProjectEndpoint(
       .withMetadata(authz.metadata(access))
       .invoke(RemoveBroker(name)): Done
   }
+
+  /**
+   * Names where the project's new buckets in Google Cloud Storage are made (feature 039), in the
+   * installation's own words; the cloud provider says what they mean. Refused where the
+   * installation keeps new buckets in Garage, which has no location to choose.
+   */
+  putBody("/{projectId}/location") { (projectId: String, request: SetProjectLocation) =>
+    val access = authz.project(principal, projectId, write = true)
+    locatable()
+    if request.location.trim.isEmpty then
+      throw CommandError("a location must name something", ErrorCode.BadRequest)
+    entity(projectId)
+      .call(ProjectEntity.setLocation)
+      .withMetadata(authz.metadata(access))
+      .invoke(request): Done
+  }
+
+  /** Lets the installation's default location apply to the project's new buckets again. */
+  delete("/{projectId}/location") { (projectId: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    locatable()
+    entity(projectId)
+      .call(ProjectEntity.setLocation)
+      .withMetadata(authz.metadata(access))
+      .invoke(SetProjectLocation("")): Done
+  }
+
+  private def locatable(): Unit =
+    if objectStore != com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind.Gcs then
+      throw CommandError(
+        "the installation keeps new buckets in Garage, which has no location to choose",
+        ErrorCode.Conflict
+      )
 
   /** The project's declared brokers. */
   get("/{projectId}/brokers") { (projectId: String) =>

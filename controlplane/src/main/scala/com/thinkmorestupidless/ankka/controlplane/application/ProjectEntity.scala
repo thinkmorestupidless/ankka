@@ -7,7 +7,8 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   ProjectDetail,
   ProjectSecretSummary,
   ProjectTopics,
-  RegistrySummary
+  RegistrySummary,
+  SetProjectLocation
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
@@ -42,8 +43,9 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       currentState.onTopicDeclared(name, partitions, at, compacted, contract)
     case ProjectBrokerDeclared(name, bootstrap, shape, secretName, _, at) =>
       currentState.onBrokerDeclared(name, DeclaredBroker(bootstrap, shape, secretName, at))
-    case ProjectBrokerRemoved(name, _, _) => currentState.onBrokerRemoved(name)
-    case ProjectTopicRemoved(name, _, _)  => currentState.onTopicRemoved(name)
+    case ProjectBrokerRemoved(name, _, _)   => currentState.onBrokerRemoved(name)
+    case ProjectLocationSet(location, _, _) => currentState.onLocationSet(location)
+    case ProjectTopicRemoved(name, _, _)    => currentState.onTopicRemoved(name)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -241,6 +243,21 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       )
     else effects.persist(ProjectBrokerRemoved(request.name, actor, at)).thenReply(_ => Done)
 
+  /**
+   * Names where the project's new buckets in Google Cloud Storage are made, or, with none, lets the
+   * installation's default apply (feature 039). The same location again records nothing.
+   */
+  def setLocation(request: SetProjectLocation): Effect[Done] =
+    val location = Option(request.location).map(_.trim).filter(_.nonEmpty)
+    if !currentState.exists then notFound
+    else if currentState.bucketLocation == location then effects.reply(Done)
+    else effects.persist(ProjectLocationSet(location, actor, at)).thenReply(_ => Done)
+
+  /** Where the project's new buckets are made, when it names one. */
+  def bucketLocation: ReadOnlyEffect[Option[String]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.bucketLocation)
+
   /** The project's declared brokers, by name. */
   def brokers: ReadOnlyEffect[Map[String, DeclaredBroker]] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
@@ -342,3 +359,8 @@ object ProjectEntity
   val declareBroker = command("declare-broker")(_.declareBroker)
   val removeBroker  = command("remove-broker")(_.removeBroker)
   val brokers       = query("brokers")(_.brokers)
+
+  given setProjectLocationSerializer: Serializer[SetProjectLocation] =
+    Codecs.serializer[SetProjectLocation]("set-project-location")
+  val setLocation    = command("set-location")(_.setLocation)
+  val bucketLocation = query("bucket-location")(_.bucketLocation)

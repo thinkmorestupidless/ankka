@@ -766,6 +766,7 @@ Usage:
     ankka projects secret-reads
     ankka projects topics
     ankka projects brokers
+    ankka projects location
 
 Manage projects.
 
@@ -794,6 +795,8 @@ Subcommands:
         A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
     brokers
         Brokers a project declares beside the installation's, which a component may name for one topic; the credential is a project secret, mounted for the platform's program alone.
+    location
+        Where a project's new buckets in Google Cloud Storage are made; a bucket's location is fixed when it is made.
 ```
 
 ### `ankka projects list`
@@ -1320,6 +1323,66 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka projects location`
+
+```text
+Usage:
+    ankka projects location set
+    ankka projects location clear
+
+Where a project's new buckets in Google Cloud Storage are made; a bucket's location is fixed when it is made.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    set
+        Name the location, in the installation's own words.
+    clear
+        Let the installation's default location apply again.
+```
+
+### `ankka projects location set`
+
+```text
+Usage: ankka projects location set [--url <string>] [--token <string>] [--project <string>] [--output <string>] <location>
+
+Name the location, in the installation's own words.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects location clear`
+
+```text
+Usage: ankka projects location clear [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Let the installation's default location apply again.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka services`
 
 ```text
@@ -1331,6 +1394,7 @@ Usage:
     ankka services pause
     ankka services resume
     ankka services restart
+    ankka services storage
     ankka services rollback
     ankka services logs
     ankka services topology
@@ -1360,6 +1424,8 @@ Subcommands:
         Start a paused service again.
     restart
         Replace a service's instances.
+    storage
+        Act on a service's bucket and its credential.
     rollback
         Apply the descriptor of an earlier generation again, as a new generation.
     logs
@@ -1506,6 +1572,91 @@ Options and flags:
 Usage: ankka services restart [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Replace a service's instances.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services storage`
+
+```text
+Usage:
+    ankka services storage reissue
+    ankka services storage move
+    ankka services storage reapply-settings
+
+Act on a service's bucket and its credential.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    reissue
+        Issue the service's storage credential again; the old one ends after the rotation grace.
+    move
+        Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly.
+    reapply-settings
+        Apply the installation's current soft-delete window and key to the bucket in Google Cloud Storage.
+```
+
+### `ankka services storage reissue`
+
+```text
+Usage: ankka services storage reissue [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Issue the service's storage credential again; the old one ends after the rotation grace.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services storage move`
+
+```text
+Usage: ankka services storage move [--write-pause-bound <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Move the service's bucket from Garage to Google Cloud Storage, pausing its writes briefly.
+
+Options and flags:
+    --help
+        Display this help text.
+    --write-pause-bound <string>
+        How long the service's writes may be paused, such as 10m or 1h; 10m when not given.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services storage reapply-settings`
+
+```text
+Usage: ankka services storage reapply-settings [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Apply the installation's current soft-delete window and key to the bucket in Google Cloud Storage.
 
 Options and flags:
     --help

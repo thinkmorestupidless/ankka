@@ -118,7 +118,8 @@ final class ServiceProjector private (
             projectId,
             work.topicsOf(projectId),
             work.brokersOf(projectId),
-            work.secretsOf(projectId)
+            work.secretsOf(projectId),
+            work.locationOf(projectId)
           )
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
@@ -235,6 +236,13 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.secrets)
+      .invoke()
+
+  /** Where the project's new buckets are made, when it names one (feature 039). */
+  def locationOf(projectId: String): Option[String] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.bucketLocation)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =

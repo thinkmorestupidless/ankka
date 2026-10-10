@@ -53,23 +53,76 @@ final class GarageStore(
   def deleteKey(accessKeyId: String): Unit =
     send("POST", s"/v2/DeleteKey?id=${encode(accessKeyId)}", Some(json.createObjectNode())): Unit
 
-  def allow(bucketId: String, accessKeyId: String): Unit =
+  def allow(bucketId: String, accessKeyId: String, write: Boolean): Unit =
     val body = json.createObjectNode()
     body.put("bucketId", bucketId)
     body.put("accessKeyId", accessKeyId)
     val permissions = body.putObject("permissions")
-    // Owner, so the service can set its own bucket's CORS and lifecycle rules with its own client:
-    // the administration API cannot, and the platform sets neither.
+    // A writing key also owns the bucket, so a lifecycle rule the service sets with its own client
+    // stays its own (feature 034); CORS is the platform's since feature 039. `AllowBucketKey` only
+    // adds, so a key allowed without write is one that was never given it.
     permissions.put("read", true)
+    permissions.put("write", write)
+    permissions.put("owner", write)
+    send("POST", "/v2/AllowBucketKey", Some(body)): Unit
+
+  def setCors(bucketId: String, origins: Seq[String]): Unit =
+    val body  = json.createObjectNode()
+    val rules = body.putArray("corsRules")
+    if origins.nonEmpty then
+      val rule = rules.addObject()
+      rule.put("ID", "ankka-origins")
+      val allowed = rule.putArray("AllowedOrigin")
+      origins.foreach(allowed.add)
+      val methods = rule.putArray("AllowedMethod")
+      Seq("GET", "PUT", "HEAD").foreach(methods.add)
+      rule.putArray("AllowedHeader").add("*")
+      rule.putArray("ExposeHeader").add("ETag")
+      rule.put("MaxAgeSeconds", 3600): Unit
+    send("POST", s"/v2/UpdateBucket?id=${encode(bucketId)}", Some(body)): Unit
+
+  def expire(accessKeyId: String, at: Instant): Unit =
+    val body = json.createObjectNode()
+    body.put("expiration", at.toString)
+    send("POST", s"/v2/UpdateKey?id=${encode(accessKeyId)}", Some(body)): Unit
+
+  def keyInfo(accessKeyId: String): Option[KeyInfo] =
+    listKeys().find(_.accessKeyId == accessKeyId)
+
+  def keysOf(bucket: String): Vector[KeyInfo] =
+    listKeys().filter(k => k.name == bucket || k.name.startsWith(bucket + "#"))
+
+  def deny(bucketId: String, accessKeyId: String): Unit =
+    val body = json.createObjectNode()
+    body.put("bucketId", bucketId)
+    body.put("accessKeyId", accessKeyId)
+    val permissions = body.putObject("permissions")
+    permissions.put("read", false)
     permissions.put("write", true)
     permissions.put("owner", true)
-    send("POST", "/v2/AllowBucketKey", Some(body)): Unit
+    send("POST", "/v2/DenyBucketKey", Some(body)): Unit
+
+  private def listKeys(): Vector[KeyInfo] =
+    send("GET", "/v2/ListKeys")._2.elements.asScala.toVector.map { key =>
+      KeyInfo(
+        key.path("id").asText(),
+        key.path("name").asText(),
+        key.path("expired").asBoolean(),
+        Option(key.path("expiration").asText(null)).filter(_.nonEmpty).map(Instant.parse)
+      )
+    }
 
   private def bucketInfo(body: JsonNode): BucketInfo =
     BucketInfo(
       id = body.path("id").asText(),
       created = Instant.parse(body.path("created").asText()),
-      allowedKeys = body.path("keys").elements.asScala.map(_.path("accessKeyId").asText()).toSet
+      allowedKeys = body.path("keys").elements.asScala.map(_.path("accessKeyId").asText()).toSet,
+      corsOrigins = body
+        .path("corsRules")
+        .elements
+        .asScala
+        .flatMap(_.path("AllowedOrigin").elements.asScala.map(_.asText()))
+        .toVector
     )
 
   private def obj(fields: (String, String)*): JsonNode =

@@ -4,6 +4,10 @@ import com.typesafe.config.Config
 
 import scala.concurrent.duration.{DurationLong, FiniteDuration}
 
+/** The store an installation makes new buckets in (feature 039). */
+enum ObjectStoreKind:
+  case Garage, Gcs
+
 /** Everything the control plane needs to know about its deployment target. */
 final case class DeployConfig(
     namespacePrefix: String,
@@ -23,7 +27,15 @@ final case class DeployConfig(
      * This platform's version, against which a descriptor's declared `runtime` is checked
      * (`Compatibility`). From the build; overridable so a test can be a platform of any version.
      */
-    platformVersion: String = com.thinkmorestupidless.ankka.core.BuildInfo.version
+    platformVersion: String = com.thinkmorestupidless.ankka.core.BuildInfo.version,
+    /** The store new buckets are made in (feature 039). Garage unless the installation says. */
+    objectStore: ObjectStoreKind = ObjectStoreKind.Garage,
+    /** Google Cloud Storage's bucket name prefix, when that is the store. */
+    objectStorePrefix: Option[String] = None,
+    /** How long a new bucket in Google Cloud Storage keeps a deleted object, 7 to 90 days. */
+    softDeleteDays: Int = 7,
+    /** The installation's cloud provider (feature 044); `None` when it names none. */
+    cloudProvider: Option[String] = None
 ):
   def namespaceFor(projectId: String): String = s"$namespacePrefix-$projectId"
 
@@ -63,7 +75,39 @@ object DeployConfig:
 
   def from(config: Config): DeployConfig =
     val section = config.getConfig("ankka.controlplane.kubernetes")
+    val store   = config.getConfig("ankka.controlplane.object-store")
+    val cloudProvider =
+      Option(config.getString("ankka.controlplane.cloud.provider"))
+        .map(_.trim)
+        .filter(p => p.nonEmpty && p != "none")
+    // Empty is what a manifest renders when its overlay names no store: Garage, as before.
+    val backend = store.getString("backend").trim match
+      case "garage" | "" => ObjectStoreKind.Garage
+      case "gcs"         => ObjectStoreKind.Gcs
+      case other =>
+        throw new IllegalArgumentException(
+          s"ANKKA_OBJECT_STORE_BACKEND is '$other'; it must be garage or gcs"
+        )
+    val prefix = Option(store.getString("prefix")).map(_.trim).filter(_.nonEmpty)
+    val days   = store.getInt("soft-delete-days")
+    if days < 7 || days > 90 then
+      throw new IllegalArgumentException(
+        s"ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS is $days; it must be a number of days from 7 to 90"
+      )
+    if backend == ObjectStoreKind.Gcs then
+      if cloudProvider.isEmpty then
+        throw new IllegalArgumentException(
+          "ANKKA_OBJECT_STORE_BACKEND is gcs, so ANKKA_CLOUD_PROVIDER must name a cloud provider"
+        )
+      if prefix.isEmpty then
+        throw new IllegalArgumentException(
+          "ANKKA_OBJECT_STORE_BACKEND is gcs, so ANKKA_OBJECT_STORE_PREFIX must be set"
+        )
     DeployConfig(
+      objectStore = backend,
+      objectStorePrefix = prefix,
+      softDeleteDays = days,
+      cloudProvider = cloudProvider,
       namespacePrefix = section.getString("namespace-prefix"),
       sweepInterval = section.getDuration("sweep-interval").toMillis.millis,
       retryMinBackoff = section.getDuration("retry-min-backoff").toMillis.millis,

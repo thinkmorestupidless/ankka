@@ -108,6 +108,12 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "broker-unset":
         await ctx.client.removeBroker(id, text(form, "brokerName"));
         return redirect(self);
+      case "location-set":
+        await ctx.client.setProjectLocation(id, text(form, "location"));
+        return redirect(self);
+      case "location-clear":
+        await ctx.client.clearProjectLocation(id);
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
@@ -124,6 +130,7 @@ export default function Project() {
   const secretRefusal = useRefusal("secret-set");
   const topicRefusal = useRefusal("topic-set");
   const brokerRefusal = useRefusal("broker-set");
+  const locationRefusal = useRefusal("location-set");
   const shown = useActionData() as { intent?: string; topic?: string; schema?: unknown } | undefined;
   const shownSchema = shown && shown.intent === "topic-schema" && typeof shown.topic === "string" ? shown : undefined;
   const path = `projects/${encodeURIComponent(p.id)}`;
@@ -242,6 +249,39 @@ export default function Project() {
               </div>
             </ConsoleForm>
           </details>
+        </section>
+      ) : null}
+      {shows("project-location.set") || shows("project-location.clear") ? (
+        <section className="ac-form" aria-labelledby="location-title">
+          <SectionTitle>
+            <span id="location-title">Bucket location</span>
+          </SectionTitle>
+          {shows("project-location.set") ? (
+            <details className="ac-more" open={locationRefusal !== undefined || undefined}>
+              <summary>Choose where new buckets are made</summary>
+              <ConsoleForm intent="location-set" className="ac-form">
+                <Field
+                  label="Location"
+                  name="location"
+                  required
+                  placeholder="europe-west6"
+                  autoComplete="off"
+                  defaultValue={locationRefusal?.values.location}
+                  hint="Where the project's new buckets in Google Cloud Storage are made, in the installation's own words. A bucket's location is fixed when it is made, so this moves no bucket."
+                />
+                <Refused intent="location-set" />
+                <div>
+                  <Submit intent="location-set">Set location</Submit>
+                </div>
+              </ConsoleForm>
+            </details>
+          ) : null}
+          {shows("project-location.clear") ? (
+            <ConsoleForm intent="location-clear">
+              <Submit intent="location-clear">Use the installation's location</Submit>
+              <Refused intent="location-clear" />
+            </ConsoleForm>
+          ) : null}
         </section>
       ) : null}
       {shows("project.rename") || shows("project.delete") ? (

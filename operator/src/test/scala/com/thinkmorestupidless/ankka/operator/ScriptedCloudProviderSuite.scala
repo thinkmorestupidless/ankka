@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.operator.cloud.{
   Issued,
   ScriptedFulfilment,
   ScriptedMemory,
+  ScriptedStore,
   SecretWrites
 }
 
@@ -106,12 +107,15 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     val fx = Fixture()
     assertEquals(
       fx.fulfil("reports-identity", everyKind(0)).outputs,
-      Map("identity" -> "reports@acct.scripted")
+      Map(
+        "identity"                  -> "reports@acct.scripted",
+        "serviceAccountAnnotations" -> "scripted.example/identity=reports"
+      )
     )
     assertEquals(
       fx.fulfil("reports-bucket", bucket).outputs,
       Map(
-        "bucket"   -> "acct-shop-reports",
+        "bucket"   -> BucketNames.name("acct", "shop", "reports"),
         "endpoint" -> "https://storage.scripted.invalid",
         "region"   -> "europe-west2"
       )
@@ -274,4 +278,127 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     val first = fx.fulfil("reports-storage-credential", credential(1))
     val bump  = fx.fulfil("reports-storage-credential", credential(2), 2L, Some(first))
     assert(first.recovered && bump.recovered)
+  }
+
+  // Feature 039 (research R1a D7): a Garage standing in for the cloud.
+
+  /**
+   * Garage as far as the scripted provider uses it: buckets by name, keys, grants, CORS, expiry.
+   */
+  private final class Garage extends ObjectStore:
+    val buckets                                  = mutable.Map.empty[String, BucketInfo]
+    val keys                                     = mutable.Map.empty[String, String] // id -> name
+    val expiries                                 = mutable.Map.empty[String, Instant]
+    private var n                                = 0
+    def bucket(name: String): Option[BucketInfo] = buckets.get(name)
+    def createBucket(name: String): BucketInfo =
+      val made = BucketInfo(s"id-$name", start, Set.empty)
+      buckets(name) = made
+      made
+    def keysNamed(name: String): Vector[String] = keys.collect { case (id, `name`) => id }.toVector
+    def createKey(name: String): IssuedKey =
+      n += 1
+      keys(s"GK$n") = name
+      IssuedKey(s"GK$n", s"secret-$n")
+    def deleteKey(accessKeyId: String): Unit = keys -= accessKeyId
+    def allow(bucketId: String, accessKeyId: String, write: Boolean): Unit =
+      update(bucketId)(b => b.copy(allowedKeys = b.allowedKeys + accessKeyId))
+    def setCors(bucketId: String, origins: Seq[String]): Unit =
+      update(bucketId)(_.copy(corsOrigins = origins))
+    def expire(accessKeyId: String, at: Instant): Unit = expiries(accessKeyId) = at
+    def keyInfo(accessKeyId: String): Option[KeyInfo] =
+      keys.get(accessKeyId).map(KeyInfo(accessKeyId, _, false, expiries.get(accessKeyId)))
+    def keysOf(bucket: String): Vector[KeyInfo]           = Vector.empty
+    def deny(bucketId: String, accessKeyId: String): Unit = ()
+    private def update(id: String)(f: BucketInfo => BucketInfo): Unit =
+      buckets.find(_._2.id == id).foreach((name, b) => buckets(name) = f(b))
+
+  private final class InGarage:
+    var now     = start
+    val garage  = new Garage
+    val secrets = new Secrets
+    val f = ScriptedFulfilment(
+      "gcp",
+      "acct",
+      "europe-west2",
+      20.seconds,
+      () => now,
+      store = ScriptedStore.InGarage(garage, "http://garage.garage-system.svc:3900", "garage")
+    )
+    def fulfil(
+        name: String,
+        spec: CloudResourceSpec,
+        generation: Long = 1L,
+        previous: Option[CloudResourceStatus] = None
+    ) = f.fulfil("ankka-shop", name, spec, generation, previous, secrets)
+
+  private val named = BucketNames.name("t", "shop", "reports")
+
+  private def garageBucket(origins: String = "") =
+    spec(
+      CloudKinds.Bucket,
+      "purpose"     -> "service",
+      "location"    -> "europe-west2",
+      "corsOrigins" -> origins,
+      "namePrefix"  -> "t"
+    )
+
+  test(
+    "in Garage: a bucket is made under the contract's name with its origins, at the store's port"
+  ) {
+    val fx = InGarage()
+    val status =
+      fx.fulfil("reports-bucket", garageBucket("https://play.example,https://shop.example"))
+    assertEquals(
+      status.outputs,
+      Map(
+        "bucket"   -> named,
+        "endpoint" -> "http://garage.garage-system.svc:3900",
+        "region"   -> "garage"
+      )
+    )
+    assertEquals(
+      fx.garage.buckets(named).corsOrigins,
+      Seq("https://play.example", "https://shop.example")
+    )
+  }
+
+  test("in Garage: a credential is a key allowed on its bucket, written once into its Secret") {
+    val fx = InGarage()
+    fx.fulfil("reports-bucket", garageBucket())
+    fx.fulfil("reports-storage-credential", credential(1, bucketName = named))
+    val held = fx.secrets.held("ankka-shop" -> "reports-storage")
+    assertEquals(held("ANKKA_S3_ACCESS_KEY"), "GK1")
+    assertEquals(held("ANKKA_S3_SECRET_KEY"), "secret-1")
+    assertEquals(fx.garage.buckets(named).allowedKeys, Set("GK1"))
+  }
+
+  test(
+    "in Garage: a raised generation is a new key, and the old one ends by the store's clock after the grace"
+  ) {
+    val fx = InGarage()
+    fx.fulfil("reports-bucket", garageBucket())
+    val first = fx.fulfil("reports-storage-credential", credential(1, bucketName = named))
+    fx.now = start.plusSeconds(60)
+    fx.fulfil(
+      "reports-storage-credential",
+      credential(2, bucketName = named),
+      2L,
+      Some(first)
+    )
+    assertEquals(fx.secrets.held("ankka-shop" -> "reports-storage")("ANKKA_S3_ACCESS_KEY"), "GK2")
+    assertEquals(fx.garage.buckets(named).allowedKeys, Set("GK1", "GK2"))
+    assertEquals(fx.garage.expiries.toMap, Map("GK1" -> start.plusSeconds(80)))
+  }
+
+  test("in Garage: a credential whose Secret is already there is ended at once") {
+    val fx = InGarage()
+    fx.fulfil("reports-bucket", garageBucket())
+    fx.secrets.held("ankka-shop" -> "reports-storage") = Map("ANKKA_S3_ACCESS_KEY" -> "before")
+    fx.fulfil("reports-storage-credential", credential(1, bucketName = named))
+    assertEquals(fx.garage.expiries.toMap, Map("GK1" -> start))
+    assertEquals(
+      fx.secrets.held("ankka-shop" -> "reports-storage")("ANKKA_S3_ACCESS_KEY"),
+      "before"
+    )
   }

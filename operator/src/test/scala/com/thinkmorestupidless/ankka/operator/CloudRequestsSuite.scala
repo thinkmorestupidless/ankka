@@ -95,12 +95,14 @@ class CloudRequestsSuite extends munit.FunSuite:
     assertEquals(
       r.getSpec.parameters,
       Map(
-        "purpose"        -> "service",
-        "location"       -> "europe-west2",
-        "versioning"     -> "false",
-        "softDeleteDays" -> "0",
-        "corsOrigins"    -> "",
-        "kmsKey"         -> "keys/ankka"
+        "purpose"               -> "service",
+        "location"              -> "europe-west2",
+        "versioning"            -> "false",
+        "softDeleteDays"        -> "0",
+        "corsOrigins"           -> "",
+        "kmsKey"                -> "keys/ankka",
+        "namePrefix"            -> "",
+        "noncurrentVersionDays" -> ""
       )
     )
     ownedBy(r, "AnkkaService", "service-uid")
@@ -131,6 +133,32 @@ class CloudRequestsSuite extends munit.FunSuite:
       )
     )
     holdsTheContract(r)
+  }
+
+  test(
+    "a bucket request carries the installation's name prefix and the age of a noncurrent version"
+  ) {
+    // Feature 039 (research R1a D3): a list is comma-separated, a number its decimal text.
+    val ask = BucketAsk(
+      versioning = true,
+      softDeleteDays = 7,
+      corsOrigins = Vector("https://play.example", "https://shop.example"),
+      namePrefix = "acme",
+      noncurrentVersionDays = Some(30)
+    )
+    val p = bucket(cloud, byService, Purpose.Service, cloud.location, ask).getSpec.parameters
+    assertEquals(p("namePrefix"), "acme")
+    assertEquals(p("noncurrentVersionDays"), "30")
+    assertEquals(p("versioning"), "true")
+    assertEquals(p("softDeleteDays"), "7")
+    assertEquals(p("corsOrigins"), "https://play.example,https://shop.example")
+  }
+
+  test("an identity answers the annotations its ServiceAccount carries, beside the identity") {
+    assertEquals(
+      Keys.outputs(CloudKinds.Identity),
+      Set("identity", "serviceAccountAnnotations")
+    )
   }
 
   test("an installation that names no wrapping key asks a bucket for none") {

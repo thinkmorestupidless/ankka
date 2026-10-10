@@ -251,6 +251,17 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A member named where the project's new buckets in Google Cloud Storage are made, or took the
+   * name back so the installation's default applies (`None`) (feature 039). A bucket's location is
+   * fixed when it is made: this moves none.
+   */
+  case ProjectLocationSet(
+      location: Option[String],
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -319,12 +330,11 @@ enum ServiceEvent:
        */
       objectStorage: Option[String] = None,
       /**
-       * The bucket's name as the operator reported it (feature 044): the cloud provider's, for a
-       * bucket in the installation's cloud account, and empty while it has not answered. `None` for
-       * a service with no bucket and for events from before the field existed, when the name is
-       * derived as it always was.
+       * What the operator reported of the bucket beyond its phase (feature 039): which store it is
+       * in, its name and address as reported, its location and soft-delete window, and a move.
+       * `None` for events from before it existed, which a reader takes as a bucket in Garage.
        */
-      bucket: Option[String] = None
+      storage: Option[StorageReport] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -336,6 +346,43 @@ enum ServiceEvent:
    */
   case ServiceSuspended(actor: Option[Actor] = None, at: Option[Instant] = None)
   case ServiceReinstated(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * A member asked for the service's storage credential to be issued again (feature 039). Desired
+   * state beside the descriptor, like exposure: no deployment generation; the operator issues a new
+   * credential, rolls the service onto it, and ends the old one after the rotation grace.
+   * `generation` is the credential's, not the service's.
+   */
+  case StorageCredentialReissued(
+      generation: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A member asked for the service's bucket to be moved from Garage to Google Cloud Storage
+   * (feature 039), its writes paused for at most `writePauseBound` (`10m` when the member named
+   * none). `generation` is the move's, raised per request, so a move that failed can be asked for
+   * again.
+   */
+  case StorageMoveRequested(
+      generation: Int,
+      writePauseBound: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A member asked for the installation's current bucket settings — its soft-delete window and its
+   * wrapping key — to be applied to the service's bucket in Google Cloud Storage (feature 039). A
+   * changed setting reaches a new bucket by itself and an existing one only so, because shortening
+   * the window over regulated documents is a decision, not a reconcile.
+   */
+  case StorageSettingsReapplied(
+      generation: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
 
 /** What an operator submits to change a service. */
 final case class ApplyService(projectId: String, descriptor: ServiceDescriptor)
@@ -358,8 +405,28 @@ final case class ServiceObservation(
     database: Option[String] = None,
     broker: Option[String] = None,
     objectStorage: Option[String] = None,
-    /** The bucket's name as the operator reported it (feature 044); empty while not yet known. */
-    bucket: Option[String] = None
+    storage: Option[StorageReport] = None
+)
+
+/**
+ * What the operator reported of a service's bucket beyond its phase (feature 039). The bucket's
+ * name and address are the operator's, as the cloud provider reported them in Google Cloud Storage,
+ * so the control plane shows them rather than deriving them. Never a key.
+ *
+ * @param move
+ *   a move's state, as the operator wrote it: `Requested`, `Copying`, `Pausing`, `Verifying`,
+ *   `Switched` or `Failed`; its detail is the observation's
+ */
+final case class StorageReport(
+    store: Option[String] = None,
+    bucket: Option[String] = None,
+    bucketAddress: Option[String] = None,
+    location: Option[String] = None,
+    softDeleteDays: Option[Int] = None,
+    move: Option[String] = None,
+    moveGeneration: Option[Int] = None,
+    /** When the move's write pause began, as the operator wrote it, RFC 3339. */
+    movePausedAt: Option[String] = None
 )
 
 /**

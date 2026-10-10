@@ -194,6 +194,34 @@ class GherkinSuiteSuite extends munit.FunSuite:
     assert(run.failed.keys.exists(_.endsWith("broken.feature:4 does not parse")), run.toString)
   }
 
+  test("a scenario run outside the repository is reported ignored with why, never run or passed") {
+    // The steps would fail: 2 items is not 99. Ignored, they are never run.
+    val text = cart.replace("Then the cart holds 2 items", "Then the cart holds 99 items")
+    val suite = new CartSteps(features("add.feature" -> text)):
+      override def ranOutside = Map("adding items" -> "only a real cloud account can answer")
+    val run = this.run(classOf[CartSteps], () => suite)
+    assert(
+      run.ignored.exists(n =>
+        n.startsWith("adding items") && n.endsWith(
+          "is run outside this repository: only a real cloud account can answer"
+        )
+      ),
+      run.toString
+    )
+    assert(!run.passed.exists(_.startsWith("adding items")), run.toString)
+    assert(!run.failed.keys.exists(_.startsWith("adding items")), run.toString)
+  }
+
+  test("a scenario said to run outside that the feature does not hold fails the suite, naming it") {
+    val suite = new CartSteps(features("add.feature" -> cart)):
+      override def ranOutside = Map("removing items" -> "nowhere")
+    val run = this.run(classOf[CartSteps], () => suite)
+    val stale = run.failed.collectFirst {
+      case (name, message) if name.contains("says is run outside it") => message
+    }
+    assert(stale.exists(_.contains("'removing items'")), run.toString)
+  }
+
   test("a scenario tagged @ignore is reported ignored, not passed") {
     val text  = cart.replace("  Scenario: adding items", "  @ignore\n  Scenario: adding items")
     val suite = new CartSteps(features("add.feature" -> text)) {}

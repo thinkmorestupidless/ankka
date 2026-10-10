@@ -27,6 +27,23 @@ object Buckets:
 
   def secret(serviceName: String): String = s"$serviceName$SecretSuffix"
 
+  /**
+   * The Secret the cloud provider writes a service's credential for its bucket in the
+   * installation's cloud account into (features 044 and 039). Not the Garage one: a service being
+   * moved holds its Garage key there while the cloud provider writes the new bucket's here. Named
+   * for no cloud, as the provider's contract is written for any. It ends as every storage
+   * credential's does, so no descriptor may name it.
+   */
+  def cloudSecret(serviceName: String): String = s"$serviceName-cloud$SecretSuffix"
+
+  /**
+   * A bucket in Google Cloud Storage's address on the internet: the store's, then the name the
+   * cloud provider reported. Never derived from the project and the service: that name is shared
+   * with every other customer of Google's, and only the cloud provider knows it.
+   */
+  def gcsPublicAddress(endpoint: String, bucket: String): String =
+    s"${endpoint.stripSuffix("/")}/$bucket"
+
   /** Why this pair cannot have a bucket, if it cannot. Empty means it can. */
   def problems(projectId: String, serviceName: String): Vector[String] =
     val n = name(projectId, serviceName)

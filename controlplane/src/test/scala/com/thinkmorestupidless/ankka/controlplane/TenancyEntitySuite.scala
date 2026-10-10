@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   Owner,
   Quota,
   Role,
+  SetProjectLocation,
   Usage
 }
 import com.thinkmorestupidless.ankka.controlplane.application.{
@@ -911,4 +912,35 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     }
     assertEquals(replayed, kit.currentState)
     assertEquals(replayed.usage, Usage(1, 1, 3))
+  }
+
+  // Feature 039: where a project's new buckets in Google Cloud Storage are made.
+
+  test(
+    "a project names a location for its buckets, takes it back, and the same one again records nothing"
+  ) {
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    assertEquals(kit.call(ProjectEntity.bucketLocation).replyValue, None)
+    val set = kit.call(ProjectEntity.setLocation)(SetProjectLocation("europe-west6"))
+    assertEquals(set.events.size, 1)
+    assertEquals(kit.call(ProjectEntity.bucketLocation).replyValue, Some("europe-west6"))
+    assertEquals(
+      kit.call(ProjectEntity.setLocation)(SetProjectLocation("europe-west6")).events,
+      Vector.empty
+    )
+    val cleared = kit.call(ProjectEntity.setLocation)(SetProjectLocation(""))
+    assertEquals(cleared.events.size, 1)
+    assertEquals(kit.call(ProjectEntity.bucketLocation).replyValue, None)
+  }
+
+  test("a project's location is written onto its resource, and absent when it names none") {
+    import com.thinkmorestupidless.ankka.controlplane.deploy.ProjectProjection
+    assertEquals(
+      ProjectProjection
+        .spec("checkout", Map.empty, Map.empty, bucketLocation = Some("europe-west6"))
+        .bucketLocation,
+      Some("europe-west6")
+    )
+    assertEquals(ProjectProjection.spec("checkout", Map.empty).bucketLocation, None)
   }

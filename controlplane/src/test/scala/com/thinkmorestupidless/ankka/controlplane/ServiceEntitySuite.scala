@@ -352,6 +352,182 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(restarted.replyValue.readyInstances, 0)
   }
 
+  // Feature 039: a storage credential issued again.
+
+  private def withBucket =
+    ApplyService(
+      "acme",
+      descriptor().copy(service = descriptor().service.copy(provisionObjectStorage = true))
+    )
+
+  test(
+    "issuing a storage credential again raises its generation, is in the history, and deploys nothing"
+  ) {
+    val kit    = newKit
+    val _      = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val first  = kit.call(ServiceEntity.reissueStorageCredential)
+    val second = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(
+      second.events.collect { case e: StorageCredentialReissued => e.generation },
+      Vector(2)
+    )
+    assertEquals(first.replyValue.generation, 1L, "the service's own generation does not move")
+    assertEquals(kit.currentState.storageCredentialGeneration, 2)
+    assertEquals(kit.currentState.history.head.kind, "storage-credential-reissued")
+  }
+
+  test("a service whose descriptor asks for no bucket has no storage credential to issue again") {
+    val kit     = newKit
+    val _       = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val refused = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assert(
+      refused.error.message.contains("no storage credential to reissue"),
+      refused.error.message
+    )
+  }
+
+  test("a storage credential issued again survives a replay of the journal") {
+    val kit      = newKit
+    val _        = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _        = kit.call(ServiceEntity.reissueStorageCredential)
+    val replayed = kit.allEvents.foldLeft(Service.empty(ServiceKey("acme", "cart")))(Service.fold)
+    assertEquals(replayed.storageCredentialGeneration, 1)
+  }
+
+  // Feature 039: a move from Garage to Google Cloud Storage.
+
+  private def reported(state: String, generation: Int, store: String = "garage") =
+    ServiceObservation(
+      generation = 1L,
+      lifecycle = ServiceLifecycle.Ready,
+      readyInstances = 1,
+      desiredInstances = 1,
+      objectStorage = Some("Provisioned"),
+      storage = Some(
+        StorageReport(store = Some(store), move = Some(state), moveGeneration = Some(generation))
+      )
+    )
+
+  test("a move is asked for with the shipped bound, and recorded in the history") {
+    val kit   = newKit
+    val _     = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val asked = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    assertEquals(
+      asked.events.collect { case e: StorageMoveRequested => (e.generation, e.writePauseBound) },
+      Vector((1, "10m"))
+    )
+    assertEquals(kit.currentState.history.head.kind, "storage-moved")
+    val named = newKit
+    val _     = named.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = named.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some("30m")))
+    assertEquals(named.currentState.storageMove, Some(MoveRequest(1, "30m")))
+  }
+
+  test("while a move is in progress, a second move and a re-issue are both refused") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    // Asked for and not yet reported is in progress too.
+    assertEquals(
+      kit.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.code,
+      ErrorCode.Conflict
+    )
+    val _       = kit.call(ServiceEntity.observe)(reported("Pausing", 1))
+    val again   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val reissue = kit.call(ServiceEntity.reissueStorageCredential)
+    assert(again.error.message.contains("is moving"), again.error.message)
+    assert(reissue.error.message.contains("is moving"), reissue.error.message)
+  }
+
+  test("a move that failed may be asked for again, as the next generation") {
+    val kit   = newKit
+    val _     = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _     = kit.call(ServiceEntity.observe)(reported("Failed", 1))
+    val again = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    assertEquals(again.events.collect { case e: StorageMoveRequested => e.generation }, Vector(2))
+  }
+
+  test("a bucket already in Google Cloud Storage, or none at all, has nothing to move") {
+    val moved = newKit
+    val _     = moved.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _     = moved.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _     = moved.call(ServiceEntity.observe)(reported("Switched", 1, store = "gcs"))
+    assert(
+      moved.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.message.contains("already"),
+      "a switched bucket is moved again"
+    )
+    val none = newKit
+    val _    = none.call(ServiceEntity.applyDescriptor)(applying())
+    assert(
+      none.call(ServiceEntity.moveStorage)(StorageMoveRequest()).error.message.contains("no bucket")
+    )
+  }
+
+  test("a write pause bound is a duration from one minute to a day") {
+    for bad <- Vector("30s", "25h", "ten", "10") do
+      val kit = newKit
+      val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+      assertEquals(
+        kit.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some(bad))).error.code,
+        ErrorCode.BadRequest,
+        bad
+      )
+  }
+
+  test(
+    "the status says which store the bucket is in and where its move is, as the operator reported"
+  ) {
+    val kit    = newKit
+    val _      = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _      = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest())
+    val _      = kit.call(ServiceEntity.observe)(reported("Pausing", 1))
+    val status = kit.currentState.toStatus
+    assertEquals(status.objectStore, Some("garage"))
+    assertEquals(status.storageMove, Some("write pause that may last 10 minutes at most"))
+  }
+
+  test("a move's status says how long its write pause may last from the moment it is asked for") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some("30m")))
+    assertEquals(
+      kit.currentState.toStatus.storageMove,
+      Some(
+        "waiting for its bucket in Google Cloud Storage; its write pause may last 30 minutes at most"
+      )
+    )
+    assertEquals(Service.boundWords("1h"), "1 hour")
+    assertEquals(Service.boundWords("90s"), "90 seconds")
+  }
+
+  test(
+    "the installation's bucket settings are reapplied to a bucket in Google Cloud Storage, and to no other"
+  ) {
+    val garage = newKit
+    val _      = garage.call(ServiceEntity.applyDescriptor)(withBucket)
+    assertEquals(garage.call(ServiceEntity.reapplyStorageSettings).error.code, ErrorCode.Conflict)
+
+    val gcs = newKit
+    val _   = gcs.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _ = gcs.call(ServiceEntity.observe)(
+      ServiceObservation(
+        1L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        storage = Some(StorageReport(store = Some("gcs")))
+      )
+    )
+    val reapplied = gcs.call(ServiceEntity.reapplyStorageSettings)
+    assertEquals(
+      reapplied.events.collect { case e: StorageSettingsReapplied => e.generation },
+      Vector(1)
+    )
+    assertEquals(gcs.currentState.history.head.kind, "storage-settings-reapplied")
+  }
+
   test("resuming a running service is a no-op") {
     val kit    = newKit
     val _      = kit.call(ServiceEntity.applyDescriptor)(applying())

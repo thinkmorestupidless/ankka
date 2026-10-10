@@ -8,7 +8,6 @@ import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
-import scala.util.Try
 
 /** A route that sends one event, says nothing for five seconds, then sends another. */
 final class QuietEndpoint extends HttpEndpoint(""):
@@ -17,9 +16,9 @@ final class QuietEndpoint extends HttpEndpoint(""):
 
 /**
  * A quiet event stream outlives the server's idle timeout, because the service sends a heartbeat —
- * an event with no data, which a browser does not dispatch — while it is quiet; and a heartbeat
- * that could not do that stops the service from starting. The idle timeout is two seconds here, so
- * a stream without a heartbeat would be cut off before its second event.
+ * an event with no data, which a browser does not dispatch — while it is quiet, at half the idle
+ * timeout when the configured interval is not shorter. The idle timeout is two seconds here, so a
+ * stream without a heartbeat would be cut off before its second event.
  */
 class SseHeartbeatSuite extends munit.FunSuite with LogCapturing:
 
@@ -59,18 +58,21 @@ class SseHeartbeatSuite extends munit.FunSuite with LogCapturing:
     finally kit.stop()
   }
 
-  test("a heartbeat not shorter than the idle timeout stops the service from starting") {
-    val outcome = Try(started("3s"))
-    outcome.foreach((kit, _) => kit.stop())
-    val message = outcome.failed.toOption.flatMap(e =>
-      Iterator
-        .iterate(e)(_.getCause)
-        .takeWhile(_ != null)
-        .map(_.getMessage)
-        .find(m => m != null && m.contains("heartbeat"))
-    )
-    assert(
-      message.exists(_.contains("must be shorter than")),
-      s"started, or refused otherwise: $outcome"
-    )
+  test("a heartbeat not shorter than the idle timeout is sent at half the idle timeout instead") {
+    val (kit, server) = started("3s")
+    try
+      val port = server.boundPort.getOrElse(fail("not bound"))
+      val lines = HttpClient
+        .newHttpClient()
+        .send(
+          HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/quiet")).GET().build(),
+          HttpResponse.BodyHandlers.ofLines()
+        )
+        .body
+        .iterator
+        .asScala
+        .toVector
+      val data = lines.filter(_.startsWith("data:")).map(_.stripPrefix("data:").trim)
+      assertEquals(data.filter(_.nonEmpty), Vector("\"first\"", "\"second\""))
+    finally kit.stop()
   }

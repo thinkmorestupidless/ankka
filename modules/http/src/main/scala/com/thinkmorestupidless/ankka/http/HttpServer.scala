@@ -850,22 +850,18 @@ private[http] final class SocketUpgrades(
 private[http] object SseSettings:
 
   /**
-   * How long an event stream may be quiet before the service sends a heartbeat, refused when it is
-   * not shorter than pekko-http's own idle timeout, which would end a quiet stream first.
+   * How long an event stream may be quiet before the service sends a heartbeat: the configured
+   * interval, or half pekko-http's own idle timeout when that is shorter, so a quiet stream is
+   * never ended by the idle timeout whatever the two are set to.
    */
   def heartbeat(system: ActorSystem[?]): FiniteDuration =
     val every =
       FiniteDuration(system.settings.config.getDuration("ankka.http.sse.heartbeat").toMillis, "ms")
-    val idle = org.apache.pekko.http.scaladsl.settings.ServerSettings(system).timeouts.idleTimeout
     if every <= Duration.Zero then
       throw IllegalArgumentException(s"ankka.http.sse.heartbeat must be positive, not $every")
-    if idle.isFinite && every >= idle then
-      throw IllegalArgumentException(
-        s"invalid ankka http configuration:\n  - the SSE heartbeat, ankka.http.sse.heartbeat " +
-          s"(${every.toCoarsest}), must be shorter than pekko.http.server.idle-timeout ($idle), " +
-          "which would otherwise end a quiet stream"
-      )
-    every
+    org.apache.pekko.http.scaladsl.settings.ServerSettings(system).timeouts.idleTimeout match
+      case idle: FiniteDuration if every >= idle => (idle / 2).max(FiniteDuration(1, "ms"))
+      case _                                     => every
 
 private[http] object SocketUpgrades:
 

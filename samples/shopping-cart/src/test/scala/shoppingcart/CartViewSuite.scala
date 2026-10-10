@@ -197,3 +197,19 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
     assertEquals(next(), Some(WatchEvent.Removed(id)))
     scala.concurrent.Await.result(running, 10.seconds): Unit
   }
+
+  test("every row of the view is given as a stream, past the limit of a whole answer") {
+    import org.apache.pekko.stream.scaladsl.Sink
+    given org.apache.pekko.stream.Materializer =
+      org.apache.pekko.stream.Materializer(testKit.service.system)
+    val id = "streamed"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1))
+    val _  = eventually("the cart is in the view")(rows.get(id))
+    // docs:start stream
+    // Every row, as the database yields it: nothing is collected, and there is no limit.
+    val everyCart = rows.allStream().runWith(Sink.seq)
+    // docs:end stream
+    val streamed = scala.concurrent.Await.result(everyCart, 30.seconds)
+    assert(streamed.exists(_.cartId == id), s"$streamed")
+    assertEquals(streamed.size.toLong, rows.count())
+  }

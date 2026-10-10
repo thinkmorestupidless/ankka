@@ -121,7 +121,8 @@ object StatusIngest:
         location = s.location,
         softDeleteDays = s.softDeleteDays,
         move = s.move.map(_.state).filter(_.nonEmpty),
-        moveGeneration = s.move.map(_.generation)
+        moveGeneration = s.move.map(_.generation),
+        movePausedAt = s.move.flatMap(_.pauseStartedAt)
       )
     )
 

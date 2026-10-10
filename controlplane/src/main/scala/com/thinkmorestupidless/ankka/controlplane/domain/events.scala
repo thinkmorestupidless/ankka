@@ -424,7 +424,9 @@ final case class StorageReport(
     location: Option[String] = None,
     softDeleteDays: Option[Int] = None,
     move: Option[String] = None,
-    moveGeneration: Option[Int] = None
+    moveGeneration: Option[Int] = None,
+    /** When the move's write pause began, as the operator wrote it, RFC 3339. */
+    movePausedAt: Option[String] = None
 )
 
 /**

@@ -485,7 +485,21 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     val _      = kit.call(ServiceEntity.observe)(reported("Pausing", 1))
     val status = kit.currentState.toStatus
     assertEquals(status.objectStore, Some("garage"))
-    assertEquals(status.storageMove, Some("write pause"))
+    assertEquals(status.storageMove, Some("write pause that may last 10 minutes at most"))
+  }
+
+  test("a move's status says how long its write pause may last from the moment it is asked for") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(withBucket)
+    val _   = kit.call(ServiceEntity.moveStorage)(StorageMoveRequest(Some("30m")))
+    assertEquals(
+      kit.currentState.toStatus.storageMove,
+      Some(
+        "waiting for its bucket in Google Cloud Storage; its write pause may last 30 minutes at most"
+      )
+    )
+    assertEquals(Service.boundWords("1h"), "1 hour")
+    assertEquals(Service.boundWords("90s"), "90 seconds")
   }
 
   test(

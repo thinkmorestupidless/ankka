@@ -83,9 +83,37 @@ This feature makes these decisions.
   beyond it is refused naming the bound. A watch is one call in the topology, counted as handled
   when it ends, and the ACL that admitted the route or method admits the watch.
 
-What this feature is not: a change to how a view is written, a change to a declared query's checks,
-a cross-view or cross-table query, a stream of an entity's changes to a caller (that is a consumer, or
-a watch over a view of it), or a guarantee of delivery to a watcher. It is not offered to a module.
+What this feature is not: a change to how a view is written, a change to what a declared query may
+read (its checks gain one rule, for a watched query only), a cross-view or cross-table query, a stream
+of an entity's changes to a caller (that is a consumer, or a watch over a view of it), or a guarantee
+of delivery to a watcher. It is not offered to a module.
+
+## Clarifications
+
+### Session 2026-10-10
+
+- Q: Which declared queries may be watched — any, or only one whose results are rows of the view? →
+  A: Only a statement whose results are rows of the view and that has no `LIMIT` is watchable; `ORDER
+  BY` without a limit is allowed and orders the rows-now phase only. A watch of any other declared
+  query (an aggregate, a `GROUP BY`, a limit) is refused at start by the declared query check, naming
+  the reason; the query stays askable whole or as a stream.
+- Q: Does a watcher learn when it has the rows now? → A: Yes. A watch has three element kinds — a
+  row, a removal and one caught-up marker — and the marker is given once, after the rows now and
+  before any change, at once when the query matches nothing now. A watch of one row gives it after
+  the row now, or at once when the row does not exist yet.
+- Q: What happens when a watcher stops reading while distinct rows pile up? → A: Each watch holds its
+  unread rows, one per row key (coalesced), up to an unread bound set for the platform with a
+  shipped default and settable per watch. Overflow follows a strategy the watcher chooses from
+  drop-head (the default), drop-tail, drop-new, drop-all and fail; backpressure is not offered,
+  since a watcher must never slow a view's writes. Under a drop strategy a dropped removal leaves the
+  watcher holding a row that is gone until that row is next written or the watcher watches again, and
+  the documentation says so; `fail` ends the watch with the reason "unread" for a watcher that would
+  rather know.
+- Q: Does a removal carry the row's last version? → A: No. A removal is the row key alone, whether
+  the row stopped matching or was deleted; a watcher that wants the last version holds the one it was
+  given.
+- Q: What are the shipped defaults of the watch bound and the unread bound? → A: 1000 open watches
+  per instance, 256 unread rows per watch.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -107,6 +135,8 @@ watcher stops reading.
 **Acceptance Scenarios**:
 
 - added `features/view-streams/watching.feature`: a watcher is first given every row the query matches now
+- added `features/view-streams/watching.feature`: a watcher is told it is caught up after the rows now and before any change
+- added `features/view-streams/watching.feature`: a watcher of a query that matches nothing now is told it is caught up at once
 - added `features/view-streams/watching.feature`: a watcher is given a row that comes to match
 - added `features/view-streams/watching.feature`: a watcher is given a row it has that is written again
 - added `features/view-streams/watching.feature`: a watcher is given a removal for a row it has that stops matching
@@ -180,11 +210,14 @@ Open watches to the bound and one more; assert the refusal names the bound.
 
 - added `features/view-streams/watch-rules.feature`: a row written on another instance reaches a watcher
 - added `features/view-streams/watch-rules.feature`: a watcher that reads slowly is given the last version of a row and fewer than were written
+- added `features/view-streams/watch-rules.feature`: a watcher with more unread rows than its unread bound loses the oldest unless it chose otherwise
+- added `features/view-streams/watch-rules.feature`: a watcher that chose to fail on overflow is told its watch ended unread
 - added `features/view-streams/watch-rules.feature`: every watch of a view ends when the view is emptied for a rebuild
 - added `features/view-streams/watch-rules.feature`: a watch ends when the instance serving it stops
 - added `features/view-streams/watch-rules.feature`: a watch beyond the instance's bound is refused naming the bound
 - added `features/view-streams/watch-rules.feature`: a watch is one observed call in the topology
 - added `features/view-streams/watch-rules.feature`: a watch is evaluated when a row is written
+- added `features/view-streams/watch-rules.feature`: a watch of a declared query whose results are not the view's rows is refused at start
 
 ---
 
@@ -231,7 +264,14 @@ divergences page notes the forms match Akka's.
   its next write or never. The documentation says a watched query is evaluated on writes.
 - **A row that stops matching and the watcher never had it.** No removal is sent: a removal names a
   row the watcher was given.
+- **A watch of a query with a limit or an aggregate.** Refused at start: a limit makes "stops
+  matching" undecidable from one row, and an aggregate's results have no row key to coalesce or
+  remove by. The query is still asked whole or as a stream.
 - **A row written and deleted before the watcher reads.** Coalescing delivers the removal alone.
+- **A removal dropped by the overflow strategy.** The watcher keeps a row that is gone until that row
+  is next written or it watches again; a row dropped that it never had does not appear until its next
+  write. The documentation says a watcher that falls behind may hold rows that are gone, and that
+  `fail` is for a watcher that would rather know.
 - **A watch across a service's instance stopping.** The stream ends with the reason; an SSE client
   reconnects and is given the rows now, so a page shows the current listing again.
 - **A keyed view's row written by two sources at once.** Each write is announced; the watcher is given
@@ -241,9 +281,11 @@ divergences page notes the forms match Akka's.
   given what other instances write.
 - **A watch through the gateway.** The gateway's HTTP route timeout bounds a response; a watch served
   as SSE through it is subject to the same bound an agent's SSE stream is today, and the documentation
-  says so. Lifting the bound is not this feature's.
+  says so. Lifting the bound is not this feature's. A quiet watch served as SSE is kept open by the
+  service's heartbeat, so a view that writes nothing for a minute does not end the watch without a
+  reason.
 - **Backpressure on a one-shot stream.** A reader that stops reading holds a database cursor; the
-  statement timeout ends it, and the reader sees the failure.
+  runtime ends a stream not read for the statement timeout, and the reader sees the failure naming it.
 - **A watch and the ACL.** The route or method's ACL is checked once, when the watch opens; an ACL
   changed later does not end an open watch, as it does not end an open socket.
 - **A watch of a view over a topic.** The same: topic views write through the same store.
@@ -260,36 +302,51 @@ divergences page notes the forms match Akka's.
 - **FR-002**: A streamed query MUST have no limit unless the caller gives one; a whole query keeps its
   limit.
 - **FR-003**: A streamed query MUST run under the same read-only transaction and statement timeout a
-  whole query does, and when the database ends the statement the stream MUST end in a failure that
-  says so, never as a shorter answer.
+  whole query does — the timeout bounds each fetch of the stream's rows, not the stream, which may
+  run longer — and when the database ends the statement, or the reader has not read for that same
+  timeout, the stream MUST end in a failure that says so, never as a shorter answer.
 - **FR-004**: A stream MUST be produced no faster than it is read, and MUST stop being produced when
   the reader goes away.
 
 **Watching**
 
 - **FR-005**: A declared query MUST be watchable: the watcher is first given every row the query
-  matches now, then each row that comes to match or matches again after it is written, and a removal
-  naming the row key when a row it was given stops matching or is deleted.
-- **FR-006**: One row MUST be watchable by its row key: the row now if it exists, then each version
-  written, and a removal when it is deleted.
+  matches now, then told once that it is caught up, then each row that comes to match or matches
+  again after it is written, and a removal naming the row key when a row it was given stops matching
+  or is deleted. The caught-up marker MUST be given at once when nothing matches now.
+- **FR-006**: One row MUST be watchable by its row key: the row now if it exists, then that the
+  watcher is caught up (at once when the row does not exist yet), then each version written, and a
+  removal when it is deleted.
 - **FR-007**: A watcher MUST never be given an older version of a row after a newer one, and MAY be
   given fewer versions than were written.
+- **FR-007a**: A watch MUST hold its unread rows one per row key, up to an unread bound that is a
+  platform setting shipped at 256 and that a watcher MAY override. On overflow the watch MUST apply
+  the watcher's overflow strategy — drop-head unless the watcher chooses drop-tail, drop-new,
+  drop-all or fail — and MUST NOT slow the view's writes. Under `fail` the watch ends with the
+  reason "unread". A Python or TypeScript watcher chooses the strategy in its request.
 - **FR-008**: A row written by any instance of the service MUST reach a watcher on any instance.
 - **FR-009**: A watch MUST end, with the reason, when the watcher stops reading, when the view is
   emptied for a rebuild, or when the instance serving it stops. What was written while nobody was
   reading MUST NOT be replayed to a later watch.
 - **FR-010**: A watch MUST be evaluated on the view's writes: a row's match is decided when the row is
   written, by the watched statement with the watcher's values.
-- **FR-011**: Open watches on an instance MUST be bounded by a platform setting with a shipped
-  default, and a watch beyond the bound MUST be refused naming it.
+- **FR-010a**: Only a declared query whose results are rows of the view, with no `LIMIT`, MAY be
+  watched; `ORDER BY` is allowed and orders the rows now. A query is declared watchable; a service
+  that declares any other query watchable MUST be refused at start, with the reason, and the query
+  MUST stay askable whole or as a stream. A watch of a query not declared watchable MUST be refused
+  at the call, naming the declaration.
+- **FR-011**: Open watches on an instance MUST be bounded by a platform setting shipped at 1000, and
+  a watch beyond the bound MUST be refused naming it.
 
 **Serving**
 
 - **FR-012**: A row stream and a watch MUST be servable by an SSE route, a gRPC server stream and a
   socket route with no adaptation beyond the one a handler writes for any stream, and the route's or
   method's ACL MUST admit the watch as it admits the call.
-- **FR-013**: A watch MUST be one call in the topology and the trace, counted as handled when it ends,
-  and the view query metrics MUST count a stream and a watch apart from a whole answer.
+- **FR-013**: A watch MUST be one observed call in the topology, marked as a stream and counted as
+  handled when it ends, and the topology MUST count a stream or a watch of a query apart from a whole
+  answer of the same query from the same caller. The trace a watch belongs to is the one of the route
+  or method that served it; no span is held open for the watch's life.
 
 **Languages**
 
@@ -318,8 +375,14 @@ divergences page notes the forms match Akka's.
 - **Watch**: a row stream that stays open after the rows now, delivering rows as they come to match
   and removals as they stop, live and coalesced, until it ends with a reason.
 - **Removal**: what a watcher is given for a row it had that no longer matches or was deleted: the row
-  key and no row.
-- **Watch bound**: the platform setting for how many watches one instance holds open.
+  key and no row, whichever the cause; the watcher holds the last version it was given.
+- **Caught up**: what a watcher is told once, after the rows now and before any change, so a page
+  knows it holds the whole listing.
+- **Watch bound**: the platform setting for how many watches one instance holds open; 1000 as shipped.
+- **Unread bound**: how many rows one watch holds for a watcher that has not read them, one per row
+  key; 256 as shipped, set for the platform and overridable per watch.
+- **Overflow strategy**: what a watch does when it holds as many unread rows as its unread bound and
+  another arrives: drop-head (default), drop-tail, drop-new, drop-all or fail.
 
 ## Success Criteria *(mandatory)*
 
@@ -339,12 +402,14 @@ divergences page notes the forms match Akka's.
 ## Assumptions
 
 - The r2dbc driver yields a query's rows as a reactive stream, so a `Source` over them with a fetch
-  size costs no in-memory collection; the statement timeout applies to the whole statement.
+  size costs no in-memory collection; the database's statement timeout bounds each fetch of the
+  stream's rows, so the runtime itself bounds a reader that does not read.
 - Every write of a view's row goes through `ViewStore.upsert` or `ViewStore.delete` in the change's
   transaction, so an announcement made there is made for every write and only after a committed one
   when it is made on commit.
 - A watched statement can be evaluated for one row by wrapping the checked statement as a subquery
-  filtered by row key, with the watcher's values; `QueryCheck` already proves the statement reads the
+  filtered by row key, with the watcher's values, which is why a watched statement selects `row_key`
+  beside `payload` and is declared watched; `QueryCheck` already proves the statement reads the
   view's own table alone.
 - Instances can tell each other of a write through the shared database or the cluster; the plan
   chooses, and the spec needs only that they do.
@@ -362,10 +427,5 @@ divergences page notes the forms match Akka's.
 
 ## Open Questions
 
-- Whether a watch should offer the rows now and the changes as two phases a client can tell apart (a
-  marker after the initial rows), so a page knows when it has the full listing; a cheap addition if
-  wanted.
-- Whether a removal should carry the row's last version, for a page that wants to animate it out;
-  nothing needs it yet.
 - Whether the gateway's HTTP route timeout should be lifted for SSE as it is for gRPC; it bounds an
   agent's stream today and is a platform question wider than this feature.

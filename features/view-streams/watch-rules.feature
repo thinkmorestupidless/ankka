@@ -24,6 +24,19 @@ Feature: What a watch promises and what it does not
     Then the handler is given the last version of "c1"
     And the handler is given fewer than "50" versions of "c1"
 
+  Scenario: a watcher with more unread rows than its unread bound loses the oldest unless it chose otherwise
+    Given a handler of "shop" watching "open-carts" with an unread bound of "10" rows that does not read
+    When "carts" writes "15" rows for different carts
+    And the handler then reads
+    Then the handler is given the "10" rows written last
+    And the handler is not given the "5" rows written first until they are written again
+
+  Scenario: a watcher that chose to fail on overflow is told its watch ended unread
+    Given a handler of "shop" watching "open-carts" with an unread bound of "10" rows and the overflow strategy "fail" that does not read
+    When "carts" writes "11" rows for different carts
+    Then the watch ends
+    And the watcher is told the watch ended unread
+
   Scenario: every watch of a view ends when the view is emptied for a rebuild
     Given handlers of "shop" watching "open-carts"
     When "shop" restarts with "carts" at a higher version
@@ -54,3 +67,12 @@ Feature: What a watch promises and what it does not
     And a handler of "shop" watching "due-carts"
     When the row "c1" comes to match "due-carts" by the passing of time alone
     Then the handler is given nothing for "c1" until "carts" writes the row "c1" again
+
+  Scenario: a watch of a declared query whose results are not the view's rows is refused at start
+    Given "carts" declares the query "cart-count" with a statement that counts its rows
+    And "carts" declares the query "newest-carts" with a statement that reads its own table for the newest "10" rows
+    And a handler of "shop" that watches "cart-count" and a handler that watches "newest-carts"
+    When "shop" is started
+    Then "shop" does not start
+    And the developer is told that a watched query gives the view's rows and has no limit
+    And "cart-count" and "newest-carts" can still be asked whole

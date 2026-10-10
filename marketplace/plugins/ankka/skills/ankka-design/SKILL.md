@@ -138,5 +138,5 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Reference
 
-- `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
+- `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views and their streams and watches, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 - `references/reference/limitations.md` — What ankka does not do yet, stated plainly and grouped — the platform, networking and security, observability, components, and SDKs and releases — so you can plan around a gap before you reach it.

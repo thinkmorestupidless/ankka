@@ -4,11 +4,12 @@ Internal to `modules/runtime` and `sidecar`; what a test, an operator or a later
 
 ## The announcement
 
-Every write of a view's row runs, in the write's own transaction or projection session, after the
-`INSERT … ON CONFLICT` or `DELETE`:
+Every write of a view's row announces itself in the same statement, a data-modifying CTE:
 
 ```sql
-SELECT pg_notify('ankka_views', $1 || '|' || $2)      -- $1 the table, $2 the row key
+WITH written AS (INSERT … ON CONFLICT … RETURNING row_key)      -- or DELETE … RETURNING row_key
+SELECT count(pg_notify('ankka_views', '<table>|' || row_key)) FROM written
+WHERE octet_length(row_key) < 7900
 ```
 
 and a rebuild runs, inside `ViewVersions.rebuild`'s transaction after `TRUNCATE`:
@@ -24,7 +25,7 @@ SELECT pg_notify('ankka_views', $1 || '|!rebuilt')
 | not delivered to an instance with no watch | it holds no `LISTEN` connection |
 | a row written twice in one transaction is announced once | Postgres folds identical payloads in a transaction (V7) |
 | a key is at most 7 900 bytes | longer: not announced, logged once per view, the write unaffected |
-| the paths | `ProjectionSupport.applyView`, `ViewStateHandler`, `RemoteViewStateHandler`, `ViewVersions.guarded` (`ViewGuard.write`), `KeyedViewEventHandler`, `KeyedViewStateHandler` — all through `ViewWrites` |
+| the paths | every one, since every write is `ViewStore.upsert` or `ViewStore.delete` |
 
 `ViewAnnounceSuite` writes through each path on a `LISTEN`ing test connection and asserts the payload.
 
@@ -62,10 +63,9 @@ listener connection closes.
 | heartbeat | `ankka.http.sse.heartbeat` | `ANKKA_SSE_HEARTBEAT` | `15s` |
 
 Every event stream a route serves (`sse`, `sseBody`, `sseEvents`, `sseEventsBody`, and a process's
-`HandleStream`) emits a comment line (`ServerSentEvent.heartbeat`) when nothing else has been sent for the
-heartbeat. A heartbeat not shorter than `pekko.http.server.idle-timeout` fails startup, as a socket
-keep-alive does (`SocketSettings.problems`), with "the SSE heartbeat (…) must be shorter than the server's
-idle timeout (…)".
+`HandleStream`) emits Pekko's `ServerSentEvent.heartbeat`, an event with no data a browser does not
+dispatch, when nothing else has been sent for the heartbeat, or for half
+`pekko.http.server.idle-timeout` when that is sooner. It never refuses a start.
 
 ## Topology
 

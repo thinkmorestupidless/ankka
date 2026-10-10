@@ -68,6 +68,20 @@ record, `RemoteWorkflowHost.pack`/`unpack` the one form of a process's state. Th
 `ChangeContext.standing`/`KeyedChange.standing` and, from protocol 1.16, `ViewRequest.standing` and
 `ConsumerRequest.standing`; the topology draws a `workflow` connection.
 
+## A view's rows can be streamed and watched
+
+Feature 047. `ViewQueries.allStream`/`whereStream`/`orderedStream`/`askStream` run one statement under a
+portal for the stream's life (`Database.stream`); `watch`/`watchRow` keep a declared query declared
+`.watched`, or one row, open (`ViewWatches`). **Every write of a view's row announces itself in the same
+statement**: `ViewStore.upsert` and `delete` are data-modifying CTEs whose outer select calls
+`pg_notify('ankka_views', '<table>|<key>')`, and a rebuild's `TRUNCATE` is followed by `<table>|!rebuilt`
+in its transaction. Postgres delivers on commit and never on rollback, which is the whole reason the
+announcement is the database's and not the cluster's: a projection's session commits after its handler's
+`Future`, outside ankka's code. One unpooled `LISTEN` connection per instance (`ViewListener`) calls each
+view's registry; the evaluator re-runs the watched statement for each written key
+(`SELECT payload FROM (<sql>) ankka_watched WHERE row_key = $n`), which is why a watched statement selects
+`row_key` and has no limit or aggregate (`QueryCheck.watchedProblem`).
+
 ## Traps
 
 - **Jackson writes an absent `Option` as a `null` property.** `WorkflowRecord.standing` added with a default
@@ -83,6 +97,9 @@ record, `RemoteWorkflowHost.pack`/`unpack` the one form of a process's state. Th
   pure. A negative check in a running service must also first wait for the last change it expects to be
   there (the conformance case waits for the `reserved` row before the failure): a projection three seconds
   behind looks exactly like one that skipped the record.
+- **A new way of writing a view's row must go through `ViewStore.upsert` or `delete`**, or no watcher
+  hears of it. `ViewAnnounceSuite` writes through a projection and a transaction and reads the
+  notification from another connection.
 - **A projection's `R2dbcSession` reads a row count from every statement, and a `SET` reports none.**
   `SET LOCAL statement_timeout` through `session.updateOne` failed every keyed view change with a
   `NullPointerException` deep in pekko-persistence-r2dbc's `updateOneInTx`. Set a transaction-local setting

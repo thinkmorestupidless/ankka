@@ -27,6 +27,7 @@ import { Ankka, type RegisteredAgent, type RegisteredConsumer, type RegisteredKe
 import { checkPlan, runTool } from "../server/agent.ts"
 import { ApprovalAwaited, type AgentOutcome, type ApprovalRequest, type DecisionInput } from "../approvals.ts"
 import { TOOL_PREFIX, toolName } from "../mcp.ts"
+import type { Standing } from "../standing.ts"
 
 function roundTrip<T>(codec: Codec<T>, value: T): T {
   return codec.decode(codec.encode(value))
@@ -230,11 +231,11 @@ export class ViewTestKit<E, Row, C extends View<E, Row>> {
     return new ViewTestKit(cls, client)
   }
 
-  async #apply(key: string, fn: (view: C) => Promise<ViewEffect<Row>> | ViewEffect<Row>, metadata: Metadata): Promise<ViewEffect<Row>> {
+  async #apply(key: string, fn: (view: C) => Promise<ViewEffect<Row>> | ViewEffect<Row>, metadata: Metadata, standing?: Standing): Promise<ViewEffect<Row>> {
     const view = new this.#cls()
     const rowCodec = this.#registered.rowCodec as Codec<Row>
     const current = this.rows.get(key)
-    view._bind(current === undefined ? null : roundTrip(rowCodec, current), { "ce-subject": key, ...metadata }, this.#client.withMetadata(metadata))
+    view._bind(current === undefined ? null : roundTrip(rowCodec, current), { "ce-subject": key, ...metadata }, this.#client.withMetadata(metadata), standing)
     const effect = await fn(view)
     switch (effect.kind) {
       case "update-row":
@@ -249,10 +250,13 @@ export class ViewTestKit<E, Row, C extends View<E, Row>> {
     return effect
   }
 
-  /** A change from source instance `key`: the event, round-tripped through the source's event codec. */
-  onChange(key: string, event: E, metadata: Metadata = {}): Promise<ViewEffect<Row>> {
+  /**
+   * A change from source instance `key`: the event, round-tripped through the source's event codec.
+   * `standing` is a workflow's, for a view whose source is one.
+   */
+  onChange(key: string, event: E, metadata: Metadata = {}, standing?: Standing): Promise<ViewEffect<Row>> {
     const wire = roundTrip(this.#registered.eventCodec as Codec<E>, event)
-    return this.#apply(key, (v) => v.onChange(wire), metadata)
+    return this.#apply(key, (v) => v.onChange(wire), metadata, standing)
   }
 
   /** The source instance `key` was deleted. */
@@ -304,7 +308,7 @@ export class KeyedViewTestKit<Row, C extends KeyedView<Row>> {
     return source
   }
 
-  async #apply(key: string, run: (view: C) => unknown): Promise<KeyedViewEffect<Row>> {
+  async #apply(key: string, run: (view: C) => unknown, standing?: Standing): Promise<KeyedViewEffect<Row>> {
     const view = new this.#cls()
     const rowCodec = this.#registered.rowCodec as Codec<Row>
     const id = this.#registered.id
@@ -321,7 +325,7 @@ export class KeyedViewTestKit<Row, C extends KeyedView<Row>> {
     }
     this.#sequence += 1
     const metadata: Metadata = { "ce-subject": key, "ankka.sequence": String(this.#sequence) }
-    view._bind(metadata, this.#client.withMetadata(metadata), rows)
+    view._bind(metadata, this.#client.withMetadata(metadata), rows, standing)
     const effect = ((await run(view)) ?? { kind: "rows", changes: [] }) as KeyedViewEffect<Row>
     if (effect.kind !== "rows") throw new TypeError(`${id}'s handler returned something that is not a keyed view effect`)
     for (const [k, row] of reduceRowChanges(effect.changes)) {
@@ -331,11 +335,11 @@ export class KeyedViewTestKit<Row, C extends KeyedView<Row>> {
     return effect
   }
 
-  /** A change of the entity `key` of `entity`, round-tripped through that source's codec. */
-  change<E>(entity: ComponentRef, key: string, event: E): Promise<KeyedViewEffect<Row>> {
+  /** A change of `key` of `entity`, round-tripped through that source's codec; `standing` a workflow's. */
+  change<E>(entity: ComponentRef, key: string, event: E, standing?: Standing): Promise<KeyedViewEffect<Row>> {
     const source = this.#source(entity)
     const wire = roundTrip(source.eventCodec as Codec<E>, event)
-    return this.#apply(key, (v) => source.onChange(v, wire))
+    return this.#apply(key, (v) => source.onChange(v, wire), standing)
   }
 
   /** The entity `key` of `entity` was deleted. */
@@ -370,9 +374,9 @@ export class ConsumerTestKit<M, Out, C extends Consumer<M, Out>> {
     return new ConsumerTestKit(cls, client)
   }
 
-  async #apply(fn: (c: C) => Promise<ConsumerEffect<Out>> | ConsumerEffect<Out>, metadata: Metadata): Promise<ConsumerEffect<Out>> {
+  async #apply(fn: (c: C) => Promise<ConsumerEffect<Out>> | ConsumerEffect<Out>, metadata: Metadata, standing?: Standing): Promise<ConsumerEffect<Out>> {
     const consumer = new this.#cls()
-    consumer._bind(metadata, this.#client.withMetadata(metadata))
+    consumer._bind(metadata, this.#client.withMetadata(metadata), standing)
     const effect = await fn(consumer)
     const outCodec = (): Codec<Out> => {
       const codec = this.#registered.outCodec as Codec<Out> | undefined
@@ -395,9 +399,9 @@ export class ConsumerTestKit<M, Out, C extends Consumer<M, Out>> {
    * A message from source instance `subject`. The metadata says the runtime speaks this SDK's protocol
    * version; pass `"ankka.protocol"` or `"ankka.sequence"` to say otherwise.
    */
-  onMessage(message: M, subject = "test", metadata: Metadata = {}): Promise<ConsumerEffect<Out>> {
+  onMessage(message: M, subject = "test", metadata: Metadata = {}, standing?: Standing): Promise<ConsumerEffect<Out>> {
     const wire = roundTrip(this.#registered.messageCodec as Codec<M>, message)
-    return this.#apply((c) => c.onMessage(wire), { "ce-subject": subject, [PROTOCOL_KEY]: PROTOCOL_VERSION, ...metadata })
+    return this.#apply((c) => c.onMessage(wire), { "ce-subject": subject, [PROTOCOL_KEY]: PROTOCOL_VERSION, ...metadata }, standing)
   }
 
   onDelete(subject = "test", metadata: Metadata = {}): Promise<ConsumerEffect<Out>> {

@@ -7,6 +7,7 @@ import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
 import { ConsumerEffects, type ConsumerEffect } from "./effects/stateless.ts"
 import { servicesFor, type Services } from "./services.ts"
+import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -43,6 +44,7 @@ export abstract class Consumer<M, Out = never> {
   readonly effects: ConsumerEffects<Out> = new ConsumerEffects<Out>()
 
   #metadata: Metadata = {}
+  #standing: Standing | undefined = undefined
   #client: ComponentClient | undefined
 
   /** The message's metadata: `ce-subject` is the source instance's id, `ankka.sequence` its sequence number. */
@@ -52,6 +54,11 @@ export abstract class Consumer<M, Out = never> {
 
   get subject(): string {
     return this.#metadata["ce-subject"] ?? ""
+  }
+
+  /** Of a change from a workflow: where it stood once the effect that recorded the state was applied. `undefined` for a change from an entity or a topic. */
+  get standing(): Standing | undefined {
+    return this.#standing
   }
 
   /** The change's sequence number: an event's, or a key value state's revision. `0n` for a topic's message. */
@@ -101,8 +108,9 @@ export abstract class Consumer<M, Out = never> {
   }
 
   /** @internal */
-  _bind(metadata: Metadata, client: ComponentClient): void {
+  _bind(metadata: Metadata, client: ComponentClient, standing?: Standing): void {
     this.#metadata = metadata
+    this.#standing = standing
     this.#client = client
   }
 }

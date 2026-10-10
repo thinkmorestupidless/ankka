@@ -21,6 +21,7 @@ import type { Metadata } from "./effects/common.ts"
 import type { ComponentClient, ComponentRef } from "./client.ts"
 import { KeyedViewEffects, type KeyedViewEffect } from "./effects/keyed.ts"
 import type { DeclaredQuery } from "./view.ts"
+import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -57,6 +58,7 @@ export abstract class KeyedView<Row> {
   readonly effects: KeyedViewEffects<Row> = new KeyedViewEffects<Row>()
 
   #metadata: Metadata = {}
+  #standing: Standing | undefined = undefined
   #client: ComponentClient | undefined
   #rows: ViewRows<Row> | undefined
 
@@ -68,6 +70,11 @@ export abstract class KeyedView<Row> {
   /** The id of the entity the change came from. */
   get subject(): string {
     return this.#metadata["ce-subject"] ?? ""
+  }
+
+  /** Of a change from a workflow: where it stood once the effect that recorded the state was applied. `undefined` for a change from an entity or a topic. */
+  get standing(): Standing | undefined {
+    return this.#standing
   }
 
   /** This view's own rows, by key or by one of its declared queries. */
@@ -87,8 +94,9 @@ export abstract class KeyedView<Row> {
   }
 
   /** @internal */
-  _bind(metadata: Metadata, client: ComponentClient | undefined, rows: ViewRows<Row>): void {
+  _bind(metadata: Metadata, client: ComponentClient | undefined, rows: ViewRows<Row>, standing?: Standing): void {
     this.#metadata = metadata
+    this.#standing = standing
     this.#client = client
     this.#rows = rows
   }

@@ -7,7 +7,8 @@ import { create } from "@bufbuild/protobuf"
 import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
-import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
+import { Kind } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
+import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanWorkflowSources } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -15,7 +16,33 @@ import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions }
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
-  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol) ?? contractRefusal(spec, sidecarProtocol)
+  return (
+    workflowSourceRefusal(spec, sidecarProtocol) ??
+    startPositionRefusal(spec, sidecarProtocol) ??
+    declaredQueryRefusal(spec, sidecarProtocol) ??
+    contractRefusal(spec, sidecarProtocol)
+  )
+}
+
+/**
+ * A sidecar older than 1.15 would not read a workflow as a source: a view or consumer that does would
+ * be handed nothing. Refused at discovery, naming them.
+ */
+function workflowSourceRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanWorkflowSources(sidecarProtocol)) return undefined
+  const reading = spec.components
+    .filter((c) => {
+      const d = c.detail
+      if (d.case !== "view" && d.case !== "consumer") return false
+      const sources = d.case === "view" ? [d.value.source, ...d.value.sources] : [d.value.source]
+      return sources.some((s) => s?.source.case === "component" && s.source.value.kind === Kind.WORKFLOW)
+    })
+    .map((c) => c.id)
+  if (reading.length === 0) return undefined
+  return (
+    `${reading.join(", ")} read a workflow, which the sidecar does not know: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later.`
+  )
 }
 
 /**

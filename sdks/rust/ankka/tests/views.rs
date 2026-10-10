@@ -360,6 +360,7 @@ fn the_wire_effect_is_rows_in_order() {
             metadata: None,
             row: None,
             deleted: false,
+            standing: None,
             source_id: Some("left".into()),
         })
     })

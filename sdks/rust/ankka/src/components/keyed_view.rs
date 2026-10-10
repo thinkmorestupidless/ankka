@@ -248,7 +248,14 @@ impl<C: KeyedView> Registered for Registration<C> {
                     "keyed view '{view}' was sent a change of '{source_id}', which it does not read"
                 )
             });
-        let ctx = change_context(view, request.metadata.as_ref()).with_rows(view);
+        let ctx = change_context(view, request.metadata.as_ref())
+            .with_rows(view)
+            .with_standing(
+                request
+                    .standing
+                    .clone()
+                    .map(crate::standing::Standing::from),
+            );
         let effect = match request.event.filter(|_| !request.deleted) {
             Some(event) => (entry.change)(&event.data, &ctx)
                 .unwrap_or_else(|e| panic!("keyed view '{view}', source '{source_id}': {e}")),

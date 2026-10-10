@@ -130,3 +130,30 @@ class KeyedBufferSuite extends munit.FunSuite:
       Vector("a", "b", "c")
     )
   }
+
+  test("before the caught-up marker it holds nothing back and drops nothing: the rows now") {
+    val reader = Reader()
+    val queue = Source
+      .queue[WatchEvent[Int]](100, OverflowStrategy.fail)
+      .via(KeyedBuffer[Int](2, Overflow.DropHead, startLive = false))
+      .toMat(Sink.fromSubscriber(reader))(Keep.left)
+      .run()
+    // Five rows now for a buffer of two, and a reader that reads late: none may be dropped.
+    Seq(row("a", 1), row("b", 1), row("c", 1), row("d", 1), row("e", 1), WatchEvent.CaughtUp)
+      .foreach(e => Await.result(queue.offer(e), 3.seconds))
+    Seq(row("f", 1), row("g", 1), row("h", 1)).foreach(e => Await.result(queue.offer(e), 3.seconds))
+    queue.complete()
+    Thread.sleep(300)
+    assertEquals(
+      reader.readAll().get,
+      Vector(
+        row("a", 1),
+        row("b", 1),
+        row("c", 1),
+        row("d", 1),
+        row("e", 1),
+        WatchEvent.CaughtUp
+      ) ++
+        Vector(row("g", 1), row("h", 1))
+    )
+  }

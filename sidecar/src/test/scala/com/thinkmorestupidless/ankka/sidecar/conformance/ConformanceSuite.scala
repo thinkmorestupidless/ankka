@@ -2060,8 +2060,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       case None          => assume(false, "a target in this process has no discovery to refuse"); ""
       case Some(None)    => fail("a runtime stating 1.14 was answered")
       case Some(Some(m)) => m
-    assert(refused.contains("1.15") && refused.contains("1.14"), refused)
-    assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
+    // A module refuses by panicking in its discovery export, which reaches the host as a trap
+    // with no message; a process answers with its words, which name the components and versions.
+    if !target.isModule then
+      assert(refused.contains("1.15") && refused.contains("1.14"), refused)
+      assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
     assertEquals(target.refusalAt("1.15"), Some(None))
   }
 

@@ -17,7 +17,7 @@ A view comes in two shapes:
 
 | | Plain view | Keyed view |
 |---|---|---|
-| Reads | one source: an entity's events, a key value entity's state, or a topic | one or more entities' events or states |
+| Reads | one source: an entity's events, a key value entity's state, a workflow's states, or a topic | one or more entities' events or states, or workflows' states |
 | Row key | the id of the entity the change came from, always | whatever the handler names |
 | The current row | handed to the handler | read by the handler, by key or by a declared query |
 | Rows one change writes | at most one | any number |
@@ -32,12 +32,14 @@ that updates many rows, such as a customer's rename reaching every one of their 
 
 ## Sources
 
-A plain view reads exactly one source; a [keyed view](#keyed-views) reads one or more entities:
+A plain view reads exactly one source; a [keyed view](#keyed-views) reads one or more entities and
+workflows:
 
 | Source | Scala | Python | TypeScript | Delivery |
 |---|---|---|---|---|
 | An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | `static readonly source = ShoppingCartEntity` | Every event, in order, exactly once. |
 | A key value entity's state | `ChangeSource.stateOf(CheckoutLog)` | `source = CheckoutLog` | `static readonly source = CheckoutLog` | The latest value; intermediate values can be skipped. |
+| A workflow's states | `ChangeSource.stateOf(CheckoutWorkflow)` | `source = CheckoutWorkflow` | `static readonly source = CheckoutWorkflow` | Each state the workflow records, in order, exactly once, with its standing; see [Reading a workflow](#reading-a-workflow). |
 | A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | At least once; see [Broker topics](topics.md). |
 
 The source is built from the source component's own declaration, so a view over the cart is typed
@@ -228,6 +230,217 @@ reading entities that are deleted once an order is placed, say, overrides the ha
 tombstone and mark it, rather than lose what the entity held.
 
 An entity whose state has expired is not deleted: no deletion is delivered, and its row stays as it was.
+
+## Reading a workflow
+
+A view can read a workflow as it reads a key value entity: in Scala with `ChangeSource.stateOf` of the
+workflow's companion, and in Python, TypeScript and Rust by naming the workflow where an entity would be
+named. The view is handed each state the workflow records, decoded with the workflow's own codec, in the
+order the workflow recorded them. A row and the record of how far the view has read are written in one
+transaction, so each state is applied exactly once.
+
+With each state comes the workflow's **standing**: where the workflow stood once the whole effect that
+recorded the state was applied. A step that records a state and ends is one change whose standing is
+completed, not a running state followed by an end. The handler reads it from its context: `updateContext.standing`
+in Scala, `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust. A change
+from an entity or a topic has no standing.
+
+| Standing | When a change carries it |
+|---|---|
+| `NotStarted` | The workflow recorded a state and has moved to no step yet. |
+| `Running` | The workflow moved to a step with the state, or is on one. The step is named. |
+| `Paused` | The workflow paused with the state. The step named is the one its timeout runs, or else the one it paused after. |
+| `Completed` | The workflow ended with the state. |
+| `Failed` | The workflow failed with the state. The reason is given. |
+| `Unknown` | The state was recorded by a release that did not stamp standings. |
+
+A standing carries the step the workflow is on or waits after, the retries of each step so far, and, for a
+failed workflow, why it failed.
+
+**What records no state is no change.** A transition, a pause, an end or a failure that records no state
+delivers nothing, and a workflow that times out records none. A view that must show how a workflow
+ended therefore needs the step that ends it to record a state: a failover step that records the failure
+in the state and then fails the workflow is one change whose standing is failed. A caller that must
+know a workflow ended, whatever its last step recorded, asks the workflow for its lifecycle instead.
+
+This view keeps a row for each checkout: its own status, where the workflow stood, and why it failed.
+A declared query lists the rows of one standing.
+
+/// tab | Scala
+
+<!-- include: sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceReference.scala#workflow-view -->
+```scala
+/** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+final case class CheckoutRow(
+    id: String,
+    status: String,
+    standing: String,
+    step: Option[String],
+    failure: Option[String]
+)
+
+final class CheckoutRowsView extends View[CheckoutState, CheckoutRow]:
+  def onChange(state: CheckoutState): Effect =
+    // A change from a workflow carries its standing: where it stood once the effect that
+    // recorded `state` was applied.
+    val standing = updateContext.standing.getOrElse(WorkflowLifecycle.unknown)
+    effects.updateRow(
+      CheckoutRow(
+        updateContext.subject,
+        state.status,
+        standing.status,
+        standing.pendingStep,
+        standing.failure
+      )
+    )
+
+object CheckoutRows
+    extends View.Companion[CheckoutRowsView, CheckoutState, CheckoutRow](
+      componentId = ComponentId("checkout-rows"),
+      source = ChangeSource.stateOf(Checkout),
+      rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
+    ):
+  def create(ctx: ViewComponentContext) = new CheckoutRowsView
+  val byStanding = query("by-standing")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
+  )
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#workflow-view -->
+```python
+@dataclass(frozen=True)
+class CheckoutRow:
+    id: str
+    status: str
+    standing: str
+    step: str | None = None
+    failure: str | None = None
+
+
+class CheckoutRows(View[Checkout, CheckoutRow]):
+    """A checkout's row: its state's status, and where the workflow stood when it recorded it."""
+
+    component_id = "checkout-rows"
+    source = CheckoutWorkflow
+    event_codec = CheckoutWorkflow.state_codec
+    row_codec = json_codec(CheckoutRow, "checkout-row")
+    by_standing = declare(
+        "by-standing",
+        f"SELECT payload FROM {table_of('checkout-rows')} WHERE payload::jsonb->>'standing' = :standing",
+    )
+
+    def on_change(self, state: Checkout) -> ViewEffect:
+        # A change from a workflow carries its standing: where it stood once the effect that
+        # recorded `state` was applied.
+        standing = self.standing or Standing("Unknown")
+        return self.effects.update_row(
+            CheckoutRow(self.metadata.subject or "", state.status, standing.status, standing.step, standing.failure)
+        )
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#workflow-view -->
+```typescript
+export const CheckoutRow = s.record("CheckoutRow", {
+  id: s.string,
+  status: s.string,
+  standing: s.string,
+  step: s.option(s.string),
+  failure: s.option(s.string),
+})
+export type CheckoutRow = Infer<typeof CheckoutRow>
+
+/** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+export class CheckoutRows extends View<Checkout, CheckoutRow> {
+  static readonly componentId = "checkout-rows"
+  static readonly source = CheckoutWorkflow
+  static readonly events = CheckoutWorkflow.state
+  static readonly row = jsonCodec(CheckoutRow, "checkout-row")
+  static readonly declared = [
+    declaredQuery("by-standing", `SELECT payload FROM ${tableOf("checkout-rows")} WHERE payload::jsonb->>'standing' = :standing`),
+  ]
+
+  onChange(state: Checkout) {
+    // A change from a workflow carries its standing: where it stood once the effect that recorded
+    // `state` was applied.
+    const standing = this.standing
+    return this.effects.updateRow({
+      id: this.subject,
+      status: state.status,
+      standing: standing?.status ?? "Unknown",
+      step: standing?.step ?? null,
+      failure: standing?.failure ?? null,
+    })
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#workflow-view -->
+```rust
+/// A checkout's row: its state's status, and where the workflow stood when it recorded it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckoutRow {
+    pub id: String,
+    pub status: String,
+    pub standing: String,
+    pub step: Option<String>,
+    pub failure: Option<String>,
+}
+
+pub struct CheckoutRows;
+
+impl View for CheckoutRows {
+    type Row = CheckoutRow;
+    type Event = Checkout;
+    const COMPONENT_ID: &'static str = "checkout-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("checkout-row");
+
+    fn source() -> Source {
+        Source::of(CheckoutWorkflow)
+    }
+
+    fn on_event(_: Option<CheckoutRow>, state: Checkout, ctx: &Context) -> ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        let unknown = Standing::of("Unknown");
+        let standing = ctx.standing().unwrap_or(&unknown);
+        ViewEffect::UpdateRow(CheckoutRow {
+            id: ctx.metadata().subject().unwrap_or_default().to_string(),
+            status: state.status,
+            standing: standing.status.clone(),
+            step: standing.step.clone(),
+            failure: standing.failure.clone(),
+        })
+    }
+
+    fn declared() -> Vec<DeclaredQuery> {
+        let table = table_of(Self::COMPONENT_ID);
+        vec![query(
+            "by-standing",
+            format!("SELECT payload FROM {table} WHERE payload::jsonb->>'standing' = :standing"),
+        )]
+    }
+}
+```
+
+///
+
+A view over a workflow declares a version and is rebuilt by raising it, as a view over an entity is: the
+rebuild reads every state every workflow recorded, from the first. A state recorded before the platform
+stamped standings is delivered with the standing `Unknown`. When a workflow is deleted, the view's deletion
+handler runs, and by default the row goes with it. A keyed view may read workflows beside entities, one
+change at a time; a topic and a workflow may not be sources of one view.
 
 ## Registering a view
 
@@ -588,7 +801,10 @@ a race; it is the consistency model the view actually has.
 
 - A view writes one table, its own, and a query reads that table alone: there is no query across two
   views' tables.
-- A topic and an entity may not be sources of one view, and a keyed view reads no topic.
+- A topic and an entity, or a topic and a workflow, may not be sources of one view, and a keyed view
+  reads no topic.
+- A view over a workflow is handed only the states the workflow records; a transition, a pause, an end or a
+  failure that records no state is no change.
 - A keyed view handles one change at a time; its throughput does not grow with instances.
 - A view over a topic starts at the earliest message the broker holds unless it says otherwise, and is
   rebuilt by raising its version, as far back as the broker retains. See

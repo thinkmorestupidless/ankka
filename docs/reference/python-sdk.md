@@ -94,10 +94,10 @@ See [Key value entities](../build/key-value-entities.md).
 | Part | API |
 |---|---|
 | Base class | `ankka.view.View[Src, Row]` |
-| Class attributes | `component_id`, `source` (an entity class) or `topic` (a topic name), `event_codec`, `row_codec`; optionally `version`, and declared queries as `query(name, statement)` from `ankka.view` |
+| Class attributes | `component_id`, `source` (an entity or workflow class) or `topic` (a topic name), `event_codec`, `row_codec`; optionally `version`, and declared queries as `query(name, statement)` from `ankka.view` |
 | Must define | `on_change(self, event) -> ViewEffect` |
 | May override | `on_delete(self) -> ViewEffect`, which deletes the row by default |
-| In a handler | `self.row` (the current row or `None`), `self.metadata` (`subject`, `sequence_number`), `self.effects` |
+| In a handler | `self.row` (the current row or `None`), `self.metadata` (`subject`, `sequence_number`), `self.standing` (a workflow source's `Standing`, else `None`), `self.effects` |
 | Effects | `update_row(row)`, `delete_row()`, `ignore()` |
 | Querying | `client.views.get(view_id, key, RowType)`, `client.views.all(view_id, RowType)`, `client.views.ask(view_id, name, RowType, {"value": ...}, limit=None)` |
 | Table name | `table_of(component_id)`, for a statement to name |
@@ -123,7 +123,7 @@ See [Views](../build/views.md).
 | Class attributes | `component_id`, `source` or `topic`, `message_codec`; for a topic, `start_from`, `contract`, `broker`, `parallel`; to publish, `produces_to` (a topic, or a `Publication` with its contract and broker) and `out_codec` |
 | Must define | `async on_message(self, message) -> ConsumerEffect` |
 | May override | `on_delete(self)`, which ignores by default |
-| In a handler | `self.metadata` (`subject`, `sequence_number`), `self.client`, `self.effects` |
+| In a handler | `self.metadata` (`subject`, `sequence_number`), `self.standing` (a workflow source's `Standing`, else `None`), `self.client`, `self.effects` |
 | Effects | `produce(out, metadata=None)`, `produce_all(messages)`, `done()`, `ignore()` |
 | One of several messages | `self.effects.message(out, key=None, metadata=None)`; `key` is a record key other than the message's subject |
 

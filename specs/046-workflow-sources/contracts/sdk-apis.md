@@ -90,12 +90,13 @@ checks; `WASM-ABI.md` notes the field on `ViewRequest` and `ConsumerRequest`.
 
 | Component | Kind | Declares |
 |---|---|---|
-| `checkout` | workflow | gains mode `abort`: `compensate` records `status = "aborted"` and fails with `"payment declined"` |
+| `checkout` | workflow | gains mode `abort`: `compensate` records `status = "aborted"` and fails with `"payment declined"`; and mode `drop`: `compensate` fails with `"payment declined"` and records nothing |
 | `checkout-rows` | view | `source = checkout`; row `{ id, status (the state's), standing, step?, failure? }`; query `by-standing` taking `standing` |
 | `checkout-ends` | consumer | `source = checkout`; on a change whose standing is `Completed` or `Failed`, calls `profile` (the key value entity) to record `{ id, standing, failure? }` under the checkout's id; ignores every other change |
 
-Routes: `GET /conformance/checkout/{id}/row` (404 until written), `GET /conformance/checkout-rows?standing=`,
-`GET /conformance/checkout/{id}/end` (404 until recorded).
+Routes: `GET /conformance/checkout/{id}/row` (404 until written), `GET /conformance/checkout-rows/{standing}`,
+`GET /conformance/checkout/{id}/end` (404 until recorded). `checkout-ends` records an end in the
+`profile` key value entity under `end-<id>`, as `Completed` or `Failed: <reason>`.
 
 ## Conformance cases (`ConformanceSuite`)
 
@@ -103,9 +104,9 @@ Routes: `GET /conformance/checkout/{id}/row` (404 until written), `GET /conforma
 |---|---|
 | `view.workflow-completed` | mode `ok`: the row's `standing` is `Completed`, its `status` `charged`, after the workflow ends |
 | `view.workflow-failure-recorded` | mode `abort`: `standing` `Failed`, `failure` `payment declined`, `status` `aborted` |
-| `view.workflow-no-change-without-state` | a workflow timed out during a step that records nothing: the row stays at its last state and standing, and the journal shows the `fail` record |
+| `view.workflow-no-change-without-state` | mode `drop`: once the row shows the last recorded state (`reserved`, running on `charge`) and the journal holds the failure, the row stays at that state and standing |
 | `view.workflow-by-standing` | `by-standing` with `Failed` answers the aborted checkout and not the completed one |
-| `consumer.workflow-end-once` | one end recorded for `ok`, one for `abort`, none for a running or paused checkout; recorded exactly once each |
+| `consumer.workflow-end-once` | `Completed` recorded for `ok`, `Failed: payment declined` for `abort`, and nothing for `drop`, whose failure records no state |
 | `topology.workflow-subscription` | a connection from `checkout` to `checkout-rows` and to `checkout-ends` of kind `workflow` |
 | `discovery.workflow-source-needs-1.15` | a sidecar stating `1.14` to the reference is refused by it, naming the components and both versions |
 

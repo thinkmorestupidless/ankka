@@ -573,8 +573,8 @@ class ObjectStorageGcsClusterFeatures
   // ── When ──────────────────────────────────────────────────────────────────
 
   When("a member applies the descriptor") { () =>
-    val (project, _) = pending.getOrElse(fail("no descriptor"))
-    apply(project, pendingName): Unit
+    val (project, json) = pending.getOrElse(fail("no descriptor"))
+    apply(project, pendingName, Some(json)): Unit
   }
 
   When(

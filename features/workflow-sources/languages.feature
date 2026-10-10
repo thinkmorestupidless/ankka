@@ -20,9 +20,9 @@ Feature: Workflow sources in every language
 
   Scenario Outline: a consumer is handed a failed workflow's standing in every language
     Given a service "shop" written in "<language>" with a consumer "watchdog" that reads the workflow "checkout"
-    And the step "charge" of "checkout" fails after its retries
+    And the step "charge" of "checkout" fails after its retries and fails over to "refund", which records the failure in the state and fails the workflow
     When the workflow "c2" of "checkout" runs from its start
-    Then "watchdog" is handed a change whose standing is failed and names the step "charge"
+    Then "watchdog" is handed a change whose standing is failed and holds the reason
 
     Examples:
       | language   |

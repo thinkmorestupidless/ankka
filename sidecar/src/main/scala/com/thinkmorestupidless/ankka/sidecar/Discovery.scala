@@ -63,6 +63,8 @@ object Discovery:
    * project's topic (feature 040). 1.16: a workflow as the source of a view or a consumer, and its
    * standing on their requests (feature 046); refused from a process that declares an earlier
    * minor.
+   * 1.17: a view's query as a stream and a watch, `QueryStream` and `Watch` on `Client`, and a
+   * declared query's `watched` (feature 047).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -159,6 +161,9 @@ object Discovery:
    */
   private val WorkflowSourcesSince = 16
 
+  /** The minor that introduced a watched query. */
+  private val WatchedSince = 17
+
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
       case _ :: minor :: Nil => minor.toIntOption
@@ -184,6 +189,20 @@ object Discovery:
       case _ =>
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
           s"'$protocolVersion'; the major versions must match"
+
+    // A view's declared queries as discovery states them. A query declared watched needs 1.15: an
+    // older SDK cannot have meant it, and a runtime from before would refuse its every watch.
+    def declared(
+        id: ComponentId,
+        view: String,
+        queries: Seq[ankka.protocol.v1.discovery.DeclaredQuery]
+    ): Vector[DeclaredQuery] =
+      queries.foreach { q =>
+        if q.watched && minorOf(spec.protocolVersion).exists(_ < WatchedSince) then
+          problems += s"view '$view': query '${q.name}' is watched, which needs protocol " +
+            s"1.$WatchedSince; the SDK speaks ${spec.protocolVersion}"
+      }
+      queries.map(q => DeclaredQuery(id, q.name, q.statement, q.watched)).toVector
 
     val descriptors = Vector.newBuilder[RemoteDescriptor]
     val agents      = Vector.newBuilder[Component]
@@ -237,7 +256,7 @@ object Discovery:
                     read.toVector,
                     d.rowManifest,
                     d.version,
-                    d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                    declared(id, c.id, d.declaredQueries)
                   )
             case (Kind.VIEW, Component.Detail.View(d)) =>
               source(s"view '${c.id}'", c.id, d.source, problems).foreach { s =>
@@ -247,7 +266,7 @@ object Discovery:
                   d.rowManifest,
                   d.queries.map(MethodName(_)).toSet,
                   d.version,
-                  d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                  declared(id, c.id, d.declaredQueries)
                 )
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>

@@ -260,3 +260,44 @@ test("the keyed test kit applies effects as the runtime does, and refuses an una
   await kit.deleted(Right, "r1")
   assert.equal(kit.get("gone-r1"), null)
 })
+
+// ── View streams (protocol 1.15) ─────────────────────────────────────────────
+
+const watched = `SELECT row_key, payload FROM ${tableOf("nodes")} ORDER BY row_key`
+
+test("discovery carries whether a declared query may be watched", () => {
+  const detail = specOf(nodes([declaredQuery("all-rows", watched, { watched: true }), declaredQuery("under", under)])).components[0].detail
+  assert.equal(detail.case, "view")
+  assert.deepEqual(
+    detail.value.declaredQueries.map((q) => [q.name, q.watched]),
+    [
+      ["all-rows", true],
+      ["under", false],
+    ],
+  )
+})
+
+test("a runtime from before view streams refuses a program that asks for one", () => {
+  const spec = specOf(nodes([declaredQuery("all-rows", watched, { watched: true })]))
+  const why = refusal(spec, "1.14")
+  assert.ok(why !== undefined)
+  assert.match(why, /nodes/)
+  assert.match(why, /1\.15/)
+  assert.equal(refusal(spec, "1.15"), undefined)
+  assert.equal(refusal(specOf(nodes([declaredQuery("under", under)])), "1.14"), undefined)
+})
+
+test("a watch is served as named events, ending with its reason", async () => {
+  const { sseEvents } = await import("../src/routes.ts")
+  const { WatchEnded } = await import("../src/client.ts")
+  async function* watch() {
+    yield { kind: "row" as const, key: "a", row: { key: "a" } }
+    yield { kind: "caughtUp" as const }
+    yield { kind: "removed" as const, key: "a" }
+    throw new WatchEnded("rebuilt")
+  }
+  const events = []
+  for await (const e of sseEvents(watch())) events.push([e.name, JSON.stringify(e.value)])
+  assert.deepEqual(events.map(([name]) => name), ["row", "caught-up", "removed", "ended"])
+  assert.match(String(events[3][1]), /rebuilt/)
+})

@@ -173,6 +173,40 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     assert(found.exists(p => p.contains("'watch'") && p.contains("streams")), found.toString)
   }
 
+  test("a module that would stream a view is refused when it is started") {
+    // features/view-streams/languages.feature. Built by hand: the crate cannot declare a watched
+    // query, so only a module built without it could.
+    import ankka.protocol.v1.discovery.{DeclaredQuery, Source, ViewDetail}
+    val view = Component(
+      kind = Kind.VIEW,
+      id = "carts",
+      detail = Component.Detail.View(
+        ViewDetail(
+          source = Some(
+            Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart")))
+          ),
+          rowManifest = "cart-row",
+          declaredQueries = Seq(
+            DeclaredQuery(
+              "open-carts",
+              "SELECT row_key, payload FROM ankka_view_carts",
+              watched = true
+            )
+          )
+        )
+      )
+    )
+    val spec = cartSpec().copy(protocolVersion = "1.15", components = cartSpec().components :+ view)
+    val found = problems(WasmSpec(Some(spec), Seq.empty, "1"))
+    assert(
+      found.exists(p =>
+        p.contains("view 'carts': query 'open-carts' is watched") &&
+          p.contains("a module reads a view whole")
+      ),
+      found.toString
+    )
+  }
+
   test("a socket route is refused, naming the route: a module cannot hold a socket") {
     // Built by hand: the crate cannot declare one, so only a module built without it could.
     val endpoint = ankka.protocol.v1.discovery.Endpoint(

@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.16"
+export const PROTOCOL_VERSION = "1.17"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -135,7 +135,7 @@ function componentInit(c: RegisteredComponent): ComponentInit {
             rowManifest: c.rowCodec.manifest,
             queries: [...c.queries],
             ...(c.version !== undefined ? { version: c.version } : {}),
-            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement })),
+            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement, watched: q.watched ?? false })),
           },
         },
       }
@@ -150,7 +150,7 @@ function componentInit(c: RegisteredComponent): ComponentInit {
             queries: [],
             ...(c.version !== undefined ? { version: c.version } : {}),
             sources: [...c.sources.values()].map((s) => sourceInit({ component: { kind: s.kind, id: s.id } })),
-            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement })),
+            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement, watched: q.watched ?? false })),
           },
         },
       }

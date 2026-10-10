@@ -37,6 +37,13 @@ service Client {
   // older than 1.12 answers UNIMPLEMENTED, so a timer meant to recur is never scheduled as one that
   // fires once. A refusal is an Error in the reply, as for the secret store.
   rpc ScheduleRecurring (ScheduleRecurringRequest) returns (ScheduleRecurringReply);
+
+  // A view's query answered as a stream of rows, and a watch of a declared query declared watched or
+  // of one row (protocol 1.15). A stream gives `row` frames and completes, or `failed`; a watch gives
+  // the rows now, `caught_up` once, then `row` and `removed` as the view writes, and `ended` or
+  // `failed` before it completes. A runtime older than 1.15 answers UNIMPLEMENTED.
+  rpc QueryStream (QueryRequest) returns (stream RowFrame);
+  rpc Watch       (WatchRequest) returns (stream RowFrame);
 }
 
 message InvokeRequest {
@@ -99,6 +106,44 @@ message QueryRequest {
   optional uint32 limit = 6;           // 1.13: the most rows to read. Absent: 1000
 }
 message QueryReply   { oneof result { Payload rows = 1; Error error = 2; } }
+
+// 1.15. One element of a row stream or a watch. `QueryStream` honours `QueryRequest`'s `name`, `values`
+// and `limit`, and gives every row when `limit` is absent.
+message RowFrame {
+  oneof frame {
+    WatchedRow row      = 1;
+    Removed    removed  = 2;
+    Empty      caught_up = 3;
+    Ended      ended    = 4;
+    Error      failed   = 5;
+  }
+}
+// The row under `key`, as stored: the process's own JSON under its row manifest.
+message WatchedRow { string key = 1; Payload payload = 2; }
+// The row under `key`, given earlier, no longer matches or was deleted.
+message Removed    { string key = 1; }
+// Why a watch ended: "rebuilt", "instance-stopping", "listener-lost" or "unread".
+message Ended      { string reason = 1; }
+
+// 1.15. A watch of a declared query, declared watched, with its values, or of one row by its key.
+message WatchRequest {
+  string view_id = 1;
+  Metadata metadata = 2;              // what the handler asking was given
+  oneof target {
+    Named  named = 3;
+    string key   = 4;
+  }
+  optional uint32 unread_bound = 5;   // the unread rows held, one per key. Absent: the runtime's bound
+  Overflow overflow = 6;              // past the bound. Absent: DROP_HEAD
+}
+message Named { string name = 1; map<string, string> values = 2; }
+enum Overflow {
+  DROP_HEAD = 0;    // drop the row changed longest ago
+  DROP_TAIL = 1;    // drop the row changed most recently
+  DROP_NEW = 2;     // drop the row that arrived
+  DROP_ALL = 3;     // drop every unread row
+  FAIL = 4;         // end the watch "unread"
+}
 
 message ScheduleRequest {
   string timer_id = 1;

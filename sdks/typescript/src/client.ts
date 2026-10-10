@@ -6,7 +6,7 @@
 
 import { Code, ConnectError, createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
 import { createGrpcTransport } from "@connectrpc/connect-node"
-import { Client, type QueryReply } from "./_proto/ankka/protocol/v1/client_pb.ts"
+import { Client, Overflow as ProtoOverflow, type QueryReply, type RowFrame } from "./_proto/ankka/protocol/v1/client_pb.ts"
 import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
 import { codecFor, jsonCodec, isCodec, textCodecs, binaryCodecs, codecForManifest, type Codec, type Shape } from "./codec.ts"
 import { CommandError, type ErrorDetail, type Metadata } from "./effects/common.ts"
@@ -228,6 +228,50 @@ export class TypedCalls<C> {
   }
 }
 
+/** The first protocol in which a view's query can be streamed and watched. */
+export const VIEW_STREAMS_SINCE = "1.15"
+
+/** What a watch of a view gives: a row as the query sees it now, a removal of one it gave, or the caught-up marker. */
+export type WatchEvent<Row> =
+  | { readonly kind: "row"; readonly key: string; readonly row: Row }
+  | { readonly kind: "removed"; readonly key: string }
+  | { readonly kind: "caughtUp" }
+
+/** What a watch does past its unread bound: none slows the view. */
+export type Overflow = "dropHead" | "dropTail" | "dropNew" | "dropAll" | "fail"
+
+export interface WatchOptions {
+  /** How many unread rows the watch holds, one per key; the instance's own bound when absent. */
+  readonly unread?: number
+  /** What it does past that bound; `dropHead`, the row changed longest ago, when absent. */
+  readonly overflow?: Overflow
+}
+
+/** A watch ended for `reason`: `rebuilt`, `instance-stopping`, `listener-lost` or `unread`. Watch again for the rows now. */
+export class WatchEnded extends Error {
+  readonly reason: string
+  constructor(reason: string) {
+    super(`the watch ended: ${reason}`)
+    this.name = "WatchEnded"
+    this.reason = reason
+  }
+}
+
+function overflowToProto(overflow: Overflow): ProtoOverflow {
+  switch (overflow) {
+    case "dropHead":
+      return ProtoOverflow.DROP_HEAD
+    case "dropTail":
+      return ProtoOverflow.DROP_TAIL
+    case "dropNew":
+      return ProtoOverflow.DROP_NEW
+    case "dropAll":
+      return ProtoOverflow.DROP_ALL
+    case "fail":
+      return ProtoOverflow.FAIL
+  }
+}
+
 /** View queries: rows come back as a JSON array decoded with the row shape. */
 export class Views {
   readonly #connection: Connection
@@ -265,6 +309,84 @@ export class Views {
       ...(limit !== undefined ? { limit } : {}),
     })
     return Views.#rows(answer, row)
+  }
+
+  /**
+   * The rows of `all` or one of a view's declared queries as the database yields them: nothing
+   * collected, and no limit unless one is given. A statement the database ends, or a reader that
+   * takes nothing for its timeout, throws.
+   */
+  async *stream<Row>(viewId: string, name: string, values: Readonly<Record<string, string>>, row: Shape<Row>, options: { readonly limit?: number } = {}): AsyncIterable<Row> {
+    const frames = stubOf(this.#connection).queryStream({
+      viewId,
+      name,
+      metadata: metadataToProto(this.#metadata),
+      values: { ...values },
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    })
+    for await (const event of Views.#frames(frames, row)) if (event.kind === "row") yield event.row
+  }
+
+  /**
+   * A watch of one of a view's declared queries, declared `{ watched: true }`: every row it matches
+   * now, then `caughtUp`, then each row as it is written and matches and a `removed` for each given row
+   * that stops matching. Throws `WatchEnded` when it ends with a reason. `unread` bounds the rows held
+   * for a reader that has not read them, and `overflow` says what happens past that bound.
+   */
+  async *watch<Row>(viewId: string, name: string, values: Readonly<Record<string, string>>, row: Shape<Row>, options: WatchOptions = {}): AsyncIterable<WatchEvent<Row>> {
+    const frames = stubOf(this.#connection).watch({
+      viewId,
+      metadata: metadataToProto(this.#metadata),
+      target: { case: "named", value: { name, values: { ...values } } },
+      ...(options.unread !== undefined ? { unreadBound: options.unread } : {}),
+      overflow: overflowToProto(options.overflow ?? "dropHead"),
+    })
+    yield* Views.#frames(frames, row)
+  }
+
+  /** A watch of one row by its key: the row now, then `caughtUp`, then each version and a `removed` when it is deleted. */
+  async *watchRow<Row>(viewId: string, key: string, row: Shape<Row>, options: WatchOptions = {}): AsyncIterable<WatchEvent<Row>> {
+    const frames = stubOf(this.#connection).watch({
+      viewId,
+      metadata: metadataToProto(this.#metadata),
+      target: { case: "key", value: key },
+      ...(options.unread !== undefined ? { unreadBound: options.unread } : {}),
+      overflow: overflowToProto(options.overflow ?? "dropHead"),
+    })
+    yield* Views.#frames(frames, row)
+  }
+
+  static async *#frames<Row>(frames: AsyncIterable<RowFrame>, row: Shape<Row>): AsyncIterable<WatchEvent<Row>> {
+    const codec: Codec<Row> = isCodec(row) ? row : codecFor(row as Schema<Row>)
+    try {
+      for await (const frame of frames) {
+        switch (frame.frame.case) {
+          case "row":
+            yield { kind: "row", key: frame.frame.value.key, row: codec.decode(frame.frame.value.payload?.data ?? new Uint8Array()) }
+            break
+          case "removed":
+            yield { kind: "removed", key: frame.frame.value.key }
+            break
+          case "caughtUp":
+            yield { kind: "caughtUp" }
+            break
+          case "ended":
+            throw new WatchEnded(frame.frame.value.reason)
+          case "failed":
+            throw new CommandError(errorOf(frame.frame.value))
+          default:
+            return
+        }
+      }
+    } catch (failure) {
+      if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+        throw new CommandError({
+          message: `the runtime beside this process does not offer view streams, which need protocol ${VIEW_STREAMS_SINCE} (this SDK speaks ${PROTOCOL_VERSION}): ${failure.rawMessage}`,
+          code: "INTERNAL",
+        })
+      }
+      throw failure
+    }
   }
 
   static #rows<Row>(answer: QueryReply, row: Shape<Row>): Row[] {

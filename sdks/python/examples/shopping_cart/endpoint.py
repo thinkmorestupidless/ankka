@@ -96,6 +96,30 @@ class ShoppingCartEndpoint(Endpoint):
     async def checkout_status(self, cartId: str) -> Checkout:
         return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("status").invoke(reply=Checkout)
 
+    # docs:start start-and-await
+    @post("/{cartId}/checkouts/wait")
+    async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
+        """Starts the checkout and answers with how it ended, as one request."""
+        checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+        return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
+    # docs:end start-and-await
+
+    # docs:start await-later
+    @get("/{cartId}/checkouts/end")
+    async def checkout_end(self, cartId: str) -> Checkout:
+        """How a checkout someone else started ended: at once if it has, when it does if not."""
+        return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).await_end(10.0, reply=Checkout)
+    # docs:end await-later
+
+    # docs:start sse-await
+    @sse("/{cartId}/checkouts/events")
+    async def checkout_events(self, cartId: str) -> AsyncIterator[str]:
+        """A heartbeat while the checkout goes on, then how it ended, on one connection."""
+        checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+        async for part in checkout.await_end_parts(600.0, reply=Checkout):
+            yield part.to_json()
+    # docs:end sse-await
+
     # ── The assistant: a POST answers whole, a GET streams tokens as SSE ───
 
     # docs:start agent-routes

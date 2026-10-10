@@ -169,8 +169,9 @@ object ConformanceReference:
 
     /**
      * `mode`: `ok`, `fail` (charge is declined and compensated), `pause` (a pause before charging),
-     * `abort` (declined; the compensation records it and fails the workflow) or `drop` (declined;
-     * the compensation fails the workflow and records nothing).
+     * `abort` (declined; the compensation records it and fails the workflow), `drop` (declined;
+     * the compensation fails the workflow and records nothing) or `doomed` (declined, and the
+     * compensation fails too, so the workflow fails).
      */
     def start(mode: String): Effect[String] =
       if currentState.status != "new" then effects.error("already started", ErrorCode.Conflict)
@@ -193,14 +194,15 @@ object ConformanceReference:
         .updateState(currentState.copy(status = "waiting"))
         .thenPause(1500.millis, Checkout.charge.ref)
     def chargeStep: StepEffect =
-      if Set("fail", "abort", "drop").contains(currentState.mode) then
+      if Set("fail", "abort", "drop", "doomed").contains(currentState.mode) then
         throw RuntimeException("payment declined")
       else stepEffects.updateState(currentState.copy(status = "charged")).thenEnd
     def compensateStep: StepEffect = currentState.mode match
       case "abort" =>
         stepEffects.updateState(currentState.copy(status = "aborted")).thenFail("payment declined")
-      case "drop" => stepEffects.thenFail("payment declined")
-      case _      => stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
+      case "drop"   => stepEffects.thenFail("payment declined")
+      case "doomed" => throw RuntimeException("compensation failed too")
+      case _        => stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
     def status: ReadOnlyEffect[String] = effects.reply(currentState.status)
 
   object Checkout
@@ -1065,6 +1067,14 @@ object ConformanceReference:
     get("/checkout/{id}/end") { (id: String) =>
       val end = profile(s"end-$id").call(Profile.get).invoke()
       if end == "none" then throw HttpProblem.notFound(s"'$id' has not ended") else end
+    }
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    postBody("/checkout-await/{id}") { (id: String, mode: String) =>
+      try checkout(id).call(Checkout.start).thenAwaitEnd(30.seconds).invoke(mode).status
+      catch
+        case failed: CommandError if failed.code == ErrorCode.WorkflowFailed =>
+          val end = WorkflowEnd.failure(failed).get
+          throw HttpProblem(424, s"${end.step.getOrElse("")}: ${end.reason}")
     }
     post[String, Done]("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))

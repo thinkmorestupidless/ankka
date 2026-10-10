@@ -739,6 +739,18 @@ export class ConformanceEndpoint extends Endpoint {
       if (end === "none") throw new HttpProblem(404, `'${req.params.id}' has not ended`)
       return end
     }),
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    startAndAwaitCheckout: post("/checkout-await/{id}", s.string, s.string, async (ep: ConformanceEndpoint, req, mode) => {
+      try {
+        const checkout = await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode)
+        return checkout.status
+      } catch (refused) {
+        if (refused instanceof CommandError && refused.code === ErrorCode.WorkflowFailed) {
+          throw new HttpProblem(424, `${refused.details.step ?? ""}: ${refused.details.reason ?? ""}`)
+        }
+        throw refused
+      }
+    }),
     remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
       return done

@@ -76,7 +76,7 @@ impl CheckoutWorkflow {
     }
 
     fn charge(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
-        if matches!(checkout.mode.as_str(), "fail" | "abort" | "drop") {
+        if matches!(checkout.mode.as_str(), "fail" | "abort" | "drop" | "doomed") {
             panic!("payment declined");
         }
         // Not idempotent — a retry after the cart was checked out is refused — which is why
@@ -106,6 +106,7 @@ impl CheckoutWorkflow {
                 return step_effects::update_state(aborted).then_fail(declined());
             }
             "drop" => return step_effects::fail(declined()),
+            "doomed" => panic!("compensation failed too"),
             _ => {}
         }
         let compensated = Checkout {

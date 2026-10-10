@@ -224,6 +224,12 @@ services only. See [gRPC endpoints](../build/grpc-endpoints.md).
 A check on an agent's input or output text that can block it. Input guardrails run before the model sees the
 text; output guardrails run on what the model produced.
 
+### Heartbeat
+
+A part of a stream that carries nothing but that the connection is alive. A wait for a workflow's end
+served as server-sent events sends one a third of the service's idle timeout apart, so the connection is
+never quiet long enough to be ended.
+
 ### Handler
 
 A method of a component that the runtime calls: a command, a query, a workflow step, a timed action's action,
@@ -552,6 +558,12 @@ usually time spent waiting on a database, a model, or work handed to another thr
 A component that maintains a queryable table from changes, answering questions no single entity can,
 such as "every cart containing this product". A plain view reads one source and keeps a row per entity of
 it; a keyed view reads several entities and names its rows' keys.
+
+### Wait
+
+A caller's wait for a workflow's end, with a timeout the caller gives: answered with the state the
+workflow ended with, or with `WorkflowFailed` naming the step and the reason, or told it timed out while
+the workflow runs on. See [Workflows](../build/workflows.md#waiting-for-the-end).
 
 ### Web hosting
 

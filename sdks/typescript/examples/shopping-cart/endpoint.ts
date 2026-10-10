@@ -1,4 +1,4 @@
-import { Acl, Done, Endpoint, HttpProblem, defaultCodecFor, del, get, post, s, socket, sse } from "ankka"
+import { Acl, Done, Endpoint, HttpProblem, awaitPartJson, defaultCodecFor, del, get, post, s, socket, sse } from "ankka"
 import { LineItem, ShoppingCart } from "./domain.ts"
 import { ShoppingCartEntity } from "./entity.ts"
 import { CartRow, CartRows } from "./cartRows.ts"
@@ -59,6 +59,24 @@ export class ShoppingCartEndpoint extends Endpoint {
     checkoutStatus: get("/{cartId}/checkouts", Checkout, (ep: ShoppingCartEndpoint, req) =>
       ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.status).invoke(),
     ),
+    // docs:start start-and-await
+    /** Starts the checkout and answers with how it ended, as one request. */
+    checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
+      ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
+    ),
+    // docs:end start-and-await
+    // docs:start await-later
+    /** How a checkout someone else started ended: at once if it has, when it does if not. */
+    checkoutEnd: get("/{cartId}/checkouts/end", Checkout, (ep: ShoppingCartEndpoint, req) =>
+      ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEnd<Checkout>(10_000),
+    ),
+    // docs:end await-later
+    // docs:start sse-await
+    /** A heartbeat while the checkout goes on, then how it ended, on one connection. */
+    checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {
+      for await (const part of ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEndParts<Checkout>(600_000)) yield awaitPartJson(part)
+    }),
+    // docs:end sse-await
     checkoutLog: get("/{cartId}/checkout-log", CheckoutRecord, (ep: ShoppingCartEndpoint, req) =>
       ep.client.of(CheckoutLog, req.params.cartId).call(CheckoutLog.handlers.get).invoke(),
     ),

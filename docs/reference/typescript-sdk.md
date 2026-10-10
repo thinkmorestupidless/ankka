@@ -296,7 +296,7 @@ for await (const token of this.client.forAgent("assistant", session).call("chat"
 | Any component, typed | `client.of(Cls, entityId).call(Cls.handlers.name)` |
 | Event sourced entity | `client.forEventSourcedEntity(componentId, entityId)` |
 | Key value entity | `client.forKeyValueEntity(componentId, entityId)` |
-| Workflow | `client.forWorkflow(componentId, workflowId)` |
+| Workflow | `client.forWorkflow(componentId, workflowId)`; `client.of(Cls, id).awaitEnd(timeoutMillis)` waits for its end, `.awaitEndParts(timeoutMillis)` as parts for an `sse` route (`awaitPartJson` renders one), and `.call(Cls.handlers.name).thenAwaitEnd(timeoutMillis).invoke(input)` starts and waits as one call |
 | Agent | `client.forAgent(componentId, sessionId)` |
 
 `.call(...)` gives an invocation: `await invocation.invoke(input)`, or `for await (const token of

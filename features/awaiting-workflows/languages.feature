@@ -1,7 +1,7 @@
 Feature: Waiting for a workflow in every language
   A handler in Python or TypeScript sends a command to a workflow and waits for its end through
-  its client, as a Scala one does. A runtime from before waiting refuses a program that waits,
-  naming the protocol version it needs.
+  its client, as a Scala one does. A runtime from before waiting refuses a handler's wait when it is
+  made, and the handler is told the protocol version waiting needs.
 
   Scenario Outline: a handler sends a command and is answered with the state in every language
     Given a service "pricing" written in "<language>" with a workflow "quote" of the steps "rates" and "offer"
@@ -25,8 +25,9 @@ Feature: Waiting for a workflow in every language
       | Python     |
       | TypeScript |
 
-  Scenario: a runtime from before waiting refuses a program that waits
+  Scenario: a runtime from before waiting refuses a handler's wait, naming the protocol version
     Given a service "pricing" written in "Python" whose handler waits for a workflow's end
-    When "pricing" is started beside a runtime at a protocol version before waiting
-    Then "pricing" does not start
-    And the developer is told which protocol version waiting needs
+    And "pricing" runs beside a runtime at a protocol version before waiting
+    When the handler waits for the end of a workflow
+    Then the handler's wait is refused
+    And the handler is told which protocol version waiting needs

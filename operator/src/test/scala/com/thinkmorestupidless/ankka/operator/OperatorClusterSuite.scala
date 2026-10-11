@@ -989,6 +989,100 @@ class OperatorClusterSuite extends munit.FunSuite:
           secret.getMetadata.getOwnerReferences == null || secret.getMetadata.getOwnerReferences.isEmpty
         )
       finally store.close()
+
+      // Feature 041: what backups need and no more, asked of the API server as the operator.
+      def may(verb: String, group: String, resource: String, namespace: String, name: String = "") =
+        restricted
+          .authorization()
+          .v1()
+          .selfSubjectAccessReview()
+          .create(
+            new io.fabric8.kubernetes.api.model.authorization.v1.SelfSubjectAccessReviewBuilder()
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.authorization.v1.SelfSubjectAccessReviewSpecBuilder()
+                  .withResourceAttributes(
+                    new io.fabric8.kubernetes.api.model.authorization.v1.ResourceAttributesBuilder()
+                      .withVerb(verb)
+                      .withGroup(group)
+                      .withResource(resource.takeWhile(_ != '/'))
+                      .withSubresource(resource.dropWhile(_ != '/').drop(1))
+                      .withNamespace(namespace)
+                      .withName(name)
+                      .build()
+                  )
+                  .build()
+              )
+              .build()
+          )
+          .getStatus
+          .getAllowed
+          .booleanValue
+      assert(may("create", "", "pods/exec", Namespace), "psql in a database's pod")
+      assert(
+        may("create", "barmancloud.cnpg.io", "objectstores", Namespace),
+        "the archiver's store"
+      )
+      assert(may("get", "postgresql.cnpg.io", "backups", Namespace), "a base backup's outcome")
+      assert(may("patch", "postgresql.cnpg.io", "scheduledbackups", Namespace), "the schedule")
+      assert(!may("delete", "postgresql.cnpg.io", "clusters", Namespace), "a project's database")
+      assert(
+        !may("delete", "barmancloud.cnpg.io", "objectstores", Namespace),
+        "the archive's store"
+      )
+      assert(!may("delete", "postgresql.cnpg.io", "backups", Namespace), "a base backup")
+      assert(!may("get", "", "secrets", Namespace, "ankka-db-backups"), "the backup credential")
+
+      // The one delete, bound only where a rehearsal runs: by a RoleBinding in its namespace, as the
+      // control plane writes it, to the ClusterRole the shipped manifest declares.
+      val rehearsals = s"$Namespace-rehearsal"
+      client
+        .namespaces()
+        .resource(
+          new io.fabric8.kubernetes.api.model.NamespaceBuilder()
+            .withMetadata(new ObjectMetaBuilder().withName(rehearsals).build())
+            .build()
+        )
+        .serverSideApply(): Unit
+      assert(!may("delete", "postgresql.cnpg.io", "clusters", rehearsals), "before the binding")
+      client
+        .rbac()
+        .roleBindings()
+        .inNamespace(rehearsals)
+        .resource(
+          new io.fabric8.kubernetes.api.model.rbac.RoleBindingBuilder()
+            .withMetadata(
+              new ObjectMetaBuilder()
+                .withName("ankka-operator-rehearsal")
+                .withNamespace(rehearsals)
+                .build()
+            )
+            .withRoleRef(
+              new io.fabric8.kubernetes.api.model.rbac.RoleRef(
+                "rbac.authorization.k8s.io",
+                "ClusterRole",
+                "ankka-operator-rehearsal"
+              )
+            )
+            .withSubjects(
+              new io.fabric8.kubernetes.api.model.rbac.Subject(
+                null,
+                "ServiceAccount",
+                "ankka-operator",
+                "ankka-operator"
+              )
+            )
+            .build()
+        )
+        .serverSideApply(): Unit
+      waitFor(30.seconds)(may("delete", "postgresql.cnpg.io", "clusters", rehearsals))
+      assert(
+        !may("delete", "postgresql.cnpg.io", "clusters", Namespace),
+        "only in the rehearsal namespace"
+      )
+      assert(
+        !may("delete", "postgresql.cnpg.io", "databases", rehearsals),
+        "clusters, and nothing else"
+      )
     finally restricted.close()
   }
 

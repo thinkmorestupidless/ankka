@@ -100,7 +100,21 @@ object ControlPlane:
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
       schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
-      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
+      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None,
+      /** The installation's backups (feature 041); none as the default, as before the feature. */
+      // By name: read at each request, so a suite can change what the installation backs up.
+      backups: => BackupConfig = BackupConfig.default,
+      /** Where the control plane's own database's backups are read; the projector. */
+      platform: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PlatformBackupsReader] =
+        None,
+      /** Where a restore's services are asked about the broker; their instances, by default. */
+      divergence: Option[com.thinkmorestupidless.ankka.controlplane.deploy.DivergenceReader] = None,
+      /** Where a project's rehearsal namespace is made; the projector. */
+      rehearsals: Option[com.thinkmorestupidless.ankka.controlplane.deploy.RehearsalNamespaces] =
+        None,
+      /** Whether the control plane is held after its own database's restore. */
+      hold: com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold =
+        com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold.none
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -118,7 +132,11 @@ object ControlPlane:
           topics,
           schemas,
           topology,
-          deploy.objectStore
+          deploy.objectStore,
+          backups,
+          divergence,
+          platform,
+          rehearsals
         ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
@@ -136,11 +154,30 @@ object ControlPlane:
               deploy,
               logs = logReader,
               clock = clock,
-              topology = reader
+              topology = reader,
+              projects = topics
             )
-          case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
+          case None =>
+            ServiceEndpoint(
+              clients,
+              acl,
+              deploy,
+              logs = logReader,
+              clock = clock,
+              projects = topics
+            ),
       clients => WhoamiEndpoint(clients, acl, clock),
-      clients => InstallationEndpoint(clients, acl, cloud, deploy.platformVersion, clock)
+      clients =>
+        InstallationEndpoint(
+          clients,
+          acl,
+          cloud,
+          deploy.platformVersion,
+          clock,
+          backups,
+          platform,
+          hold
+        )
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
@@ -167,13 +204,15 @@ object ControlPlane:
        */
       tokens: Option[DeployTokenIndex] = None
   ): ServiceBuilder =
-    val deploy = DeployConfig.from(config)
-    val policy = OrganizationPolicy.from(config)
-    val cloud =
-      com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
+    val deploy  = DeployConfig.from(config)
+    val policy  = OrganizationPolicy.from(config)
+    val backups = BackupConfig.from(config)
+    val cloud   = com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
-    val projector = ServiceProjector(deploy)
+    // First of the extensions (feature 041): the projector must know it is held before it starts.
+    val hold      = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold()
+    val projector = ServiceProjector(deploy, backups, hold)
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
         HttpServer.at(host, bindPort)(
@@ -187,7 +226,11 @@ object ControlPlane:
             secrets = Some(projector),
             topics = Some(projector),
             schemas = Some(projector),
-            cloud = cloud
+            cloud = cloud,
+            backups = backups,
+            platform = Some(projector),
+            rehearsals = Some(projector),
+            hold = hold
           )*
         )
       case _ =>
@@ -202,11 +245,16 @@ object ControlPlane:
             secrets = Some(projector),
             topics = Some(projector),
             schemas = Some(projector),
-            cloud = cloud
+            cloud = cloud,
+            backups = backups,
+            platform = Some(projector),
+            rehearsals = Some(projector),
+            hold = hold
           )*
         )
     val base = Ankka.service
       .registerAll(componentsWith(projector))
+      .withExtension(hold)
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(server)

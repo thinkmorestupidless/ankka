@@ -162,15 +162,16 @@ object FakeCollector:
     )
 
   // ExportMetricsServiceRequest.resource_metrics = 1; ResourceMetrics.resource = 1,
-  // scope_metrics = 2; ScopeMetrics.metrics = 2; Metric.name = 1, unit = 3, sum = 7;
-  // Sum.data_points = 1, aggregation_temporality = 2 (2 is cumulative), is_monotonic = 3.
+  // scope_metrics = 2; ScopeMetrics.metrics = 2; Metric.name = 1, unit = 3, gauge = 5, sum = 7;
+  // Sum.data_points = 1, aggregation_temporality = 2 (2 is cumulative), is_monotonic = 3; a Gauge's
+  // data_points are field 1 too, and it has neither of the others.
   def decodeMetrics(body: Array[Byte]): Vector[ExportedMetric] =
     for
       resourceMetrics <- Protobuf.read(body).messages(1)
       resource = attributesOf(resourceMetrics.message(1).map(_.messages(1)).getOrElse(Vector.empty))
       scopeMetrics <- resourceMetrics.messages(2)
       metric       <- scopeMetrics.messages(2)
-      sum          <- metric.message(7).toVector
+      sum          <- metric.message(7).orElse(metric.message(5)).toVector
     yield ExportedMetric(
       resource = resource,
       name = metric.string(1).getOrElse(""),

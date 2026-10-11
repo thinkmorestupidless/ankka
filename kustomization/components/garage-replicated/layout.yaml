@@ -1,0 +1,102 @@
+# The one imperative thing a Garage of several nodes needs: its nodes connected, each with a role in
+# an applied layout. A loop rather than a Job, so that losing a machine and its volume heals with no
+# one running anything: the node that replaces it has a new id, and until it holds a role it refuses
+# every request the `garage` Service sends it (`Layout not ready`, a 500, about one in three). Each
+# pass gives a new node the zone of a role whose node is gone, and removes that role; a role whose
+# node is only down, with nothing new to take its place, is left alone. Through the administration API
+# alone, with the busybox tools of the copy's image: nothing here is installed at run time.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage-layout
+  namespace: garage-system
+  labels:
+    app.kubernetes.io/name: garage-layout
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: garage-layout }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garage-layout
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: layout
+          image: rclone/rclone:1.68.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          env:
+            - name: TOKEN
+              valueFrom: { secretKeyRef: { name: garage-secrets, key: admin-token } }
+            - name: NODES
+              value: "3"
+            # Each node's share of the layout, in bytes: its volume.
+            - name: CAPACITY
+              value: "10737418240"
+            # Seconds between passes.
+            - name: INTERVAL
+              value: "15"
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              api() { wget -q -O - --header "Authorization: Bearer $TOKEN" "$@"; }
+              peers() {
+                nslookup garage-peers.garage-system.svc.cluster.local 2>/dev/null \
+                  | awk '/^Address/ { print $NF }' | grep -v ':53$' | sort
+              }
+              # One pass: connect every node, give a new one a role, and when it replaces a node that is gone,
+              # the zone of that node's role, removing the stale one. A role whose node is merely down, with no
+              # new node to take its place, is left alone: it may be restarting.
+              reconcile() {
+                [ "$(peers | wc -l)" -ge "$NODES" ] || { echo "waiting for $NODES nodes"; return 0; }
+                first=""; addresses=""; live=""
+                for ip in $(peers); do
+                  info=$(api "http://$ip:3903/v2/GetNodeInfo?node=self") || { echo "no answer from $ip"; return 0; }
+                  id=$(echo "$info" | sed -n 's/.*"nodeId": *"\([0-9a-f]*\)".*/\1/p' | head -1)
+                  [ -n "$id" ] || { echo "no node id in: $info"; return 1; }
+                  [ -n "$first" ] || first=$ip
+                  addresses="$addresses${addresses:+,}\"$id@$ip:3901\""
+                  live="$live $id"
+                done
+                api --post-data "[$addresses]" "http://$first:3903/v2/ConnectClusterNodes" >/dev/null
+                layout=$(api "http://$first:3903/v2/GetClusterLayout" | tr -d ' \n')
+                version=$(echo "$layout" | grep -o '"version":[0-9]*' | head -1 | cut -d: -f2)
+                # "<id> <zone>" for each role the applied layout holds.
+                roles=$(echo "$layout" | sed 's/"stagedRoleChanges".*//' \
+                  | grep -o '{"id":"[0-9a-f]*","zone":"[^"]*"' | sed 's/{"id":"\([0-9a-f]*\)","zone":"\([^"]*\)"/\1 \2/')
+                stale=$(echo "$roles" | while read -r id zone; do
+                  [ -n "$id" ] || continue
+                  case " $live " in *" $id "*) ;; *) echo "$id $zone" ;; esac
+                done)
+                changes=""; zones=$(echo "$roles" | awk 'NF { print $2 }')
+                for id in $live; do
+                  echo "$roles" | grep -q "^$id " && continue
+                  replaced=$(echo "$stale" | awk 'NF { print; exit }')
+                  if [ -n "$replaced" ]; then
+                    zone=${replaced#* }
+                    stale=$(echo "$stale" | sed 1d)
+                    changes="$changes${changes:+,}{\"id\":\"${replaced%% *}\",\"remove\":true}"
+                    echo "$id replaces ${replaced%% *} in $zone"
+                  else
+                    n=1; while echo "$zones" | grep -qx "z$n"; do n=$((n + 1)); done
+                    zone="z$n"; zones="$zones
+              $zone"
+                  fi
+                  changes="$changes${changes:+,}{\"id\":\"$id\",\"zone\":\"$zone\",\"capacity\":$CAPACITY,\"tags\":[]}"
+                done
+                [ -n "$changes" ] || return 0
+                api --post-data "{\"roles\":[$changes]}" "http://$first:3903/v2/UpdateClusterLayout" >/dev/null
+                api --post-data "{\"version\":$((version + 1))}" "http://$first:3903/v2/ApplyClusterLayout" >/dev/null
+                echo "layout applied at version $((version + 1))"
+              }
+              while true; do
+                reconcile || echo "the layout could not be reconciled"
+                [ "${ONCE:-}" = "1" ] && exit 0
+                sleep "${INTERVAL:-15}"
+              done

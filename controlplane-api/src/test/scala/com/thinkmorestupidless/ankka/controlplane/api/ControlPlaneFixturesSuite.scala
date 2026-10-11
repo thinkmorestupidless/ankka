@@ -42,6 +42,53 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     def wrap(value: A) = s"""{"type":"$name","json":${writeToString(value)}}""" + "\n"
     Vector(s"$name.json" -> wrap(full), s"$name.minimal.json" -> wrap(minimal))
 
+  private val backupLine = BackupLine(
+    "ankka-db",
+    "ankka-db",
+    "backing up",
+    Some(at),
+    Some(at),
+    Some(at),
+    Some(12.0),
+    None,
+    None
+  )
+  private val verification =
+    ServiceVerification("wallet", present = true, 12L, 1L, 4L, 0L, 12L, Vector("api-key"))
+  private val restoreView = RestoreView(
+    "ankka-db-r202610081012",
+    "ankka-db",
+    at,
+    "Verified",
+    Some("Olive Owner"),
+    Some(at),
+    Some(at),
+    Vector(verification, ServiceVerification("rewards", present = false)),
+    None,
+    Vector(
+      TopicDivergence(
+        "transactions",
+        Some("ankka.shop.totals.view.sums"),
+        3L,
+        Some(2L),
+        Vector("ledger")
+      )
+    ),
+    Vector("totals"),
+    Some(BackupPhrases.Republished)
+  )
+  private val rehearsalView = RehearsalView(
+    "ankka-db-x202610090000",
+    "ankka-db",
+    at,
+    "Completed",
+    Some("Olive Owner"),
+    Some(at),
+    Some(118L),
+    None,
+    Vector(verification)
+  )
+
   private val registry = RegistrySummary("ghcr.io", "robot", Some(at), Some("Olive Owner"))
   private val quota    = Quota(Some(3), Some(10), Some(20))
   private val usage    = Usage(1, 2, 3)
@@ -398,6 +445,97 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         calls = Vector.empty,
         differences = Vector.empty
       )
+    ),
+    // Feature 041: backups, restores, switches, rehearsals and the project's database.
+    fixture(
+      "ProjectStatus",
+      ProjectStatus(
+        "shop",
+        backedUp = true,
+        "object-store",
+        Vector(backupLine),
+        Some(ProjectDatabase("ankka-db", 3, 3, Some("ankka-db-1"), synchronous = true, None)),
+        None,
+        Vector(
+          ProjectCluster("ankka-db", "ankka-db", "left", Vector.empty, None, Some(at)),
+          ProjectCluster(
+            "ankka-db-r202610081012",
+            "ankka-db-r202610081012",
+            "restore",
+            Vector("wallet"),
+            Some(at)
+          )
+        ),
+        Vector(restoreView),
+        Some(rehearsalView)
+      ),
+      ProjectStatus("shop", backedUp = false, "none", detail = Some(BackupPhrases.NoTarget))
+    ),
+    fixture(
+      "InstallationStatus",
+      InstallationStatus(
+        "object-store",
+        30,
+        copyRequired = true,
+        sharesFailureDomain = false,
+        BackupPhrases.GarageEncryption,
+        Some(backupLine),
+        None
+      ),
+      InstallationStatus(
+        "none",
+        30,
+        copyRequired = false,
+        sharesFailureDomain = true,
+        "none",
+        notBackedUp = Some(BackupPhrases.NoTarget)
+      )
+    ),
+    fixture("RestoreRequest", RestoreRequest(at, Some("ankka-db")), RestoreRequest(at)),
+    fixture(
+      "RestoreView",
+      restoreView,
+      RestoreView("ankka-db-r202610081012", "ankka-db", at, "Restoring")
+    ),
+    fixture("SwitchRequest", SwitchRequest("ankka-db-r202610081012"), SwitchRequest("ankka-db")),
+    fixture(
+      "ProjectHistoryView",
+      ProjectHistoryView(
+        "restore-requested",
+        Some("Olive Owner"),
+        Some(at),
+        Some("ankka-db-r202610081012")
+      ),
+      ProjectHistoryView("database-set")
+    ),
+    fixture(
+      "DatabaseSetting",
+      DatabaseSetting(2, synchronous = true, Some(45), Some("weekly")),
+      DatabaseSetting()
+    ),
+    fixture(
+      "RestoreHoldStatus",
+      RestoreHoldStatus(
+        held = true,
+        Some(at),
+        Some(at),
+        None,
+        None,
+        Vector(
+          ServiceDifference("checkout", "cart", Some(1L), Some(2L), Some("cart:1"), Some("cart:2"))
+        ),
+        Vector("checkout"),
+        Vector("lab"),
+        Vector("the erasure log is up to date: 0 gained")
+      ),
+      RestoreHoldStatus(held = false)
+    ),
+    fixture("CredentialReissued", CredentialReissued("shop", 2), CredentialReissued("shop", 1)),
+    fixture("RehearsalRequest", RehearsalRequest(Some(at), Some("ankka-db")), RehearsalRequest()),
+    fixture(
+      "RehearsalView",
+      rehearsalView,
+      RehearsalView("ankka-db-x202610090000", "ankka-db", at, "Running")
     ),
     fixture(
       "InstanceTopology",

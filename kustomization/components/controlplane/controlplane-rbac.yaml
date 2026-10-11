@@ -64,6 +64,18 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create", "patch"]
+  # A project's rehearsal namespace (feature 041) is made as a project's is, and in it the
+  # operator is granted its one delete, of a rehearsal's database cluster. Kubernetes lets a
+  # subject bind a role only if it holds every permission in it, or "bind" on the role itself:
+  # "bind" here names that one ClusterRole and no other, so the control plane can hand the operator
+  # exactly that delete and holds no delete of its own. "patch" for server-side apply, as above.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames: ["ankka-operator-rehearsal"]
   # A project's registry credential (feature 013): a dockerconfigjson Secret in the project's
   # namespace that the operator names on every workload in it, so the kubelet can pull a private
   # image.

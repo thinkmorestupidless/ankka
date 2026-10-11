@@ -51,3 +51,10 @@ Feature: Every project database is backed up, and a failure is seen
     Then "cart" is ready
     And the status of the installation says that nothing is backed up
     And the status of the project "shop" says that nothing is backed up
+
+  Scenario: a storage credential of a service reaches no backup bucket
+    Given an installation with a backup target
+    And a deployed service "reports" with a bucket in the project "shop"
+    And a project "shop" that is backed up
+    When "reports" reads the backup bucket of "shop" with its own storage credential
+    Then the object store refuses "reports"

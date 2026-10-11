@@ -45,6 +45,14 @@ trait AnkkaServiceClient extends AutoCloseable:
   def ensureNamespace(namespace: String): Unit
 
   /**
+   * A project's rehearsal namespace, and the operator's grant there (feature 041). The default
+   * makes only the namespace, for a client with no cluster's RBAC to write.
+   */
+  def ensureRehearsalNamespace(namespace: String, projectId: String): Unit =
+    val _ = projectId
+    ensureNamespace(namespace)
+
+  /**
    * Puts a registry credential where the kubelet will read it, in a project's namespace.
    *
    * Write-only, and that is the point: the control plane can create and replace this Secret and can
@@ -96,6 +104,12 @@ trait AnkkaServiceClient extends AutoCloseable:
   /** What the operator last reported of a project's topics, or nothing yet. */
   def projectStatus(namespace: String, name: String): Option[AnkkaProjectStatus]
 
+  /**
+   * The control plane's own database's backups (feature 041); nothing from a client that cannot see
+   * them, as a fake cannot.
+   */
+  def controlPlaneBackups(): Option[com.thinkmorestupidless.ankka.crd.LineStatus] = None
+
   /** Removes the resource; its children cascade. Succeeds if already absent. */
   def delete(namespace: String, name: String): Unit
 
@@ -114,6 +128,130 @@ trait AnkkaServiceClient extends AutoCloseable:
   def connected: Boolean
 
   def close(): Unit = ()
+
+  /** A project's resource as written (feature 041), for a held control plane to compare. */
+  def projectSpec(namespace: String, name: String): Option[AnkkaProjectSpec] =
+    val _ = (namespace, name)
+    None
+
+  /** The projects whose namespaces the platform labelled, by id (feature 041). */
+  def platformProjects(): Vector[String] = Vector.empty
+
+  /** `garage-copy-status`'s entries (feature 041); none where there is no copy. */
+  def copyStatus(): Map[String, String] = Map.empty
+
+/**
+ * A client a held control plane uses (feature 041, research R19): every read is the cluster's, and
+ * every write is compared with what the cluster holds, recorded on the hold when it differs, and
+ * not made. Released, it is the client it wraps.
+ */
+final class HeldClient(underlying: AnkkaServiceClient, hold: RestoreHold)
+    extends AnkkaServiceClient:
+
+  private def refuse(what: String): Nothing =
+    throw com.thinkmorestupidless.ankka.core.CommandError(
+      s"the control plane's database was restored and its projection is held; $what is made " +
+        "once a platform administrator releases it",
+      com.thinkmorestupidless.ankka.core.ErrorCode.Unavailable
+    )
+
+  def ensureNamespace(namespace: String): Unit =
+    if !hold.held then underlying.ensureNamespace(namespace)
+
+  override def ensureRehearsalNamespace(namespace: String, projectId: String): Unit =
+    if hold.held then refuse("a rehearsal namespace")
+    else underlying.ensureRehearsalNamespace(namespace, projectId)
+
+  def ensurePullSecret(
+      namespace: String,
+      server: String,
+      username: String,
+      password: String
+  ): Unit =
+    if hold.held then refuse("a registry credential")
+    else underlying.ensurePullSecret(namespace, server, username, password)
+
+  def setSecretEntries(namespace: String, name: String, entries: Map[String, String]): Unit =
+    if hold.held then refuse("a project secret")
+    else underlying.setSecretEntries(namespace, name, entries)
+
+  def removeSecretEntry(namespace: String, name: String, entry: String): Unit =
+    if hold.held then refuse("a project secret")
+    else underlying.removeSecretEntry(namespace, name, entry)
+
+  def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit =
+    if !hold.held then underlying.put(namespace, name, spec)
+    else
+      val running = underlying.list().find(r => r.namespace == namespace && r.name == name)
+      hold.service(
+        spec.projectId,
+        spec.serviceName,
+        Option.when(
+          !running.exists(r => r.spec.generation == spec.generation && r.spec.image == spec.image)
+        )(
+          com.thinkmorestupidless.ankka.controlplane.api.ServiceDifference(
+            spec.projectId,
+            spec.serviceName,
+            Some(spec.generation),
+            running.map(_.spec.generation),
+            Some(spec.image),
+            running.map(_.spec.image)
+          )
+        )
+      )
+
+  def putProject(namespace: String, name: String, spec: AnkkaProjectSpec): Unit =
+    if !hold.held then underlying.putProject(namespace, name, spec)
+    else
+      val written = underlying.projectSpec(namespace, name).toList.flatMap(_.topics)
+      def topics(t: List[com.thinkmorestupidless.ankka.crd.ProjectTopicEntry]) =
+        t.map(e => (e.name, e.partitions, e.compacted)).toSet
+      hold.topics(spec.projectId, topics(spec.topics) != topics(written))
+
+  def putSchema(namespace: String, fingerprint: String, document: String): Unit =
+    if hold.held then refuse("a contract's schema")
+    else underlying.putSchema(namespace, fingerprint, document)
+
+  def schema(namespace: String, fingerprint: String): Option[String] =
+    underlying.schema(namespace, fingerprint)
+
+  def projectStatus(namespace: String, name: String): Option[AnkkaProjectStatus] =
+    underlying.projectStatus(namespace, name)
+
+  override def controlPlaneBackups(): Option[com.thinkmorestupidless.ankka.crd.LineStatus] =
+    underlying.controlPlaneBackups()
+
+  def delete(namespace: String, name: String): Unit =
+    if !hold.held then underlying.delete(namespace, name)
+    else
+      underlying
+        .list()
+        .find(r => r.namespace == namespace && r.name == name)
+        .foreach(r =>
+          hold.service(
+            r.spec.projectId,
+            r.spec.serviceName,
+            Some(
+              com.thinkmorestupidless.ankka.controlplane.api.ServiceDifference(
+                r.spec.projectId,
+                r.spec.serviceName,
+                None,
+                Some(r.spec.generation),
+                None,
+                Some(r.spec.image)
+              )
+            )
+          )
+        )
+
+  def list(): Vector[AnkkaServiceResource]                         = underlying.list()
+  def watch(onChange: AnkkaServiceResource => Unit): AutoCloseable = underlying.watch(onChange)
+  def connected: Boolean                                           = underlying.connected
+  override def close(): Unit                                       = underlying.close()
+  override def projectSpec(namespace: String, name: String) =
+    underlying.projectSpec(namespace, name)
+  override def platformProjects(): Vector[String] = underlying.platformProjects()
+  override def copyStatus(): Map[String, String]  = underlying.copyStatus()
 
 /**
  * The one thing an endpoint is allowed to do to the cluster: put a project's registry credential in
@@ -139,6 +277,26 @@ trait RegistryWriter:
  * What an endpoint may know of a project's topics in the cluster: how far the operator has got with
  * each. Read-only, and one method, for the reasons `RegistryWriter` is one.
  */
+/**
+ * The control plane's own database's backups (feature 041), read from its archiver's ObjectStore
+ * and its Cluster in the control plane's namespace, through the `backups` component's Role there.
+ */
+trait PlatformBackupsReader:
+
+  /** The control plane's line of history, or nothing when it cannot be read. */
+  def controlPlaneBackups(): Option[com.thinkmorestupidless.ankka.crd.LineStatus]
+
+  /** The copy to the secondary store's status entries (feature 041); none without a copy. */
+  def copyStatus(): Map[String, String] = Map.empty
+
+/**
+ * Makes a project's rehearsal namespace (feature 041): the platform's labels, the project it
+ * rehearses, and a RoleBinding granting the operator the one delete it has, there and nowhere else.
+ */
+trait RehearsalNamespaces:
+  /** Throws when the cluster refused either; nothing is recorded then. */
+  def ensureRehearsalNamespace(projectId: String): Unit
+
 trait ProjectTopicsReader:
 
   /** The operator's last report, or nothing yet; throws if the cluster cannot be read. */

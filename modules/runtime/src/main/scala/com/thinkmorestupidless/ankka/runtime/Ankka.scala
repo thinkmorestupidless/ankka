@@ -328,6 +328,9 @@ final class ServiceBuilder private[ankka] (
     // start only once the node is genuinely up.
     service.awaitReady()
     service.registerShutdown()
+    // Before any projection publishes (feature 041): the line this database is on is recorded, and
+    // every line it has been on is read, so a message's id is made from a complete list.
+    if !NoDatabase.declared(system.settings.config) then HistoryLines(system).start()
     extensions.foreach { extension =>
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)

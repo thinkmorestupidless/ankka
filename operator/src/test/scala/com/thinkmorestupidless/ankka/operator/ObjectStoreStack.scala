@@ -91,6 +91,102 @@ object ObjectStoreStack:
       forward
     )
 
+  /**
+   * The store on three nodes (feature 041): `garage` with `garage-replicated`'s changes, as an
+   * installation in a cluster lists them, but with no anti-affinity, since a k3s suite has one
+   * machine. Waits for the layout loop to make the three one store.
+   */
+  def installReplicated(k3s: K3sContainer, k8s: KubernetesClient, repoRoot: Path): Installed =
+    val component  = repoRoot.resolve("kustomization/components/garage")
+    val replicated = repoRoot.resolve("kustomization/components/garage-replicated")
+    val storeSecret = Files
+      .readString(component.resolve("secrets.yaml"))
+      .split("\n---\n")
+      .find(_.contains(s"namespace: $Namespace"))
+      .getOrElse(throw new AssertionError("secrets.yaml has no Secret for the store's namespace"))
+    val statefulSet = Files
+      .readString(component.resolve("statefulset.yaml"))
+      .replace("replicas: 1", "replicas: 3")
+      .replace(
+        """args: ["/garage", "server", "--single-node"]""",
+        """args: ["/garage", "server"]"""
+      )
+    if !statefulSet.contains("replicas: 3") || statefulSet.contains("--single-node") then
+      throw new AssertionError("the StatefulSet is no longer shaped as this stack expects")
+    val parts = Vector(
+      Files.readString(component.resolve("namespace.yaml")),
+      Files.readString(replicated.resolve("config-patch.yaml")),
+      statefulSet,
+      Files.readString(component.resolve("service.yaml")),
+      Files.readString(component.resolve("zero-trust.yaml")),
+      Files.readString(component.resolve("grants.yaml")),
+      Files.readString(replicated.resolve("peers.yaml")),
+      Files.readString(replicated.resolve("layout.yaml")),
+      storeSecret
+    )
+    k3s.copyFileToContainer(
+      Transferable.of(parts.mkString("\n---\n").getBytes(StandardCharsets.UTF_8)),
+      "/tmp/ankka-object-store.yaml"
+    )
+    val applied = k3s.execInContainer(
+      "kubectl",
+      "apply",
+      "--server-side",
+      "--force-conflicts",
+      "-f",
+      "/tmp/ankka-object-store.yaml"
+    )
+    if applied.getExitCode != 0 then
+      throw new AssertionError(s"applying the object store failed: ${applied.getStderr}")
+    waitFor(180.seconds, "three nodes ready") {
+      PkiStack.jsonPath(
+        k3s,
+        "-n",
+        Namespace,
+        "statefulset",
+        Service,
+        "{.status.readyReplicas}"
+      ) == "3"
+    }
+    val forward = k8s.services().inNamespace(Namespace).withName(Service).portForward(3903)
+    // Three nodes laid out are one store only once each holds the layout: until then an
+    // administration call can be refused for a quorum, which reads like an outage.
+    var health = ""
+    try
+      waitFor(300.seconds, "the store healthy") {
+        val response = java.net.http.HttpClient
+          .newHttpClient()
+          .send(
+            java.net.http.HttpRequest
+              .newBuilder(
+                java.net.URI.create(s"http://127.0.0.1:${forward.getLocalPort}/v2/GetClusterHealth")
+              )
+              .header("Authorization", s"Bearer $AdminToken")
+              .GET()
+              .build(),
+            java.net.http.HttpResponse.BodyHandlers.ofString()
+          )
+        health = response.body()
+        response.statusCode() == 200 && health.contains("\"healthy\"")
+      }
+    catch
+      case e: AssertionError =>
+        val job =
+          k3s.execInContainer("kubectl", "logs", "-n", Namespace, "deployment/garage-layout")
+        throw new AssertionError(
+          s"${e.getMessage}: $health\nthe layout loop said:\n${job.getStdout}${job.getStderr}"
+        )
+    Installed(
+      ObjectStoreSettings(
+        adminUrl = s"http://127.0.0.1:${forward.getLocalPort}",
+        adminToken = AdminToken,
+        endpoint = InClusterEndpoint,
+        region = "garage",
+        service = ObjectStoreSettings.ServiceRef(Namespace, Service, 3900)
+      ),
+      forward
+    )
+
   private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
     val deadline = System.nanoTime() + timeout.toNanos
     var passed   = false

@@ -225,13 +225,25 @@ private[ankka] object ProjectionSupport:
    * `ce-subject` is set to the source entity id unless the consumer set it itself, so per-entity
    * ordering survives the hop onto a broker partition.
    */
+  /**
+   * A message published from a journal event carries an id made from the event (feature 041),
+   * unless the handler declared one; several from one event are told apart by their place.
+   */
+  def withEventId(metadata: Metadata, eventId: Option[String], index: Option[Int]): Metadata =
+    eventId match
+      case Some(id) if metadata.eventId.isEmpty =>
+        metadata.add(Metadata.CeId, index.fold(id)(i => s"$id/$i"))
+      case _ => metadata
+
   def applyConsumer(
       effect: ConsumerEffect[Any],
       subject: String,
       descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
       publisher: Option[MessagePublisher],
-      context: Option[TraceContext] = None
+      context: Option[TraceContext] = None,
+      eventId: Option[String] = None
   ): Future[Done] =
+    def identified(metadata: Metadata, index: Option[Int]) = withEventId(metadata, eventId, index)
     effect match
       case ConsumerEffect.Done | ConsumerEffect.Ignore =>
         Future.successful(Done)
@@ -248,10 +260,10 @@ private[ankka] object ProjectionSupport:
               subject,
               topic,
               target,
-              messages.map(m =>
+              messages.zipWithIndex.map((m, index) =>
                 Encoded(
                   serializer.toBytes(m.payload),
-                  stamped(typed(m.metadata, contract), context),
+                  stamped(typed(identified(m.metadata, Some(index)), contract), context),
                   m.key
                 )
               )
@@ -274,7 +286,7 @@ private[ankka] object ProjectionSupport:
             target.publish(
               topic,
               serializer.toBytes(payload),
-              stamped(typed(withSubject, contract), context)
+              stamped(typed(identified(withSubject, None), contract), context)
             )
 
           case _ =>

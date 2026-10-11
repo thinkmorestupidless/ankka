@@ -12,6 +12,8 @@ kind: Kustomization
 
 components:
   - ../../components/cnpg
+  # After CNPG and needing cert-manager: what archives every project database (feature 041).
+  - ../../components/cnpg-barman
   - ../../components/certmanager
   - ../../components/trust-manager
   - ../../components/pki
@@ -30,6 +32,9 @@ components:
   - ../../components/keycloak
   - ../../components/controlplane
   - ../../components/console
+  # After the operator, the control plane and the store, whose Deployments it patches: backups
+  # into the installation's store (feature 041).
+  - ../../components/backups
   # Where a developer reads their services' traces, metrics and logs: https://grafana.<base domain>.
   # Not the otel-collector component, which keeps nothing; the two make one namespace.
   - ../../components/telemetry-store

@@ -215,7 +215,14 @@ final case class AnkkaServiceSpec(
      */
     objectStorageSettingsGeneration: Int = 0,
     /** A member's request to move this service's bucket from Garage (feature 039). */
-    objectStorageMove: Option[ObjectStorageMoveRequest] = None
+    objectStorageMove: Option[ObjectStorageMoveRequest] = None,
+    /**
+     * Feature 041: the project database cluster this service is switched to — a restore, or one it
+     * left. Absent is the project database, `ankka-db`. A change rolls the service: the operator
+     * renders the cluster's address as a literal on the pod template, never into the credential
+     * Secret, which is written once.
+     */
+    databaseCluster: Option[String] = None
 )
 
 /**

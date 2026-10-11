@@ -49,6 +49,9 @@ final class DatabaseTls(system: ActorSystem[?]) extends ConnectionFactoryOptions
       if config.hasPath(location) && config.hasPath(config.getString(location)) then
         config.getConfig(config.getString(location))
       else config
+    // A connection to a primary that was lost without closing its sockets is found dead by the
+    // operating system, not left to hang a caller until the pool's own timeout (research R18).
+    builder.option(PostgresqlConnectionFactoryProvider.TCP_KEEPALIVE, java.lang.Boolean.TRUE): Unit
     DatabaseTls.settings(block) match
       case None => builder
       case Some(settings) =>

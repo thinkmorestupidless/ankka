@@ -84,6 +84,16 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
   /** What the service is made of and how the parts are connected. */
   def topology(): String = TopologyJson.of(running, serviceName, instanceId, startedAt)
 
+  /** What the broker holds past `since`, for the topics this instance publishes to and reads. */
+  override def divergence(since: java.time.Instant): String =
+    given scala.concurrent.ExecutionContext = running.system.executionContext
+    Divergence.json(
+      scala.concurrent.Await.result(
+        Divergence(running.system).since(since),
+        scala.concurrent.duration.DurationInt(30).seconds
+      )
+    )
+
   /**
    * The handlers a component declares, whatever kind of entity it is.
    *

@@ -68,6 +68,13 @@ class StorageCredentialSuite extends munit.FunSuite:
         }.toVector
       def deny(bucketId: String, accessKeyId: String): Unit =
         calls += s"deny $accessKeyId"; writers -= accessKeyId: Unit
+      override def allowAs(bucketId: String, accessKeyId: String, p: BucketPermission): Unit =
+        permissions(accessKeyId) = p
+        if p == BucketPermission.Owner then allow(bucketId, accessKeyId, write = true)
+        else
+          calls += s"allow $accessKeyId $p"; allowed += accessKeyId: Unit
+
+    val permissions = mutable.Map.empty[String, BucketPermission]
 
     private def info(id: String, name: String) =
       KeyInfo(id, name, expired(id), expiries.get(id))
@@ -285,4 +292,82 @@ class StorageCredentialSuite extends munit.FunSuite:
     assertEquals(w.secrets((Namespace, Name)), w.held, "the Secret is untouched: nothing rolls")
     w.credentials.resumeWrites(Bucket, generation = 0)
     assert(w.writers.contains("GK1"))
+  }
+
+  // ── Feature 041: a backup bucket's credential ────────────────────────────
+
+  private val BackupBucket = "platform.backups.shop"
+
+  private def ensureBackup(w: World, key: String, permission: BucketPermission) =
+    w.credentials.ensure(
+      Namespace,
+      "ankka-db-backups",
+      Map.empty,
+      BackupBucket,
+      keyName = Some(key),
+      permission = permission,
+      entries = StorageCredential.backupEntries("garage")
+    )
+
+  test("a project database's archiver is given a key that reads and writes, and does not own") {
+    val w = World()
+    assertEquals(
+      ensureBackup(w, BackupBucket, BucketPermission.ReadWrite),
+      StorageCredential.Result.Created
+    )
+    assertEquals(w.permissions.values.toSet, Set(BucketPermission.ReadWrite))
+    assertEquals(
+      w.secrets((Namespace, "ankka-db-backups")),
+      Map("ACCESS_KEY_ID" -> "GK1", "ACCESS_SECRET_KEY" -> "secret-1", "REGION" -> "garage")
+    )
+    assertEquals(w.keys("GK1"), BackupBucket)
+  }
+
+  test("a rehearsal's key only reads, and is a key of its own beside the archiver's") {
+    val w = World()
+    ensureBackup(w, BackupBucket, BucketPermission.ReadWrite): Unit
+    val rehearsal = World()
+    rehearsal.keys ++= w.keys
+    ensureBackup(rehearsal, s"$BackupBucket.rehearsal", BucketPermission.ReadOnly): Unit
+    val issued = rehearsal.keys.collect { case (id, n) if n == s"$BackupBucket.rehearsal" => id }
+    assertEquals(issued.size, 1)
+    assertEquals(rehearsal.permissions(issued.head), BucketPermission.ReadOnly)
+    // The archiver's key is not the rehearsal's earlier key: it is not deleted.
+    assert(rehearsal.keys.contains("GK1"))
+  }
+
+  test("issuing again writes a new key into the same Secret and deletes the old one") {
+    val w = World()
+    ensureBackup(w, BackupBucket, BucketPermission.ReadWrite): Unit
+    w.credentials.reissueKey(
+      Namespace,
+      "ankka-db-backups",
+      BackupBucket,
+      BackupBucket,
+      BucketPermission.ReadWrite,
+      StorageCredential.backupEntries("garage")
+    )
+    assertEquals(w.keys.keySet.toSet, Set("GK2"))
+    assertEquals(w.secrets((Namespace, "ankka-db-backups"))("ACCESS_KEY_ID"), "GK2")
+    // The new key reaches the bucket before the Secret names it, and the old one goes after.
+    val order =
+      w.calls.filter(c => c.startsWith("allow GK2") || c == "patch" || c == "deleteKey GK1")
+    assertEquals(order.toVector, Vector("allow GK2 ReadWrite", "patch", "deleteKey GK1"))
+  }
+
+  test("a store that can grant only owner refuses to grant less, rather than granting more") {
+    val owners: ObjectStore = new ObjectStore:
+      def bucket(name: String)       = Some(BucketInfo("b", Instant.EPOCH, Set.empty))
+      def createBucket(name: String) = bucket(name).get
+      def keysNamed(name: String)    = Vector.empty
+      def createKey(name: String)    = IssuedKey("GK1", "s")
+      def deleteKey(id: String)      = ()
+      def allow(bucketId: String, id: String, write: Boolean) =
+        fail("granted owner when asked for less")
+      def setCors(bucketId: String, origins: Seq[String]) = ()
+      def expire(id: String, at: Instant)                 = ()
+      def keyInfo(id: String)                             = None
+      def keysOf(bucket: String)                          = Vector.empty
+      def deny(bucketId: String, id: String)              = ()
+    intercept[UnsupportedOperationException](owners.allowAs("b", "GK1", BucketPermission.ReadOnly))
   }

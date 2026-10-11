@@ -43,6 +43,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
+| `ANKKA_DB_LINE` | `ankka.history-line` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
@@ -169,6 +170,13 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
   opens no connection — the secret store is unavailable and the timer scheduler refuses every timer — and
   an entity, a view, a workflow or a timed action registered in the service refuses the start, naming
   itself. Empty, the default, the service has a database, the platform's or its own.
+
+- `ANKKA_DB_LINE` (`ankka.history-line`) names the line of history the service's database is on: the
+  database cluster it was first started on. The platform sets it on a service switched to a restore; on
+  the project database it is the cluster `ANKKA_DB_HOST` names. At start the service records when it
+  first ran on that line, and every message published from a journal event carries `ce-id`
+  `<line>/<persistence id>/<sequence>`, so an event published again after a restore keeps its id. Empty
+  in a local run, nothing is recorded and messages keep random ids.
 
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.

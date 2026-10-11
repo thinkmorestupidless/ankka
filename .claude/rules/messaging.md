@@ -158,3 +158,11 @@ view's projection is named), and every write of such a view is guarded by the re
   `RemoteProjection.consumerMetadata`), and an SDK fails the change rather than answer
   `produce_all` to a request that does not carry `1.3` or later. An SDK sends an empty list as
   `done` and a single un-keyed message as `produce`, so the guard fires only where it must.
+- **A message published from a journal event has an id the event decides** (feature 041):
+  `<line>/<persistence id>/<sequence>`, with `/<n>` for each of several, unless the handler declared a
+  `ce-id`. The line is the cluster the database was on when the event was written (`HistoryLines`), so an
+  event published again after a restore keeps its id. Nothing on the platform deduplicates by it: every
+  view and consumer reads a message published again as a new one, which a restore's report says.
+- **A restore lists what the broker holds past its moment, asked of the services.** Only a service holds
+  a credential for its topics, so `Divergence` (each topic it publishes to or reads, and its groups) is
+  served on the observe port and asked by the control plane as a restore is read.

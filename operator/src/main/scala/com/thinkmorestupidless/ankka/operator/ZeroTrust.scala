@@ -457,6 +457,15 @@ object ZeroTrust:
     def certificateName(service: String): String   = s"$service-database"
     def certificateSecret(service: String): String = s"$service-database-tls"
 
+    /**
+     * Where a service switched to another of its project's clusters connects (feature 041): the
+     * cluster's own address, over the credential Secret's, which is written once and says the
+     * project database's; and the line of history it is on. Nothing for a service on the project
+     * database, so its pod is what it was before the feature and an upgrade rolls nothing.
+     */
+    def switched(cluster: Option[String]): Vector[(String, String)] =
+      cluster.toVector.flatMap(c => Vector("ANKKA_DB_HOST" -> s"$c-rw", "ANKKA_DB_LINE" -> c))
+
     /** The variables that tell the runtime to connect with a certificate: paths, never secrets. */
     val Environment: Vector[(String, String)] = Vector(
       "ANKKA_DB_SSL_MODE"      -> "verify-full",

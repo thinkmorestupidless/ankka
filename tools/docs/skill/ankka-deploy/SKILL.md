@@ -24,6 +24,7 @@ pages:
   - operate/logs.md
   - operate/telemetry.md
   - operate/service-lifecycle.md
+  - operate/recovery.md
   - operate/troubleshooting.md
   - concepts/control-plane.md
   - concepts/clustering.md

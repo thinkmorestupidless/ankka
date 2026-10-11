@@ -1,0 +1,1 @@
+{"type":"InstallationStatus","json":{"backupTarget":"none","retentionDays":30,"copyRequired":false,"sharesFailureDomain":true,"encryption":"none","notBackedUp":"nothing is backed up: the installation has no backup target"}}

@@ -324,6 +324,54 @@ final case class DeclaredBroker(
     declaredAt: Option[Instant] = None
 )
 
+/**
+ * A restore of a project's database (feature 041): the line of history it reads, the moment, who
+ * asked and when, and how it ended. What it holds per service is read from the cluster, never kept
+ * here, so no row count reaches the journal.
+ */
+final case class Restore(
+    line: String,
+    targetTime: Instant,
+    requestedBy: Option[Actor] = None,
+    requestedAt: Option[Instant] = None,
+    outcome: Option[RestoreOutcome] = None
+)
+
+final case class RestoreOutcome(
+    succeeded: Boolean,
+    reachedAt: Option[Instant] = None,
+    detail: Option[String] = None,
+    at: Option[Instant] = None
+)
+
+/** A rehearsal of a restore (feature 041): as a restore, into the project's rehearsal namespace. */
+final case class Rehearsal(
+    line: String,
+    targetTime: Instant,
+    requestedBy: Option[Actor] = None,
+    requestedAt: Option[Instant] = None,
+    outcome: Option[RehearsalOutcome] = None
+)
+
+/** `Completed`, `Failed` or `NotRemoved`, with how long the restore took. */
+final case class RehearsalOutcome(
+    outcome: String,
+    elapsedSeconds: Option[Long] = None,
+    detail: Option[String] = None,
+    at: Option[Instant] = None
+)
+
+/** One thing done to the project's database, for its history (feature 041). */
+final case class ProjectHistoryEntry(
+    kind: String,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None,
+    detail: Option[String] = None
+)
+
+object Project:
+  val HistoryLimit: Int = 100
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
@@ -341,9 +389,134 @@ final case class Project(
      * Where the project's new buckets in Google Cloud Storage are made, in the installation's own
      * words (feature 039); `None` is the installation's default.
      */
-    bucketLocation: Option[String] = None
+    bucketLocation: Option[String] = None,
+    /** Every restore ever asked for, by its cluster's name (feature 041). Never removed. */
+    restores: Map[String, Restore] = Map.empty,
+    /** Who did what to the project's database, newest last, the last `Project.HistoryLimit`. */
+    history: Vector[ProjectHistoryEntry] = Vector.empty,
+    /** What the project asks of its database; none is the installation's defaults. */
+    database: Option[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] = None,
+    /** The latest rehearsals, by their cluster's name, the last `Project.HistoryLimit`. */
+    rehearsals: Map[String, Rehearsal] = Map.empty,
+    /**
+     * How many times the backup credential was asked to be issued again; the operator's generation.
+     */
+    backupCredentialGeneration: Int = 0
 ):
   def exists: Boolean = name.nonEmpty && !deleted
+
+  /** The restore that has not ended, if one has not: a second is refused while it runs. */
+  def restoreInProgress: Option[String] =
+    restores.collectFirst { case (name, restore) if restore.outcome.isEmpty => name }
+
+  /** The rehearsal that has not ended, if one has not: a second is refused while it runs. */
+  def rehearsalInProgress: Option[String] =
+    rehearsals.collectFirst { case (name, r) if r.outcome.isEmpty => name }
+
+  def onRehearsalRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    keepRehearsals(rehearsals.updated(name, Rehearsal(line, targetTime, actor, at)))
+      .remember("rehearsal-requested", actor, at, Some(s"$name, of $line at $targetTime"))
+
+  /** A rehearsal's end; one the project's schedule started is recorded here, with no one asking. */
+  def onRehearsalEnded(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      outcome: String,
+      elapsedSeconds: Option[Long],
+      detail: Option[String],
+      at: Option[Instant]
+  ): Project =
+    val begun = rehearsals.getOrElse(name, Rehearsal(line, targetTime))
+    keepRehearsals(
+      rehearsals.updated(
+        name,
+        begun.copy(outcome = Some(RehearsalOutcome(outcome, elapsedSeconds, detail, at)))
+      )
+    ).remember(
+      if outcome == "Completed" then "rehearsal-completed" else "rehearsal-failed",
+      None,
+      at,
+      Some(
+        name + elapsedSeconds.fold("")(s => s" in ${s}s") + detail.fold("")(d => s": $d")
+      )
+    )
+
+  private def keepRehearsals(all: Map[String, Rehearsal]): Project =
+    copy(rehearsals =
+      all.toVector
+        .sortBy((n, r) => (r.requestedAt.getOrElse(Instant.EPOCH), n))
+        .takeRight(Project.HistoryLimit)
+        .toMap
+    )
+
+  def onBackupCredentialReissued(
+      generation: Int,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    copy(backupCredentialGeneration = generation)
+      .remember("backup-credential-reissued", actor, at, Some(s"generation $generation"))
+
+  def onDatabaseSet(
+      setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    val detail =
+      s"${setting.replicas} replica${if setting.replicas == 1 then "" else "s"}" +
+        (if setting.synchronous then ", synchronous" else "") +
+        setting.retentionDays.fold("")(d => s", kept $d days") +
+        setting.rehearse.fold("")(r => s", rehearsed $r")
+    copy(database = Some(setting)).remember("database-set", actor, at, Some(detail))
+
+  def onRestoreRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    copy(restores = restores.updated(name, Restore(line, targetTime, actor, at)))
+      .remember("restore-requested", actor, at, Some(s"$name, of $line at $targetTime"))
+
+  def onRestoreEnded(
+      name: String,
+      succeeded: Boolean,
+      reachedAt: Option[Instant],
+      detail: Option[String],
+      at: Option[Instant]
+  ): Project =
+    restores.get(name) match
+      case None => this
+      case Some(restore) =>
+        copy(restores =
+          restores.updated(
+            name,
+            restore.copy(outcome = Some(RestoreOutcome(succeeded, reachedAt, detail, at)))
+          )
+        ).remember(
+          if succeeded then "restore-completed" else "restore-failed",
+          None,
+          at,
+          Some(name + detail.fold("")(d => s": $d"))
+        )
+
+  private def remember(
+      kind: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      detail: Option[String]
+  ): Project =
+    copy(history =
+      (history :+ ProjectHistoryEntry(kind, actor, at, detail)).takeRight(Project.HistoryLimit)
+    )
 
   /** As for [[Organization.known]] — a deleted project's id stays taken. */
   def known: Boolean = name.nonEmpty || deleted
@@ -499,7 +672,13 @@ final case class Service(
     /**
      * The bucket's name as the operator last reported it (feature 044); see `Service.bucketNamed`.
      */
-    reportedBucket: Option[String] = None
+    reportedBucket: Option[String] = None,
+    /**
+     * Desired state (feature 041): the project database cluster the service is switched to, a
+     * restore or one it left. `None` is the project database. A switch bumps the generation, so it
+     * rolls the service as an apply does.
+     */
+    databaseCluster: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -521,7 +700,8 @@ final case class Service(
       actor: Option[Actor],
       at: Option[Instant],
       recorded: Option[ServiceDescriptor] = None,
-      rolledBackTo: Option[Long] = None
+      rolledBackTo: Option[Long] = None,
+      detail: Option[String] = None
   ): Service =
     val entry = HistoryEntry(
       kind,
@@ -530,7 +710,8 @@ final case class Service(
       at,
       image = recorded.map(_.service.image),
       digest = recorded.map(_.digest),
-      rolledBackTo = rolledBackTo
+      rolledBackTo = rolledBackTo,
+      detail = detail
     )
     copy(history = (entry +: history).take(Service.HistoryLimit))
 
@@ -643,6 +824,16 @@ final case class Service(
       // about the new generation, which nothing has reported on yet.
       confirmed = true,
       deleted = false
+    )
+
+  def onSwitched(cluster: Option[String], generation: Long): Service =
+    copy(
+      databaseCluster = cluster,
+      generation = generation,
+      lifecycle = ServiceLifecycle.UpdateInProgress,
+      readyInstances = 0,
+      detail = None,
+      confirmed = true
     )
 
   def onRestarted(generation: Long): Service =
@@ -782,7 +973,8 @@ final case class Service(
       objectStore = storage.flatMap(_.store),
       bucketLocation = storage.flatMap(_.location),
       softDeleteDays = storage.flatMap(_.softDeleteDays),
-      storageMove = Service.moveStatus(storageMove, storage)
+      storageMove = Service.moveStatus(storageMove, storage),
+      databaseCluster = databaseCluster
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -842,6 +1034,9 @@ enum RollbackRefusal:
 
 object Service:
 
+  /** The project database's cluster, which a service is on unless switched (feature 041). */
+  val ProjectDatabase: String = "ankka-db"
+
   /**
    * How much history a service keeps in its state. Enough to answer "who did this"; never
    * unbounded.
@@ -888,6 +1083,12 @@ object Service:
         current
           .copy(storageSettingsGeneration = generation)
           .remember("storage-settings-reapplied", actor, at)
+      case ServiceSwitched(cluster, generation, actor, at) =>
+        val from = current.databaseCluster.getOrElse(Service.ProjectDatabase)
+        val to   = cluster.getOrElse(Service.ProjectDatabase)
+        current
+          .onSwitched(cluster, generation)
+          .remember("switched", actor, at, detail = Some(s"from $from to $to"))
 
   /**
    * The operator's reported database phase
@@ -904,9 +1105,10 @@ object Service:
     case "Waiting"     => "waiting for database"
     case "Provisioned" => "provisioned"
     case "Recovered"   => "recovered existing data"
-    case "Supplied"    => "supplied"
-    case "Failed"      => "database provisioning failed"
-    case other         => other
+    // The platform backs up only what it provisions (feature 041): this one is its owner's to.
+    case "Supplied" => "supplied; its owner's to back up"
+    case "Failed"   => "database provisioning failed"
+    case other      => other
 
   /** The operator's reported broker phase, as the short phrase `ServiceStatus.broker` documents. */
   def brokerPhrase(phase: String): String = phase match

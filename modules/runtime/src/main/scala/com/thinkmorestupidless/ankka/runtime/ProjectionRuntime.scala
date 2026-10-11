@@ -419,6 +419,7 @@ final class ProjectionRuntime private (
       }
     val subscription = TopicSubscription(topic, group, startFrom, parallel)
     val subscribed   = broker.subscribe(subscription, handle)
+    Divergence(system).touch(topic, Some(group), broker)
     subscriptions.add(subscribed): Unit
     val poll = system.scheduler.scheduleWithFixedDelay(
       ProjectionRuntime.LagInterval,
@@ -792,6 +793,10 @@ final class ProjectionRuntime private (
     val processName = s"ankka-consumer-${typed.componentId}"
     // Where this consumer publishes: the declared broker it names, else the installation's.
     val target = publisherFor(typed.produces.flatMap(_.broker))
+    // What a restore cannot rewind includes what this consumer published (feature 041).
+    typed.produces.foreach(p =>
+      subscriberFor(p.broker).foreach(Divergence(system).touch(p.topic, None, _))
+    )
 
     typed.source match
       case ChangeSource.EventSourced(sourceId, _) =>
@@ -808,7 +813,8 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                HistoryLines(system)
               )
           )
         }
@@ -827,7 +833,8 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                HistoryLines(system)
               )
           )
         }
@@ -972,6 +979,9 @@ final class ProjectionRuntime private (
       publisherFor(descriptor.publication.flatMap(_.broker)),
       Observability(system)
     )
+    descriptor.publication.foreach(p =>
+      subscriberFor(p.broker).foreach(Divergence(system).touch(p.topic, None, _))
+    )
 
     descriptor.source match
       case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
@@ -981,7 +991,7 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerEventHandler(consumer())
+            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system))
           )
         }
 
@@ -992,7 +1002,7 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerStateHandler(consumer())
+            () => RemoteConsumerStateHandler(consumer(), HistoryLines(system))
           )
         }
 
@@ -1274,7 +1284,8 @@ private final class ConsumerEventHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    lines: HistoryLines
 ) extends Handler[EventEnvelope[JournalRecord]]:
 
   private val id = descriptor.componentId.toString
@@ -1300,7 +1311,10 @@ private final class ConsumerEventHandler(
         }
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+    val eventId = lines
+      .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
+      .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(
@@ -1309,7 +1323,8 @@ private final class ConsumerStateHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    lines: HistoryLines
 ) extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
@@ -1338,4 +1353,7 @@ private final class ConsumerStateHandler(
         }
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+    val eventId = lines
+      .lineOf(HistoryLines.writtenAt(change))
+      .map(HistoryLines.messageId(_, change.persistenceId, revision))
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)

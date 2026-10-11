@@ -202,3 +202,11 @@ plane's `TestIdentity` extends it.
   only then persists `RegistryConfigured`; a cluster that refused is a 503 and records nothing. The
   reverse order leaves services naming a Secret that does not exist, with the journal insisting it
   does — and nothing in the sweep can tell that from a Secret someone deleted by hand.
+- **A restore and a switch are an owner's; a rehearsal and the database setting a member's** (feature 041).
+  A restore can change what every service reads, and a rehearsal changes nothing of the project. The
+  restore routes check the moment against the window the operator last reported, and a switch only to a
+  verified restore that holds the service's database.
+- **The control plane's own restore holds its projection.** `RestoreHold` is the first extension; with an
+  unreleased marker the projector writes nothing and the writes an endpoint makes (a secret, a registry
+  credential, a rehearsal namespace) are refused as unavailable. The release is a platform
+  administrator's, and is recorded on the marker.

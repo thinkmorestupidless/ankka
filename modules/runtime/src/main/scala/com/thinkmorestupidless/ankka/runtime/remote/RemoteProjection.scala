@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
   EntityViewGuard,
   Database,
+  HistoryLines,
   IncomingMessage,
   JournalRecord,
   MessagePublisher,
@@ -342,7 +343,8 @@ private[ankka] final class RemoteConsumer(
       subject: String,
       sequence: Long,
       change: Option[Payload],
-      parent: Option[TraceContext] = None
+      parent: Option[TraceContext] = None,
+      eventId: Option[String] = None
   ): Future[Done] =
     val span    = RemoteProjection.begin(observability, componentRef, handlerRef, parent)
     val context = Some(span.context)
@@ -383,12 +385,13 @@ private[ankka] final class RemoteConsumer(
                 subject,
                 topic,
                 target,
-                messages.map(m =>
+                messages.zipWithIndex.map((m, index) =>
                   ProjectionSupport.Encoded(
                     m.payload.data,
                     ProjectionSupport.stamped(
                       ProjectionSupport.typed(
-                        m.metadata
+                        ProjectionSupport
+                          .withEventId(m.metadata, eventId, Some(index))
                           .set(PayloadKeys.Manifest, m.payload.manifest)
                           .set(PayloadKeys.ContentType, m.payload.contentType),
                         descriptor.publication.flatMap(_.contract)
@@ -413,7 +416,12 @@ private[ankka] final class RemoteConsumer(
               // the hop onto a partition; the manifest travels so a topic-sourced remote
               // component can decode what it gets.
               val enriched = ProjectionSupport.typed(
-                (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
+                ProjectionSupport
+                  .withEventId(
+                    if metadata.subject.isDefined then metadata else metadata.withSubject(subject),
+                    eventId,
+                    None
+                  )
                   .set(PayloadKeys.Manifest, payload.manifest)
                   .set(PayloadKeys.ContentType, payload.contentType),
                 descriptor.publication.flatMap(_.contract)
@@ -430,33 +438,49 @@ private[ankka] final class RemoteConsumer(
         case ConsumerOutcome.Done | ConsumerOutcome.Ignore => Future.successful(Done)
       }
 
-private[ankka] final class RemoteConsumerEventHandler(consumer: RemoteConsumer)
-    extends Handler[EventEnvelope[JournalRecord]]:
+private[ankka] final class RemoteConsumerEventHandler(
+    consumer: RemoteConsumer,
+    lines: HistoryLines
+) extends Handler[EventEnvelope[JournalRecord]]:
   import RemoteProjection.*
 
   def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val record  = envelope.event
+    val eventId = lines
+      .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
+      .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
     record.kind match
       case JournalRecord.KindDomain =>
-        consumer.handle(subject, envelope.sequenceNr, Some(payloadOf(record)))
-      case JournalRecord.KindDeleted => consumer.handle(subject, envelope.sequenceNr, None)
-      case _                         => Future.successful(Done)
+        consumer.handle(subject, envelope.sequenceNr, Some(payloadOf(record)), eventId = eventId)
+      case JournalRecord.KindDeleted =>
+        consumer.handle(subject, envelope.sequenceNr, None, eventId = eventId)
+      case _ => Future.successful(Done)
 
-private[ankka] final class RemoteConsumerStateHandler(consumer: RemoteConsumer)
-    extends Handler[DurableStateChange[StateRecord]]:
+private[ankka] final class RemoteConsumerStateHandler(
+    consumer: RemoteConsumer,
+    lines: HistoryLines
+) extends Handler[DurableStateChange[StateRecord]]:
   import RemoteProjection.*
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
+    def eventId(revision: Long) = lines
+      .lineOf(HistoryLines.writtenAt(change))
+      .map(HistoryLines.messageId(_, change.persistenceId, revision))
     change match
       // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
       case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-        consumer.handle(subject, updated.revision, None)
+        consumer.handle(subject, updated.revision, None, eventId = eventId(updated.revision))
       case updated: UpdatedDurableState[StateRecord] =>
-        consumer.handle(subject, updated.revision, Some(payloadOf(updated.value)))
+        consumer.handle(
+          subject,
+          updated.revision,
+          Some(payloadOf(updated.value)),
+          eventId = eventId(updated.revision)
+        )
       case deleted: DeletedDurableState[StateRecord] =>
-        consumer.handle(subject, deleted.revision, None)
+        consumer.handle(subject, deleted.revision, None, eventId = eventId(deleted.revision))
 
 private[ankka] final class RemoteConsumerTopicHandler(consumer: RemoteConsumer):
 

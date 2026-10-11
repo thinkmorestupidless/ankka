@@ -23,6 +23,7 @@
 #   kubectl config current-context          # look at it. really look at it.
 #   kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
+#   kubectl apply -k kustomization/components/cnpg-barman --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
 #   kubectl apply -f kustomization/components/broker/namespace.yaml --server-side
 #   kubectl apply -k kustomization/components/broker/strimzi --server-side --force-conflicts
@@ -57,6 +58,9 @@ kind: Kustomization
 
 components:
   - ../../components/cnpg
+  # What archives every project database (feature 041); needs cert-manager. Apply it after
+  # cert-manager is ready and before the overlay, as the header's list says.
+  - ../../components/cnpg-barman
   - ../../components/certmanager
   - ../../components/trust-manager
   - ../../components/pki
@@ -71,11 +75,19 @@ components:
   # Strimzi's CRDs go first, as CNPG's do: apply components/broker/strimzi before the overlay.
   - ../../components/broker
   - ../../components/garage
+  # Feature 041: Garage on three machines, each object on all three, and every bucket copied every
+  # hour to a secondary store outside the cluster. The local platform keeps one node and no copy.
+  - ../../components/garage-replicated
+  - ../../components/garage-copy
   - ../../components/postgres
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
   - ../../components/console
+  # Backups into the installation's store (feature 041), after the Deployments it patches. The
+  # retention floor and the schedule are its defaults, 30 days and midnight; an installation sets
+  # its own with a patch of the same variables in its own overlay.
+  - ../../components/backups
 
 resources:
   - platform-configmap.yaml
@@ -186,6 +198,24 @@ patches:
       metadata:
         name: ankka-object-store-admin
         namespace: ankka-operator
+  # The secondary store's credential, likewise: until the installation creates `garage-secondary`
+  # in `garage-system` (ENDPOINT, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGION), every copy fails and
+  # says so on the installation's status.
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: garage-secondary
+        namespace: garage-system
+  # And the copy's own key for reading Garage: GK and 24 hex digits, and 64 for the secret.
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: garage-copy-key
+        namespace: garage-system
 
   # The console's realm client, without the development secret and without the address a laptop's
   # console signs in from. With no secret in the import, Keycloak generates one; nothing secret is

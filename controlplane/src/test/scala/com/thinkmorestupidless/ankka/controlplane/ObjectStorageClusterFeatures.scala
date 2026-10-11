@@ -83,7 +83,19 @@ class ObjectStorageClusterFeatures
     "a module that asks for a variable of its bucket is told its value" -> "SidecarClusterSuite",
     "the console shows what a service has for object storage beside its database" ->
       "the console's browser suite, console/e2e/tests/services.spec.ts"
-  )
+  ) ++ durability
+
+  /**
+   * Garage on three nodes and its copy (feature 041) need a store of their own: another suite's.
+   */
+  private def durability: Map[String, String] =
+    java.nio.file.Files
+      .readAllLines(java.nio.file.Path.of("../features/object-storage/durability.feature"))
+      .asScala
+      .map(_.trim)
+      .collect { case l if l.startsWith("Scenario: ") => l.stripPrefix("Scenario: ") }
+      .map(_ -> "DurabilityClusterFeatures")
+      .toMap
 
   private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val Tag         = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')

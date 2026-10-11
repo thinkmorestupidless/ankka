@@ -53,40 +53,56 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
    *   the generation of the credential in place (feature 039): its key is named for the bucket and
    *   the generation, so a pass after an operator restart looks for the key the Secret holds, never
    *   for one of an older generation
+   * @param keyName
+   *   what the store calls the key, when it is not the generation's (feature 041): a project
+   *   database's archiver's, and a rehearsal's, the bucket's and `.rehearsal`
+   * @param permission
+   *   what the key may do on the bucket (feature 041 issues less than owner)
+   * @param entries
+   *   what the Secret holds, from the key: the S3 variables for a service, barman's three for a
+   *   database's archiver
    */
   def ensure(
       namespace: String,
       secretName: String,
       labels: Map[String, String],
       bucket: String,
-      generation: Int = 0
+      generation: Int = 0,
+      keyName: Option[String] = None,
+      permission: BucketPermission = BucketPermission.Owner,
+      entries: IssuedKey => Map[String, String] = StorageCredential.entries
   ): StorageCredential.Result =
     val info = existing(bucket)
-    val name = StorageCredential.keyName(bucket, generation)
+    val name = keyName.getOrElse(StorageCredential.keyName(bucket, generation))
     if ensured.contains((namespace, secretName)) then
-      reallow(info, name)
+      reallow(info, name, permission)
       StorageCredential.Result.Unchanged
     else
       val earlier = store.keysNamed(name)
       val issued  = store.createKey(name)
-      store.allow(info.id, issued.accessKeyId)
-      val result = secrets.create(secret(namespace, secretName, labels, issued)) match
+      store.allowAs(info.id, issued.accessKeyId, permission)
+      val result = secrets.create(secret(namespace, secretName, labels, entries(issued))) match
         case SecretWriter.Outcome.Created =>
           earlier.foreach(store.deleteKey)
           StorageCredential.Result.Created
         case SecretWriter.Outcome.Exists if earlier.nonEmpty =>
           store.deleteKey(issued.accessKeyId)
-          earlier.foreach(id => if !info.allowedKeys.contains(id) then store.allow(info.id, id))
+          earlier.foreach(id =>
+            if !info.allowedKeys.contains(id) then store.allowAs(info.id, id, permission)
+          )
           StorageCredential.Result.Unchanged
         case SecretWriter.Outcome.Exists =>
-          secrets.patch(namespace, secretName, StorageCredential.entries(issued))
+          secrets.patch(namespace, secretName, entries(issued))
           StorageCredential.Result.Replaced
       ensured.add((namespace, secretName)): Unit
       result
 
-  /** A bucket made again shows no key allowed; the service's keys are allowed on it once more. */
-  private def reallow(info: BucketInfo, keyName: String): Unit =
-    if info.allowedKeys.isEmpty then store.keysNamed(keyName).foreach(store.allow(info.id, _))
+  /**
+   * A bucket made again shows no key allowed; the keys named for it are allowed on it once more.
+   */
+  private def reallow(info: BucketInfo, keyName: String, permission: BucketPermission): Unit =
+    if info.allowedKeys.isEmpty then
+      store.keysNamed(keyName).foreach(store.allowAs(info.id, _, permission))
 
   private def existing(bucket: String): BucketInfo =
     store
@@ -121,6 +137,28 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       .foreach(k => store.expire(k.accessKeyId, expireAt))
     ensured.add((namespace, secretName)): Unit
 
+  /**
+   * A new key of the same name in the same Secret, the old ones deleted (feature 041, FR-003a):
+   * what a member's re-issue of a backup credential asks for. The Secret is patched, the one write
+   * a credential Secret gets after its `create`; the old keys stop working at once, and the
+   * archiver reads the Secret afresh at its next upload.
+   */
+  def reissueKey(
+      namespace: String,
+      secretName: String,
+      bucket: String,
+      keyName: String,
+      permission: BucketPermission,
+      entries: IssuedKey => Map[String, String]
+  ): Unit =
+    val info    = existing(bucket)
+    val earlier = store.keysNamed(keyName)
+    val issued  = store.createKey(keyName)
+    store.allowAs(info.id, issued.accessKeyId, permission)
+    secrets.patch(namespace, secretName, entries(issued))
+    earlier.foreach(store.deleteKey)
+    ensured.add((namespace, secretName)): Unit
+
   /** Deletes the keys of the bucket the store says have expired; never the one in place. */
   def deleteExpired(bucket: String): Unit =
     store.keysOf(bucket).filter(_.expired).foreach(k => store.deleteKey(k.accessKeyId))
@@ -142,7 +180,7 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       namespace: String,
       name: String,
       labels: Map[String, String],
-      key: IssuedKey
+      entries: Map[String, String]
   ): Secret =
     new SecretBuilder()
       .withMetadata(
@@ -153,7 +191,7 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
           .build()
       )
       .withType("Opaque")
-      .withStringData(StorageCredential.entries(key).asJava)
+      .withStringData(entries.asJava)
       .build()
 
 object StorageCredential:
@@ -170,6 +208,18 @@ object StorageCredential:
 
   def entries(key: IssuedKey): Map[String, String] =
     Map(AccessKeyEntry -> key.accessKeyId, SecretKeyEntry -> key.secretAccessKey)
+
+  /** The three a database's archiver reads (feature 041), by the names its ObjectStore gives. */
+  val BackupAccessKeyEntry: String = "ACCESS_KEY_ID"
+  val BackupSecretKeyEntry: String = "ACCESS_SECRET_KEY"
+  val BackupRegionEntry: String    = "REGION"
+
+  def backupEntries(region: String)(key: IssuedKey): Map[String, String] =
+    Map(
+      BackupAccessKeyEntry -> key.accessKeyId,
+      BackupSecretKeyEntry -> key.secretAccessKey,
+      BackupRegionEntry    -> region
+    )
 
   enum Result:
     /** The Secret already held a working credential, and still does. */

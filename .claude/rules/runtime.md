@@ -163,3 +163,11 @@ reads due times from.
 - **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
   enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
   `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.
+- **The pool must replace a dead connection before a caller sees it** (feature 041, R18): after a
+  failover every pooled connection to the old primary is dead, and the plugin's defaults hand one to the
+  next caller. `validation-query = "SELECT 1"` and `acquire-retry = 20` on the connection factory, and
+  `TCP_KEEPALIVE` from `DatabaseTls`.
+- **`HistoryLines` records the database's line at start, before any projection publishes**, and a
+  database without the table keeps random message ids rather than failing the start. On the platform the
+  line is the cluster `ANKKA_DB_HOST` names (`ankka-db-rw`), since naming it on the pod would roll every
+  service on upgrade; a switched service is given `ANKKA_DB_LINE`.

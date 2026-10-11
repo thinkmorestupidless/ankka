@@ -1,0 +1,19 @@
+# The Gateway's broker listener: TLS on 9094, passed through by SNI to the routes Strimzi makes in
+# the broker's namespace, one for the bootstrap and one for each broker node.
+- op: add
+  path: /spec/listeners/-
+  value:
+    name: broker
+    port: 9094
+    protocol: TLS
+    hostname: "*.BASE_DOMAIN"
+    tls:
+      mode: Passthrough
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            kubernetes.io/metadata.name: ankka-broker
+      kinds:
+        - kind: TLSRoute

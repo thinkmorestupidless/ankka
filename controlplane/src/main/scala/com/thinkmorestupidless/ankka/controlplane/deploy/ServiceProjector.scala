@@ -124,26 +124,62 @@ final class ServiceProjector private (
       case None => throw new IllegalStateException("the cluster client is not started")
 
   /**
+   * Where machine tokens' signing keys are written (feature 040): the Secret `secret` in the
+   * control plane's own `namespace`, one `<kid>.pem` entry per key, by the merge patch that writes
+   * a project secret's entries — `create` and `patch`, never `get`.
+   */
+  def machineKeyWriter(
+      namespace: String,
+      secret: String
+  ): com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter =
+    new com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter:
+      private def resources =
+        client.getOrElse(throw new IllegalStateException("the cluster client is not started"))
+      def addKey(kid: String, pem: String): Unit =
+        resources.setSecretEntries(namespace, secret, Map(s"$kid.pem" -> pem))
+      def removeKeys(kids: Seq[String]): Unit =
+        kids.foreach(kid => resources.removeSecretEntry(namespace, secret, s"$kid.pem"))
+
+  /**
    * Writes a project's declared topics to the cluster as its `AnkkaProject` (feature 027). Called
    * by `ProjectTopicsTrigger` when the declarations change; it throws when the cluster cannot take
    * the write, so the trigger is retried with its projection's backoff until it can.
    */
+  /**
+   * Writes a registered machine as its `AnkkaMachine`, or removes it when it is gone (feature 040).
+   * `None` is a machine that is not registered.
+   */
+  def projectMachine(
+      organizationId: String,
+      name: String,
+      machine: Option[com.thinkmorestupidless.ankka.controlplane.api.MachineSummary]
+  ): Unit =
+    client match
+      case Some(resources) =>
+        machine match
+          case Some(m) =>
+            resources.putMachine(
+              com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec(
+                organizationId,
+                name,
+                m.byteRates.map(_.produceBytesPerSecond),
+                m.byteRates.map(_.consumeBytesPerSecond),
+                m.byteRates.map(_.requestPercentage)
+              )
+            )
+          case None => resources.deleteMachine(organizationId, name)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  /** Whether the projector has its cluster client and its projection: whether it can write. */
+  def ready: Boolean = client.isDefined && projection.isDefined
+
   def projectTopics(projectId: String): Unit =
     (client, projection) match
       case (Some(resources), Some(work)) =>
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(
-            projectId,
-            work.topicsOf(projectId),
-            work.brokersOf(projectId),
-            work.locationOf(projectId),
-            work.restoresOf(projectId),
-            work.databaseOf(projectId),
-            work.rehearsalsOf(projectId),
-            work.credentialGenerationOf(projectId)
-          )
+          work.projectSpecOf(projectId)
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
 
@@ -192,6 +228,9 @@ final class ServiceProjector private (
       config.namespacePrefix,
       config.sweepInterval
     )
+
+  /** One sweep now, on the caller's thread, as the timer would run it: for a suite. */
+  private[controlplane] def sweepNow(): Unit = projection.foreach(_.sweep())
 
   override def stop(): Unit =
     watching.foreach(_.close())
@@ -254,6 +293,25 @@ private[deploy] final class Projection(
    * is a state the delete path handles, and failing the projection over it would be a worse answer
    * than leaving the reference off.
    */
+  /**
+   * Everything a project's resource says, read from the project: the one place it is put together.
+   * Two things write the resource — a project's own changes and, since feature 041, the sweep — and
+   * the spec is a whole document, so a writer that left something out would take it away every time
+   * it wrote: the sweep once removed every grant (feature 040) every two seconds.
+   */
+  def projectSpecOf(projectId: String): com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec =
+    ProjectProjection.spec(
+      projectId,
+      topicsOf(projectId),
+      brokersOf(projectId),
+      locationOf(projectId),
+      restoresOf(projectId),
+      databaseOf(projectId),
+      rehearsalsOf(projectId),
+      credentialGenerationOf(projectId),
+      grantsOf(projectId)
+    )
+
   /** A project's declared topics, from the project itself; none for a project that is gone. */
   def topicsOf(
       projectId: String
@@ -308,6 +366,15 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.bucketLocation)
+      .invoke()
+
+  /** Every grant the project has made (feature 040); the projection keeps the accepted ones. */
+  def grantsOf(
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.grants)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =
@@ -417,20 +484,7 @@ private[deploy] final class Projection(
     metrics.copy(copy)
     projects.foreach { projectId =>
       try
-        client.putProject(
-          config.namespaceFor(projectId),
-          projectId,
-          ProjectProjection.spec(
-            projectId,
-            topicsOf(projectId),
-            brokersOf(projectId),
-            locationOf(projectId),
-            restoresOf(projectId),
-            databaseOf(projectId),
-            rehearsalsOf(projectId),
-            credentialGenerationOf(projectId)
-          )
-        )
+        client.putProject(config.namespaceFor(projectId), projectId, projectSpecOf(projectId))
         val status = client.projectStatus(config.namespaceFor(projectId), projectId)
         // A restore's end, from what the operator reported, recorded once by the entity
         // (feature 041): a repeat records nothing, so every sweep may say it.

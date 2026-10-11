@@ -116,6 +116,7 @@ mod tests {
                 "joined-left",
                 "joined-right",
                 "joined-rows",
+                "partner-relay",
                 "profile",
                 "profile-graph",
                 "reminder",

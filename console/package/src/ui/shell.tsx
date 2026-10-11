@@ -14,7 +14,7 @@
  */
 import type { ReactNode } from "react";
 import { clsx } from "clsx";
-import { Box, Building2, Folder, KeyRound, LogOut, Plus, Users, type LucideIcon } from "lucide-react";
+import { Bot, Box, Building2, Folder, KeyRound, LogOut, Plus, Users, type LucideIcon } from "lucide-react";
 import type { Area } from "../context.ts";
 import { Breadcrumbs, ConsoleForm, ConsoleLink, useConsole } from "./console.tsx";
 import { Lifecycle } from "./status.tsx";
@@ -100,7 +100,7 @@ interface RailEntry {
 }
 
 /**
- * The rail: the console's areas, the one the page belongs to marked. Members and deploy tokens open
+ * The rail: the console's areas, the one the page belongs to marked. Members, deploy tokens and machines open
  * those of the organization the page belongs to; with no organization in view they are shown and
  * unavailable. Signing out is at its foot.
  */
@@ -126,6 +126,13 @@ export function Rail() {
       icon: KeyRound,
       to: orgPath && org?.manages ? `${orgPath}/tokens` : undefined,
       unavailable: org ? "Deploy tokens: only an owner manages them" : "Deploy tokens: open an organization first",
+    },
+    {
+      area: "machines",
+      label: org ? `Machines of ${org.name}` : "Machines",
+      icon: Bot,
+      to: orgPath && `${orgPath}/machines`,
+      unavailable: "Machines: open an organization first",
     },
   ];
   return (

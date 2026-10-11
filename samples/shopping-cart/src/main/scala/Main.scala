@@ -75,8 +75,22 @@ import shoppingcart.application.*
    * platform's own tests deploy a service whose descriptor declares gRPC and that serves none, to
    * see the platform report it.
    */
+  // `CART_WALLET=on` (feature 040, below) serves the wallet's gRPC service beside the cart's, on
+  // the one gRPC port a service has.
+  val wallet = sys.env.get("CART_WALLET").contains("on")
+
   val withGrpc =
     if sys.env.get("CART_GRPC").contains("off") then withNotices
+    else if wallet then
+      withNotices.withExtension(
+        GrpcServer
+          .of(
+            clients => CartGrpcEndpoint(clients),
+            clients => CartStreamsEndpoint(clients),
+            clients => shoppingcart.api.WalletGrpcEndpoint(clients)
+          )
+          .withReflection(Acl.allowCallers(Callers.internet))
+      )
     else
       // docs:start grpc-registration
       val server = GrpcServer.of(
@@ -113,17 +127,27 @@ import shoppingcart.application.*
   val callingAgent =
     sys.env.get("CART_CALLING_AGENT").contains("on") && !sys.env.contains("ANTHROPIC_API_KEY")
 
+  /**
+   * `CART_WALLET=on` adds a player's wallet and an affiliates feed, under granted callers (feature
+   * 040): what the platform's cross-project suites deploy as another project's service. The report
+   * route authenticates when the descriptor lists issuers (`ANKKA_AUTH_ISSUERS`).
+   */
+  val report = Option.when(sys.env.get("ANKKA_AUTH_ISSUERS").exists(_.trim.nonEmpty))(
+    com.thinkmorestupidless.ankka.auth.oidc.Oidc.authenticate()
+  )
+  val withWallet = if wallet then withGrpc.register(WalletEntity.descriptor) else withGrpc
+
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
     .fold(
-      if !callingAgent then withGrpc
+      if !callingAgent then withWallet
       else
-        withGrpc
+        withWallet
           .register(ServiceCaller.descriptor)
           .registerAll(AgentRuntime.descriptors)
           .withExtension(AgentRuntime.withDefaultModel(RelayModel))
     ) { key =>
-      withGrpc
+      withWallet
         .register(CartAssistant.descriptor)
         .register(CartAnswerer.descriptor)
         .registerAll(AgentRuntime.descriptors)
@@ -137,7 +161,11 @@ import shoppingcart.application.*
           clients => QuestionsEndpoint(clients.componentClient),
           _ => GrpcCallersEndpoint(grpcClients)
         ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient)) ++
-          Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient))*
+          Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient)) ++
+          Option.when(wallet)(clients =>
+            shoppingcart.api.WalletEndpoint(clients.componentClient)
+          ) ++
+          Option.when(wallet)(_ => shoppingcart.api.AffiliatesEndpoint(report))*
       )
     )
     .withExtension(grpcClients)

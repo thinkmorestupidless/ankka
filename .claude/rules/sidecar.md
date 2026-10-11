@@ -8,6 +8,14 @@ paths:
 
 # The polyglot sidecar and the Python SDK
 
+## Protocol 1.15 gates grants
+
+Feature 040. A route or endpoint whose ACL admits granted callers, a component reading another project's
+topic and a publication to another project's topic each need protocol 1.15; discovery refuses them from an
+SDK speaking an earlier minor (`Discovery.beforeGrants`), naming the version, rather than letting a
+runtime read the matcher as nobody or the topic as the project's own. The three SDKs carry `project` on a
+source and a publication and refuse the same at start.
+
 ## Traps
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the

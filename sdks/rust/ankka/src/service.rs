@@ -19,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.14";
+pub const PROTOCOL_VERSION: &str = "1.15";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -174,6 +174,13 @@ impl Service {
         if let Some(refusal) = refusal(&components, &info.protocol_version) {
             panic!("{refusal}");
         }
+        let endpoints: Vec<proto::Endpoint> =
+            self.endpoints.iter().map(|e| e.to_endpoint()).collect();
+        if let Some(refusal) = grants_refusal(&endpoints, &info.protocol_version)
+            .or_else(|| cross_project_refusal(&components, &info.protocol_version))
+        {
+            panic!("{refusal}");
+        }
         let mut stateful: Vec<String> = self
             .components
             .iter()
@@ -189,7 +196,7 @@ impl Service {
                     version: env!("CARGO_PKG_VERSION").to_string(),
                 }),
                 components,
-                endpoints: self.endpoints.iter().map(|e| e.to_endpoint()).collect(),
+                endpoints,
             }),
             stateful,
             abi_version: ABI_VERSION.to_string(),
@@ -365,6 +372,70 @@ fn not_found(component_id: &str) -> proto::Failure {
             code: proto::ErrorCode::NotFound as i32,
         }),
     }
+}
+
+/// Why a host speaking `host_protocol` cannot serve `endpoints`, if it cannot: one before 1.15 does
+/// not know granted callers, and would admit nobody by them.
+pub(crate) fn grants_refusal(endpoints: &[proto::Endpoint], host_protocol: &str) -> Option<String> {
+    use crate::proto::caller_matcher::Kind;
+    if !start_from::older_than_grants(host_protocol) {
+        return None;
+    }
+    let grants = |callers: &[proto::CallerMatcher]| {
+        callers
+            .iter()
+            .any(|m| matches!(m.kind, Some(Kind::Granted(_))))
+    };
+    let naming: Vec<&str> = endpoints
+        .iter()
+        .filter(|e| grants(&e.allow_callers) || e.routes.iter().any(|r| grants(&r.allow_callers)))
+        .map(|e| e.id.as_str())
+        .collect();
+    if naming.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} admit granted callers, which the runtime would not know: it speaks protocol \
+         {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.15 or later.",
+        naming.join(", ")
+    ))
+}
+
+/// Why a host speaking `host_protocol` cannot serve `components`, if it cannot: one before 1.15
+/// would read another project's topic as this project's.
+pub(crate) fn cross_project_refusal(
+    components: &[proto::Component],
+    host_protocol: &str,
+) -> Option<String> {
+    use crate::proto::component::Detail;
+    if !start_from::older_than_grants(host_protocol) {
+        return None;
+    }
+    let naming: Vec<&str> = components
+        .iter()
+        .filter(|c| match &c.detail {
+            Some(Detail::View(d)) => d
+                .source
+                .iter()
+                .chain(d.sources.iter())
+                .any(|s| s.project.is_some()),
+            Some(Detail::Consumer(d)) => {
+                d.source.iter().any(|s| s.project.is_some())
+                    || d.produces.iter().any(|p| p.project.is_some())
+            }
+            _ => false,
+        })
+        .map(|c| c.id.as_str())
+        .collect();
+    if naming.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} read or publish to another project's topic, which the runtime would read as this \
+         project's: it speaks protocol {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a \
+         runtime speaking 1.15 or later.",
+        naming.join(", ")
+    ))
 }
 
 /// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.

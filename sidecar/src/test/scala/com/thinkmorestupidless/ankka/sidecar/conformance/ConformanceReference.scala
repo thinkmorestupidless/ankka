@@ -487,6 +487,37 @@ object ConformanceReference:
       Some(Publication(Contracted, Some(OrderContract), Some(DeclaredBroker)))
   // docs:end contract-relay
 
+  // ── partner-relay: another project's topic, read and published to (feature 040) ──
+
+  /** The project whose topics `partner-relay` reads and publishes to. */
+  val Partner: String = "partner"
+
+  /** What `partner-relay` reads, and where it republishes: both topics of project `partner`. */
+  val Shared: String        = "conformance-shared"
+  val SharedRelayed: String = "conformance-shared-relayed"
+
+  // docs:start partner-relay
+  /**
+   * Reads `conformance-shared` of project `partner` from the earliest, and republishes to its
+   * other.
+   */
+  final class PartnerRelay extends Consumer[Fanned, Fanned]:
+    def onMessage(message: Fanned): Effect = effects.produce(message)
+
+  object PartnerRelay
+      extends Consumer.Companion[PartnerRelay, Fanned, Fanned](
+        componentId = ComponentId("partner-relay"),
+        source = ChangeSource
+          .fromTopic(Partner, Shared, Codecs.serializer[Fanned]("fanned"), StartFrom.Earliest)
+      ):
+    def create(ctx: ConsumerContext) = new PartnerRelay
+
+    override val outputSerializer: Option[Serializer[Fanned]] =
+      Some(Codecs.serializer[Fanned]("fanned"))
+
+    override def produces: Option[Publication] = produceTo(Partner, SharedRelayed)
+  // docs:end partner-relay
+
   /**
    * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
    * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
@@ -807,6 +838,7 @@ object ConformanceReference:
 
   private def callerWord(caller: Caller): String = caller match
     case Caller.Service(project, name) => s"service:$project/$name"
+    case Caller.Machine(org, name)     => s"machine:$org/$name"
     case Caller.Gateway                => "gateway"
     case Caller.Local                  => "local"
 
@@ -1077,6 +1109,7 @@ object ConformanceReference:
     get("/whoami")(() =>
       caller match
         case Caller.Service(project, name) => s"service:$project/$name"
+        case Caller.Machine(org, name)     => s"machine:$org/$name"
         case Caller.Gateway                => "gateway"
         case Caller.Local                  => "local"
     )
@@ -1084,6 +1117,11 @@ object ConformanceReference:
     withAcl(Acl.allowCallers(Callers.self)) {
       get("/self")(() => "self")
       sse("/events")(() => Source.single("tick"))
+    }
+
+    // Feature 040: whoever the project granted this route to (`ConformanceTarget.grants`).
+    withAcl(Acl.allowCallers(Callers.granted)) {
+      get("/granted")(() => "granted")
     }
 
   /**
@@ -1129,6 +1167,7 @@ object ConformanceReference:
     "topic-rows",
     "topic-relay",
     "contract-relay",
+    "partner-relay",
     "tree-node",
     "tree-rows",
     "joined-left",
@@ -1153,6 +1192,7 @@ object ConformanceReference:
     TopicRows.descriptor,
     TopicRelay.descriptor,
     ContractRelay.descriptor,
+    PartnerRelay.descriptor,
     TreeNode.descriptor,
     TreeRows.descriptor,
     JoinedLeft.descriptor,

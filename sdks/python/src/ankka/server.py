@@ -47,7 +47,7 @@ from ankka.client import CommandError, ComponentClient, SidecarRows
 from ankka.effects import keyed_view as keyed_effects
 from ankka.secrets import Secrets
 from ankka.services import Services
-from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
+from ankka.context import Caller, CommandContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
 from ankka.effects import timed_action as timed_effects
@@ -77,7 +77,11 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
-        refusal = self.refusal(request.protocol_version) or socket_refusal(self.registry, request.protocol_version)
+        refusal = (
+            self.refusal(request.protocol_version)
+            or socket_refusal(self.registry, request.protocol_version)
+            or grants_refusal(self.registry, request.protocol_version)
+        )
         if refusal is not None:
             log.error(refusal)
             PROBLEMS.append(refusal)
@@ -543,6 +547,42 @@ def socket_refusal(registry: Registry, runtime_protocol: str) -> str | None:
     return f"this runtime speaks protocol {runtime_protocol or 'unknown'}; a socket route needs 1.9 ({', '.join(routes)})"
 
 
+GRANTS_SINCE = (1, 15)
+"""The protocol version whose runtimes admit granted callers."""
+
+
+def grants_refusal(registry: Registry, runtime_protocol: str) -> str | None:
+    """Why this service cannot be declared to a runtime speaking ``runtime_protocol``, or None. A
+    runtime before 1.15 does not know ``Callers.granted``, and would admit nobody by it."""
+    endpoints = [
+        cls.endpoint_id()
+        for cls in registry.endpoints.values()
+        if any(
+            acl is not None and any(m.kind == "granted" for m in acl.callers)
+            for acl in [getattr(cls, "acl", None), *(spec.acl for spec in cls.routes().values())]
+        )
+    ]
+    # Another project's topic is 1.15's too: an older runtime would read it as this project's.
+    endpoints += [
+        cls.__name__
+        for cls in (*registry.views.values(), *registry.consumers.values())
+        if contract.declares_cross_project(cls)
+    ]
+    if not endpoints:
+        return None
+    try:
+        major, minor = (int(part) for part in runtime_protocol.split(".")[:2])
+    except ValueError:
+        major, minor = 0, 0
+    if (major, minor) >= GRANTS_SINCE:
+        return None
+    return (
+        f"this runtime speaks protocol {runtime_protocol or 'unknown'}; granted callers and another "
+        "project's topics need 1.15 "
+        f"({', '.join(endpoints)})"
+    )
+
+
 SEVERAL_SINCE = (1, 3)
 """The protocol version whose runtimes accept several messages for one change, and a record key."""
 
@@ -950,4 +990,6 @@ def _caller(request: endpoint_pb2.HttpRequest) -> Caller:
         return Gateway()
     if which == "service":
         return ServiceCaller(request.caller.service.project, request.caller.service.name)
+    if which == "machine":
+        return MachineCaller(request.caller.machine.organization, request.caller.machine.name)
     return LocalCaller()

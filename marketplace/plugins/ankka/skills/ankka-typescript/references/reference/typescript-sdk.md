@@ -266,7 +266,7 @@ test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_M
 | Declarations | `get(template, reply, run, options?)`, `post`/`put`/`patch`/`del(template, body?, reply, run, options?)`, `sse(template, run, options?)`, `socket(template, (self, req, socket) => Promise<void>, options?)`; `options` may carry `acl` for that route alone and `params` schemas narrowing path parameters |
 | A socket | `for await (const text of socket)`, `await socket.receive()` (`undefined` once closed), `await socket.send(text)`, which rejects with `SocketClosed` once closed; testing, `EndpointTestKit.socket(path, frames)` answers what the handler sent and how it ended |
 | Handlers | `(self, req, body) => reply`, sync or `async`; `req.params` is typed from the template; the return value is encoded with the reply shape, `done` or `undefined` answers 204 |
-| Callers | `Callers.internet`, `Callers.service(name, { project })`, `Callers.anyInProject`, `Callers.self` |
+| Callers | `Callers.internet`, `Callers.service(name, { project })`, `Callers.anyInProject`, `Callers.self`, `Callers.granted`; a request's `caller.kind` is `gateway`, `service`, `machine` or `local` |
 | In a handler | `this.request`: `params`, `query.get`/`getAll`, `headers.get`, `principal` (`subject`, `name`, `email`, `emailVerified`, `roles`, `claims`, `issuer`), `metadata`, `caller` (`{ kind: "gateway" }`, `{ kind: "service", project, name }` or `{ kind: "local" }`); `this.client`, scoped to the request |
 | Errors | `throw new HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 

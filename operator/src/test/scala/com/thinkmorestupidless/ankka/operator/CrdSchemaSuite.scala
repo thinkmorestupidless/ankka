@@ -1,6 +1,8 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{
+  AnkkaMachineSpec,
+  AnkkaMachineStatus,
   BackupsStatus,
   LineStatus,
   ProjectBackupsSpec,
@@ -22,6 +24,7 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudResourceStatus,
   CloudSubject,
   ObjectStorageStatus,
+  ProjectGrantEntry,
   ProjectTopicEntry,
   ProjectTopicStatus
 }
@@ -53,6 +56,7 @@ class CrdSchemaSuite extends munit.FunSuite:
   private val crd: CustomResourceDefinition        = load("ankkaservice.yaml")
   private val projectCrd: CustomResourceDefinition = load("ankkaproject.yaml")
   private val cloudCrd: CustomResourceDefinition   = load("cloudresource.yaml")
+  private val machineCrd: CustomResourceDefinition = load("ankkamachine.yaml")
 
   /** The property names one object in the service's schema declares. */
   private def declared(path: String*): Set[String] = declaredIn(crd, path*)
@@ -116,6 +120,12 @@ class CrdSchemaSuite extends munit.FunSuite:
     )
   }
 
+  test("a machine's resource and its schema declare the same fields, and it is cluster-scoped") {
+    assertEquals(declaredIn(machineCrd, "spec"), fieldsOf(classOf[AnkkaMachineSpec]))
+    assertEquals(declaredIn(machineCrd, "status"), fieldsOf(classOf[AnkkaMachineStatus]))
+    assertEquals(machineCrd.getSpec.getScope, "Cluster")
+  }
+
   test("a project's resource and its schema declare the same fields, at every level") {
     assertEquals(declaredIn(projectCrd, "spec"), fieldsOf(classOf[AnkkaProjectSpec]))
     assertEquals(declaredIn(projectCrd, "status"), fieldsOf(classOf[AnkkaProjectStatus]))
@@ -130,6 +140,10 @@ class CrdSchemaSuite extends munit.FunSuite:
     assertEquals(
       declaredIn(projectCrd, "spec", "brokers", "items"),
       fieldsOf(classOf[ProjectBrokerEntry])
+    )
+    assertEquals(
+      declaredIn(projectCrd, "spec", "grants", "items"),
+      fieldsOf(classOf[ProjectGrantEntry])
     )
   }
 

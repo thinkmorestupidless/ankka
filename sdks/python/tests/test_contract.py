@@ -57,3 +57,65 @@ def test_a_publication_carries_its_contract_and_broker_on_the_wire() -> None:
     assert (pb.topic, pb.contract.name, pb.contract.fingerprint, pb.broker) == ("orders", "order.v1", contract.fingerprint, "legacy")
     plain = Publication("orders").to_pb()
     assert not plain.HasField("contract") and not plain.HasField("broker")
+
+
+def test_another_projects_topic_is_named_by_its_project_on_the_wire() -> None:
+    from ankka import StartFrom
+    from ankka.codec import json_codec
+    from ankka.consumer import Consumer
+    from ankka.server import grants_refusal
+    from ankka.service import Registry
+    from dataclasses import dataclass
+
+    @dataclass
+    class Seen:
+        n: int
+
+    class Relay(Consumer[Seen, Seen]):
+        component_id = "partner-relay"
+        topic = "casino.players"
+        project = "spinvibe"
+        start_from = StartFrom.EARLIEST
+        message_codec = json_codec(Seen, "seen")
+        produces_to = Publication("payments.deposits", project="spinvibe")
+        out_codec = json_codec(Seen, "seen")
+
+        def on_message(self, message: Seen):  # type: ignore[no-untyped-def]
+            return self.effects.produce(message)
+
+    pb = Publication("payments.deposits", project="spinvibe").to_pb()
+    assert (pb.topic, pb.project) == ("payments.deposits", "spinvibe")
+    assert not Publication("orders").to_pb().HasField("project")
+    registry = Registry()
+    registry.consumers[Relay.component_id] = Relay
+    spec = registry.spec()
+    detail = next(c for c in spec.components if c.id == "partner-relay").consumer
+    assert (detail.source.topic, detail.source.project) == ("casino.players", "spinvibe")
+    assert detail.produces.project == "spinvibe"
+    refusal = grants_refusal(registry, "1.14")
+    assert refusal is not None and "Relay" in refusal
+    assert grants_refusal(registry, "1.15") is None
+
+
+def test_a_project_and_a_broker_together_are_refused() -> None:
+    from ankka import RegistrationError, StartFrom
+    from ankka.codec import json_codec
+    from ankka.consumer import Consumer
+    from dataclasses import dataclass
+
+    @dataclass
+    class Seen:
+        n: int
+
+    with pytest.raises(RegistrationError, match="names a project and a broker"):
+
+        class Both(Consumer[Seen, Seen]):
+            component_id = "both"
+            topic = "casino.players"
+            project = "spinvibe"
+            broker = "legacy"
+            start_from = StartFrom.EARLIEST
+            message_codec = json_codec(Seen, "seen")
+
+            def on_message(self, message: Seen):  # type: ignore[no-untyped-def]
+                return self.effects.done()

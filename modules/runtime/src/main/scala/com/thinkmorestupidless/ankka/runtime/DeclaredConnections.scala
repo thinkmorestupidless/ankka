@@ -17,6 +17,7 @@ import com.thinkmorestupidless.ankka.sdk.{
   ConsumerDescriptor,
   KeyedViewDescriptor,
   Publication,
+  TopicAddress,
   ViewDescriptor
 }
 
@@ -61,7 +62,7 @@ private[runtime] object DeclaredConnections:
 
   /** The topic `descriptor` publishes to, when it is a consumer that publishes. */
   def destinationOf(descriptor: ComponentDescriptor): Option[String] =
-    publicationOf(descriptor).map(_.topic)
+    publicationOf(descriptor).map(_.address)
 
   /** What a consumer publishes to, with its contract and broker. */
   def publicationOf(descriptor: ComponentDescriptor): Option[Publication] = descriptor match
@@ -74,7 +75,11 @@ private[runtime] object DeclaredConnections:
     case ChangeSource.EventSourced(component, _) => DeclaredSource.Events(component)
     case ChangeSource.KeyValue(component, _)     => DeclaredSource.State(component)
     case ChangeSource.Topic(topic, _, _, options) =>
-      DeclaredSource.Topic(topic, options.contract, options.broker)
+      DeclaredSource.Topic(
+        TopicAddress.of(topic, options.project),
+        options.contract,
+        options.broker
+      )
 
   /**
    * Discovery lets a source name a component of any kind, and only an entity has a change stream.
@@ -87,4 +92,10 @@ private[runtime] object DeclaredConnections:
       Some(DeclaredSource.State(component))
     case RemoteSource.Component(_, _) => None
     case RemoteSource.Topic(name, _, options) =>
-      Some(DeclaredSource.Topic(name, options.contract, options.broker))
+      Some(
+        DeclaredSource.Topic(
+          TopicAddress.of(name, options.project),
+          options.contract,
+          options.broker
+        )
+      )

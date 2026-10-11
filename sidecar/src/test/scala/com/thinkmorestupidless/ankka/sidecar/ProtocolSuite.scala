@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.14")
+    assertEquals(Discovery.ProtocolVersion, "1.15")
   }
 
   test(
@@ -1036,6 +1036,50 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         )
       )
     }
+  }
+
+  test(
+    "discovery 1.15: granted callers are declared under 1.15, and refused under an earlier minor"
+  ) {
+    import ankka.protocol.v1.discovery.{
+      CallerMatcher as PbMatcher,
+      Endpoint as PbEndpoint,
+      Route as PbRoute
+    }
+    import ankka.protocol.v1.payload.Empty
+    val granted = PbMatcher(PbMatcher.Kind.Granted(Empty()))
+    def spec(version: String) = Spec(
+      version,
+      None,
+      Vector.empty,
+      Vector(
+        PbEndpoint(
+          "wallets",
+          "/v1/wallets",
+          PbEndpoint.Acl.CALLERS,
+          Vector(
+            PbRoute(
+              "deposit",
+              "POST",
+              "/{player}/{currency}/deposits",
+              hasBody = true,
+              acl = Some(PbEndpoint.Acl.CALLERS),
+              allowCallers = Vector(granted)
+            )
+          ),
+          Vector(granted)
+        )
+      )
+    )
+    assert(validateSpec(spec("1.15")).isRight, validateSpec(spec("1.15")).toString)
+    assertEquals(
+      validateSpec(spec("1.14")).left.toOption.getOrElse(Vector.empty),
+      Vector(
+        "endpoint 'wallets' admits granted callers, which needs protocol 1.15; the SDK speaks 1.14",
+        "endpoint 'wallets': route 'deposit' admits granted callers, which needs protocol 1.15; " +
+          "the SDK speaks 1.14"
+      )
+    )
   }
 
   test("discovery: a socket route is a GET with no body that does not also stream") {

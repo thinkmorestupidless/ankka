@@ -116,7 +116,7 @@ fn consumer_detail(spec: &proto::Spec, id: &str) -> proto::ConsumerDetail {
 #[test]
 fn discovery_carries_the_contract_the_broker_and_parallel() {
     let spec = discover(Service::new("test").register(Relay), "1.14");
-    assert_eq!(spec.protocol_version, "1.14");
+    assert_eq!(spec.protocol_version, "1.15");
     let relay = consumer_detail(&spec, "relay");
     let source = relay.source.expect("a source");
     assert_eq!(

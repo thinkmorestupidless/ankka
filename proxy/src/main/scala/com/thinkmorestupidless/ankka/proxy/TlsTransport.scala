@@ -87,8 +87,10 @@ final class TlsTransport(
               )
             )
           case (_, Caller.Service(project, name)) => Right(Sender.Service(project, name))
-          // `fromCertificate` never answers Local: a certificate always names someone or is refused.
-          case (_, Caller.Local) => Left("unrecognised caller certificate")
+          // `fromCertificate` never answers Local or a machine: a certificate names a workload or
+          // the gateway, or is refused. A machine is known by a token, which this proxy does not
+          // read: a web-hosted service's routes have no grants.
+          case (_, Caller.Local | Caller.Machine(_, _)) => Left("unrecognised caller certificate")
         }
     case _ => Left("not a TLS connection")
 

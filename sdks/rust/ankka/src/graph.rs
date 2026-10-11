@@ -900,6 +900,7 @@ impl<G: GraphConsumer> Registered for Registration<G> {
                     topic: G::TOPIC.to_string(),
                     contract: None,
                     broker: None,
+                    project: None,
                 }),
             })),
         }

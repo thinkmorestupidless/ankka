@@ -100,7 +100,15 @@ final case class Settings(
      * The installation's backups (feature 041): where they go, for how long, and how often. Set by
      * the `backups` component; without it nothing is archived and everything renders as before.
      */
-    backups: BackupSettings = BackupSettings.none
+    backups: BackupSettings = BackupSettings.none,
+    /**
+     * Where machines' tokens come from and where their keys are (feature 040), written into every
+     * project's `ankka-project` ConfigMap as `machines.json`, so no service's pods change. `None`
+     * renders no such file, and no service verifies a machine's token.
+     */
+    machines: Option[Settings.MachineIssuer] = None,
+    /** What a machine may move through the broker unless its organization says (feature 040). */
+    machineDefaults: MachineDefaults = MachineDefaults()
 ):
   /**
    * The store new buckets are made in (research R1a D1): the backend the installation names, else
@@ -126,6 +134,35 @@ final case class Settings(
     if doubled > retryMaxBackoff then retryMaxBackoff else doubled
 
 object Settings:
+
+  /** The issuer of machines' tokens, and where its keys are read inside the cluster. */
+  final case class MachineIssuer(issuer: String, jwksUrl: String)
+
+  /** Where the control plane serves the keys inside the cluster: its `keys` port. */
+  val DefaultMachineJwksUrl: String =
+    "https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"
+
+  /**
+   * The issuer the control plane derives from the same base domain and port, unless one is named:
+   * `https://api.<base>[:port]`. Nothing without a base domain, as the control plane then issues
+   * tokens no service in a cluster could be reached with.
+   */
+  def machineIssuer(
+      named: Option[String],
+      jwksUrl: Option[String],
+      baseDomain: Option[String],
+      httpsPort: Int
+  ): Option[MachineIssuer] =
+    named
+      .orElse(
+        baseDomain.map(base =>
+          s"https://api.$base${if httpsPort == 443 then "" else s":$httpsPort"}"
+        )
+      )
+      .filter(_.nonEmpty)
+      .map(issuer =>
+        MachineIssuer(issuer, jwksUrl.filter(_.nonEmpty).getOrElse(DefaultMachineJwksUrl))
+      )
 
   /** A value that is a credential: kept, passed on, and never printed by `toString`. */
   final case class Credential(value: String):
@@ -208,6 +245,34 @@ object Settings:
         "ankka.operator.storage-mover-image",
         "ANKKA_STORAGE_MOVER_IMAGE",
         default.storageMoverImage
+      ),
+      machineDefaults = MachineDefaults(
+        produceBytesPerSecond = long(
+          "ankka.operator.machine-produce-bytes",
+          PlatformVariables.MachineProduceBytes,
+          MachineDefaults.ProduceBytes
+        ),
+        consumeBytesPerSecond = long(
+          "ankka.operator.machine-consume-bytes",
+          PlatformVariables.MachineConsumeBytes,
+          MachineDefaults.ConsumeBytes
+        ),
+        requestPercentage = int(
+          "ankka.operator.machine-request-percentage",
+          PlatformVariables.MachineRequestPercentage,
+          MachineDefaults.RequestPercentage
+        ),
+        byteRateCeiling = long(
+          "ankka.operator.machine-byte-rate-ceiling",
+          PlatformVariables.MachineByteRateCeiling,
+          MachineDefaults.Ceiling
+        )
+      ),
+      machines = machineIssuer(
+        raw("ankka.operator.machine-issuer", PlatformVariables.MachineIssuer),
+        raw("ankka.operator.machine-jwks-url", PlatformVariables.MachineJwksUrl),
+        raw("ankka.operator.base-domain", "ANKKA_BASE_DOMAIN"),
+        int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort)
       )
     ).withBackend()
 
@@ -320,6 +385,9 @@ object Settings:
 
   private def string(property: String, variable: String, fallback: String): String =
     raw(property, variable).getOrElse(fallback)
+
+  private def long(property: String, variable: String, fallback: Long): Long =
+    raw(property, variable).flatMap(_.trim.toLongOption).getOrElse(fallback)
 
   private def int(property: String, variable: String, fallback: Int): Int =
     raw(property, variable).flatMap(_.toIntOption).getOrElse(fallback)

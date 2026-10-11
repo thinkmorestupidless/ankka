@@ -118,7 +118,10 @@ final class ServiceReconciler(
           ObjectStorage.inPlace(resource)
         )
       ),
-      executor.projectSpec(ref.namespace, spec.projectId)
+      executor.projectSpec(ref.namespace, spec.projectId),
+      // Read only where the service has a broker user to put them on.
+      if settings.broker.isDefined then executor.grantsNaming(spec.projectId, spec.serviceName)
+      else Vector.empty
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -388,6 +391,8 @@ final class ServiceReconciler(
       detail = base.detail.orElse(brokerPlan match
         case BrokerPlan.Failed(problems) => Some(s"broker: ${problems.mkString("; ")}")
         case _                           => None),
+      // Every service but a web-hosted one mounts the project's ConfigMap and so reads its grants.
+      grants = Option.when(spec.hosting != Rendering.WebHosting)("mounted"),
       // Only an exposed service has a route to report on; the field stays absent otherwise.
       route = Option.when(spec.exposed)(
         LifecycleRules.routeStatus(

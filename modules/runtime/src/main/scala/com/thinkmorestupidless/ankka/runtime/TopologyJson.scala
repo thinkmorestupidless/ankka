@@ -301,7 +301,8 @@ object TopologyJson:
       .sortBy(r => (r.path, r.method))
       .map(r =>
         s"""{"name":${Json.str(s"${r.method} ${r.path}")},"type":"route",""" +
-          s""""streaming":${r.streaming}}"""
+          s""""streaming":${r.streaming}""" +
+          (if r.grantable then ""","grantable":true}""" else "}")
       )
       .mkString("[", ",", "]")
     node(
@@ -364,7 +365,7 @@ object TopologyJson:
         )
     }
     val destination = DeclaredConnections.publicationOf(descriptor).map { p =>
-      val to = topic(p.topic, p.broker)
+      val to = topic(p.address, p.broker)
       Connection(
         id,
         to.id,

@@ -109,6 +109,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/object-storage.md` — How the platform gives a service a bucket of its own, the variables any S3 client needs to reach it, why buckets are never deleted, how a bucket is made reachable for signed URLs, and how to bring your own store.
 - `references/platform/cloud-provider.md` — How an installation names its one cloud account, the provider process that makes buckets, identities and keys there so the operator never holds that power, the six cloud requests, and how a credential is written once.
 - `references/platform/secrets.md` — The secret key the platform makes for each deployed service, and project secrets — values a member sets for a project, with no cluster credential, that a descriptor's variable takes by secretKeyRef.
+- `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 
 ### Reference

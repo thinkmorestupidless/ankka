@@ -17,6 +17,8 @@ function describeCaller(c: Caller): string {
   switch (c.kind) {
     case "service":
       return `service:${c.project}/${c.name}`
+    case "machine":
+      return `machine:${c.organization}/${c.name}`
     default:
       return c.kind
   }
@@ -62,6 +64,28 @@ describe("caller-naming acls", () => {
     assert.equal(await ask(), "local")
     assert.equal(await ask({ caller: { kind: { case: "gateway", value: {} } } }), "gateway")
     assert.equal(await ask({ caller: { kind: { case: "service", value: { project: "p", name: "s" } } } }), "service:p/s")
+    assert.equal(
+      await ask({ caller: { kind: { case: "machine", value: { organization: "eitheror", name: "affiliate-network" } } } }),
+      "machine:eitheror/affiliate-network",
+    )
+  })
+
+  test("granted callers are declared in discovery, and a runtime before 1.15 is refused them", async () => {
+    const { callersToProto } = await import("../src/spec.ts")
+    const { grantsRefusal } = await import("../src/server/discovery.ts")
+    const acl = Acl.allowCallers(Callers.internet, Callers.granted)
+    assert.deepEqual(callersToProto(acl).map((m) => m.kind?.case), ["internet", "granted"])
+    const spec = await started.discovery.discover({ protocolVersion: "1.15", runtimeVersion: "test" })
+    assert.equal(grantsRefusal(spec, "1.14"), undefined, "a service naming no granted callers is never refused")
+    const withGrants = {
+      ...spec,
+      endpoints: [
+        ...spec.endpoints,
+        { ...spec.endpoints[0]!, id: "Wallets", allowCallers: [{ kind: { case: "granted", value: {} } }] },
+      ],
+    } as typeof spec
+    assert.match(grantsRefusal(withGrants, "1.14") ?? "", /granted callers and another project's topics need 1\.15 \(Wallets\)/)
+    assert.equal(grantsRefusal(withGrants, "1.15"), undefined)
   })
 
   test("an acl is one of the three words or a callers rule naming someone", () => {

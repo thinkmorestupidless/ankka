@@ -46,13 +46,18 @@ object StrimziRendering:
     Labels.identity(spec.projectId, spec.serviceName) +
       (StrimziDefinitions.ClusterLabel -> broker.cluster)
 
-  def user(spec: AnkkaServiceSpec, broker: BrokerSettings): KafkaUserResource =
+  def user(
+      spec: AnkkaServiceSpec,
+      broker: BrokerSettings,
+      // Feature 040: other projects' topics granted to this service, each one literal entry.
+      granted: Vector[GrantedTopic] = Vector.empty
+  ): KafkaUserResource =
     KafkaUserResource(
       broker.namespace,
       BrokerNames.user(spec.projectId, spec.serviceName),
       labels(spec, broker),
       KafkaUserSpec(
-        KafkaUserAuthentication("tls-external"),
+        Some(KafkaUserAuthentication("tls-external")),
         KafkaUserAuthorization(
           "simple",
           Vector(
@@ -68,10 +73,26 @@ object StrimziRendering:
               ),
               GroupOperations
             )
-          )
+          ) ++ grantedRules(granted)
         )
       )
     )
+
+  /**
+   * One literal entry per granted right on another project's topic, in a stable order so an
+   * unchanged set of grants applies an unchanged user. No group and no prefix: a grantee reads
+   * under its own groups, which its own prefix entry already covers.
+   */
+  def grantedRules(granted: Vector[GrantedTopic]): Vector[AclRule] =
+    granted.distinct.sortBy(g => (g.project, g.topic, g.right)).flatMap { g =>
+      val operations = g.right match
+        case GrantedTopic.Consume => Some(Vector("Read", "Describe"))
+        case GrantedTopic.Produce => Some(Vector("Write", "Describe"))
+        case _                    => None
+      operations.map(ops =>
+        AclRule(AclResource("topic", BrokerNames.topic(g.project, g.topic), "literal"), ops)
+      )
+    }
 
   /** A topic the project declares: the project's, so labelled for the project alone. */
   def topic(

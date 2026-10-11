@@ -3,6 +3,13 @@ package com.thinkmorestupidless.ankka.controlplane.application
 import com.thinkmorestupidless.ankka.controlplane.deploy.ServiceProjector
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
+  GrantAccepted,
+  GrantDeclined,
+  GrantLapsed,
+  GrantMade,
+  GrantRelinquished,
+  GrantRevoked,
+  GrantWithdrawn,
   ProjectBrokerDeclared,
   ProjectBackupCredentialReissued,
   ProjectBrokerRemoved,
@@ -11,6 +18,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.{
   ProjectRehearsalEnded,
   ProjectRehearsalRequested,
   ProjectRestoreRequested,
+  ProjectCreated,
   ProjectTopicDeclared,
   ProjectTopicRemoved
 }
@@ -35,6 +43,22 @@ final class ProjectTopicsTrigger(projector: ServiceProjector)
         _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
         _: ProjectBackupCredentialReissued | _: ProjectLocationSet =>
       projector.projectTopics(messageContext.subject)
+      effects.ignore()
+    // Every change to a grant changes what the project's resource lists (feature 040): an
+    // accepted grant joins it, an ended one leaves it, and a pending one changes nothing written,
+    // which the projector's equal-spec check turns into no write at all.
+    case _: GrantMade | _: GrantAccepted | _: GrantDeclined | _: GrantWithdrawn | _: GrantRevoked |
+        _: GrantRelinquished | _: GrantLapsed =>
+      projector.projectTopics(messageContext.subject)
+      effects.ignore()
+    // A new project has its resource from the start (feature 040): the ConfigMap the operator
+    // renders from it tells every service of the project where machines' tokens come from, which
+    // a machine calling a route that authenticates needs before any grant is made.
+    // A creation writes only what a project has from the start, which its first grant or topic
+    // writes again: one the projector cannot write yet is passed over rather than retried, so a
+    // control plane with no cluster behind it is not stalled by it.
+    case _: ProjectCreated =>
+      if projector.ready then projector.projectTopics(messageContext.subject)
       effects.ignore()
     case _ => effects.ignore()
 

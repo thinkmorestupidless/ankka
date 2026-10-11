@@ -175,7 +175,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.14"
+  val Version: String     = "1.15"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -252,6 +252,9 @@ final case class HttpForward(
 enum RemoteCaller:
   case Gateway
   case Service(project: String, name: String)
+
+  /** A registered machine, proven by a token the control plane issued (protocol 1.15). */
+  case Machine(organization: String, name: String)
   case Local
 
 final case class HttpResult(

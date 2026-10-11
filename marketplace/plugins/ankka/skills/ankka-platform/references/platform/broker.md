@@ -51,16 +51,39 @@ the platform issues every service carries the common name `<project>.<service>`,
 certificate, nothing more mounted.
 
 For each service with components the platform writes one `KafkaUser`, named `<project>.<service>`, in
-`ankka-broker`, with two permissions:
+`ankka-broker`, with two permissions, and one more for each grant it holds:
 
 | Resource | Name | Operations |
 |---|---|---|
 | topics | everything starting `<project>.` | read, publish, describe |
 | consumer groups | everything starting `ankka.<project>.<service>.` | read |
+| a granted topic, `consume` | exactly `<granting project>.<topic>` | read, describe |
+| a granted topic, `produce` | exactly `<granting project>.<topic>` | publish, describe |
 
 It can make nothing, and it can do nothing to the cluster itself. So a project is a boundary the broker
 keeps: a service of one project is refused another project's topics by the broker, whatever its code
-does, and its consumer groups are its own.
+does, unless that project grants it one, and its consumer groups are its own. A grant's entry names one
+topic exactly, never a prefix, and adds no consumer group: the grantee reads under its own. The entry is
+added when an owner of the granting project's organization grants the topic and removed when the grant
+ends, with no service redeployed.
+
+A registered machine has a user too, `machine.<organization>.<name>`, with no authentication of its own:
+the external listener names it from the token the control plane issued the machine. It may read and
+publish exactly the topics its accepted grants name, each a literal entry as a service's granted topic
+is, read under its own groups, `ankka.machine.<organization>.<name>.`, and no more than its byte rates,
+which Strimzi enforces as quotas. A deleted machine's user is kept, with no topic.
+
+## The external listener
+
+An installation that lists the `broker-external` component exposes the broker to registered machines
+on a second listener, `external`, on port 9094, reached through the Gateway at
+`broker.<base domain>:9094`. Its certificate is the installation's public wildcard, from the public
+issuer. A client authenticates with OAUTHBEARER and a machine token: the broker verifies it against the
+control plane's keys, read from the control plane's `keys` port inside the cluster, and refuses a
+connection with no token, another issuer's or an expired one. A token must be renewed within fifteen
+minutes, or the broker ends the connection. Only the Gateway's proxies reach the listener. The broker
+caps connections per client address, 64 by default, and new connections a second on this listener, 20
+by default, from the installation's `ankka-platform` settings.
 
 A service whose descriptor names a broker of its own is given nothing here: no user and no certificate
 name. A web-hosted service has no components and is given nothing either.

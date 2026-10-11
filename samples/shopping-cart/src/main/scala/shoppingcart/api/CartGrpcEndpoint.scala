@@ -46,6 +46,7 @@ final class CartGrpcEndpoint(clients: EndpointClients)
     val who = caller match
       case Caller.Gateway                => "gateway"
       case Caller.Service(project, name) => s"service:$project/$name"
+      case Caller.Machine(org, name)     => s"machine:$org/$name"
       case Caller.Local                  => "local"
     WhoCalledReply(caller = who, instance = sys.env.getOrElse("HOSTNAME", "local"))
   }

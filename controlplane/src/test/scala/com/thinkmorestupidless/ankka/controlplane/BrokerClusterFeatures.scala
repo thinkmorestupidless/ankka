@@ -118,7 +118,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     expiresIn = 3.hours
   )
 
-  private var k3s: K3sContainer       = null
+  protected var k3s: K3sContainer     = null
   protected var k8s: KubernetesClient = null
   private var operator: Operator      = null
   private var testKit: AnkkaTestKit   = null
@@ -130,7 +130,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
 
   override def beforeAll(): Unit =
     if !munitIgnore then
-      k3s = new K3sContainer(DockerImageName.parse(K3sImage))
+      k3s = configure(new K3sContainer(DockerImageName.parse(K3sImage)))
       k3s.start()
       ClusterImages.importInto(k3s, SampleImage)
       k8s = new KubernetesClientBuilder()
@@ -139,7 +139,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         .build()
       // Both of the platform's resources: without `AnkkaProject` no declaration reaches the operator,
       // whose informer for it is skipped quietly on a cluster that lacks the type.
-      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml") do
+      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml", "ankkamachine.yaml") do
         k8s.load(getClass.getResourceAsStream(s"/ankka/crd/$crd")).serverSideApply(): Unit
       PkiStack.install(k3s, k8s)
       k8s
@@ -164,9 +164,11 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         ) == "1"
       }
 
-      operatorSettings = OperatorSettings.default.copy(
-        resyncInterval = 2.seconds,
-        broker = Some(broker)
+      operatorSettings = adjust(
+        OperatorSettings.default.copy(
+          resyncInterval = 2.seconds,
+          broker = Some(broker)
+        )
       )
       startOperator(operatorSettings)
 
@@ -188,7 +190,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
           logs = Some(new PodLogs(k8s, Prefix)),
           secrets = Some(projector),
           topics = Some(projector),
-          schemas = Some(projector)
+          schemas = Some(projector),
+          machineSettings = machineSettings,
+          machineKeys = Some(machineKeys)
         )*
       )
       testKit = AnkkaTestKit.start(
@@ -201,6 +205,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       Files.delete(config)
       sys.props("ankka.config") = config.toString
       ok(ankka("organizations", "create", "acme", "--name", "Acme")): Unit
+      installed()
 
   override def afterAll(): Unit =
     if testKit != null then identity.stop()
@@ -210,6 +215,29 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     if operator != null then operator.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
+
+  // ── what a suite of one feature file may add ─────────────────────────────
+
+  /** The node as a suite needs it before it starts: a port published to the host, say. */
+  protected def configure(container: K3sContainer): K3sContainer = container
+
+  /** The operator's settings as a suite needs them. */
+  protected def adjust(settings: OperatorSettings): OperatorSettings = settings
+
+  /** Where machines' tokens come from (feature 040), and the keys they are signed with. */
+  protected def machineSettings: com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings =
+    com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local
+  protected val machineKeys: com.thinkmorestupidless.ankka.controlplane.auth.MachineKeys =
+    com.thinkmorestupidless.ankka.controlplane.auth.MachineKeys.inMemory()
+
+  /**
+   * Anything more the installation needs, once the broker, the operator and the control plane are
+   * up.
+   */
+  protected def installed(): Unit = ()
+
+  /** The control plane's address, for a client of its own. */
+  protected def controlPlaneUrl: String = url
 
   private def startOperator(settings: OperatorSettings): Unit =
     if operator != null then operator.close()
@@ -260,7 +288,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       val resources = namespaces.map(ns =>
         node("kubectl", "get", "ankkaservices", "-n", ns, "-o", "jsonpath={.items[*].status}")
       )
-      s"\n${pods.mkString("\n")}\n$broker\n${resources.mkString("\n")}"
+      val probed =
+        lastProbe.fold("")(r => s"\nthe last probe answered ${r.code}:\n${r.output.take(4000)}")
+      s"\n${pods.mkString("\n")}\n$broker\n${resources.mkString("\n")}$probed"
 
   protected def ns(project: String) = s"$Prefix-$project"
 
@@ -406,9 +436,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       s"""{"name":"$service","service":{${fields.mkString(",")}}}"""
 
   /** What each service was last applied as, for applying it again. */
-  private var appliedAs: Map[(String, String), Desc] = Map.empty
-  protected var descriptorOf: Option[Desc]           = None
-  protected var lastApply: Run                       = Run(0, "", "")
+  protected var appliedAs: Map[(String, String), Desc] = Map.empty
+  protected var descriptorOf: Option[Desc]             = None
+  protected var lastApply: Run                         = Run(0, "", "")
 
   protected def apply(d: Desc): Run =
     ensureProject(d.project)
@@ -467,7 +497,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       .flatMap(_.phase)
 
   /** The topic a deployed cart's notices go to, changed by applying it again if it differs. */
-  private def noticesTo(service: String, p: String, topic: String): Unit =
+  protected def noticesTo(service: String, p: String, topic: String): Unit =
     val current = appliedAs.getOrElse((service, p), fail(s"$service of $p was never deployed"))
     if !current.env.get("CART_CHECKOUTS_TOPIC").contains(topic) then
       ok(apply(current.copy(env = current.env.updated("CART_CHECKOUTS_TOPIC", topic))))
@@ -480,7 +510,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         ) && podsOf(service, p).forall(pod => podHas(pod, topic))
       }
 
-  private def podsOf(service: String, p: String) =
+  protected def podsOf(service: String, p: String) =
     k8s
       .pods()
       .inNamespace(ns(p))
@@ -501,7 +531,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   private var probers: Set[String] = Set.empty
 
   /** A request to `service` from inside its project's namespace. */
-  private def call(
+  protected def call(
       service: String,
       p: String,
       path: String,
@@ -521,9 +551,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     )
 
   /** What a cart's checkout was published as: the cart's id, which the notice carries. */
-  private var published: Map[String, String] = Map.empty
+  protected var published: Map[String, String] = Map.empty
 
-  private def checkout(service: String, p: String): String =
+  protected def checkout(service: String, p: String): String =
     val cart = s"cart-${java.util.UUID.randomUUID().toString.take(8)}"
     val add = call(
       service,
@@ -541,7 +571,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   private var probes: Map[(String, String), BrokerProbe] = Map.empty
 
   /** The probe holding `service`'s credential, started the first time it is asked for. */
-  private def probe(service: String, p: String): BrokerProbe =
+  protected def probe(service: String, p: String): BrokerProbe =
     probes.getOrElse(
       (service, p), {
         val made = BrokerProbe.holding(k3s, ns(p), service)
@@ -551,28 +581,38 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     )
 
   /** A group of `service`'s own, as the broker's permission for it reads them. */
-  private def groupOf(service: String, p: String) =
+  protected def groupOf(service: String, p: String) =
     s"ankka.$p.$service.probe.${java.util.UUID.randomUUID().toString.take(8)}"
 
   /** Reads `topic` as `service` until `cart` is on it, or fails naming what was read. */
-  private def readUntil(service: String, p: String, topic: String, cart: String): Unit =
+  protected def readUntil(service: String, p: String, topic: String, cart: String): Unit =
+    // Read with a credential that may read the topic: the publisher's, for its own project's, and a
+    // service of the owning project's for another's — a grant to produce does not let it read.
+    val owner = topic.takeWhile(_ != '.')
+    val (reader, rp) =
+      if owner == p then (service, p)
+      else
+        appliedAs.keys
+          .find(_._2 == owner)
+          .getOrElse(fail(s"no service of $owner is deployed to read $topic with"))
     var last: BrokerProbe.Result = BrokerProbe.Result(0, "")
     waitFor(120.seconds, s"$cart being read from $topic") {
-      last = probe(service, p).read(topic, groupOf(service, p), waitMs = 15000)
+      last = probe(reader, rp).read(topic, groupOf(reader, rp), waitMs = 15000)
+      lastProbe = Some(last)
       last.output.contains(cart)
     }
 
-  private var lastProbe: Option[BrokerProbe.Result] = None
+  protected var lastProbe: Option[BrokerProbe.Result] = None
 
   /** The service each consumer and each view the scenario named belongs to. */
-  private var consumers: Map[String, (String, String)] = Map.empty
-  private var views: Map[String, (String, String)]     = Map.empty
-  private var listedFor: Option[(String, String)]      = None
+  protected var consumers: Map[String, (String, String)] = Map.empty
+  protected var views: Map[String, (String, String)]     = Map.empty
+  private var listedFor: Option[(String, String)]        = None
 
-  private def consumer(name: String) = consumers.getOrElse(name, fail(s"no consumer '$name'"))
-  private def view(name: String)     = views.getOrElse(name, fail(s"no view '$name'"))
+  protected def consumer(name: String) = consumers.getOrElse(name, fail(s"no consumer '$name'"))
+  protected def view(name: String)     = views.getOrElse(name, fail(s"no view '$name'"))
 
-  private def seen(reader: String, p: String, cart: String): (Int, String) =
+  protected def seen(reader: String, p: String, cart: String): (Int, String) =
     call(reader, p, s"/checkouts-seen/$cart")
 
   // ── Strimzi's operators, stopped and started ──────────────────────────────
@@ -1194,7 +1234,13 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     )
   }
 
-  Then("the credential may do nothing else on the broker") { () =>
+  Then("the credential may do nothing else on the broker")(() => mayDoNothingElse())
+
+  /**
+   * A service's credential, as the broker lists it; a suite whose credential is a machine's says
+   * its own.
+   */
+  protected def mayDoNothingElse(): Unit =
     val (s, p) = listedFor.getOrElse(fail("nothing was listed"))
     val acls   = aclsOf(s"$p.$s")
     assertEquals(
@@ -1210,7 +1256,6 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     assert(listed.messages.forall(_.startsWith(s"$p.")), listed.output)
     val foreign = probe(s, p).read(s"$p.anything", "somebody-else", waitMs = 10000)
     assert(foreign.output.contains("GroupAuthorizationException"), foreign.output)
-  }
 
   Then("the installation's broker still has the topic {string} of {string}") {
     (t: String, p: String) =>
@@ -1284,7 +1329,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     }
 
   /** The ACL rules of a user: resource type, name, pattern, operations. */
-  private def aclsOf(user: String): Vector[(String, String, String, Set[String])] =
+  protected def aclsOf(user: String): Vector[(String, String, String, Set[String])] =
     val raw = jsonPath(
       "kafkauser",
       "-n",

@@ -1,0 +1,74 @@
+# The external listener, appended to the installation's Kafka, and the caps on how many connections
+# reach the broker: per client address on every listener, and how fast new ones may open on this one.
+# BASE_DOMAIN and the two caps are replaced by the overlay.
+#
+# Strimzi 1.x has no `oauth` authentication type: OAUTHBEARER is a `custom` listener whose validator
+# is the strimzi-kafka-oauth callback handler the broker image carries. Its options are one JAAS
+# line, so the issuer reads the base domain from the broker's environment (Strimzi's `strimzienv`
+# config provider), which the overlay sets as a whole value.
+- op: add
+  path: /spec/kafka/listeners/-
+  value:
+    name: external
+    port: 9094
+    type: tlsroute
+    tls: true
+    authentication:
+      type: custom
+      sasl: true
+      listenerConfig:
+        sasl.enabled.mechanisms: OAUTHBEARER
+        oauthbearer.sasl.server.callback.handler.class: io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
+        # The control plane's public address names every machine token's issuer; its keys port
+        # (TLS from the service authority, whose certificate is mounted already, no client
+        # certificate) serves the keys; the principal is the token's `broker_user` claim.
+        oauthbearer.sasl.jaas.config: >-
+          org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required
+          unsecuredLoginStringClaim_sub="unused"
+          oauth.valid.issuer.uri="https://api.${strimzienv:ANKKA_BASE_DOMAIN}"
+          oauth.jwks.endpoint.uri="https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"
+          oauth.ssl.truststore.location="/mnt/ankka-service-ca/ca.crt"
+          oauth.ssl.truststore.type="PEM"
+          oauth.username.claim="broker_user"
+          oauth.check.audience="true"
+          oauth.client.id="ankka";
+        # A token must be renewed within this, or the broker ends the connection.
+        connections.max.reauth.ms: 900000
+    configuration:
+      bootstrap:
+        host: broker.BASE_DOMAIN
+      # No dash before the node id: sslip.io-style resolvers read `broker-0.127.0.0.1` as the address
+      # 0.127.0.0, which no client reaches.
+      hostTemplate: broker{nodeId}.BASE_DOMAIN
+      advertisedPortTemplate: "9094"
+      parentRefs:
+        - kind: Gateway
+          group: gateway.networking.k8s.io
+          name: ankka
+          namespace: ankka-gateway
+      brokerCertChainAndKey:
+        secretName: ankka-broker-external-tls
+        certificate: tls.crt
+        key: tls.key
+    # Only the Gateway's proxies reach the listener; anything else in the cluster is refused before
+    # TLS begins.
+    networkPolicyPeers:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: envoy-gateway-system
+        podSelector:
+          matchLabels:
+            gateway.envoyproxy.io/owning-gateway-name: ankka
+            gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+# The base domain the issuer above reads.
+- op: add
+  path: /spec/kafka/template/kafkaContainer/env
+  value:
+    - name: ANKKA_BASE_DOMAIN
+      value: BASE_DOMAIN
+- op: add
+  path: /spec/kafka/config/max.connections.per.ip
+  value: "BROKER_MAX_CONNECTIONS_PER_IP"
+- op: add
+  path: /spec/kafka/config/listener.name.external.max.connection.creation.rate
+  value: "BROKER_EXTERNAL_CONNECTION_RATE"

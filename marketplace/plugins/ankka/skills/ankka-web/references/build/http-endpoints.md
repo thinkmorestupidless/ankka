@@ -483,6 +483,8 @@ workload, so it cannot be forged by anything the request says about itself:
 | the `invoices` service in the `billing` project | `Callers.service("billing", "invoices")` |
 | any service in this service's project | `Callers.anyInProject` |
 | another instance of this service | `Callers.self` |
+| a service of another project, or a registered machine, that this service's project has granted the route | `Callers.granted` |
+| a registered machine, as a request from the internet that proved which machine it is | `Callers.internet` |
 
 ```scala
 // Only the internet and the orders service in this project; any other caller is refused 403.
@@ -508,6 +510,46 @@ get("/whoami")(() => whoIsCalling)
 The refusal body names no caller, so an unauthorised workload learns nothing about whose certificate it
 would need. A client certificate the installation issued that names no service is refused `403` before
 routing.
+
+### Let another project call a route
+
+`Callers.granted` keeps two decisions apart. Whether anyone outside the project may ever call a route is
+the route's ACL, in reviewed code: a route that does not name `Callers.granted` is never opened by a
+grant. Who may call it today is a grant, which an owner of the project's organization makes and revokes
+as data, with no change to either service. A revocation refuses the caller within two minutes, and closes
+the sockets and event streams the grant admitted. A grant names one route by its method and its path
+template, or one gRPC method, so a caller granted one route is refused every other.
+
+```scala
+/**
+ * A player's wallet, which another project may be granted. The endpoint's ACL admits granted
+ * callers: whether anyone outside the project may ever call these routes is decided here, in
+ * reviewed code; who may, today, is a grant the project's owners make and revoke as data.
+ */
+final class WalletEndpoint(client: ComponentClient) extends HttpEndpoint("/v1/wallets"):
+
+  val acl: Acl = Acl.allowCallers(Callers.granted)
+
+  /**
+   * A deposit, with the caller's idempotency key: a granted call is delivered at least once, and
+   * the wallet applies each key once. The answer names the caller as the platform established it.
+   */
+  postBody("/{player}/{currency}/deposits") {
+    (player: String, currency: String, body: DepositRequest) =>
+      val key = request
+        .header("Idempotency-Key")
+        .getOrElse(throw HttpProblem.badRequest("a deposit needs an Idempotency-Key header"))
+      val reply =
+        wallet(player).call(WalletEntity.deposit).invoke(Deposit(key, currency, body.amount))
+      DepositMade(reply.currency, reply.balance, reply.applied, Who(caller))
+  }
+```
+
+A granted call is delivered at least once, as every call is. The platform does not deduplicate it: a
+command another project may send twice must be safe to apply twice, which the wallet above makes it by
+the idempotency key each deposit carries. A registered machine arrives as
+`Caller.Machine(organization, name)`. [Cross-project access](../platform/cross-project-access.md)
+describes grants, machines and their tokens.
 
 **Outside a cluster every caller is the local machine**, `Caller.Local`, because there is no certificate to
 read, and every `allowCallers` admits it. The service logs once at startup that callers are not enforced.

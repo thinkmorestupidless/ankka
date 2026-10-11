@@ -40,6 +40,9 @@ jobs:
       # imagePullPolicy: IfNotPresent needs to pick anything up.
       SERVICE_VERSION: \${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
       DOCKER_REPOSITORY: ghcr.io/\${{ github.repository_owner }}
+      # The image is built for both architectures the platform runs on, so the same tag serves a
+      # cluster of amd64 or arm64 nodes. Remove one to build for the other alone.
+      ANKKA_IMAGE_PLATFORMS: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -54,6 +57,10 @@ jobs:
           registry: ghcr.io
           username: \${{ github.actor }}
           password: \${{ secrets.GITHUB_TOKEN }}
+      # The architecture this runner is not is built under QEMU by a buildx builder; a JVM image
+      # copies jars, so nothing is compiled under emulation.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build and push the image
         run: |

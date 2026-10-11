@@ -98,6 +98,12 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  # The one node a pod is on, read only when its container could not start because its image has
+  # no build for the node's architecture, so the report can name that architecture (feature 049).
+  # `get` alone, by name: the operator's only cluster-scoped read, and a Node holds no secret.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
   # The mover's Jobs, which copy a service's objects from Garage to Google Cloud Storage and check
   # them (feature 039). Owned by the AnkkaService and removed by their own time-to-live, so no
   # delete; "patch" because the ensure is a server-side apply. A Job names the service's Secrets

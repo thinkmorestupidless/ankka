@@ -339,6 +339,74 @@ class OperatorClusterSuite extends munit.FunSuite:
     assert(detail.nonEmpty, "a failure with no reason is the silence this feature exists to remove")
   }
 
+  /**
+   * The architecture this machine is not, as Docker names it. The image below is built for it from
+   * a base that publishes both, with no `RUN`, so nothing is emulated to make it; imported with
+   * every platform, the node holds an image whose only manifest is for the other architecture, and
+   * containerd refuses it at pull ("no match for platform in manifest") — which is what a
+   * developer's single-platform image does on a node of the other kind.
+   */
+  private val OtherArchitecture: String =
+    System.getProperty("os.arch") match
+      case "aarch64" | "arm64" => "amd64"
+      case _                   => "arm64"
+
+  private def thisArchitecture: String = if OtherArchitecture == "amd64" then "arm64" else "amd64"
+
+  /** A sample-named image built for the other architecture, tagged from this build's tag. */
+  private def buildOtherArchitectureImage(): String =
+    val tag = s"$SampleImage-other-arch"
+    val dir = java.nio.file.Files.createTempDirectory("ankka-other-arch")
+    java.nio.file.Files.writeString(
+      dir.resolve("Dockerfile"),
+      s"""FROM --platform=linux/$OtherArchitecture eclipse-temurin:21-jre
+         |CMD ["java", "-version"]
+         |""".stripMargin
+    )
+    val build = new ProcessBuilder(
+      "docker",
+      "build",
+      "--platform",
+      s"linux/$OtherArchitecture",
+      "-t",
+      tag,
+      dir.toString
+    ).redirectErrorStream(true).start()
+    val output = new String(build.getInputStream.readAllBytes())
+    assertEquals(build.waitFor(), 0, s"could not build the other-architecture image:\n$output")
+    tag
+
+  test(
+    "10b. an image with no build for the node's architecture is reported Failed naming the architecture"
+  ) {
+    val image = buildOtherArchitectureImage()
+    ClusterImages.importInto(k3s, image)
+    write(spec(generation = 6L, image = image))
+    waitFor(180.seconds)(
+      statusOf.exists(s => s.detail.exists(_.contains("has no build for this node's architecture")))
+    )
+    val status = statusOf.get
+    // V1 of feature 049's research: the kubelet's own words, printed once so they are on record.
+    val raw = operatorPodProblems()
+    println(s"[049/V1] pod problems for $image: $raw")
+    assertEquals(status.lifecycle, "Failed", status.detail.getOrElse(""))
+    val detail = status.detail.getOrElse("")
+    assert(detail.contains(s"image $image has no build"), detail)
+    assert(detail.contains(s"($thisArchitecture)"), s"the node's architecture is named: $detail")
+  }
+
+  /** What the executor sees for the service's pods, for the record. */
+  private def operatorPodProblems(): Vector[PodProblem] =
+    client
+      .pods()
+      .inNamespace(Namespace)
+      .withLabels(Labels.identity(Project, Service).asJava)
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .flatMap(PodProblem.of)
+
   private val DbService = "with-db"
 
   private def dbSpec(generation: Long = 1L) = AnkkaServiceSpec(

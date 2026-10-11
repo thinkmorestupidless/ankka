@@ -892,7 +892,31 @@ final class Fabric8Executor(
       .getItems
       .asScala
       .toVector
-    pods.flatMap(pod => PodProblem.of(pod).orElse(fromEvents(namespace, pod)))
+    pods.flatMap { pod =>
+      PodProblem
+        .of(pod)
+        .map(p => if p.wrongArchitecture then p.copy(architecture = nodeArchitecture(pod)) else p)
+        .orElse(fromEvents(namespace, pod))
+    }
+
+  /**
+   * The architecture of the node a pod is on, from the `kubernetes.io/arch` label every kubelet
+   * sets — read only for a pod whose image has no build for it (feature 049), so the report can
+   * name the build that is missing. One `get`, the operator's only cluster-scoped read; a refusal
+   * or a missing node leaves the report without the architecture rather than without the reason.
+   */
+  private def nodeArchitecture(pod: io.fabric8.kubernetes.api.model.Pod): Option[String] =
+    Option(pod.getSpec).flatMap(s => Option(s.getNodeName)).filter(_.nonEmpty).flatMap { node =>
+      try
+        Option(client.nodes().withName(node).get())
+          .flatMap(n => Option(n.getMetadata).flatMap(m => Option(m.getLabels)))
+          .flatMap(labels => Option(labels.get("kubernetes.io/arch")))
+          .filter(_.nonEmpty)
+      catch
+        case e: KubernetesClientException =>
+          log.debug(s"node $node could not be read for its architecture: ${e.getMessage}")
+          None
+    }
 
   /**
    * For a pod no container state explains — running and never ready, or waiting on a volume — the

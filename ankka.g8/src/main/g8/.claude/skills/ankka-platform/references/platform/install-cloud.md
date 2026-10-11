@@ -28,7 +28,9 @@ deploys to the wrong one.
 - **A load balancer** your cluster can provision for a `Service` of type `LoadBalancer`, and a DNS
   record pointing `*.<base domain>` at its address.
 - **A container registry** the cluster can pull from, holding the platform's images: the operator, the
-  control plane, the sidecar, the console and, if you want the sample, the shopping cart.
+  control plane, the sidecar, the console and, if you want the sample, the shopping cart. Every image is
+  published for `linux/amd64` and `linux/arm64` under one tag, so the nodes may be of either
+  architecture, or both.
 
 ## What a production overlay changes
 
@@ -240,6 +242,29 @@ Check the exit code, not the count of lines that say `applied`.
 The realm import is one-shot: it creates the `ankka` realm if it does not exist and never updates it,
 so a later change to `kustomization/components/keycloak/realm-import.json` is made in Keycloak's console
 on an installation that already has the realm. Create the first users there too; the realm holds none.
+
+## A cluster of your own machines
+
+Nothing above assumes a cloud. A cluster you built yourself — k3s on a few machines, say — runs the
+platform the same way once it provides three things a cloud would otherwise hand you:
+
+- **An address for the gateway.** The gateway is a `Service` of type `LoadBalancer`, and something must
+  give it an address: k3s's built-in ServiceLB gives it a node's, which is enough for one network;
+  MetalLB gives it one from a pool you reserve. Point `*.<base domain>`, `api.<base domain>` and
+  `auth.<base domain>` at that address. A private address behind a public name is ordinary: DNS-01
+  issues the wildcard certificate by writing a record in your zone and never connects to the cluster,
+  so nothing need be reachable from the internet.
+- **A default storage class.** Every database the platform provisions asks the cluster for a volume of
+  its default class and names none. k3s ships `local-path`, which keeps a volume on the node that first
+  mounted it; that is fine for a lab and means a database follows its node.
+- **Nodes of either architecture.** amd64 or arm64, or a mix: every image of the platform's is published
+  for both, and nothing in the platform pins a workload to one. Your own services' images are yours to
+  build for the nodes you have; see [Build an image](../deploy/images.md#build-for-the-clusters-architecture).
+
+Memory is the constraint such a cluster usually meets first. The control plane, the operator, the
+identity provider, the gateway, the certificate manager and the database operator sit beside every
+service you deploy, and each service is a JVM. Leave out the `broker`, `garage` and `telemetry-store`
+components until something needs them.
 
 ## Check that the network enforces policy
 

@@ -84,6 +84,11 @@ else work exactly as they do in a terminal.
 macOS, x64 or ARM64. A Windows runner is refused before anything is downloaded, with a message naming
 it.
 
+The build step before it, in the workflow a generated project carries, builds the image for both
+`linux/amd64` and `linux/arm64`, so the tag it deploys serves a cluster of either; remove one from
+`ANKKA_IMAGE_PLATFORMS` in that workflow to build for one. See
+[Build an image](images.md#build-for-the-clusters-architecture).
+
 ## Deploy the image the build just pushed
 
 `ankka services deploy` takes the image on the command line and everything else from the descriptor:

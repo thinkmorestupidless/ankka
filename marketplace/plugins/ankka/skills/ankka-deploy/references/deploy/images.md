@@ -28,11 +28,12 @@ The image is based on `eclipse-temurin:21-jre`, exposes port 9000 and starts the
 The relevant settings in the template's `build.sbt` are:
 
 ```scala
-Docker / packageName := serviceName,
-dockerBaseImage      := "eclipse-temurin:21-jre",
-dockerUpdateLatest   := true,
-dockerExposedPorts   := Seq(9000),
-Docker / version     := version.value.replace('+', '-')
+Docker / packageName  := serviceName,
+dockerBuildxPlatforms := sys.env.get("ANKKA_IMAGE_PLATFORMS").toSeq.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty),
+dockerBaseImage       := "eclipse-temurin:21-jre",
+dockerUpdateLatest    := true,
+dockerExposedPorts    := Seq(9000),
+Docker / version      := version.value.replace('+', '-')
 ```
 
 **A Docker tag may not contain `+`.** A version derived from git, such as `0.1.0+3-abc1234-SNAPSHOT`,
@@ -140,6 +141,33 @@ npm install && docker build -t shop-web:latest .
 
 The platform runs its proxy beside the image in the same pod. See [Deploy a user
 interface](web-hosting.md).
+
+## Build for the cluster's architecture
+
+The platform runs on amd64 and arm64 nodes, and every image of the platform's own — the operator, the
+control plane, the sidecar, the proxy, the storage mover, the console and the sample — is published for
+both under one tag, so a cluster of either pulls the same tag and is served its architecture. Your
+service's image is yours to build, and an image built on an amd64 laptop runs on amd64 nodes only.
+
+| Hosting | How to build for both, or for the one your cluster has |
+|---|---|
+| Scala | `ANKKA_IMAGE_PLATFORMS=linux/amd64,linux/arm64 sbt Docker/publish`. The template's build reads the variable; unset, the image is this machine's architecture, which is what `kind load` wants. A multi-platform build pushes and cannot be loaded, so it needs `Docker / dockerRepository` set. |
+| Python, TypeScript, web | `docker buildx build --platform linux/amd64,linux/arm64 --push -t registry.example.com/acme/orders:1.4.2 .` |
+| Rust | nothing: a WebAssembly module has no architecture, and the runtime that loads it is the platform's. |
+
+Building for the architecture your machine is not needs buildx with a `docker-container` builder
+(`docker buildx create --use`) and QEMU, which Docker Desktop and OrbStack provide; a JVM or Node image
+copies files and compiles nothing under emulation. The deploy workflow a generated project carries
+builds for both.
+
+An image with no build for the node it lands on cannot start, and the service's report says so rather
+than reporting a crash loop:
+
+```text
+Failed    image ghcr.io/acme/orders:1.4.2 has no build for this node's architecture (arm64)
+```
+
+Rebuild for that architecture, or for both, and apply again.
 
 ## Get the image onto the cluster
 

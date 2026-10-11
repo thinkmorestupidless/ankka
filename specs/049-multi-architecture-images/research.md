@@ -223,7 +223,8 @@ is unchanged since no page is added.
 ## Verify first, gathered
 
 - **V1**: the kubelet's `reason` and `message` for an image of the wrong architecture under k3s's
-  containerd (R5). Captured by the k3s case, then the translation is written to the words.
+  containerd (R5). Done: see "Found during implementation"; the pull-time refusal is the common
+  case and the detection matches both.
 - **V2**: whether any dependency in the console's final `node_modules` carries a per-platform binary
   (R2). Read both `package.json`s; if so the final stage installs on the target platform.
 - **V3**: the arm64 runner runs a k3s suite at all (R4). One suite on demand before the matrix
@@ -246,7 +247,22 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
 
 ## Found during implementation
 
-(to be filled)
+- **V1, answered differently from the guess.** An image published for one platform is refused by
+  containerd *at pull*, not at start: the kubelet reports `ImagePullBackOff` with `no match for
+  platform in manifest: not found`, because the image's manifest list has nothing for the node. That
+  is the common case — a developer's amd64-only image on tupile — and R5's `exec format error` is
+  the rarer one, an image whose manifest claims the node's platform and holds another's binary.
+  `PodProblem.wrongArchitecture` matches either phrase and the detail sentence is the same. Found on
+  a k3s node (`rancher/k3s:v1.35.1-k3s1`) on 2026-10-11 with the image the suite builds.
+- **`ctr images import` drops a foreign-platform tar silently.** Without `--all-platforms` it
+  imports only the node's platform's manifests, exits 0, and the pod reports a plain `ErrImagePull`
+  ("failed to resolve reference", then a pull from Docker Hub that does not exist). `ClusterImages.
+  importInto` now passes the flag; for every ordinary, single-platform, host-built image it changes
+  nothing.
+- **The local k3s run was evicting every pod for disk pressure** (the laptop's Docker held 152 GB of
+  images and 125 GB of build cache with 8 GB free), which is why case 10b is proved on the cluster
+  workflow rather than on the laptop. Not the feature's; noted so the next local run checks
+  `docker system df` first.
 
 ## Measurements
 

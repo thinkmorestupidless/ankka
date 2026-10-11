@@ -133,6 +133,16 @@ class TemplateSuite extends munit.FunSuite:
     val deployText = Files.readString(deploy)
     assert(deployText.contains("secrets.ANKKA_TOKEN"), deployText)
     assert(deployText.contains("thinkmorestupidless/ankka-action@"), deployText)
+    // The image is built for both architectures the platform runs on: the variable the build reads,
+    // and the two actions that let an amd64 runner produce the arm64 half.
+    assert(deployText.contains("ANKKA_IMAGE_PLATFORMS: linux/amd64,linux/arm64"), deployText)
+    assert(deployText.contains("uses: docker/setup-qemu-action@"), deployText)
+    assert(deployText.contains("uses: docker/setup-buildx-action@"), deployText)
+    val buildText = Files.readString(expansion.resolve("build.sbt"))
+    assert(
+      buildText.contains("dockerBuildxPlatforms := sys.env.get(\"ANKKA_IMAGE_PLATFORMS\")"),
+      "the build says in one setting which architectures the image is built for"
+    )
     // The service's own name reached the deploy step: that is Giter8's `$name$`, the one `$` that
     // is deliberately not escaped.
     assert(deployText.contains(s"ankka services deploy $Name"), deployText)

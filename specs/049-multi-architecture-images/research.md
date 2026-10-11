@@ -281,6 +281,17 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   cannot reach a registry on the host's `localhost` without `--driver-opt network=host`.
 - The release job's `images` step before and after: on the first tag after this feature.
 - SC-002 on tupile: after that tag.
+- **The whole cluster run on both legs** (T018, run on this branch, 2026-10-11): 66 jobs, every
+  suite on `ubuntu-24.04` and on `ubuntu-24.04-arm`, the sidecar suite's Rust module built on both.
+  Two arm64 jobs red, neither this feature's: `CloudProviderClusterFeatures (arm64)` on "a service
+  deleted and applied again under the same name is given the bucket it had" (the scripted provider
+  offered the credential twice, 1.1 s apart), which the nightly on `main` of the same morning
+  (09:50, run on amd64 only) also failed — a race in feature 044's suite, not an architecture; and
+  `ObjectStorageGcsClusterFeatures (arm64)` on "a storage credential issued again is a new one, and
+  the old one is refused once the rotation grace has passed" (a 200 s wait expired), green on the
+  amd64 leg of the same run and on `main`'s nightly, so either timing on the arm64 runner or a
+  race the faster leg exposes; noted for feature 039's owner, and the first thing to re-run
+  on the nightly's arm64 leg. The amd64 leg matched `main`'s nightly. Durations are in the run.
 - **`OperatorClusterSuite` green on both legs, 44 of 44** (run 38151986074, 2026-10-11): amd64
   11 min 49 s, arm64 11 min 17 s; case 10b's report on each names its own architecture. The first
   two runs of the branch failed on the case's own assertions (the lifecycle read before the

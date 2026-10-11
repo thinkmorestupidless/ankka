@@ -297,7 +297,9 @@ class CrossProjectMachinesFeatures
     assertEquals(run.code, 0, run.all)
     run
 
-  private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
+  private def waitFor(timeout: FiniteDuration, what: String, diagnosis: => String = "")(
+      check: => Boolean
+  ): Unit =
     val deadline = timeout.fromNow
     var passed   = false
     while !passed && deadline.hasTimeLeft() do
@@ -305,7 +307,61 @@ class CrossProjectMachinesFeatures
         try check
         catch case _: Throwable => false
       if !passed then Thread.sleep(1000)
-    if !passed then fail(s"$what did not happen within $timeout")
+    if !passed then
+      val said =
+        try diagnosis
+        catch case e: Throwable => s"(no diagnosis: $e)"
+      fail(s"$what did not happen within $timeout$said")
+
+  /**
+   * Where a grant stopped on its way to a pod: the project's resource, the ConfigMap the operator
+   * rendered from it, and what each of the service's pods reads.
+   */
+  private def grantPath(service: String, project: String): String =
+    def attempt(what: String)(read: => String) =
+      s"\n--- $what\n" + (try read
+      catch case e: Throwable => s"(failed: $e)")
+    attempt("AnkkaProject grants")(
+      PkiStack.kubectl(
+        k3s,
+        "get",
+        "ankkaproject",
+        project,
+        "-n",
+        ns(project),
+        "-o",
+        "jsonpath={.spec.grants}"
+      )
+    ) + attempt("ConfigMap grants.json")(
+      PkiStack.kubectl(
+        k3s,
+        "get",
+        "configmap",
+        "ankka-project",
+        "-n",
+        ns(project),
+        "-o",
+        "jsonpath={.data.grants\\.json}"
+      )
+    ) + attempt("pods")(PkiStack.kubectl(k3s, "get", "pods", "-n", ns(project), "-o", "wide")) +
+      podsOf(service, project)
+        .map(pod =>
+          attempt(s"${pod.getMetadata.getName} (${pod.getStatus.getPhase}) grants.json")(
+            PkiStack.kubectl(
+              k3s,
+              "exec",
+              "-n",
+              ns(project),
+              pod.getMetadata.getName,
+              "-c",
+              service,
+              "--",
+              "cat",
+              "/var/run/ankka/project/grants.json"
+            )
+          )
+        )
+        .mkString
 
   private def ns(project: String) = s"$Prefix-$project"
 
@@ -584,7 +640,11 @@ class CrossProjectMachinesFeatures
     )
     val grant = readFromString[GrantDetail](run.out)
     grants :+= (grant.id -> project)
-    waitFor(180.seconds, s"grant ${grant.id} reaching every pod of $service") {
+    waitFor(
+      180.seconds,
+      s"grant ${grant.id} reaching every pod of $service",
+      grantPath(service, project)
+    ) {
       val files = mounted(service, project, "grants.json")
       files.nonEmpty && files.forall(_.contains(grant.id))
     }

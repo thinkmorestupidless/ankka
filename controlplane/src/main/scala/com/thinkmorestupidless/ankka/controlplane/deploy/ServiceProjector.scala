@@ -179,17 +179,7 @@ final class ServiceProjector private (
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(
-            projectId,
-            work.topicsOf(projectId),
-            work.brokersOf(projectId),
-            work.locationOf(projectId),
-            work.restoresOf(projectId),
-            work.databaseOf(projectId),
-            work.rehearsalsOf(projectId),
-            work.credentialGenerationOf(projectId),
-            work.grantsOf(projectId)
-          )
+          work.projectSpecOf(projectId)
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
 
@@ -238,6 +228,9 @@ final class ServiceProjector private (
       config.namespacePrefix,
       config.sweepInterval
     )
+
+  /** One sweep now, on the caller's thread, as the timer would run it: for a suite. */
+  private[controlplane] def sweepNow(): Unit = projection.foreach(_.sweep())
 
   override def stop(): Unit =
     watching.foreach(_.close())
@@ -300,6 +293,25 @@ private[deploy] final class Projection(
    * is a state the delete path handles, and failing the projection over it would be a worse answer
    * than leaving the reference off.
    */
+  /**
+   * Everything a project's resource says, read from the project: the one place it is put together.
+   * Two things write the resource — a project's own changes and, since feature 041, the sweep — and
+   * the spec is a whole document, so a writer that left something out would take it away every time
+   * it wrote: the sweep once removed every grant (feature 040) every two seconds.
+   */
+  def projectSpecOf(projectId: String): com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec =
+    ProjectProjection.spec(
+      projectId,
+      topicsOf(projectId),
+      brokersOf(projectId),
+      locationOf(projectId),
+      restoresOf(projectId),
+      databaseOf(projectId),
+      rehearsalsOf(projectId),
+      credentialGenerationOf(projectId),
+      grantsOf(projectId)
+    )
+
   /** A project's declared topics, from the project itself; none for a project that is gone. */
   def topicsOf(
       projectId: String
@@ -472,20 +484,7 @@ private[deploy] final class Projection(
     metrics.copy(copy)
     projects.foreach { projectId =>
       try
-        client.putProject(
-          config.namespaceFor(projectId),
-          projectId,
-          ProjectProjection.spec(
-            projectId,
-            topicsOf(projectId),
-            brokersOf(projectId),
-            locationOf(projectId),
-            restoresOf(projectId),
-            databaseOf(projectId),
-            rehearsalsOf(projectId),
-            credentialGenerationOf(projectId)
-          )
-        )
+        client.putProject(config.namespaceFor(projectId), projectId, projectSpecOf(projectId))
         val status = client.projectStatus(config.namespaceFor(projectId), projectId)
         // A restore's end, from what the operator reported, recorded once by the entity
         // (feature 041): a repeat records nothing, so every sweep may say it.

@@ -230,6 +230,11 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   A restore can change what every service reads, and a rehearsal changes nothing of the project. The
   restore routes check the moment against the window the operator last reported, and a switch only to a
   verified restore that holds the service's database.
+- **A project's resource is written whole, from one function.** `Projection.projectSpecOf` builds it for
+  both writers: the project trigger and, since feature 041, the sweep. When the sweep built its own spec
+  without grants it took every grant out of the cluster every two seconds, which every offline suite
+  missed (they ran no sweep after a grant) and all four cross-project k3s suites caught.
+  `GrantRoutesSuite` sweeps after a grant.
 - **The control plane's own restore holds its projection.** `RestoreHold` is the first extension; with an
   unreleased marker the projector writes nothing and the writes an endpoint makes (a secret, a registry
   credential, a rehearsal namespace) are refused as unavailable. The release is a platform

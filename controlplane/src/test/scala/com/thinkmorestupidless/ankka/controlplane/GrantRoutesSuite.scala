@@ -229,3 +229,31 @@ class GrantRoutesSuite extends munit.FunSuite with LogCapturing:
     assertEquals(received.changes.map(_.change), Vector(GrantChange.Made, GrantChange.Revoked))
     assert(received.changes.forall(_.by.nonEmpty), received.toString)
   }
+
+  test("an accepted grant stays on the project's resource when the projector sweeps") {
+    cp.project("ledger", "eitheror", owner = "ada")
+    val (deployed, answer) = cp.send(
+      "PUT",
+      "/services/ledger/books",
+      Some("""{"name":"books","service":{"image":"books:1"}}"""),
+      as = "ada"
+    )
+    assertEquals(deployed, 200, answer)
+    val grant = readFromString[GrantDetail](
+      cp.send(
+        "POST",
+        "/projects/ledger/grants",
+        grantBody("service:payments/merchant", """{"kind":"erasure"}"""),
+        "ada"
+      )._2
+    )
+    val namespace = s"${cp.deployConfig.namespacePrefix}-ledger"
+    def written   = cp.cluster.project(namespace, "ledger").toVector.flatMap(_.grants.map(_.id))
+    cp.eventually("the grant written to the project's resource") {
+      Option.when(written.contains(grant.id))(())
+    }
+    // Since feature 041 the sweep writes every project's resource with a service too; it must
+    // write the same spec, or a grant is gone from the cluster until the next grant change.
+    cp.projector.sweepNow()
+    assertEquals(written, Vector(grant.id))
+  }

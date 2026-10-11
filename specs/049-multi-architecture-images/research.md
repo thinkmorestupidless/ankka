@@ -292,6 +292,12 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   amd64 leg of the same run and on `main`'s nightly, so either timing on the arm64 runner or a
   race the faster leg exposes; noted for feature 039's owner, and the first thing to re-run
   on the nightly's arm64 leg. The amd64 leg matched `main`'s nightly. Durations are in the run.
+- **The full run's `CloudProviderClusterFeatures (amd64)` never finished.** Its sbt step ran for
+  67 minutes against 6 on every other run, was cancelled by hand, and then its `if: always()`
+  post-steps sat "in progress" with no log blob ever archived: a runner that stopped answering
+  mid-suite, not a slow or hung test. Rerun alone on amd64 (run 38158814547) it passed in 6 min 13 s,
+  including the scenario the arm64 leg and `main`'s nightly failed, so that scenario is a race in
+  feature 044's suite that any leg can lose, and the hang was the runner's.
 - **`OperatorClusterSuite` green on both legs, 44 of 44** (run 38151986074, 2026-10-11): amd64
   11 min 49 s, arm64 11 min 17 s; case 10b's report on each names its own architecture. The first
   two runs of the branch failed on the case's own assertions (the lifecycle read before the

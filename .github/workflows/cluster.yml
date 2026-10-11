@@ -8,9 +8,12 @@
 # branch, which is how a change that touches the platform is checked before it merges.
 #
 # The matrix is `.github/cluster-suites.py`'s, derived from the source, so a new k3s suite runs here
-# without being listed. Each runner runs one suite through `testOnly`, which builds the images that
-# suite's module deploys (the build hooks both `test` and `testOnly`); the sidecar suite builds its
-# Python and module images itself, and needs cargo or its module cases skip.
+# without being listed, and every suite runs twice: on an amd64 runner and on an arm64 one, since the
+# platform's images are published for both and an image published for a platform nobody runs it on
+# is a promise nobody checked. Each runner runs one suite through `testOnly`, which builds the
+# images that suite's module deploys (the build hooks both `test` and `testOnly`) — natively, on the
+# leg's own architecture, so nothing here is emulated; the sidecar suite builds its Python and
+# module images itself, and needs cargo or its module cases skip.
 name: cluster
 on:
   schedule:
@@ -23,6 +26,9 @@ on:
       suite:
         description: "Run only the suites this name or glob matches (SidecarClusterSuite, Broker*); empty runs all"
         default: ""
+      arch:
+        description: "Run only on this architecture (amd64, arm64); empty runs both"
+        default: ""
 jobs:
   suites:
     runs-on: ubuntu-24.04
@@ -33,16 +39,17 @@ jobs:
       - id: list
         env:
           SUITE: ${{ inputs.suite }}
-        run: echo "matrix=$(python3 .github/cluster-suites.py "$SUITE")" >> "$GITHUB_OUTPUT"
+          ARCH: ${{ inputs.arch }}
+        run: echo "matrix=$(python3 .github/cluster-suites.py "$SUITE" "$ARCH")" >> "$GITHUB_OUTPUT"
 
   suite:
     needs: suites
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.suites.outputs.matrix) }}
-    name: ${{ matrix.suite }}
+    name: ${{ matrix.suite }} (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v7
         with:
@@ -82,12 +89,12 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: resources-${{ matrix.suite }}
+          name: resources-${{ matrix.suite }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/samples/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: test-reports-${{ matrix.suite }}
+          name: test-reports-${{ matrix.suite }}-${{ matrix.arch }}
           path: '*/target/test-reports/*${{ matrix.suite }}.xml'
           if-no-files-found: warn

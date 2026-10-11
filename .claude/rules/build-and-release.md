@@ -303,6 +303,11 @@ the schema is additive — a running application must never lose a table or colu
   `Ready`, and only the cases where it was the *only* pod timed out. The second tag is
   `BuildInfo.version` with `+` → `-` (what `Docker / version` produces), and `testOnly` builds the
   images too, so the tag a suite asks for is the one this sbt session made.
+- **sbt's default heap is too small for a cold build on a GitHub runner.** A cluster job compiles
+  every module the suite needs and writes their Scala API documentation at once; with no `.jvmopts`
+  the launcher's default heap ran out (`OutOfMemoryError: Java heap space` in the compiler) on
+  `ObjectStorageGcsClusterFeatures` twice in a row, before a test ran. `.jvmopts` sets `-Xmx4g` for
+  the sbt JVM only; forked test JVMs take `Test / javaOptions`.
 - **A top-level `require(...)` is not an sbt DSL entry** (`required: sbt.internal.DslEntry`); a
   check in a `build.sbt` is a `val` whose body calls `sys.error`.
 - **Giter8 reads `default.properties` from `src/main/g8/`, not the template root** — at the root

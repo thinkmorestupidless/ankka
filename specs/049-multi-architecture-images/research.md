@@ -300,8 +300,11 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   `CloudProviderClusterFeatures` on 2026-10-11: without the fix 2 of 4 legs red (both amd64, three
   different scenarios, all double-fulfilment symptoms); with the fix 5 of 5 green (one on main's
   workflow, two runs × two architectures here).
-- **`ObjectStorageGcsClusterFeatures (arm64)` rerun alone: green in 38 min**, so the earlier
-  rotation-grace timeout was a timing flake, not an arm64 property; left as is.
+- **`ObjectStorageGcsClusterFeatures` rerun on both legs** (run 38161156249): arm64 green in
+  38 min; amd64 red in 46 min on a different scenario, "a service reads its moved objects after its
+  next rollout", an 11-minute wait that expired. So neither failure is an architecture's: the suite
+  has two long waits that lose on a slow runner, on either leg. Noted for feature 039's owner;
+  nothing in this feature touches it.
 - **The full run's `CloudProviderClusterFeatures (amd64)` never finished.** Its sbt step ran for
   67 minutes against 6 on every other run, was cancelled by hand, and then its `if: always()`
   post-steps sat "in progress" with no log blob ever archived: a runner that stopped answering

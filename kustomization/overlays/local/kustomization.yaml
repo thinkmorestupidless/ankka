@@ -43,6 +43,10 @@ resources:
   - platform-configmap.yaml
   - local-ca.yaml
 
+# A laptop's instance counts; see instances.yaml.
+patches:
+  - path: instances.yaml
+
 # The base domain, written once in platform-configmap.yaml and copied everywhere it must match.
 # Where the target holds a prefixed form (`*.BASE_DOMAIN`, `api.BASE_DOMAIN`), the replacement
 # swaps only the label after the first dot, so the prefix survives.

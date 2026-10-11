@@ -170,7 +170,12 @@ object LifecycleRules:
    * proxy beside it) and the architecture from the node when the reconciler could read it.
    */
   private def wrongArchitectureDetail(spec: AnkkaServiceSpec, problem: PodProblem): String =
-    val image = problem.image.getOrElse(spec.image)
+    // The kubelet names an image as it normalises it (`docker.io/library/cart:2` for `cart:2`); the
+    // developer wrote the descriptor's form, so that is the one named when they are the same image.
+    val image = problem.image match
+      case Some(c) if c == spec.image || c.endsWith("/" + spec.image) => spec.image
+      case Some(c)                                                    => c
+      case None                                                       => spec.image
     val where = problem.architecture.fold("")(a => s" ($a)")
     s"image $image has no build for this node's architecture$where"
 

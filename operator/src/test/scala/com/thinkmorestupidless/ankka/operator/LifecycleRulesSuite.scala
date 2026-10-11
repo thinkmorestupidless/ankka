@@ -199,6 +199,44 @@ class LifecycleRulesSuite extends munit.FunSuite:
     )
   }
 
+  test("the image is named as the descriptor wrote it, not as the kubelet normalised it") {
+    val wrong = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "CrashLoopBackOff",
+          "exec /__cacert_entrypoint.sh: exec format error",
+          image = Some("docker.io/library/cart:1.0"),
+          architecture = Some("amd64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(wrong)).detail,
+      Some("image cart:1.0 has no build for this node's architecture (amd64)")
+    )
+    // A platform container beside the process keeps its own name: it is not the descriptor's image.
+    val sidecar = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "CrashLoopBackOff",
+          "exec /opt/docker/bin/ankka-sidecar: exec format error",
+          image = Some("ghcr.io/thinkmorestupidless/ankka-sidecar:0.12.0"),
+          architecture = Some("arm64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(sidecar)).detail,
+      Some(
+        "image ghcr.io/thinkmorestupidless/ankka-sidecar:0.12.0 has no build for this node's architecture (arm64)"
+      )
+    )
+  }
+
   test("an image published for another platform alone is named the same way") {
     val wrong = snapshot(
       readyReplicas = 0,

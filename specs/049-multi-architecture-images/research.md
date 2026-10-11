@@ -266,5 +266,12 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
 
 ## Measurements
 
-(to be filled: the release job's images step before and after; SC-002 on tupile; the arm64 leg's
-duration per suite beside amd64's)
+- **A multi-platform `operator/Docker/publish` on the laptop** (Apple silicon, OrbStack, a
+  `docker-container` builder with `network=host`, a throwaway `registry:2`): 30 s wall-clock for the
+  host build, the buildx build of both platforms and the push; the index at the version tag and at
+  `latest` lists `linux/amd64 linux/arm64` plus two attestation entries (2026-10-11, T011). Two
+  traps found: the default `docker` driver refuses a multi-platform push, and a container builder
+  cannot reach a registry on the host's `localhost` without `--driver-opt network=host`.
+- The release job's `images` step before and after: on the first tag after this feature.
+- SC-002 on tupile: after that tag.
+- The arm64 leg's duration per suite beside amd64's: from the cluster run on this branch, below.

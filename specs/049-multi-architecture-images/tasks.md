@@ -57,7 +57,7 @@ platforms on all seven images (quickstart §6).
 - [X] T008 [US1] `WF/release.yml`, step "Every image is publicly pullable": after the 200 check, read the manifest list with `imagetools inspect` and fail naming the image and the missing platform (R3, the format from T004); rename the step to say it checks both platforms
 - [X] T009 [US1] `WF/release.yml`, step "Warm the clusters' cache": pull each image once per platform (`--platform linux/amd64`, `--platform linux/arm64`) through the cache; keep the digest comparison; update the comment (R3)
 - [X] T010 [US1] Run `sbt -Dankka.cluster.tests=off 'cli/testOnly *WorkflowShapeSuite'` green; `.github/ci-coverage.py` needs no change unless it refuses the new test file (`cli/**` claims it); run `python3 .github/ci-coverage.py` to confirm
-- [ ] T011 [US1] Quickstart §3 on the laptop against a throwaway registry: `operator/Docker/publish` with the two variables produces an index with both platforms; record the duration of the buildx build in research Measurements (V5's local half)
+- [X] T011 [US1] Quickstart §3 on the laptop against a throwaway registry: `operator/Docker/publish` with the two variables produces an index with both platforms; record the duration of the buildx build in research Measurements (V5's local half)
 - [ ] T012 [US1] On the next tag (not this branch's to cut): the `images` job green, seven images × two tags × two platforms; record in research Measurements the job's duration before and after. Ticked when the run is green
 
 ---
@@ -101,7 +101,7 @@ architecture; `services get` shows the same words.
 
 - [X] T027 [P] [US3] Extend `CLIT/TemplateSuite.scala` case 6 (or a new case 6b): the expansion's `build.sbt` contains `ANKKA_IMAGE_PLATFORMS` on a `dockerBuildxPlatforms` line, and its `deploy.yml` contains `docker/setup-qemu-action`, `docker/setup-buildx-action` and `ANKKA_IMAGE_PLATFORMS: linux/amd64,linux/arm64`. Red until T028
 - [X] T028 [US3] `G8/build.sbt`: the `dockerBuildxPlatforms` line with its comment (R6); `G8/.github/workflows/deploy.yml`: the two actions before the build step and the variable in `env`, every `${{` written `\${{` (the Giter8 trap)
-- [ ] T029 [US3] Run `sbt -Dankka.template.tests=scala 'cli/testOnly *TemplateSuite'` green (needs sbt and Docker; the expansion's own `Docker/publishLocal` still builds the host's image)
+- [X] T029 [US3] Run `sbt -Dankka.template.tests=scala 'cli/testOnly *TemplateSuite'` green (needs sbt and Docker; the expansion's own `Docker/publishLocal` still builds the host's image)
 
 ---
 
@@ -109,7 +109,7 @@ architecture; `services get` shows the same words.
 
 **Goal**: nothing in the local path reads the setting.
 
-- [ ] T030 [US4] Extend `CLIT/WorkflowShapeSuite.scala`: reads `build.sbt` and asserts `dockerBuildxPlatforms` is set from `sys.env.get("ANKKA_IMAGE_PLATFORMS")` and nowhere else in the file, and that `kustomization/deploy-local.sh` and `Justfile` do not mention the variable
+- [X] T030 [US4] Extend `CLIT/WorkflowShapeSuite.scala`: reads `build.sbt` and asserts `dockerBuildxPlatforms` is set from `sys.env.get("ANKKA_IMAGE_PLATFORMS")` and nowhere else in the file, and that `kustomization/deploy-local.sh` and `Justfile` do not mention the variable
 - [ ] T031 [US4] `./kustomization/deploy-local.sh` on the laptop's kind cluster end to end, as before this feature; `RemoteOverlaySuite` green (`sbt -Dankka.cluster.tests=off 'controlPlane/testOnly *RemoteOverlaySuite'`)
 
 ---
@@ -128,7 +128,7 @@ architecture; `services get` shows the same words.
 ## Phase 7: Polish — rules, the features check, the whole run
 
 - [X] T036 [P] `.claude/rules/build-and-release.md`: a paragraph under "The images ship through GitHub Container Registry" on the two-platform build, `ANKKA_IMAGE_PLATFORMS`, why `publishLocal` is untouched, the per-platform cache warm, and the trap that a `docker` driver cannot push an index; `.claude/rules/kubernetes.md` traps: the kubelet's words for a wrong-architecture image and the `get` on nodes
-- [ ] T037 [P] `just features` reports 0 findings (no feature file changes expected)
+- [X] T037 [P] `just features` reports 0 findings (no feature file changes expected)
 - [ ] T038 `sbt -Dankka.cluster.tests=off buildAll` green; `git status` clean of anything the build wrote
 - [ ] T039 Research "Found during implementation" and "Measurements" filled from T003, T011, T017, T018, T025; the "Verify first" list each marked done or carried
 - [ ] T040 Open the pull request against `main` after `specs-049-050` has merged (the branch carries that commit); the description names SC-001 and SC-002 as proved on the next tag and on tupile respectively

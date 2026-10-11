@@ -280,6 +280,15 @@ ConfigMap for nothing.
   silently drops a tar whose only manifest is another platform's and the pod reports a plain
   `ErrImagePull` for an image that "imported" fine.
 
+- **A controller that judges "already done" from an event's copy does it twice.** The informer
+  delivers the resource as it was when the event fired, and fires again on the operator's next
+  server-side apply of the same spec and on every resync; a copy queued behind the controller's
+  own status write still shows no `observedGeneration`. The scripted cloud provider offered one
+  request's credential twice that way, about one `CloudProviderClusterFeatures` run in ten
+  ("deleted and applied again" has two `Issued`, a second apart). `ScriptedCloudProvider.answer`
+  re-reads the resource from the server before deciding; a real provider must do the same, and the
+  cloud provider page says so.
+
 - **Kafka knows a TLS client by its certificate's subject and nothing else.** The default principal builder
   reads the distinguished name; a subject alternative name is invisible to it. A service certificate with
   only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service

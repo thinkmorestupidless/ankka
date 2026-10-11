@@ -163,7 +163,11 @@ cloud's annotation keys.
 ## The answer
 
 A provider sets `observedGeneration` to the request's `metadata.generation` before it reports any phase,
-and the operator acts on no answer whose `observedGeneration` is behind the request's. The phase is one
+and the operator acts on no answer whose `observedGeneration` is behind the request's. A provider
+decides whether a request is answered from the request as the API server holds it at that moment,
+not from the copy a watch event delivered: the operator applies a request more than once and a watch
+resyncs, so a copy queued behind the provider's own answer still reads as unanswered, and a provider
+that trusts it issues a credential twice for one request. The phase is one
 of four:
 
 | Phase | Meaning |

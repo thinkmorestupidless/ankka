@@ -281,7 +281,11 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   cannot reach a registry on the host's `localhost` without `--driver-opt network=host`.
 - The release job's `images` step before and after: on the first tag after this feature.
 - SC-002 on tupile: after that tag.
-- **`OperatorClusterSuite` on the cluster workflow, both legs** (run 38150083552, 2026-10-11):
+- **`OperatorClusterSuite` green on both legs, 44 of 44** (run 38151986074, 2026-10-11): amd64
+  11 min 49 s, arm64 11 min 17 s; case 10b's report on each names its own architecture. The first
+  two runs of the branch failed on the case's own assertions (the lifecycle read before the
+  rollout's deadline; the kubelet's normalised image name), never on the feature.
+- **`OperatorClusterSuite` on the cluster workflow, both legs, first run** (run 38150083552, 2026-10-11):
   amd64 on `ubuntu-24.04` 11 min 34 s; arm64 on `ubuntu-24.04-arm` 10 min 48 s, including the
   image build, k3s, CNPG, cert-manager and 44 cases. V3 answered: the arm64 runner, Docker, k3s
   and the sbt launcher all work there with no change.

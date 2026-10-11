@@ -148,7 +148,8 @@ object PodProblem:
             PodProblem(
               pod,
               Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"),
-              said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}")
+              said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}"),
+              image = Option(cs.getImage).filter(_.nonEmpty)
             )
           }
       }
@@ -176,7 +177,12 @@ object PodProblem:
               .map(_.trim)
               .filter(_.nonEmpty)
               .map(said =>
-                PodProblem(pod, Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"), said)
+                PodProblem(
+                  pod,
+                  Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"),
+                  said,
+                  image = Option(cs.getImage).filter(_.nonEmpty)
+                )
               )
           )
       }

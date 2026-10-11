@@ -73,7 +73,7 @@ platforms on all seven images (quickstart §6).
 - [X] T014 [US2] `.github/cluster-suites.py`: emit each suite per architecture with `arch` and `runner`; a second optional argument narrows to one architecture (`amd64`, `arm64`, or empty for both); a name that matches no suite or an unknown architecture fails as today; update the docstring (R4)
 - [X] T015 [US2] `WF/cluster.yml`: `runs-on: ${{ matrix.runner }}`; job name `${{ matrix.suite }} (${{ matrix.arch }})`; artifact names `resources-<suite>-<arch>` and `test-reports-<suite>-<arch>`; a `workflow_dispatch` input `arch` passed to the script; the `suites` job passes both inputs; header comment updated (why two legs, why no emulation) (R4)
 - [X] T016 [US2] Run `sbt -Dankka.cluster.tests=off 'cli/testOnly *WorkflowShapeSuite'` green
-- [ ] T017 [US2] V3: `gh workflow run cluster --ref 049-multi-architecture-images -f suite=SampleDeploymentClusterSuite -f arch=arm64`; watch it; if the runner label, Docker, k3s or Ryuk fails there, fix and record in research "Found during implementation". Ticked when green
+- [X] T017 [US2] V3: `gh workflow run cluster --ref 049-multi-architecture-images -f suite=SampleDeploymentClusterSuite -f arch=arm64`; watch it; if the runner label, Docker, k3s or Ryuk fails there, fix and record in research "Found during implementation". Ticked when green
 - [ ] T018 [US2] `gh workflow run cluster --ref 049-multi-architecture-images` (every suite, both legs); the sidecar's arm64 leg builds the Rust module; record each suite's arm64 duration beside amd64's in Measurements. Ticked when every job is green, or with the red ones named and understood
 
 ---

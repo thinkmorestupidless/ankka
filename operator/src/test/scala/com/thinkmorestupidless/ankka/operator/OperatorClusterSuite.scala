@@ -382,8 +382,13 @@ class OperatorClusterSuite extends munit.FunSuite:
     val image = buildOtherArchitectureImage()
     ClusterImages.importInto(k3s, image)
     write(spec(generation = 6L, image = image))
+    // Both at once: the detail is there as soon as the first pod fails, and the lifecycle turns
+    // Failed once the rollout's progress deadline has passed, which is later.
     waitFor(180.seconds)(
-      statusOf.exists(s => s.detail.exists(_.contains("has no build for this node's architecture")))
+      statusOf.exists(s =>
+        s.lifecycle == "Failed" &&
+          s.detail.exists(_.contains("has no build for this node's architecture"))
+      )
     )
     val status = statusOf.get
     // V1 of feature 049's research: the kubelet's own words, printed once so they are on record.

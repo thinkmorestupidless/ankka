@@ -227,8 +227,7 @@ is unchanged since no page is added.
   case and the detection matches both.
 - **V2**: whether any dependency in the console's final `node_modules` carries a per-platform binary
   (R2). Read both `package.json`s; if so the final stage installs on the target platform.
-- **V3**: the arm64 runner runs a k3s suite at all (R4). One suite on demand before the matrix
-  change merges.
+- **V3**: the arm64 runner runs a k3s suite at all (R4). Done: see Measurements.
 - **V4**: `docker buildx imagetools inspect --format` with `.Manifest.Manifests` prints the
   platforms for an index as written in R3; checked against a known multi-platform image on the
   laptop before the step is written.
@@ -247,7 +246,15 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
 
 ## Found during implementation
 
-- **V1, answered differently from the guess.** An image published for one platform is refused by
+- **V1, on GitHub's runners (both legs), the other way round.** There k3s's containerd ran the
+  foreign image and the kubelet reported the container *terminated*, reason `Error`, message
+  `exec /__cacert_entrypoint.sh: exec format error` (the base image's entrypoint script is the
+  first binary), on amd64 and arm64 alike; the operator read the node and reported `image
+  sample-shopping-cart:…-other-arch has no build for this node's architecture (amd64)` and
+  `(arm64)` respectively (cluster run 38150083552, 2026-10-11). So both refusals are real and
+  depend on the containerd and the way the image arrived; the detection matches both, and
+  `PodProblem.image` is carried on the terminated paths as well as the waiting one.
+- **V1, answered differently from the guess, on the laptop.** An image published for one platform is refused by
   containerd *at pull*, not at start: the kubelet reports `ImagePullBackOff` with `no match for
   platform in manifest: not found`, because the image's manifest list has nothing for the node. That
   is the common case — a developer's amd64-only image on tupile — and R5's `exec format error` is
@@ -274,4 +281,7 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   cannot reach a registry on the host's `localhost` without `--driver-opt network=host`.
 - The release job's `images` step before and after: on the first tag after this feature.
 - SC-002 on tupile: after that tag.
-- The arm64 leg's duration per suite beside amd64's: from the cluster run on this branch, below.
+- **`OperatorClusterSuite` on the cluster workflow, both legs** (run 38150083552, 2026-10-11):
+  amd64 on `ubuntu-24.04` 11 min 34 s; arm64 on `ubuntu-24.04-arm` 10 min 48 s, including the
+  image build, k3s, CNPG, cert-manager and 44 cases. V3 answered: the arm64 runner, Docker, k3s
+  and the sbt launcher all work there with no change.

@@ -99,6 +99,34 @@ class PodProblemSuite extends munit.FunSuite:
     assertEquals(problem.image, Some("ghcr.io/acme/orders:1.4.2"))
   }
 
+  test("a container that has just exited on exec format error names its image too") {
+    // Between the kubelet's restarts the container is terminated, not waiting: the words a k3s
+    // node on GitHub's runners gave, where the image was run rather than refused at pull.
+    val exited = new ContainerStatusBuilder()
+      .withName("cart")
+      .withImage("cart:2")
+      .withState(
+        new ContainerStateBuilder()
+          .withTerminated(
+            new ContainerStateTerminatedBuilder()
+              .withExitCode(255)
+              .withReason("Error")
+              .withMessage("exec /__cacert_entrypoint.sh: exec format error")
+              .build()
+          )
+          .build()
+      )
+      .build()
+    val p = new PodBuilder()
+      .withMetadata(new ObjectMetaBuilder().withName("cart-0").build())
+      .withStatus(new PodStatusBuilder().withContainerStatuses(exited).build())
+      .build()
+    val problem = PodProblem.of(p).get
+    assertEquals(problem.reason, "Error")
+    assert(problem.wrongArchitecture, problem.message)
+    assertEquals(problem.image, Some("cart:2"))
+  }
+
   test("an image that cannot be pulled is reported as before") {
     val problem = PodProblem.of(pod("ImagePullBackOff", None, image = "cart:missing")).get
     assertEquals(problem.reason, "ImagePullBackOff")

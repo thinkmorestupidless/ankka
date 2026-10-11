@@ -292,6 +292,16 @@ the proxy image it names at v1.9.1 is checked by the k3s suite's arm64 leg runni
   amd64 leg of the same run and on `main`'s nightly, so either timing on the arm64 runner or a
   race the faster leg exposes; noted for feature 039's owner, and the first thing to re-run
   on the nightly's arm64 leg. The amd64 leg matched `main`'s nightly. Durations are in the run.
+- **The 044 race, fixed and measured.** `ScriptedCloudProvider.answer` judged "already answered"
+  from the informer event's copy of the request; a copy queued behind its own status write still
+  showed no `observedGeneration`, so a request was fulfilled twice. Fixed on branch
+  `fix/044-provider-answers-stale-snapshot` (re-read the request from the server first; the cloud
+  provider page now states the rule for real providers) and cherry-picked here. Samples of
+  `CloudProviderClusterFeatures` on 2026-10-11: without the fix 2 of 4 legs red (both amd64, three
+  different scenarios, all double-fulfilment symptoms); with the fix 5 of 5 green (one on main's
+  workflow, two runs × two architectures here).
+- **`ObjectStorageGcsClusterFeatures (arm64)` rerun alone: green in 38 min**, so the earlier
+  rotation-grace timeout was a timing flake, not an arm64 property; left as is.
 - **The full run's `CloudProviderClusterFeatures (amd64)` never finished.** Its sbt step ran for
   67 minutes against 6 on every other run, was cancelled by hand, and then its `if: always()`
   post-steps sat "in progress" with no log blob ever archived: a runner that stopped answering

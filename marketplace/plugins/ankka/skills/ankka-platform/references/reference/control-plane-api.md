@@ -169,6 +169,10 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/installation/restore` | |
 | `POST` | `/installation/restore/release` | |
 | `GET` | `/installation` | |
+| `POST` | `/oauth/token` | |
+| `GET` | `/.well-known/jwks.json` | |
+| `GET` | `/.well-known/openid-configuration` | |
+| `POST` | `/platform/machine-keys/rotate` | |
 | `GET` | `/auth` | |
 Path parameters are shown in braces. Identifiers for organizations and projects are lowercase letters,
 digits and `-`, starting with a letter; a project id must also fit in a Kubernetes namespace name, so it
@@ -735,6 +739,53 @@ Who did what to the project's database, newest first: `[{ "kind": "restore-reque
 `restore-completed`, `restore-failed`, `rehearsal-requested`, `rehearsal-completed`,
 `rehearsal-failed` or `database-set`. Members of the project's organization.
 
+### `POST /projects/{projectId}/grants`
+
+Grants one grantee one target of the project's own. Body: `{ "grantee": "service:payments/merchant",
+"target": { "kind": "route", "service": "wallet", "method": "POST", "path":
+"/v1/wallets/{player}/{currency}/deposits" } }`. Owners of the project's organization only; a member or a
+deploy token is refused with `403`. Answers `200` with the grant.
+
+A grantee is `service:<project>/<service>` or `machine:<organization>/<name>`. A target is one of:
+
+- `{ "kind": "route", "service", "method", "path" }`: one HTTP route of one of the project's services, by
+  its method and its path template;
+- `{ "kind": "method", "service", "method": "WalletService/Deposit" }`: one gRPC method;
+- `{ "kind": "topic", "topic", "right": "consume" | "produce", "decrypt": false }`: one of the project's
+  declared topics, with one right; `decrypt` only with `consume`;
+- `{ "kind": "erasure" }`: the right to ask for the erasure of the project's data subjects.
+
+There is no wildcard: a grant names one grantee and one target. A grantee of the project's own
+organization is granted at once (`"state": "accepted"`); one of another organization is `pending` until an
+owner there accepts it. Granting what is already granted and live answers the existing grant and records
+nothing. A malformed grantee or target, a grant to one of the project's own services, and `decrypt` on a
+produce grant are refused with `400`, every problem at once; a topic the project has not declared, a
+grantee project that was never created and an organization that does not exist are refused with `404`.
+
+### `GET /projects/{projectId}/grants`
+
+The project's grants, live and ended, oldest first: `[{ "id": "3f9c…", "grantee":
+"service:payments/merchant", "target": { … }, "state": "accepted", "effect": "in effect", "granted": {
+"by": "Ada", "at": "…" }, "answered": { … }, "ended": { … } }]`. Members of the project's organization.
+`state` is `pending`, `accepted`, `declined`, `withdrawn`, `revoked`, `relinquished` or `lapsed`;
+`effect` is `in effect`, or why the grant opens nothing: its state's word, `route not seen`, `route not
+grantable`, `rollout needed` or `broker not exposed`.
+
+### `GET /projects/{projectId}/grants/received`
+
+What other projects granted this project's services, with every change and who made it: `[{ "id":
+"3f9c…", "grantingProject": "spinvibe", "grantingOrganization": "eitheror", "grantee":
+"service:payments/merchant", "target": { … }, "state": "accepted", "changes": [ { "change": "made",
+"by": "Ada", "at": "…" } ], "topic": { "partitions": 3, "compacted": false } }]`. Members of this
+project's organization. `topic` is the granted topic's settings, for a topic grant. A change appears here
+a moment after it is made on the granting project, which is the one record a change is written to.
+
+### `DELETE /projects/{projectId}/grants/{grantId}`
+
+Ends a grant from the grantor's side: a pending grant is withdrawn and an accepted one revoked. Owners of
+the project's organization only. Answers `204`; `404` for a grant the project does not hold, `409` for
+one that has already ended. An ended grant is never reopened; granting the same again makes a new one.
+
 ## Installation
 
 ### `GET /installation/restore`
@@ -753,6 +804,41 @@ and `unknownProjects` each project the cluster holds that the restored database 
 Releases the hold: from its next sweep the control plane makes the cluster what its database records.
 A platform administrator's alone; anyone else is answered `403`. Recorded on the restore marker with who
 released it. Answers as `GET /installation/restore` does.
+
+## Machine tokens
+
+A registered machine takes a token from the control plane by OAuth 2.0 client credentials, and
+presents it as `Authorization: Bearer <token>` through the gateway. A service verifies it with the keys
+below and reads the caller as that machine. These routes take no token of their own.
+
+### `POST /oauth/token`
+
+Answers a token for a registered machine. The body is a form, `grant_type=client_credentials` with
+`client_id` and `client_secret`, or the two as HTTP Basic. Answers `200` with `{ "access_token",
+"token_type": "Bearer", "expires_in": 900 }`: the token lives fifteen minutes, and a machine takes a new
+one as it needs.
+
+An unknown client id, a wrong secret and a deleted machine are all `401` with `{"error":
+"invalid_client"}`, so the route tells a guesser nothing. Another grant type is `400`
+`unsupported_grant_type`, and a request with none `400` `invalid_request`. More requests a minute for one
+client id than the installation allows (twelve unless it says otherwise, counted per control plane
+instance) are `429` with `Retry-After`, the seconds until the next is allowed.
+
+### `GET /.well-known/jwks.json`
+
+The keys machine tokens are signed with, as a JSON Web Key Set: every key the control plane holds, so a
+token signed before a rotation verifies until it expires. Public. Inside the cluster the same keys are on
+the control plane's `keys` port, 7629, over TLS that asks for no client certificate.
+
+### `GET /.well-known/openid-configuration`
+
+Where a verifier finds the rest: `{ "issuer", "jwks_uri", "token_endpoint" }`. Public.
+
+### `POST /platform/machine-keys/rotate`
+
+Adds a signing key, which signs every token from then on; the key it replaces stays in the key set.
+Platform administrators only. Answers the new key's id. The control plane also rotates every thirty days
+on its own, and drops a key thirty-one days old that is not the newest.
 
 ## Services
 

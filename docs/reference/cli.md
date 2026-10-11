@@ -1895,6 +1895,20 @@ Options and flags:
 Usage: ankka projects location clear [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Let the installation's default location apply again.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka projects grants`
 
 ```text

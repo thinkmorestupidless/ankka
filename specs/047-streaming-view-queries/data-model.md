@@ -131,7 +131,7 @@ A `GraphStage[FlowShape[WatchEvent, WatchEvent]]` over `LinkedHashMap[String, Wa
 
 `ANKKA_VIEW_` and `ANKKA_SSE_` are runtime-only prefixes (`PlatformVariables.RuntimeOnlyPrefixes`).
 
-## In `protocol` (1.15)
+## In `protocol` (1.17)
 
 See contracts/protocol.md for the messages. The values a process sees are the same three element
 kinds, the same reasons and the same overflow names, under protobuf's spelling.

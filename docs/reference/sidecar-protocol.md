@@ -39,7 +39,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.16"`;
+- its protocol version, `"1.17"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -199,7 +199,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.16`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.17`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -238,6 +238,12 @@ that recorded the state was applied, as `standing` on `ViewRequest` and `Consume
 source is refused from both ends across that line: the sidecar refuses a `Spec` declaring one under an
 earlier minor, naming the component and both versions, and an SDK refuses to answer discovery with one to a
 runtime that states an earlier version.
+`1.17` added a view's query answered as a stream and a watch: `QueryStream` on `Client`, which answers
+a `QueryRequest` as `RowFrame`s with no limit unless one is given, `Watch`, which answers a `WatchRequest`
+for a declared query or one row with the rows now, one `caught_up` frame, then rows and removals as the
+view writes, and `DeclaredQuery.watched` in discovery. A runtime before `1.17` answers both calls
+`UNIMPLEMENTED`, which each SDK reports as the runtime being too old for view streams, and the sidecar
+refuses a `Spec` declaring a watched query under an earlier minor.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

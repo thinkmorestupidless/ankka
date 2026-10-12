@@ -49,7 +49,7 @@ def table_of(component_id: str) -> str:
 
 
 def declares_watched(cls: type) -> bool:
-    """Whether ``cls`` declares a query that may be watched, which a sidecar older than 1.15 would
+    """Whether ``cls`` declares a query that may be watched, which a sidecar older than 1.17 would
     not know."""
     return any(q.watched for q in getattr(cls, "_declared_queries", ()))
 

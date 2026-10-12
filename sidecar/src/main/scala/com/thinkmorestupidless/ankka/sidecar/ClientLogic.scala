@@ -427,7 +427,7 @@ final class ClientLogic(
     )
 
   /**
-   * A query as a stream of frames (1.15): every row of `all` or a declared query, as the database
+   * A query as a stream of frames (1.17): every row of `all` or a declared query, as the database
    * yields it, with no limit unless the request gives one; a refusal or a fault as the last frame.
    * Asked as the handler the process was running, as a whole query is.
    */
@@ -451,7 +451,7 @@ final class ClientLogic(
         rows.map(row => rowFrame("", row)).recover { case e => failedFrame(e) }
 
   /**
-   * A watch as frames (1.15): the rows now, `caught_up`, then rows and removals; a reason it ended
+   * A watch as frames (1.17): the rows now, `caught_up`, then rows and removals; a reason it ended
    * as `ended`, a refusal or a fault as `failed`, each the last frame.
    */
   def watch(request: WatchRequest): Source[RowFrame, NotUsed] =
@@ -495,7 +495,7 @@ final class ClientLogic(
   /**
    * The minor that introduced view streams: a process declaring an earlier one cannot ask for one.
    */
-  private val ViewStreamsSince = "1.15"
+  private val ViewStreamsSince = "1.17"
 
   private def servesViewStreams: Option[CommandError] =
     declaredProtocol.filterNot(ClientLogic.servesViewStreams).map { declared =>
@@ -724,7 +724,7 @@ object ClientLogic:
   /** Whether a process that declared `declared` may ask for a view stream or a watch. */
   private[sidecar] def servesViewStreams(declared: String): Boolean =
     declared.split('.').toList match
-      case _ :: minor :: _ => minor.toIntOption.exists(_ >= 15)
+      case _ :: minor :: _ => minor.toIntOption.exists(_ >= 17)
       case _               => false
 
   /** Whether a process that declared `declared` may be served `Request`. */

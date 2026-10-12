@@ -1,16 +1,16 @@
-# Contract: protocol 1.15 and the SDKs
+# Contract: protocol 1.17 and the SDKs
 
 ## `client.proto`
 
 ```proto
 service Client {
   …
-  // 1.15: a query answered as a stream of rows, or a watch of a declared query or one row.
+  // 1.17: a query answered as a stream of rows, or a watch of a declared query or one row.
   rpc QueryStream (QueryRequest) returns (stream RowFrame);
   rpc Watch       (WatchRequest) returns (stream RowFrame);
 }
 
-// 1.15. One element of a row stream or a watch. A stream of rows carries `row` frames and then
+// 1.17. One element of a row stream or a watch. A stream of rows carries `row` frames and then
 // completes, or `failed`; a watch carries the rows now, `caught_up` once, then `row` and `removed`
 // as the view writes, and `ended` or `failed` before it completes.
 message RowFrame {
@@ -49,15 +49,15 @@ enum Overflow { DROP_HEAD = 0; DROP_TAIL = 1; DROP_NEW = 2; DROP_ALL = 3; FAIL =
 ```proto
 message DeclaredQuery {
   …
-  bool watched = N;   // 1.15: may be watched through Client.Watch; the sidecar applies the watched rules at start
+  bool watched = N;   // 1.17: may be watched through Client.Watch; the sidecar applies the watched rules at start
 }
 ```
 
 ## Versions
 
-`1.15` in: `modules/runtime/.../remote/Conversation.scala` (`WireProtocol.Version`),
-`sidecar/.../Discovery.scala` (the comment gains 1.14 and 1.15), `controlplane-api/.../Compatibility.scala`
-(`ProtocolVersion(1, 15)` and its history), `protocol/README.md`, `sdks/python/src/ankka/service.py`,
+`1.17` in: `modules/runtime/.../remote/Conversation.scala` (`WireProtocol.Version`),
+`sidecar/.../Discovery.scala` (the comment gains 1.14 and 1.17), `controlplane-api/.../Compatibility.scala`
+(`ProtocolVersion(1, 17)` and its history), `protocol/README.md`, `sdks/python/src/ankka/service.py`,
 `sdks/typescript/src/spec.ts`, `sdks/rust/.../README.md`. Feature 048 also moves the protocol; the second
 to merge takes `1.16`.
 
@@ -65,12 +65,12 @@ to merge takes `1.16`.
 
 | Side | Condition | Behaviour |
 |---|---|---|
-| sidecar at discovery | a `Spec` declaring protocol < 1.15 with a `watched` query | `"view '…': query '…' is watched, which needs protocol 1.15; the SDK speaks 1.14"` — the `SocketsSince` pattern |
+| sidecar at discovery | a `Spec` declaring protocol < 1.17 with a `watched` query | `"view '…': query '…' is watched, which needs protocol 1.17; the SDK speaks 1.14"` — the `SocketsSince` pattern |
 | sidecar at discovery | a watched statement breaking a watched rule | the `QueryCheck` text, as for any declared query |
 | sidecar per call | `Watch` of a query not declared watched | `RowFrame.failed` with `BAD_REQUEST`, "declare it watched" |
 | sidecar per call | the watch bound | `RowFrame.failed` with `UNAVAILABLE` naming the bound |
-| SDK at discovery | sidecar states a version < 1.15 and a view declares a watched query | the SDK aborts discovery `FAILED_PRECONDITION`: `"view '…' declares the watched query '…', which the sidecar does not know: it speaks protocol 1.14, and this SDK 1.15. Run a sidecar speaking 1.15 or later."` |
-| SDK per call | `UNIMPLEMENTED` from `QueryStream` or `Watch` | raised as `"the runtime beside this process does not offer view streams, which need protocol 1.15 (this SDK speaks 1.15)"` |
+| SDK at discovery | sidecar states a version < 1.17 and a view declares a watched query | the SDK aborts discovery `FAILED_PRECONDITION`: `"view '…' declares the watched query '…', which the sidecar does not know: it speaks protocol 1.14, and this SDK 1.17. Run a sidecar speaking 1.17 or later."` |
+| SDK per call | `UNIMPLEMENTED` from `QueryStream` or `Watch` | raised as `"the runtime beside this process does not offer view streams, which need protocol 1.17 (this SDK speaks 1.17)"` |
 | module at discovery | a `watched` query | `"view '…': query '…' is watched, and a module reads a view whole; declare it without watched"` |
 
 ## Flow control

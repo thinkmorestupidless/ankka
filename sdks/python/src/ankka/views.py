@@ -20,8 +20,8 @@ from ankka.endpoint import SseEvent
 T = TypeVar("T")
 
 # The first protocol in which a view's query can be streamed and watched.
-VIEW_STREAMS_PROTOCOL = (1, 15)
-VIEW_STREAMS_SINCE = "1.15"
+VIEW_STREAMS_PROTOCOL = (1, 17)
+VIEW_STREAMS_SINCE = "1.17"
 
 
 @dataclass(frozen=True)

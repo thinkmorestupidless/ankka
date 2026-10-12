@@ -62,9 +62,8 @@ object Discovery:
    * publication (feature 037). 1.15: the granted-caller matcher, the machine caller, and another
    * project's topic (feature 040). 1.16: a workflow as the source of a view or a consumer, and its
    * standing on their requests (feature 046); refused from a process that declares an earlier
-   * minor.
-   * 1.17: a view's query as a stream and a watch, `QueryStream` and `Watch` on `Client`, and a
-   * declared query's `watched` (feature 047).
+   * minor. 1.17: a view's query as a stream and a watch, `QueryStream` and `Watch` on `Client`, and
+   * a declared query's `watched` (feature 047).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -190,7 +189,7 @@ object Discovery:
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
           s"'$protocolVersion'; the major versions must match"
 
-    // A view's declared queries as discovery states them. A query declared watched needs 1.15: an
+    // A view's declared queries as discovery states them. A query declared watched needs 1.17: an
     // older SDK cannot have meant it, and a runtime from before would refuse its every watch.
     def declared(
         id: ComponentId,

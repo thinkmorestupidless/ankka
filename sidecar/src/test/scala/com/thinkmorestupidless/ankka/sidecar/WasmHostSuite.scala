@@ -196,7 +196,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
         )
       )
     )
-    val spec = cartSpec().copy(protocolVersion = "1.15", components = cartSpec().components :+ view)
+    val spec = cartSpec().copy(protocolVersion = "1.17", components = cartSpec().components :+ view)
     val found = problems(WasmSpec(Some(spec), Seq.empty, "1"))
     assert(
       found.exists(p =>

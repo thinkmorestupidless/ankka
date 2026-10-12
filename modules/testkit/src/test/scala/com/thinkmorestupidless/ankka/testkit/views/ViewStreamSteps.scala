@@ -48,7 +48,12 @@ abstract class ViewStreamSteps(feature: String) extends GherkinSuite(feature) wi
       Nil,
       Seq(ProjectionRuntime(), server),
       configure = _.registerAll(
-        Seq(OrderEntity.descriptor, Orders.descriptor, CartEntity.descriptor, Carts.descriptor)
+        Seq(
+          StreamOrderEntity.descriptor,
+          Orders.descriptor,
+          CartEntity.descriptor,
+          Carts.descriptor
+        )
       ),
       settings = settings
     )

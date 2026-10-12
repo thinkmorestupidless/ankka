@@ -68,12 +68,12 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
 | `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
 | `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
+| `ANKKA_SSE_HEARTBEAT` | `ankka.http.sse.heartbeat` | `15s` | every service |
 | `ANKKA_PROJECT_GRANTS` | `ankka.grants.file` | `""` | every service |
 | `ANKKA_PROJECT_DECLARATIONS` | `ankka.grants.declarations` | `""` | every service |
 | `ANKKA_MACHINE_ISSUER` | `ankka.machines.issuer` | `""` | every service |
 | `ANKKA_MACHINE_JWKS_URL` | `ankka.machines.jwks-url` | `""` | every service |
 | `ANKKA_MACHINE_JWKS_CA` | `ankka.machines.jwks-ca` | `""` | every service |
-| `ANKKA_SSE_HEARTBEAT` | `ankka.http.sse.heartbeat` | `15s` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |

@@ -235,7 +235,7 @@ served it is the trace that exists.
 as not covered. The 031 suites may already pin it; if not, the watch-rules topology scenario is the
 test that does.
 
-## R10. Protocol 1.15: two server-streaming rpcs and one discovery flag
+## R10. Protocol 1.17: two server-streaming rpcs and one discovery flag
 
 **Decision**: `Client` gains `rpc QueryStream (QueryRequest) returns (stream RowFrame)` and
 `rpc Watch (WatchRequest) returns (stream RowFrame)`; `discovery.proto`'s `DeclaredQuery` gains
@@ -244,17 +244,17 @@ Error failed }` with `Row { string key; Payload payload }`, `Removed { string ke
 `Ended { string reason }`; the sidecar sends `ended` or `failed` and then completes, as `StreamToken`
 does. `WatchRequest` is `view_id`, `metadata`, `oneof target { Named named { string name; map values }
 ; string key }`, `optional uint32 unread_bound`, `Overflow overflow` (an enum: `DROP_HEAD = 0` the
-default, `DROP_TAIL`, `DROP_NEW`, `DROP_ALL`, `FAIL`). The version is `1.15` in the seven places the
+default, `DROP_TAIL`, `DROP_NEW`, `DROP_ALL`, `FAIL`). The version is `1.17` in the seven places the
 explorer listed (`WireProtocol.Version`, `Discovery`'s comment, `Compatibility.Protocol.version`,
 `protocol/README.md`, the Python `PROTOCOL_VERSION`, the TypeScript `spec.ts`, the Rust README).
 **Feature 048 also bumps the protocol** (`Error` gains fields); whichever merges second takes `1.16`,
-or both take `1.15` in one release — a note for the implementer, not a conflict in the wire format.
+or both take `1.17` in one release — a note for the implementer, not a conflict in the wire format.
 
 **Refusals**: an older runtime answers the new rpcs `UNIMPLEMENTED`, which each SDK reports as "the
-runtime beside this process does not offer view streams, which need protocol 1.15" — the
+runtime beside this process does not offer view streams, which need protocol 1.17" — the
 `ScheduleRecurring` pattern (`.claude/rules/sidecar.md`: a behaviour an older runtime must refuse is a new
 call). A `watched` query reaches an older runtime as absent, so the SDKs refuse discovery from a sidecar
-stating a version before 1.15 when any view declares a watched query (the `declaredQueryRefusal`
+stating a version before 1.17 when any view declares a watched query (the `declaredQueryRefusal`
 pattern), and the sidecar refuses a `Spec` under minor 15 declaring one (the `SocketsSince` pattern).
 That is `languages.feature`'s "does not start": the plan rewords its two refusal scenarios' `Given`
 from "whose handler asks a view for a stream" to "whose view declares a watched query", because a
@@ -333,7 +333,7 @@ watch", the gateway's route timeout. `docs/build/streaming.md`: "Only agents str
 stream their replies and views stream their rows". `docs/reference/limitations.md`: a module reads a
 view whole; a watch guarantees no delivery. `docs/reference/akka-divergences.md`: a row for
 `QueryStreamEffect`/`streamUpdates` and a section. `docs/reference/configuration.md`: four variables.
-`docs/reference/wasm-abi.md` and `protocol/README.md`: 1.15. `tools/docs/skill/ankka-views-consumers/
+`docs/reference/wasm-abi.md` and `protocol/README.md`: 1.17. `tools/docs/skill/ankka-views-consumers/
 SKILL.md` gains the rules; `just docs-sync` refreshes the mirrors; `GLOSSARY.md`'s proposed terms lose
 their marker when the feature ships.
 

@@ -13,7 +13,7 @@ final case class Order(customer: String, n: Int)
 enum OrderEvent:
   case Placed(customer: String, n: Int)
 
-final class OrderEntity extends EventSourcedEntity[Order, OrderEvent]:
+final class StreamOrderEntity extends EventSourcedEntity[Order, OrderEvent]:
 
   def emptyState: Order = Order("", 0)
 
@@ -23,13 +23,13 @@ final class OrderEntity extends EventSourcedEntity[Order, OrderEvent]:
   def place(order: Order): Effect[Done] =
     effects.persist(OrderEvent.Placed(order.customer, order.n)).thenReply(_ => Done)
 
-object OrderEntity
-    extends EventSourcedEntity.Companion[OrderEntity, Order, OrderEvent](
+object StreamOrderEntity
+    extends EventSourcedEntity.Companion[StreamOrderEntity, Order, OrderEvent](
       componentId = ComponentId("order"),
       stateSerializer = Codecs.serializer[Order]("order"),
       eventSerializer = Codecs.serializer[OrderEvent]("order-event")
     ):
-  def create(context: EventSourcedEntityContext) = new OrderEntity
+  def create(context: EventSourcedEntityContext) = new StreamOrderEntity
 
   val place = command("place")(_.place)
 
@@ -43,7 +43,7 @@ final class OrdersView extends View[OrderEvent, OrderRow]:
 object Orders
     extends View.Companion[OrdersView, OrderEvent, OrderRow](
       componentId = ComponentId("orders"),
-      source = ChangeSource.eventsOf(OrderEntity),
+      source = ChangeSource.eventsOf(StreamOrderEntity),
       rowSerializer = Codecs.serializer[OrderRow]("order-row")
     ):
 

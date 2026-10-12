@@ -261,7 +261,7 @@ test("the keyed test kit applies effects as the runtime does, and refuses an una
   assert.equal(kit.get("gone-r1"), null)
 })
 
-// ── View streams (protocol 1.15) ─────────────────────────────────────────────
+// ── View streams (protocol 1.17) ─────────────────────────────────────────────
 
 const watched = `SELECT row_key, payload FROM ${tableOf("nodes")} ORDER BY row_key`
 
@@ -282,8 +282,8 @@ test("a runtime from before view streams refuses a program that asks for one", (
   const why = refusal(spec, "1.14")
   assert.ok(why !== undefined)
   assert.match(why, /nodes/)
-  assert.match(why, /1\.15/)
-  assert.equal(refusal(spec, "1.15"), undefined)
+  assert.match(why, /1\.17/)
+  assert.equal(refusal(spec, "1.17"), undefined)
   assert.equal(refusal(specOf(nodes([declaredQuery("under", under)])), "1.14"), undefined)
 })
 

@@ -107,7 +107,7 @@ def test_a_watch_is_served_as_named_events() -> None:
 
 def test_a_runtime_from_before_view_streams_refuses_a_program_that_asks_for_one() -> None:
     """features/view-streams/languages.feature: a program whose view declares a watched query is
-    refused by a sidecar from before 1.15, naming the version it needs."""
+    refused by a sidecar from before 1.17, naming the version it needs."""
     from ankka import Ankka
     from ankka.server import DiscoveryServicer
     from examples.shopping_cart.conformance import TreeRows
@@ -115,5 +115,5 @@ def test_a_runtime_from_before_view_streams_refuses_a_program_that_asks_for_one(
     assert declares_watched(TreeRows)
     servicer = DiscoveryServicer(Ankka.service().register(TreeRows)._registry)
     refusal = servicer.refusal("1.14")
-    assert refusal is not None and "TreeRows" in refusal and "1.15" in refusal
-    assert servicer.refusal("1.15") is None
+    assert refusal is not None and "TreeRows" in refusal and "1.17" in refusal
+    assert servicer.refusal("1.17") is None

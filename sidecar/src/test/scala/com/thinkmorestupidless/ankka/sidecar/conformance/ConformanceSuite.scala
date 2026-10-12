@@ -416,7 +416,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(below, Vector("q-b", "q-c"))
   }
 
-  // ── View streams (protocol 1.15, features/view-streams/languages.feature) ──
+  // ── View streams (protocol 1.17, features/view-streams/languages.feature) ──
 
   /**
    * The lines of a stream of server-sent events, read as they come, until `enough` or a deadline.

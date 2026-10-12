@@ -33,8 +33,10 @@ class ViewAnnounceSuite extends munit.FunSuite with LogCapturing:
   private val table                  = ViewDescriptor.tableFor(Orders.componentId)
 
   override def beforeAll(): Unit =
-    kit =
-      AnkkaTestKit.start(Seq(OrderEntity.descriptor, Orders.descriptor), Seq(ProjectionRuntime()))
+    kit = AnkkaTestKit.start(
+      Seq(StreamOrderEntity.descriptor, Orders.descriptor),
+      Seq(ProjectionRuntime())
+    )
     listener = ViewListener(using kit.service.system)
     Await.result(listener.subscribe(table)(heard.put, _ => ()), 30.seconds): Unit
 
@@ -55,7 +57,7 @@ class ViewAnnounceSuite extends munit.FunSuite with LogCapturing:
   test("a row written through a projection is announced by its key") {
     kit.componentClient
       .forEventSourcedEntity(EntityId("a1"))
-      .call(OrderEntity.place)
+      .call(StreamOrderEntity.place)
       .invoke(Order("alice", 1)): Unit
     assertEquals(next(30.seconds), Some(Announcement.Written("a1")))
   }

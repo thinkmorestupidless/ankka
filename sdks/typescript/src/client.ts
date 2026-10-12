@@ -229,7 +229,7 @@ export class TypedCalls<C> {
 }
 
 /** The first protocol in which a view's query can be streamed and watched. */
-export const VIEW_STREAMS_SINCE = "1.15"
+export const VIEW_STREAMS_SINCE = "1.17"
 
 /** What a watch of a view gives: a row as the query sees it now, a removal of one it gave, or the caught-up marker. */
 export type WatchEvent<Row> =

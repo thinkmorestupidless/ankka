@@ -223,7 +223,8 @@ final class HttpServer private (
         )
         grantsCheck = Some(system.scheduler.scheduleAtFixedRate(every, every)(() => file.check()))
       case _ => ()
-    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades), grants, Some(heartbeat)).handle
+    val handler =
+      Router(endpoints, bodyTimeout, callers, Some(upgrades), grants, Some(heartbeat)).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(

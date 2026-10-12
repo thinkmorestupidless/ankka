@@ -17,7 +17,7 @@ was written is the database itself: every view write runs `pg_notify` in its own
 announcement is made exactly when the write commits, and a rebuild's `TRUNCATE` announces itself the
 same way; one dedicated `LISTEN` connection per instance feeds the instance's open watches, whose
 match is decided by re-running the watched statement for the written row (R3, R4). The protocol gains
-two server-streaming rpcs and a `watched` flag at 1.15; Python and TypeScript read async iterables; a
+two server-streaming rpcs and a `watched` flag at 1.17; Python and TypeScript read async iterables; a
 module is refused a watched query at start (R10, R11). Every event stream gains an SSE heartbeat so a
 quiet watch outlives pekko-http's idle timeout (R12), and the sample's `WatchCart` stops polling (R13).
 
@@ -92,7 +92,7 @@ specs/047-streaming-view-queries/
 ├── quickstart.md        # eight steps, pure to k3s
 ├── contracts/
 │   ├── scala-api.md     # declaring, streaming, watching, serving, the watched rules
-│   ├── protocol.md      # 1.15: rpcs, frames, discovery, refusals, the SDK surfaces, conformance
+│   ├── protocol.md      # 1.17: rpcs, frames, discovery, refusals, the SDK surfaces, conformance
 │   └── runtime.md       # announcements, the listener, watches, settings, heartbeat, topology
 └── tasks.md             # /speckit-tasks output, not created here
 ```
@@ -123,7 +123,7 @@ modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/
 ├── ProjectionRuntime.scala          # ViewStateHandler through ViewWrites; starts/stops ViewWatches
 ├── TopicHandlers.scala / KeyedViewHandlers.scala / remote/RemoteProjection.scala   # through ViewWrites
 ├── Observability.scala              # made(..., streaming)
-└── remote/Conversation.scala        # WireProtocol.Version = "1.15"
+└── remote/Conversation.scala        # WireProtocol.Version = "1.17"
 modules/runtime/src/test/.../{KeyedBufferSuite, QueryCheckSuite}.scala
 
 modules/http/src/main/resources/reference.conf         # ankka.http.sse.heartbeat
@@ -142,19 +142,19 @@ modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/
 protocol/src/main/protobuf/ankka/protocol/v1/
 ├── client.proto                     # QueryStream, Watch, RowFrame, Row, Removed, Ended, WatchRequest, Named, Overflow
 └── discovery.proto                  # DeclaredQuery.watched
-protocol/README.md                   # 1.15
+protocol/README.md                   # 1.17
 protocol/WASM-ABI.md                 # a module reads a view whole; no stream import
 
 sidecar/src/main/scala/com/thinkmorestupidless/ankka/sidecar/
 ├── ClientService.scala              # the two rpcs, ready-aware loop
-├── ClientLogic.scala                # queryStream, watch; WatchedSince = 15 refusals
+├── ClientLogic.scala                # queryStream, watch; WatchedSince = 17 refusals
 ├── Discovery.scala                  # watched → QueryCheck; the version gate; the comment
 ├── wasm/WasmDiscovery.scala         # refuses a watched query
 └── RemoteEndpoint.scala             # unchanged (heartbeat is HttpServer's)
 sidecar/src/test/.../conformance/{ConformanceSuite, ConformanceReference}.scala   # view.* cases and routes
 sidecar/src/test/.../wasm/WasmHostSuite.scala      # the module refusal
 
-controlplane-api/src/main/scala/.../api/Compatibility.scala   # ProtocolVersion(1, 15)
+controlplane-api/src/main/scala/.../api/Compatibility.scala   # ProtocolVersion(1, 17)
 
 sdks/python/src/ankka/{client.py, service.py, endpoint.py, views.py}   # Views.stream/watch/watch_row, WatchEnded, sse_events, PROTOCOL_VERSION, watched=
 sdks/python/src/ankka/server.py                     # discovery refusal for a watched query on an old sidecar
@@ -202,7 +202,7 @@ Each step leaves the tree green; later steps are tested against earlier ones.
    `WatchRulesFeatures` (V4 through the topology scenario).
 5. **Serving.** `asSse` in `http`; the SSE heartbeat (V5) with its startup check and `SseHeartbeatSuite`;
    the sample's `WatchCart` as a watch of one row (V6) and `GET /carts/open`; `grpc/test` still green.
-6. **The protocol and the sidecar.** 1.15 in every place; `client.proto`, `discovery.proto`;
+6. **The protocol and the sidecar.** 1.17 in every place; `client.proto`, `discovery.proto`;
    `ClientService` with the ready-aware loop (V8); `ClientLogic.queryStream`/`watch` and the refusals;
    `Discovery`'s gate; `WasmDiscovery`'s refusal; `WasmHostSuite`; the Scala reference's routes and
    the `view.*` conformance cases.

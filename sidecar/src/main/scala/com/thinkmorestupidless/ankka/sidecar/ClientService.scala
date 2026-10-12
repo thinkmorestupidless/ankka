@@ -48,7 +48,7 @@ final class ClientService(
 
   def query(request: QueryRequest): Future[QueryReply] = logic.query(request)
 
-  // 1.15: a view's rows as a stream, and a watch. Sent only as the process reads them.
+  // 1.17: a view's rows as a stream, and a watch. Sent only as the process reads them.
   def queryStream(request: QueryRequest, out: StreamObserver[RowFrame]): Unit =
     ClientService.drain(logic.queryStream(request), out)
 

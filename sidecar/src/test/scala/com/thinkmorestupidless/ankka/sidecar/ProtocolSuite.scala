@@ -366,7 +366,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test(
-    "discovery 1.15: a watched query reaches the remote view, and is refused from an earlier minor"
+    "discovery 1.17: a watched query reaches the remote view, and is refused from an earlier minor"
   ) {
     val source =
       Some(Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart"))))
@@ -395,7 +395,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
       Component.Detail.EventSourced(EventSourcedDetail(100))
     )
     val discovered =
-      validateSpec(topicSpec("1.15", entity, watching)).fold(p => fail(p.mkString), identity)
+      validateSpec(topicSpec("1.17", entity, watching)).fold(p => fail(p.mkString), identity)
     val carts = discovered.descriptors.collectFirst { case v: RemoteViewDescriptor => v }.get
     assertEquals(
       carts.declaredQueries.map(q => (q.name, q.watchable)),
@@ -404,7 +404,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     val refused =
       validateSpec(topicSpec("1.14", entity, watching)).left.toOption.getOrElse(Vector.empty)
     assert(
-      refused.exists(p => p.contains("query 'open-carts' is watched, which needs protocol 1.15")),
+      refused.exists(p => p.contains("query 'open-carts' is watched, which needs protocol 1.17")),
       refused.toString
     )
   }

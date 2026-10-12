@@ -39,9 +39,9 @@ service Client {
   rpc ScheduleRecurring (ScheduleRecurringRequest) returns (ScheduleRecurringReply);
 
   // A view's query answered as a stream of rows, and a watch of a declared query declared watched or
-  // of one row (protocol 1.15). A stream gives `row` frames and completes, or `failed`; a watch gives
+  // of one row (protocol 1.17). A stream gives `row` frames and completes, or `failed`; a watch gives
   // the rows now, `caught_up` once, then `row` and `removed` as the view writes, and `ended` or
-  // `failed` before it completes. A runtime older than 1.15 answers UNIMPLEMENTED.
+  // `failed` before it completes. A runtime older than 1.17 answers UNIMPLEMENTED.
   rpc QueryStream (QueryRequest) returns (stream RowFrame);
   rpc Watch       (WatchRequest) returns (stream RowFrame);
 }
@@ -107,7 +107,7 @@ message QueryRequest {
 }
 message QueryReply   { oneof result { Payload rows = 1; Error error = 2; } }
 
-// 1.15. One element of a row stream or a watch. `QueryStream` honours `QueryRequest`'s `name`, `values`
+// 1.17. One element of a row stream or a watch. `QueryStream` honours `QueryRequest`'s `name`, `values`
 // and `limit`, and gives every row when `limit` is absent.
 message RowFrame {
   oneof frame {
@@ -125,7 +125,7 @@ message Removed    { string key = 1; }
 // Why a watch ended: "rebuilt", "instance-stopping", "listener-lost" or "unread".
 message Ended      { string reason = 1; }
 
-// 1.15. A watch of a declared query, declared watched, with its values, or of one row by its key.
+// 1.17. A watch of a declared query, declared watched, with its values, or of one row by its key.
 message WatchRequest {
   string view_id = 1;
   Metadata metadata = 2;              // what the handler asking was given

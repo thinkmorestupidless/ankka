@@ -71,7 +71,7 @@ function contractRefusal(spec: Spec, sidecarProtocol: string): string | undefine
 }
 
 /**
- * A sidecar older than 1.15 would not know that a view's query may be watched, and a watch of it would
+ * A sidecar older than 1.17 would not know that a view's query may be watched, and a watch of it would
  * be refused at its first asking. Refused at discovery, naming the views.
  */
 function watchedQueryRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
@@ -82,7 +82,7 @@ function watchedQueryRefusal(spec: Spec, sidecarProtocol: string): string | unde
   if (watching.length === 0) return undefined
   return (
     `${watching.join(", ")} declare a watched query, which the sidecar does not know: ` +
-    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later.`
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.17 or later.`
   )
 }
 

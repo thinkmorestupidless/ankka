@@ -48,7 +48,9 @@ final class SidecarExtension(
     // The system is the service's: an extension is built before one exists.
     given ActorSystem[?]                    = service.system
     given scala.concurrent.ExecutionContext = service.system.executionContext
-    val scheduler                           = () => Some(timers.timerScheduler)
+    // This extension starts before the timers, so a timer scheduled in between is "not running",
+    // which a process retries, rather than a thrown IllegalStateException.
+    val scheduler = () => scala.util.Try(timers.timerScheduler).toOption
     imports match
       case Some(hostImports) =>
         hostImports.bind(ClientLogic(service, settings, scheduler, declaredProtocol))

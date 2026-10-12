@@ -35,3 +35,19 @@ class ReplicationSmokeSuite extends munit.FunSuite with LogCapturing:
     finally fleet.stopAll()
     // docs:end several-installations
   }
+
+  test("the topology says which entity is replicated, and says nothing of any other") {
+    val kit =
+      AnkkaTestKit.start(Seq(Fleet.vehicles.descriptor, VehicleKind("order", false).descriptor))
+    try
+      val topology = com.thinkmorestupidless.ankka.runtime.TopologyJson
+        .of(kit.service, "fleet", "fleet-1", "2026-10-12T00:00:00Z")
+      assert(
+        topology.contains("\"id\":\"vehicle\",\"kind\":\"EventSourcedEntity\"") &&
+          "\"replicated\":true".r.findAllIn(topology).size == 1,
+        topology
+      )
+      val order = topology.indexOf("\"id\":\"order\"")
+      assert(order >= 0 && !topology.substring(order).takeWhile(_ != '}').contains("replicated"))
+    finally kit.stop()
+  }

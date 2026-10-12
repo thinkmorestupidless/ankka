@@ -71,10 +71,23 @@ The fixture service the features drive has a main for this, `FleetMain` in `test
 ```bash
 docker compose up -d
 createdb -h localhost -U ankka fleet_a && createdb -h localhost -U ankka fleet_b   # the DDL from kustomization/components/postgres/ddl/
-ANKKA_INSTALLATION=a ANKKA_DB_NAME=fleet_a ANKKA_INSTALLATION_B_DB_NAME=fleet_b ANKKA_HTTP_PORT=9000 \
+ANKKA_INSTALLATION=a ANKKA_DB_NAME=fleet_a ANKKA_HTTP_PORT=9000 ANKKA_CLUSTER_PORT=17355 \
+  ANKKA_INSTALLATION_B_DB_HOST=localhost ANKKA_INSTALLATION_B_DB_NAME=fleet_b ANKKA_INSTALLATION_B_DB_PASSWORD=ankka \
   sbt 'testkit/Test/runMain com.thinkmorestupidless.ankka.testkit.replication.FleetMain'
-ANKKA_INSTALLATION=b ANKKA_DB_NAME=fleet_b ANKKA_INSTALLATION_A_DB_NAME=fleet_a ANKKA_HTTP_PORT=9001 \
+ANKKA_INSTALLATION=b ANKKA_DB_NAME=fleet_b ANKKA_HTTP_PORT=9001 ANKKA_CLUSTER_PORT=17356 \
+  ANKKA_INSTALLATION_A_DB_HOST=localhost ANKKA_INSTALLATION_A_DB_NAME=fleet_a ANKKA_INSTALLATION_A_DB_PASSWORD=ankka \
   sbt 'testkit/Test/runMain com.thinkmorestupidless.ankka.testkit.replication.FleetMain'
+```
+
+An installation's database is named by `_DB_HOST`; without it the runtime's own transport cannot
+reach that installation and the service refuses to start, naming it. `_DB_PASSWORD` defaults to
+empty, not to the service's own `ankka`, so compose's database needs it said. Two installations
+here are two clusters, so each has a cluster port of its own and no seed nodes.
+
+```bash
+curl -X POST localhost:9000/vehicles/v1 -H 'Content-Type: application/json' -d '{"replicateTo":["b"]}'
+curl localhost:9001/vehicles/v1                                                  # the follower's copy
+curl -X POST localhost:9001/vehicles/v1/steps -H 'Content-Type: text/plain' -d frame   # forwarded to a
 ```
 
 Create a vehicle at `:9000` with `b` in its replication set, read it at `:9001`, write to it at

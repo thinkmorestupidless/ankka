@@ -23,7 +23,7 @@ follower's journal keeping the arrival order. Views and consumers read the local
 producing or graph consumer acts on local changes only unless it declares otherwise. The protocol
 gains a declaration flag and two context fields at the next free minor; the Python, TypeScript and
 Rust SDKs follow. `features/replication/` runs whole against the Scala test kit's new
-`startInstallation`, the languages rows through the SDK kits, and three conformance cases pin every
+`installations` group, the languages rows through the SDK kits, and three conformance cases pin every
 reference.
 
 ## Technical Context
@@ -48,7 +48,7 @@ record as CBOR in `event_payload` as it does today. The runtime's own transport 
 feed's offsets in the existing projection offset store.
 
 **Testing**: munit everywhere; `GherkinSuite` over `features/replication/` from `testkit`'s tests,
-one `ReplicationSteps` abstract suite and one final class per feature file; `startInstallation` for
+one `ReplicationSteps` abstract suite and one final class per feature file; `AnkkaTestKit.installations` for
 every multi-installation scenario; pytest, the Node runner and `conformance.sh` for the SDK rows;
 `ConformanceSuite` gains three cases; `JournalRecordCompatibilitySuite` pins the bytes;
 `ReplicatedEntitiesDocumentationSuite` for the documentation feature; `ReplicationOrderSpike` stays
@@ -167,7 +167,7 @@ modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/
 modules/runtime/src/main/resources/reference.conf   # ankka.replication.{installation,installations,poll,handover.*}
 
 modules/testkit/src/main/scala/com/thinkmorestupidless/ankka/testkit/
-├── AnkkaTestKit.scala                 # startInstallation; Installation handle with transport pause/resume/unreachable
+├── AnkkaTestKit.scala                 # installations(names*) group handle: start(name, …), transport pause/resume/unreachable
 ├── TestReplicationTransport.scala     # the runtime's own transport over the kits' databases, in-JVM forward
 ├── EventSourcedTestKit.scala          # Mode.Home | Mode.Follower(home); NotHome on a persisting command
 └── ConsumerTestKit.scala              # a change's installation and localOrigin

@@ -109,10 +109,12 @@ It is the reserved query `ankka:replication`, read-only, served by any copy from
 ## Test kits
 
 ```scala
-val a = AnkkaTestKit.startInstallation("a", Seq(VehicleEntity.descriptor))
-val b = AnkkaTestKit.startInstallation("b", Seq(VehicleEntity.descriptor), siblings = Seq(a))
-b.transport.pause(from = "a", to = "b"); b.transport.resume(from = "a", to = "b")
-a.transport.unreachable("b", true)
+val fleet = AnkkaTestKit.installations("a", "b")        // one database per name, acquired up front
+val a = fleet.start("a", Seq(VehicleEntity.descriptor))  // each knows the others' databases from the start
+val b = fleet.start("b", Seq(VehicleEntity.descriptor))
+fleet.transport.pause(from = "a", to = "b"); fleet.transport.resume(from = "a", to = "b")
+fleet.transport.unreachable("b", true)
+fleet.stopAll()
 
 val kit = EventSourcedTestKit.of(VehicleEntity, mode = EventSourcedTestKit.Mode.Follower(home = "a"))
 kit.call(VehicleEntity.addStep)(step)   // Left(CommandError(_, NotHome))

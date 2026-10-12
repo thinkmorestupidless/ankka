@@ -283,9 +283,11 @@ information a process may ignore.
 
 ## R14. The test kit's installations
 
-**Decision**: `AnkkaTestKit.startInstallation(name, descriptors, …)` starts a second service in the
-same JVM on its own database from `SharedPostgres.acquire()`, with `ankka.replication.installation = name`
-and every other started installation as a sibling, wired by a `TestReplicationTransport` that reads the
+**Decision**: `AnkkaTestKit.installations(names*)` acquires one database per name from
+`SharedPostgres.acquire()` up front, and its `start(name, descriptors, …)` starts that installation's
+service in the same JVM with `ankka.replication.installation = name` and every other name as a
+sibling with its database (a copy must know its siblings' databases before they start, which is
+why the group is named first), wired by a `TestReplicationTransport` that reads the
 other kits' databases through the runtime's own transport and forwards in-JVM to their
 `ShardingTransport`s, and offers `pause(from, to)`, `resume(from, to)` and `unreachable(name)` for the
 handover and refusal scenarios. `EventSourcedTestKit.of(companion, …, mode = Mode.Follower(home = "a"))`

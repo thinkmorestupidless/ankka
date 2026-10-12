@@ -28,7 +28,7 @@ pub enum ErrorCode {
     Timeout,
     /// Something needed is not there right now; trying again may work.
     Unavailable,
-    /// A workflow a caller waited for failed or was deleted (protocol 1.15). The call was answered;
+    /// A workflow a caller waited for failed or was deleted (protocol 1.18). The call was answered;
     /// the step and the reason are in the error's `details`.
     WorkflowFailed,
 }
@@ -88,7 +88,7 @@ pub struct CommandError {
     pub code: ErrorCode,
     /// What to tell the caller.
     pub message: String,
-    /// What a caller reads without parsing the message (protocol 1.15): a failed workflow's `step`
+    /// What a caller reads without parsing the message (protocol 1.18): a failed workflow's `step`
     /// (when one failed), its `reason`, and `deleted` = `"true"` for a deleted one.
     pub details: BTreeMap<String, String>,
 }

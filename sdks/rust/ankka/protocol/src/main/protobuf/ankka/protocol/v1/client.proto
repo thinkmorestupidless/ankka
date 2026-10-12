@@ -88,8 +88,8 @@ message StreamToken {
     Empty completed = 2;
     Error failed = 3;
     ApprovalAwaited approval = 4;   // 1.11: terminal, in place of completed
-    Empty heartbeat = 5;            // 1.15: an AwaitEndStream's wait goes on
-    Payload ended = 6;              // 1.15: terminal; the workflow completed with this state
+    Empty heartbeat = 5;            // 1.18: an AwaitEndStream's wait goes on
+    Payload ended = 6;              // 1.18: terminal; the workflow completed with this state
   }
 }
 

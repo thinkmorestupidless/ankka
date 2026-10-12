@@ -1,7 +1,7 @@
-"""Waiting for a workflow's end, as this SDK asks the sidecar for it (protocol 1.15).
+"""Waiting for a workflow's end, as this SDK asks the sidecar for it (protocol 1.18).
 
 The scenario "a runtime from before waiting refuses a handler's wait, naming the protocol version"
-of ``features/awaiting-workflows/languages.feature`` is the first test here: a runtime before 1.15
+of ``features/awaiting-workflows/languages.feature`` is the first test here: a runtime before 1.18
 answers the rpc UNIMPLEMENTED, and the handler is told which protocol waiting needs.
 """
 
@@ -93,8 +93,8 @@ _FAILED = client_pb2.InvokeReply(
 def test_a_runtime_from_before_waiting_refuses_a_handlers_wait_naming_the_protocol_version() -> None:
     with pytest.raises(CommandError) as refused:
         asyncio.run(_calls(_Old()).await_end(5.0, reply=Brew))
-    assert AWAIT_SINCE == "1.15"
-    assert "protocol 1.15" in refused.value.error.message
+    assert AWAIT_SINCE == "1.18"
+    assert "protocol 1.18" in refused.value.error.message
     assert refused.value.error.code == ErrorCode.UNAVAILABLE
 
     async def drain() -> None:
@@ -103,7 +103,7 @@ def test_a_runtime_from_before_waiting_refuses_a_handlers_wait_naming_the_protoc
 
     with pytest.raises(CommandError) as streamed:
         asyncio.run(drain())
-    assert "protocol 1.15" in streamed.value.error.message
+    assert "protocol 1.18" in streamed.value.error.message
 
 
 def test_a_wait_names_the_workflow_its_time_and_the_handlers_metadata() -> None:

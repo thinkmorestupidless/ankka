@@ -499,7 +499,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   test("a module that never waits for a workflow does not import await_end; one that does, does") {
     assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
-    // A module importing it needs a runtime at protocol 1.15; one that never waits must not.
+    // A module importing it needs a runtime at protocol 1.18; one that never waits must not.
     assert(!importsOf(rustCart.get).contains("await_end"), importsOf(rustCart.get).toString)
     assert(
       importsOf(rustReference.get).contains("await_end"),

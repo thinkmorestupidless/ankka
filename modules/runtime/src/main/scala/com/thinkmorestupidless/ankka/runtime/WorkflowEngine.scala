@@ -409,7 +409,11 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
         case StepOutcome.Fail(error) =>
           PekkoEffect
             .persist(
-              stamped(state, stateEvents :+ Event.Failed(error.message, Some(succeeded.step)), None).toList
+              stamped(
+                state,
+                stateEvents :+ Event.Failed(error.message, Some(succeeded.step)),
+                None
+              ).toList
             )
             .thenRun(ended)
 

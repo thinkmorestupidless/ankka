@@ -41,7 +41,7 @@ pub enum Import {
     DeleteSecret,
     /// `request`: `ServiceRequest` in, `ServiceReply` out. Called through [`call_request`].
     Request,
-    /// `await_end`: `AwaitEndRequest` in, `InvokeReply` out (protocol 1.15). Called through
+    /// `await_end`: `AwaitEndRequest` in, `InvokeReply` out (protocol 1.18). Called through
     /// [`call_await`].
     AwaitEnd,
 }
@@ -114,7 +114,7 @@ pub fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
 
 /// Calls `await_end`: waits for a workflow's end. Apart from [`call`] for the reason
 /// [`call_secret`] is: a module that never waits must not import it, or it would need a runtime
-/// that offers one (protocol 1.15).
+/// that offers one (protocol 1.18).
 pub fn call_await(request: &[u8]) -> Vec<u8> {
     host::call_await(request)
 }

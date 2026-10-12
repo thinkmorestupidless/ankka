@@ -13,7 +13,7 @@ export const ErrorCode = Object.freeze({
   Conflict: "CONFLICT",
   Timeout: "TIMEOUT",
   Unavailable: "UNAVAILABLE",
-  /** A workflow a caller waited for failed or was deleted (protocol 1.15); the step and the reason are in `details`. */
+  /** A workflow a caller waited for failed or was deleted (protocol 1.18); the step and the reason are in `details`. */
   WorkflowFailed: "WORKFLOW_FAILED",
 } as const)
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

@@ -76,6 +76,6 @@ class AwaitingWorkflowsDocumentationSuite extends munit.FunSuite:
       "**A module waits whole.**",
       "**A wait needs both halves at the same release.**"
     )
-    says("reference/sidecar-protocol.md", "`AwaitEnd`", "`AwaitEndStream`", "`1.15`")
+    says("reference/sidecar-protocol.md", "`AwaitEnd`", "`AwaitEndStream`", "`1.18`")
     says("reference/wasm-abi.md", "`await_end`")
   }

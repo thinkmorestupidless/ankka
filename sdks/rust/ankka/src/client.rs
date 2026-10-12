@@ -91,7 +91,7 @@ impl Client {
     /// or was deleted is an `Err` whose code is `WorkflowFailed` and whose `details` hold `step`,
     /// `reason` and `deleted`; a wait not answered in time is `Timeout`, and the workflow runs on. A
     /// paused workflow has not ended. The instance waits for as long as the wait does: wait from a
-    /// step, a route or a tool, not a command. Needs a runtime at protocol 1.15.
+    /// step, a route or a tool, not a command. Needs a runtime at protocol 1.18.
     pub fn await_end<C, S>(
         &self,
         component: C,
@@ -248,7 +248,7 @@ impl Client {
             match token.token {
                 Some(proto::stream_token::Token::Text(text)) => tokens.push(text),
                 Some(proto::stream_token::Token::Completed(_)) | None => {}
-                // A wait's tokens (protocol 1.15); a handler's stream never carries them.
+                // A wait's tokens (protocol 1.18); a handler's stream never carries them.
                 Some(proto::stream_token::Token::Heartbeat(_))
                 | Some(proto::stream_token::Token::Ended(_)) => {}
                 Some(proto::stream_token::Token::Failed(error)) => {

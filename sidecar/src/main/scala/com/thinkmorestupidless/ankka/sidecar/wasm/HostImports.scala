@@ -105,7 +105,7 @@ final class HostImports(
       case Some(c) => await(c.invoke(InvokeRequest.parseFrom(request)), commandTimeout).toByteArray
 
   /**
-   * A wait for a workflow's end (protocol 1.15): the calling instance waits for as long as the wait
+   * A wait for a workflow's end (protocol 1.18): the calling instance waits for as long as the wait
    * does — its thread is parked, nothing else is held — and is answered as a process is.
    */
   private[sidecar] def awaitEnd(request: Array[Byte]): Array[Byte] =

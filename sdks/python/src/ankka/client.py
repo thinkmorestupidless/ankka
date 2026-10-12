@@ -50,7 +50,7 @@ def _error(pb: payload_pb2.Error) -> Error:
 
 
 # The first protocol whose runtime can wait for a workflow's end; an older one answers UNIMPLEMENTED.
-AWAIT_SINCE = "1.15"
+AWAIT_SINCE = "1.18"
 
 
 def _await_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:

@@ -26,7 +26,7 @@ class ErrorCode(Enum):
     TIMEOUT = payload_pb2.TIMEOUT
     UNAVAILABLE = payload_pb2.UNAVAILABLE
     INTERNAL = payload_pb2.INTERNAL
-    # A workflow a caller waited for failed or was deleted (protocol 1.15): the call was answered,
+    # A workflow a caller waited for failed or was deleted (protocol 1.18): the call was answered,
     # and the step and the reason are in the error's details.
     WORKFLOW_FAILED = payload_pb2.WORKFLOW_FAILED
 
@@ -57,7 +57,7 @@ class ErrorCode(Enum):
 class Error:
     message: str
     code: ErrorCode = ErrorCode.BAD_REQUEST
-    # What a caller reads without parsing the message (protocol 1.15). A WORKFLOW_FAILED carries
+    # What a caller reads without parsing the message (protocol 1.18). A WORKFLOW_FAILED carries
     # ``step`` (when one failed), ``reason``, and ``deleted`` = "true" for a deleted workflow.
     details: Mapping[str, str] = field(default_factory=dict)
 

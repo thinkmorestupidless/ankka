@@ -169,8 +169,8 @@ object ConformanceReference:
 
     /**
      * `mode`: `ok`, `fail` (charge is declined and compensated), `pause` (a pause before charging),
-     * `abort` (declined; the compensation records it and fails the workflow), `drop` (declined;
-     * the compensation fails the workflow and records nothing) or `doomed` (declined, and the
+     * `abort` (declined; the compensation records it and fails the workflow), `drop` (declined; the
+     * compensation fails the workflow and records nothing) or `doomed` (declined, and the
      * compensation fails too, so the workflow fails).
      */
     def start(mode: String): Effect[String] =

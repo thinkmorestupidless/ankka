@@ -47,7 +47,7 @@ function errorOf(error: { message: string; code: ProtoErrorCode; details?: Recor
 }
 
 /** The first protocol whose runtime can wait for a workflow's end; an older one answers `UNIMPLEMENTED`. */
-export const AWAIT_SINCE = "1.15"
+export const AWAIT_SINCE = "1.18"
 
 /** One part of a wait served as a stream: the wait goes on, or how it ended. */
 export type AwaitPart<S> =

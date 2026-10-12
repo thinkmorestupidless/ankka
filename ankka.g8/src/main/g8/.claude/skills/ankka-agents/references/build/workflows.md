@@ -213,8 +213,10 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @command("start")
     def start(self, mode: str) -> WorkflowEffect[Checkout, Done]:
-        """``mode``: ``ok``, ``fail`` (the charge is declined), ``pause`` (a pause before it) or
-        ``doomed`` (the charge is declined and compensation fails too)."""
+        """``mode``: ``ok``, ``fail`` (the charge is declined and compensated), ``pause`` (a pause
+        before it), ``abort`` (declined; the compensation records it and fails the workflow),
+        ``drop`` (declined; the compensation fails the workflow and records nothing) or ``doomed``
+        (declined, and the compensation fails too)."""
         if self.state.status != "new":
             return self.effects.error(f"checkout is already {self.state.status}", ErrorCode.CONFLICT)
         return self.effects.update_state(replace(self.state, status="reserving", mode=mode)).then_transition_to("reserve").then_reply(lambda _: DONE)
@@ -236,7 +238,7 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("charge")
     async def charge(self) -> WorkflowStepEffect[Checkout]:
-        if self.state.mode in ("fail", "doomed"):
+        if self.state.mode in ("fail", "abort", "drop", "doomed"):
             raise PaymentDeclined("payment declined")
         # Not idempotent — a retry after the cart was checked out is refused — which is why
         # ``charge`` is allowed one retry and then fails over, and why compensation exists.
@@ -246,6 +248,10 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("compensate")
     def compensate(self) -> WorkflowStepEffect[Checkout]:
+        if self.state.mode == "abort":
+            return self.step_effects.update_state(replace(self.state, status="aborted", reserved=0)).then_fail("payment declined")
+        if self.state.mode == "drop":
+            return self.step_effects.fail("payment declined")
         if self.state.mode == "doomed":
             raise RuntimeError("compensation failed too")
         return self.step_effects.update_state(replace(self.state, status="compensated", reserved=0)).then_end()
@@ -266,7 +272,11 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   })
 
   static readonly handlers = {
-    /** `mode`: `ok`, `fail` (the charge is declined) or `pause` (a pause before it). */
+    /**
+     * `mode`: `ok`, `fail` (the charge is declined and compensated), `pause` (a pause before it), `abort`
+     * (declined; the compensation records it and fails the workflow) or `drop` (declined; the compensation
+     * fails the workflow and records nothing).
+     */
     start: command("start", s.string, Done, (w: CheckoutWorkflow, mode) => w.start(mode)),
     status: query("status", Checkout, (w: CheckoutWorkflow) => w.effects.reply(w.state)),
   }
@@ -299,7 +309,7 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   async charge() {
-    if (this.state.mode === "fail" || this.state.mode === "doomed") throw new PaymentDeclined("payment declined")
+    if (["fail", "abort", "drop", "doomed"].includes(this.state.mode)) throw new PaymentDeclined("payment declined")
     // Not idempotent — a retry after the cart was checked out is refused — which is why `charge` is
     // allowed one retry and then fails over, and why compensation exists.
     if (this.state.reserved > 0) await this.cart().call(ShoppingCartEntity.handlers.checkout).invoke()
@@ -307,6 +317,8 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   compensate() {
+    if (this.state.mode === "abort") return this.stepEffects.updateState({ ...this.state, status: "aborted", reserved: 0 }).thenFail("payment declined")
+    if (this.state.mode === "drop") return this.stepEffects.fail("payment declined")
     if (this.state.mode === "doomed") throw new Error("compensation failed too")
     return this.stepEffects.updateState({ ...this.state, status: "compensated", reserved: 0 }).thenEnd()
   }
@@ -457,6 +469,13 @@ get("/{planId}/lifecycle") { (planId: String) =>
 count of retries per step, and the failure reason when there is one. `isTerminal` is true once the
 workflow has completed or failed. Handler names beginning `ankka:` are reserved for queries like this one,
 and registering one is refused.
+
+The same answer, the workflow's **standing**, reaches a view or a consumer that reads the workflow, as data
+with each state the workflow records, so a listing of failed checkouts needs no status field written into
+the state. A view or a consumer is handed only the states a workflow records: a step whose outcome a reader
+must see records it in the state, and a failover step that records the failure before it fails the
+workflow is what makes a failure visible. See [Reading a workflow](views.md#reading-a-workflow) and
+[Reacting to a workflow](consumers.md#reacting-to-a-workflow).
 
 ## Waiting for the end
 

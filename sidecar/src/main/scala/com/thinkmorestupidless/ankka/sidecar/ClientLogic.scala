@@ -355,7 +355,7 @@ final class ClientLogic(
           )
         )
 
-  // ── Waiting for a workflow's end (protocol 1.15) ─────────────────────────────
+  // ── Waiting for a workflow's end (protocol 1.18) ─────────────────────────────
 
   /** The workflow, the id and the caller's time a wait names, or why it cannot be waited for. */
   private def waitFor(

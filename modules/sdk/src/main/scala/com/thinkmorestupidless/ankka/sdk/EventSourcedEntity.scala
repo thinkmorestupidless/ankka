@@ -23,8 +23,9 @@ abstract class EventSourcedEntity[S, E]:
   final type Effect[R]         = EventSourcedEffect[S, E, R]
   final type ReadOnlyEffect[R] = com.thinkmorestupidless.ankka.core.effect.ReadOnlyEffect[S, E, R]
 
-  private var stateOpt: Option[S]                = None
-  private var contextOpt: Option[CommandContext] = None
+  private var stateOpt: Option[S]                   = None
+  private var contextOpt: Option[CommandContext]    = None
+  private var eventContextOpt: Option[EventContext] = None
 
   /** State before any event has been persisted. Must never be null. */
   def emptyState: S
@@ -51,6 +52,15 @@ abstract class EventSourcedEntity[S, E]:
       throw IllegalStateException("commandContext is only available inside a command handler")
     )
 
+  /**
+   * Where the event being applied was written, and whether here. Only inside `applyEvent`; read it
+   * anywhere else and it throws, as `commandContext` does outside a command handler.
+   */
+  protected final def eventContext: EventContext =
+    eventContextOpt.getOrElse(
+      throw IllegalStateException("eventContext is only available inside applyEvent")
+    )
+
   /** The declarative effect API for this entity. */
   protected final val effects: EventSourcedEffects[S, E] = new EventSourcedEffects[S, E]()
 
@@ -60,6 +70,12 @@ abstract class EventSourcedEntity[S, E]:
   private[ankka] def _applyEvent(state: S, event: E): S =
     _setState(state)
     applyEvent(event)
+
+  /** Applies `event` with `context` readable as `eventContext`, and unreadable afterwards. */
+  private[ankka] def _applyEvent(state: S, event: E, context: EventContext): S =
+    eventContextOpt = Some(context)
+    try _applyEvent(state, event)
+    finally eventContextOpt = None
 
 object EventSourcedEntity:
 
@@ -175,6 +191,10 @@ object EventSourcedEntity:
     final def descriptor: EventSourcedEntityDescriptor[C, S, E] =
       val seen = bindings.groupBy(_.name).collect {
         case (name, bs) if bs.sizeIs > 1 => s"handler '$name' registered ${bs.size} times"
+      } ++ bindings.collect {
+        // The platform answers `ankka:replication` and `ankka:handover-status` for every entity.
+        case b if (b.name: String).startsWith(WorkflowLifecycle.MethodPrefix) =>
+          s"'${b.name}' uses the reserved '${WorkflowLifecycle.MethodPrefix}' prefix"
       }
       if seen.nonEmpty then
         throw IllegalArgumentException(

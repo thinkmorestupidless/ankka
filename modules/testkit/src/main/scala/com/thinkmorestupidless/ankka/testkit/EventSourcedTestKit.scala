@@ -18,7 +18,9 @@ final case class CommandResult[S, E, O](
     reply: Either[CommandError, Option[O]],
     events: Vector[E],
     state: S,
-    retention: Option[Retention]
+    retention: Option[Retention],
+    /** The handover or change to the replication set the handler asked for, if any. */
+    replication: Option[ReplicationChange] = None
 ):
 
   /** The reply value, or a test failure if the handler rejected or replied with nothing. */
@@ -59,8 +61,20 @@ final case class CommandResult[S, E, O](
 final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
     companion: EventSourcedEntity.Companion[C, S, E],
     val entityId: EntityId,
-    componentClient: ComponentClient
+    componentClient: ComponentClient,
+    /** As a replicated entity's copy stands here: its home, a follower, or not replicated. */
+    val mode: EventSourcedTestKit.Mode,
+    /** The installation the copy is at, when it is replicated. */
+    installation: String
 ):
+  import EventSourcedTestKit.Mode
+
+  private val here: Option[String] = mode match
+    case Mode.Unreplicated => None
+    case _                 => Some(installation)
+
+  /** Where an event applied by a command here was written: here, as `eventContext` tells it. */
+  private def writtenHere(sequence: Long) = SimpleEventContext(here, isLocal = true, sequence)
 
   private val entity = companion.create(
     SimpleEntityContext(entityId, companion.componentId, componentClient)
@@ -74,6 +88,22 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
 
   /** State as the entity currently sees it. */
   def currentState: S = state
+
+  /**
+   * Applies `events` as history the copy already holds, written at `writtenAt`: for a follower, the
+   * home's events it has mirrored, which its queries answer from. Nothing is recorded in
+   * `allEvents`, which holds what commands here persisted.
+   */
+  def replay(events: E*)(using writtenAt: EventSourcedTestKit.WrittenAt): Unit =
+    events.foreach { event =>
+      sequenceNumber += 1
+      val context = SimpleEventContext(
+        writtenAt.installation.orElse(here),
+        isLocal = writtenAt.installation.forall(here.contains),
+        sequenceNumber
+      )
+      state = entity._applyEvent(state, event, context)
+    }
 
   /** Every event persisted since this test kit was created. */
   def allEvents: Vector[E] = journal.toVector
@@ -127,20 +157,66 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
       output: Serializer[O],
       metadata: Metadata
   ): CommandResult[S, E, O] =
+    mode match
+      case Mode.Follower(home) if !binding.readOnly =>
+        // A follower never runs a handler that may persist: the runtime forwards the command to
+        // the home. Here there is no home to forward to, so the command is refused as the runtime
+        // refuses it when the home cannot be reached.
+        return CommandResult(
+          Left(
+            CommandError(
+              s"the home of '$entityId' is '$home'; a follower handles no command that may persist",
+              ErrorCode.NotHome
+            )
+          ),
+          Vector.empty,
+          state,
+          None
+        )
+      case _ => ()
+
     entity._setState(state)
     entity._setContext(
-      Some(SimpleCommandContext(entityId, companion.componentId, metadata, sequenceNumber))
+      Some(
+        SimpleCommandContext(
+          entityId,
+          companion.componentId,
+          metadata,
+          sequenceNumber,
+          here,
+          isHome = mode match
+            case Mode.Follower(_) => false
+            case _                => true
+        )
+      )
     )
 
     val effect =
       try binding.decodeAndInvoke(entity, payload).asInstanceOf[EventSourcedEffect[S, E, Any]]
       finally entity._setContext(None)
 
+    var applied = sequenceNumber
     val outcome = EventSourcedEffect.materialise[S, E, Any](
       effect,
       state,
-      (current, event) => entity._applyEvent(current, event)
+      (current, event) =>
+        applied += 1
+        entity._applyEvent(current, event, writtenHere(applied))
     )
+
+    if outcome.replication.nonEmpty && mode == Mode.Unreplicated then
+      return CommandResult(
+        Left(
+          CommandError(
+            s"'${companion.componentId}' is not replicated in this test kit; drive it as " +
+              "Mode.Home to see the handover or the change to the replication set it asks for",
+            ErrorCode.BadRequest
+          )
+        ),
+        Vector.empty,
+        state,
+        None
+      )
 
     journal ++= outcome.events
     sequenceNumber += outcome.events.size
@@ -156,7 +232,7 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
     // Round-trip the reply so an unserialisable response fails here, not in production.
     val reply = outcome.reply.map(_.map(value => output.fromBytes(binding.encodeReply(value))))
 
-    CommandResult(reply, outcome.events, state, outcome.retention)
+    CommandResult(reply, outcome.events, state, outcome.retention, outcome.replication)
 
 object EventSourcedTestKit:
 
@@ -170,6 +246,32 @@ object EventSourcedTestKit:
   def of[C <: EventSourcedEntity[S, E], S, E](
       companion: EventSourcedEntity.Companion[C, S, E],
       entityId: String = "test-entity",
-      componentClient: ComponentClient = TestTransport.unroutedClient
+      componentClient: ComponentClient = TestTransport.unroutedClient,
+      /**
+       * How a replicated entity's copy stands (feature 051): `Mode.Home`, where every command runs
+       * and a handover or a change to the replication set is reported on the result; or
+       * `Mode.Follower(home)`, where a command that may persist is refused `NotHome` and a query is
+       * answered from what `replay` gave it. Not replicated by default.
+       */
+      mode: Mode = Mode.Unreplicated,
+      /** The installation the copy is at, which its contexts name. */
+      installation: String = "test"
   ): EventSourcedTestKit[C, S, E] =
-    new EventSourcedTestKit(companion, EntityId(entityId), componentClient)
+    new EventSourcedTestKit(companion, EntityId(entityId), componentClient, mode, installation)
+
+  /** How a replicated entity's copy stands in the test kit. */
+  enum Mode:
+    /** Not replicated: as every entity was driven before replication. */
+    case Unreplicated
+
+    /** The entity's home: every command runs. */
+    case Home
+
+    /** A follower of `home`: a command that may persist is refused, a query is answered. */
+    case Follower(home: String)
+
+  /** Where events given to `replay` were written; the copy's own installation by default. */
+  final case class WrittenAt(installation: Option[String])
+
+  object WrittenAt:
+    given here: WrittenAt = WrittenAt(None)

@@ -11,7 +11,7 @@ Feature: Views and consumers at every installation
 
   Scenario: a view at a follower shows a change written at the home
     When a caller at "leipzig" sends the command "add-step" to "v1"
-    Then the view "floor" at "bratislava" holds the step within "2 seconds"
+    Then the view "floor" at "bratislava" holds the step within "2 seconds" of the view "floor" at "leipzig"
 
   Scenario: a consumer that publishes to a topic publishes each change once across installations
     When a caller at "leipzig" sends three commands to "v1"

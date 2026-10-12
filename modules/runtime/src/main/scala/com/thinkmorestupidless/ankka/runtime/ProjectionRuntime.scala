@@ -140,9 +140,23 @@ final class ProjectionRuntime private (
 
   def name: String = "projections"
 
+  /** The service's replication, read at start: whose journals are a replicated entity's. */
+  @volatile private var replication
+      : Option[com.thinkmorestupidless.ankka.runtime.replication.Replication] = None
+
+  /**
+   * How a record of `sourceId`'s journal is read here: naming the installation that wrote it, when
+   * `sourceId` is an entity this service replicates (feature 051).
+   */
+  private def journalOf(sourceId: String): ChangeReader[JournalRecord] =
+    ChangeReader.journalAt(
+      replication.filter(_.replicates(ComponentId(sourceId))).map(_.self)
+    )
+
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
-    val client                   = service.componentClient
+    replication = service.replication
+    val client = service.componentClient
 
     publisher = publisherFactory.map(_(system))
     brokers = declaredBrokers.map((name, make) => name -> make(system))
@@ -765,7 +779,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => ViewEventHandler(typed, client, guard(projection), ChangeReader.journal)
+              () => ViewEventHandler(typed, client, guard(projection), journalOf(sourceId.toString))
             )
           }
         }
@@ -861,7 +875,12 @@ final class ProjectionRuntime private (
                 sourceId,
                 range,
                 () =>
-                  KeyedViewEventHandler(host.core, guard(projection), handle, ChangeReader.journal)
+                  KeyedViewEventHandler(
+                    host.core,
+                    guard(projection),
+                    handle,
+                    journalOf(sourceId.toString)
+                  )
               )
             }
           case ChangeSource.KeyValue(sourceId, _) =>
@@ -931,7 +950,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 HistoryLines(system),
-                ChangeReader.journal
+                journalOf(sourceId)
               )
           )
         }
@@ -1026,7 +1045,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => RemoteViewEventHandler(view(), guard(projection), ChangeReader.journal)
+              () => RemoteViewEventHandler(view(), guard(projection), journalOf(sourceId.toString))
             )
           }
         }
@@ -1104,7 +1123,13 @@ final class ProjectionRuntime private (
                 projection,
                 sourceId,
                 range,
-                () => KeyedViewEventHandler(core, guard(projection), handle, ChangeReader.journal)
+                () =>
+                  KeyedViewEventHandler(
+                    core,
+                    guard(projection),
+                    handle,
+                    journalOf(sourceId.toString)
+                  )
               )
             }
           else if kind == ComponentKind.KeyValueEntity then
@@ -1164,7 +1189,12 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system), ChangeReader.journal)
+            () =>
+              RemoteConsumerEventHandler(
+                consumer(),
+                HistoryLines(system),
+                journalOf(sourceId.toString)
+              )
           )
         }
 
@@ -1465,7 +1495,17 @@ private final class ViewEventHandler[A](
       .flatMap { row =>
         val effect =
           ProjectionSupport
-            .runView(view, descriptor, subject, envelope.sequenceNr, row, change, observability)
+            .runView(
+              view,
+              descriptor,
+              subject,
+              envelope.sequenceNr,
+              row,
+              change,
+              observability,
+              reader.installation(envelope.event),
+              reader.local(envelope.event)
+            )
         ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
       }
 
@@ -1549,19 +1589,30 @@ private final class ConsumerEventHandler[A](
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
+  /**
+   * Whether this consumer publishes, to a topic or as graph deltas, and so is given a replicated
+   * entity's mirrored changes only when it declares it wants them: otherwise every installation
+   * holding the entity would publish each change once.
+   */
+  private val localOnly = descriptor.produces.nonEmpty && !descriptor.mirroredChanges
+
   def process(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
+    val local   = reader.local(envelope.event)
     reader.read(envelope.event) match
       // No change: the consumer is not called, and no span says it was.
       case SourceChange.Skip => Future.successful(Done)
+      // Written at another installation, which publishes it: not this consumer's to publish again.
+      case _ if localOnly && !local => Future.successful(Done)
       case change =>
         consumer._setContext(
           Some(
             SimpleChangeContext(
               subject,
               envelope.sequenceNr,
-              localOrigin = true,
-              ProjectionSupport.standingOf(change)
+              local,
+              ProjectionSupport.standingOf(change),
+              reader.installation(envelope.event)
             )
           )
         )

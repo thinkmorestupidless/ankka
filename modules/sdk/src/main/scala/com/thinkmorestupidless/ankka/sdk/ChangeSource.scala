@@ -203,8 +203,17 @@ trait ChangeContext:
   /** Sequence number for an event-sourced source, or revision for a key value one. */
   def sequenceNumber: Long
 
-  /** Whether the change originated in this region. */
+  /**
+   * Whether the change was written at this installation. `false` only for a replicated entity's
+   * change written at another installation and mirrored here.
+   */
   def localOrigin: Boolean
+
+  /**
+   * The installation that wrote the change, for a replicated entity's change (feature 051); `None`
+   * for every other change.
+   */
+  def installation: Option[String] = None
 
   /**
    * Of a change from a workflow: where the workflow stood once the effect that recorded the state
@@ -217,5 +226,6 @@ private[ankka] final case class SimpleChangeContext(
     subject: String,
     sequenceNumber: Long,
     localOrigin: Boolean,
-    override val standing: Option[WorkflowLifecycle] = None
+    override val standing: Option[WorkflowLifecycle] = None,
+    override val installation: Option[String] = None
 ) extends ChangeContext

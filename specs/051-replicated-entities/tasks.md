@@ -142,7 +142,7 @@ drives. Nothing here is a story on its own; everything after it is.
 
 ### The records (`runtime`)
 
-- [ ] T010 In `RT/wire.scala`: `JournalRecord` (`:181`) gains `installation: Option[String] = None`
+- [X] T010 In `RT/wire.scala`: `JournalRecord` (`:181`) gains `installation: Option[String] = None`
   with `@JsonInclude(JsonInclude.Include.NON_ABSENT)` as `WorkflowRecord.standing` has (`:233`
   region); constants `KindHome = 3`, `KindReplicationSet = 4`, `KindHandover = 5`,
   `KindHandoverAbandoned = 6`, `KindConflict = 7` beside `KindDomain` (`:189`) with constructors
@@ -160,20 +160,20 @@ drives. Nothing here is a story on its own; everything after it is.
 
 ### The seam (`runtime/replication`)
 
-- [ ] T012 [P] Write `REPL/ReplicationTransport.scala` exactly as contracts/transport-seam.md gives
+- [X] T012 [P] Write `REPL/ReplicationTransport.scala` exactly as contracts/transport-seam.md gives
   it: the trait with `name`, `records`, `forward`, `report`, `locate`, `advanced`, `reachable`,
   `stop`, and the values `Replicated`, `ForwardedCall`, `ForwardedReply` (`Succeeded`, `Rejected`),
   `Located`, `Advanced`; `trait ReplicationTransportProvider` with
   `transport(system, config, settings): Option[ReplicationTransport]`. Scaladoc on each operation
   is the contract's text: what the runtime guarantees and what it relies on. Nothing in the file is
   `private[ankka]`
-- [ ] T013 [P] Write `REPL/LocalInstallations.scala`: a JVM-wide registry
+- [X] T013 [P] Write `REPL/LocalInstallations.scala`: a JVM-wide registry
   `register(installation: String, service: AnkkaService): Unit`, `unregister`, `lookup(name): Option[AnkkaService]`,
   under a lock, so the runtime's own transport reaches a sibling in the same JVM straight through
   its `ShardingTransport` (R6, the test kit's case). `AnkkaService` (`RT/Ankka.scala:452`) registers
   itself at start when `settings.installation` is set and unregisters on stop; a second
   registration of one name in one JVM is an `IllegalStateException` naming it
-- [ ] T014 Resolution at start: in `RT/Ankka.scala` `ServiceBuilder` (`:97`) gains
+- [X] T014 Resolution at start: in `RT/Ankka.scala` `ServiceBuilder` (`:97`) gains
   `private[ankka] def withReplicationTransport(t: ReplicationTransport): ServiceBuilder` (for the
   test kit, as `withIdentity` at `:131` is) and `start` resolves the transport as the contract's
   "Resolution at start" lists: settings; empty `installations` → `None`; the first
@@ -193,7 +193,7 @@ drives. Nothing here is a story on its own; everything after it is.
   quickstart's red condition); a provider on the test classpath (a `META-INF/services` file under
   `modules/runtime/src/test/resources`) returning `Some` wins over `db.*`; a key value entity
   descriptor with `replicated = true` is refused naming it
-- [ ] T016 Write `REPL/DatabaseReplicationTransport.scala` (R6, the contract's table):
+- [X] T016 Write `REPL/DatabaseReplicationTransport.scala` (R6, the contract's table):
   `records` through `eventsByPersistenceId` on a query plugin per sibling rendered at construction
   into the system's config as `ankka.replication.installations.<name>.query` with its own
   `connection-factory` (the spike's `start` in `TKT/ReplicationOrderSpike.scala` is the config to
@@ -214,7 +214,7 @@ drives. Nothing here is a story on its own; everything after it is.
 
 ### The host's mode and the mirrored record (`runtime`)
 
-- [ ] T018 In `RT/EventSourcedEntityHost.scala`: `Stored` (`:31`) gains `home: Option[String]`,
+- [X] T018 In `RT/EventSourcedEntityHost.scala`: `Stored` (`:31`) gains `home: Option[String]`,
   `replicationSet: Set[String]`, `pendingHandover: Option[String]`, `conflict: Option[String]`
   (data-model "Stored"); `Journaled` (`:35`) gains `Home`, `ReplicationSet`, `Handover`,
   `HandoverAbandoned`, `Conflict`, `Mirrored(record)`; `toJournal` (`:293`) writes each platform
@@ -226,7 +226,7 @@ drives. Nothing here is a story on its own; everything after it is.
   `enum Mode { Unreplicated, Unknown, Home, Follower, Outside }` and `def modeOf(stored, replication)`
   as data-model derives it, in `REPL/Mode.scala` so the remote host (T063) uses the same function.
   `toJournal`/`fromJournal` of the snapshot (`:327`, `:335`) carry the four fields
-- [ ] T019 Module commands: in `RT/wire.scala` add `Replicate(sequenceNr, record, source: String, ack: ActorRef[ReplicateAck])`,
+- [X] T019 Module commands: in `RT/wire.scala` add `Replicate(sequenceNr, record, source: String, ack: ActorRef[ReplicateAck])`,
   `enum ReplicateAck { case Persisted(sequenceNr); case Refused(reason) }`, `Wake`,
   `Reported(installation, position)`, `Forwarded(replyTo, result: Try[ForwardedReply])`,
   `Locate(result: Try[Option[Located]])`, all `EntityProtocol.ModuleCommand` and
@@ -255,14 +255,14 @@ drives. Nothing here is a story on its own; everything after it is.
 
 ### The puller and the wake (`runtime/replication`)
 
-- [ ] T021 Write `REPL/Puller.scala` (R7): a child stream of the follower's actor,
+- [X] T021 Write `REPL/Puller.scala` (R7): a child stream of the follower's actor,
   `transport.records(home, componentId, entityId, lastSequenceNumber + 1)` through `ActorFlow.ask`
   into `Replicate`, restarted with backoff (`RestartSource.withBackoff`, 250ms to 5s) on completion
   or failure, failing the stream on a `Refused` ack so it restarts from the copy's position; stopped
   when the actor passivates; `switch(newHome)` stops and restarts it from the same position. The
   host starts it when its mode is `Follower` at recovery completion or on `Wake`, and calls
   `switch` when it persists a kind 3 naming another installation (FR-012)
-- [ ] T022 Write `REPL/ReplicationRuntime.scala`: a `RuntimeExtension` the service builder adds when
+- [X] T022 Write `REPL/ReplicationRuntime.scala`: a `RuntimeExtension` the service builder adds when
   a transport was resolved, which runs `transport.advanced` and sends `Wake` to the sharded entity
   each element names (once per entity per poll, deduplicated); for the runtime's own transport
   `advanced` is one `ShardedDaemonProcess` per sibling over `eventsBySlices` on that sibling's query
@@ -280,7 +280,7 @@ drives. Nothing here is a story on its own; everything after it is.
 
 ### The test kit (`testkit`)
 
-- [ ] T024 In `TK/AnkkaTestKit.scala` add `object AnkkaTestKit.installations(names: String*): Installations`
+- [X] T024 In `TK/AnkkaTestKit.scala` add `object AnkkaTestKit.installations(names: String*): Installations`
   which acquires one database per name from `SharedPostgres` up front, and `final class Installations`
   with `start(name, descriptors, extensions = Nil, configure = identity, database: Option[Database] = None): AnkkaTestKit`
   (`database` lets a name take over a database an earlier, unreplicated kit wrote, for the history
@@ -291,7 +291,7 @@ drives. Nothing here is a story on its own; everything after it is.
   (one per group) and `stopAll()`. Releases every database when stopped (R14). The group handle,
   not a `siblings` parameter, because a copy must know its siblings' databases before they start
   (contracts/scala-sdk.md "Test kits")
-- [ ] T025 Write `TK/TestReplicationTransport.scala`: wraps one `DatabaseReplicationTransport` per
+- [X] T025 Write `TK/TestReplicationTransport.scala`: wraps one `DatabaseReplicationTransport` per
   installation of the group (each built against that installation's system and config) and offers
   `pause(from, to)`, `resume(from, to)` (a paused pair's `records` source stalls without completing,
   and its `report`s are held and delivered on resume), `unreachable(name, Boolean)` (`forward` and
@@ -300,7 +300,7 @@ drives. Nothing here is a story on its own; everything after it is.
   within the JVM, for the transport feature). Case in `TKT/TestReplicationTransportSuite.scala`:
   pause holds, resume delivers in order, unreachable fails a forward with a message naming the
   installation
-- [ ] T026 In `SDK/contexts.scala`: `CommandContext` (`:59`) gains `installation: Option[String]`
+- [X] T026 In `SDK/contexts.scala`: `CommandContext` (`:59`) gains `installation: Option[String]`
   and `isHome: Boolean`; `SimpleCommandContext` (`:94`) carries them (defaults `None`, `true`);
   add `trait EventContext { def installation: Option[String]; def isLocal: Boolean; def sequenceNumber: Long }`
   and `SimpleEventContext`. In `SDK/EventSourcedEntity.scala` add `protected final def eventContext: EventContext`
@@ -327,7 +327,7 @@ drives. Nothing here is a story on its own; everything after it is.
   component client, marked `// docs:start …` for the pages (R15); and `object FleetMain` starting
   the service from the environment (`ANKKA_INSTALLATION`, the `_DB_*` variables, `ANKKA_HTTP_PORT`)
   for quickstart's "Two installations on one machine"
-- [ ] T028 Write `TKT/replication/ReplicationSteps.scala`:
+- [X] T028 Write `TKT/replication/ReplicationSteps.scala`:
   `abstract class ReplicationSteps(features: String) extends GherkinSuite(features) with LogCapturing`
   that reads the Background's installation names from the step
   `"fleet" runs at the installations {string}, {string} and {string}` and starts
@@ -346,13 +346,13 @@ drives. Nothing here is a story on its own; everything after it is.
   and the trace step `no call crossed from {string} to {string}` reading the topology as
   `TKT/awaiting/AwaitSteps.scala:467` does. Every `Then` reads the value its `When` produced; a
   wait is an `eventually` on the thing asserted (CLAUDE.md)
-- [ ] T029 Write the ten final classes in `TKT/replication/`: `HomeFeatures extends ReplicationSteps("../../features/replication/home.feature")`,
+- [X] T029 Write the ten final classes in `TKT/replication/`: `HomeFeatures extends ReplicationSteps("../../features/replication/home.feature")`,
   `CreationFeatures`, `ForwardingFeatures`, `HandoverFeatures`, `ReplicationSetFeatures`,
   `ProjectionsFeatures`, `TransportFeatures`, `HistoryFeatures`, `LanguagesFeatures` (its
   `ranElsewhere` names the Python, TypeScript and Rust rows of the outline, as `AwaitSteps.scala:797`
   does), `TestkitFeatures`. Run `sbt 'testkit/testOnly *replication.*'`: every scenario red with a
   step unbound or an assertion, and the count is 46 tests, 43 run and 3 ignored by name
-- [ ] T030 In `TK/EventSourcedTestKit.scala`: `object EventSourcedTestKit` gains
+- [X] T030 In `TK/EventSourcedTestKit.scala`: `object EventSourcedTestKit` gains
   `enum Mode { case Home; case Follower(home: String); case Unreplicated }`, `of` (`:170`) takes
   `mode: Mode = Mode.Unreplicated` and `installation: String = "test"`; `callRaw` (`:112`) sets the
   command context's `installation` and `isHome` from the mode, answers a persisting command
@@ -376,7 +376,7 @@ installation that first writes it; two creations meet as a conflict.
 
 **Independent Test**: `sbt 'testkit/testOnly *HomeFeatures *CreationFeatures'` (7 scenarios).
 
-- [ ] T031 [US1] In `RT/EventSourcedEntityHost.scala` `onCommand`: the mode gate. `Unreplicated`
+- [X] T031 [US1] In `RT/EventSourcedEntityHost.scala` `onCommand`: the mode gate. `Unreplicated`
   skips every check (`installations.isEmpty` first, before anything else: SC-005). `Home` handles
   as today, stamping records with `self`. `Follower` answers a read-only `Invoke` from its state and
   passes a persisting one to T036 (until then, `Rejected(NotHome)` naming the home). `Outside`
@@ -388,7 +388,7 @@ installation that first writes it; two creations meet as a conflict.
   (R10, clarification Q2); `None` and a read answers the empty state as today. A follower observing
   a mirrored deletion or expiry shows the empty state and persists nothing of its own (spec, Edge
   Cases "Deletion and expiry"); assert it in T020's suite
-- [ ] T032 [US1] The reserved query: `private[ankka] val Replication: MethodName = MethodName("ankka:replication")`
+- [X] T032 [US1] The reserved query: `private[ankka] val Replication: MethodName = MethodName("ankka:replication")`
   in `SDK/EventSourcedEntity.scala`'s companion object beside the descriptor's refusal of the
   `ankka:` prefix (a case in `SDKT` that a user handler named so is refused, as `ankka:lifecycle`
   is); `final case class ReplicationStatus(home, replicationSet, pendingHandover, conflict, position)`
@@ -396,7 +396,7 @@ installation that first writes it; two creations meet as a conflict.
   `lastSequenceNumber`, at any mode, counting it `handled`; `EventSourcedEntityCalls` in
   `SDK/ComponentClient.scala:110` gains `replication: Future[ReplicationStatus]` and a blocking
   `replicationStatus`. Case in `SDKT`: the client decodes a scripted answer
-- [ ] T033 [US1] Conflict (R11): in the host, a `Replicate` whose record is a kind 3 at sequence 1
+- [X] T033 [US1] Conflict (R11): in the host, a `Replicate` whose record is a kind 3 at sequence 1
   naming another installation while this copy's own first record names `self`, and a `Located`
   answer whose home is not `self` for a copy whose `home` is `self`, each persist `Conflict(other)`
   (kind 7, never handed to a puller: the puller is stopped). A copy with `conflict` set refuses a
@@ -404,7 +404,7 @@ installation that first writes it; two creations meet as a conflict.
   it in `ankka:replication`. The puller (T021) is not started for a copy in conflict. Case in
   `RTT/MirroringSuite.scala`: a kind 3 at sequence 1 from another installation against a copy that
   created itself persists kind 7 and the next write is `Conflict`
-- [ ] T034 [US1] Bind `FEAT/home.feature` in `ReplicationSteps`: `the command is handled and recorded as today`
+- [X] T034 [US1] Bind `FEAT/home.feature` in `ReplicationSteps`: `the command is handled and recorded as today`
   (reply equal to a single-installation run's, journal grew by one domain record stamped
   `leipzig`), `a follower holds the same history in the same order as the home` (T028's bytes
   comparison, `eventually` within 5s), `a read at a follower is answered from its own copy` (the
@@ -412,7 +412,7 @@ installation that first writes it; two creations meet as a conflict.
   (a kit started with no installations: the journal record carries no `installation` and the
   bytes equal T001's domain line). Green; then make it red once as quickstart says (skip the
   sequence check: the bytes comparison must still fail)
-- [ ] T035 [US1] Bind `FEAT/creation.feature`: `created as the home of the installation that first writes it`
+- [X] T035 [US1] Bind `FEAT/creation.feature`: `created as the home of the installation that first writes it`
   (`ankka:replication` at both says `home = leipzig`, set `{leipzig}`, and the journal's first two
   records are kinds 3 and 4), `two creations of one id at two installations are marked in conflict when they meet`
   (pause the pair, create `v9` at both with each other in the set, resume, `eventually` both report
@@ -431,7 +431,7 @@ call is one call in the trace.
 
 **Independent Test**: `sbt 'testkit/testOnly *ForwardingFeatures'` (6 scenarios).
 
-- [ ] T036 [US2] Forwarding in `RT/EventSourcedEntityHost.scala` (R10, contracts/runtime-wire.md
+- [X] T036 [US2] Forwarding in `RT/EventSourcedEntityHost.scala` (R10, contracts/runtime-wire.md
   "Forwarding"): a persisting `Invoke` at `Follower` or `Outside` (or `Unknown` after `locate`
   found a home) becomes `ForwardedCall(method, payload, metadata)` captured on the actor's thread,
   sent through `transport.forward(home, …)` under `Observability.calling(home, method)`
@@ -448,7 +448,7 @@ call is one call in the trace.
   caller's metadata and answers the scripted reply; a failed forward answers `NotHome` naming the
   home; the forwarding host's recorder holds one `Client` span and zero `handled`; `reachable =
   false` makes no call; a read at a follower makes no call
-- [ ] T038 [US2] Bind `FEAT/forwarding.feature`: `answered with the home's reply` (reply equal,
+- [X] T038 [US2] Bind `FEAT/forwarding.feature`: `answered with the home's reply` (reply equal,
   `ankka.handled-at = leipzig`, the home's journal grew), `outside the replication set is forwarded`
   (a fourth installation in the group not in the set), `whose home cannot be reached is refused naming the home`
   (`transport.unreachable("leipzig", true)`; error code `NotHome`, message contains `leipzig`),
@@ -470,7 +470,7 @@ chasing, optionally holding and abandoning; a copy that lagged ends in the home'
 **Independent Test**: `sbt 'testkit/testOnly *HandoverFeatures'` (8 scenarios, the spike's case
 among them).
 
-- [ ] T039 [US3] The handover at the home, in `REPL/Handover.scala` and the host (R8): reducing a
+- [X] T039 [US3] The handover at the home, in `REPL/Handover.scala` and the host (R8): reducing a
   `Materialised.replication = Some(HandOver(x))` at the home checks `x != self`, `x` in
   `settings.installations`, `x` in `replicationSet`, no `pendingHandover`, else `Rejected(BadRequest)`
   naming `x` and why, before anything is persisted; otherwise persists the handler's events then
@@ -486,7 +486,7 @@ among them).
   `HandoverAbandoned(x)` (kind 6), unstashes and handles them. A caller learns the outcome through
   T040's `ankka:handover-status`, which answers `Rejected(Unavailable)` "handover to x did not
   happen" once kind 6 is the last platform record
-- [ ] T040 [US3] `ankka:handover-status`: `private[ankka] val HandoverStatus = MethodName("ankka:handover-status")`
+- [X] T040 [US3] `ankka:handover-status`: `private[ankka] val HandoverStatus = MethodName("ankka:handover-status")`
   beside T032's; the host answers `NotYet` while `pendingHandover` is set, `Succeeded` once the
   last platform record is a kind 3 naming the former target, `Rejected(Unavailable)` once it is a
   kind 6. `EventSourcedEntityCalls` in `SDK/ComponentClient.scala` gains
@@ -494,13 +494,13 @@ among them).
   (`RT/ShardingTransport.scala:112` is the loop to reuse: extract its `NotYet` retry into a
   function both call). Case in `RTT/ShardingTransportSuite.scala`: `NotYet, NotYet, Succeeded`
   ends; `Rejected(Unavailable)` surfaces
-- [ ] T041 [US3] The switch at the follower (FR-012): in the host, persisting a `Mirrored` whose
+- [X] T041 [US3] The switch at the follower (FR-012): in the host, persisting a `Mirrored` whose
   record is kind 3 naming `x != self` calls `puller.switch(x)`; naming `self` stops the puller and
   the mode is `Home`; kind 4 without `self` stops the puller (US4 proves it). The `Replicate`
   check (T019) admits a record whose `installation` is the pending home even before kind 3. Case
   in `RTT/MirroringSuite.scala`: records A1..A5, kind 5 (target B), B-written records are refused
   until kind 3 names B, then admitted; the puller was switched exactly once, at the kind 3
-- [ ] T042 [US3] Bind `FEAT/handover.feature`: `hands its home to {string}` (sends `hand-over`),
+- [X] T042 [US3] Bind `FEAT/handover.feature`: `hands its home to {string}` (sends `hand-over`),
   `the home of {string} was handed to {string}` (sends it and `awaitHandover`), `the journal of {string} at {string} holds the handover and then the sale`,
   `holds no record written at {string} after the handover`, `the five commands from {string} come before the handover and the three from {string} after it`
   (positions of the stamped installations around the kind 3's sequence number),
@@ -528,7 +528,7 @@ records in the journal.
 
 **Independent Test**: `sbt 'testkit/testOnly *ReplicationSetFeatures'` (6 scenarios).
 
-- [ ] T043 [US4] Reduce `SetChange(add, remove)` at the home in `REPL/Handover.scala`'s sibling
+- [X] T043 [US4] Reduce `SetChange(add, remove)` at the home in `REPL/Handover.scala`'s sibling
   `REPL/SetChange.scala` and the host: every name in `settings.installations`, none of `remove` the
   home, else `Rejected(BadRequest)` naming the first offender; persist the handler's events then
   `ReplicationSet(set ++ add -- remove)` (kind 4, the whole set). A copy that persists a `Mirrored`
@@ -540,7 +540,7 @@ records in the journal.
   at C pulling from 1 ends identical; a kind 4 removing B stops B's puller (the scripted transport
   sees the source cancelled) and B's next read is `NotHome`; `stopReplicatingTo(home)` is
   `BadRequest`
-- [ ] T045 [US4] Bind `FEAT/replication-set.feature`: `held by its home alone` (`ankka:replication`
+- [X] T045 [US4] Bind `FEAT/replication-set.feature`: `held by its home alone` (`ankka:replication`
   says `{leipzig}` and a read at `vienna` is `NotHome`), `added to the replication set mirrors the whole history`
   (after a dozen writes, `replicate-to vienna`; `eventually` bytes identical from sequence 1),
   `added late holds the same history as the home`, `removed … stops mirroring and keeps its copy`
@@ -560,7 +560,7 @@ and told which is which.
 
 **Independent Test**: `sbt 'testkit/testOnly *ProjectionsFeatures'` (4 scenarios).
 
-- [ ] T046 [US5] In `RT/ChangeReader.scala`: `SourceChange.Changed` (`:17`) gains
+- [X] T046 [US5] In `RT/ChangeReader.scala`: `SourceChange.Changed` (`:17`) gains
   `installation: Option[String]`; `journal` reads kinds 3–7 as `Skip` (`:41`, beside expiry) and
   stamps a domain change with the record's `installation`. In `SDK/ChangeSource.scala`:
   `ChangeContext` (`:199`) gains `installation: Option[String]`; `SimpleChangeContext` (`:216`)
@@ -570,7 +570,7 @@ and told which is which.
   key value sites pass `installation = None` and stay `true`. Delete the hard-coded `true`s: a grep
   for `localOrigin = true` in `RT` finds nothing afterwards (CLAUDE.md, "re-grep for what a failed
   edit was supposed to remove")
-- [ ] T047 [US5] In `SDK/Consumer.scala` `Companion` gains `def mirroredChanges: Boolean = false`
+- [X] T047 [US5] In `SDK/Consumer.scala` `Companion` gains `def mirroredChanges: Boolean = false`
   beside `produceTo` (`:53`) and `ConsumerDescriptor` carries it; in `RT/ProjectionRuntime.scala`
   where a consumer's handler is built (`:911`, `typed.produces`, and the graph consumer's handler),
   a change with `installation` set and not `self` is skipped (offset advanced, handler not called)
@@ -580,7 +580,7 @@ and told which is which.
 - [ ] T048 [US5] Cases in `RTT/ChangeReaderSuite.scala` (or the existing reader suite): kinds 3–7
   are `Skip`; a domain record's installation is on the change. In `TKT/ConsumerTestKitSuite.scala`:
   a mirrored change's context says `localOrigin = false` and names the installation
-- [ ] T049 [US5] Bind `FEAT/projections.feature`: `a view at a follower shows a change written at the home`
+- [X] T049 [US5] Bind `FEAT/projections.feature`: `a view at a follower shows a change written at the home`
   (`FleetView` at `bratislava` `eventually` within 2s, SC-003), `publishes each change once across installations`
   (three installations in the set; count the messages at the kit's broker for the topic, as
   `TKT/InMemoryBrokerSuite.scala` reads it: exactly one per change after a 3s settle),
@@ -602,7 +602,7 @@ replicated is refused at validation.
 **Independent Test**: `sbt 'testkit/testOnly *TransportFeatures'` (3 scenarios, one an outline of
 4 rows) and `sbt 'controlPlaneApi/testOnly *DescriptorSuite'`.
 
-- [ ] T050 [US6] Loopback routes in `RT/ObservabilityEndpoint.scala` (`:68` region, local mode
+- [X] T050 [US6] Loopback routes in `RT/ObservabilityEndpoint.scala` (`:68` region, local mode
   only): `POST /replication/forward` reads a CBOR `ForwardedCall` plus the component and entity ids
   from the path `/replication/forward/<component>/<entity>` and answers the CBOR of a
   `ForwardedReply` after calling this service's `ShardingTransport`; `POST /replication/report/<component>/<entity>`
@@ -615,7 +615,7 @@ replicated is refused at validation.
   a `ForwardedCall` posted to the route reaches a scripted `ShardingTransport` and its reply comes
   back as CBOR; a malformed body is 400; a report lands as `Reported`; the routes are absent when
   the endpoint is not local
-- [ ] T052 [US6] Bind `FEAT/transport.feature`: `started twice on one machine as the installations {string} and {string}, each with its own database`
+- [X] T052 [US6] Bind `FEAT/transport.feature`: `started twice on one machine as the installations {string} and {string}, each with its own database`
   (a group of two with `transport.inProcessForward = false`, so the forward and the report go
   through the loopback routes found in a registration directory the suite isolates by setting the
   system property `ankka.running.dir` (`RT/ServiceRegistration.scala:32`) to a temporary directory
@@ -764,7 +764,7 @@ installation reads as written at the home.
 
 **Independent Test**: `sbt 'testkit/testOnly *HistoryFeatures'` (2 scenarios).
 
-- [ ] T064 [US8] In the host (T031's `Unknown` branch): a copy whose journal is non-empty and has
+- [X] T064 [US8] In the host (T031's `Unknown` branch): a copy whose journal is non-empty and has
   no kind 3 is the legacy case. At the installation holding it, the next persisting command
   persists `Home(self)` and `ReplicationSet(Set(self))` at `lastSequenceNumber + 1` and `+ 2`,
   *before* the handler's events, never at sequence 1 (quickstart's red condition for `history`);
@@ -777,7 +777,7 @@ installation reads as written at the home.
   command, holds kinds 3 and 4 at 11 and 12 and the domain record at 13; a replay at the holder
   reads `installation = Some(self)` for all ten; the ten mirrored at a follower carry the holder's
   name and their kind, manifest and payload bytes are unchanged
-- [ ] T065 [US8] Bind `FEAT/history.feature`: `an existing entity made replicated keeps its history and its installation as its home`
+- [X] T065 [US8] Bind `FEAT/history.feature`: `an existing entity made replicated keeps its history and its installation as its home`
   (a kit started with no installations writes ten records to `v1`; stop it; start a group of two
   on the *same* database for `leipzig` (T024's `database` parameter) and a fresh one for `vienna`;
   `replicate-to vienna`; `eventually` the records at `vienna` equal `leipzig`'s from sequence 1
@@ -798,7 +798,7 @@ installations and drives an entity as home or follower.
 
 **Independent Test**: `sbt 'testkit/testOnly *TestkitFeatures'` (2 scenarios).
 
-- [ ] T066 [US9] Bind `FEAT/testkit.feature`: `the test kit starts several installations of one service and replicates between them`
+- [X] T066 [US9] Bind `FEAT/testkit.feature`: `the test kit starts several installations of one service and replicates between them`
   (the Background's group; a write at one, bytes at another; `transport.pause` then `resume`
   observable through the second's lag) and `the entity test kit drives an entity as its home or as a follower`
   (T030's `Mode.Home` handles `add-step` and shows the event; `Mode.Follower("leipzig")` refuses it

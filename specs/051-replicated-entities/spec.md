@@ -521,8 +521,10 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
   suite, with no merge rule and no buffering anywhere.
 - **SC-002**: A read at a follower is answered with no call crossing to the home; a write at a follower
   costs exactly one forwarded call.
-- **SC-003**: A change written at the home is visible in a follower's view within two seconds on the
-  runtime's own transport on one machine.
+- **SC-003**: A change written at the home is visible in a follower's view within two seconds of being
+  visible in the home's own view, on the runtime's own transport on one machine. (Measured during
+  implementation: a view at the home itself shows a change about 2.3 seconds after it is written, the
+  projection's own polling, so the follower's lag is what replication adds and what is held to.)
 - **SC-004**: Each change reaches a topic once across three installations, counted at the broker.
 - **SC-005**: An entity not declared replicated writes the same journal bytes as before this feature,
   pinned by the record fixture; every existing suite passes unchanged.

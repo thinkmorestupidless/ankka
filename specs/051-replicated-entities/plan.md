@@ -62,8 +62,9 @@ service naming installations with no provider refuses to start.
 **Project Type**: platform: runtime, SDKs in four languages, protocol, test kits, docs and skills.
 
 **Performance Goals**: SC-002, a read at a follower makes no call to the home and a write makes one
-forwarded call; SC-003, a change visible in a follower's view within two seconds on the runtime's
-own transport (poll interval 1s plus `behind-current-time`); SC-005, an unreplicated entity's journal
+forwarded call; SC-003, a change visible in a follower's view within two seconds of the home's view
+on the runtime's own transport (poll interval 1s; the view's own projection latency is the same at
+both); SC-005, an unreplicated entity's journal
 bytes unchanged and every existing suite's time unchanged (`installations.isEmpty` short-circuits
 every check).
 

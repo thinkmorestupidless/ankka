@@ -95,7 +95,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         One older than 1.13 would not know a view's declared queries, which would be missing at their
         first asking. One older than 1.14 would ignore a contract, a broker, parallel partitions and a
         publication's contract: a service checked against nothing, reading the wrong broker. Refused,
-        naming what declares them, rather than served wrong. One older than 1.15 would not read a
+        naming what declares them, rather than served wrong. One older than 1.16 would not read a
         workflow as a source, and a view or consumer that did would be handed nothing."""
         if start_from.older_than(sidecar_protocol, WORKFLOW_SOURCE_PROTOCOL):
             reading = [
@@ -110,7 +110,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             if reading:
                 return (
                     f"{', '.join(reading)} read a workflow, which the sidecar does not know: it speaks protocol "
-                    f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later."
+                    f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.16 or later."
                 )
         if start_from.older_than(sidecar_protocol, contract.CONTRACT_PROTOCOL):
             stating = [

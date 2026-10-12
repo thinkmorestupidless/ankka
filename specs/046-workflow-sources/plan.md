@@ -18,7 +18,7 @@ optional field Jackson reads as absent on every record written before (R2); one 
 workflow record as a change for every host, in-process, remote and module alike (R3); the five
 event handlers gain a record type so a workflow source runs the same exactly-once projection an
 entity's does (R4); the standing rides on the change's context (R5); the wire gains a
-`WorkflowStanding` on the two requests at protocol 1.15, gated both ways as socket routes are (R6).
+`WorkflowStanding` on the two requests at protocol 1.16, gated both ways as socket routes are (R6).
 
 Planning found seven things the spec had assumed otherwise; `research.md` opens with them. The
 ones that change what a reader should expect:
@@ -72,7 +72,7 @@ they already build, which is the same fold the event handler runs on recovery.
 **Constraints**: no existing view, consumer or workflow changes behaviour (SC-004): every
 handler's existing path is the `ChangeReader.journal` case, moved not rewritten, and
 `ViewProjectionsSuite` pins every projection name; a journal written by this release reads on the
-release before and the reverse (FR-007, R15); a 1.14 SDK runs on a 1.15 runtime unless it declares
+release before and the reverse (FR-007, R15); a 1.15 SDK runs on a 1.16 runtime unless it declares
 a workflow source; the three SDK copies of `protocol/` stay identical to the canonical one;
 `runtime` names nothing generated; nothing unbounded is interned into the recorder's name table;
 `Test / parallelExecution := false` stays; warning-free in every language; no suite binds a fixed
@@ -129,7 +129,7 @@ specs/046-workflow-sources/
 ├── data-model.md        # the source, the stamped record, the change, the wire, the topology
 ├── quickstart.md        # the validation runs, by user story, and the line to break for each
 ├── contracts/
-│   ├── protocol.md          # the wire at 1.15, what each side refuses, compatibility
+│   ├── protocol.md          # the wire at 1.16, what each side refuses, compatibility
 │   ├── scala-api.md         # stateOf, the standing on the context, rules S1–S6, the kits
 │   └── sdk-apis.md          # Python, TypeScript, Rust; the conformance components and cases
 └── tasks.md             # /speckit-tasks output (not created here)
@@ -144,7 +144,7 @@ GLOSSARY.md                                                       # written; sta
 
 protocol/
 ├── src/main/protobuf/ankka/protocol/v1/{payload,view,consumer}.proto   # WorkflowStanding; standing on two requests
-├── README.md                                                          # version 1.15
+├── README.md                                                          # version 1.16
 └── WASM-ABI.md                                                        # one sentence
 
 modules/sdk/src/main/scala/…/sdk/
@@ -169,7 +169,7 @@ modules/runtime/src/main/scala/…/runtime/
 modules/testkit/src/main/scala/…/testkit/{ConsumerTestKit,KeyedViewTestKit}.scala   # standing = None
 sidecar/src/main/scala/…/sidecar/{Discovery,Translate}.scala                    # WorkflowSourcesSince; the message both ways
 cli/src/main/resources/console/app.js                                            # the legend's fifth kind
-controlplane-api/…/Compatibility.scala                                           # 1.15
+controlplane-api/…/Compatibility.scala                                           # 1.16
 
 sdks/python/      src/ankka/{view,keyed_view,consumer,context,server,service}.py, src/ankka/standing.py (new),
                   src/ankka/testkit/unit.py, proto/ (copied), examples/shopping_cart/conformance.py
@@ -212,15 +212,15 @@ Built in four slices, each ending green; released once.
    `Workflow` case in the three in-process starters; the standing on `ChangeContext` and
    `KeyedChange`; the rules; the topology kind, legend and step; the kits; `WorkflowKit`,
    `WorkflowSourcesFeatures` and `WorkflowSourceSuite`.
-3. **The wire and the languages** (User Story 3). Protocol 1.15 **with every field of this
+3. **The wire and the languages** (User Story 3). Protocol 1.16 **with every field of this
    feature**; `Translate`; `Discovery`'s acceptance and gate; the three remote starters; the
    reference's `abort` mode, two components and three routes; the seven conformance cases green
    against the Scala reference; then each SDK: `Standing`, the property, the refusal, the kits, the
    reference components, the conformance run.
 4. **The documentation**, written against what 1 to 3 built, with `just docs-sync`.
 
-**No release carries slice 1 or 2 without slice 3.** Protocol 1.15 is written once, in slice 3,
-and a runtime at slice 2 would still answer `1.14` while accepting nothing new from a process —
+**No release carries slice 1 or 2 without slice 3.** Protocol 1.16 is written once, in slice 3,
+and a runtime at slice 2 would still answer `1.15` while accepting nothing new from a process —
 which is consistent — but a release at slice 2 would teach Scala services a source that a process
 service could not declare until the next release, and the sources tables in the documentation would
 be true of one language. So the feature is one release; the slices are for review and for
@@ -237,5 +237,5 @@ each is the smaller of the options.
 | An optional field on a journal record, and a compatibility suite that did not exist | the standing after the effect is knowable only by the engine, at the moment it persists (D2) | carrying or folding the state for stateless records was clarified away; a separate standing record is a second record a projection would have to join (R2) |
 | A type parameter on five event handlers | one exactly-once path for both record kinds | five twin classes copy the guard, the row load and the transaction, which is where FR-008 lives (R4) |
 | A sixth standing word, `Unknown` | a `state` record from before this release carries no stamp, and inventing one was clarified away | an absent value every handler in four languages checks for, rather than a word a `switch` already handles (clarification 5) |
-| A protocol minor, gated both ways | a 1.14 SDK declaring a workflow source against a 1.15 runtime would be handed changes with no standing and no error | a field alone is read as absent by the side that does not know it, which is the sidecar rule's named trap (R6) |
+| A protocol minor, gated both ways | a 1.15 SDK declaring a workflow source against a 1.16 runtime would be handed changes with no standing and no error | a field alone is read as absent by the side that does not know it, which is the sidecar rule's named trap (R6) |
 | Two more components in every conformance reference, and a failing mode | the only test that catches an SDK reading a change without its standing is one that asserts the standing, in that language | asserting in Scala alone proves the runtime and nothing about the three SDKs (R13) |

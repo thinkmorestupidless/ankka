@@ -103,7 +103,7 @@ class TranslateSuite extends munit.FunSuite:
       case other => fail(s"expected rows, got $other")
   }
 
-  // ── A workflow's standing (protocol 1.15) ─────────────────────────────────
+  // ── A workflow's standing (protocol 1.16) ─────────────────────────────────
 
   private val standing = com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle(
     "Paused",

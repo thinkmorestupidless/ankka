@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.15"`;
+- its protocol version, `"1.16"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -189,7 +189,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.15`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.16`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -220,7 +220,9 @@ because an earlier runtime reads a field it does not know as absent, and would s
 recur to fire once; it answers the call `UNIMPLEMENTED` instead, which each SDK reports as the runtime being
 too old for recurring timers. `1.13` added a view's declared queries, the keyed view and a version on a
 view that reads entities. `1.14` added a topic source's contract, broker and parallel reading and a
-consumer's publication. `1.15` added a workflow as the source of a view or a consumer: a
+consumer's publication. `1.15` added cross-project access: the granted-caller matcher, the machine
+caller, and another project's topic on a source and a publication. `1.16` added a workflow as the
+source of a view or a consumer: a
 `Source.ComponentRef` of kind `WORKFLOW`, and `WorkflowStanding`, where the workflow stood once the effect
 that recorded the state was applied, as `standing` on `ViewRequest` and `ConsumerRequest`. A workflow
 source is refused from both ends across that line: the sidecar refuses a `Spec` declaring one under an

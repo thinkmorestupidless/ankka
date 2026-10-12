@@ -1,4 +1,4 @@
-//! A workflow as the source of a view or a consumer (protocol 1.15): the standing it is handed,
+//! A workflow as the source of a view or a consumer (protocol 1.16): the standing it is handed,
 //! and a runtime too old to know one refused.
 
 use std::cell::RefCell;
@@ -159,7 +159,7 @@ fn a_standing_reads_from_the_wire_as_it_was_written() {
 fn a_view_of_a_workflow_declares_the_workflow_as_its_source() {
     let spec = discover(
         Service::new("test").register(Jobs).register(JobRows),
-        "1.15",
+        "1.16",
     );
     let view = spec
         .components
@@ -179,20 +179,20 @@ fn a_view_of_a_workflow_declares_the_workflow_as_its_source() {
 }
 
 #[test]
-#[should_panic(expected = "Run a runtime speaking 1.15 or later")]
-fn a_runtime_before_1_15_is_refused_when_a_workflow_is_read() {
+#[should_panic(expected = "Run a runtime speaking 1.16 or later")]
+fn a_runtime_before_1_16_is_refused_when_a_workflow_is_read() {
     let _ = discover(
         Service::new("test")
             .register(Jobs)
             .register(JobRows)
             .register(JobEnds),
-        "1.14",
+        "1.15",
     );
 }
 
 #[test]
 fn a_service_reading_no_workflow_is_answered_by_a_1_14_runtime() {
-    let _ = discover(Service::new("test").register(Jobs), "1.14");
+    let _ = discover(Service::new("test").register(Jobs), "1.15");
 }
 
 fn discover(service: Service, protocol: &str) -> proto::Spec {

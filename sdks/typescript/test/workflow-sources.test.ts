@@ -1,4 +1,4 @@
-// A workflow as the source of a view or a consumer (protocol 1.15): the standing it is handed, and a
+// A workflow as the source of a view or a consumer (protocol 1.16): the standing it is handed, and a
 // sidecar too old to know one refused at discovery.
 import { test } from "node:test"
 import assert from "node:assert/strict"
@@ -81,14 +81,14 @@ test("a view of a workflow declares the workflow as its source", () => {
 
 test("a sidecar too old for workflow sources is refused, naming the components", () => {
   const spec = Ankka.service().register(CheckoutWorkflow).register(Rows).register(Ends).spec()
-  const said = refusal(spec, "1.14") ?? ""
+  const said = refusal(spec, "1.15") ?? ""
   assert.match(said, /checkout-standings/)
   assert.match(said, /checkout-ends-test/)
-  assert.match(said, /1\.14/)
-  assert.match(said, /1\.15 or later/)
-  assert.equal(refusal(spec, "1.15"), undefined)
+  assert.match(said, /1\.15/)
+  assert.match(said, /1\.16 or later/)
+  assert.equal(refusal(spec, "1.16"), undefined)
 })
 
-test("a service reading no workflow is served by a 1.14 sidecar", () => {
-  assert.equal(refusal(Ankka.service().register(Counter).spec(), "1.14"), undefined)
+test("a service reading no workflow is served by a 1.15 sidecar", () => {
+  assert.equal(refusal(Ankka.service().register(Counter).spec(), "1.15"), undefined)
 })

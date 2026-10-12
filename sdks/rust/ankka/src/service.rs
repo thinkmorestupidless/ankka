@@ -19,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.15";
+pub const PROTOCOL_VERSION: &str = "1.16";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -449,7 +449,7 @@ pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> O
         if !reading.is_empty() {
             return Some(format!(
                 "{} read a workflow, which the runtime does not know: it speaks protocol \
-                 {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.15 \
+                 {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.16 \
                  or later.",
                 reading.join(", ")
             ));

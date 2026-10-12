@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.15")
+    assertEquals(Discovery.ProtocolVersion, "1.16")
   }
 
   test(
@@ -408,7 +408,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     assert(problems.exists(_.contains("which apply to a topic")), problems)
   }
 
-  // ── Workflow sources (protocol 1.15) ──────────────────────────────────────
+  // ── Workflow sources (protocol 1.16) ──────────────────────────────────────
 
   private val checkout = Component(
     Kind.WORKFLOW,
@@ -420,10 +420,10 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   private val workflowSource =
     Some(Source(Source.Source.Component(Source.ComponentRef(Kind.WORKFLOW, "checkout"))))
 
-  test("discovery 1.15: a view and a consumer that read a workflow are hosted") {
+  test("discovery 1.16: a view and a consumer that read a workflow are hosted") {
     val discovered = validateSpec(
       topicSpec(
-        "1.15",
+        "1.16",
         checkout,
         view("checkout-rows", workflowSource),
         consumer("ends", workflowSource)
@@ -440,11 +440,11 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test(
-    "discovery: a workflow source from a process before 1.15 is refused, naming it and both versions"
+    "discovery: a workflow source from a process before 1.16 is refused, naming it and both versions"
   ) {
     val problems = validateSpec(
       topicSpec(
-        "1.14",
+        "1.15",
         checkout,
         view("checkout-rows", workflowSource),
         consumer("ends", workflowSource)
@@ -452,8 +452,8 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     ).left.toOption.get
     assert(
       problems.exists(p =>
-        p.contains("view 'checkout-rows' reads workflow 'checkout'") && p.contains("1.15") && p
-          .contains("1.14")
+        p.contains("view 'checkout-rows' reads workflow 'checkout'") && p.contains("1.16") && p
+          .contains("1.15")
       ),
       problems
     )
@@ -461,18 +461,18 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test(
-    "discovery 1.15: a start position or a contract on a workflow source is refused, as on an entity's"
+    "discovery 1.16: a start position or a contract on a workflow source is refused, as on an entity's"
   ) {
     import ankka.protocol.v1.discovery.StartFrom as P
     val src =
       workflowSource.map(_.copy(startFrom = named(P.Named.EARLIEST), parallel = Some(true)))
     val problems =
-      validateSpec(topicSpec("1.15", checkout, consumer("ends", src))).left.toOption.get
+      validateSpec(topicSpec("1.16", checkout, consumer("ends", src))).left.toOption.get
     assert(problems.exists(_.contains("declares a start position")), problems)
     assert(problems.exists(_.contains("which apply to a topic")), problems)
   }
 
-  test("discovery 1.15: a keyed view may read a workflow beside an entity") {
+  test("discovery 1.16: a keyed view may read a workflow beside an entity") {
     val cart = Component(
       Kind.EVENT_SOURCED_ENTITY,
       "cart",
@@ -494,7 +494,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         )
       )
     )
-    validateSpec(topicSpec("1.15", checkout, cart, keyed))
+    validateSpec(topicSpec("1.16", checkout, cart, keyed))
       .fold(p => fail(p.mkString("; ")), identity): Unit
   }
 

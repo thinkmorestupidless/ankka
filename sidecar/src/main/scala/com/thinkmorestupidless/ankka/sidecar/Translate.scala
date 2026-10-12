@@ -164,7 +164,7 @@ private[sidecar] object Translate:
 
   // ── The stateless calls: what is sent, and what the answer means ──────────
 
-  /** A workflow's standing on the wire (protocol 1.15): its words, as the lifecycle query's. */
+  /** A workflow's standing on the wire (protocol 1.16): its words, as the lifecycle query's. */
   def toStanding(standing: WorkflowLifecycle): pb.WorkflowStanding =
     pb.WorkflowStanding(
       status = standing.status,

@@ -29,7 +29,7 @@ kind `workflow` from the workflow to the view or consumer.
 ### RemoteSource — `runtime/remote`, unchanged
 
 `RemoteSource.Component(kind, id)` already carries `ComponentKind.Workflow`; discovery no longer
-refuses it (protocol 1.15).
+refuses it (protocol 1.16).
 
 ## Stored
 
@@ -118,7 +118,7 @@ Every event handler (plain, keyed, consumer; in-process and remote) is typed ove
 
 `KeyedChange` gains the same `standing`. `SimpleChangeContext` takes it with a default of `None`.
 
-## On the wire (protocol 1.15; see contracts/protocol.md)
+## On the wire (protocol 1.16; see contracts/protocol.md)
 
 ### WorkflowStanding — `payload.proto`, new
 
@@ -157,5 +157,5 @@ state + end              -> change: standing Completed
 state + fail             -> change: standing Failed, failure = reason
 transition / pause / end / fail / retry alone  -> no change
 delete                   -> deletion handler
-state written before 1.15 -> change: standing Unknown
+state written before 1.16 -> change: standing Unknown
 ```

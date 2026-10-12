@@ -71,7 +71,7 @@ pub(crate) const CONTRACT_PROTOCOL: (u32, u32) = (1, 14);
 /// Whether a host speaking `protocol_version` would ignore a contract, a broker, parallel
 /// reading or a publication's contract.
 pub(crate) fn older_than_workflow_sources(protocol_version: &str) -> bool {
-    older_than(protocol_version, (1, 15))
+    older_than(protocol_version, (1, 16))
 }
 
 /// Whether a view, keyed view or consumer declares a workflow as a source.

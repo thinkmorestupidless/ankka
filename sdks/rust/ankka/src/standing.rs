@@ -1,4 +1,4 @@
-//! Where a workflow stood once the effect that recorded a state was applied (protocol 1.15).
+//! Where a workflow stood once the effect that recorded a state was applied (protocol 1.16).
 //!
 //! A view or a consumer whose source is a workflow is handed, with each state the workflow
 //! records, its standing: running, paused, completed or failed, the step it is on or waits after,

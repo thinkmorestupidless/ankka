@@ -65,7 +65,7 @@ engine stamps it with the standing once the whole effect is applied (`WorkflowRe
 records no state is no change. `ChangeReader` is the one place a journal record becomes a `SourceChange`
 for every event handler (in process, remote, keyed); `WorkflowChanges.read` the one reader of a workflow
 record, `RemoteWorkflowHost.pack`/`unpack` the one form of a process's state. The standing rides on
-`ChangeContext.standing`/`KeyedChange.standing` and, from protocol 1.15, `ViewRequest.standing` and
+`ChangeContext.standing`/`KeyedChange.standing` and, from protocol 1.16, `ViewRequest.standing` and
 `ConsumerRequest.standing`; the topology draws a `workflow` connection.
 
 ## Traps

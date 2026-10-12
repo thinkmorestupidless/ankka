@@ -34,7 +34,7 @@ class CheckoutRows(View[CheckoutState, CheckoutRow]):
 `ConsumerTestKit.on_message(message, subject, sequence=None, standing=None)`.
 
 Discovery refusal (`server.py`, beside the 1.13 and 1.14 ones): when the sidecar states a protocol
-older than 1.15 and any registered view, keyed view or consumer's source is a `Workflow` subclass.
+older than 1.16 and any registered view, keyed view or consumer's source is a `Workflow` subclass.
 
 ## TypeScript
 
@@ -83,7 +83,7 @@ impl View for CheckoutRows {
 
 `Context::standing()` on views, keyed views and consumers. The unit kits gain
 `.standing(Standing)` builders beside `.at(sequence)`. A module built with the crate refuses a
-runtime below 1.15 when it declares a workflow source, in `service.rs` beside the 1.13 and 1.14
+runtime below 1.16 when it declares a workflow source, in `service.rs` beside the 1.13 and 1.14
 checks; `WASM-ABI.md` notes the field on `ViewRequest` and `ConsumerRequest`.
 
 ## The conformance reference (every language declares the same)
@@ -108,7 +108,7 @@ Routes: `GET /conformance/checkout/{id}/row` (404 until written), `GET /conforma
 | `view.workflow-by-standing` | `by-standing` with `Failed` answers the aborted checkout and not the completed one |
 | `consumer.workflow-end-once` | `Completed` recorded for `ok`, `Failed: payment declined` for `abort`, and nothing for `drop`, whose failure records no state |
 | `topology.workflow-subscription` | a connection from `checkout` to `checkout-rows` and to `checkout-ends` of kind `workflow` |
-| `discovery.workflow-source-needs-1.15` | a sidecar stating `1.14` to the reference is refused by it, naming the components and both versions |
+| `discovery.workflow-source-needs-1.16` | a sidecar stating `1.15` to the reference is refused by it, naming the components and both versions |
 
 `discovery.lists-every-component` holds the four references to the same list, so a reference
 missing either component fails before any case runs.

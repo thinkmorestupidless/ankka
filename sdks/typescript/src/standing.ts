@@ -1,4 +1,4 @@
-// Where a workflow stood once the effect that recorded a state was applied (protocol 1.15).
+// Where a workflow stood once the effect that recorded a state was applied (protocol 1.16).
 //
 // A view or a consumer whose source is a workflow is handed, with each state the workflow records,
 // its standing: running, paused, completed or failed, the step it is on or waits after, the retries
@@ -40,4 +40,4 @@ export function standingFromProto(standing: WorkflowStanding | undefined): Stand
 }
 
 /** @internal The version whose runtimes read a workflow as a source. */
-export const WORKFLOW_SOURCE_PROTOCOL: readonly [number, number] = [1, 15]
+export const WORKFLOW_SOURCE_PROTOCOL: readonly [number, number] = [1, 16]

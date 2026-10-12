@@ -25,7 +25,7 @@ export function refusal(spec: Spec, sidecarProtocol: string): string | undefined
 }
 
 /**
- * A sidecar older than 1.15 would not read a workflow as a source: a view or consumer that does would
+ * A sidecar older than 1.16 would not read a workflow as a source: a view or consumer that does would
  * be handed nothing. Refused at discovery, naming them.
  */
 function workflowSourceRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
@@ -41,7 +41,7 @@ function workflowSourceRefusal(spec: Spec, sidecarProtocol: string): string | un
   if (reading.length === 0) return undefined
   return (
     `${reading.join(", ")} read a workflow, which the sidecar does not know: ` +
-    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.15 or later.`
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.16 or later.`
   )
 }
 

@@ -1,4 +1,4 @@
-"""A workflow as the source of a view or a consumer (protocol 1.15): the standing it is handed."""
+"""A workflow as the source of a view or a consumer (protocol 1.16): the standing it is handed."""
 
 from __future__ import annotations
 
@@ -92,12 +92,12 @@ def test_a_view_of_a_workflow_declares_the_workflow_as_its_source() -> None:
 
 def test_a_sidecar_too_old_for_workflow_sources_is_refused_naming_them() -> None:
     servicer = DiscoveryServicer(Ankka.service().register(CheckoutWorkflow).register(Rows).register(Ends)._registry)
-    refusal = servicer.refusal("1.14")
+    refusal = servicer.refusal("1.15")
     assert refusal is not None
-    assert "Rows" in refusal and "Ends" in refusal and "1.14" in refusal and "1.15" in refusal
-    assert servicer.refusal("1.15") is None
+    assert "Rows" in refusal and "Ends" in refusal and "1.15" in refusal and "1.16" in refusal
+    assert servicer.refusal("1.16") is None
 
 
 def test_a_service_reading_no_workflow_is_served_by_a_1_14_sidecar() -> None:
     servicer = DiscoveryServicer(Ankka.service().register(CounterEntity).register(EntityRows)._registry)
-    assert servicer.refusal("1.14") is None
+    assert servicer.refusal("1.15") is None

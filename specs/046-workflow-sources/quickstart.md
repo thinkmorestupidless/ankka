@@ -61,7 +61,7 @@ sbt 'sidecar/testOnly *ProtocolSuite *TranslateSuite'                           
 
 Expected: the seven cases in `contracts/sdk-apis.md` green against each reference;
 `discovery.lists-every-component` green, which means all four references added both components;
-`discovery.workflow-source-needs-1.15` green, which means each SDK refuses an older runtime rather
+`discovery.workflow-source-needs-1.16` green, which means each SDK refuses an older runtime rather
 than running without a standing.
 
 **Break it once**: remove the standing from the Python request decoding and

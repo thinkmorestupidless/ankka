@@ -54,7 +54,7 @@ export function olderThanDeclaredQueries(protocolVersion: string): boolean {
 
 /** Whether a sidecar speaking `protocolVersion` would ignore a topic's contract, broker and parallel reading. */
 export function olderThanWorkflowSources(protocolVersion: string): boolean {
-  return olderThan(protocolVersion, [1, 15])
+  return olderThan(protocolVersion, [1, 16])
 }
 
 export function olderThanContracts(protocolVersion: string): boolean {

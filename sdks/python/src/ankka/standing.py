@@ -1,4 +1,4 @@
-"""Where a workflow stood once the effect that recorded a state was applied (protocol 1.15).
+"""Where a workflow stood once the effect that recorded a state was applied (protocol 1.16).
 
 A view or a consumer whose source is a workflow is handed, with each state the workflow records,
 its standing: running, paused, completed or failed, the step it is on or waits after, the retries
@@ -14,7 +14,7 @@ from types import MappingProxyType
 
 from ankka._proto.ankka.protocol.v1 import payload_pb2
 
-WORKFLOW_SOURCE_PROTOCOL = (1, 15)
+WORKFLOW_SOURCE_PROTOCOL = (1, 16)
 """The protocol version whose runtimes read a workflow as a source."""
 
 

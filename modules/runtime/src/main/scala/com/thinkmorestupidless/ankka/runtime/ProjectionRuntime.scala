@@ -1186,7 +1186,12 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system), ChangeReader.remoteWorkflow)
+            () =>
+              RemoteConsumerEventHandler(
+                consumer(),
+                HistoryLines(system),
+                ChangeReader.remoteWorkflow
+              )
           )
         }
 
@@ -1573,7 +1578,14 @@ private final class ConsumerEventHandler[A](
         val eventId = lines
           .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
           .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
-        ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)
+        ProjectionSupport.applyConsumer(
+          effect,
+          subject,
+          descriptor,
+          publisher,
+          Some(context),
+          eventId
+        )
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(

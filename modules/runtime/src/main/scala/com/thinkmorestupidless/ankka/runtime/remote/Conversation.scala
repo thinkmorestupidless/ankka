@@ -132,7 +132,7 @@ final case class ViewRequest(
     row: Option[Payload],
     /** A keyed view's change: the component it came from. A keyed view is sent no row. */
     sourceId: Option[ComponentId] = None,
-    /** A change from a workflow: where it stood once the effect was applied (protocol 1.15). */
+    /** A change from a workflow: where it stood once the effect was applied (protocol 1.16). */
     standing: Option[WorkflowLifecycle] = None
 )
 
@@ -149,7 +149,7 @@ final case class ConsumerRequest(
     componentId: ComponentId,
     message: Option[Payload],
     metadata: Metadata,
-    /** A change from a workflow: where it stood once the effect was applied (protocol 1.15). */
+    /** A change from a workflow: where it stood once the effect was applied (protocol 1.16). */
     standing: Option[WorkflowLifecycle] = None
 )
 
@@ -180,7 +180,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.15"
+  val Version: String     = "1.16"
   val MetadataKey: String = "ankka.protocol"
 
 /**

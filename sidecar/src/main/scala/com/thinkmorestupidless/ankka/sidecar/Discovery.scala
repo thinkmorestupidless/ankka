@@ -333,7 +333,7 @@ object Discovery:
       case _ => ()
     }
 
-    // A workflow read as a source needs 1.15, from both ends: a runtime before it refuses the
+    // A workflow read as a source needs 1.16, from both ends: a runtime before it refuses the
     // source as having no change stream, and one at it refuses a process that says it is older.
     if minorOf(spec.protocolVersion).exists(_ < WorkflowSourcesSince) then
       def workflows(named: String, sources: Seq[RemoteSource]) =

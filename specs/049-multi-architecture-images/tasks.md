@@ -131,7 +131,7 @@ architecture; `services get` shows the same words.
 - [X] T037 [P] `just features` reports 0 findings (no feature file changes expected)
 - [ ] T038 `sbt -Dankka.cluster.tests=off buildAll` green; `git status` clean of anything the build wrote
 - [X] T039 Research "Found during implementation" and "Measurements" filled from T003, T011, T017, T018, T025; the "Verify first" list each marked done or carried
-- [ ] T040 Open the pull request against `main` after `specs-049-050` has merged (the branch carries that commit); the description names SC-001 and SC-002 as proved on the next tag and on tupile respectively
+- [x] T040 Pull request #112 opened 2026-10-12, stacked on `specs-049-050` (#111) so the diff is the implementation alone; GitHub retargets it to `main` when #111 merges. The description names SC-001 as proved on the next tag and SC-002 on tupile
 
 ---
 

@@ -1,0 +1,24 @@
+# The certificate the external listener presents: the installation's public wildcard, from its public
+# issuer, so a machine's client trusts it as it trusts the control plane's address. PUBLIC_ISSUER and
+# BASE_DOMAIN are replaced by the overlay.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-broker-external
+  namespace: ankka-broker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  secretName: ankka-broker-external-tls
+  dnsNames:
+    - "*.BASE_DOMAIN"
+  # Kafka reads a PEM key only as PKCS#8; cert-manager writes an RSA key as PKCS#1 unless asked.
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: PUBLIC_ISSUER
+    kind: ClusterIssuer
+    group: cert-manager.io

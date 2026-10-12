@@ -104,6 +104,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/deploy/images.md` — Package a Scala, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
+- `references/deploy/custom-hostnames.md` — Add a custom hostname such as app.example.com to an exposed service, prove the project controls the name with a TXT record, point the name at the installation, read where each hostname stands, and remove one again.
 - `references/deploy/web-hosting.md` — Deploy any program that serves HTTP as a web-hosted service beside your ankka services — mounts that put backends under the interface's address, calls made as the interface, who is admitted, and what a rollout means for a browser.
 - `references/deploy/scaling-and-rollouts.md` — Choose how many instances a service runs and how large each is, and understand how deploys, restarts and scaling change the running pods without refusing requests.
 - `references/deploy/ci.md` — Deploy a service from a GitHub workflow — create a deploy token, add three secrets, and use the ankka action to install and authenticate the CLI — plus the environment variables, exit codes and output formats any CI system needs.
@@ -118,6 +119,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/operate/logs.md` — Read what a deployed service printed with `ankka services logs` — from every instance or one, from the container before the last restart, limited by lines or time — and know what it does not keep.
 - `references/operate/telemetry.md` — Send every service's traces and metrics to an OpenTelemetry collector the installation names once, read one request across services as one trace, join logs to traces, and open a local platform's telemetry store.
 - `references/operate/service-lifecycle.md` — What pausing, resuming, restarting, rolling back and deleting a deployed service do to its instances, its data, its hostname and its generation, and how a suspended service differs from a paused one.
+- `references/operate/recovery.md` — See whether a project is backed up, restore a project's database to a moment into a new cluster, switch one service to it and back, and reclaim a cluster nobody uses, as a platform administrator.
 - `references/operate/troubleshooting.md` — Symptoms you are likely to meet building, running, deploying and operating ankka services, with the cause of each and what to do about it.
 
 ### Reference
@@ -128,4 +130,4 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/reference/lifecycle-states.md` — What each of a deployed service's eight lifecycle states means, what usually causes it, what to do about it, and what an unconfirmed status is.
 - `references/reference/configuration.md` — Every environment variable and configuration key a running ankka service reads, their defaults, how configuration is layered, and which variables the platform sets for you.
 - `references/reference/runtime-endpoints.md` — The ports and HTTP endpoints every running ankka service exposes besides its own routes — readiness, version and metrics on a deployed instance, and the loopback observability endpoint a local one serves the console.
-- `references/reference/error-codes.md` — The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
+- `references/reference/error-codes.md` — The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.

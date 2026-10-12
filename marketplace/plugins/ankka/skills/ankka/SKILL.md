@@ -47,7 +47,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | Port, migrate or rebuild an existing system on ankka, holding the rebuild to what the original does | `ankka-port` |
 | Write or change an event sourced or key value entity, its events, state or serializers | `ankka-entities` |
 | Project changes into a queryable table, react to changes, read or publish a broker topic | `ankka-views-consumers` |
-| A durable multi-step process, compensation, deadlines and timers | `ankka-workflows` |
+| A durable multi-step process, compensation, deadlines and timers, waiting for a workflow's end | `ankka-workflows` |
 | An agent, its tools, guardrails, session memory, model, streaming, or several agents together | `ankka-agents` |
 | An HTTP endpoint, its routes, ACL, errors and server-sent events | `ankka-endpoints` |
 | A service in Python beside the sidecar | `ankka-python` |
@@ -97,6 +97,6 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/reference/python-sdk.md` — A compact map of the Python SDK — installing it, and for every component kind its base class, class attributes, decorators, effect builders and testkit — plus the SDK's own development commands.
 - `references/reference/typescript-sdk.md` — A compact map of the TypeScript SDK — installing it, the shapes and codecs, and for every component kind its base class, statics, declaration functions, effect builders and testkit — plus the SDK's own development commands.
 - `references/reference/rust-sdk.md` — A compact map of the Rust crate — installing it, the codec and time types, and for every component kind its trait, declarations, effect builders and testkit — plus the guest shapes, running a module and the crate's own commands.
-- `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
+- `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views and their streams and watches, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 - `references/reference/limitations.md` — What ankka does not do yet, stated plainly and grouped — the platform, networking and security, observability, components, and SDKs and releases — so you can plan around a gap before you reach it.
 - `references/reference/glossary.md` — One or two sentences on every term ankka's documentation uses, from ACL to workflow, each with its own anchor so any page can link to the definition.

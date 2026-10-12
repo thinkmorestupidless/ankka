@@ -11,9 +11,10 @@ related: [build/agents.md, build/http-endpoints.md, build/component-client.md]
 
 An agent handler can stream its reply: the caller receives the model's text as it is generated rather
 than waiting for the whole answer. Streaming is declared on the handler, consumed through the component
-client, and served over HTTP as server-sent events (SSE). Only agents stream. An entity or a workflow
-refuses a streaming call rather than ignoring it, because a caller waiting for tokens that never come
-would wait forever.
+client, and served over HTTP as server-sent events (SSE). Agents stream their replies; a view streams its
+rows and keeps a watched query open, which [Views](views.md#streaming-a-query) describes. An entity or a
+workflow refuses a streaming call rather than ignoring it, because a caller waiting for tokens that never
+come would wait forever.
 
 ## Declaring a streaming handler
 

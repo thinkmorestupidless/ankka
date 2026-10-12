@@ -2,9 +2,9 @@ Feature: Restoring a project to a moment and switching a service to it
   An owner restores a project to a moment inside its retention window. The restore is a new project
   database beside the current one, made from the latest base backup before the moment and the
   archive up to it; the current project database is not changed. The platform checks the restore and
-  reports it per service. Only a switch moves a service onto it, one service at a time, at the
-  service's next rolling update; the project database a service leaves is kept, and switching back
-  is the same action. A restore is not a roll back: a roll back runs an earlier descriptor against
+  reports it per service. Only a switch moves a service onto it, one service at a time, by a rolling
+  update the switch starts; the project database a service leaves is kept, and switching back is
+  the same action. A restore is not a roll back: a roll back runs an earlier descriptor against
   the data there is, a restore runs the descriptor there is against earlier data.
 
   Background:
@@ -39,7 +39,8 @@ Feature: Restoring a project to a moment and switching a service to it
   Scenario: switching one service to a restore moves that service and no other, and is recorded
     Given a completed restore of "shop"
     When the owner switches "rewards" to the restore
-    Then "rewards" is on the restore after its next rolling update
+    Then the switch starts a rolling update of "rewards"
+    And "rewards" is on the restore when that rolling update completes
     And "wallet" is on the project database it was on
     And the history of "shop" shows the switch of "rewards" by the owner
     And the project database "rewards" left is kept and listed on "shop"
@@ -48,7 +49,7 @@ Feature: Restoring a project to a moment and switching a service to it
     Given "rewards" switched to a restore of "shop"
     And the project database "rewards" left holds an event "rewards" recorded before the switch
     When the owner switches "rewards" back to the project database it left
-    Then "rewards" is on that project database after its next rolling update
+    Then "rewards" is on that project database when the rolling update the switch starts completes
     And "rewards" still holds the event
 
   Scenario Outline: a member who is not an owner can neither restore nor switch

@@ -1,0 +1,114 @@
+# Every hour: allow the copy's own read-only key on every bucket, `rclone sync` each to the
+# secondary store, and write what happened. A failure is written too, so the status and the metric
+# say a copy is failing rather than going quiet.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: garage-copy
+  namespace: garage-system
+  labels:
+    app.kubernetes.io/name: garage-copy
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: garage-copy
+        spec:
+          restartPolicy: Never
+          serviceAccountName: garage-copy
+          volumes:
+            - name: result
+              emptyDir: {}
+          initContainers:
+            - name: copy
+              image: rclone/rclone:1.68.2
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: TOKEN
+                  valueFrom: { secretKeyRef: { name: garage-secrets, key: admin-token } }
+                - name: ADMIN
+                  value: http://garage.garage-system.svc:3903
+                - name: RCLONE_CONFIG_GARAGE_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_GARAGE_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_GARAGE_ENDPOINT
+                  value: http://garage.garage-system.svc:3900
+                - name: RCLONE_CONFIG_GARAGE_REGION
+                  value: garage
+                - name: RCLONE_CONFIG_GARAGE_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: garage-copy-key, key: ACCESS_KEY_ID } }
+                - name: RCLONE_CONFIG_GARAGE_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: garage-copy-key, key: SECRET_ACCESS_KEY } }
+                - name: RCLONE_CONFIG_SECONDARY_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_SECONDARY_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_SECONDARY_ENDPOINT
+                  valueFrom: { secretKeyRef: { name: garage-secondary, key: ENDPOINT } }
+                - name: RCLONE_CONFIG_SECONDARY_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: garage-secondary, key: ACCESS_KEY_ID } }
+                - name: RCLONE_CONFIG_SECONDARY_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: garage-secondary, key: SECRET_ACCESS_KEY } }
+                - name: RCLONE_CONFIG_SECONDARY_REGION
+                  valueFrom: { secretKeyRef: { name: garage-secondary, key: REGION } }
+              volumeMounts:
+                - { name: result, mountPath: /result }
+              command:
+                - sh
+                - -c
+                - |
+                  out=/result/status
+                  fail() { echo "lastFailed=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > $out; echo "failure=$1" >> $out; exit 0; }
+                  # Tried three times: a node that replaced a lost one answers about one request in
+                  # three with 500 "Layout not ready" until it has a role.
+                  api() {
+                    for try in 1 2 3; do
+                      wget -q -O - --header "Authorization: Bearer $TOKEN" "$@" && return 0
+                      sleep 5
+                    done
+                    return 1
+                  }
+                  # The copy's own key, from its Secret: imported when Garage does not hold it yet. An
+                  # import refused because the key is there (409) is the key being there.
+                  id="$RCLONE_CONFIG_GARAGE_ACCESS_KEY_ID"
+                  has_key() { api "$ADMIN/v2/GetKeyInfo?id=$id" >/dev/null 2>&1; }
+                  if ! has_key; then
+                    api --post-data "{\"accessKeyId\":\"$id\",\"secretAccessKey\":\"$RCLONE_CONFIG_GARAGE_SECRET_ACCESS_KEY\",\"name\":\"garage-copy\"}" \
+                      "$ADMIN/v2/ImportKey" >/dev/null 2>&1 || has_key || fail "the copy's key could not be imported"
+                  fi
+                  buckets=$(api "$ADMIN/v2/ListBuckets" | tr -d '\n' | grep -o '"globalAliases": *\[ *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/') \
+                    || fail "the buckets could not be listed"
+                  copied=0; deleted=0
+                  for b in $buckets; do
+                    bucket=$(api "$ADMIN/v2/GetBucketInfo?globalAlias=$b" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
+                    api --post-data "{\"bucketId\":\"$bucket\",\"accessKeyId\":\"$id\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" \
+                      "$ADMIN/v2/AllowBucketKey" >/dev/null || fail "the copy could not be allowed to read $b"
+                    log=$(rclone sync "garage:$b" "secondary:$b" -v 2>&1) || fail "the copy of $b failed: $(echo "$log" | tail -1)"
+                    deleted=$((deleted + $(echo "$log" | grep -c ': Deleted' || true)))
+                    copied=$((copied + 1))
+                  done
+                  { echo "lastCompleted=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "buckets=$copied"; echo "deletedObjects=$deleted"; echo "failure="; } > $out
+          containers:
+            - name: status
+              image: curlimages/curl:8.11.0
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - { name: result, mountPath: /result }
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  body=$(sed 's/"/\\"/g; s/^\([^=]*\)=\(.*\)$/"\1":"\2"/' /result/status | paste -sd, -)
+                  curl -sS --fail \
+                    --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+                    -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+                    -H "Content-Type: application/merge-patch+json" \
+                    -X PATCH --data "{\"data\":{$body}}" \
+                    https://kubernetes.default.svc/api/v1/namespaces/garage-system/configmaps/garage-copy-status

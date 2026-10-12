@@ -357,6 +357,7 @@ pub struct ViewTestKit<C: View> {
     registration: Box<dyn Registered>,
     rows: HashMap<String, Payload>,
     sequence: i64,
+    standing: Option<crate::standing::Standing>,
     marker: std::marker::PhantomData<C>,
 }
 
@@ -367,12 +368,20 @@ impl<C: View> Default for ViewTestKit<C> {
 }
 
 impl<C: View> ViewTestKit<C> {
+    /// The changes it is handed come from a workflow that stood here once the effect that recorded
+    /// them was applied.
+    pub fn standing(mut self, standing: crate::standing::Standing) -> ViewTestKit<C> {
+        self.standing = Some(standing);
+        self
+    }
+
     /// No rows.
     pub fn new() -> ViewTestKit<C> {
         ViewTestKit {
             registration: <C as ComponentOf<kinds::View>>::registration(),
             rows: HashMap::new(),
             sequence: 0,
+            standing: None,
             marker: std::marker::PhantomData,
         }
     }
@@ -389,6 +398,10 @@ impl<C: View> ViewTestKit<C> {
             metadata: Some(metadata.to_proto()),
             row: self.rows.get(key).cloned(),
             source_id: None,
+            standing: self
+                .standing
+                .as_ref()
+                .map(crate::standing::Standing::to_proto),
         };
         let effect = self.registration.view(request).expect("a view answers");
         use proto::view_effect::Effect;
@@ -513,6 +526,7 @@ pub struct KeyedViewTestKit<C: KeyedView> {
     rows: Rc<RefCell<BTreeMap<String, Payload>>>,
     answers: Rc<RefCell<HashMap<String, Answer<C::Row>>>>,
     sequence: i64,
+    standing: Option<crate::standing::Standing>,
 }
 
 impl<C: KeyedView> Default for KeyedViewTestKit<C> {
@@ -522,6 +536,13 @@ impl<C: KeyedView> Default for KeyedViewTestKit<C> {
 }
 
 impl<C: KeyedView> KeyedViewTestKit<C> {
+    /// The changes it is handed come from a workflow that stood here once the effect that recorded
+    /// them was applied.
+    pub fn standing(mut self, standing: crate::standing::Standing) -> KeyedViewTestKit<C> {
+        self.standing = Some(standing);
+        self
+    }
+
     /// No rows.
     ///
     /// # Panics
@@ -536,6 +557,7 @@ impl<C: KeyedView> KeyedViewTestKit<C> {
             rows: Rc::default(),
             answers: Rc::default(),
             sequence: 0,
+            standing: None,
         }
     }
 
@@ -566,6 +588,10 @@ impl<C: KeyedView> KeyedViewTestKit<C> {
             metadata: Some(metadata.to_proto()),
             row: None,
             source_id: Some(source_id.to_string()),
+            standing: self
+                .standing
+                .as_ref()
+                .map(crate::standing::Standing::to_proto),
         };
         let host = KeyedRows::<C> {
             rows: self.rows.clone(),
@@ -679,6 +705,7 @@ pub struct ConsumerTestKit<C: Consumer> {
     runtime: Option<Rc<InMemory>>,
     sequence: Option<i64>,
     protocol: Option<String>,
+    standing: Option<crate::standing::Standing>,
     marker: std::marker::PhantomData<C>,
 }
 
@@ -696,6 +723,7 @@ impl<C: Consumer> ConsumerTestKit<C> {
             runtime: None,
             sequence: None,
             protocol: Some(PROTOCOL_VERSION.to_string()),
+            standing: None,
             marker: std::marker::PhantomData,
         }
     }
@@ -713,6 +741,13 @@ impl<C: Consumer> ConsumerTestKit<C> {
         self
     }
 
+    /// The changes it is handed come from a workflow that stood here once the effect that recorded
+    /// them was applied.
+    pub fn standing(mut self, standing: crate::standing::Standing) -> ConsumerTestKit<C> {
+        self.standing = Some(standing);
+        self
+    }
+
     /// The runtime it is answering speaks this protocol version (`ankka.protocol`) — this
     /// library's own unless said otherwise — or, with `None`, is one from before runtimes said.
     pub fn speaking(mut self, protocol: Option<&str>) -> ConsumerTestKit<C> {
@@ -727,6 +762,10 @@ impl<C: Consumer> ConsumerTestKit<C> {
             deleted: message.is_none(),
             message,
             metadata: Some(metadata.to_proto()),
+            standing: self
+                .standing
+                .as_ref()
+                .map(crate::standing::Standing::to_proto),
         };
         let registration = &self.registration;
         let effect =
@@ -813,6 +852,7 @@ impl<G: GraphConsumer> GraphConsumerTestKit<G> {
             deleted: message.is_none(),
             message,
             metadata: Some(metadata.to_proto()),
+            standing: None,
         };
         let registration = &self.registration;
         let effect = hosted(&self.runtime, || registration.consumer(request))

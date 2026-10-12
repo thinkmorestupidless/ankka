@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.grpc
 
-import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients}
+import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, Grants, GrantsFile}
 import com.thinkmorestupidless.ankka.runtime.{
   DeclaredGrpc,
   Observability,
@@ -43,7 +43,8 @@ final class GrpcServer private (
     interface: Option[String],
     port: Option[Int],
     tlsDirectory: Option[Path] = None,
-    reflection: Option[Acl] = None
+    reflection: Option[Acl] = None,
+    configuredGrants: Option[Grants] = None
 ) extends RuntimeExtension:
 
   /**
@@ -51,7 +52,14 @@ final class GrpcServer private (
    * suite that needs a caller read from a real certificate without a cluster.
    */
   private[ankka] def withTls(directory: Path): GrpcServer =
-    new GrpcServer(factories, interface, port, Some(directory), reflection)
+    new GrpcServer(factories, interface, port, Some(directory), reflection, configuredGrants)
+
+  /**
+   * The grants `Callers.granted` reads, in place of the file a deployed service is given (feature
+   * 040), as on the HTTP server.
+   */
+  def withGrants(grants: Grants): GrpcServer =
+    new GrpcServer(factories, interface, port, tlsDirectory, reflection, Some(grants))
 
   /**
    * Answers the standard reflection service — v1 and the v1alpha tools fall back to — so a tool
@@ -62,7 +70,7 @@ final class GrpcServer private (
    * admits, whatever that endpoint's own ACL. It changes nothing about who may call them.
    */
   def withReflection(acl: Acl): GrpcServer =
-    new GrpcServer(factories, interface, port, tlsDirectory, Some(acl))
+    new GrpcServer(factories, interface, port, tlsDirectory, Some(acl), configuredGrants)
 
   private val log = LoggerFactory.getLogger(classOf[GrpcServer])
 
@@ -99,8 +107,18 @@ final class GrpcServer private (
       )
     grace = duration(config, "ankka.grpc.shutdown-grace")
 
-    val tls       = serviceTls(config)
-    val admission = tls.fold(Admission.local)(Admission.under)
+    val tls  = serviceTls(config)
+    val bare = tls.fold(Admission.local)(Admission.under)
+    val grants = configuredGrants
+      .orElse(GrantsFile.fromConfig(config, bare.self.service))
+      .getOrElse(Grants.none)
+    // A machine's token is read only under TLS, where the gateway's certificate says the call came
+    // from outside (feature 040).
+    val machines = tls.flatMap(t =>
+      com.thinkmorestupidless.ankka.http.MachineTokens.fromConfig(config, Some(t.directory))
+    )
+    machines.foreach(_.start())
+    val admission = bare.withGrants(grants).withMachines(machines)
     val credentials: ServerCredentials = tls match
       case None           => InsecureServerCredentials.create()
       case Some(identity) =>
@@ -153,7 +171,13 @@ final class GrpcServer private (
       // and for the topology, which draws an endpoint per service definition with its methods.
       val id = ServedRoute.endpointId(endpoint.service.getName)
       endpoint.methods.map { method =>
-        ServedRoute("GRPC", method.fullName, streaming = method.kind != MethodKind.Unary, id)
+        ServedRoute(
+          "GRPC",
+          method.fullName,
+          streaming = method.kind != MethodKind.Unary,
+          id,
+          grantable = Acl.namesGranted(method.acl.getOrElse(endpoint.acl))
+        )
       }
     }
 

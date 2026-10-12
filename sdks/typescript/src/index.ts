@@ -66,9 +66,9 @@ export {
 } from "./autonomous.ts"
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
-export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
+export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
-export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, Secrets, InMemorySecrets, noSecrets, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
+export { ComponentClient, Calls, TypedCalls, Invocation, AwaitingInvocation, AWAIT_SINCE, awaitPartJson, Views, Timers, Secrets, InMemorySecrets, noSecrets, WatchEnded, VIEW_STREAMS_SINCE, type AwaitPart, type WatchEvent, type WatchOptions, type Overflow, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
 export {
   Services, ServiceClient, ScriptedServices, noServices,
   ServiceError, ServiceUnresolvable, ServiceIdentityMismatch, ServiceUnanswered, ServiceCallFailed,
@@ -83,6 +83,7 @@ export { Server, type ServerOptions } from "./server/server.ts"
 export { problems as sidecarProblems } from "./server/discovery.ts"
 export { PROTOCOL_VERSION, SDK_NAME } from "./spec.ts"
 export { StartFrom } from "./startFrom.ts"
+export { isTerminal, isUnknown, type Standing, type StandingStatus } from "./standing.ts"
 export {
   materialiseEventSourced, materialiseKeyValue, materialiseWorkflowCommand, materialiseStep,
   type Materialised, type MaterialisedKeyValue, type MaterialisedWorkflowCommand, type MaterialisedStep,

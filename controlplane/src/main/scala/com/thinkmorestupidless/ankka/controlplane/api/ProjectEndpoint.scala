@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{
   ProjectEntity,
   ProjectRows,
+  ServiceEntity,
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
@@ -11,6 +12,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   ProjectSchemaStore,
   ProjectSecretWriter,
   ProjectTopicsReader,
+  DeployConfig,
   RegistryWriter,
   TopologyReader
 }
@@ -18,18 +20,22 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   ConfigureRegistry,
   DeclareBroker,
   DeclareTopic,
+  MakeGrant,
   RemoveBroker,
   RemoveSecretEntry,
   RemoveTopic,
+  ServiceKey,
   SetSecretEntries
 }
-import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
+import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationUsage, TopicPolicy}
 import com.thinkmorestupidless.ankka.core.{CommandError, Contract, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.core.graph.GraphJson
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
 
 import java.nio.charset.StandardCharsets.UTF_8
 import com.thinkmorestupidless.ankka.http.*
+// The grant's target as the control plane holds it, not the http module's runtime value.
+import com.thinkmorestupidless.ankka.controlplane.api.GrantTarget
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 
@@ -65,14 +71,52 @@ final class ProjectEndpoint(
       None,
     /** The store the installation makes new buckets in (feature 039). */
     objectStore: com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind =
-      com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind.Garage
+      com.thinkmorestupidless.ankka.controlplane.deploy.ObjectStoreKind.Garage,
+    /** The installation's backups (feature 041): what a project's status says without a target. */
+    backups: => com.thinkmorestupidless.ankka.controlplane.BackupConfig =
+      com.thinkmorestupidless.ankka.controlplane.BackupConfig.default,
+    /**
+     * Where a restore's services are asked what the broker holds past its moment (feature 041);
+     * `None` asks their instances over the observe port.
+     */
+    divergence: Option[com.thinkmorestupidless.ankka.controlplane.deploy.DivergenceReader] = None,
+    /**
+     * Where the installation's copy to its secondary store is read (feature 041); the projector.
+     */
+    platform: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PlatformBackupsReader] =
+      None,
+    /** Where a project's rehearsal namespace is made (feature 041); the projector. */
+    rehearsalNamespaces: Option[
+      com.thinkmorestupidless.ankka.controlplane.deploy.RehearsalNamespaces
+    ] = None,
+    /**
+     * Whether the installation exposes its broker outside the cluster (feature 040): a machine's
+     * topic grant opens nothing until it does.
+     */
+    brokerExposed: Boolean = false,
+    /**
+     * The installation's topic defaults and bounds (feature 043), asked for on each request: the
+     * control plane reads them once at start, and a suite may vary them between scenarios.
+     */
+    policy: => TopicPolicy = TopicPolicy.default
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)
-  private val authz    = Authorization(clients, clock)
-  private val usage    = OrganizationUsage(clients)
+
+  /**
+   * What a grant's effect is read from (feature 040): the scripted reader a suite hands in, else
+   * the instances themselves — built only when a grant names a service with a ready instance.
+   */
+  private lazy val grantTopology: TopologyReader =
+    topology.getOrElse(
+      com.thinkmorestupidless.ankka.controlplane.deploy
+        .InstanceTopologies(DeployConfig.default.namespacePrefix)
+    )
+  private val authz                    = Authorization(clients, clock)
+  private val usage                    = OrganizationUsage(clients)
+  private def topicPolicy: TopicPolicy = policy
 
   /**
    * `GET /projects?organization=acme` — the filter is optional, and one outside the caller's
@@ -246,15 +290,58 @@ final class ProjectEndpoint(
   }
 
   /**
-   * Declares a topic on the project, or raises its partitions (feature 027). The record first, here
-   * the reverse of a secret's order: a declaration is desired state, which `ProjectTopicsTrigger`
-   * writes to the cluster after it, retrying until the cluster has it.
+   * Declares a topic on the project, or raises its partitions (feature 027), or changes its
+   * settings (feature 043). The record first, here the reverse of a secret's order: a declaration
+   * is desired state, which `ProjectTopicsTrigger` writes to the cluster after it, retrying until
+   * the cluster has it.
+   *
+   * A first declaration takes every setting it leaves out from the installation's defaults; a
+   * redeclaration keeps them. A change that removes messages is an owner's, and its request must
+   * say what it removes in this endpoint's own words, so a client that worked from a stale listing
+   * acknowledges the wrong thing and is refused. Both checks are here, not the entity's: a role is
+   * the organization's, and the removal is worked out against the record the request changes.
    */
   putBody("/{projectId}/topics/{name}") {
     (projectId: String, name: String, request: TopicDeclarationRequest) =>
       val access   = authz.project(principal, projectId, write = true)
       val problems = ProjectTopics.problems(name, request)
       if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      val asked = TopicSettingsRules
+        .parse(name, request)
+        .fold(p => throw CommandError(p.mkString("; "), ErrorCode.BadRequest), identity)
+      val outside = TopicSettingsRules.bounded(name, asked, topicPolicy.bounds)
+      if outside.nonEmpty then throw CommandError(outside.mkString("; "), ErrorCode.BadRequest)
+      val current = entity(projectId).call(ProjectEntity.topics).invoke().get(name)
+      val filled = current match
+        case None =>
+          if request.partitions.isEmpty then
+            throw CommandError(
+              s"topic '$name': ${TopicSettingsRules.PartitionsRequired}",
+              ErrorCode.BadRequest
+            )
+          TopicSettingsRules.fill(asked, topicPolicy.defaults)
+        case Some(topic) =>
+          val held =
+            topic.filled.getOrElse(TopicSettingsRules.legacy(topic.compacted, topicPolicy.defaults))
+          TopicSettingsRules
+            .merge(asked, held)
+            .fold(rule => throw CommandError(s"topic '$name': $rule", ErrorCode.Conflict), identity)
+      val coherence = TopicSettingsRules.coherent(name, filled.settings)
+      if coherence.nonEmpty then throw CommandError(coherence.mkString("; "), ErrorCode.BadRequest)
+      val removal =
+        current.flatMap(_.settings).flatMap(TopicSettingsRules.removal(_, filled.settings))
+      (removal, request.removes) match
+        case (None, Some(_)) =>
+          throw CommandError(
+            s"topic '$name': ${TopicSettingsRules.RemovesNothing}",
+            ErrorCode.BadRequest
+          )
+        case (Some(removes), acknowledged) =>
+          if access.role != Role.Owner && !access.actor.administrative then
+            throw CommandError(TopicSettingsRules.ownerRequired(removes), ErrorCode.Forbidden)
+          if !acknowledged.map(_.trim).contains(removes) then
+            throw CommandError(TopicSettingsRules.unacknowledged(removes), ErrorCode.BadRequest)
+        case (None, None) => ()
       // The schema first, into the project's store, then the record (feature 037): a failure after
       // the write leaves an unused document, never a declaration without its schema.
       val contract = request.contract.map { declared =>
@@ -274,7 +361,16 @@ final class ProjectEndpoint(
       entity(projectId)
         .call(ProjectEntity.declareTopic)
         .withMetadata(authz.metadata(access))
-        .invoke(DeclareTopic(name, request.partitions, request.compacted, contract)): Done
+        .invoke(
+          DeclareTopic(
+            name,
+            request.partitions,
+            filled.settings.compacted,
+            contract,
+            Some(filled.settings),
+            Setting.values.toVector.filter(filled.defaulted)
+          )
+        ): Done
   }
 
   /** The schema a topic's contract was declared with, as a member fetches it to build against. */
@@ -347,19 +443,309 @@ final class ProjectEndpoint(
             )
           catch case NonFatal(_) => Map.empty
         }
+    val brokerNodes =
+      topicsReader.flatMap(reader =>
+        try reader.topicStatus(projectId).flatMap(_.brokerNodes)
+        catch case NonFatal(_) => None
+      )
     declared.toVector.sortBy(_._1).map { (name, topic) =>
       val status = reported.get(name)
+      val held   = status.flatMap(_.replicas)
       ProjectTopic(
         name,
         topic.partitions,
         status.map(s => ProjectEndpoint.topicPhrase(s.phase)),
-        status.flatMap(_.detail),
-        topic.compacted,
+        (status.flatMap(_.detail).toVector ++
+          ProjectEndpoint.copiesNotes(topic.settings, held, topicPolicy.defaults.copies))
+          .reduceOption(_ + "; " + _),
+        topic.settings.fold(topic.compacted)(_.compacted),
         topic.contract,
-        checks.getOrElse(name, Vector.empty)
+        checks.getOrElse(name, Vector.empty),
+        topic.settings.map(_.view(topic.defaulted)),
+        held,
+        brokerNodes
       )
     }
   }
+
+  /**
+   * The project's backups and database (feature 041): whether it is backed up, each line of
+   * history's last base backup, how far back and how recently it can be restored, the archive's lag
+   * and why it is failing; the project database's instances. Read live from what the operator last
+   * reported; a cluster that cannot be read answers as one that has not reported.
+   */
+  get("/{projectId}/status") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    com.thinkmorestupidless.ankka.controlplane.BackupViews.project(
+      projectId,
+      reportedOf(projectId),
+      backups,
+      entity(projectId).call(ProjectEntity.restores).invoke(),
+      entity(projectId).call(ProjectEntity.rehearsals).invoke(),
+      copy = platform.flatMap(reader =>
+        try com.thinkmorestupidless.ankka.controlplane.BackupViews.secondary(reader.copyStatus())
+        catch case NonFatal(_) => None
+      )
+    )
+  }
+
+  /**
+   * Rehearses a restore (feature 041): any member's to ask, since it changes nothing of the
+   * project. The project's rehearsal namespace, and the one grant there that lets the operator
+   * remove the rehearsal's database, are written to the cluster before the rehearsal is recorded,
+   * so a rehearsal the project records is one the operator can finish. The moment is the latest the
+   * project can be restored to unless one is given, and must be inside the line's window.
+   */
+  postBody("/{projectId}/rehearsals") {
+    (projectId: String, request: com.thinkmorestupidless.ankka.controlplane.api.RehearsalRequest) =>
+      val access = authz.project(principal, projectId, write = true)
+      if !backups.enabled then
+        throw CommandError(
+          "the installation has no backup target, so there is nothing to rehearse a restore from",
+          ErrorCode.BadRequest
+        )
+      val lines = reportedOf(projectId).flatMap(_.backups).toVector.flatMap(_.lines)
+      val named = request.line.getOrElse(com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase)
+      val line = lines
+        .find(_.line == named)
+        .getOrElse(
+          throw CommandError(
+            s"$projectId has no backups of '$named' to rehearse from yet",
+            ErrorCode.Conflict
+          )
+        )
+      def instant(text: Option[String]) =
+        text.flatMap(t => scala.util.Try(java.time.Instant.parse(t)).toOption)
+      val earliest = instant(line.firstRestorable)
+      val latest   = instant(line.lastRestorable)
+      val moment = request.moment
+        .orElse(latest)
+        .getOrElse(
+          throw CommandError(s"$projectId cannot be restored to any moment yet", ErrorCode.Conflict)
+        )
+      if earliest.forall(moment.isBefore) || latest.forall(moment.isAfter) then
+        throw CommandError(
+          s"$projectId can be restored between ${earliest.fold("no moment yet")(_.toString)} and " +
+            s"${latest.fold("no moment yet")(_.toString)}",
+          ErrorCode.BadRequest
+        )
+      val writer = rehearsalNamespaces.getOrElse(
+        throw CommandError("the control plane has no cluster to rehearse in", ErrorCode.Unavailable)
+      )
+      try writer.ensureRehearsalNamespace(projectId)
+      catch
+        case NonFatal(failure) =>
+          throw CommandError(
+            s"the cluster refused the rehearsal namespace: ${failure.getMessage}",
+            ErrorCode.Unavailable
+          )
+      val name = com.thinkmorestupidless.ankka.crd.Recovery.rehearsalName(clock.instant())
+      entity(projectId)
+        .call(ProjectEntity.requestRehearsal)
+        .withMetadata(authz.metadata(access))
+        .invoke(
+          com.thinkmorestupidless.ankka.controlplane.domain
+            .RequestRehearsal(name, line.line, moment)
+        ): Unit
+      com.thinkmorestupidless.ankka.controlplane.api.RehearsalView(
+        name,
+        line.line,
+        moment,
+        "Running",
+        requestedAt = Some(clock.instant())
+      )
+  }
+
+  /**
+   * Issues the project's backup credential again (FR-003a): the operator mints a new key, writes it
+   * where the archiver reads it, and deletes the old one, so a leaked key stops working. Owners
+   * only.
+   */
+  post("/{projectId}/backups/credential") { (projectId: String) =>
+    val access = authz.projectOwner(principal, projectId)
+    if !backups.enabled then
+      throw CommandError(
+        "the installation has no backup target, so no backup credential",
+        ErrorCode.BadRequest
+      )
+    val generation = entity(projectId)
+      .call(ProjectEntity.reissueBackupCredential)
+      .withMetadata(authz.metadata(access))
+      .invoke(com.thinkmorestupidless.ankka.controlplane.domain.ReissueBackupCredential())
+    com.thinkmorestupidless.ankka.controlplane.api.CredentialReissued(projectId, generation)
+  }
+
+  /** The project's rehearsals, oldest first: who asked, when, the moment, how each ended. */
+  get("/{projectId}/rehearsals") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    com.thinkmorestupidless.ankka.controlplane.BackupViews.rehearsalViews(
+      entity(projectId).call(ProjectEntity.rehearsals).invoke(),
+      reportedOf(projectId)
+    )
+  }
+
+  /**
+   * Restores the project's database to a moment (feature 041): a new cluster beside the current
+   * one, made from the line's latest base backup before the moment and its archive up to it. Owners
+   * only. The moment must be inside the line's window as the operator last reported it, and with
+   * the project's services on more than one cluster the request names the line.
+   */
+  postBody("/{projectId}/restores") { (projectId: String, request: RestoreRequest) =>
+    val access = authz.projectOwner(principal, projectId)
+    if !backups.enabled then
+      throw CommandError(
+        "the installation has no backup target, so there is nothing to restore from",
+        ErrorCode.BadRequest
+      )
+    val lines = reportedOf(projectId).flatMap(_.backups).toVector.flatMap(_.lines)
+    val line = request.line match
+      case Some(named) =>
+        lines
+          .find(_.line == named)
+          .getOrElse(
+            throw CommandError(
+              s"$projectId has no line of history '$named'; it has " +
+                lines.map(_.line).mkString(", "),
+              ErrorCode.BadRequest
+            )
+          )
+      case None =>
+        lines match
+          case Vector(only) => only
+          case Vector() =>
+            throw CommandError(s"$projectId has no backups to restore from yet", ErrorCode.Conflict)
+          case many =>
+            throw CommandError(
+              s"name the line: $projectId's services are on ${many.map(_.cluster).mkString(" and ")}",
+              ErrorCode.BadRequest
+            )
+    def instant(text: Option[String]) =
+      text.flatMap(t => scala.util.Try(java.time.Instant.parse(t)).toOption)
+    val earliest = instant(line.firstRestorable)
+    val latest   = instant(line.lastRestorable)
+    if earliest.forall(request.moment.isBefore) || latest.forall(request.moment.isAfter) then
+      throw CommandError(
+        s"$projectId can be restored between ${earliest.fold("no moment yet")(_.toString)} and " +
+          s"${latest.fold("no moment yet")(_.toString)}",
+        ErrorCode.BadRequest
+      )
+    val name = com.thinkmorestupidless.ankka.crd.Recovery.restoreName(clock.instant())
+    entity(projectId)
+      .call(ProjectEntity.requestRestore)
+      .withMetadata(authz.metadata(access))
+      .invoke(
+        com.thinkmorestupidless.ankka.controlplane.domain
+          .RequestRestore(name, line.line, request.moment)
+      ): Unit
+    RestoreView(name, line.line, request.moment, "Restoring", requestedAt = Some(clock.instant()))
+  }
+
+  /** The project's restores, oldest first, each with how far it has got. */
+  get("/{projectId}/restores") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    com.thinkmorestupidless.ankka.controlplane.BackupViews.restoreViews(
+      entity(projectId).call(ProjectEntity.restores).invoke(),
+      reportedOf(projectId)
+    )
+  }
+
+  private lazy val divergenceReader = divergence.getOrElse(
+    com.thinkmorestupidless.ankka.controlplane.deploy.DivergenceReader
+      .observePort(
+        com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig.default.namespacePrefix
+      )
+  )
+
+  /**
+   * One restore, with what each service's database holds once it is verified, and what the broker
+   * holds past its moment, asked of those services as it is read: the broker is never restored, and
+   * what it holds keeps growing after the restore, so a number kept from the moment of verifying
+   * would be out of date when read.
+   */
+  get("/{projectId}/restores/{name}") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    val view = com.thinkmorestupidless.ankka.controlplane.BackupViews
+      .restoreViews(entity(projectId).call(ProjectEntity.restores).invoke(), reportedOf(projectId))
+      .find(_.name == name)
+      .getOrElse(throw CommandError(s"$projectId has no restore named $name", ErrorCode.NotFound))
+    if view.phase != "Verified" && view.phase != "InUse" then view
+    else
+      val asked = view.services
+        .filter(_.present)
+        .map(v => v.name -> divergenceReader.since(projectId, v.name, view.moment))
+      view.copy(
+        broker = com.thinkmorestupidless.ankka.controlplane.deploy.DivergenceReader.merge(
+          asked.collect { case (service, Right(entries)) => service -> entries }
+        ),
+        notAsked = asked.collect { case (service, Left(_)) => service },
+        note = Some(com.thinkmorestupidless.ankka.controlplane.api.BackupPhrases.Republished)
+      )
+  }
+
+  /** What the project asks of its database (feature 041); the defaults when it asked nothing. */
+  get("/{projectId}/database") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    entity(projectId).call(ProjectEntity.database).invoke()
+  }
+
+  /**
+   * Sets what the project asks of its database, whole: replicas, whether a write waits for one, how
+   * long backups are kept (never below the installation's floor) and how often a restore is
+   * rehearsed. A member's, as a service's descriptor is; the operator renders it.
+   */
+  putBody("/{projectId}/database") {
+    (projectId: String, setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting) =>
+      val access   = authz.project(principal, projectId, write = true)
+      val problems = setting.problems(backups.retentionDays)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      // A schedule needs somewhere to rehearse, and only the control plane makes namespaces: the
+      // cluster first, then the record, as for a rehearsal asked for by hand.
+      if setting.rehearse.isDefined then
+        val writer = rehearsalNamespaces.getOrElse(
+          throw CommandError(
+            "the control plane has no cluster to rehearse in",
+            ErrorCode.Unavailable
+          )
+        )
+        try writer.ensureRehearsalNamespace(projectId)
+        catch
+          case NonFatal(failure) =>
+            throw CommandError(
+              s"the cluster refused the rehearsal namespace: ${failure.getMessage}",
+              ErrorCode.Unavailable
+            )
+      entity(projectId)
+        .call(ProjectEntity.setDatabase)
+        .withMetadata(authz.metadata(access))
+        .invoke(com.thinkmorestupidless.ankka.controlplane.domain.SetDatabase(setting)): Unit
+      setting
+  }
+
+  /** Who did what to the project's database and its topics, newest first. */
+  get("/{projectId}/history") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    entity(projectId)
+      .call(ProjectEntity.history)
+      .invoke()
+      .reverse
+      .map(e =>
+        ProjectHistoryView(
+          e.kind,
+          e.actor.flatMap(a => a.display.orElse(Some(a.subject))),
+          e.at,
+          e.detail,
+          e.topic,
+          e.changes
+        )
+      )
+  }
+
+  /** What the operator last reported of the project; nothing when the cluster cannot be read. */
+  private def reportedOf(projectId: String) =
+    topicsReader.flatMap(reader =>
+      try reader.topicStatus(projectId)
+      catch case NonFatal(_) => None
+    )
 
   /**
    * Declares a broker on the project (feature 037), or changes where it is. The record alone: the
@@ -480,6 +866,116 @@ final class ProjectEndpoint(
     )
   }
 
+  // ── grants (feature 040) ──────────────────────────────────────────────────
+
+  /**
+   * Makes a grant. Only an owner of the project's organization may. The checks that read other
+   * entities are here: the grantee's project must exist, and the grantee's organization decides
+   * whether the grant waits for an answer — a grantee of this project's own organization takes
+   * effect at once, any other is pending. The project's own rules are the entity's.
+   */
+  postBody("/{projectId}/grants") { (projectId: String, request: GrantRequest) =>
+    val access   = authz.projectOwner(principal, projectId, write = true)
+    val problems = GrantRules.problems(request)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+    val grantee = Grantee.parse(request.grantee).toOption.get
+    val granteeOrganization = grantee match
+      case Grantee.Service(project, _) =>
+        authz
+          .organizationOf(project)
+          .getOrElse(throw CommandError(s"no such project '$project'", ErrorCode.NotFound))
+      case Grantee.Machine(organization, _) =>
+        val exists = clients.componentClient
+          .forEventSourcedEntity(EntityId(organization))
+          .call(com.thinkmorestupidless.ankka.controlplane.application.OrganizationEntity.exists)
+          .invoke()
+        if !exists then
+          throw CommandError(s"no such organization '$organization'", ErrorCode.NotFound)
+        organization
+    val pending = granteeOrganization != access.organizationId
+    val id      = ProjectEndpoint.grantId()
+    val grant = entity(projectId)
+      .call(ProjectEntity.makeGrant)
+      .withMetadata(authz.metadata(access))
+      .invoke(MakeGrant(id, grantee, request.target, pending))
+    grant.detail(ProjectEndpoint.effectOf(grant.state))
+  }
+
+  /** The project's grants, live and ended, each with whether it is in effect and why not. */
+  get("/{projectId}/grants") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    val grants = entity(projectId).call(ProjectEntity.grants).invoke()
+    // Each named service's status and topology once per listing, and only for accepted grants on a
+    // route or a method: nothing else reads them.
+    val named = grants
+      .filter(g =>
+        g.state == GrantState.Accepted &&
+          (g.target.kind == GrantTarget.Route || g.target.kind == GrantTarget.Method)
+      )
+      .flatMap(_.target.service)
+      .distinct
+    val statuses = named.map { service =>
+      service -> (
+        try
+          Some(
+            clients.componentClient
+              .forEventSourcedEntity(EntityId(ServiceKey(projectId, service).id))
+              .call(ServiceEntity.get)
+              .invoke()
+          )
+        catch case _: CommandError => None
+      )
+    }.toMap
+    val documents = scala.collection.mutable.Map.empty[String, Vector[InstanceTopologyDocument]]
+    def documentsOf(service: String) =
+      documents.getOrElseUpdate(
+        service,
+        if !statuses.get(service).flatten.exists(_.readyInstances > 0) then Vector.empty
+        else
+          try grantTopology.read(projectId, service).flatMap(_._2)
+          catch case NonFatal(_) => Vector.empty
+      )
+    grants.map { g =>
+      val service = g.target.service.filter(named.contains)
+      g.detail(
+        GrantEffect.of(
+          g,
+          service.flatMap(statuses.get).flatten,
+          service.fold(Vector.empty[InstanceTopologyDocument])(documentsOf),
+          brokerExposed
+        )
+      )
+    }
+  }
+
+  /** What other projects granted this project's services, and every change to each. */
+  get("/{projectId}/grants/received") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    ProjectEndpoint.receivedDetails(
+      entity(projectId).call(ProjectEntity.receivedGrants).invoke(),
+      granting => entity(granting).call(ProjectEntity.topics).invoke()
+    )
+  }
+
+  /**
+   * Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. Only
+   * an owner of the project's organization may.
+   */
+  delete("/{projectId}/grants/{grantId}") { (projectId: String, grantId: String) =>
+    val access = authz.projectOwner(principal, projectId, write = true)
+    val grant = entity(projectId)
+      .call(ProjectEntity.grants)
+      .invoke()
+      .find(_.id == grantId)
+      .getOrElse(
+        throw CommandError(s"project '$projectId' has no grant '$grantId'", ErrorCode.NotFound)
+      )
+    val handle =
+      if grant.state == GrantState.Pending then ProjectEntity.withdrawGrant
+      else ProjectEntity.revokeGrant
+    entity(projectId).call(handle).withMetadata(authz.metadata(access)).invoke(grantId): Done
+  }
+
   private def serviceCount(projectId: String): Int =
     services.count(jsonText("projectId") ++ sql" = $projectId").toInt
 
@@ -487,6 +983,89 @@ final class ProjectEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(projectId))
 
 object ProjectEndpoint:
+
+  private val random = java.security.SecureRandom()
+
+  /** A grant's id: 16 hex characters, from 64 random bits. */
+  def grantId(): String =
+    val bytes = new Array[Byte](8)
+    random.nextBytes(bytes)
+    bytes.map(b => f"${b & 0xff}%02x").mkString
+
+  /**
+   * A grant's effect from its state alone: `in effect` for an accepted grant, the state's word for
+   * any other. What the cluster and the service say narrows an accepted grant further
+   * (`GrantEffect`).
+   */
+  def effectOf(state: GrantState): String =
+    if state == GrantState.Accepted then "in effect" else state.word
+
+  /**
+   * The grantee side's record as listed: each change with who made it, and for a topic grant the
+   * topic's settings, read from the granting project — absent when it can no longer be read.
+   */
+  def receivedDetails(
+      received: Vector[com.thinkmorestupidless.ankka.controlplane.domain.ReceivedGrant],
+      topicsOf: String => Map[
+        String,
+        com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic
+      ]
+  ): Vector[ReceivedGrantDetail] =
+    val topics = scala.collection.mutable.Map
+      .empty[String, Map[String, com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic]]
+    received.map { r =>
+      val settings =
+        r.target.topic.filter(_ => r.target.kind == GrantTarget.Topic).flatMap { name =>
+          val declared = topics.getOrElseUpdate(
+            r.grantingProject,
+            try topicsOf(r.grantingProject)
+            catch case NonFatal(_) => Map.empty
+          )
+          declared
+            .get(name)
+            .map(t =>
+              GrantedTopicSettings(
+                t.partitions,
+                t.compacted,
+                t.settings.map(_.retention.text),
+                t.settings.flatMap(_.copies)
+              )
+            )
+        }
+      ReceivedGrantDetail(
+        r.id,
+        r.grantingProject,
+        r.grantingOrganization,
+        r.grantee,
+        r.target,
+        r.state,
+        r.changes.map(c =>
+          GrantChangeRecord(
+            c.change,
+            c.actor.flatMap(_.display).orElse(c.actor.map(_.subject)),
+            c.at
+          )
+        ),
+        settings
+      )
+    }
+
+  /**
+   * What a listing says of a topic's copies beside its phase (feature 043): that they are the
+   * broker's when no declaration stated them, that the broker holds fewer than the installation now
+   * asks for, and that it holds a single copy.
+   */
+  def copiesNotes(
+      settings: Option[TopicSettings],
+      held: Option[Int],
+      defaultCopies: Int
+  ): Vector[String] =
+    val unstated = Option.when(settings.exists(_.copies.isEmpty))("copies are the broker's")
+    val below = held.collect {
+      case n if n < defaultCopies => s"below the installation's default of $defaultCopies copies"
+    }
+    val single = held.collect { case 1 => "single copy" }
+    unstated.toVector ++ below.toVector ++ single.toVector
 
   /** The operator's reported phase of a topic, as the phrase `ProjectTopic.phase` documents. */
   def topicPhrase(phase: String): String = phase match

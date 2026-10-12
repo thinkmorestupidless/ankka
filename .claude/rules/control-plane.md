@@ -114,6 +114,30 @@ Keycloak's `typ: Bearer` check on, and its singular `ANKKA_AUTH_ISSUER`/`_JWKS_U
 not part of the set, which ignores them. Tests mint tokens with the module's `TestIssuer`; the control
 plane's `TestIdentity` extends it.
 
+## Grants and registered machines
+
+Feature 040. A **grant** is held by the granting `Project` entity, the one writer of its state (made,
+pending, accepted, declined, withdrawn, revoked, relinquished, lapsed); the grantee's side — the
+grantee project's or organization's `received-grants` — is a *mirror* written by `GrantMirror` from the
+granting project's events, never decided there, so the two cannot disagree about a state. A grant to
+another organization is pending until an owner there answers through `OrganizationEndpoint`
+(`/organizations/{id}/grants/{grantId}/accept|decline|relinquish`), which finds the grant in that
+organization's mirror first, so a grant not offered to it is a 404, never a 403 that confirms the id.
+A deleted grantee lapses its grants through `GrantLapse`: `ProjectTrigger` on `ProjectDeleted`,
+`MachineLifecycleTrigger` on `MachineDeleted`, with the deleter's attribution. Accepted grants reach the
+cluster as `AnkkaProject.spec.grants` (`ProjectTopicsTrigger`), which the operator renders into the
+project ConfigMap's `grants.json`. A listing's `effect` is computed per request (`GrantEffect.of`) from
+the named service's status and its instances' topology, never stored.
+
+A **registered machine** is a `MachineEntity` (id `<org>/<name>`) holding only the digest of its client
+secret (`MachineSecrets`). `POST /oauth/token` issues an RS256 token for 15 minutes under
+`MachineKeys` — in memory locally, a mounted Secret directory (`<kid>.pem`) in a cluster, replaced every
+thirty days by `MachineKeyRotation` and swept after 31, the newest always kept — and answers each client
+id at most twelve times a minute per instance (`TokenBucket`). The public keys are served at
+`/.well-known/jwks.json` and on a second port, `keys` (7629), which asks for no client certificate
+(`HttpServer.withoutClientCertificates`), so the broker and services read them inside the cluster.
+`MachineLifecycleTrigger` projects each machine as a cluster-scoped `AnkkaMachine`.
+
 ## Traps
 
 - **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system
@@ -202,3 +226,30 @@ plane's `TestIdentity` extends it.
   only then persists `RegistryConfigured`; a cluster that refused is a 503 and records nothing. The
   reverse order leaves services naming a Secret that does not exist, with the journal insisting it
   does — and nothing in the sweep can tell that from a Secret someone deleted by hand.
+- **A restore and a switch are an owner's; a rehearsal and the database setting a member's** (feature 041).
+  A restore can change what every service reads, and a rehearsal changes nothing of the project. The
+  restore routes check the moment against the window the operator last reported, and a switch only to a
+  verified restore that holds the service's database.
+- **A project's resource is written whole, from one function.** `Projection.projectSpecOf` builds it for
+  both writers: the project trigger and, since feature 041, the sweep. When the sweep built its own spec
+  without grants it took every grant out of the cluster every two seconds, which every offline suite
+  missed (they ran no sweep after a grant) and all four cross-project k3s suites caught.
+  `GrantRoutesSuite` sweeps after a grant.
+- **The control plane's own restore holds its projection.** `RestoreHold` is the first extension; with an
+  unreleased marker the projector writes nothing and the writes an endpoint makes (a secret, a registry
+  credential, a rehearsal namespace) are refused as unavailable. The release is a platform
+  administrator's, and is recorded on the marker.
+- **A topic's settings are filled by the endpoint and checked by the entity** (feature 043).
+  `TopicPolicy` (beside `OrganizationPolicy`, from `ankka.controlplane.topics`) gives a first
+  declaration its defaults; a redeclaration keeps what it leaves out (`TopicSettingsRules.merge`). The
+  endpoint takes the policy by name, so a suite can change it between scenarios. Copies fixed and the
+  diff recorded are the entity's; the owner rule and the acknowledgement are the endpoint's.
+- **A change that removes messages carries `removes`, restating the control plane's own words.** The
+  endpoint refuses one without it (400) or from a member who is not an owner (403); the CLI and the
+  console show the 400's text, ask, and send again saying so. The refusal reaches the CLI as the JSON
+  body, quotes escaped, so `TopicsCommand.removalAsked` matches an escaped quote too: the first version
+  matched only plain text, never asked, and only the offline feature runner driving the real CLI
+  against the real route found it.
+- **The sweep fills on every start, and fills nothing twice.** `TopicSettingsSweep` lists projects from
+  `ProjectRows`, a projection that may not yet hold a project made a moment ago, so a test retries it;
+  the entity records nothing for a project with nothing unfilled.

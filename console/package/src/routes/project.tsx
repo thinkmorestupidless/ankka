@@ -1,6 +1,7 @@
 /**
  * A project: its services, kept current while the page is open, its registry credential, its
- * project secrets — by name and entry, never a value — and the topics it declares on the broker.
+ * project secrets — by name and entry, never a value — the topics it declares on the broker, the
+ * grants it makes to other projects' services and to machines, and what other projects grant it.
  */
 import { data, redirect, useActionData, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { ControlPlaneError } from "../client/errors.ts";
@@ -11,6 +12,8 @@ import { Page, SectionTitle } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useProjectStream } from "../ui/use-stream.ts";
+import { targetText } from "../ui/grants.ts";
+import type { GrantTarget } from "../client/schemas.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [{ title: `${loaderData?.project.name ?? "Project"} · ankka` }];
@@ -19,14 +22,27 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, topics, brokers, page] = await Promise.all([
+    const [project, services, secrets, topics, brokers, grants, received, page, backups, rehearsals, restores, history, setting] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
       ctx.client.listTopics(id),
       ctx.client.listBrokers(id),
+      ctx.client.grants(id),
+      ctx.client.receivedGrants(id),
       pageData(ctx),
+      // The database's backups are the project's, read as the person; a control plane that cannot
+      // say leaves the section saying so rather than failing the page.
+      ctx.client.projectStatus(id).catch(() => undefined),
+      ctx.client.listRehearsals(id).catch(() => []),
+      ctx.client.listRestores(id).catch(() => []),
+      ctx.client.projectHistory(id).catch(() => []),
+      ctx.client.projectDatabase(id).catch(() => undefined),
     ]);
+    // A verified restore says what the broker holds past its moment, asked as it is read.
+    const reports = await Promise.all(
+      restores.filter((r) => r.phase === "Verified" || r.phase === "InUse").map((r) => ctx.client.getRestore(id, r.name).catch(() => r)),
+    );
     const organization = await ctx.client.getOrganization(project.organizationId);
     const primary = { label: "Apply a descriptor", to: `projects/${encodeURIComponent(id)}/services/apply`, operation: "service.apply" as const };
     return {
@@ -37,6 +53,13 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       secrets,
       topics,
       brokers,
+      backups,
+      rehearsals,
+      restores: restores.map((r) => reports.find((d) => d.name === r.name) ?? r),
+      history,
+      setting,
+      grants,
+      received,
       panels: await loadPanels(ctx, "project", project),
     };
   });
@@ -53,6 +76,27 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "rename":
         await ctx.client.renameProject(id, text(form, "name"));
         return redirect(self);
+      case "restore": {
+        const restore = await ctx.client.restoreProject(id, new Date(text(form, "moment")).toISOString(), text(form, "line") || undefined);
+        return redirect(`${self}#restore-${restore.name}`);
+      }
+      case "rehearse":
+        await ctx.client.rehearseProject(id, text(form, "moment") ? new Date(text(form, "moment")).toISOString() : undefined);
+        return redirect(`${self}#rehearsals`);
+      case "reissue":
+        await ctx.client.reissueBackupCredential(id);
+        return redirect(`${self}#database`);
+      case "database":
+        await ctx.client.setProjectDatabase(id, {
+          replicas: Number(text(form, "replicas") || "0"),
+          synchronous: form.get("synchronous") === "on",
+          retentionDays: text(form, "retentionDays") ? Number(text(form, "retentionDays")) : undefined,
+          rehearse: text(form, "rehearse") || undefined,
+        });
+        return redirect(`${self}#database`);
+      case "switch":
+        await ctx.client.switchService(id, text(form, "service"), text(form, "cluster"));
+        return redirect(`${self}#database`);
       case "delete": {
         const project = await ctx.client.getProject(id);
         await ctx.client.deleteProject(id);
@@ -89,10 +133,23 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
           }
           contract = { name: contractName, schema };
         }
+        // Each setting left empty is left out: the installation's default on a new topic, kept on
+        // one already declared. `topicRemoves` is the owner's confirmation of what a change removes.
+        const optional = (field: string) => text(form, field) || undefined;
+        const count = (field: string) => (text(form, field) ? Number(text(form, field)) : undefined);
         await ctx.client.declareTopic(id, text(form, "topicName"), {
-          partitions: Number(text(form, "topicPartitions")),
+          partitions: count("topicPartitions"),
           compacted: form.get("topicCompacted") === "on",
           contract,
+          retention: optional("topicRetention"),
+          retentionSize: optional("topicRetentionSize"),
+          cleanup: optional("topicCleanup"),
+          tombstoneWindow: optional("topicTombstoneWindow"),
+          minCompactionLag: optional("topicMinCompactionLag"),
+          maxCompactionLag: optional("topicMaxCompactionLag"),
+          copies: count("topicCopies"),
+          minInSync: count("topicMinInSync"),
+          removes: optional("topicRemoves"),
         });
         return redirect(self);
       }
@@ -114,14 +171,49 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "location-clear":
         await ctx.client.clearProjectLocation(id);
         return redirect(self);
+      case "grant-make":
+        await ctx.client.makeGrant(id, { grantee: text(form, "grantee"), target: grantTarget(form) });
+        return redirect(self);
+      case "grant-end":
+        // A pending grant is withdrawn and an accepted one revoked: the control plane decides which.
+        await ctx.client.endGrant(id, text(form, "grantId"));
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
   });
 }
 
+/**
+ * The target the form describes, with only its kind's fields: the control plane refuses a field
+ * another kind would take ("a topic target has no service"), so an empty or foreign one is left out.
+ */
+function grantTarget(form: FormData): GrantTarget {
+  const kind = text(form, "grantKind");
+  const given = (name: string) => text(form, name) || undefined;
+  // Absent fields are left out of the request body, as `JSON.stringify` drops `undefined`.
+  const none = { service: undefined, method: undefined, path: undefined, topic: undefined, right: undefined, decrypt: false };
+  switch (kind) {
+    case "route":
+      return { ...none, kind, service: given("grantService"), method: given("grantMethod")?.toUpperCase(), path: given("grantPath") };
+    case "method":
+      return { ...none, kind, service: given("grantService"), method: given("grantMethod") };
+    case "topic":
+      return { ...none, kind, topic: given("grantTopic"), right: given("grantRight"), decrypt: form.get("grantDecrypt") === "on" };
+    default:
+      return { ...none, kind };
+  }
+}
+
+/** A live grant is ended by withdrawing it while it waits for an answer, by revoking it once accepted. */
+const endVerb = (state: string) => (state === "pending" ? "Withdraw" : "Revoke");
+
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, topics, brokers, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, brokers, grants, received, backups, rehearsals, restores, history, setting, panels } = useLoaderData<typeof loader>();
+  const databaseRefusal = useRefusal("database");
+  // One history: what was done to a topic names it, and is shown with the topics.
+  const topicHistory = history.filter((h) => h.topic !== undefined);
+  const databaseHistory = history.filter((h) => h.topic === undefined);
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
@@ -129,8 +221,11 @@ export default function Project() {
   const registryRefusal = useRefusal("registry-set");
   const secretRefusal = useRefusal("secret-set");
   const topicRefusal = useRefusal("topic-set");
+  // A change that removes messages, refused until an owner says so: what it removes, to confirm.
+  const removal = /this declaration removes (.+); a declaration that removes messages says so with "removes"/.exec(topicRefusal?.reason ?? "")?.[1];
   const brokerRefusal = useRefusal("broker-set");
   const locationRefusal = useRefusal("location-set");
+  const grantRefusal = useRefusal("grant-make");
   const shown = useActionData() as { intent?: string; topic?: string; schema?: unknown } | undefined;
   const shownSchema = shown && shown.intent === "topic-schema" && typeof shown.topic === "string" ? shown : undefined;
   const path = `projects/${encodeURIComponent(p.id)}`;
@@ -192,7 +287,23 @@ export default function Project() {
             <summary>Declare a topic</summary>
             <ConsoleForm intent="topic-set" className="ac-form">
               <Field label="Topic" name="topicName" required placeholder="transactions" defaultValue={topicRefusal?.values.topicName} />
-              <Field label="Partitions" name="topicPartitions" type="number" required defaultValue={topicRefusal?.values.topicPartitions ?? "3"} hint="A topic can be given more partitions later, never fewer." />
+              <Field label="Partitions" name="topicPartitions" type="number" defaultValue={topicRefusal?.values.topicPartitions ?? "3"} hint="Needed for a new topic. A topic can be given more partitions later, never fewer." />
+              <Field label="Retention" name="topicRetention" placeholder="90d" autoComplete="off" defaultValue={topicRefusal?.values.topicRetention} hint="How long the topic keeps a message: 90d, 36h, or everything. Empty: the installation's default, or what the topic has." />
+              <Field label="Retention size" name="topicRetentionSize" placeholder="50GiB" autoComplete="off" defaultValue={topicRefusal?.values.topicRetentionSize} hint="How much each partition keeps: 50GiB, or none." />
+              <div className="ac-field">
+                <label htmlFor="topicCleanup">Cleanup policy</label>
+                <select id="topicCleanup" name="topicCleanup" defaultValue={topicRefusal?.values.topicCleanup ?? ""}>
+                  <option value="">Unchanged, or the installation's default</option>
+                  <option value="delete">delete</option>
+                  <option value="compact">compact</option>
+                  <option value="compact,delete">compact,delete</option>
+                </select>
+              </div>
+              <Field label="Tombstone window" name="topicTombstoneWindow" placeholder="1d" autoComplete="off" defaultValue={topicRefusal?.values.topicTombstoneWindow} hint="How long a compacted topic keeps a deletion." />
+              <Field label="Minimum compaction lag" name="topicMinCompactionLag" placeholder="0s" autoComplete="off" defaultValue={topicRefusal?.values.topicMinCompactionLag} />
+              <Field label="Maximum compaction lag" name="topicMaxCompactionLag" placeholder="none" autoComplete="off" defaultValue={topicRefusal?.values.topicMaxCompactionLag} />
+              <Field label="Copies" name="topicCopies" type="number" defaultValue={topicRefusal?.values.topicCopies} hint="How many copies the broker keeps; fixed once the topic is declared." />
+              <Field label="Minimum in-sync copies" name="topicMinInSync" type="number" defaultValue={topicRefusal?.values.topicMinInSync} hint="How many copies must hold a message before it is acknowledged; fixed once declared." />
               <div className="ac-field">
                 <label htmlFor="topicCompacted">
                   <input id="topicCompacted" name="topicCompacted" type="checkbox" defaultChecked={topicRefusal?.values.topicCompacted === "on"} /> Compacted
@@ -209,11 +320,28 @@ export default function Project() {
                   The contract's JSON Schema document, held by the project for members to build against.
                 </p>
               </div>
-              <Refused intent="topic-set" />
+              {removal === undefined ? <Refused intent="topic-set" /> : null}
               <div>
                 <Submit intent="topic-set">Declare topic</Submit>
               </div>
             </ConsoleForm>
+            {removal !== undefined && topicRefusal ? (
+              <div className="ac-card" role="alertdialog" aria-labelledby="topic-removal-title" data-removal-dialog>
+                <h3 id="topic-removal-title">This declaration removes messages</h3>
+                <p>
+                  It removes {removal}, and they are gone. Only an owner of the organization may send it.
+                </p>
+                <ConsoleForm intent="topic-set" className="ac-inline">
+                  {Object.entries(topicRefusal.values)
+                    .filter(([k]) => k !== "intent" && k !== "topicRemoves")
+                    .map(([k, v]) => (
+                      <input key={k} type="hidden" name={k} value={v} />
+                    ))}
+                  <input type="hidden" name="topicRemoves" value={removal} />
+                  <Submit intent="topic-set">Remove them</Submit>
+                </ConsoleForm>
+              </div>
+            ) : null}
           </details>
         </section>
       ) : null}
@@ -282,6 +410,77 @@ export default function Project() {
               <Refused intent="location-clear" />
             </ConsoleForm>
           ) : null}
+        </section>
+      ) : null}
+      {shows("grant.make") ? (
+        <section className="ac-form" aria-labelledby="grant-make-title">
+          <SectionTitle>
+            <span id="grant-make-title">Grants</span>
+          </SectionTitle>
+          <details className="ac-more" open={grantRefusal !== undefined || undefined}>
+            <summary>Make a grant</summary>
+            <ConsoleForm intent="grant-make" className="ac-form">
+              <Field
+                label="Grantee"
+                name="grantee"
+                required
+                placeholder="service:payments/merchant"
+                autoComplete="off"
+                defaultValue={grantRefusal?.values.grantee}
+                hint="service:<project>/<service>, or machine:<organization>/<name>. Another organization's grantee must accept first."
+              />
+              <div className="ac-field">
+                <label htmlFor="grantKind">Grant kind</label>
+                <select id="grantKind" name="grantKind" defaultValue={grantRefusal?.values.grantKind ?? "route"} aria-describedby="grantKind-hint">
+                  <option value="route">route</option>
+                  <option value="method">method</option>
+                  <option value="topic">topic</option>
+                  <option value="erasure">erasure</option>
+                </select>
+                <p className="ac-hint" id="grantKind-hint">
+                  route: a service, an HTTP method and a path. method: a service and a gRPC method. topic: a declared topic and a right. erasure: nothing more.
+                </p>
+              </div>
+              <Field label="Granted service" name="grantService" placeholder="wallet" autoComplete="off" defaultValue={grantRefusal?.values.grantService} />
+              <Field
+                label="Granted method"
+                name="grantMethod"
+                placeholder="POST"
+                autoComplete="off"
+                defaultValue={grantRefusal?.values.grantMethod}
+                hint="An HTTP method for a route; Service/Method for a gRPC method."
+              />
+              <Field label="Granted path" name="grantPath" placeholder="/v1/wallets/{player}" autoComplete="off" defaultValue={grantRefusal?.values.grantPath} />
+              <Field label="Granted topic" name="grantTopic" list="grant-topics" autoComplete="off" defaultValue={grantRefusal?.values.grantTopic} />
+              <datalist id="grant-topics">
+                {topics.map((t) => (
+                  <option key={t.name} value={t.name} />
+                ))}
+              </datalist>
+              <div className="ac-field">
+                <label htmlFor="grantRight">Granted right</label>
+                <select id="grantRight" name="grantRight" defaultValue={grantRefusal?.values.grantRight ?? "consume"}>
+                  <option value="consume">consume</option>
+                  <option value="produce">produce</option>
+                </select>
+              </div>
+              <div className="ac-field">
+                <label htmlFor="grantDecrypt">
+                  <input id="grantDecrypt" name="grantDecrypt" type="checkbox" defaultChecked={grantRefusal?.values.grantDecrypt === "on"} /> Allow decryption
+                </label>
+                <p className="ac-hint" id="grantDecrypt-hint">
+                  Only with consume: the grantee may read what the topic's producers encrypted.
+                </p>
+              </div>
+              <Refused intent="grant-make" />
+              <div>
+                <Submit intent="grant-make">Make grant</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+          <div className="ac-ops">
+            <HostActions operation="grant.make" entity={p} />
+          </div>
         </section>
       ) : null}
       {shows("project.rename") || shows("project.delete") ? (
@@ -366,7 +565,16 @@ export default function Project() {
                     </td>
                     <td>{s.image}</td>
                     <td className="ac-num">{s.generation}</td>
-                    <td>{s.hostname ? <a href={s.hostname}>{s.hostname.replace(/^https:\/\//, "")}</a> : s.exposed ? "Exposed, no address yet" : "Not exposed"}</td>
+                    <td>
+                      {s.hostname ? <a href={s.hostname}>{s.hostname.replace(/^https:\/\//, "")}</a> : s.exposed ? "Exposed, no address yet" : "Not exposed"}
+                      {s.customHostnames.map((h) => (
+                        <span key={h.hostname} className="ac-hint" data-custom-hostname={h.hostname}>
+                          {", "}
+                          {h.hostname}
+                          {h.state === "serving" ? "" : ` (${h.state})`}
+                        </span>
+                      ))}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -434,6 +642,10 @@ export default function Project() {
                   <th scope="col" className="ac-num">
                     Partitions
                   </th>
+                  <th scope="col">Retention</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Cleanup</th>
+                  <th scope="col">Copies</th>
                   <th scope="col">Compacted</th>
                   <th scope="col">Contract</th>
                   <th scope="col">Broker</th>
@@ -450,6 +662,17 @@ export default function Project() {
                       <code>{t.name}</code>
                     </td>
                     <td className="ac-num">{t.partitions}</td>
+                    {(["retention", "retentionSize", "cleanup"] as const).map((field) => (
+                      <td key={field} data-setting={field} data-defaulted={t.settings?.defaulted.includes(field) ? "yes" : "no"}>
+                        {t.settings ? t.settings[field] : "—"}
+                        {t.settings?.defaulted.includes(field) ? <span className="ac-hint"> default</span> : null}
+                      </td>
+                    ))}
+                    <td data-setting="copies">
+                      {t.settings?.copies !== undefined && t.settings?.copies !== null
+                        ? `${t.settings.copies}, ${t.settings.minInSync ?? 1} in sync`
+                        : `the broker's${t.copiesHeld ? ` (${t.copiesHeld})` : ""}`}
+                    </td>
                     <td data-compacted={t.compacted ? "yes" : "no"}>{t.compacted ? "yes" : "no"}</td>
                     <td>
                       {t.contract ? (
@@ -510,6 +733,23 @@ export default function Project() {
         <Refused intent="topic-schema" />
       </section>
 
+      <section className="ac-card" aria-labelledby="project-history">
+        <h2 id="project-history">Topic history</h2>
+        {topicHistory.length === 0 ? (
+          <p className="ac-empty">No topic has been declared, changed or removed yet.</p>
+        ) : (
+          <ul className="ac-topics">
+            {topicHistory.map((h, i) => (
+              <li key={i} data-history={h.kind} data-topic={h.topic}>
+                {h.at ? `${h.at} ` : ""}
+                <code>{h.topic}</code> {h.kind.replace("topic-", "")} by {h.by ?? "the platform"}
+                {h.changes.length > 0 ? `: ${h.changes.map((c) => `${c.setting} ${c.from} → ${c.to}`).join("; ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className="ac-card" aria-labelledby="brokers">
         <h2 id="brokers">Brokers</h2>
         {brokers.length === 0 ? (
@@ -554,6 +794,316 @@ export default function Project() {
           </div>
         )}
         <Refused intent="broker-unset" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="database-title" id="database">
+        <h2 id="database-title">Database</h2>
+        {!backups ? (
+          <p className="ac-empty">The control plane could not say how the project's database is backed up.</p>
+        ) : (
+          <>
+            <p data-backed-up={backups.backedUp ? "yes" : "no"}>
+              {backups.backedUp ? "Backed up." : "Not backed up."}
+              {backups.detail ? ` ${backups.detail}` : ""}
+            </p>
+            {backups.database ? (
+              <p>
+                {backups.database.readyInstances} of {backups.database.instances} instances ready
+                {backups.database.primary ? `, primary ${backups.database.primary}` : ""}
+                {backups.database.synchronous ? ", synchronous" : ""}
+                {backups.database.writesWaitingOn ? ` — ${backups.database.writesWaitingOn}` : ""}
+              </p>
+            ) : null}
+            {backups.lines.length > 0 ? (
+              <div className="ac-table-wrap">
+                <table className="ac-table" aria-label="Lines of history">
+                  <thead>
+                    <tr>
+                      <th scope="col">Line</th>
+                      <th scope="col">Backups</th>
+                      <th scope="col">Last base backup</th>
+                      <th scope="col">Restorable from</th>
+                      <th scope="col">To</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backups.lines.map((l) => (
+                      <tr key={l.line} data-line={l.line}>
+                        <td>
+                          <code>{l.line}</code>
+                        </td>
+                        <td>
+                          {l.phase}
+                          {l.failing ? ` — ${l.failing}` : ""}
+                        </td>
+                        <td>{l.lastBaseBackup ? when(l.lastBaseBackup) : "—"}</td>
+                        <td>{l.firstRestorable ? when(l.firstRestorable) : "—"}</td>
+                        <td>{l.lastRestorable ? when(l.lastRestorable) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {backups.clusters.length > 0 ? (
+              <ul className="ac-topics" aria-label="Database clusters">
+                {backups.clusters.map((c) => (
+                  <li key={c.name} data-cluster={c.name} data-phase={c.phase}>
+                    <code>{c.name}</code> ({c.phase}
+                    {c.leftAt ? `, left ${when(c.leftAt)}` : ""}
+                    {c.since ? `, since ${when(c.since)}` : ""}): {c.services.length === 0 ? "no service" : c.services.join(", ")}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {restores.map((r) => (
+              <div key={r.name} className="ac-card" id={`restore-${r.name}`} data-restore={r.name} data-phase={r.phase}>
+                <h3>
+                  Restore <code>{r.name}</code> of {r.line} at {when(r.moment)}: {r.phase}
+                </h3>
+                {r.detail ? <p>{r.detail}</p> : null}
+                {r.services.length > 0 ? (
+                  <ul className="ac-topics">
+                    {r.services.map((v) => (
+                      <li key={v.name} data-verified={v.name}>
+                        {v.name}: {v.present ? `${v.journalRows} journal rows, highest sequence ${v.highestSequence}` : "no database at the moment"}
+                        {v.changedSecrets.length > 0 ? `; secrets changed since: ${v.changedSecrets.join(", ")}` : ""}
+                        {v.present && (r.phase === "Verified" || r.phase === "InUse") && shows("service.switch") ? (
+                          <ConsoleForm intent="switch" className="ac-inline">
+                            <input type="hidden" name="service" value={v.name} />
+                            <input type="hidden" name="cluster" value={r.name} />
+                            <Submit intent="switch">{`Switch ${v.name} to ${r.name}`}</Submit>
+                          </ConsoleForm>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {r.broker.length > 0 ? (
+                  <ul className="ac-topics" aria-label={`What ${r.name} cannot take back`}>
+                    {r.broker.map((d) => (
+                      <li key={`${d.topic}/${d.group ?? ""}`} data-diverged={d.topic}>
+                        <code>{d.topic}</code>
+                        {d.group ? ` read by ${d.group}: ${d.read ?? 0} of` : ":"} {d.after} messages newer than the moment
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {r.note ? <p className="ac-hint">{r.note}</p> : null}
+              </div>
+            ))}
+            <Refused intent="switch" />
+          </>
+        )}
+        {setting ? (
+          <p data-setting={`${setting.replicas}`}>
+            Asks for {setting.replicas === 0 ? "a primary alone" : `${setting.replicas} replica${setting.replicas === 1 ? "" : "s"}`}
+            {setting.synchronous ? ", synchronous" : ""}
+            {setting.retentionDays ? `, backups kept ${setting.retentionDays} days` : ""}
+            {setting.rehearse ? `, rehearsed ${setting.rehearse}` : ""}.
+          </p>
+        ) : null}
+        {shows("project.database") ? (
+          <details className="ac-more" open={databaseRefusal !== undefined || undefined}>
+            <summary>Replicas, retention and rehearsals</summary>
+            <ConsoleForm intent="database" className="ac-form">
+              <Field label="Replicas" name="replicas" type="number" defaultValue={databaseRefusal?.values.replicas ?? String(setting?.replicas ?? 0)} hint="Beside the primary, 0 to 4; one takes its place if it is lost." />
+              <div className="ac-field">
+                <label htmlFor="synchronous">
+                  <input id="synchronous" name="synchronous" type="checkbox" defaultChecked={setting?.synchronous} /> Synchronous
+                </label>
+                <p className="ac-hint">Every write waits until a replica holds it, so none is lost with the primary.</p>
+              </div>
+              <Field label="Keep backups for (days)" name="retentionDays" type="number" defaultValue={databaseRefusal?.values.retentionDays ?? (setting?.retentionDays ? String(setting.retentionDays) : "")} />
+              <div className="ac-field">
+                <label htmlFor="rehearse">Rehearse a restore</label>
+                <select id="rehearse" name="rehearse" defaultValue={setting?.rehearse ?? ""}>
+                  <option value="">never</option>
+                  <option value="daily">daily</option>
+                  <option value="weekly">weekly</option>
+                </select>
+              </div>
+              <Refused intent="database" />
+              <div>
+                <Submit intent="database">Save</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+        ) : null}
+        {shows("project.backup-credential") ? (
+          <ConsoleForm intent="reissue" className="ac-inline">
+            <Submit intent="reissue">Issue the backup credential again</Submit>
+            <Refused intent="reissue" />
+          </ConsoleForm>
+        ) : null}
+        {shows("project.restore") ? (
+          <details className="ac-more">
+            <summary>Restore to a moment</summary>
+            <ConsoleForm intent="restore" className="ac-form">
+              <Field label="Moment" name="moment" type="datetime-local" required hint="A new cluster beside the current one; nothing in the current database changes. Owners only." />
+              <Field label="Line" name="line" placeholder="ankka-db" hint="Only when the project's services are on more than one cluster." />
+              <Refused intent="restore" />
+              <div>
+                <Submit intent="restore">Restore</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+        ) : null}
+      </section>
+
+      <section className="ac-card" aria-labelledby="rehearsals-title" id="rehearsals">
+        <h2 id="rehearsals-title">Rehearsals</h2>
+        {rehearsals.length === 0 ? (
+          <p className="ac-empty">No rehearsals yet. A rehearsal restores into a namespace of its own, checks it, times it and removes it.</p>
+        ) : (
+          <ul className="ac-topics">
+            {rehearsals.map((r) => (
+              <li key={r.name} data-rehearsal={r.name} data-outcome={r.outcome}>
+                <code>{r.name}</code> to {when(r.moment)}: {r.outcome}
+                {r.elapsedSeconds !== undefined ? `, in ${r.elapsedSeconds}s` : ""}
+                {r.requestedBy ? `, asked by ${r.requestedBy}` : ", on the schedule"}
+                {r.detail ? ` — ${r.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+        {shows("project.rehearse") ? (
+          <ConsoleForm intent="rehearse" className="ac-inline">
+            <Submit intent="rehearse">Rehearse a restore</Submit>
+          </ConsoleForm>
+        ) : null}
+        <Refused intent="rehearse" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="database-history">
+        <h2 id="database-history">Database history</h2>
+        {databaseHistory.length === 0 ? (
+          <p className="ac-empty">Nothing has been done to the project's database yet.</p>
+        ) : (
+          <ul className="ac-topics">
+            {databaseHistory.map((h, i) => (
+              <li key={i} data-history={h.kind}>
+                {h.kind}
+                {h.by ? ` by ${h.by}` : ""}
+                {h.at ? `, ${when(h.at)}` : ""}
+                {h.detail ? `: ${h.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="ac-card" aria-labelledby="grants">
+        <h2 id="grants">Grants</h2>
+        {grants.length === 0 ? (
+          <p className="ac-empty">No grants. A grant lets a service of another project, or a machine, reach one route, method or topic of this project.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="grants">
+              <thead>
+                <tr>
+                  <th scope="col">Grantee</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Effect</th>
+                  <th scope="col">Granted</th>
+                  <th scope="col">
+                    <span className="ac-visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {grants.map((g) => (
+                  <tr key={g.id} data-grant={g.id} data-state={g.state}>
+                    <td>
+                      <code>{g.grantee}</code>
+                    </td>
+                    <td>{targetText(g.target)}</td>
+                    <td>{g.state}</td>
+                    <td data-effect>{g.effect}</td>
+                    <td>
+                      {g.granted.at ? when(g.granted.at) : "—"}
+                      {g.granted.by ? ` by ${g.granted.by}` : ""}
+                      {g.ended ? (
+                        <span className="ac-hint">
+                          {" "}
+                          · ended {g.ended.at ? when(g.ended.at) : ""}
+                          {g.ended.by ? ` by ${g.ended.by}` : ""}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      {shows("grant.end") && (g.state === "pending" || g.state === "accepted") ? (
+                        <ConsoleForm intent="grant-end" className="ac-inline">
+                          <input type="hidden" name="grantId" value={g.id} />
+                          <Submit intent="grant-end" label={`${endVerb(g.state)} the grant to ${g.grantee} of ${targetText(g.target)}`}>
+                            {endVerb(g.state)}
+                          </Submit>
+                        </ConsoleForm>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Refused intent="grant-end" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="received">
+        <h2 id="received">Received</h2>
+        {received.length === 0 ? (
+          <p className="ac-empty">No other project grants this project's services anything.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="received">
+              <thead>
+                <tr>
+                  <th scope="col">From</th>
+                  <th scope="col">Grantee</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Changes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {received.map((r) => (
+                  <tr key={r.id} data-received={r.id} data-state={r.state}>
+                    <td>
+                      {r.grantingProject} <span className="ac-hint">of {r.grantingOrganization}</span>
+                    </td>
+                    <td>
+                      <code>{r.grantee}</code>
+                    </td>
+                    <td>
+                      {targetText(r.target)}
+                      {r.topic ? (
+                        <span className="ac-hint">
+                          {" "}
+                          · {r.topic.partitions} partitions{r.topic.compacted ? ", compacted" : ""}
+                          {r.topic.retention ? `, kept ${r.topic.retention}` : ""}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>{r.state}</td>
+                    <td>
+                      <ul className="ac-topics">
+                        {r.changes.map((c, i) => (
+                          <li key={`${c.change}-${i}`}>
+                            {c.change}
+                            {c.at ? ` ${when(c.at)}` : ""}
+                            {c.by ? ` by ${c.by}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <Panels kind="project" entity={p} loaded={panels} />

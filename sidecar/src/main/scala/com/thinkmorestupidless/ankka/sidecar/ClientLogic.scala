@@ -36,8 +36,12 @@ import com.thinkmorestupidless.ankka.runtime.{
   Trace,
   ViewQueries
 }
+import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.sdk.{
   DeferredCall,
+  WatchEnded,
+  WatchEvent,
+  Watching,
   ServiceIdentityMismatch,
   ServiceResponse,
   ServiceUnanswered,
@@ -45,8 +49,10 @@ import com.thinkmorestupidless.ankka.sdk.{
   TimerScheduler,
   ViewDescriptor
 }
+import org.apache.pekko.NotUsed
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.stream.scaladsl.Source
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
@@ -131,7 +137,7 @@ final class ClientLogic(
   private def metadata(m: Option[pb.Metadata]): Metadata =
     Metadata(m.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toVector)
   private def error(e: CommandError): pb.Error =
-    pb.Error(e.message, Translate.toCode(e.code))
+    pb.Error(e.message, Translate.toCode(e.code), e.details)
   private def withKeys(request: InvokeRequest): Metadata =
     request.payload.fold(metadata(request.metadata)) { p =>
       metadata(request.metadata)
@@ -349,6 +355,95 @@ final class ClientLogic(
           )
         )
 
+  // ── Waiting for a workflow's end (protocol 1.18) ─────────────────────────────
+
+  /** The workflow, the id and the caller's time a wait names, or why it cannot be waited for. */
+  private def waitFor(
+      request: AwaitEndRequest
+  ): Either[pb.Error, (ComponentId, EntityId, FiniteDuration)] =
+    (ComponentId.parse(request.componentId), EntityId.parse(request.entityId)) match
+      case (Right(componentId), Right(entityId)) if request.timeoutMillis > 0 =>
+        Right((componentId, entityId, request.timeoutMillis.millis))
+      case (Right(_), Right(_)) =>
+        Left(
+          pb.Error(
+            s"a wait for a workflow's end needs a timeout of more than zero, not ${request.timeoutMillis} ms",
+            pb.ErrorCode.BAD_REQUEST
+          )
+        )
+      case _ => Left(pb.Error("invalid workflow or id", pb.ErrorCode.BAD_REQUEST))
+
+  /** The wait itself, made as the handler the process was running. */
+  private def waiting(
+      componentId: ComponentId,
+      entityId: EntityId,
+      timeout: FiniteDuration,
+      request: AwaitEndRequest
+  ): Future[pb.Payload] =
+    val carried = metadata(request.metadata)
+    asCaller(carried)(transport.awaitEnd(componentId, entityId, timeout, carried)).map {
+      (bytes, replyMetadata) =>
+        // The engine names the state's manifest and content type: a process's workflow's are the
+        // process's own, as it wrote them.
+        pb.Payload(
+          replyMetadata.get(PayloadKeys.ContentType).getOrElse("application/json"),
+          replyMetadata.get(PayloadKeys.Manifest).getOrElse(""),
+          ByteString.copyFrom(bytes)
+        )
+    }
+
+  private def failure(e: Throwable): pb.Error = e match
+    case refused: CommandError => error(refused)
+    case other =>
+      pb.Error(Option(other.getMessage).getOrElse(other.getClass.getName), pb.ErrorCode.INTERNAL)
+
+  /**
+   * Waits for a workflow's end and answers it: the state it ended with, or a `WORKFLOW_FAILED` with
+   * the step and the reason in its details, or `TIMEOUT` when the caller's time passed first. The
+   * hold and the asking again are the runtime's; the process sees one call.
+   */
+  def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] =
+    waitFor(request) match
+      case Left(refusal) => Future.successful(InvokeReply(InvokeReply.Result.Error(refusal)))
+      case Right((componentId, entityId, timeout)) =>
+        waiting(componentId, entityId, timeout, request)
+          .map(state => InvokeReply(InvokeReply.Result.Reply(pb.Outcome.Reply(Some(state), None))))
+          .recover(e => InvokeReply(InvokeReply.Result.Error(failure(e))))
+
+  /**
+   * The same wait as a stream: a `heartbeat` token every `Heartbeat.interval` while it goes on,
+   * then one `ended` or `failed` token, after which nothing more is emitted. For a process's
+   * endpoint serving the wait as server-sent events past the idle timeout. Returns what stops the
+   * heartbeat when the process goes away first; the wait itself ends at its own deadline.
+   */
+  def awaitEndStream(request: AwaitEndRequest, emit: StreamToken => Unit): () => Unit =
+    waitFor(request) match
+      case Left(refusal) =>
+        emit(StreamToken(StreamToken.Token.Failed(refusal)))
+        () => ()
+      case Right((componentId, entityId, timeout)) =>
+        val lock  = new Object
+        var ended = false
+        def once(token: StreamToken, last: Boolean): Unit = lock.synchronized {
+          if !ended then
+            if last then ended = true
+            emit(token)
+        }
+        val every = com.thinkmorestupidless.ankka.http.Heartbeat.interval(system.settings.config)
+        val beat = system.scheduler.scheduleAtFixedRate(every, every)(() =>
+          once(StreamToken(StreamToken.Token.Heartbeat(pb.Empty())), last = false)
+        )
+        waiting(componentId, entityId, timeout, request).onComplete { result =>
+          beat.cancel()
+          val token = result match
+            case scala.util.Success(state) => StreamToken(StreamToken.Token.Ended(state))
+            case scala.util.Failure(e)     => StreamToken(StreamToken.Token.Failed(failure(e)))
+          once(token, last = true)
+        }
+        () =>
+          beat.cancel()
+          lock.synchronized { ended = true }
+
   def query(request: QueryRequest): Future[QueryReply] =
     ComponentId.parse(request.viewId) match
       case Left(msg) =>
@@ -395,6 +490,110 @@ final class ClientLogic(
             case e =>
               QueryReply(QueryReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
           }
+
+  /** A view's queries as the sidecar reads them: rows as stored, the watches the service's own. */
+  private def viewQueries(viewId: ComponentId): ViewQueries[Array[Byte]] =
+    ViewQueries(
+      viewId.toString,
+      ViewDescriptor.tableFor(viewId),
+      Serializer.bytes,
+      database,
+      settings.commandTimeout,
+      declared.getOrElse(viewId, Vector.empty),
+      Some(service.viewClient.watchRegistry)
+    )
+
+  private def failedFrame(failure: Throwable): RowFrame = failure match
+    case e: CommandError => RowFrame(RowFrame.Frame.Failed(error(e)))
+    case e =>
+      RowFrame(RowFrame.Frame.Failed(pb.Error(String.valueOf(e.getMessage), pb.ErrorCode.INTERNAL)))
+
+  private def rowFrame(key: String, row: Array[Byte]): RowFrame =
+    RowFrame(
+      RowFrame.Frame.Row(
+        WatchedRow(key, Some(pb.Payload("application/json", "row", ByteString.copyFrom(row))))
+      )
+    )
+
+  /**
+   * A query as a stream of frames (1.17): every row of `all` or a declared query, as the database
+   * yields it, with no limit unless the request gives one; a refusal or a fault as the last frame.
+   * Asked as the handler the process was running, as a whole query is.
+   */
+  def queryStream(request: QueryRequest): Source[RowFrame, NotUsed] =
+    servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
+      case Some(refused) => Source.single(failedFrame(refused))
+      case None =>
+        val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
+        val limit   = request.limit.map(_.toInt)
+        val rows = asCaller(metadata(request.metadata)) {
+          request.name match
+            case "all" => queries.allStream(limit)
+            case "get" | "by-id" | "by-key" =>
+              queries.allStream(None).take(0) ++
+                Source
+                  .future(queries.getAsync(String(payload(request.payload), "UTF-8")))
+                  .mapConcat(_.toList)
+            case other => queries.askNamedStream(other, request.values, limit)
+        }
+        // The row's key is not in a plain row stream; a process reads only the rows.
+        rows.map(row => rowFrame("", row)).recover { case e => failedFrame(e) }
+
+  /**
+   * A watch as frames (1.17): the rows now, `caught_up`, then rows and removals; a reason it ended
+   * as `ended`, a refusal or a fault as `failed`, each the last frame.
+   */
+  def watch(request: WatchRequest): Source[RowFrame, NotUsed] =
+    servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
+      case Some(refused) => Source.single(failedFrame(refused))
+      case None =>
+        val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
+        val watching = Watching(
+          unread = request.unreadBound.map(_.toInt),
+          overflow = request.overflow match
+            case Overflow.DROP_TAIL => sdk.Overflow.DropTail
+            case Overflow.DROP_NEW  => sdk.Overflow.DropNew
+            case Overflow.DROP_ALL  => sdk.Overflow.DropAll
+            case Overflow.FAIL      => sdk.Overflow.Fail
+            case _                  => sdk.Overflow.DropHead
+        )
+        val events = asCaller(metadata(request.metadata)) {
+          request.target match
+            case WatchRequest.Target.Named(named) =>
+              queries.watchNamed(named.name, named.values, watching)
+            case WatchRequest.Target.Key(key) => queries.watchRow(key, watching)
+            case WatchRequest.Target.Empty =>
+              Source.failed(
+                CommandError("a watch names a declared query or a row key", ErrorCode.BadRequest)
+              )
+        }
+        events
+          .map {
+            case WatchEvent.Row(key, row) => rowFrame(key, row)
+            case WatchEvent.Removed(key)  => RowFrame(RowFrame.Frame.Removed(Removed(key)))
+            case WatchEvent.CaughtUp      => RowFrame(RowFrame.Frame.CaughtUp(pb.Empty()))
+          }
+          .recover {
+            case WatchEnded(reason) => RowFrame(RowFrame.Frame.Ended(Ended(reason.wire)))
+            case e                  => failedFrame(e)
+          }
+
+  private def BadRequest(message: String): CommandError =
+    CommandError(message, ErrorCode.BadRequest)
+
+  /**
+   * The minor that introduced view streams: a process declaring an earlier one cannot ask for one.
+   */
+  private val ViewStreamsSince = "1.17"
+
+  private def servesViewStreams: Option[CommandError] =
+    declaredProtocol.filterNot(ClientLogic.servesViewStreams).map { declared =>
+      CommandError(
+        s"this process declared protocol $declared, and a view stream needs protocol " +
+          s"$ViewStreamsSince; the sidecar speaks ${Discovery.ProtocolVersion}",
+        ErrorCode.BadRequest
+      )
+    }
 
   def schedule(request: ScheduleRequest): Future[pb.Empty] =
     timers() match
@@ -610,6 +809,12 @@ object ClientLogic:
   private val NamePattern = "[A-Za-z0-9._-]+".r
 
   private[sidecar] def isName(value: String): Boolean = NamePattern.matches(value)
+
+  /** Whether a process that declared `declared` may ask for a view stream or a watch. */
+  private[sidecar] def servesViewStreams(declared: String): Boolean =
+    declared.split('.').toList match
+      case _ :: minor :: _ => minor.toIntOption.exists(_ >= 17)
+      case _               => false
 
   /** Whether a process that declared `declared` may be served `Request`. */
   private[sidecar] def servesRequests(declared: Option[String]): Boolean =

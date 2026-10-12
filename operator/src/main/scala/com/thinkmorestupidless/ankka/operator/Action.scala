@@ -20,6 +20,8 @@ import com.thinkmorestupidless.ankka.operator.cnpg.{
 }
 import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicResource, KafkaUserResource}
 
+import scala.jdk.CollectionConverters.*
+
 /**
  * Something that should happen to the cluster, as a value.
  *
@@ -98,6 +100,12 @@ enum Action:
       namespace: String,
       name: String,
       status: com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus
+  )
+
+  /** A registered machine's status (feature 040): its broker user, and how far it has got. */
+  case SetMachineStatus(
+      name: String,
+      status: com.thinkmorestupidless.ankka.crd.AnkkaMachineStatus
   )
 
   /**
@@ -262,6 +270,51 @@ enum Action:
    */
   case RemoveBackendTlsPolicy(namespace: String, name: String, ownerUid: String)
 
+  /**
+   * Feature 041: where a namespace's clusters archive. Server-side applied, unowned, never removed:
+   * the archive in the bucket outlives everything in the cluster.
+   */
+  case EnsureObjectStore(store: cnpg.BarmanObjectStore)
+
+  /** Feature 041: a cluster's base backup on a schedule, owned by the cluster. */
+  case EnsureScheduledBackup(schedule: cnpg.PostgresScheduledBackup)
+
+  /**
+   * Feature 041: another base backup of a cluster whose every one failed (`BaseBackupRetry`), for a
+   * cluster whose schedule the operator does not render: the control plane's own database.
+   */
+  case RetryBaseBackup(namespace: String, cluster: String)
+
+  /**
+   * Feature 041: a backup bucket's credential, in the Secret `ankka-db-backups` of `namespace`, for
+   * the key `keyName` with `permission` on `bucket`. Issued once, as a storage credential is, and
+   * issued again into the same Secret when `generation` passes the last one this process issued at.
+   * Carries no key: this value is printed and logged.
+   */
+  case EnsureBackupCredential(
+      namespace: String,
+      bucket: String,
+      keyName: String,
+      permission: BucketPermission,
+      generation: Int
+  )
+
+  /**
+   * An exposed service's listener set (feature 045): a listener per custom hostname, attached to
+   * the installation's Gateway, in the service's namespace. Server-side applied whole, so a
+   * hostname dropped from the spec is dropped from the set.
+   */
+  case EnsureListenerSet(set: io.fabric8.kubernetes.api.model.gatewayapi.v1.ListenerSet)
+
+  /** The set of a service with no custom hostname rendered; owner-checked, absent-safe. */
+  case RemoveListenerSet(namespace: String, name: String, ownerUid: String)
+
+  /**
+   * Deletes the custom hostname certificates this resource owns and no longer names (feature 045).
+   * Found by their label and owner, never by name alone, so it cannot touch another's.
+   */
+  case PruneHostnameCertificates(namespace: String, ownerUid: String, keep: Vector[String])
+
   def describe: String = this match
     case EnsureNamespace(name) => s"ensure namespace $name"
     case ApplyDeployment(d) =>
@@ -284,6 +337,7 @@ enum Action:
     case SetProjectStatus(ns, name, status) =>
       s"set project status $ns/$name: " +
         status.topics.map(t => s"${t.name} ${t.phase}").mkString(", ")
+    case SetMachineStatus(name, status) => s"set machine status $name: ${status.phase}"
     case EnsureCluster(c) =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>
@@ -333,3 +387,19 @@ enum Action:
     case EnsureBackendTlsPolicy(p) =>
       s"ensure backendtlspolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
     case RemoveBackendTlsPolicy(ns, name, _) => s"remove backendtlspolicy $ns/$name if owned"
+    case EnsureObjectStore(o) =>
+      s"ensure objectstore ${o.getMetadata.getNamespace}/${o.getMetadata.getName}"
+    case EnsureScheduledBackup(b) =>
+      s"ensure scheduledbackup ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
+    case RetryBaseBackup(ns, cluster) =>
+      s"take a base backup of $ns/$cluster again if every one failed"
+    case EnsureBackupCredential(ns, bucket, key, permission, generation) =>
+      s"ensure backup credential $ns/${com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret} " +
+        s"for key $key ($permission) on bucket $bucket at generation $generation"
+    case EnsureListenerSet(s) =>
+      s"ensure listenerset ${s.getMetadata.getNamespace}/${s.getMetadata.getName} for " +
+        s.getSpec.getListeners.asScala.map(_.getHostname).mkString(", ")
+    case RemoveListenerSet(ns, name, _) => s"remove listenerset $ns/$name if owned"
+    case PruneHostnameCertificates(ns, _, keep) =>
+      s"prune hostname certificates in $ns" +
+        (if keep.isEmpty then "" else s" except ${keep.mkString(", ")}")

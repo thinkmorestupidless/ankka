@@ -117,6 +117,33 @@ final class ControlPlaneClient(settings: Settings):
   def revokeDeployToken(id: String, tokenId: String): Unit =
     send("DELETE", s"/organizations/${segment(id)}/tokens/${segment(tokenId)}", None): Unit
 
+  // ── Machines (feature 040) ────────────────────────────────────────────────
+
+  def listMachines(id: String): Vector[MachineSummary] =
+    get[Vector[MachineSummary]](s"/organizations/${segment(id)}/machines")
+
+  /** The reply carries the secret. It is returned, printed once, and never stored. */
+  def registerMachine(id: String, name: String): MachineRegistered =
+    decode[MachineRegistered](
+      send(
+        "POST",
+        s"/organizations/${segment(id)}/machines",
+        Some(writeToString(MachineRegistration(name)))
+      )
+    )
+
+  def deleteMachine(id: String, name: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/machines/${segment(name)}", None): Unit
+
+  def setMachineByteRates(id: String, name: String, rates: ByteRatesRequest): MachineSummary =
+    decode[MachineSummary](
+      send(
+        "PUT",
+        s"/organizations/${segment(id)}/machines/${segment(name)}/byte-rates",
+        Some(writeToString(rates))
+      )
+    )
+
   def disableOrganization(id: String): Unit =
     send("POST", s"/organizations/${segment(id)}/disable", None): Unit
 
@@ -138,6 +165,21 @@ final class ControlPlaneClient(settings: Settings):
     get[Vector[ProjectSummary]](s"/projects$query")
 
   def getProject(id: String): ProjectSummary = get[ProjectSummary](s"/projects/${segment(id)}")
+
+  /** A project's backups and database (feature 041). */
+  def projectStatus(id: String): ProjectStatus =
+    get[ProjectStatus](s"/projects/${segment(id)}/status")
+
+  /** Where the installation's backups go, and how safely (feature 041): `GET /installation`'s. */
+  def backups(): InstallationStatus =
+    installation().backups.getOrElse(
+      throw new IllegalStateException("the control plane reported nothing of its backups")
+    )
+
+  def restoreHold(): RestoreHoldStatus = get[RestoreHoldStatus]("/installation/restore")
+
+  def releaseRestoreHold(): RestoreHoldStatus =
+    decode[RestoreHoldStatus](send("POST", "/installation/restore/release", None))
 
   def createProject(id: String, name: String, organizationId: String): Unit =
     send(
@@ -218,7 +260,7 @@ final class ControlPlaneClient(settings: Settings):
     ): Unit
 
   def declareTopic(projectId: String, name: String, partitions: Int): Unit =
-    declareTopic(projectId, name, TopicDeclarationRequest(partitions))
+    declareTopic(projectId, name, TopicDeclarationRequest(Some(partitions)))
 
   /** The schema document a topic's contract was declared with, as JSON text. */
   def topicSchema(projectId: String, name: String): String =
@@ -254,6 +296,34 @@ final class ControlPlaneClient(settings: Settings):
 
   def clearProjectLocation(projectId: String): Unit =
     send("DELETE", s"/projects/${segment(projectId)}/location", None): Unit
+
+  // ── Grants (feature 040) ──────────────────────────────────────────────────
+
+  def makeGrant(projectId: String, request: GrantRequest): GrantDetail =
+    decode[GrantDetail](
+      send("POST", s"/projects/${segment(projectId)}/grants", Some(writeToString(request)))
+    )
+
+  def listGrants(projectId: String): Vector[GrantDetail] =
+    get[Vector[GrantDetail]](s"/projects/${segment(projectId)}/grants")
+
+  def receivedGrants(projectId: String): Vector[ReceivedGrantDetail] =
+    get[Vector[ReceivedGrantDetail]](s"/projects/${segment(projectId)}/grants/received")
+
+  /** Withdraws a pending grant or revokes an accepted one: the server knows which. */
+  def endGrant(projectId: String, grantId: String): Unit =
+    send("DELETE", s"/projects/${segment(projectId)}/grants/${segment(grantId)}", None): Unit
+
+  def organizationGrants(organizationId: String): Vector[ReceivedGrantDetail] =
+    get[Vector[ReceivedGrantDetail]](s"/organizations/${segment(organizationId)}/grants")
+
+  /** `accept`, `decline` or `relinquish` a grant offered to or held by an organization. */
+  def answerGrant(organizationId: String, grantId: String, verb: String): Unit =
+    send(
+      "POST",
+      s"/organizations/${segment(organizationId)}/grants/${segment(grantId)}/${segment(verb)}",
+      None
+    ): Unit
 
   // ── Services ──────────────────────────────────────────────────────────────
 
@@ -342,6 +412,68 @@ final class ControlPlaneClient(settings: Settings):
       )
     )
 
+  /** Restores a project's database to a moment (feature 041). */
+  def restoreProject(
+      projectId: String,
+      moment: java.time.Instant,
+      line: Option[String]
+  ): RestoreView =
+    decode[RestoreView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/restores",
+        Some(writeToString(RestoreRequest(moment, line)))
+      )
+    )
+
+  def restores(projectId: String): Vector[RestoreView] =
+    get[Vector[RestoreView]](s"/projects/${segment(projectId)}/restores")
+
+  def restore(projectId: String, name: String): RestoreView =
+    get[RestoreView](s"/projects/${segment(projectId)}/restores/${segment(name)}")
+
+  def projectDatabase(projectId: String): DatabaseSetting =
+    get[DatabaseSetting](s"/projects/${segment(projectId)}/database")
+
+  def setProjectDatabase(projectId: String, setting: DatabaseSetting): DatabaseSetting =
+    decode[DatabaseSetting](
+      send("PUT", s"/projects/${segment(projectId)}/database", Some(writeToString(setting)))
+    )
+
+  def rehearseProject(
+      projectId: String,
+      moment: Option[java.time.Instant],
+      line: Option[String]
+  ): RehearsalView =
+    decode[RehearsalView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/rehearsals",
+        Some(writeToString(RehearsalRequest(moment, line)))
+      )
+    )
+
+  def reissueBackupCredential(projectId: String): CredentialReissued =
+    decode[CredentialReissued](
+      send("POST", s"/projects/${segment(projectId)}/backups/credential", None)
+    )
+
+  def rehearsals(projectId: String): Vector[RehearsalView] =
+    get[Vector[RehearsalView]](s"/projects/${segment(projectId)}/rehearsals")
+
+  def projectHistory(projectId: String): Vector[ProjectHistoryView] =
+    get[Vector[ProjectHistoryView]](s"/projects/${segment(projectId)}/history")
+
+  /** Switches a service to another of its project's database clusters (feature 041). */
+  def switchService(projectId: String, name: String, cluster: String): ServiceStatus =
+    decode[ServiceStatus](
+      send(
+        "POST",
+        s"/services/${segment(projectId)}/${segment(name)}/switch",
+        Some(writeToString(SwitchRequest(cluster)))
+      )
+    )
+
   def rollbackService(projectId: String, name: String, generation: Option[Long]): RolledBack =
     decode[RolledBack](
       send(
@@ -353,6 +485,16 @@ final class ControlPlaneClient(settings: Settings):
 
   def unexposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "unexpose"))
+
+  /** Adds a custom hostname (feature 045); a refusal is the control plane's message. */
+  def addHostname(projectId: String, name: String, hostname: String): ServiceStatus =
+    decode[ServiceStatus](send("PUT", hostnamePath(projectId, name, hostname), None))
+
+  def removeHostname(projectId: String, name: String, hostname: String): ServiceStatus =
+    decode[ServiceStatus](send("DELETE", hostnamePath(projectId, name, hostname), None))
+
+  private def hostnamePath(projectId: String, name: String, hostname: String): String =
+    s"/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}"
 
   def deleteService(projectId: String, name: String): Unit =
     send("DELETE", s"/services/${segment(projectId)}/${segment(name)}", None): Unit

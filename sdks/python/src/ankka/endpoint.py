@@ -29,7 +29,7 @@ from ankka.services import HasServices
 class CallerMatcher:
     """One kind of caller an ``Acl.allow_callers`` admits; build one through ``Callers``."""
 
-    kind: str  # "internet" | "service" | "any_in_project" | "self"
+    kind: str  # "internet" | "service" | "any_in_project" | "self" | "granted"
     name: str | None = None
     project: str | None = None  # None on a named service: this service's own project
 
@@ -41,6 +41,8 @@ class CallerMatcher:
             return discovery_pb2.CallerMatcher(any_in_project=empty)
         if self.kind == "self":
             return discovery_pb2.CallerMatcher(self=empty)
+        if self.kind == "granted":
+            return discovery_pb2.CallerMatcher(granted=empty)
         named = discovery_pb2.NamedService(name=self.name or "")
         if self.project is not None:
             named.project = self.project
@@ -54,6 +56,9 @@ class Callers:
     any_in_project: ClassVar[CallerMatcher] = CallerMatcher("any_in_project")
     # ``self`` would shadow the conventional first parameter everywhere this is used; ``self_`` does not.
     self_: ClassVar[CallerMatcher] = CallerMatcher("self")
+    # Whoever this service's project has granted the route to: a service of another project, or a
+    # registered machine. A route that does not name this can never be granted (protocol 1.15).
+    granted: ClassVar[CallerMatcher] = CallerMatcher("granted")
 
     @staticmethod
     def service(name: str, *, project: str | None = None) -> CallerMatcher:

@@ -1,0 +1,11 @@
+# What the last copy did: `lastCompleted` and `lastFailed` as RFC 3339, `buckets` copied,
+# `deletedObjects` removed from the copy because Garage no longer held them, and `failure`. Written
+# by the copy, read by the control plane. Created empty; the copy merges into it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-copy-status
+  namespace: garage-system
+  labels:
+    app.kubernetes.io/managed-by: ankka
+data: {}

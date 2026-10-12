@@ -127,6 +127,33 @@ private[ankka] object PlatformVariables:
   val ServiceName: String = "ANKKA_SERVICE_NAME"
 
   /**
+   * Where a service finds the grants that name it: a file in the project's ConfigMap, which every
+   * platform container mounts. The platform's program reads it; a process never does.
+   */
+  val ProjectGrants: String = "ANKKA_PROJECT_GRANTS"
+
+  /** The issuer a machine token names, which a service believes a machine token from. */
+  val MachineIssuer: String = "ANKKA_MACHINE_ISSUER"
+
+  /** Where a service fetches the keys a machine token is signed with. */
+  val MachineJwksUrl: String = "ANKKA_MACHINE_JWKS_URL"
+
+  /** The authority the keys' address is served under: the service authority's `ca.crt`. */
+  val MachineJwksCa: String = "ANKKA_MACHINE_JWKS_CA"
+
+  /**
+   * The operator's settings for a registered machine's byte rates on the broker, and the control
+   * plane's for its token route and the exposed broker's address. Read by those programs from their
+   * own environment; never rendered onto a service.
+   */
+  val MachineProduceBytes: String      = "ANKKA_MACHINE_PRODUCE_BYTES"
+  val MachineConsumeBytes: String      = "ANKKA_MACHINE_CONSUME_BYTES"
+  val MachineRequestPercentage: String = "ANKKA_MACHINE_REQUEST_PERCENTAGE"
+  val MachineByteRateCeiling: String   = "ANKKA_MACHINE_BYTE_RATE_CEILING"
+  val MachineTokenRate: String         = "ANKKA_MACHINE_TOKEN_RATE"
+  val BrokerExternalBootstrap: String  = "ANKKA_BROKER_EXTERNAL_BOOTSTRAP"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -159,7 +186,12 @@ private[ankka] object PlatformVariables:
     CloudLocation,
     CloudKmsKey,
     CloudAcknowledgementBound,
-    CloudRotationGrace
+    CloudRotationGrace,
+    // Which grants name the service, and how it believes a machine's token.
+    ProjectGrants,
+    MachineIssuer,
+    MachineJwksUrl,
+    MachineJwksCa
   ) ++ SecretStoreSettings
 
   /**
@@ -180,7 +212,11 @@ private[ankka] object PlatformVariables:
       "ANKKA_MCP_",
       // A declared broker's address and credential (feature 037): the platform's program connects;
       // the process never sees them.
-      "ANKKA_TOPIC_BROKER_"
+      "ANKKA_TOPIC_BROKER_",
+      // A view's watch and stream limits, and the SSE heartbeat: the platform's program holds the
+      // watches and serves the streams.
+      "ANKKA_VIEW_",
+      "ANKKA_SSE_"
     )
   val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout) ++ SecretStoreSettings
 

@@ -14,7 +14,9 @@ pages:
   - platform/object-storage.md
   - platform/cloud-provider.md
   - platform/secrets.md
+  - platform/cross-project-access.md
   - platform/networking.md
+  - deploy/custom-hostnames.md
   - concepts/tenancy-and-access.md
   - concepts/control-plane.md
   - reference/control-plane-api.md

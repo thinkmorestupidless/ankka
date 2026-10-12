@@ -11,7 +11,7 @@ A view comes in two shapes:
 
 | | Plain view | Keyed view |
 |---|---|---|
-| Reads | one source: an entity's events, a key value entity's state, or a topic | one or more entities' events or states |
+| Reads | one source: an entity's events, a key value entity's state, a workflow's states, or a topic | one or more entities' events or states, or workflows' states |
 | Row key | the id of the entity the change came from, always | whatever the handler names |
 | The current row | handed to the handler | read by the handler, by key or by a declared query |
 | Rows one change writes | at most one | any number |
@@ -26,12 +26,14 @@ that updates many rows, such as a customer's rename reaching every one of their 
 
 ## Sources
 
-A plain view reads exactly one source; a [keyed view](#keyed-views) reads one or more entities:
+A plain view reads exactly one source; a [keyed view](#keyed-views) reads one or more entities and
+workflows:
 
 | Source | Scala | Python | TypeScript | Delivery |
 |---|---|---|---|---|
 | An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | `static readonly source = ShoppingCartEntity` | Every event, in order, exactly once. |
 | A key value entity's state | `ChangeSource.stateOf(CheckoutLog)` | `source = CheckoutLog` | `static readonly source = CheckoutLog` | The latest value; intermediate values can be skipped. |
+| A workflow's states | `ChangeSource.stateOf(CheckoutWorkflow)` | `source = CheckoutWorkflow` | `static readonly source = CheckoutWorkflow` | Each state the workflow records, in order, exactly once, with its standing; see [Reading a workflow](#reading-a-workflow). |
 | A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | At least once; see [Broker topics](topics.md). |
 
 The source is built from the source component's own declaration, so a view over the cart is typed
@@ -62,7 +64,10 @@ import shoppingcart.domain.ShoppingCartEvent.*
 final case class CartRow(
     cartId: String,
     quantities: Map[String, Int],
-    checkedOut: Boolean
+    checkedOut: Boolean,
+    // Each product's name, so the row says all a watcher of the cart needs. Absent from rows
+    // written before it was added, which read as no names.
+    names: Map[String, String] = Map.empty
 ):
   def productIds: List[String] = quantities.keys.toList.sorted
   def totalQuantity: Int       = quantities.values.sum
@@ -75,12 +80,18 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
       case ItemAdded(item) =>
         val existing = current.quantities.getOrElse(item.productId, 0)
         effects.updateRow(
-          current.copy(quantities =
-            current.quantities.updated(item.productId, existing + item.quantity)
+          current.copy(
+            quantities = current.quantities.updated(item.productId, existing + item.quantity),
+            names = current.names.updated(item.productId, item.name)
           )
         )
       case ItemRemoved(productId) =>
-        effects.updateRow(current.copy(quantities = current.quantities - productId))
+        effects.updateRow(
+          current.copy(
+            quantities = current.quantities - productId,
+            names = current.names - productId
+          )
+        )
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
       // The deletion that follows removes the row: a discarded cart leaves the listing, which is
@@ -94,6 +105,11 @@ object CartRows
       source = ChangeSource.eventsOf(ShoppingCartEntity),
       rowSerializer = Codecs.serializer[CartRow]("cart-row")
     ):
+  /** The carts not checked out. Watchable: it selects each row's key beside the row. */
+  val openCarts = query("open-carts")(
+    s"SELECT row_key, payload FROM $table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+  ).watched
+
   def create(ctx: ViewComponentContext) = new CartRowsView
 ```
 
@@ -213,6 +229,205 @@ reading entities that are deleted once an order is placed, say, overrides the ha
 tombstone and mark it, rather than lose what the entity held.
 
 An entity whose state has expired is not deleted: no deletion is delivered, and its row stays as it was.
+
+## Reading a workflow
+
+A view can read a workflow as it reads a key value entity: in Scala with `ChangeSource.stateOf` of the
+workflow's companion, and in Python, TypeScript and Rust by naming the workflow where an entity would be
+named. The view is handed each state the workflow records, decoded with the workflow's own codec, in the
+order the workflow recorded them. A row and the record of how far the view has read are written in one
+transaction, so each state is applied exactly once.
+
+With each state comes the workflow's **standing**: where the workflow stood once the whole effect that
+recorded the state was applied. A step that records a state and ends is one change whose standing is
+completed, not a running state followed by an end. The handler reads it from its context: `updateContext.standing`
+in Scala, `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust. A change
+from an entity or a topic has no standing.
+
+| Standing | When a change carries it |
+|---|---|
+| `NotStarted` | The workflow recorded a state and has moved to no step yet. |
+| `Running` | The workflow moved to a step with the state, or is on one. The step is named. |
+| `Paused` | The workflow paused with the state. The step named is the one its timeout runs, or else the one it paused after. |
+| `Completed` | The workflow ended with the state. |
+| `Failed` | The workflow failed with the state. The reason is given. |
+| `Unknown` | The state was recorded by a release that did not stamp standings. |
+
+A standing carries the step the workflow is on or waits after, the retries of each step so far, and, for a
+failed workflow, why it failed.
+
+**What records no state is no change.** A transition, a pause, an end or a failure that records no state
+delivers nothing, and a workflow that times out records none. A view that must show how a workflow
+ended therefore needs the step that ends it to record a state: a failover step that records the failure
+in the state and then fails the workflow is one change whose standing is failed. A caller that must
+know a workflow ended, whatever its last step recorded, asks the workflow for its lifecycle instead.
+
+This view keeps a row for each checkout: its own status, where the workflow stood, and why it failed.
+A declared query lists the rows of one standing.
+
+**Scala**
+
+```scala
+/** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+final case class CheckoutRow(
+    id: String,
+    status: String,
+    standing: String,
+    step: Option[String],
+    failure: Option[String]
+)
+
+final class CheckoutRowsView extends View[CheckoutState, CheckoutRow]:
+  def onChange(state: CheckoutState): Effect =
+    // A change from a workflow carries its standing: where it stood once the effect that
+    // recorded `state` was applied.
+    val standing = updateContext.standing.getOrElse(WorkflowLifecycle.unknown)
+    effects.updateRow(
+      CheckoutRow(
+        updateContext.subject,
+        state.status,
+        standing.status,
+        standing.pendingStep,
+        standing.failure
+      )
+    )
+
+object CheckoutRows
+    extends View.Companion[CheckoutRowsView, CheckoutState, CheckoutRow](
+      componentId = ComponentId("checkout-rows"),
+      source = ChangeSource.stateOf(Checkout),
+      rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
+    ):
+  def create(ctx: ViewComponentContext) = new CheckoutRowsView
+  val byStanding = query("by-standing")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
+  )
+```
+
+**Python**
+
+```python
+@dataclass(frozen=True)
+class CheckoutRow:
+    id: str
+    status: str
+    standing: str
+    step: str | None = None
+    failure: str | None = None
+
+
+class CheckoutRows(View[Checkout, CheckoutRow]):
+    """A checkout's row: its state's status, and where the workflow stood when it recorded it."""
+
+    component_id = "checkout-rows"
+    source = CheckoutWorkflow
+    event_codec = CheckoutWorkflow.state_codec
+    row_codec = json_codec(CheckoutRow, "checkout-row")
+    by_standing = declare(
+        "by-standing",
+        f"SELECT payload FROM {table_of('checkout-rows')} WHERE payload::jsonb->>'standing' = :standing",
+    )
+
+    def on_change(self, state: Checkout) -> ViewEffect:
+        # A change from a workflow carries its standing: where it stood once the effect that
+        # recorded `state` was applied.
+        standing = self.standing or Standing("Unknown")
+        return self.effects.update_row(
+            CheckoutRow(self.metadata.subject or "", state.status, standing.status, standing.step, standing.failure)
+        )
+```
+
+**TypeScript**
+
+```typescript
+export const CheckoutRow = s.record("CheckoutRow", {
+  id: s.string,
+  status: s.string,
+  standing: s.string,
+  step: s.option(s.string),
+  failure: s.option(s.string),
+})
+export type CheckoutRow = Infer<typeof CheckoutRow>
+
+/** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+export class CheckoutRows extends View<Checkout, CheckoutRow> {
+  static readonly componentId = "checkout-rows"
+  static readonly source = CheckoutWorkflow
+  static readonly events = CheckoutWorkflow.state
+  static readonly row = jsonCodec(CheckoutRow, "checkout-row")
+  static readonly declared = [
+    declaredQuery("by-standing", `SELECT payload FROM ${tableOf("checkout-rows")} WHERE payload::jsonb->>'standing' = :standing`),
+  ]
+
+  onChange(state: Checkout) {
+    // A change from a workflow carries its standing: where it stood once the effect that recorded
+    // `state` was applied.
+    const standing = this.standing
+    return this.effects.updateRow({
+      id: this.subject,
+      status: state.status,
+      standing: standing?.status ?? "Unknown",
+      step: standing?.step ?? null,
+      failure: standing?.failure ?? null,
+    })
+  }
+}
+```
+
+**Rust**
+
+```rust
+/// A checkout's row: its state's status, and where the workflow stood when it recorded it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckoutRow {
+    pub id: String,
+    pub status: String,
+    pub standing: String,
+    pub step: Option<String>,
+    pub failure: Option<String>,
+}
+
+pub struct CheckoutRows;
+
+impl View for CheckoutRows {
+    type Row = CheckoutRow;
+    type Event = Checkout;
+    const COMPONENT_ID: &'static str = "checkout-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("checkout-row");
+
+    fn source() -> Source {
+        Source::of(CheckoutWorkflow)
+    }
+
+    fn on_event(_: Option<CheckoutRow>, state: Checkout, ctx: &Context) -> ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        let unknown = Standing::of("Unknown");
+        let standing = ctx.standing().unwrap_or(&unknown);
+        ViewEffect::UpdateRow(CheckoutRow {
+            id: ctx.metadata().subject().unwrap_or_default().to_string(),
+            status: state.status,
+            standing: standing.status.clone(),
+            step: standing.step.clone(),
+            failure: standing.failure.clone(),
+        })
+    }
+
+    fn declared() -> Vec<DeclaredQuery> {
+        let table = table_of(Self::COMPONENT_ID);
+        vec![query(
+            "by-standing",
+            format!("SELECT payload FROM {table} WHERE payload::jsonb->>'standing' = :standing"),
+        )]
+    }
+}
+```
+
+A view over a workflow declares a version and is rebuilt by raising it, as a view over an entity is: the
+rebuild reads every state every workflow recorded, from the first. A state recorded before the platform
+stamped standings is delivered with the standing `Unknown`. When a workflow is deleted, the view's deletion
+handler runs, and by default the row goes with it. A keyed view may read workflows beside entities, one
+change at a time; a topic and a workflow may not be sources of one view.
 
 ## Registering a view
 
@@ -409,7 +624,8 @@ const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowSh
 
 The statement must select the rows' `payload` column: the answer is rows of the view's own row type. A
 value is text; a statement that needs a number casts it, as `(:depth)::int`. A query answers with at most
-1000 rows unless the caller gives another limit, in the order the statement gives them.
+1000 rows unless the caller gives another limit, in the order the statement gives them; asked as a
+stream, it has no limit (see [Streaming a query](#streaming-a-query)).
 
 ### What stops a service from starting
 
@@ -444,6 +660,197 @@ A recursive query follows rows to any depth in one statement. A view of a tree k
 holding its parent's key, and the `under` query above answers every row under a node, however deep the
 tree. Write it with `UNION` rather than `UNION ALL`: rows already found are not followed again, so a cycle
 in the data ends the walk instead of running until the timeout.
+
+## Streaming a query
+
+A whole answer is collected before the caller sees its first row, and stops at its limit. Asked as a
+stream, the same query gives each row as the database yields it, in the statement's order, with no limit
+unless the caller gives one — the way to read every row of a large view without holding them all:
+
+**Scala**
+
+```scala
+// Every row, as the database yields it: nothing is collected, and there is no limit.
+val everyCart = rows.allStream().runWith(Sink.seq)
+```
+
+**Python**
+
+`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
+
+```python
+@sse("/streamed")
+async def streamed(self) -> AsyncIterator[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for row in views.stream("tree-rows", "all-rows", TreeRow):
+        yield row.key
+```
+
+**TypeScript**
+
+`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
+
+```ts
+streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+}),
+```
+
+| Method | Streams |
+|---|---|
+| `allStream(limit = None)` | Every row. |
+| `whereStream(condition, limit = None)` | Every row matching a condition. |
+| `orderedStream(condition, order, limit = None)` | Matching rows in an order. |
+| `askStream(query, values*)` | A declared query's rows; `askStream(query, limit, values*)` reads at most `limit`. |
+
+Each answers a Pekko Streams `Source`, which an `sse` route, a gRPC server stream or a socket route serves
+as it is. A stream is produced no faster than its reader reads, and stops being produced when the reader
+goes away. It runs in one read-only transaction on a connection of its own for as long as it lasts, and
+gives the connection back however it ends.
+
+A stream may run longer than a whole answer is allowed to: the database's statement timeout bounds each
+fetch of rows, not the stream. A statement the database ends fails the stream with a timeout, and so does
+a reader that takes nothing for that long, which would otherwise hold the database's cursor open. A stream
+that fails is never a shorter answer: the reader is told.
+
+## Watching a query
+
+A watch is a query kept open. It gives every row the query matches now, then a marker saying it is
+caught up, then, for as long as the watcher reads, each row as the view writes it and matches, and a
+removal for each row it gave that is written so it no longer matches, or is deleted. A page listing open
+carts watches the open carts, shows the listing once it is caught up, and keeps it current with no
+polling.
+
+A query is watched only when its view declares it watchable. Its statement selects `row_key` beside
+`payload`, has no `LIMIT`, `OFFSET` or `FETCH`, and does not aggregate (no `GROUP BY`, `DISTINCT` or
+aggregate function) at its outermost select; an `ORDER BY` orders the rows given now, and a `WITH`, a join
+or a subquery may do what it likes inside. A service declaring a watchable query that breaks one of these
+does not start, naming the rule. The same query may still be asked whole or as a stream.
+
+**Scala**
+
+```scala
+/** The carts not checked out. Watchable: it selects each row's key beside the row. */
+val openCarts = query("open-carts")(
+  s"SELECT row_key, payload FROM $table WHERE (payload::jsonb->>'checkedOut')::boolean = false"
+).watched
+```
+
+**Python**
+
+```python
+all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+```
+
+**TypeScript**
+
+```ts
+declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
+```
+
+`watch(query, values*)` watches a declared query; `watchRow(key)` watches one row by its key and needs no
+declaration. Each answers a `Source[WatchEvent[Row], NotUsed]`:
+
+| Element | Means |
+|---|---|
+| `WatchEvent.Row(key, row)` | The row under `key`, as the query sees it now. |
+| `WatchEvent.CaughtUp` | Given once, after the rows matched when the watch began and before any change; at once when nothing matched. |
+| `WatchEvent.Removed(key)` | The row under `key`, given earlier, no longer matches or was deleted. |
+
+An HTTP endpoint serves a watch as server-sent events with `asSse` (from
+`com.thinkmorestupidless.ankka.http`), which names each event `row`, `caught-up` or `removed`, its data the
+key and the row as JSON:
+
+**Scala**
+
+```scala
+sseEvents("/")(() => views.forView(CartRows).watch(CartRows.openCarts).asSse)
+```
+
+**Python**
+
+`views.watch(view_id, name, row, values, unread=…, overflow=…)` and `views.watch_row(view_id, key, row)`
+yield `Row`, `CaughtUp` and `Removed`, and raise `WatchEnded`; `sse_events` serves a watch from an `@sse`
+route:
+
+```python
+@sse("/watched")
+async def watched(self) -> AsyncIterator[str | SseEvent]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for event in sse_events(views.watch("tree-rows", "all-rows", TreeRow)):
+        yield event
+```
+
+**TypeScript**
+
+`views.watch(viewId, name, values, row, { unread, overflow })` and `views.watchRow(viewId, key, row)`
+yield `{ kind: "row" | "removed" | "caughtUp" }` and throw `WatchEnded`; `sseEvents` serves a watch from
+an `sse` route:
+
+```ts
+watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+```
+
+A route handler reads anything it needs from the request — the caller, a path value — before it returns
+the stream: the stream is read later, on another thread, where the request is no longer at hand. The
+route's ACL admits the watch when the request opens it, and nothing is checked again while it is open.
+
+### A watch is live, not a record
+
+- **Evaluated on writes.** Whether a row matches is decided when the view writes it, by the watched
+  statement for that row alone. A statement whose match depends on the time gives a row that comes to
+  match by the clock alone on its next write, not before. A row's match does not change when another row
+  is written: a tree page watching everything under a node sees a moved subtree's rows only as each is
+  written. A cheap statement makes a cheap watch, since it runs once for every written row.
+- **Coalesced.** A watcher is never given an older version of a row after a newer one, and a row written
+  faster than the watcher reads reaches it fewer times than it was written. The same version may be given
+  twice.
+- **Any instance.** A row written on any instance of the service reaches a watcher on any instance, once
+  the write has committed.
+- **Not replayed.** What was written while nobody watched is not given to a later watcher, beyond the
+  rows the query matches when it begins. A reader that must see every change — to count them, to act on
+  each — reads the source itself with a [consumer](consumers.md).
+
+### Unread rows
+
+A watch holds the rows its watcher has not read yet, one per row key: 256 unless the watcher gives
+another bound, as `watch(query, Watching(unread = Some(1000)), values*)`. When it holds that many and a row
+for another key arrives, the watcher's overflow strategy decides:
+
+| `Overflow` | Does |
+|---|---|
+| `DropHead` | Drops the row changed longest ago. The default. |
+| `DropTail` | Drops the row changed most recently. |
+| `DropNew` | Drops the row that arrived. |
+| `DropAll` | Drops every unread row. |
+| `Fail` | Ends the watch, telling the watcher it ended unread. |
+
+No strategy slows the view: a watcher never holds back the view's writes. Under a dropping strategy a
+watcher that falls behind may be left holding a row that is gone, when the removal is what was dropped,
+until that row is written again or it watches again; a row it never had appears on its next write. A
+watcher that would rather know chooses `Fail`, and watches again.
+
+### How a watch ends
+
+A watch ends when its watcher stops reading. It also ends, with a reason, when:
+
+| Reason | When |
+|---|---|
+| rebuilt | the view is emptied to be rebuilt at a higher version |
+| instance stopping | the instance serving the watch stops |
+| listener lost | the instance loses its connection for hearing of the view's writes |
+| unread | the watcher's unread bound was reached under `Fail` |
+
+The stream fails with `WatchEnded(reason)`; served with `asSse`, the last event is `ended`, its data the
+reason. A watcher that still wants the rows watches again, and is given the rows the query matches now —
+so a page that reconnects shows the current listing again.
+
+An instance holds at most 1000 open watches, every view together; one more is refused, naming that bound.
+A watch is counted as one call in the service's topology, marked as a stream, when it ends. A server
+learns that a reader of server-sent events has gone only when it next writes to the connection, which a
+quiet watch does once a heartbeat, so a watch served that way is held for up to about two heartbeats
+after its page closes. Through the platform's gateway, a watch served as server-sent events is bounded by
+the gateway's route timeout, as any long response is.
 
 ## Keyed views
 
@@ -556,11 +963,17 @@ a race; it is the consistency model the view actually has.
 
 - A view writes one table, its own, and a query reads that table alone: there is no query across two
   views' tables.
-- A topic and an entity may not be sources of one view, and a keyed view reads no topic.
+- A topic and an entity, or a topic and a workflow, may not be sources of one view, and a keyed view
+  reads no topic.
+- A view over a workflow is handed only the states the workflow records; a transition, a pause, an end or a
+  failure that records no state is no change.
 - A keyed view handles one change at a time; its throughput does not grow with instances.
 - A view over a topic starts at the earliest message the broker holds unless it says otherwise, and is
   rebuilt by raising its version, as far back as the broker retains. See
   [Broker topics](topics.md#rebuilding-by-version).
+- A watch is live, not a record: it may give a watcher fewer versions of a row than were written, and
+  gives nothing written while it was not open. A watched query is decided for each written row alone.
+- A WebAssembly module reads a view whole: it cannot stream a query or watch one.
 
 See [Limitations](../reference/limitations.md) for the full list.
 

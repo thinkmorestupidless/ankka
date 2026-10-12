@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.controlplane.deploy
 
 import com.thinkmorestupidless.ankka.controlplane.api.ServiceLifecycle
 import com.thinkmorestupidless.ankka.controlplane.domain.{
+  HostnameReport,
   Service,
   ServiceObservation,
   StorageReport
@@ -55,7 +56,9 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants,
+        hostnames = service.hostnameReports
       )
 
     case ClusterView.Refused(reason) =>
@@ -69,7 +72,9 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants,
+        hostnames = service.hostnameReports
       )
 
     case ClusterView.NoReport =>
@@ -83,7 +88,9 @@ object StatusIngest:
         database = service.database,
         broker = service.broker,
         objectStorage = service.objectStorage,
-        storage = service.storage
+        storage = service.storage,
+        grants = service.grants,
+        hostnames = service.hostnameReports
       )
 
     case ClusterView.Reported(status) =>
@@ -102,7 +109,12 @@ object StatusIngest:
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
         objectStorage = status.objectStorage.map(_.phase),
-        storage = status.objectStorage.flatMap(report)
+        storage = status.objectStorage.flatMap(report),
+        grants = status.grants,
+        // Verbatim, in the spec's order (feature 045): the words are the authority's and the
+        // gateway's, and only the operator read them.
+        hostnames =
+          status.hostnames.toVector.map(h => HostnameReport(h.hostname, h.state, h.reason))
       )
 
   /**

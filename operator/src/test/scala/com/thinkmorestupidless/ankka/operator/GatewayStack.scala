@@ -45,6 +45,38 @@ object GatewayStack:
         k3s.execInContainer("kubectl", "apply", "--server-side", "--force-conflicts", "-f", url)
       if result.getExitCode != 0 then
         throw new AssertionError(s"applying $url failed: ${result.getStderr}")
+    // The component's patch on cert-manager's controller (`--enable-gateway-api`), applied as the
+    // component applies it, so the HTTP-01 solver can answer through the Gateway (feature 045).
+    val patch = repoRoot.resolve("kustomization/components/certmanager/controller-args.yaml")
+    k3s.copyFileToContainer(
+      org.testcontainers.images.builder.Transferable.of(Files.readAllBytes(patch)),
+      "/tmp/cert-manager-args.yaml"
+    )
+    val patched = k3s.execInContainer(
+      "kubectl",
+      "-n",
+      "cert-manager",
+      "patch",
+      "deployment",
+      "cert-manager",
+      "--type",
+      "strategic",
+      "--patch-file",
+      "/tmp/cert-manager-args.yaml"
+    )
+    if patched.getExitCode != 0 then
+      throw new AssertionError(s"patching cert-manager failed: ${patched.getStderr}")
+    val rolled = k3s.execInContainer(
+      "kubectl",
+      "-n",
+      "cert-manager",
+      "rollout",
+      "status",
+      "deployment/cert-manager",
+      "--timeout=180s"
+    )
+    if rolled.getExitCode != 0 then
+      throw new AssertionError(s"cert-manager did not roll out: ${rolled.getStderr}")
     waitForRollout(k8s, "cert-manager", "cert-manager-webhook")
     waitForRollout(k8s, "envoy-gateway-system", "envoy-gateway")
 
@@ -103,7 +135,7 @@ object GatewayStack:
 
   /** The local CA's root, written to a temp file for `curl --cacert` and `config set ca`. */
   def exportCa(k8s: KubernetesClient): Path =
-    val secret = k8s.secrets().inNamespace("ankka-gateway").withName("ankka-root-ca").get()
+    val secret = k8s.secrets().inNamespace("cert-manager").withName("ankka-root-ca").get()
     val pem    = Base64.getDecoder.decode(secret.getData.get("ca.crt"))
     val file   = Files.createTempFile("ankka-local-ca", ".crt")
     Files.write(file, pem)

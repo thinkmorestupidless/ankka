@@ -12,8 +12,9 @@ platform prints it when it is deployed.
 
 ## Authentication
 
-Every route except `GET /auth` requires an OpenID Connect access token from the installation's identity
-provider, sent as a bearer token:
+Every route except `GET /auth` and the machine token routes (`POST /oauth/token`,
+`/.well-known/jwks.json` and `/.well-known/openid-configuration`) requires an OpenID Connect access token
+from the installation's identity provider, sent as a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" https://api.127.0.0.1.sslip.io:8443/organizations
@@ -24,6 +25,10 @@ starts. A person obtains a token with `ankka login`; a machine obtains one from 
 with the client-credentials grant and presents it as given. The control plane verifies the token itself,
 against the identity provider's published keys, and takes the token's `sub` claim as the caller's
 identity.
+
+A registered machine is not a caller of these routes. It takes its own token from `POST /oauth/token`,
+which answers without a bearer token and authenticates the machine by its client id and secret, and
+presents that token to the services and the broker that grants name it.
 
 | Status | Meaning |
 |---|---|
@@ -94,6 +99,14 @@ The table is generated from the control plane's own route declarations.
 | `PUT` | `/organizations/{organizationId}/members/{subject}/role` | |
 | `DELETE` | `/organizations/{organizationId}/invitations/{email}` | |
 | `POST` | `/organizations/{organizationId}/members/{subject}/repair` | |
+| `GET` | `/organizations/{organizationId}/grants` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/accept` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/decline` | |
+| `POST` | `/organizations/{organizationId}/grants/{grantId}/relinquish` | |
+| `GET` | `/organizations/{organizationId}/machines` | |
+| `POST` | `/organizations/{organizationId}/machines` | |
+| `DELETE` | `/organizations/{organizationId}/machines/{name}` | |
+| `PUT` | `/organizations/{organizationId}/machines/{name}/byte-rates` | |
 | `GET` | `/organizations/{organizationId}/tokens` | |
 | `POST` | `/organizations/{organizationId}/tokens` | |
 | `DELETE` | `/organizations/{organizationId}/tokens/{tokenId}` | |
@@ -114,6 +127,16 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/topics/{name}/schema` | |
 | `DELETE` | `/projects/{projectId}/topics/{name}` | |
 | `GET` | `/projects/{projectId}/topics` | |
+| `GET` | `/projects/{projectId}/status` | |
+| `POST` | `/projects/{projectId}/rehearsals` | |
+| `POST` | `/projects/{projectId}/backups/credential` | |
+| `GET` | `/projects/{projectId}/rehearsals` | |
+| `POST` | `/projects/{projectId}/restores` | |
+| `GET` | `/projects/{projectId}/restores` | |
+| `GET` | `/projects/{projectId}/restores/{name}` | |
+| `GET` | `/projects/{projectId}/database` | |
+| `PUT` | `/projects/{projectId}/database` | |
+| `GET` | `/projects/{projectId}/history` | |
 | `PUT` | `/projects/{projectId}/brokers/{name}` | |
 | `DELETE` | `/projects/{projectId}/brokers/{name}` | |
 | `PUT` | `/projects/{projectId}/location` | |
@@ -121,10 +144,15 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/brokers` | |
 | `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/projects/{projectId}/secret-reads` | |
+| `POST` | `/projects/{projectId}/grants` | |
+| `GET` | `/projects/{projectId}/grants` | |
+| `GET` | `/projects/{projectId}/grants/received` | |
+| `DELETE` | `/projects/{projectId}/grants/{grantId}` | |
 | `POST` | `/secret-reads` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
+| `POST` | `/services/{projectId}/{name}/switch` | |
 | `POST` | `/services/{projectId}/{name}/rollback` | |
 | `GET` | `/services/{projectId}/{name}/descriptor` | |
 | `POST` | `/services/{projectId}/{name}/pause` | |
@@ -135,12 +163,20 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/storage/move` | |
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
+| `PUT` | `/services/{projectId}/{name}/hostnames/{hostname}` | |
+| `DELETE` | `/services/{projectId}/{name}/hostnames/{hostname}` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
 | `GET` | `/services/{projectId}/{name}/topology` | |
 | `GET` | `/services/{projectId}/{name}/history` | |
 | `DELETE` | `/services/{projectId}/{name}` | |
 | `GET` | `/auth/whoami` | |
+| `GET` | `/installation/restore` | |
+| `POST` | `/installation/restore/release` | |
 | `GET` | `/installation` | |
+| `POST` | `/oauth/token` | |
+| `GET` | `/.well-known/jwks.json` | |
+| `GET` | `/.well-known/openid-configuration` | |
+| `POST` | `/platform/machine-keys/rotate` | |
 | `GET` | `/auth` | |
 Path parameters are shown in braces. Identifiers for organizations and projects are lowercase letters,
 digits and `-`, starting with a letter; a project id must also fit in a Kubernetes namespace name, so it
@@ -181,8 +217,9 @@ Calling it also claims any pending invitation addressed to the caller's verified
 
 ### `GET /installation`
 
-What the installation is: its version, and its cloud when it names a
-[cloud provider](../platform/cloud-provider.md). Any caller with a token may read it. Response:
+What the installation is: its version, its cloud when it names a
+[cloud provider](../platform/cloud-provider.md), and where its backups go and how safely. Any caller
+with a token may read it. Response:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -196,6 +233,22 @@ What the installation is: its version, and its cloud when it names a
 | `secrets.backend` | string | `postgres` (each service's own database and the cluster's Secrets) or `secret-manager`. |
 | `secrets.recordRetention` | string | How long the record of secret reads is kept, such as `365d`. |
 | `secrets.auditLog` | string | Whether the cloud's own access log for its secrets is on: `on`, `off`, or `unknown` until the cloud provider reports it. |
+
+| `backups` | object | Where the installation's backups go, and how safely. |
+
+`backups` is, for example, `{ "backupTarget": "object-store", "retentionDays": 30, "copyRequired": false,
+"sharesFailureDomain": true, "encryption": "none: …" }`.
+
+`backupTarget` is `none` or `object-store`, the installation's own object store; with `none`,
+`notBackedUp` says that nothing is backed up. `retentionDays` is the least any project keeps its
+backups: a project may keep them longer, never for less time. `copyRequired` says whether a project is
+backed up only once its latest base backup has a copy outside the cluster. `sharesFailureDomain` is
+`true` when the backups are in the cluster they back up, so that losing the cluster loses them too.
+`encryption` says how a backup is encrypted at rest, or `none` and why. `controlPlane` is the control
+plane's own database's backups, shaped as a project's line, when the control plane can read them.
+`secondaryStore` is the installation's copy of every bucket outside the cluster, where it has one:
+`{ "lastCompleted": "…", "lastFailed": "…", "failure": "…", "buckets": 12, "deletedObjects": 1 }`. Once
+a copy has completed, `sharesFailureDomain` is `false`.
 
 ## Organizations
 
@@ -326,6 +379,62 @@ answer so that a guessed id discloses nothing.
 The control plane node that handles the revocation refuses the token on the very next request. Other
 nodes refuse it within the platform's read-refresh interval, since each one learns from the token's
 journal; the id is never reused.
+
+### `GET /organizations/{organizationId}/grants`
+
+What the organization's registered machines and the services of every project it owns hold, or are
+offered, from other projects. Members only. Each entry is a received grant: its granting project and
+organization, the grantee, the target, its state, every change made to it with who made it and when,
+and for a topic grant the topic's partitions and whether it is compacted.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/accept`
+
+Accepts a pending grant offered to the organization: one naming a registered machine of it, or a
+service of one of its projects. Owners only; a member or a deploy token is refused with `403`. The grant
+takes effect, on the granting project's listing and its history, with the owner who accepted it. A
+grant not offered to this organization is `404`, whoever asks, so an id discloses nothing; a grant that
+is no longer pending is `409`. Answers `204`.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/decline`
+
+Declines a pending grant offered to the organization. It ends and never takes effect. Owners only, with
+the same answers as accepting.
+
+### `POST /organizations/{organizationId}/grants/{grantId}/relinquish`
+
+Gives up an accepted grant the organization holds, without the grantor. What it opened closes as a
+revoked grant's does. Owners only; a grant that is not accepted is `409`.
+
+### `GET /organizations/{organizationId}/machines`
+
+Lists the organization's registered machines, by name. Members only. Each entry carries `name`,
+`clientId` (`machine:<organization>/<name>`), `registeredBy`, `registeredAt` and `byteRates`, absent
+while the installation's defaults apply. No entry carries the secret.
+
+### `POST /organizations/{organizationId}/machines`
+
+Registers a machine outside the installation: a system another organization runs, which takes tokens
+and calls what a project grants it. Body: `{ "name": "affiliate-network" }`, a name under the service
+name rule. Owners only; a deploy token is refused. A name registered and not deleted is `409`.
+
+Answers `200` with `{ "name", "clientId", "clientSecret", "tokenUrl", "brokerBootstrap" }`.
+**`clientSecret` is shown here and nowhere else**: it is kept only as a one-way digest. `tokenUrl` is
+the token route below; `brokerBootstrap` is the broker's address outside the cluster, absent when the
+installation does not expose it. A machine holds no grant until a project grants it one. See
+[Cross-project access](../platform/cross-project-access.md).
+
+### `DELETE /organizations/{organizationId}/machines/{name}`
+
+Deletes a machine. Owners only. Answers `204`, and `404` for one that is not registered. Its secret is
+refused from then on, and the name may be registered again as a new machine, with a new secret and no
+grant.
+
+### `PUT /organizations/{organizationId}/machines/{name}/byte-rates`
+
+Limits what a machine may move through the installation's broker. Body: `{ "produceBytesPerSecond":
+1048576, "consumeBytesPerSecond": 4194304, "requestPercentage": 50 }`. Each rate is more than nothing
+and at most the installation's ceiling, and `requestPercentage` is from 1 to 100; anything else is `400`
+naming every problem. Owners only. Answers the machine's entry with its new rates.
 
 ### `POST /organizations/{organizationId}/disable`
 
@@ -481,13 +590,32 @@ Records older than the installation's retention are removed; `GET /installation`
 ### `PUT /projects/{projectId}/topics/{name}`
 
 Declares a topic on the project, which the platform makes on the installation's broker as
-`<projectId>.<name>`, or changes a declared topic: more partitions, its compaction, its contract. Body:
-`{ "partitions": 12, "compacted": false, "contract": { "name": "order.v1", "schema": { … } } }`, where
-`compacted` and `contract` are optional and absent means not compacted and no contract. Members of the
-project's organization, including deploy tokens. Answers `204`.
+`<projectId>.<name>`, or changes a declared topic: more partitions, its settings, its contract. Body:
+`{ "partitions": 12, "retention": "90d", "retentionSize": "50GiB", "cleanup": "delete", "tombstoneWindow":
+"1d", "minCompactionLag": "0s", "maxCompactionLag": "none", "copies": 3, "minInSync": 2, "compacted": false,
+"contract": { "name": "order.v1", "schema": { … } }, "removes": "messages older than 30d" }`. Every field is
+optional but `partitions` on a topic's first declaration. A first declaration takes each setting it leaves
+out from the installation's defaults; a declaration of a topic already declared keeps each setting it
+leaves out, partitions included. Durations are a whole number and `ms`, `s`, `m`, `h` or `d`, and
+`retention` may be `everything`; sizes are a whole number and `B`, `KiB`, `MiB`, `GiB` or `TiB`, and
+`retentionSize` and `maxCompactionLag` may be `none`; `cleanup` is `delete`, `compact` or `compact,delete`,
+and `compacted: true` is its short form. Members of the project's organization, including deploy tokens.
+Answers `204`.
 
 A project holds one declaration per topic, and every service of the project uses the topic by its name.
-Declaring a topic again as it is records nothing. A name that is not lower-case letters, digits, `-` and
+Declaring a topic again as it is records nothing. A value that is not one of the words above, `compacted`
+and `cleanup` that disagree, a setting past the installation's longest retention time, largest retention
+size or most copies, and a minimum in-sync copies outside 1 to the copies are refused with `400`, naming
+the setting. A change to a topic's `copies` or `minInSync`, or either stated for a topic whose copies are
+the broker's, is refused with `409`: they are fixed when a topic is declared, and nothing else in the
+declaration is applied.
+
+A declaration that removes messages — a shorter retention time, a smaller retention size, or a compacted
+topic that starts deleting by age — is an owner's: a member who is not an owner is refused with `403`,
+naming what it removes, and so is a deploy token. Its body must also say what it removes, in `removes`,
+exactly as the control plane words it; without it, or with other words, it is refused with `400`, naming
+what the declaration would remove, so a client shows that to its user and sends the declaration again
+saying so. `removes` on a declaration that removes nothing is refused with `400` too. A name that is not lower-case letters, digits, `-` and
 `.` starting and ending with a letter or digit, or is over 100 characters, partitions outside 1 to 1000,
 a contract name outside `[a-z0-9][a-z0-9._-]{0,98}[a-z0-9]`, and a schema that is not JSON or is over
 64 KiB, are refused with `400`, every problem at once. Fewer partitions than the project declares is
@@ -497,6 +625,15 @@ A contract's schema is written to the project's schema store in the cluster befo
 recorded, under its fingerprint — `sha256:` and the SHA-256 of the document under RFC 8785 — so the
 record never names a document the cluster does not hold; a cluster that could not be written answers
 `503` and records nothing.
+
+### `GET /projects/{projectId}/history`
+
+The changes to the project's topics, newest first, as many as a service's history keeps: `[{ "kind":
+"topic-changed", "topic": "transactions", "actor": { "subject": "…", "display": "Ada", "administrative":
+false }, "at": "2026-10-08T10:00:00Z", "changes": [{ "setting": "retention", "from": "90d", "to": "180d" }]
+}]`. `kind` is `topic-declared`, `topic-changed`, `topic-removed`, or `topic-filled` for a topic declared
+before topics stated their settings, which the control plane filled from the installation's defaults when
+it started, with no actor. A declaration that changed nothing is not listed. Members only.
 
 ### `GET /projects/{projectId}/topics/{name}/schema`
 
@@ -511,6 +648,10 @@ topic and what was published to it stay on the broker; declaring it again finds 
 ### `GET /projects/{projectId}/topics`
 
 The project's declared topics, by name: `[{ "name": "orders", "partitions": 3, "compacted": false,
+"settings": { "retention": "7d", "retentionSize": "none", "cleanup": "delete", "tombstoneWindow": "1d",
+"minCompactionLag": "0s", "maxCompactionLag": "none", "copies": 1, "minInSync": 1, "defaulted":
+["retention", "retentionSize", "cleanup", "tombstoneWindow", "minCompactionLag", "maxCompactionLag",
+"copies", "minInSync"] }, "copiesHeld": 1, "brokerNodes": 1,
 "contract": { "name": "order.v1", "fingerprint": "sha256:…" }, "phase": "provisioned", "checks": [ { "topic":
 "orders", "service": "wallet", "component": "consumer:relay", "direction": "publishes", "stated":
 "order.v1", "state": "checked" } ] }]`. From the project's own record, so a topic just declared is listed
@@ -519,7 +660,11 @@ at once. `phase` says how far the platform has got with it — `waiting for brok
 or when the cluster cannot be read. `checks` lists each side a running service takes on a topic with a
 contract, read from the services' instances: `checked` when the component states the declared contract,
 `mismatch` when it states another or none, `unchecked` for an instance started before the declaration;
-empty for a topic without a contract or when no instance could be read.
+empty for a topic without a contract or when no instance could be read. `settings` names every setting in
+words and, in `defaulted`, those the installation supplied; `copies` and `minInSync` are absent for a topic
+whose copies are the broker's. `copiesHeld` is how many copies the broker holds of the topic and
+`brokerNodes` how many nodes the broker has, as the operator last read them; the `detail` says when a
+topic's copies are the broker's, below the installation's default, or a single copy.
 
 ### `PUT /projects/{projectId}/brokers/{name}`
 
@@ -558,6 +703,222 @@ Lets the installation's default location apply to the project's new buckets agai
 The project's declared brokers, by name: `[{ "name": "legacy", "bootstrap": "kafka.legacy:9094",
 "shape": "sasl", "secret": "legacy-credential", "declaredAt": "…" }]`. Never a credential.
 
+### `GET /projects/{projectId}/status`
+
+The project's backups and database. Members of the project's organization. Answers
+`{ "id": "shop", "backedUp": true, "target": "object-store", "lines": [ … ], "database": { … } }`.
+
+`backedUp` is `true` when every line of history is archiving and has a base backup, and, where the
+installation requires a copy outside its failure domain, that copy exists. `target` is `none` when the
+installation backs nothing up, and `detail` then says so.
+
+Each entry of `lines` is one line of history's backups: `{ "line": "ankka-db", "cluster": "ankka-db",
+"phase": "backing up", "lastBaseBackup": "…", "firstRestorable": "…", "lastRestorable": "…",
+"archiveLagSeconds": 12.5 }`. `phase` is `backing up`, `failing` or `not backed up`, with the reason in
+`failing`, in the archiver's words where it has them. `firstRestorable` and `lastRestorable` bound the
+moments the project can be restored to; `lastRestorable` is now less `archiveLagSeconds`, since a write
+the archive has not reached cannot be restored. `copiedAt` is when the latest base backup was copied
+outside the failure domain, where that is required.
+
+`database` is the project database: `{ "cluster": "ankka-db", "instances": 3, "readyInstances": 3,
+"primary": "ankka-db-1", "synchronous": true }`, with `writesWaitingOn` when a synchronous write is
+waiting for a replica. Read live from what the operator last reported; a cluster that cannot be read
+answers as one that has not reported, and `detail` says so.
+
+`clusters` lists the project's database clusters: `{ "name": "ankka-db", "line": "ankka-db", "phase":
+"live", "services": ["wallet"] }`. `phase` is `live`, `restore`, or `left` once every service has moved
+off it. The platform removes none of them. `restores` is every restore of the project, as
+`GET /projects/{projectId}/restores` lists them. `rehearsal` is the latest rehearsal that ended; one
+that failed, or whose database was not removed, makes `backedUp` `false` and is named in `detail`, as a
+backup failure is.
+
+### `POST /projects/{projectId}/restores`
+
+Restores the project's database to a moment. Owners of the project's organization only; a member who is
+not an owner is answered `403`. Body: `{ "moment": "2026-10-08T09:20:00Z", "line": "ankka-db" }`. The
+restore is a new database cluster beside the current one, made from the line's latest base backup
+before the moment and its archive up to it; nothing in the current database changes. Answers the
+restore, `{ "name": "ankka-db-r202610081012", "line": "ankka-db", "moment": "…", "phase": "Restoring" }`.
+
+`line` may be left out when every service of the project is on one cluster; with services on more
+than one, it is refused with `400` naming them. A moment before the earliest the line can be restored
+to, or after the latest, is refused with `400` naming both. A second restore while one has not ended is
+refused with `409` naming it. With no backup target, every restore is refused with `400`.
+
+### `GET /projects/{projectId}/restores`
+
+The project's restores, oldest first: `[{ "name": "ankka-db-r202610081012", "line": "ankka-db",
+"moment": "…", "phase": "Verified", "requestedBy": "Ada", "requestedAt": "…", "reachedAt": "…",
+"services": [ … ] }]`. `phase` is `Restoring`, `Verified`, `Failed` (with the reason in `detail`) or
+`InUse` once a service is switched to it. Members of the project's organization.
+
+### `GET /projects/{projectId}/restores/{name}`
+
+One restore. Each entry of `services` says what one service's database holds in it:
+`{ "name": "wallet", "present": true, "journalRows": 1200, "stateRows": 3, "offsetRows": 42,
+"timerRows": 0, "highestSequence": 98765, "changedSecrets": ["stripe-key"] }`. `present` is `false` for a
+service that had no database at the moment. `changedSecrets` names each service secret changed after
+the moment, never a value. `reachedAt` is the newest event any service's database holds. Answers `404`
+for a name the project has no restore of.
+
+Once verified, the restore also says what it cannot take back: the broker. `broker` lists each topic the
+restore's services publish to or read with messages newer than the moment, `{ "topic": "transactions",
+"group": "ankka.shop.totals.view.sums", "after": 3, "read": 2, "services": ["totals"] }`: `after` is the
+messages on the topic newer than the moment, and for a group, `read` is how many of them it has read.
+It is asked of the services' running instances as the restore is read, so it grows as they publish.
+`notAsked` names a service none of whose instances answered. `note` says that a message published again
+from a restored journal is read again by every view and consumer that reads its topic.
+
+### `POST /projects/{projectId}/rehearsals`
+
+Rehearses a restore of the project. Members of the project's organization, since a rehearsal changes
+nothing of the project. Body: `{ "moment": "2026-10-08T09:20:00Z", "line": "ankka-db" }`; both may be
+left out, for the latest moment the project database can be restored to. The rehearsal restores into a
+database cluster in the project's rehearsal namespace, `ankka-<project>-rehearsal`, checks it as a
+restore is checked, records how long it took and removes it. Answers the rehearsal, `{ "name":
+"ankka-db-x202610090000", "line": "ankka-db", "moment": "…", "outcome": "Running" }`. A moment outside
+the line's window is refused with `400` naming both ends, a second rehearsal while one runs with `409`,
+and every rehearsal with `400` when the installation has no backup target.
+
+### `GET /projects/{projectId}/rehearsals`
+
+The project's rehearsals, oldest first: `[{ "name": "ankka-db-x202610090000", "line": "ankka-db",
+"moment": "…", "outcome": "Completed", "requestedBy": "Ada", "requestedAt": "…", "elapsedSeconds": 118,
+"services": [ … ] }]`. `outcome` is `Running`, `Completed`, `Failed` or `NotRemoved`, the last for a
+rehearsal whose database could not be removed when it ended, which is removed when its time to live
+passes. A rehearsal the project's schedule started has no `requestedBy`. The latest hundred are kept.
+
+### `POST /projects/{projectId}/backups/credential`
+
+Issues the project's backup credential again. Owners of the project's organization only. The operator
+makes a new key for the project's backup bucket, writes it where the archiver reads it, and deletes the
+old one, so a key that leaked stops working; the archiver uses the new one from its next upload.
+Answers `{ "project": "shop", "generation": 2 }`, the count of times it was issued again. Refused with
+`400` when the installation has no backup target.
+
+### `GET /projects/{projectId}/database`
+
+What the project asks of its database: `{ "replicas": 2, "synchronous": true, "retentionDays": 45,
+"rehearse": "weekly" }`, each at its default when the project has asked nothing. Members of the
+project's organization.
+
+### `PUT /projects/{projectId}/database`
+
+Sets what the project asks of its database, whole: the body is `GET`'s answer, and a field left out is
+its default. `replicas` is between 0 and 4, each a replica beside the primary that takes its place if
+it is lost. `synchronous` makes every write wait for a replica to hold it, and needs a replica.
+`retentionDays` is how long the project's backups are kept, never shorter than the installation's
+retention. `rehearse` is `daily` or `weekly`. Members of the project's organization; every problem is
+refused at once with `400`. Answers the setting.
+
+### `GET /projects/{projectId}/history`
+
+Who did what to the project's database, newest first: `[{ "kind": "restore-requested", "by": "Ada",
+"at": "…", "detail": "ankka-db-r202610081012, of ankka-db at …" }]`. `kind` is `restore-requested`,
+`restore-completed`, `restore-failed`, `rehearsal-requested`, `rehearsal-completed`,
+`rehearsal-failed` or `database-set`. Members of the project's organization.
+
+### `POST /projects/{projectId}/grants`
+
+Grants one grantee one target of the project's own. Body: `{ "grantee": "service:payments/merchant",
+"target": { "kind": "route", "service": "wallet", "method": "POST", "path":
+"/v1/wallets/{player}/{currency}/deposits" } }`. Owners of the project's organization only; a member or a
+deploy token is refused with `403`. Answers `200` with the grant.
+
+A grantee is `service:<project>/<service>` or `machine:<organization>/<name>`. A target is one of:
+
+- `{ "kind": "route", "service", "method", "path" }`: one HTTP route of one of the project's services, by
+  its method and its path template;
+- `{ "kind": "method", "service", "method": "WalletService/Deposit" }`: one gRPC method;
+- `{ "kind": "topic", "topic", "right": "consume" | "produce", "decrypt": false }`: one of the project's
+  declared topics, with one right; `decrypt` only with `consume`;
+- `{ "kind": "erasure" }`: the right to ask for the erasure of the project's data subjects.
+
+There is no wildcard: a grant names one grantee and one target. A grantee of the project's own
+organization is granted at once (`"state": "accepted"`); one of another organization is `pending` until an
+owner there accepts it. Granting what is already granted and live answers the existing grant and records
+nothing. A malformed grantee or target, a grant to one of the project's own services, and `decrypt` on a
+produce grant are refused with `400`, every problem at once; a topic the project has not declared, a
+grantee project that was never created and an organization that does not exist are refused with `404`.
+
+### `GET /projects/{projectId}/grants`
+
+The project's grants, live and ended, oldest first: `[{ "id": "3f9c…", "grantee":
+"service:payments/merchant", "target": { … }, "state": "accepted", "effect": "in effect", "granted": {
+"by": "Ada", "at": "…" }, "answered": { … }, "ended": { … } }]`. Members of the project's organization.
+`state` is `pending`, `accepted`, `declined`, `withdrawn`, `revoked`, `relinquished` or `lapsed`;
+`effect` is `in effect`, or why the grant opens nothing: its state's word, `route not seen`, `route not
+grantable`, `rollout needed` or `broker not exposed`.
+
+### `GET /projects/{projectId}/grants/received`
+
+What other projects granted this project's services, with every change and who made it: `[{ "id":
+"3f9c…", "grantingProject": "spinvibe", "grantingOrganization": "eitheror", "grantee":
+"service:payments/merchant", "target": { … }, "state": "accepted", "changes": [ { "change": "made",
+"by": "Ada", "at": "…" } ], "topic": { "partitions": 3, "compacted": false } }]`. Members of this
+project's organization. `topic` is the granted topic's settings, for a topic grant. A change appears here
+a moment after it is made on the granting project, which is the one record a change is written to.
+
+### `DELETE /projects/{projectId}/grants/{grantId}`
+
+Ends a grant from the grantor's side: a pending grant is withdrawn and an accepted one revoked. Owners of
+the project's organization only. Answers `204`; `404` for a grant the project does not hold, `409` for
+one that has already ended. An ended grant is never reopened; granting the same again makes a new one.
+
+## Installation
+
+### `GET /installation/restore`
+
+Whether the control plane is held after its own database was restored. Any authenticated caller.
+Answers `{ "held": true, "restoredAt": "…", "targetTime": "…", "services": [ … ], "topics": ["shop"],
+"unknownProjects": ["lab"] }`. Held, the control plane changes nothing in the cluster: `services` lists
+each service whose recorded generation or image is not what the cluster runs, `{ "project": "shop",
+"service": "cart", "recordedGeneration": 1, "clusterGeneration": 2, "recordedImage": "cart:1",
+"clusterImage": "cart:2" }`, `topics` each project whose declared topics differ from the cluster's,
+and `unknownProjects` each project the cluster holds that the restored database does not know.
+`releasedAt` and `releasedBy` say when the hold was released, and by whom.
+
+### `POST /installation/restore/release`
+
+Releases the hold: from its next sweep the control plane makes the cluster what its database records.
+A platform administrator's alone; anyone else is answered `403`. Recorded on the restore marker with who
+released it. Answers as `GET /installation/restore` does.
+
+## Machine tokens
+
+A registered machine takes a token from the control plane by OAuth 2.0 client credentials, and
+presents it as `Authorization: Bearer <token>` through the gateway. A service verifies it with the keys
+below and reads the caller as that machine. These routes take no token of their own.
+
+### `POST /oauth/token`
+
+Answers a token for a registered machine. The body is a form, `grant_type=client_credentials` with
+`client_id` and `client_secret`, or the two as HTTP Basic. Answers `200` with `{ "access_token",
+"token_type": "Bearer", "expires_in": 900 }`: the token lives fifteen minutes, and a machine takes a new
+one as it needs.
+
+An unknown client id, a wrong secret and a deleted machine are all `401` with `{"error":
+"invalid_client"}`, so the route tells a guesser nothing. Another grant type is `400`
+`unsupported_grant_type`, and a request with none `400` `invalid_request`. More requests a minute for one
+client id than the installation allows (twelve unless it says otherwise, counted per control plane
+instance) are `429` with `Retry-After`, the seconds until the next is allowed.
+
+### `GET /.well-known/jwks.json`
+
+The keys machine tokens are signed with, as a JSON Web Key Set: every key the control plane holds, so a
+token signed before a rotation verifies until it expires. Public. Inside the cluster the same keys are on
+the control plane's `keys` port, 7629, over TLS that asks for no client certificate.
+
+### `GET /.well-known/openid-configuration`
+
+Where a verifier finds the rest: `{ "issuer", "jwks_uri", "token_endpoint" }`. Public.
+
+### `POST /platform/machine-keys/rotate`
+
+Adds a signing key, which signs every token from then on; the key it replaces stays in the key set.
+Platform administrators only. Answers the new key's id. The control plane also rotates every thirty days
+on its own, and drops a key thirty-one days old that is not the newest.
+
 ## Services
 
 Every service route answers with a service status, except where noted:
@@ -582,6 +943,8 @@ Every service route answers with a service status, except where noted:
 | `protocol` | string, optional | The sidecar protocol a process-hosted service declared. |
 | `topicSources` | list, optional | Each topic source of the service, from its running instances: `kind`, `component`, `topic`, `group`, `start`, `version`, `recordedVersion`, `behind`, `broker`, `contract`, `lag` (messages past the last one handled, summed over the instances, as of their last poll) and `failing` (the reason of the change being delivered again). Absent when no instance answered, and on a listing row. |
 | `topicChecks` | list, optional | Each side the service's components take on a declared topic with a contract: `topic`, `component`, `direction`, `stated`, `state` (`checked`, `mismatch` or `unchecked`). Absent as `topicSources` is. |
+| `customHostnames` | list, optional | Each [custom hostname](../deploy/custom-hostnames.md) the service holds, in the order added: `hostname`; `state`, which is `pending`, `serving` or `rejected`; `reason`, the certificate authority's or the gateway's words when there is something to say; `record`, the DNS record that points the name at the installation (`name`, `kind`, `value`); and `note`, when no record can be given, such as an apex on an installation that has published no address. Every one is `pending` with the reason `the service is not exposed` while the service is not exposed. Absent when the service holds none. |
+| `proofRecord` | object, optional | The record that proves the project controls a name it brings: `{ "name": "_ankka.<hostname>", "kind": "TXT", "value": "ankka-project=<project>" }`, with `<hostname>` written literally, since it is the same beside every name. On every read of one service; absent on a listing row. |
 
 ### `GET /services/{projectId}`
 
@@ -666,6 +1029,19 @@ keeps the descriptors of its last fifty applies, and refuses with:
 
 A refused rollback writes nothing.
 
+### `POST /services/{projectId}/{name}/switch`
+
+Moves the service onto another of its project's database clusters: a verified restore that holds its
+database, or back to the project database, `ankka-db`. Owners of the project's organization only.
+Body: `{ "cluster": "ankka-db-r202610081012" }`. The switch is a new generation, so the service rolls onto
+the cluster at once and no other service moves; its history records a `switched` entry naming both
+clusters, and its status names the cluster it is on in `databaseCluster`. Switching to the cluster the
+service is on changes nothing.
+
+A cluster that is not one of the project's restores is refused with `400`, a restore that is not
+verified with `409`, and a restore that holds no database for the service with `400` naming the moment.
+The cluster the service leaves is kept, with every write it had.
+
 ### `GET /services/{projectId}/{name}/descriptor`
 
 The descriptor the service applied at the generation named by the required `generation` query
@@ -685,7 +1061,40 @@ the same way.
 
 ### `POST /services/{projectId}/{name}/unexpose`
 
-Removes the external route and nothing else. Answers with the status.
+Removes the external route and nothing else. Answers with the status. The service's custom hostnames stay
+recorded and stop answering; exposing it again serves them again.
+
+### `PUT /services/{projectId}/{name}/hostnames/{hostname}`
+
+Adds a custom hostname to the service: a name under a domain the project's owner brings, served beside the
+hostname the platform derives. No body. The name is lowercased and loses a trailing dot. Answers with the
+status, whose `customHostnames` gives the record to create. Members with write access, and platform
+administrators. A name the service already holds is answered unchanged.
+
+Refused with `409`, checked in this order, so the first thing wrong is the one said:
+
+| Refusal | Message |
+|---|---|
+| a scheme, a path, a port or a space | `a custom hostname is a name alone: …` |
+| a wildcard | `a custom hostname cannot be a wildcard` |
+| not a DNS name | `'<hostname>' is not a hostname: …`, naming the label, or the 253-character limit |
+| one label | `'<hostname>' is not a name on the internet: a custom hostname has at least two labels` |
+| the base domain or a name under it | `a custom hostname cannot be under the base domain '<base>': those names are the platform's` |
+| no issuer configured | `the installation names no authority for custom hostnames (ANKKA_HOSTNAME_ISSUER)` |
+| the service is not exposed | `service '<name>' is not exposed` |
+| five held already | `service '<name>' holds 5 custom hostnames, the most a service can hold` |
+| another service holds it | `'<hostname>' is held by service '<other>' in project '<project>'` |
+| no proof record | `'<hostname>' does not carry the proof record of project '<project>': create TXT _ankka.<hostname> with the value "ankka-project=<project>"` |
+| the resolver could not be asked | `could not look up _ankka.<hostname>: <detail>; the proof record was not checked` |
+
+The proof record is read once, here, and never again; the control plane reads no other DNS.
+
+### `DELETE /services/{projectId}/{name}/hostnames/{hostname}`
+
+Removes a custom hostname: nothing answers at it within seconds, its certificate is discarded, and any
+service may claim the name. Nothing else about the service changes. By a platform administrator the history
+records it as `hostname taken away`, with `administrative: true`; by a member, as `hostname removed`. A
+name the service does not hold is answered unchanged.
 
 ### `GET /services/{projectId}/{name}/logs`
 
@@ -736,7 +1145,10 @@ for example a paused one, answers `404`.
 Who did what to the service, newest first. Members only. Each entry is
 `{ "kind": "applied", "generation": 3, "actor": { "subject": "…", "display": "Ada", "administrative": false }, "at": "2026-09-20T12:00:00Z" }`.
 `kind` is one of `applied`, `rolled-back`, `restarted`, `paused`, `resumed`, `exposed`, `unexposed`,
-`deleted`, `suspended`, `reinstated`, `storage-credential-reissued`, `storage-moved` or `storage-settings-reapplied`. `administrative` is `true` when the platform administrator role
+`hostname added`, `hostname removed`, `hostname taken away`, `deleted`, `suspended`, `reinstated`,
+`storage-credential-reissued`, `storage-moved`, `storage-settings-reapplied` or `switched`; a
+`switched` entry's `detail` names the database clusters it moved from and to, and a hostname's
+entry carries `hostname`, the name it added or removed. `administrative` is `true` when the platform administrator role
 is what allowed the action. Entries recorded before actors were tracked have no `actor` or `at`.
 
 An `applied` or `rolled-back` entry also carries `image`, the image of the descriptor it recorded, and

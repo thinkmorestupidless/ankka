@@ -997,6 +997,7 @@ function describeConnection(kind) {
   return {
     'events': 'an event subscription',
     'state': 'a state subscription',
+    'workflow': 'a workflow subscription',
     'topic-subscription': 'a topic subscription',
     'topic-publication': 'a topic publication',
   }[kind] || kind;

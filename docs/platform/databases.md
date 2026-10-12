@@ -89,6 +89,34 @@ to its existing database, and `services get` reports `recovered existing data`. 
 therefore a handle on its data. To start a service over with an empty database, the database has to be
 removed by someone with the rights to do so, outside ankka.
 
+## Backups, replicas and restoring
+
+When the installation names a backup target, every project database archives every write as it is made
+and takes a base backup every day, into a bucket the platform keeps for the project,
+`platform.backups.<project>`. A service asks for none of it, and none can turn it off. The project's
+backups are kept 30 days unless the installation keeps them longer or the project asks for longer.
+
+A project asks for replicas of its database with `ankka projects database set <project> --replicas 2`.
+Each replica follows the primary and takes its place, with no one doing anything, if the primary is
+lost; the services connect to the new primary on their own, with no redeploy. `--synchronous` makes
+every write wait until a replica holds it, so no acknowledged write is lost with the primary, at the
+cost of every write waiting for a replica. A project that asks for nothing has a primary alone.
+
+A project database can be restored to any moment inside its retention window, into a new cluster
+beside the current one, and services are switched to it one at a time. A restore can be rehearsed, into
+a namespace of its own where it changes nothing, and a project can be set to rehearse daily or weekly.
+[Backups and recovery](../operate/recovery.md) is the procedure for each.
+
+A restore takes back a service's journal, its states, its read positions and its timers. It does not
+take back the broker. Messages published from events the restore lost are still on their topics, and a
+topic-sourced view or consumer anywhere on the platform reads a message published again as a new one.
+A message published from a journal event carries an id made from the cluster its event was written on,
+its source and its position, so a reader that deduplicates by `ce-id` sees a message published again
+with the id it carried before.
+
+A database a service supplies is its owner's to back up, as `services get` says: `supplied; its owner's
+to back up`.
+
 ## A database provisioned before certificates
 
 A service provisioned when the platform still generated passwords moves to certificate authentication on
@@ -145,7 +173,7 @@ To connect to a supplied database over TLS, declare `ANKKA_DB_SSL_MODE` (`requir
 The files are yours to mount. With no `ANKKA_DB_SSL_MODE` the connection is plain, and its password
 crosses the network unencrypted.
 
-Use this for what a provisioned single-instance Postgres cannot yet provide: an existing database with
-data to keep, or a durability profile such as replicas or managed backups. Isolation between services is
-then whatever the database's owner configured. The platform does not verify it, and the rule that no two
+Use this for an existing database with data to keep, or a durability profile the platform's databases do
+not offer, such as a managed service's. The platform neither backs up nor restores a supplied database.
+Isolation between services is then whatever the database's owner configured. The platform does not verify it, and the rule that no two
 services share a database still holds.

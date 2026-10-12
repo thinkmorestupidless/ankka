@@ -106,8 +106,20 @@ object ProjectId:
    * 63 is the DNS label ceiling; the default prefix `ankka` plus a separator takes six. A longer
    * prefix narrows it further, which the server checks when it projects — this bound catches the
    * obvious case early rather than being the only check.
+   *
+   * Since feature 041 the tighter bound is the project's backup bucket, `platform.backups.<id>`,
+   * which must fit in a bucket's 63 characters: 46. `crd`'s `Buckets.BackedUpProjectMaxLength` is
+   * the derivation; this module cannot see `crd`, so `BackupNamesAgreeSuite` in the control plane
+   * holds the two to each other.
    */
-  val MaxLength: Int = 63 - "ankka".length - 1
+  val MaxLength: Int = 63 - "platform.backups.".length
+
+  /**
+   * A project id may not end so (feature 041): `ankka-<id>-rehearsal` is the namespace a project's
+   * rehearsals run in, where the operator may delete a cluster, and `shop-rehearsal` would name
+   * `shop`'s. `crd`'s `Recovery.RehearsalSuffix` is the same string.
+   */
+  val RehearsalSuffix: String = "-rehearsal"
 
   /**
    * Ids no project may take, because the platform's own workloads use them.
@@ -126,9 +138,12 @@ object ProjectId:
    * would be given. Two different services must never share a group.
    *
    * `cloud-provider` is reserved because a project's namespace is `ankka-<project>`, and the
-   * installation's cloud provider runs in `ankka-cloud-provider` (feature 044).
+   * installation's cloud provider runs in `ankka-cloud-provider` (feature 044). `machine` is
+   * reserved for the same reason: a registered machine reads a topic under the group prefix
+   * `ankka.machine.<organization>.<name>.`, so a project called `machine` with a service named
+   * after an organization would hold read on that organization's machines' groups.
    */
-  val Reserved: Set[String] = Set("platform", "local", "cloud-provider")
+  val Reserved: Set[String] = Set("platform", "local", "cloud-provider", "machine")
 
   /** Why `id` is reserved, in a sentence that is true of it. */
   def reservedBecause(id: String): String =
@@ -136,6 +151,8 @@ object ProjectId:
       s"project id '$id' is reserved for services run locally, whose consumer groups it names"
     else if id == "cloud-provider" then
       s"project id '$id' is reserved for the namespace the installation's cloud provider runs in"
+    else if id == "machine" then
+      s"project id '$id' is reserved for registered machines, whose consumer groups it names"
     else s"project id '$id' is reserved for the platform's own workloads"
 
   def problems(id: String): Vector[String] =
@@ -147,6 +164,11 @@ object ProjectId:
         s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
       )
     else if Reserved.contains(id) then Vector(reservedBecause(id))
+    else if id.endsWith(RehearsalSuffix) then
+      Vector(
+        s"project id '$id' ends in '$RehearsalSuffix', which names another project's rehearsal " +
+          "namespace"
+      )
     else Vector.empty
 
   def isValid(id: String): Boolean = problems(id).isEmpty
@@ -590,9 +612,12 @@ object ServiceSpec:
   /** The project database's cluster name, and the prefix of every Secret it is issued. */
   val PlatformSecretPrefix: String = "ankka-db"
 
+  // A name with a dot is a custom hostname's certificate (feature 045), named by the hostname: no
+  // other Secret the platform or a member writes in a project has one.
+
   def isPlatformSecret(name: String): Boolean =
     PlatformSecretSuffixes.exists(name.endsWith) || name == PlatformSecretPrefix ||
-      name.startsWith(PlatformSecretPrefix + "-")
+      name.startsWith(PlatformSecretPrefix + "-") || name.contains('.')
 
   private val Origin = """(https?)://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?""".r
 
@@ -963,6 +988,12 @@ final case class ServiceStatus(
      */
     topicSources: Option[Vector[TopicSourceReport]] = None,
     /**
+     * What a member should know about the service and need not act on (feature 043), worked out
+     * from the project's current declarations each time the status is read. Absent when there is
+     * nothing, and on listing rows.
+     */
+    warnings: Option[Vector[ServiceWarning]] = None,
+    /**
      * What the platform did about the service's bucket (feature 034), as a phrase — `provisioned`,
      * `recovered existing bucket`, `supplied`, `waiting for object storage`, `object storage
      * provisioning failed` — like `database`, and for the same reason. Absent when the service has
@@ -985,7 +1016,59 @@ final case class ServiceStatus(
      * Where a move of the bucket from Garage is, as a phrase: `copying`, `write pause`,
      * `verifying`, `moved`, `move failed`. Its detail is in `detail`.
      */
-    storageMove: Option[String] = None
+    storageMove: Option[String] = None,
+    /**
+     * The project database cluster the service is switched to (feature 041): a restore, or one it
+     * left. Absent is the project database.
+     */
+    databaseCluster: Option[String] = None,
+    /**
+     * `mounted` when the operator reported the service reads its project's grants (feature 040).
+     * Absent for a web-hosted service, and when the installation's operator predates grants: a
+     * grant on such a service's routes opens nothing until it is rolled out by a newer one.
+     */
+    grants: Option[String] = None,
+    /**
+     * Each other project's topic the service's components read or publish to (feature 040), with
+     * whether that project grants the right: from the running instances, as `undeclaredTopics` is,
+     * so `None` when none answered and on a listing row.
+     */
+    crossProjectTopics: Option[Vector[CrossProjectTopic]] = None,
+    /**
+     * The custom hostnames the service holds, in the order they were added, each with where it
+     * stands and the record its owner creates to point it at the installation (feature 045).
+     */
+    customHostnames: Vector[CustomHostname] = Vector.empty,
+    /**
+     * The proof record a project's custom hostnames need, the same for every one of them:
+     * `_ankka.<hostname> TXT "ankka-project=<project>"`, with `<hostname>` written literally.
+     * Present on every read of one service; absent on a listing row.
+     */
+    proofRecord: Option[DnsRecord] = None
+):
+  /** `mounted`, `rollout needed`, or nothing to say: what `services get` shows (feature 040). */
+  def grantsPhrase: Option[String] =
+    grants.orElse(
+      Option.when(hosting != "web" && confirmed && readyInstances > 0)("rollout needed")
+    )
+
+/** A DNS record a member creates at their provider (feature 045). The platform writes none. */
+final case class DnsRecord(name: String, kind: String, value: String)
+
+/**
+ * One custom hostname of a service (feature 045).
+ *
+ * `state` is `pending`, `serving` or `rejected`, as the operator read it from the certificate, the
+ * authority and the gateway; `reason` is their words. `record` is the record to create so the name
+ * resolves to the installation, or, when no record can be said (an apex on an installation that has
+ * published no address), `note` says why.
+ */
+final case class CustomHostname(
+    hostname: String,
+    state: String = "pending",
+    reason: Option[String] = None,
+    record: Option[DnsRecord] = None,
+    note: Option[String] = None
 )
 
 /**
@@ -1016,7 +1099,11 @@ final case class HistoryEntry(
     /** `ServiceDescriptor.digest` of the descriptor this entry recorded, all 64 characters. */
     digest: Option[String] = None,
     /** On a `rolled-back` entry: the generation whose descriptor was applied again. */
-    rolledBackTo: Option[Long] = None
+    rolledBackTo: Option[Long] = None,
+    /** On a `switched` entry (feature 041): the database clusters it moved from and to. */
+    detail: Option[String] = None,
+    /** On a hostname's entry (feature 045): which custom hostname was added or removed. */
+    hostname: Option[String] = None
 )
 
 /**
@@ -1067,13 +1154,14 @@ final case class OrganizationMembership(id: String, name: String, role: Role)
 
 /** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
 /**
- * What the installation is (feature 044, `GET /installation`): its version, its cloud when it names
- * a provider, and where it keeps its secrets (feature 038). `secrets` is absent from a control
- * plane older than 038.
+ * What the installation is (feature 044, `GET /installation`): its version, and its cloud when it
+ * names a provider; its backups (feature 041), which `ankka status` shows; and where it keeps its
+ * secrets (feature 038). `secrets` is absent from a control plane older than 038.
  */
 final case class Installation(
     platformVersion: String,
     cloud: Option[CloudInstallation] = None,
+    backups: Option[InstallationStatus] = None,
     secrets: Option[InstallationSecrets] = None
 )
 
@@ -1302,7 +1390,13 @@ final case class LogsResponse(instances: Vector[InstanceLogs])
 // ── Topology (feature 019) ──────────────────────────────────────────────────
 
 /** One handler of a node: a command, a query, a step, a route, a tool. */
-final case class TopologyHandler(name: String, `type`: String, streaming: Option[Boolean] = None)
+final case class TopologyHandler(
+    name: String,
+    `type`: String,
+    streaming: Option[Boolean] = None,
+    /** A route whose ACL admits granted callers (feature 040); absent for any other. */
+    grantable: Option[Boolean] = None
+)
 
 /** One component, endpoint, topic or outside party of a service's topology. */
 final case class TopologyNode(
@@ -1407,6 +1501,14 @@ final case class SecretMoveName(name: String, state: String)
  * the topic holds past the last one handled, as of the instance's last poll; `failing`, the reason
  * of the change being delivered again, until one succeeds.
  */
+/**
+ * Another project's topic a service reads (`consume`) or publishes to (`produce`), and whether that
+ * project grants the service the right (feature 040): `granted`, or `not granted (no grant)`,
+ * `not granted (pending)`, `not granted (ended)`. Until it is granted the broker refuses it.
+ */
+final case class CrossProjectTopic(project: String, topic: String, right: String, status: String):
+  def text: String = s"$project/$topic"
+
 final case class TopicSourceReport(
     kind: String,
     component: String,
@@ -1419,8 +1521,42 @@ final case class TopicSourceReport(
     broker: Option[String] = None,
     contract: Option[String] = None,
     lag: Option[Long] = None,
-    failing: Option[String] = None
+    failing: Option[String] = None,
+    /**
+     * Feature 043: what the broker still holds of the topic, per partition, and whether earlier
+     * messages are gone. Absent until the source has asked the broker.
+     */
+    gap: Option[RetentionGapReport] = None
 )
+
+/**
+ * Where a partition of a topic begins on the broker: the earliest position it still holds and when
+ * that message was published, absent for a partition holding nothing. Neither says what was ever
+ * written first; a beginning above zero says only that something before it is gone.
+ */
+final case class PartitionGapReport(
+    partition: Int,
+    beginning: Long,
+    earliestRetained: Option[java.time.Instant] = None
+)
+
+/**
+ * A topic source's retention gap (feature 043). `gone` is true when the topic is not compacted and
+ * a partition begins above zero, or holds nothing earlier than the view's start; a compacted topic
+ * says `compacted` and is never `gone`. `readAt` is when the broker was asked.
+ */
+final case class RetentionGapReport(
+    partitions: Vector[PartitionGapReport],
+    compacted: Boolean = false,
+    gone: Boolean = false,
+    readAt: Option[java.time.Instant] = None
+)
+
+/**
+ * Something about a service a member should know and need not act on (feature 043). `kind` is
+ * `retention`: a view reads a topic that keeps less than the installation's warning threshold.
+ */
+final case class ServiceWarning(kind: String, component: String, topic: String, message: String)
 
 /** Whether an instance's topology was read, and if not, why not. */
 enum InstanceStatus:
@@ -1557,11 +1693,27 @@ object Registries:
  * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
  * only the last message under each key, and the contract it carries (feature 037): a name and the
  * schema document, which the control plane fingerprints and holds for the project.
+ *
+ * Feature 043: how long it keeps, how it is cleaned and how many copies it has, each in the words a
+ * member types (`TopicSettings`). On a topic's first declaration a setting left out is the
+ * installation's default and partitions are required; on a redeclaration a setting or the
+ * partitions left out keep their value. `compacted` is the short form of `cleanup: "compact"`.
+ * `removes` restates, in the control plane's words, what a declaration that removes messages
+ * removes; it is refused on one that removes nothing.
  */
 final case class TopicDeclarationRequest(
-    partitions: Int,
+    partitions: Option[Int] = None,
     compacted: Boolean = false,
-    contract: Option[ContractDeclaration] = None
+    contract: Option[ContractDeclaration] = None,
+    retention: Option[String] = None,
+    retentionSize: Option[String] = None,
+    cleanup: Option[String] = None,
+    tombstoneWindow: Option[String] = None,
+    minCompactionLag: Option[String] = None,
+    maxCompactionLag: Option[String] = None,
+    copies: Option[Int] = None,
+    minInSync: Option[Int] = None,
+    removes: Option[String] = None
 )
 
 /** A contract as declared: its name and its schema document, a JSON Schema. */
@@ -1594,7 +1746,13 @@ final case class ProjectTopic(
     detail: Option[String] = None,
     compacted: Boolean = false,
     contract: Option[Contract] = None,
-    checks: Vector[TopicCheck] = Vector.empty
+    checks: Vector[TopicCheck] = Vector.empty,
+    /** Feature 043: every setting in words, and which the installation supplied. */
+    settings: Option[TopicSettingsView] = None,
+    /** How many copies the broker holds of the topic, as the operator last saw it. */
+    copiesHeld: Option[Int] = None,
+    /** How many broker nodes the installation's broker has, as the operator last counted. */
+    brokerNodes: Option[Int] = None
 )
 
 /**
@@ -1672,6 +1830,12 @@ object ProjectTopics:
   val MaxSchemaBytes: Int = 65536
 
   /** Everything wrong with declaring `name` with `partitions`, all at once. */
+  def problems(name: String, partitions: Option[Int]): Vector[String] =
+    partitions.fold(Option.when(!validName(name))(s"topic '$name': $NameRule").toVector)(
+      problems(name, _)
+    )
+
+  /** Everything wrong with declaring `name` with `partitions`, all at once. */
   def problems(name: String, partitions: Int): Vector[String] =
     Option.when(!validName(name))(s"topic '$name': $NameRule").toVector ++
       Option
@@ -1684,16 +1848,18 @@ object ProjectTopics:
    * The same, with the contract's own rules: its name, and a schema that is JSON and not too big.
    */
   def problems(name: String, request: TopicDeclarationRequest): Vector[String] =
-    problems(name, request.partitions) ++ request.contract.toVector.flatMap { c =>
-      val nameProblem = Option.when(!Contract.validName(c.name))(
-        s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
-      )
-      val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
-      val sizeProblem = Option.when(size > MaxSchemaBytes)(
-        s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
-      )
-      nameProblem.toVector ++ sizeProblem.toVector
-    }
+    problems(name, request.partitions) ++
+      TopicSettingsRules.parse(name, request).left.getOrElse(Vector.empty) ++
+      request.contract.toVector.flatMap { c =>
+        val nameProblem = Option.when(!Contract.validName(c.name))(
+          s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
+        )
+        val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
+        val sizeProblem = Option.when(size > MaxSchemaBytes)(
+          s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
+        )
+        nameProblem.toVector ++ sizeProblem.toVector
+      }
 
   /** The refusal of fewer partitions than the project declares: the entity's rule, worded here. */
   def fewer(name: String, has: Int, asked: Int): String =
@@ -1734,16 +1900,28 @@ object ProjectSecrets:
       "-mount-tls",
       "-storage"
     )
-  private val ValidName  = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
-  private val ValidEntry = """[A-Za-z0-9._-]+""".r
+  private val ValidName = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
+
+  /**
+   * A custom hostname's certificate is a Secret named by the hostname (feature 045), and every
+   * hostname has a dot; no other Secret in a project does. So a project secret has none, or a
+   * member could replace the key a gateway serves a product's domain with.
+   */
+  val ReservedCharacter: Char = '.'
+  private val ValidEntry      = """[A-Za-z0-9._-]+""".r
 
   /** What is wrong with a project secret's name, if anything. */
   def nameProblems(name: String): Vector[String] =
     if name.isEmpty then Vector("a project secret needs a name")
     else if name.length > MaxNameLength || !ValidName.matches(name) then
       Vector(
-        s"project secret name '$name' must be lowercase letters, digits, '-' and '.', begin and " +
+        s"project secret name '$name' must be lowercase letters, digits and '-', begin and " +
           s"end with a letter or digit, and be at most $MaxNameLength characters"
+      )
+    else if name.contains(ReservedCharacter) then
+      Vector(
+        s"project secret name '$name' has a '.', and names with a '.' are the platform's: a " +
+          "custom hostname's certificate is named by the hostname"
       )
     else if name.startsWith(ReservedPrefix) || ReservedSuffixes.exists(name.endsWith) then
       Vector(
@@ -1887,6 +2065,26 @@ object Wire:
     Codecs.make[Vector[ProjectBroker]]
   given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
     Codecs.make[TopicDeclarationRequest]
+  // Feature 041.
+  given projectStatusCodec: JsonValueCodec[ProjectStatus] = Codecs.make[ProjectStatus]
+  given installationStatusCodec: JsonValueCodec[InstallationStatus] =
+    Codecs.make[InstallationStatus]
+  given restoreRequestCodec: JsonValueCodec[RestoreRequest]   = Codecs.make[RestoreRequest]
+  given restoreViewCodec: JsonValueCodec[RestoreView]         = Codecs.make[RestoreView]
+  given databaseSettingCodec: JsonValueCodec[DatabaseSetting] = Codecs.make[DatabaseSetting]
+  given restoreHoldCodec: JsonValueCodec[RestoreHoldStatus]   = Codecs.make[RestoreHoldStatus]
+  given credentialReissuedCodec: JsonValueCodec[CredentialReissued] =
+    Codecs.make[CredentialReissued]
+  given rehearsalRequestCodec: JsonValueCodec[RehearsalRequest] = Codecs.make[RehearsalRequest]
+  given rehearsalViewCodec: JsonValueCodec[RehearsalView]       = Codecs.make[RehearsalView]
+  given rehearsalViewsCodec: JsonValueCodec[Vector[RehearsalView]] =
+    Codecs.make[Vector[RehearsalView]]
+  given restoreViewsCodec: JsonValueCodec[Vector[RestoreView]] = Codecs.make[Vector[RestoreView]]
+  given switchRequestCodec: JsonValueCodec[SwitchRequest]      = Codecs.make[SwitchRequest]
+  given projectHistoryEntryCodec: JsonValueCodec[ProjectHistoryView] =
+    Codecs.make[ProjectHistoryView]
+  given projectHistoryCodec: JsonValueCodec[Vector[ProjectHistoryView]] =
+    Codecs.make[Vector[ProjectHistoryView]]
   given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]
   given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
@@ -1894,3 +2092,21 @@ object Wire:
   given secretReadsPageCodec: JsonValueCodec[SecretReadsPage]    = Codecs.make[SecretReadsPage]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
     Codecs.make[Vector[ProjectSecretSummary]]
+
+  // Cross-project access (feature 040).
+  given grantRequestCodec: JsonValueCodec[GrantRequest] = Codecs.make[GrantRequest]
+  given grantDetailCodec: JsonValueCodec[GrantDetail]   = Codecs.make[GrantDetail]
+  given grantDetailsCodec: JsonValueCodec[Vector[GrantDetail]] =
+    Codecs.make[Vector[GrantDetail]]
+  given receivedGrantCodec: JsonValueCodec[ReceivedGrantDetail] = Codecs.make[ReceivedGrantDetail]
+  given receivedGrantsCodec: JsonValueCodec[Vector[ReceivedGrantDetail]] =
+    Codecs.make[Vector[ReceivedGrantDetail]]
+  given machineRegistrationCodec: JsonValueCodec[MachineRegistration] =
+    Codecs.make[MachineRegistration]
+  given machineRegisteredCodec: JsonValueCodec[MachineRegistered] = Codecs.make[MachineRegistered]
+  given machineSummaryCodec: JsonValueCodec[MachineSummary]       = Codecs.make[MachineSummary]
+  given machineSummariesCodec: JsonValueCodec[Vector[MachineSummary]] =
+    Codecs.make[Vector[MachineSummary]]
+  given byteRatesCodec: JsonValueCodec[ByteRatesRequest]  = Codecs.make[ByteRatesRequest]
+  given tokenResponseCodec: JsonValueCodec[TokenResponse] = Codecs.make[TokenResponse]
+  given jwksCodec: JsonValueCodec[JsonWebKeySet]          = Codecs.make[JsonWebKeySet]

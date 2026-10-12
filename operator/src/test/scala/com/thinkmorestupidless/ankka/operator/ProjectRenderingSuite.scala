@@ -111,10 +111,92 @@ class ProjectRenderingSuite extends munit.FunSuite:
     val rendered = topics(actions(spec)).map(t => t.getMetadata.getName -> t.getSpec).toMap
     assertEquals(
       rendered("shop.cart-deltas"),
-      KafkaTopicSpec(3, Some(Map("cleanup.policy" -> "compact")))
+      KafkaTopicSpec(3, config = Some(Map("cleanup.policy" -> "compact")))
     )
     assertEquals(rendered("shop.orders"), KafkaTopicSpec(3))
     assertEquals(rendered("shop.orders").config, None)
+  }
+
+  // features/broker/retention.feature: the broker holds each setting on the topic itself
+  test(
+    "a topic with settings states every one of them and its copies on the KafkaTopic (feature 043)"
+  ) {
+    val spec = AnkkaProjectSpec(
+      "money",
+      List(
+        ProjectTopicEntry(
+          "transactions",
+          12,
+          "2026-10-08T10:00:00Z",
+          retentionMs = Some(7776000000L),
+          retentionBytes = Some(-1L),
+          cleanupPolicy = Some("delete"),
+          deleteRetentionMs = Some(86400000L),
+          minCompactionLagMs = Some(0L),
+          maxCompactionLagMs = Some(Long.MaxValue),
+          replicas = Some(3),
+          minInsyncReplicas = Some(2)
+        ),
+        // Filled by the sweep: settings, but its copies are the broker's.
+        ProjectTopicEntry(
+          "notices",
+          3,
+          "2026-10-08T10:00:00Z",
+          retentionMs = Some(604800000L),
+          retentionBytes = Some(-1L),
+          cleanupPolicy = Some("delete"),
+          deleteRetentionMs = Some(86400000L),
+          minCompactionLagMs = Some(0L),
+          maxCompactionLagMs = Some(Long.MaxValue)
+        ),
+        // Declared before topics stated settings, and not yet filled: rendered as it always was.
+        ProjectTopicEntry("orders", 3, "2026-10-07T10:00:00Z")
+      )
+    )
+    val rendered = topics(actions(spec)).map(t => t.getMetadata.getName -> t.getSpec).toMap
+    val config   = rendered("money.transactions").config.map(_.view.mapValues(_.toString).toMap)
+    assertEquals(rendered("money.transactions").replicas, Some(3))
+    assertEquals(
+      config,
+      Some(
+        Map(
+          "retention.ms"          -> "7776000000",
+          "retention.bytes"       -> "-1",
+          "cleanup.policy"        -> "delete",
+          "delete.retention.ms"   -> "86400000",
+          "min.compaction.lag.ms" -> "0",
+          "max.compaction.lag.ms" -> Long.MaxValue.toString,
+          "min.insync.replicas"   -> "2"
+        )
+      )
+    )
+    assertEquals(rendered("money.notices").replicas, None)
+    assert(!rendered("money.notices").config.exists(_.contains("min.insync.replicas")))
+    assertEquals(rendered("money.orders"), KafkaTopicSpec(3))
+  }
+
+  // features/broker/copies.feature: more copies than broker nodes
+  test(
+    "a topic asking for more copies than the broker has broker nodes is not rendered, and fails"
+  ) {
+    val five = ProjectTopicEntry("transactions", 12, "2026-10-08T10:00:00Z", replicas = Some(5))
+    val spec = AnkkaProjectSpec("money", List(five))
+    val as = ProjectReconciler.actions(
+      ServiceRef("ankka-money", "money"),
+      spec,
+      broker,
+      Map.empty,
+      None,
+      brokerNodes = Some(3)
+    )
+    assertEquals(topics(as), Vector.empty)
+    val status = as.collectFirst { case Action.SetProjectStatus(_, _, s) => s }.get
+    assertEquals(status.brokerNodes, Some(3))
+    assertEquals(status.topics.map(_.phase), List("Failed"))
+    assertEquals(
+      status.topics.flatMap(_.detail),
+      List("topic 'money.transactions' asks for 5 copies and the broker has 3 broker nodes")
+    )
   }
 
   test("a project's topics are owned by nothing, and nothing removes one") {
@@ -176,4 +258,80 @@ class ProjectRenderingSuite extends munit.FunSuite:
       }.size,
       1
     )
+  }
+
+  // features/cross-project/route-grants.feature, listing.feature (feature 040)
+  test("the project's accepted grants are rendered beside its declarations, in the one ConfigMap") {
+    import com.thinkmorestupidless.ankka.crd.ProjectGrantEntry
+    val spec = money.copy(grants =
+      List(
+        ProjectGrantEntry(
+          "b2",
+          "machine:affiliates/network",
+          "topic",
+          topic = Some("transactions"),
+          right = Some("consume"),
+          decrypt = true
+        ),
+        ProjectGrantEntry(
+          "a1",
+          "service:payments/merchant",
+          "route",
+          service = Some("wallet"),
+          httpMethod = Some("POST"),
+          path = Some("/v1/wallets/{player}/{currency}/deposits")
+        ),
+        ProjectGrantEntry("c3", "service:payments/merchant", "erasure")
+      )
+    )
+    val config = actions(spec).collectFirst { case Action.EnsureProjectConfig(c) => c }.get
+    assertEquals(config.getMetadata.getName, ProjectConfig.Name)
+    assertEquals(
+      config.getData.keySet,
+      java.util.Set.of(ProjectConfig.Key, ProjectConfig.GrantsKey)
+    )
+    assertEquals(
+      config.getData.get(ProjectConfig.GrantsKey),
+      """{"project":"money","grants":[""" +
+        """{"id":"a1","grantee":"service:payments/merchant","kind":"route","service":"wallet","httpMethod":"POST","path":"/v1/wallets/{player}/{currency}/deposits"},""" +
+        """{"id":"b2","grantee":"machine:affiliates/network","kind":"topic","topic":"transactions","right":"consume","decrypt":true},""" +
+        """{"id":"c3","grantee":"service:payments/merchant","kind":"erasure"}]}"""
+    )
+  }
+
+  test("a project with no grants renders an empty grants file, so every service reads none") {
+    val config = actions().collectFirst { case Action.EnsureProjectConfig(c) => c }.get
+    assertEquals(
+      config.getData.get(ProjectConfig.GrantsKey),
+      """{"project":"money","grants":[]}"""
+    )
+  }
+
+  test("where machines' tokens come from is written beside the grants, and nothing without it") {
+    val machines =
+      Settings.MachineIssuer("https://api.example.test", Settings.DefaultMachineJwksUrl)
+    val config =
+      ProjectConfig.configMap("ankka-money", AnkkaProjectSpec(projectId = "money"), Some(machines))
+    assertEquals(
+      config.getData.get(ProjectConfig.MachinesKey),
+      """{"issuer":"https://api.example.test","jwksUrl":"https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"}"""
+    )
+    val without = ProjectConfig.configMap("ankka-money", AnkkaProjectSpec(projectId = "money"))
+    assert(!without.getData.containsKey(ProjectConfig.MachinesKey), without.getData.toString)
+  }
+
+  test("the machine issuer is the control plane's own address, derived as the control plane does") {
+    assertEquals(
+      Settings.machineIssuer(None, None, Some("example.test"), 8443),
+      Some(Settings.MachineIssuer("https://api.example.test:8443", Settings.DefaultMachineJwksUrl))
+    )
+    assertEquals(
+      Settings.machineIssuer(None, None, Some("example.test"), 443).map(_.issuer),
+      Some("https://api.example.test")
+    )
+    assertEquals(
+      Settings.machineIssuer(Some("https://other.test"), Some("https://k/jwks"), None, 443),
+      Some(Settings.MachineIssuer("https://other.test", "https://k/jwks"))
+    )
+    assertEquals(Settings.machineIssuer(None, None, None, 443), None)
   }

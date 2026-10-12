@@ -47,7 +47,7 @@ from ankka.client import CommandError, ComponentClient, SidecarRows
 from ankka.effects import keyed_view as keyed_effects
 from ankka.secrets import Secrets
 from ankka.services import Services
-from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
+from ankka.context import Caller, CommandContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
 from ankka.effects import timed_action as timed_effects
@@ -58,7 +58,9 @@ from ankka.endpoint import HttpProblem, Socket, SocketClosed, SseEvent
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
-from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries
+from ankka.standing import WORKFLOW_SOURCE_PROTOCOL, Standing
+from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries, declares_watched
+from ankka.views import VIEW_STREAMS_PROTOCOL
 from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
@@ -77,7 +79,11 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
-        refusal = self.refusal(request.protocol_version) or socket_refusal(self.registry, request.protocol_version)
+        refusal = (
+            self.refusal(request.protocol_version)
+            or socket_refusal(self.registry, request.protocol_version)
+            or grants_refusal(self.registry, request.protocol_version)
+        )
         if refusal is not None:
             log.error(refusal)
             PROBLEMS.append(refusal)
@@ -90,7 +96,36 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         One older than 1.13 would not know a view's declared queries, which would be missing at their
         first asking. One older than 1.14 would ignore a contract, a broker, parallel partitions and a
         publication's contract: a service checked against nothing, reading the wrong broker. Refused,
-        naming what declares them, rather than served wrong."""
+        naming what declares them, rather than served wrong. One older than 1.16 would not read a
+        workflow as a source, and a view or consumer that did would be handed nothing. One older than
+        1.17 would not know a watched query."""
+        if start_from.older_than(sidecar_protocol, WORKFLOW_SOURCE_PROTOCOL):
+            reading = [
+                cls.__name__
+                for cls in (
+                    *self.registry.views.values(),
+                    *self.registry.keyed_views.values(),
+                    *self.registry.consumers.values(),
+                )
+                if reads_workflow(cls)
+            ]
+            if reading:
+                return (
+                    f"{', '.join(reading)} read a workflow, which the sidecar does not know: it speaks protocol "
+                    f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.16 or later."
+                )
+        if start_from.older_than(sidecar_protocol, VIEW_STREAMS_PROTOCOL):
+            watching = [
+                cls.__name__
+                for cls in (*self.registry.views.values(), *self.registry.keyed_views.values())
+                if declares_watched(cls)
+            ]
+            if watching:
+                return (
+                    f"{', '.join(watching)} declare a watched query, which the sidecar does not know: it speaks "
+                    f"protocol {sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. "
+                    "Run a sidecar speaking 1.17 or later."
+                )
         if start_from.older_than(sidecar_protocol, contract.CONTRACT_PROTOCOL):
             stating = [
                 cls.__name__
@@ -475,6 +510,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             None if request.deleted else request.event.data,
             request.row.data if request.HasField("row") else None,
             Metadata.from_pb(request.metadata),
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
         )
         if isinstance(effect, view_effects.UpdateRow):
             return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
@@ -491,7 +527,13 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         reader = SidecarRows(self.client.with_metadata(metadata).views)
-        effect = await cls()._handle(request.source_id, None if request.deleted else request.event.data, metadata, reader)
+        effect = await cls()._handle(
+            request.source_id,
+            None if request.deleted else request.event.data,
+            metadata,
+            reader,
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
+        )
         changes = [
             view_pb2.RowChange(key=c.key, upsert=_payload_of(cls.row_codec, c.row))
             if isinstance(c, keyed_effects.Upsert)
@@ -513,13 +555,29 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
-        effect = await consumer._handle(None if request.deleted else request.message.data, metadata)
+        effect = await consumer._handle(
+            None if request.deleted else request.message.data,
+            metadata,
+            Standing.from_pb(request.standing) if request.HasField("standing") else None,
+        )
         refusal = several_refusal(effect, metadata)
         if refusal is not None:
             # Failed, not answered: a runtime that does not know `produce_all` would read it as no
             # effect and record the change as handled with nothing published.
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
         return consumer_effect_pb(effect, cls.out_codec)
+
+
+def reads_workflow(cls: Any) -> bool:
+    """Whether a view, keyed view or consumer declares a workflow as a source."""
+    component = cls.to_component()
+    if component.HasField("view"):
+        sources = [component.view.source, *component.view.sources] if component.view.HasField("source") else list(
+            component.view.sources
+        )
+    else:
+        sources = [component.consumer.source]
+    return any(s.HasField("component") and s.component.kind == discovery_pb2.WORKFLOW for s in sources)
 
 
 SOCKETS_SINCE = (1, 9)
@@ -541,6 +599,42 @@ def socket_refusal(registry: Registry, runtime_protocol: str) -> str | None:
     if (major, minor) >= SOCKETS_SINCE:
         return None
     return f"this runtime speaks protocol {runtime_protocol or 'unknown'}; a socket route needs 1.9 ({', '.join(routes)})"
+
+
+GRANTS_SINCE = (1, 15)
+"""The protocol version whose runtimes admit granted callers."""
+
+
+def grants_refusal(registry: Registry, runtime_protocol: str) -> str | None:
+    """Why this service cannot be declared to a runtime speaking ``runtime_protocol``, or None. A
+    runtime before 1.15 does not know ``Callers.granted``, and would admit nobody by it."""
+    endpoints = [
+        cls.endpoint_id()
+        for cls in registry.endpoints.values()
+        if any(
+            acl is not None and any(m.kind == "granted" for m in acl.callers)
+            for acl in [getattr(cls, "acl", None), *(spec.acl for spec in cls.routes().values())]
+        )
+    ]
+    # Another project's topic is 1.15's too: an older runtime would read it as this project's.
+    endpoints += [
+        cls.__name__
+        for cls in (*registry.views.values(), *registry.consumers.values())
+        if contract.declares_cross_project(cls)
+    ]
+    if not endpoints:
+        return None
+    try:
+        major, minor = (int(part) for part in runtime_protocol.split(".")[:2])
+    except ValueError:
+        major, minor = 0, 0
+    if (major, minor) >= GRANTS_SINCE:
+        return None
+    return (
+        f"this runtime speaks protocol {runtime_protocol or 'unknown'}; granted callers and another "
+        "project's topics need 1.15 "
+        f"({', '.join(endpoints)})"
+    )
 
 
 SEVERAL_SINCE = (1, 3)
@@ -950,4 +1044,6 @@ def _caller(request: endpoint_pb2.HttpRequest) -> Caller:
         return Gateway()
     if which == "service":
         return ServiceCaller(request.caller.service.project, request.caller.service.name)
+    if which == "machine":
+        return MachineCaller(request.caller.machine.organization, request.caller.machine.name)
     return LocalCaller()

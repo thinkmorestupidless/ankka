@@ -1,0 +1,1 @@
+{"type":"RestoreHoldStatus","json":{"held":true,"restoredAt":"2026-09-28T10:00:00Z","targetTime":"2026-09-28T10:00:00Z","services":[{"project":"checkout","service":"cart","recordedGeneration":1,"clusterGeneration":2,"recordedImage":"cart:1","clusterImage":"cart:2"}],"topics":["checkout"],"unknownProjects":["lab"],"reconciled":["the erasure log is up to date: 0 gained"]}}

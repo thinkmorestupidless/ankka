@@ -1,6 +1,19 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{
+  AnkkaMachineSpec,
+  AnkkaMachineStatus,
+  BackupsStatus,
+  LineStatus,
+  ProjectBackupsSpec,
+  ProjectClusterStatus,
+  ProjectDatabaseSpec,
+  ProjectDatabaseStatus,
+  RehearsalEntry,
+  RehearsalStatus,
+  RestoreEntry,
+  RestoreStatus,
+  ServiceVerification,
   ProjectBrokerEntry,
   AnkkaProjectSpec,
   AnkkaProjectStatus,
@@ -10,7 +23,9 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudResourceSpec,
   CloudResourceStatus,
   CloudSubject,
+  HostnameStatus,
   ObjectStorageStatus,
+  ProjectGrantEntry,
   ProjectTopicEntry,
   ProjectTopicStatus
 }
@@ -42,6 +57,7 @@ class CrdSchemaSuite extends munit.FunSuite:
   private val crd: CustomResourceDefinition        = load("ankkaservice.yaml")
   private val projectCrd: CustomResourceDefinition = load("ankkaproject.yaml")
   private val cloudCrd: CustomResourceDefinition   = load("cloudresource.yaml")
+  private val machineCrd: CustomResourceDefinition = load("ankkamachine.yaml")
 
   /** The property names one object in the service's schema declares. */
   private def declared(path: String*): Set[String] = declaredIn(crd, path*)
@@ -105,6 +121,12 @@ class CrdSchemaSuite extends munit.FunSuite:
     )
   }
 
+  test("a machine's resource and its schema declare the same fields, and it is cluster-scoped") {
+    assertEquals(declaredIn(machineCrd, "spec"), fieldsOf(classOf[AnkkaMachineSpec]))
+    assertEquals(declaredIn(machineCrd, "status"), fieldsOf(classOf[AnkkaMachineStatus]))
+    assertEquals(machineCrd.getSpec.getScope, "Cluster")
+  }
+
   test("a project's resource and its schema declare the same fields, at every level") {
     assertEquals(declaredIn(projectCrd, "spec"), fieldsOf(classOf[AnkkaProjectSpec]))
     assertEquals(declaredIn(projectCrd, "status"), fieldsOf(classOf[AnkkaProjectStatus]))
@@ -120,6 +142,35 @@ class CrdSchemaSuite extends munit.FunSuite:
       declaredIn(projectCrd, "spec", "brokers", "items"),
       fieldsOf(classOf[ProjectBrokerEntry])
     )
+    assertEquals(
+      declaredIn(projectCrd, "spec", "grants", "items"),
+      fieldsOf(classOf[ProjectGrantEntry])
+    )
+  }
+
+  test("a project's backups, database, restores and rehearsals are declared at every level") {
+    // Feature 041. Each nested block, in both directions: a field the schema lacks is refused on
+    // every write of the block, and a property the class lacks is a promise nothing keeps.
+    val blocks: Vector[(Seq[String], Class[?])] = Vector(
+      Seq("spec", "database")                                   -> classOf[ProjectDatabaseSpec],
+      Seq("spec", "backups")                                    -> classOf[ProjectBackupsSpec],
+      Seq("spec", "restores", "items")                          -> classOf[RestoreEntry],
+      Seq("spec", "rehearsals", "items")                        -> classOf[RehearsalEntry],
+      Seq("status", "backups")                                  -> classOf[BackupsStatus],
+      Seq("status", "backups", "lines", "items")                -> classOf[LineStatus],
+      Seq("status", "database")                                 -> classOf[ProjectDatabaseStatus],
+      Seq("status", "clusters", "items")                        -> classOf[ProjectClusterStatus],
+      Seq("status", "restores", "items")                        -> classOf[RestoreStatus],
+      Seq("status", "restores", "items", "services", "items")   -> classOf[ServiceVerification],
+      Seq("status", "rehearsals", "items")                      -> classOf[RehearsalStatus],
+      Seq("status", "rehearsals", "items", "services", "items") -> classOf[ServiceVerification]
+    )
+    for (path, clazz) <- blocks do
+      assertEquals(declaredIn(projectCrd, path*), fieldsOf(clazz), path.mkString("."))
+  }
+
+  test("the service's database cluster is declared") {
+    assert(declared("spec").contains("databaseCluster"))
   }
 
   test("the schema's hostings are exactly the ones the operator renders") {
@@ -140,6 +191,27 @@ class CrdSchemaSuite extends munit.FunSuite:
     val inClass  = fieldsOf(classOf[ObjectStorageStatus])
     assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
     assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+  }
+
+  test("a custom hostname's status is declared field for field, in both directions") {
+    // An array's items are a nested object a closed schema checks as well (feature 045).
+    val inSchema = declared("status", "hostnames", "items")
+    val inClass  = fieldsOf(classOf[HostnameStatus])
+    assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
+    assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+    val states = crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+      .get("status")
+      .getProperties
+      .get("hostnames")
+      .getItems
+      .getSchema
+      .getProperties
+      .get("state")
+      .getEnum
+      .asScala
+      .map(_.asText)
+      .toSet
+    assertEquals(states, Set("pending", "serving", "rejected"))
   }
 
   test("a move's request and its state are declared field for field, in both directions") {

@@ -136,7 +136,11 @@ final class ServiceReconciler(
           ObjectStorage.inPlace(resource)
         )
       ),
-      secretHold
+      secretHold,
+      executor.projectSpec(ref.namespace, spec.projectId),
+      // Read only where the service has a broker user to put them on.
+      if settings.broker.isDefined then executor.grantsNaming(spec.projectId, spec.serviceName)
+      else Vector.empty
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -207,7 +211,21 @@ final class ServiceReconciler(
           .observeDatabase(ref.namespace, CnpgRendering.projectClusterName, ref.name)
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
       else com.thinkmorestupidless.ankka.operator.cnpg.DatabaseObservation.empty
-    Provisioning.decide(spec, observed)
+    spec.databaseCluster match
+      // Feature 041: a service switched to a restore. Its role and database came with the restored
+      // data, so there is nothing to provision: it is ready when the restore's cluster is, and its
+      // data is recovered by definition. The project database is still ensured beside it.
+      case Some(restore) if spec.provisionDatabase =>
+        val ready = executor.observeDatabase(ref.namespace, restore, ref.name).clusterReadyInstances
+        if ready > 0 then ProvisioningPlan.Ready(recovered = true, migrateRole = false)
+        else
+          ProvisioningPlan.Waiting(
+            needsCluster = false,
+            needsRole = false,
+            needsDatabase = false,
+            detail = Some(s"waiting for the restore $restore")
+          )
+      case _ => Provisioning.decide(spec, observed)
 
   /**
    * Asks the store about this service's bucket, only when the service asks for one and the
@@ -442,7 +460,7 @@ final class ServiceReconciler(
     base.copy(
       database = LifecycleRules.databaseStatus(
         databasePlan,
-        CnpgRendering.projectClusterName,
+        spec.databaseCluster.getOrElse(CnpgRendering.projectClusterName),
         spec.serviceName
       ),
       broker = LifecycleRules.brokerStatus(brokerPlan),
@@ -460,6 +478,8 @@ final class ServiceReconciler(
       detail = base.detail.orElse(brokerPlan match
         case BrokerPlan.Failed(problems) => Some(s"broker: ${problems.mkString("; ")}")
         case _                           => None),
+      // Every service but a web-hosted one mounts the project's ConfigMap and so reads its grants.
+      grants = Option.when(spec.hosting != Rendering.WebHosting)("mounted"),
       // Only an exposed service has a route to report on; the field stays absent otherwise.
       route = Option.when(spec.exposed)(
         LifecycleRules.routeStatus(
@@ -467,6 +487,15 @@ final class ServiceReconciler(
           settings.baseDomain,
           executor.observeRoute(namespace, Names.httpRoute(spec.serviceName))
         )
+      ),
+      // Feature 045: each custom hostname while exposed, read only when there are some.
+      hostnames = HostnameRules.statuses(
+        spec,
+        settings,
+        if spec.exposed && spec.customHostnames.nonEmpty then
+          executor
+            .observeHostnames(namespace, spec.serviceName, spec.customHostnames.toVector.distinct)
+        else Map.empty
       )
     )
 
@@ -528,13 +557,4 @@ object ServiceReconciler:
       generation: Int
   )
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
-    new ServiceReconciler(
-      client,
-      settings,
-      new Fabric8Executor(
-        client,
-        settings.otlpHeaders,
-        settings.objectStore.map(store => GarageStore(store.adminUrl, store.adminToken)),
-        settings.rotationGrace
-      )
-    )
+    new ServiceReconciler(client, settings, Fabric8Executor.of(client, settings))

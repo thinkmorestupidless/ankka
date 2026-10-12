@@ -38,7 +38,16 @@ final class ServiceEndpoint(
     deploy: DeployConfig = DeployConfig.default,
     logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
     protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
-    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix),
+    /**
+     * Where a project's restores are read (feature 041), for what a switch may name; `None` refuses
+     * every switch to a restore.
+     */
+    projects: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
+    /** Feature 043: the warning threshold a view's topic is held to. */
+    topicPolicy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
+    proofs: ProofLookup = ProofLookup.jndi(None)
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -63,7 +72,9 @@ final class ServiceEndpoint(
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
     authz.project(principal, projectId, write = false)
     withUndeclaredTopics(
-      withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+      withMountStates(
+        withProof(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+      )
     )
   }
 
@@ -94,10 +105,26 @@ final class ServiceEndpoint(
             .forEventSourcedEntity(EntityId(status.projectId))
             .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.topics)
             .invoke()
+        val sources = ServiceEndpoint.topicSourcesOf(read)
+        val warnings =
+          ServiceEndpoint.retentionWarnings(sources, declared, topicPolicy.warningThreshold)
         status.copy(
           undeclaredTopics = Some(used.filterNot(declared.keySet)),
           topicChecks = Some(TopicChecks.ofService(declared, status.name, read)),
-          topicSources = Some(ServiceEndpoint.topicSourcesOf(read)),
+          topicSources = Some(sources),
+          warnings = Option.when(warnings.nonEmpty)(warnings),
+          crossProjectTopics = Some(
+            ServiceEndpoint.crossProjectTopicsOf(
+              read,
+              status.projectId,
+              status.name,
+              owner =>
+                clients.componentClient
+                  .forEventSourcedEntity(EntityId(owner))
+                  .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.grants)
+                  .invoke()
+            )
+          ),
           secretStore = read.flatMap(_.secretStore).headOption
         )
 
@@ -153,6 +180,54 @@ final class ServiceEndpoint(
    * two people asking at once both resolve to one generation, and the second is refused as already
    * having it, rather than rolling the first one back.
    */
+  /**
+   * Switches a service to another of its project's database clusters (feature 041): a verified
+   * restore that holds the service's database, or back to the project database. Owners only. The
+   * switch is a new generation, so the service rolls onto the cluster at once; switching to where
+   * it is changes nothing.
+   */
+  postBody("/{projectId}/{name}/switch") {
+    (projectId: String, name: String, request: SwitchRequest) =>
+      val authorized = authz.projectOwner(principal, projectId)
+      val target     = request.cluster.trim
+      if target != com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase then
+        val reported = projects
+          .flatMap(reader =>
+            try reader.topicStatus(projectId)
+            catch case NonFatal(_) => None
+          )
+          .toVector
+          .flatMap(_.restores)
+        val restore = reported
+          .find(_.name == target)
+          .getOrElse(
+            throw CommandError(
+              s"$target is not a restore of $projectId that can be switched to",
+              ErrorCode.BadRequest
+            )
+          )
+        if restore.phase != "Verified" && restore.phase != "InUse" then
+          throw CommandError(
+            s"the restore $target is ${restore.phase}; only a verified restore can be switched to",
+            ErrorCode.Conflict
+          )
+        if !restore.services.exists(v => v.name == name && v.present) then
+          throw CommandError(
+            s"$name had no database at ${restore.targetTime}, so it cannot be switched to $target",
+            ErrorCode.BadRequest
+          )
+      val status = entity(projectId, name)
+        .call(ServiceEntity.switchDatabase)
+        .withMetadata(authz.metadata(authorized))
+        .invoke(
+          com.thinkmorestupidless.ankka.controlplane.domain.SwitchDatabase(
+            Option
+              .when(target != com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase)(target)
+          )
+        )
+      withHostname(status)
+  }
+
   postBody("/{projectId}/{name}/rollback") {
     (projectId: String, name: String, request: RollbackRequest) =>
       val authorized = authz.project(principal, projectId, write = true)
@@ -298,6 +373,83 @@ final class ServiceEndpoint(
     )
   }
 
+  /**
+   * Adds a custom hostname (feature 045). Every refusal is a 409 naming what is wrong, checked in
+   * the order a member is told them: the name itself, the installation, the service, the cap, the
+   * holder, and last the proof — the one check that costs a DNS read, so none is made for a name
+   * that would be refused anyway. The entity checks exposure and the cap again, as the single
+   * writer. A name this service already holds is answered unchanged.
+   */
+  put("/{projectId}/{name}/hostnames/{hostname}") {
+    (projectId: String, name: String, raw: String) =>
+      val metadata = access(projectId, write = true)
+      // A path segment arrives as sent: a `/` a member typed is `%2F`, and must be judged as the
+      // `/` it is, in a name that is not a name alone.
+      val requested                       = decoded(raw)
+      val hostname                        = CustomHostnames.normalise(requested)
+      def refuse(reason: String): Nothing = throw CommandError(reason, ErrorCode.Conflict)
+      CustomHostnames.problem(requested, deploy.baseDomain).foreach(refuse)
+      if deploy.hostnameIssuer.isEmpty then
+        refuse(
+          "the installation names no authority for custom hostnames (ANKKA_HOSTNAME_ISSUER)"
+        )
+      val current = entity(projectId, name)
+        .call(ServiceEntity.desiredState)
+        .invoke()
+        .getOrElse(
+          throw CommandError(s"no such service '$name' in project '$projectId'", ErrorCode.NotFound)
+        )
+      if !current.holds(hostname) then
+        if !current.exposed then refuse(ServiceEntity.notExposed(name))
+        if current.customHostnames.size >= CustomHostnames.MaxPerService then
+          refuse(ServiceEntity.atCap(name))
+        customHostnameHolder(hostname, current.key).foreach { holder =>
+          refuse(
+            s"'$hostname' is held by service '${holder.name}' in project '${holder.projectId}'"
+          )
+        }
+        proofs.proves(hostname, projectId) match
+          case Right(true) => ()
+          case Right(false) | Left(ProofLookup.Failure.NoRecord) =>
+            refuse(
+              s"'$hostname' does not carry the proof record of project '$projectId': create " +
+                s"TXT ${ProofLookup.recordName(hostname)} with the value " +
+                s"\"${ProofLookup.recordValue(projectId)}\""
+            )
+          case Left(ProofLookup.Failure.Unreachable(detail)) =>
+            refuse(
+              s"could not look up ${ProofLookup.recordName(hostname)}: $detail; the proof record " +
+                "was not checked"
+            )
+      withHostname(
+        entity(projectId, name)
+          .call(ServiceEntity.addHostname)
+          .withMetadata(metadata)
+          .invoke(hostname)
+      )
+  }
+
+  /**
+   * Removes a custom hostname. By a platform administrator it is recorded as taken away, with the
+   * attribution that says the role, not membership, let them: the decision to take a domain from a
+   * project that no longer controls it is made over the members' heads.
+   */
+  delete("/{projectId}/{name}/hostnames/{hostname}") {
+    (projectId: String, name: String, raw: String) =>
+      val hostname = CustomHostnames.normalise(decoded(raw))
+      val call =
+        if authz.isAdmin(principal) then
+          authz.project(principal, projectId, write = true)
+          entity(projectId, name)
+            .call(ServiceEntity.takeHostnameAway)
+            .withMetadata(authz.administrator(principal))
+        else
+          entity(projectId, name)
+            .call(ServiceEntity.removeHostname)
+            .withMetadata(access(projectId, write = true))
+      withHostname(call.invoke(hostname))
+  }
+
   /** The URL an exposed service answers at, added on the way out: the entity does not know it. */
   /**
    * What is behind each of a web-hosted service's mounts (feature 021), decided when one service is
@@ -325,9 +477,23 @@ final class ServiceEndpoint(
         else Some(address)
       )
     )
+    val withRecords = located.copy(
+      // The records to create, which need the installation's settings the entity does not have.
+      customHostnames = status.customHostnames.map { h =>
+        val (record, note) = deploy.recordFor(status.projectId, status.name, h.hostname)
+        h.copy(record = record, note = note)
+      }
+    )
     if status.exposed then
-      located.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
-    else located
+      withRecords.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
+    else withRecords
+
+  private def decoded(segment: String): String =
+    java.net.URLDecoder.decode(segment.replace("+", "%2B"), java.nio.charset.StandardCharsets.UTF_8)
+
+  /** On a read of one service, the proof record too: the same for every hostname it brings. */
+  private def withProof(status: ServiceStatus): ServiceStatus =
+    status.copy(proofRecord = Some(deploy.proofRecord(status.projectId)))
 
   /**
    * Another exposed service whose derived label equals this one's — `a-b` in `c` against `a` in
@@ -340,6 +506,21 @@ final class ServiceEndpoint(
       .ordered(jsonText("exposed") ++ sql" = 'true'", order = jsonText("name"))
       .map(row => ServiceKey(row.projectId, row.name))
       .find(other => other != key && Hostnames.label(other.name, other.projectId) == label)
+
+  /**
+   * Another service holding a custom hostname (feature 045), across the installation. From the
+   * listing view, as the derived label's holder is, so it can lag: two adds within one projection
+   * interval may both be recorded, and the gateway then serves the older listener set's and marks
+   * the other's Conflicted, which the status shows.
+   */
+  private def customHostnameHolder(hostname: String, key: ServiceKey): Option[ServiceKey] =
+    services
+      .ordered(jsonText("customHostnames") ++ sql" is not null", order = jsonText("name"))
+      .find(row =>
+        ServiceKey(row.projectId, row.name) != key && row.customHostnames
+          .exists(_.hostname == hostname)
+      )
+      .map(row => ServiceKey(row.projectId, row.name))
 
   /**
    * A deployed service's output.
@@ -433,8 +614,61 @@ final class ServiceEndpoint(
 object ServiceEndpoint:
 
   /**
+   * The other projects' topics the service's components read or publish to (feature 040), from the
+   * topology its instances report — a topic edge to `topic:<project>/<name>` that names no declared
+   * broker — each with whether the granting project grants this service that right:
+   * `grantsOf(project)` is that project's grants, live and ended. An accepted grant is `granted`;
+   * otherwise the newest grant's state says why not, and none at all is `no grant`.
+   */
+  def crossProjectTopicsOf(
+      documents: Vector[InstanceTopologyDocument],
+      project: String,
+      service: String,
+      grantsOf: String => Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]
+  ): Vector[CrossProjectTopic] =
+    val target = com.thinkmorestupidless.ankka.controlplane.api.GrantTarget
+    val used = documents
+      .flatMap(_.declared)
+      .filter(_.broker.isEmpty)
+      .flatMap { edge =>
+        edge.kind match
+          case "topic-subscription" => Some(edge.from -> target.Consume)
+          case "topic-publication"  => Some(edge.to -> target.Produce)
+          case _                    => None
+      }
+      .collect {
+        case (id, right) if id.startsWith("topic:") && id.drop(6).contains('/') =>
+          val (owner, name) = id.drop(6).span(_ != '/')
+          (owner, name.drop(1), right)
+      }
+      .distinct
+      .sorted
+    val me = Grantee.Service(project, service)
+    val grants = scala.collection.mutable.Map
+      .empty[String, Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]]
+    used.map { (owner, name, right) =>
+      val held = grants
+        .getOrElseUpdate(
+          owner,
+          try grantsOf(owner)
+          catch case NonFatal(_) => Vector.empty
+        )
+        .filter(g =>
+          g.grantee == me && g.target.kind == target.Topic && g.target.topic.contains(name) &&
+            g.target.right.contains(right)
+        )
+      val status =
+        if held.exists(_.state == GrantState.Accepted) then "granted"
+        else if held.exists(_.state == GrantState.Pending) then "not granted (pending)"
+        else if held.nonEmpty then "not granted (ended)"
+        else "not granted (no grant)"
+      CrossProjectTopic(owner, name, right, status)
+    }
+
+  /**
    * One report per topic source over the instances: lags summed, the first failing reason kept
-   * (feature 037).
+   * (feature 037), and the retention gap merged by partition (feature 043): never summed, since
+   * every instance reads the same partitions' beginnings.
    */
   def topicSourcesOf(documents: Vector[InstanceTopologyDocument]): Vector[TopicSourceReport] =
     documents
@@ -447,9 +681,54 @@ object ServiceEndpoint:
         reports.head.copy(
           lag = Option.when(lags.nonEmpty)(lags.sum),
           failing = reports.flatMap(_.failing).headOption,
-          behind = reports.exists(_.behind)
+          behind = reports.exists(_.behind),
+          gap = gapOf(reports.flatMap(_.gap))
         )
       }
+
+  /**
+   * The instances' gaps as one: each partition once, the first instance's row for it; gone if any
+   * instance says so; compacted only if every one does; read when the latest was.
+   */
+  def gapOf(gaps: Vector[RetentionGapReport]): Option[RetentionGapReport] =
+    Option.when(gaps.nonEmpty) {
+      val partitions = gaps
+        .flatMap(_.partitions)
+        .groupBy(_.partition)
+        .toVector
+        .sortBy(_._1)
+        .map(_._2.head)
+      RetentionGapReport(
+        partitions,
+        compacted = gaps.forall(_.compacted),
+        gone = gaps.exists(_.gone),
+        readAt = gaps.flatMap(_.readAt).maxOption
+      )
+    }
+
+  /**
+   * A warning for each view reading a topic that keeps less than the installation's threshold
+   * (feature 043), worked out from the project's declarations as they are now: a topic that keeps
+   * everything or is compacted draws none, and a topic whose settings are not yet stated none
+   * either.
+   */
+  def retentionWarnings(
+      sources: Vector[TopicSourceReport],
+      declared: Map[String, com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic],
+      threshold: RetentionTime
+  ): Vector[ServiceWarning] =
+    sources.filter(_.kind == "view").flatMap { source =>
+      declared.get(source.topic).flatMap(_.settings).collect {
+        case settings if !settings.compacted && settings.retention.shorterThan(threshold) =>
+          ServiceWarning(
+            "retention",
+            source.component,
+            source.topic,
+            s"view '${source.component}' reads topic '${source.topic}', which keeps " +
+              s"${settings.retention.text}; the installation warns below ${threshold.text}"
+          )
+      }
+    }
 
   /** The hostings whose pods hold the platform's container beside the developer's (R11). */
   val TwoContainerHostings: Set[String] = Set(ServiceSpec.Process, ServiceSpec.Web)

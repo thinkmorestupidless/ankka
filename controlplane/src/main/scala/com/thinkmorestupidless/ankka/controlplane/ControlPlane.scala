@@ -4,7 +4,13 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.*
-import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex}
+import com.thinkmorestupidless.ankka.controlplane.auth.{
+  AuthConfig,
+  DeployTokenIndex,
+  MachineKeys,
+  MachineSettings,
+  TokenBucket
+}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   ProjectSecretWriter,
@@ -43,14 +49,24 @@ object ControlPlane:
     // Feature 013. The entity is what every node replays into its own DeployTokenIndex so its acl
     // can verify a token without touching the database; the view is only for listing them.
     DeployTokenEntity.descriptor,
-    DeployTokenRows.descriptor
+    DeployTokenRows.descriptor,
+    // Feature 040. The grantee side's copy of every grant, derived from the granting project's
+    // events, so a request that changes a grant writes one entity.
+    GrantMirror.descriptor,
+    // Feature 040. A machine outside the installation, registered on an organization, and the
+    // listing of an organization's machines.
+    MachineEntity.descriptor,
+    MachineRows.descriptor,
+    // Feature 040. A deleted project lapses the grants its services held.
+    ProjectTrigger.descriptor
   )
 
   /** The full inventory, including the consumer that projects on a desired-state change. */
   def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
     components :+ ProjectionTrigger.companion(projector).descriptor :+
       SuspensionTrigger.companion(projector).descriptor :+
-      ProjectTopicsTrigger.companion(projector).descriptor
+      ProjectTopicsTrigger.companion(projector).descriptor :+
+      MachineLifecycleTrigger.companion(projector).descriptor
 
   /**
    * The endpoints, all but one sharing the ACL. The service endpoint also needs the deployment
@@ -112,14 +128,42 @@ object ControlPlane:
       installationSecrets: () => Option[InstallationSecrets] = () =>
         Some(ControlPlane.defaultInstallationSecrets),
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
-      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None
+      cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None,
+      /** The installation's backups (feature 041); none as the default, as before the feature. */
+      // By name: read at each request, so a suite can change what the installation backs up.
+      backups: => BackupConfig = BackupConfig.default,
+      /** Where the control plane's own database's backups are read; the projector. */
+      platform: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PlatformBackupsReader] =
+        None,
+      /** Where a restore's services are asked about the broker; their instances, by default. */
+      divergence: Option[com.thinkmorestupidless.ankka.controlplane.deploy.DivergenceReader] = None,
+      /** Where a project's rehearsal namespace is made; the projector. */
+      rehearsals: Option[com.thinkmorestupidless.ankka.controlplane.deploy.RehearsalNamespaces] =
+        None,
+      /** Whether the control plane is held after its own database's restore. */
+      hold: com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold =
+        com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold.none,
+      /**
+       * Machines' settings and signing keys (feature 040). The keys are in memory unless a mounted
+       * directory holds them; a suite passes keys of its own to sign and verify with.
+       */
+      machineSettings: MachineSettings = MachineSettings.local,
+      machineKeys: Option[MachineKeys] = None,
+      /** The installation's topic defaults, bounds and warning threshold (feature 043). */
+      topicPolicy: => com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
+      /**
+       * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
+       * resolver `deploy` names, or the system's; a suite passes one it scripts.
+       */
+      proofs: Option[com.thinkmorestupidless.ankka.controlplane.api.ProofLookup] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
     Seq[
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
-      clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
+      clients => OrganizationEndpoint(clients, acl, policy, clock, tokens, machineSettings),
       clients =>
         ProjectEndpoint(
           clients,
@@ -131,7 +175,13 @@ object ControlPlane:
           schemas,
           topology,
           secretRecords,
-          deploy.objectStore
+          deploy.objectStore,
+          backups,
+          divergence,
+          platform,
+          rehearsals,
+          brokerExposed = machineSettings.brokerBootstrap.isDefined,
+          policy = topicPolicy
         ),
       _ => SecretReadsEndpoint(secretRecords),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
@@ -142,6 +192,9 @@ object ControlPlane:
           com.thinkmorestupidless.ankka.controlplane.deploy
             .PodLogs(DeployConfig.default.namespacePrefix)
         )
+        val lookup = proofs.getOrElse(
+          com.thinkmorestupidless.ankka.controlplane.api.ProofLookup.jndi(deploy.dnsResolver)
+        )
         topology match
           case Some(reader) =>
             ServiceEndpoint(
@@ -150,9 +203,22 @@ object ControlPlane:
               deploy,
               logs = logReader,
               clock = clock,
-              topology = reader
+              topology = reader,
+              projects = topics,
+              topicPolicy = topicPolicy,
+              proofs = lookup
             )
-          case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
+          case None =>
+            ServiceEndpoint(
+              clients,
+              acl,
+              deploy,
+              logs = logReader,
+              clock = clock,
+              projects = topics,
+              topicPolicy = topicPolicy,
+              proofs = lookup
+            ),
       clients => WhoamiEndpoint(clients, acl, clock),
       clients =>
         InstallationEndpoint(
@@ -161,9 +227,22 @@ object ControlPlane:
           cloud,
           deploy.platformVersion,
           clock,
+          backups,
+          platform,
+          hold,
           installationSecrets
         )
-    ) ++ auth.map(config =>
+    ) ++ {
+      val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
+      val bucket = TokenBucket(machineSettings.tokenRate, clock)
+      Seq[
+        com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
+      ](
+        clients => MachineTokenEndpoint(clients, keys, machineSettings, bucket, clock),
+        _ => MachineKeysEndpoint(keys, machineSettings),
+        _ => MachineKeyRotationEndpoint(keys, acl)
+      )
+    } ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
 
@@ -211,8 +290,11 @@ object ControlPlane:
        */
       tokens: Option[DeployTokenIndex] = None
   ): ServiceBuilder =
-    val deploy = DeployConfig.from(config)
-    val policy = OrganizationPolicy.from(config)
+    val deploy  = DeployConfig.from(config)
+    val policy  = OrganizationPolicy.from(config)
+    val backups = BackupConfig.from(config)
+    val topicPolicy =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.
     val backend = secrets.SecretBackendConfig.from(config)
@@ -223,7 +305,18 @@ object ControlPlane:
     val cloud         = backend.cloud
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
-    val projector = ServiceProjector(deploy)
+    // First of the extensions (feature 041): the projector must know it is held before it starts.
+    val hold      = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold()
+    val projector = ServiceProjector(deploy, backups, hold)
+    // Feature 040: a deployed control plane signs with the keys its Secret holds, mounted, and
+    // writes a new one there; a local one keeps them in memory.
+    val machines = MachineSettings.from(config)
+    val keys = machines.keysDirectory.fold(MachineKeys.inMemory())(directory =>
+      MachineKeys.mounted(
+        java.nio.file.Path.of(directory),
+        projector.machineKeyWriter(machines.namespace, machines.keysSecret)
+      )
+    )
     // Where a project secret's entries go: the project's Secret in the cluster, or Secret Manager.
     val projectSecrets: ProjectSecretWriter = backend.backend match
       case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres => projector
@@ -244,7 +337,14 @@ object ControlPlane:
             schemas = Some(projector),
             secretRecords = Some(records),
             installationSecrets = () => Some(installation),
-            cloud = cloud
+            cloud = cloud,
+            backups = backups,
+            platform = Some(projector),
+            rehearsals = Some(projector),
+            hold = hold,
+            machineSettings = machines,
+            machineKeys = Some(keys),
+            topicPolicy = topicPolicy
           )*
         )
       case _ =>
@@ -261,16 +361,49 @@ object ControlPlane:
             schemas = Some(projector),
             secretRecords = Some(records),
             installationSecrets = () => Some(installation),
-            cloud = cloud
+            cloud = cloud,
+            backups = backups,
+            platform = Some(projector),
+            rehearsals = Some(projector),
+            hold = hold,
+            machineSettings = machines,
+            machineKeys = Some(keys),
+            topicPolicy = topicPolicy
           )*
         )
-    val base = Ankka.service
+    val served = Ankka.service
       .registerAll(componentsWith(projector))
+      .withExtension(hold)
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(records)
       .withExtension(server)
-    tokens.fold(base)(base.withExtension)
+      // Feature 043: fill the settings of topics declared before topics stated them.
+      .withExtension(
+        com.thinkmorestupidless.ankka.controlplane.application.TopicSettingsSweep(topicPolicy)
+      )
+    // Keys the Secret holds are replaced every thirty days; keys in memory live with the process.
+    val base =
+      if machines.keysDirectory.isDefined then
+        served.withExtension(
+          com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyRotation(keys)
+        )
+      else served
+    // Feature 040: the keys machine tokens are signed with, on a port of their own that asks for
+    // no client certificate, so the broker and every service read them inside the cluster. Only
+    // where the control plane serves TLS: elsewhere the main port serves them already.
+    val keysPort = config.getInt("ankka.controlplane.machines.keys-port")
+    val tls =
+      config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
+    val withKeys =
+      if tls && keysPort > 0 then
+        base.withExtension(
+          HttpServer
+            .at(interface.getOrElse("0.0.0.0"), keysPort)(_ => MachineKeysEndpoint(keys, machines))
+            .withoutClientCertificates
+        )
+      else base
+    tokens.fold(withKeys)(withKeys.withExtension)
 
   /**
    * The ACL from configuration: verified OpenID Connect tokens from the configured issuer.

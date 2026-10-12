@@ -47,6 +47,7 @@ from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
+from ankka.standing import Standing
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -505,9 +506,12 @@ class GraphConsumer(HasSecrets, HasServices, Generic[Src]):
         detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), produces_to=cls.produces_to, version=cls.version)
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)
 
-    async def _handle(self, message_bytes: bytes | None, metadata: Metadata) -> ConsumerEffect:
+    async def _handle(
+        self, message_bytes: bytes | None, metadata: Metadata, standing: Standing | None = None
+    ) -> ConsumerEffect:
         """What the runtime is answered: each element as a message under its element key."""
         self._metadata = metadata
+        self._standing = standing
         result = self.on_delete() if message_bytes is None else self.on_message(self.message_codec.decode(message_bytes))
         if isinstance(result, Awaitable):
             result = await typing.cast(Awaitable[GraphEffect], result)

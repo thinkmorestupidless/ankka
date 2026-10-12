@@ -111,6 +111,21 @@ enum OrganizationEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A change to a grant a project made to one of this organization's registered machines (feature
+   * 040), recorded by the consumer that follows the granting project.
+   */
+  case GrantRecorded(
+      id: String,
+      grantingProject: String,
+      grantingOrganization: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      change: GrantChange,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 /**
  * `OrganizationEntity.claimInvitation`: who is claiming, with the verified email they presented.
  */
@@ -216,7 +231,9 @@ enum ProjectEvent:
 
   /**
    * A topic declared on the project, or its partitions raised (feature 027); its compaction and
-   * contract since feature 037, defaulted so an older journal decodes.
+   * contract since feature 037, defaulted so an older journal decodes. Since feature 043 its every
+   * setting, the ones the installation supplied, and each setting it changed from what to what;
+   * `settings` absent is a declaration that said nothing of them, which keeps what the topic had.
    */
   case ProjectTopicDeclared(
       name: String,
@@ -224,7 +241,22 @@ enum ProjectEvent:
       actor: Option[Actor] = None,
       at: Option[Instant] = None,
       compacted: Boolean = false,
-      contract: Option[Contract] = None
+      contract: Option[Contract] = None,
+      settings: Option[TopicSettings] = None,
+      defaulted: Vector[Setting] = Vector.empty,
+      changes: Vector[SettingChange] = Vector.empty
+  )
+
+  /**
+   * The platform filled the settings of a topic declared before topics stated them (feature 043),
+   * from the installation's defaults then in force; its copies stay the broker's. No actor: no
+   * member did it.
+   */
+  case ProjectTopicSettingsFilled(
+      name: String,
+      settings: TopicSettings,
+      defaulted: Vector[Setting] = Vector.empty,
+      at: Option[Instant] = None
   )
 
   /** The project no longer declares a topic. The topic stays on the broker. */
@@ -262,6 +294,130 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A restore of the project's database was asked for (feature 041): a cluster `name` made from the
+   * line of history `line` at `targetTime`. Nothing changes in the current database.
+   */
+  case ProjectRestoreRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A rehearsal of a restore was asked for (feature 041), into the project's rehearsal namespace.
+   */
+  case ProjectRehearsalRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A rehearsal ended: `Completed`, `Failed` or `NotRemoved`, with how long it took. Carries the
+   * line and the moment, so one the project's schedule started is recorded whole. Recorded once.
+   */
+  case ProjectRehearsalEnded(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      outcome: String,
+      elapsedSeconds: Option[Long] = None,
+      detail: Option[String] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * The project's backup credential was asked to be issued again (feature 041, FR-003a): the
+   * operator mints a new key at `generation`, writes it where the archiver reads it, and deletes
+   * the old one. No key is in the journal, nor anywhere the control plane can read.
+   */
+  case ProjectBackupCredentialReissued(
+      generation: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** What the project asks of its database was set (feature 041): the whole setting, as asked. */
+  case ProjectDatabaseSet(
+      setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The restore ended: verified with the moment it reached, or failed and why. Recorded once. */
+  case ProjectRestoreEnded(
+      name: String,
+      succeeded: Boolean,
+      reachedAt: Option[Instant] = None,
+      detail: Option[String] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A grant made by the project (feature 040): one grantee, one target. `pending` when the grantee
+   * belongs to another organization, which must accept it before it opens anything. These seven
+   * events are the one record a command writes of a grant; the grantee side's copy is derived.
+   */
+  case GrantMade(
+      id: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      pending: Boolean,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** An owner of the grantee's organization took a pending grant. */
+  case GrantAccepted(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** An owner of the grantee's organization refused a pending grant. */
+  case GrantDeclined(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantor took back a pending grant. */
+  case GrantWithdrawn(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantor ended an accepted grant. */
+  case GrantRevoked(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantee's organization gave up an accepted grant. */
+  case GrantRelinquished(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** The grantee was deleted; the actor is whoever deleted it. */
+  case GrantLapsed(id: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * A change to a grant another project made to one of this project's services, recorded here by
+   * the consumer that follows the granting project, with the actor who made the change there.
+   */
+  case GrantRecorded(
+      id: String,
+      grantingProject: String,
+      grantingOrganization: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      change: GrantChange,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+/** `ProjectEntity.makeGrant`: the endpoint mints the id and says whether the grant must wait. */
+final case class MakeGrant(id: String, grantee: Grantee, target: GrantTarget, pending: Boolean)
+
+/** `record-grant-change`, on a grantee project or organization, from the consumer. */
+final case class RecordGrantChange(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    change: GrantChange
+)
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -288,6 +444,18 @@ enum ServiceEvent:
   case ServiceRestarted(generation: Long, actor: Option[Actor] = None, at: Option[Instant] = None)
 
   case ServicePaused(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * The service is switched to another of its project's database clusters (feature 041): `None` is
+   * the project database. States the generation it produced, as an apply does, since it rolls the
+   * service.
+   */
+  case ServiceSwitched(
+      cluster: Option[String],
+      generation: Long,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
   case ServiceResumed(actor: Option[Actor] = None, at: Option[Instant] = None)
 
   /**
@@ -297,6 +465,27 @@ enum ServiceEvent:
    */
   case ServiceExposed(actor: Option[Actor] = None, at: Option[Instant] = None)
   case ServiceUnexposed(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /**
+   * A custom hostname was added (feature 045), after the endpoint found it valid, held by no other
+   * service and proved by the project. Desired state beside exposure; no generation.
+   */
+  case CustomHostnameAdded(
+      hostname: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /**
+   * A custom hostname was removed: by a member, or taken away by a platform administrator, which
+   * the history says apart because the second is a decision made over the members' heads.
+   */
+  case CustomHostnameRemoved(
+      hostname: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None,
+      byAdministrator: Boolean = false
+  )
 
   /** What the reconciler saw. `generation` is the desired state being reported on. */
   case ServiceObserved(
@@ -334,7 +523,17 @@ enum ServiceEvent:
        * in, its name and address as reported, its location and soft-delete window, and a move.
        * `None` for events from before it existed, which a reader takes as a bucket in Garage.
        */
-      storage: Option[StorageReport] = None
+      storage: Option[StorageReport] = None,
+      /**
+       * `mounted` when the operator reported the service reads its project's grants (feature 040).
+       * `None` from an operator that predates grants, and for events from before it.
+       */
+      grants: Option[String] = None,
+      /**
+       * Where each custom hostname stands, as the operator reported it (feature 045). Empty for a
+       * service with none and for events from before they existed.
+       */
+      hostnames: Vector[HostnameReport] = Vector.empty
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -405,7 +604,9 @@ final case class ServiceObservation(
     database: Option[String] = None,
     broker: Option[String] = None,
     objectStorage: Option[String] = None,
-    storage: Option[StorageReport] = None
+    storage: Option[StorageReport] = None,
+    grants: Option[String] = None,
+    hostnames: Vector[HostnameReport] = Vector.empty
 )
 
 /**
@@ -428,6 +629,12 @@ final case class StorageReport(
     /** When the move's write pause began, as the operator wrote it, RFC 3339. */
     movePausedAt: Option[String] = None
 )
+
+/**
+ * The operator's word on one custom hostname (feature 045): `pending`, `serving` or `rejected`,
+ * with the authority's or the gateway's reason. Verbatim from the resource's status.
+ */
+final case class HostnameReport(hostname: String, state: String, reason: Option[String] = None)
 
 /**
  * A deploy token's life: created, used (at most once a day), revoked.
@@ -478,14 +685,27 @@ final case class RemoveSecretEntry(name: String, entry: String)
 
 /**
  * `declare-topic`: a topic on the project, with its partitions (feature 027), compaction and
- * contract (feature 037).
+ * contract (feature 037), and its settings (feature 043), filled or merged by the endpoint, which
+ * knows the installation's defaults. Partitions absent keep the topic's; a new topic needs them.
+ * Settings absent, from a node that does not know them, keep what the topic had.
  */
 final case class DeclareTopic(
     name: String,
-    partitions: Int,
+    partitions: Option[Int],
     compacted: Boolean = false,
-    contract: Option[Contract] = None
+    contract: Option[Contract] = None,
+    settings: Option[TopicSettings] = None,
+    defaulted: Vector[Setting] = Vector.empty
 )
+
+/**
+ * `fill-topic-settings` (feature 043): fill every topic of the project declared before topics
+ * stated their settings from these defaults. Replies with the names it filled.
+ */
+final case class FillTopicSettings(defaults: TopicDefaults)
+
+/** The topics `fill-topic-settings` filled, by name. */
+final case class FilledTopics(names: Vector[String])
 
 /** `remove-topic`: stop declaring a topic. */
 final case class RemoveTopic(name: String)
@@ -495,6 +715,51 @@ final case class DeclareBroker(name: String, bootstrap: String, shape: String, s
 
 /** `remove-broker`: stop declaring a broker. */
 final case class RemoveBroker(name: String)
+
+/**
+ * `request-rehearsal` (feature 041): a rehearsal into the cluster `name`, of `line` at a moment.
+ */
+final case class RequestRehearsal(name: String, line: String, targetTime: java.time.Instant)
+
+/** `observe-rehearsal`: what the operator reported of a rehearsal; an end is recorded once. */
+final case class ObserveRehearsal(
+    name: String,
+    line: String,
+    targetTime: java.time.Instant,
+    outcome: String,
+    elapsedSeconds: Option[Long] = None,
+    detail: Option[String] = None
+)
+
+/** `reissue-backup-credential` (feature 041): a new key for the project's backups. */
+final case class ReissueBackupCredential(note: Option[String] = None)
+
+/** `set-database` (feature 041): what the project asks of its database, whole. */
+final case class SetDatabase(
+    setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting
+)
+
+/**
+ * `request-restore` (feature 041): a restore into the cluster `name`, of `line` at `targetTime`.
+ */
+final case class RequestRestore(name: String, line: String, targetTime: java.time.Instant)
+
+/**
+ * `observe-restore`: what the operator reported of a restore. `Verified` and `Failed` end it, once;
+ * anything else is progress, and records nothing.
+ */
+final case class ObserveRestore(
+    name: String,
+    phase: String,
+    reachedAt: Option[java.time.Instant] = None,
+    detail: Option[String] = None
+)
+
+/**
+ * `switch-database` (feature 041): the cluster the service is on from its next rolling update,
+ * which the switch starts; `None` is the project database.
+ */
+final case class SwitchDatabase(cluster: Option[String])
 
 /** `DeployTokenEntity.get` — everything the entity knows except the digest. */
 final case class DeployTokenDetail(
@@ -506,4 +771,37 @@ final case class DeployTokenDetail(
     createdAt: Option[Instant] = None,
     expiresAt: Option[Instant] = None,
     lastUsed: Option[java.time.LocalDate] = None
+)
+
+// ── Machines (feature 040) ────────────────────────────────────────────────────
+
+/**
+ * A machine outside the installation, registered on an organization. No event carries its secret:
+ * `MachineRegistered` holds the digest the token route compares against, and nothing else does.
+ */
+enum MachineEvent:
+  case MachineRegistered(
+      organizationId: String,
+      name: String,
+      digest: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+  case MachineByteRatesSet(
+      produceBytesPerSecond: Long,
+      consumeBytesPerSecond: Long,
+      requestPercentage: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+  case MachineDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+/** `register`: the endpoint minted the secret and hands over only its digest. */
+final case class RegisterMachine(organizationId: String, name: String, digest: String)
+
+/** `set-byte-rates`: within the installation's ceiling, checked by the endpoint. */
+final case class SetMachineByteRates(
+    produceBytesPerSecond: Long,
+    consumeBytesPerSecond: Long,
+    requestPercentage: Int
 )

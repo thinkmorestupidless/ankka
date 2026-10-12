@@ -34,6 +34,9 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !kubectl
 
+  // The first case to touch an overlay renders it, which takes longer than munit's default allows.
+  override val munitTimeout = scala.concurrent.duration.Duration(3, "min")
+
   private def repoRoot: Path =
     Iterator
       .iterate(Paths.get("").toAbsolutePath)(_.getParent)
@@ -71,6 +74,70 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       // second time in this suite that a substring found a Kubernetes word in a schema rather
       // than in a resource.
       .filter(_.linesIterator.exists(_ == s"kind: $kind"))
+
+  /** The recovery kustomization with its two values set, as the procedure says to set them. */
+  private def renderRecovery(step: String, values: Map[String, String]): String =
+    val source = repoRoot.resolve(s"kustomization/recovery/controlplane/$step")
+    val copy   = Files.createTempDirectory("ankka-recovery")
+    Files.list(source).iterator.asScala.filter(Files.isRegularFile(_)).foreach { file =>
+      val text = Files.readString(file)
+      val set =
+        if file.getFileName.toString == "kustomization.yaml" then
+          values.foldLeft(text)((t, kv) => t.replace(s"${kv._1}=SET", s"${kv._1}=${kv._2}"))
+        else text
+      Files.writeString(copy.resolve(file.getFileName), set)
+    }
+    Process(Seq("kubectl", "kustomize", copy.toString)).!!
+
+  test(
+    "the control plane's restore makes its cluster from the line, and the marker, as set (041)"
+  ) {
+    val name = "ankka-controlplane-db-r202610081012"
+    val rendered =
+      renderRecovery("", Map("restoreName" -> name, "targetTime" -> "2026-10-08T09:20:00Z"))
+    val cluster = documentsOfKind(rendered, "Cluster").head
+    assert(cluster.contains(s"name: $name"), cluster)
+    assert(
+      cluster.contains("targetTime: \"2026-10-08T09:20:00Z\"") || cluster.contains(
+        "targetTime: 2026-10-08T09:20:00Z"
+      ),
+      cluster
+    )
+    assert(cluster.contains("serverName: ankka-controlplane-db"), cluster)
+    assert(
+      cluster.linesIterator.exists(_.trim == "name: ankka-controlplane-db-app"),
+      "the owner's credential"
+    )
+    val job = documentsOfKind(rendered, "Job").head
+    assert(job.contains(s"value: $name-rw"), job)
+    assert(job.contains("insert into ankka_restore_marker"), job)
+    assert(!rendered.contains("SET"), "every value set")
+    val archive = renderRecovery("archive", Map("restoreName" -> name))
+    assert(archive.contains(s"serverName: $name"), archive)
+    assert(archive.contains(s"name: $name-base"), archive)
+    assert(!archive.contains("SET"), archive)
+  }
+
+  test(
+    "an installation runs Garage on three machines and copies it out; a laptop does neither (041)"
+  ) {
+    def garage(render: String) =
+      documentsOfKind(render, "StatefulSet")
+        .find(_.contains("name: garage\n"))
+        .getOrElse(fail("no Garage"))
+    assert(garage(remote).contains("replicas: 3"), "three machines remotely")
+    assert(garage(remote).contains("topologyKey: kubernetes.io/hostname"), "one per machine")
+    assert(!garage(remote).contains("--single-node"), "laid out, not single")
+    assert(documentsOfKind(remote, "ConfigMap").exists(_.contains("replication_factor = 3")))
+    assert(documentsOfKind(remote, "Deployment").exists(_.contains("name: garage-layout")))
+    assert(documentsOfKind(remote, "CronJob").exists(_.contains("name: garage-copy")))
+    assert(
+      !documentsOfKind(remote, "Secret").exists(_.contains("name: garage-secondary")),
+      "the development secondary's credential is not shipped remotely"
+    )
+    assert(garage(local).contains("replicas: 1") && garage(local).contains("--single-node"))
+    assert(documentsOfKind(local, "CronJob").forall(!_.contains("garage-copy")), "no copy locally")
+  }
 
   test("the remote overlay renders at all") {
     // kustomize is strict about patch targets: a component that renames or moves the object a
@@ -264,9 +331,10 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   test("every base-domain placeholder is substituted") {
     // `BASE_DOMAIN` is the literal the components carry; `ANKKA_BASE_DOMAIN` is an environment
     // variable's *name* and legitimately contains it, so match the placeholder on its own.
+    // A variable's name may appear anywhere (`${strimzienv:ANKKA_BASE_DOMAIN}` reads one).
+    val placeholder = "(?<!ANKKA_)BASE_DOMAIN".r
     val unreplaced = remote.linesIterator
-      .filter(_.contains("BASE_DOMAIN"))
-      .filterNot(_.contains("name: ANKKA_BASE_DOMAIN"))
+      .filter(line => placeholder.findFirstIn(line).isDefined)
       .toVector
     assertEquals(unreplaced, Vector.empty, "a placeholder reached the remote render")
   }
@@ -286,6 +354,8 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     val issuers = (documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer"))
       .filterNot(d => internal.exists(n => d.linesIterator.contains(s"  name: $n")))
       .filterNot(_.contains("app.kubernetes.io/name: trust-manager"))
+      // So does the Barman Cloud plugin (feature 041), for its channel to CNPG inside cnpg-system.
+      .filterNot(d => d.contains("name: selfsigned-issuer") && d.contains("namespace: cnpg-system"))
     assert(issuers.nonEmpty, "the remote overlay issues no public certificates at all")
     assert(
       issuers.forall(_.contains("acme:")),
@@ -324,14 +394,25 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       s"the wildcard names ClusterIssuer $issuerRef, which the remote overlay does not define"
     )
 
-    // The local overlay is the mirror image, and for the mirror-image reason: its CA secret sits
-    // beside the Certificate, so a ClusterIssuer would look in the wrong namespace
-    // (.claude/rules/kubernetes.md).
+    // The local overlay's is a ClusterIssuer too, since a custom hostname's certificate is in the
+    // service's namespace (feature 045). A ClusterIssuer reads its CA secret in cert-manager's
+    // namespace (.claude/rules/kubernetes.md), so the root must be there, or the issuer is never
+    // Ready and nothing it signs ever is.
     val localCert = documentsOfKind(local, "Certificate")
       .find(_.contains("name: ankka-wildcard"))
       .getOrElse(fail("the local wildcard certificate is missing"))
-    assert(localCert.contains("kind: Issuer"), "the local one must stay namespaced")
-    assert(!localCert.contains("kind: ClusterIssuer"), "...and must not become a ClusterIssuer")
+    assert(localCert.contains("kind: ClusterIssuer"), s"must reference a ClusterIssuer: $localCert")
+    val localIssuer = documentsOfKind(local, "ClusterIssuer")
+      .find(_.contains("\n  name: ankka-ca\n"))
+      .getOrElse(fail("the local overlay defines no ClusterIssuer ankka-ca"))
+    assert(localIssuer.contains("secretName: ankka-root-ca"), localIssuer)
+    val root = documentsOfKind(local, "Certificate")
+      .find(_.contains("name: ankka-root-ca"))
+      .getOrElse(fail("the local root is missing"))
+    assert(
+      root.contains("namespace: cert-manager"),
+      s"the root must be where a ClusterIssuer looks: $root"
+    )
   }
 
   test("the DNSimple solver is named exactly as the webhook registers it") {
@@ -402,13 +483,14 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     yamlOf(documentsOfKind(render, "Kafka").headOption.getOrElse(fail("no Kafka rendered")))
 
   test("an installation in a cluster has the broker a local platform has") {
-    // The same listener, the same authorization and the same configuration: only its size differs.
-    for path <- Seq(
-        Seq("spec", "kafka", "listeners"),
-        Seq("spec", "kafka", "authorization"),
-        Seq("spec", "kafka", "config")
-      )
-    do assertEquals(at(kafka(remote), path*), at(kafka(local), path*), path.mkString("."))
+    // The same listener, the same authorization and the same configuration: only its size differs,
+    // and the listener and caps that expose it to machines, which the cloud alone has (feature 040).
+    assertEquals(internalListeners(remote), internalListeners(local))
+    assertEquals(
+      at(kafka(remote), "spec", "kafka", "authorization"),
+      at(kafka(local), "spec", "kafka", "authorization")
+    )
+    assertEquals(sharedConfig(remote), sharedConfig(local))
     // Told of it the same way: each of the operator's three settings once, in its one container.
     for overlay <- Seq(remote -> "cloud", local -> "local") do
       val operator = operatorDeployment(overlay._1, overlay._2)
@@ -425,6 +507,105 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       environmentValue(operatorDeployment(remote, "cloud"), "ANKKA_BROKER_BOOTSTRAP"),
       environmentValue(operatorDeployment(local, "local"), "ANKKA_BROKER_BOOTSTRAP")
     )
+  }
+
+  private def listeners(render: String): Vector[java.util.Map[String, Any]] =
+    at(kafka(render), "spec", "kafka", "listeners") match
+      case l: java.util.List[?] =>
+        l.asScala.toVector.collect { case m: java.util.Map[?, ?] =>
+          m.asInstanceOf[java.util.Map[String, Any]]
+        }
+      case other => fail(s"no listeners: $other")
+
+  private def internalListeners(render: String) =
+    listeners(render).filterNot(_.get("name") == "external")
+
+  private val ExternalCaps =
+    Set("max.connections.per.ip", "listener.name.external.max.connection.creation.rate")
+
+  private def sharedConfig(render: String) =
+    at(kafka(render), "spec", "kafka", "config") match
+      case m: java.util.Map[?, ?] => m.asScala.toMap.filterNot((k, _) => ExternalCaps(k.toString))
+      case other                  => fail(s"no config: $other")
+
+  // features/cross-project/machine-topics.feature (feature 040)
+  test(
+    "the cloud exposes its broker to machines through the Gateway, and the local platform does not"
+  ) {
+    val external =
+      listeners(remote).find(_.get("name") == "external").getOrElse(fail("no external listener"))
+    assertEquals(external.get("type"), "tlsroute")
+    assertEquals(at(external, "port"), 9094)
+    // Strimzi 1.x has no `oauth` type: OAUTHBEARER is a custom listener over strimzi-kafka-oauth.
+    assertEquals(at(external, "authentication", "type"), "custom")
+    assertEquals(at(external, "authentication", "sasl"), true)
+    val listenerConfig = at(external, "authentication", "listenerConfig") match
+      case m: java.util.Map[?, ?] => m.asScala.map((k, v) => k.toString -> v.toString).toMap
+      case other                  => fail(s"no listenerConfig: $other")
+    assertEquals(listenerConfig.get("sasl.enabled.mechanisms"), Some("OAUTHBEARER"))
+    val jaas = listenerConfig.getOrElse("oauthbearer.sasl.jaas.config", fail("no JAAS line"))
+    for option <- Seq(
+        "oauth.valid.issuer.uri=\"https://api.${strimzienv:ANKKA_BASE_DOMAIN}\"",
+        "oauth.username.claim=\"broker_user\"",
+        "oauth.jwks.endpoint.uri=\"https://ankka-controlplane.ankka-controlplane.svc:7629/"
+      )
+    do assert(jaas.contains(option), jaas)
+    // The issuer's base domain, filled whole by the overlay: the token names `https://api.<base>`.
+    val env = at(kafka(remote), "spec", "kafka", "template", "kafkaContainer", "env").toString
+    assert(env.contains("name=ANKKA_BASE_DOMAIN") && env.contains("value=example.com"), env)
+    assertEquals(at(external, "configuration", "bootstrap", "host"), "broker.example.com")
+    val peers = at(external, "networkPolicyPeers").toString
+    assert(
+      peers.contains("envoy-gateway-system") && peers.contains("owning-gateway-name=ankka"),
+      peers
+    )
+
+    val gateway = yamlOf(documentsOfKind(remote, "Gateway").find(_.contains("name: ankka")).get)
+    val broker = at(gateway, "spec", "listeners") match
+      case l: java.util.List[?] =>
+        l.asScala.collect { case m: java.util.Map[?, ?] => m }.find(_.get("name") == "broker")
+      case _ => None
+    assert(
+      broker.exists(b => b.get("port") == 9094 && b.toString.contains("Passthrough")),
+      broker.toString
+    )
+
+    val config =
+      at(kafka(remote), "spec", "kafka", "config").asInstanceOf[java.util.Map[String, Any]]
+    assertEquals(config.get("max.connections.per.ip").toString, "64")
+    assertEquals(config.get("listener.name.external.max.connection.creation.rate").toString, "20")
+
+    val certificate = documentsOfKind(remote, "Certificate")
+      .map(yamlOf)
+      .find(c => at(c, "metadata", "name") == "ankka-broker-external")
+      .getOrElse(fail("no external certificate"))
+    // Kafka loads a PEM key only as PKCS#8: the broker refused a PKCS#1 key at start.
+    assertEquals(at(certificate, "spec", "privateKey", "encoding"), "PKCS8")
+    val issuer = at(certificate, "spec", "issuerRef", "name")
+    assert(
+      documentsOfKind(remote, "ClusterIssuer")
+        .map(yamlOf)
+        .exists(i => at(i, "metadata", "name") == issuer),
+      s"the external certificate names '$issuer', which is not rendered"
+    )
+    assertEquals(
+      environmentValue(
+        documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-controlplane")).get,
+        "ANKKA_BROKER_EXTERNAL_BOOTSTRAP"
+      ),
+      "broker.example.com:9094"
+    )
+
+    // Nothing of it locally: no listener, no certificate, no Gateway listener, no setting.
+    assert(!listeners(local).exists(_.get("name") == "external"))
+    assert(!local.contains("ankka-broker-external"))
+    assert(!local.contains("ANKKA_BROKER_EXTERNAL_BOOTSTRAP"))
+    for placeholder <- Seq(
+        "PUBLIC_ISSUER",
+        "BROKER_MAX_CONNECTIONS_PER_IP",
+        "BROKER_EXTERNAL_CONNECTION_RATE"
+      )
+    do assert(!remote.contains(placeholder), s"$placeholder survived into the cloud render")
   }
 
   test("the size of the broker is left for whoever installs it to state") {
@@ -870,6 +1051,89 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       )
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  private def deployment(render: String, name: String): String =
+    documentsOfKind(render, "Deployment")
+      .find(_.contains(s"\n  name: $name\n"))
+      .getOrElse(fail(s"no Deployment $name"))
+
+  private def envValue(document: String, variable: String): Option[String] =
+    s"(?s)- name: $variable\\n\\s+value: (\\S*)".r
+      .findFirstMatchIn(document)
+      .map(_.group(1).stripPrefix("\"").stripSuffix("\""))
+
+  test("both overlays give the operator and the control plane the issuer for custom hostnames") {
+    for (name, render, issuer) <- Vector(
+        ("local", local, "ankka-ca"),
+        ("cloud", remote, "letsencrypt-hostnames")
+      )
+    do
+      for d <- Vector("ankka-operator", "ankka-controlplane") do
+        assertEquals(
+          envValue(deployment(render, d), "ANKKA_HOSTNAME_ISSUER"),
+          Some(issuer),
+          s"$name/$d"
+        )
+      assert(
+        envValue(deployment(render, "ankka-controlplane"), "ANKKA_GATEWAY_ADDRESS").isDefined,
+        name
+      )
+      val issuers = documentsOfKind(render, "ClusterIssuer")
+      assert(issuers.exists(_.contains(s"\n  name: $issuer\n")), s"$name: no ClusterIssuer $issuer")
+  }
+
+  test(
+    "the Gateway admits listener sets and solver routes from managed namespaces, and only those"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val gateway =
+        documentsOfKind(render, "Gateway").find(_.contains("name: ankka\n")).getOrElse(fail(name))
+      assert(
+        "(?s)allowedListeners:\\s+namespaces:\\s+from: Selector\\s+selector:\\s+matchLabels:\\s+app.kubernetes.io/managed-by: ankka".r
+          .findFirstIn(gateway)
+          .isDefined,
+        s"$name: $gateway"
+      )
+      // kustomize sorts keys, so a listener's entry does not begin with its name: one selector for
+      // the sets and one for every listener (plain, https, and the cloud's broker of feature 040),
+      // and no listener left admitting its own namespace alone.
+      val listeners = "(?m)^\\s+protocol: ".r.findAllIn(gateway).size
+      assert(listeners >= 2, s"$name: $gateway")
+      assertEquals("from: Selector".r.findAllIn(gateway).size, 1 + listeners, s"$name: $gateway")
+      assert(!gateway.contains("from: Same"), s"$name: $gateway")
+  }
+
+  test(
+    "the cloud's issuer for custom hostnames answers HTTP-01 through the Gateway's plain listener, and nothing else"
+  ) {
+    val issuer = documentsOfKind(remote, "ClusterIssuer")
+      .find(_.contains("\n  name: letsencrypt-hostnames\n"))
+      .getOrElse(fail("no letsencrypt-hostnames"))
+    assertEquals("- http01:".r.findAllIn(issuer).size, 1, issuer)
+    assert(!issuer.contains("dns01"), issuer)
+    assert(
+      issuer.contains("gatewayHTTPRoute:") && issuer.contains("name: ankka") && issuer.contains(
+        "sectionName: http"
+      ),
+      issuer
+    )
+  }
+
+  test("cert-manager's controller runs with its Gateway API integration on, once") {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val controller = deployment(render, "cert-manager")
+      assertEquals("--enable-gateway-api".r.findAllIn(controller).size, 1, s"$name: $controller")
+      // The patch replaces the args list: the release's own must all still be there.
+      for arg <- Vector(
+          "--cluster-resource-namespace",
+          "--leader-election-namespace",
+          "--acme-http01-solver-image",
+          "--max-concurrent-challenges"
+        )
+      do assert(controller.contains(arg), s"$name lost $arg")
+  }
+
   // ── The installation's cloud (feature 044) ────────────────────────────────
 
   private val CloudVariables = Vector(
@@ -999,4 +1263,88 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
         rules.filter(_.getResources.contains(resource)).flatMap(_.getVerbs.asScala).toSet
       assertEquals(verbs("cloudresources"), Set("get", "list", "watch", "create", "patch"), name)
       assertEquals(verbs("cloudresources/status"), Set("get"), name)
+  }
+
+  // ── Backups (feature 041) ─────────────────────────────────────────────────
+
+  /** One named container's environment variables of a name, by shape rather than by text. */
+  private def variablesNamed(render: String, deployment: String, variable: String) =
+    deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+      .find(_.getName == deployment)
+      .getOrElse(fail(s"$deployment has no container of its own name"))
+      .getEnv
+      .asScala
+      .toVector
+      .filter(_.getName == variable)
+
+  test("both overlays tell the operator and the control plane where backups go, once each") {
+    val operatorVariables = Vector(
+      "ANKKA_BACKUP_TARGET",
+      "ANKKA_BACKUP_RETENTION_DAYS",
+      "ANKKA_BACKUP_SCHEDULE",
+      "ANKKA_BACKUP_COPY_REQUIRED",
+      "ANKKA_REHEARSAL_TTL_HOURS"
+    )
+    val shared =
+      Vector("ANKKA_BACKUP_TARGET", "ANKKA_BACKUP_RETENTION_DAYS", "ANKKA_BACKUP_COPY_REQUIRED")
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      for variable <- operatorVariables do
+        assertEquals(
+          variablesNamed(render, "ankka-operator", variable).size,
+          1,
+          s"$name: $variable"
+        )
+      for variable <- shared do
+        val onControlPlane = variablesNamed(render, "ankka-controlplane", variable)
+        assertEquals(onControlPlane.size, 1, s"$name: $variable on the control plane")
+        // The two read the same values, or the control plane reports a floor the operator ignores.
+        assertEquals(
+          onControlPlane.head.getValue,
+          variablesNamed(render, "ankka-operator", variable).head.getValue,
+          s"$name: the operator and the control plane disagree about $variable"
+        )
+      assertEquals(
+        variablesNamed(render, "ankka-operator", "ANKKA_BACKUP_TARGET").head.getValue,
+        "object-store"
+      )
+      // A patch that named a container the Deployment lacks would have added one.
+      for deployment <- Vector("ankka-operator", "ankka-controlplane") do
+        assert(
+          deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+            .forall(_.getImage != null),
+          s"$name: $deployment has a container with no image"
+        )
+  }
+
+  test("both overlays install the archiver, pinned") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val plugin = deploymentNamed(render, "barman-cloud")
+      val images = plugin.getSpec.getTemplate.getSpec.getContainers.asScala.map(_.getImage)
+      assertEquals(
+        images.toVector,
+        Vector("ghcr.io/cloudnative-pg/plugin-barman-cloud:v0.15.1"),
+        name
+      )
+      assertEquals(plugin.getMetadata.getNamespace, "cnpg-system", name)
+  }
+
+  test("the object store admits the database instances, and only by the label CNPG gives them") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val policy = io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
+        documentsOfKind(render, "NetworkPolicy")
+          .find(d => d.contains("name: garage") && d.contains("namespace: garage-system"))
+          .getOrElse(fail(s"$name: no store policy")),
+        classOf[io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy]
+      )
+      val s3 = policy.getSpec.getIngress.asScala
+        .find(_.getPorts.asScala.exists(_.getPort.getIntVal == 3900))
+        .getOrElse(fail(s"$name: no rule for 3900"))
+      val byCnpgLabel = s3.getFrom.asScala.filter(peer =>
+        Option(peer.getPodSelector)
+          .flatMap(s => Option(s.getMatchExpressions))
+          .exists(_.asScala.exists(e => e.getKey == "cnpg.io/cluster" && e.getOperator == "Exists"))
+      )
+      assertEquals(byCnpgLabel.size, 2, s"$name: a project's databases and the control plane's")
+      // Each is held to a namespace: a pod anywhere that labels itself cnpg.io/cluster is not admitted.
+      assert(byCnpgLabel.forall(_.getNamespaceSelector != null), name)
   }

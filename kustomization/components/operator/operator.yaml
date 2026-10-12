@@ -68,6 +68,14 @@ rules:
   - apiGroups: ["ankka.thinkmorestupidless.com"]
     resources: ["cloudresources/status"]
     verbs: ["get"]
+  # A registered machine (feature 040): read, to give it a user on the installation's broker, and
+  # only its status written. Never deleted by the operator: the control plane removes it.
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkamachines"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkamachines/status"]
+    verbs: ["get", "update", "patch"]
   # "patch" alongside "create": ensureNamespace writes via server-side apply, which is always
   # a PATCH even for an object that does not exist yet — "create" alone 403s on first use.
   - apiGroups: [""]
@@ -114,6 +122,23 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters", "databases", "databaseroles"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # Backups (feature 041): a base backup's schedule, and each base backup read for its outcome; and
+  # the archiver's ObjectStore, where a namespace's clusters archive and for how long. Still no
+  # delete: a restore is a new cluster beside the old one, and an archive is removed by the
+  # archiver's own retention, never by the operator. The one delete is ankka-operator-rehearsal's,
+  # below, bound only in a rehearsal namespace.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["scheduledbackups", "backups"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  - apiGroups: ["barmancloud.cnpg.io"]
+    resources: ["objectstores"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # psql in a database's own pod, as postgres over its socket (feature 041, research R11): the
+  # archive's lag, which replica a synchronous write waits on, and what a restore holds — none of
+  # which any resource carries. Read-only statements, all in one file (DatabaseQueries).
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
   # create, to write a Secret once — a service's database location, its secret key, its storage
   # credential — and learn from a conflict that it is already there; patch, for server-side apply of
   # the telemetry Secret. No "get" and no "list": the operator writes credentials where a pod reads
@@ -134,6 +159,18 @@ rules:
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes", "backendtlspolicies"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # A service's custom hostnames (feature 045): one ListenerSet in its namespace, a listener per
+  # hostname, which the Gateway admits by selector. Still nothing on gateways: a set can add a
+  # listener for a hostname and cannot change the Gateway's own, and the operator renders none under
+  # the base domain, whose names a more specific listener would take.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["listenersets"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # Read only: the authority's reason a custom hostname's certificate is not issued yet, which is
+  # what a member is shown. cert-manager's own objects; the operator never writes one.
+  - apiGroups: ["acme.cert-manager.io"]
+    resources: ["challenges"]
+    verbs: ["get", "list", "watch"]
   # Zero trust (feature 014). The operator *requests* each workload's certificates — cluster,
   # service, database — and a project's database authority, an Issuer over a self-signed root in
   # the project's namespace. It cannot read what cert-manager issues: its grant on Secrets has no
@@ -155,6 +192,24 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list"]
+---
+# The one place the operator may delete a database (feature 041): a rehearsal's throwaway cluster,
+# removed when its rehearsal is reported or its time to live passes. A ClusterRole cannot say "only
+# in these namespaces", so this one is bound by no ClusterRoleBinding: the control plane binds it to
+# the operator by a RoleBinding in each project's rehearsal namespace, `ankka-<project>-rehearsal`,
+# and nowhere else. Its own grant has `bind` on this role alone, by name, which is what lets it grant
+# a verb it does not hold. OperatorClusterSuite asks the API server with the operator's own token:
+# refused in a project's namespace, allowed in its rehearsal namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ankka-operator-rehearsal
+  labels:
+    app.kubernetes.io/managed-by: ankka
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -236,6 +291,10 @@ spec:
             # ankka-telemetry Secret in this namespace when the collector wants one; the operator
             # writes them into each service's own Secret and never onto a Deployment.
             - name: ANKKA_OTLP_ENDPOINT
+              value: ""
+            # The ClusterIssuer every custom hostname's certificate is asked of (feature 045).
+            # Replaced by the overlay from ankka-platform.hostnameIssuer; empty renders none.
+            - name: ANKKA_HOSTNAME_ISSUER
               value: ""
             - name: ANKKA_OTLP_HEADERS
               valueFrom:

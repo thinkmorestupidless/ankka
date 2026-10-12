@@ -632,6 +632,7 @@ mod recurring {
             error: Some(proto::Error {
                 message: "the runtime is not bound".into(),
                 code: proto::ErrorCode::Unavailable as i32,
+                ..Default::default()
             }),
             ..Host::default()
         };

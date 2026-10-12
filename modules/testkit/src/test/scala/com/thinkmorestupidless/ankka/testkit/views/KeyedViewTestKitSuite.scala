@@ -69,3 +69,46 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
     val other = ThreeSourced.suppliers.asInstanceOf[KeyedSource[ShipmentsView, ShipmentRow]]
     intercept[IllegalArgumentException](kit.change(other, "x", script()))
   }
+
+  // ── A keyed view of a workflow (spec 046) ─────────────────────────────────
+
+  test("the component test kit hands a view a workflow change in every language") {
+    // Scala's view of one source has no unit kit of its own, so the Scala row of the outline is a
+    // keyed view of the workflow: the change it is handed carries the standing the test gave.
+    val failed = WorkflowLifecycle("Failed", None, Map.empty, Some("declined"))
+    val kit    = KeyedViewTestKit(WorkflowStandings)
+    kit.change(
+      WorkflowStandings.checkouts,
+      "c1",
+      FlowState("c1", "compensate", "refunded", Some("declined")),
+      standing = Some(failed)
+    )
+    assertEquals(kit.row("c1"), Some(StandingRow("c1", "Failed", Some("declined"))))
+  }
+
+  test("a change handed with no standing carries none") {
+    val kit = KeyedViewTestKit(WorkflowStandings)
+    kit.change(WorkflowStandings.checkouts, "c2", FlowState("c2", "end", "charge", None))
+    assertEquals(kit.row("c2"), Some(StandingRow("c2", "none", None)))
+  }
+
+final case class StandingRow(id: String, standing: String, failure: Option[String])
+
+final class WorkflowStandingsView extends KeyedView[StandingRow]:
+  def onCheckout(@scala.annotation.unused state: FlowState, change: Change): Effect =
+    effects.updateRow(
+      change.subject,
+      StandingRow(
+        change.subject,
+        change.standing.fold("none")(_.status),
+        change.standing.flatMap(_.failure)
+      )
+    )
+
+object WorkflowStandings
+    extends KeyedView.Companion[WorkflowStandingsView, StandingRow](
+      ComponentId("workflow-standings"),
+      com.thinkmorestupidless.ankka.core.Codecs.serializer[StandingRow]("standing-row")
+    ):
+  val checkouts                         = source(ChangeSource.stateOf(CheckoutFlow))(_.onCheckout)
+  def create(ctx: ViewComponentContext) = new WorkflowStandingsView

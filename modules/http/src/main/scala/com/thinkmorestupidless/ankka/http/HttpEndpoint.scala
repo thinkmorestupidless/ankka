@@ -5,7 +5,12 @@ import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import scala.collection.mutable
 
 /** A problem to report back to the caller. */
-final case class HttpProblem(status: Int, message: String) extends RuntimeException(message):
+final case class HttpProblem(
+    status: Int,
+    message: String,
+    /** What a caller reads without parsing the message: a failed workflow's step and reason. */
+    details: Map[String, String] = Map.empty
+) extends RuntimeException(message):
   override def fillInStackTrace(): Throwable = this
 
 object HttpProblem:
@@ -32,7 +37,10 @@ object HttpProblem:
       case ErrorCode.Timeout      => 504
       case ErrorCode.Unavailable  => 503
       case ErrorCode.Internal     => 500
-    HttpProblem(status, error.message)
+      // Failed Dependency: the call was answered, and what it waited on failed. Told apart from
+      // every refusal (400–409) and from the call itself breaking (500, 503, 504).
+      case ErrorCode.WorkflowFailed => 424
+    HttpProblem(status, error.message, error.details)
 
 /**
  * Who a request came from, as an ACL established it.
@@ -114,6 +122,11 @@ enum Acl:
 object Acl:
   def allowCallers(first: CallerMatcher, rest: CallerMatcher*): Acl =
     AllowCallers(first +: rest.toVector)
+
+  /** Whether `acl` admits granted callers: what makes a route grantable (feature 040). */
+  def namesGranted(acl: Acl): Boolean = acl match
+    case AllowCallers(matchers) => matchers.contains(CallerMatcher.Granted)
+    case _                      => false
 
 private[ankka] final case class EncodedResponse(
     status: Int,
@@ -405,6 +418,12 @@ abstract class HttpEndpoint(val prefix: String):
       handler(pathArg[A](args, 0, template))
     )
 
+  /** `GET $prefix$template` with no path parameters, answered as server-sent events it names. */
+  protected def sseEvents(template: String)(
+      handler: () => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit =
+    addEventStream("GET", template, 0, needsBody = false)((_, _) => handler())
+
   /** `POST $prefix$template` with a decoded body, answered as server-sent events it names. */
   protected def sseEventsBody[A: FromPath, Body: FromBody](template: String)(
       handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
@@ -467,6 +486,18 @@ abstract class HttpEndpoint(val prefix: String):
       handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
     )
 
+  /** Routes `DELETE $$prefix$$template` to `handler`, with three path parameters. */
+  protected def delete[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
+      handler: (A, B, C) => R
+  ): Unit =
+    add("DELETE", template, 3, needsBody = false)((args, _) =>
+      handler(
+        pathArg[A](args, 0, template),
+        pathArg[B](args, 1, template),
+        pathArg[C](args, 2, template)
+      )
+    )
+
   /** Routes `POST $$prefix$$template` to `handler`. */
   protected def post[R: ToResponse](template: String)(
       handler: () => R
@@ -505,6 +536,18 @@ abstract class HttpEndpoint(val prefix: String):
   ): Unit =
     add("PUT", template, 2, needsBody = false)((args, _) =>
       handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
+
+  /** Routes `PUT $$prefix$$template` to `handler`, with three path parameters. */
+  protected def put[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
+      handler: (A, B, C) => R
+  ): Unit =
+    add("PUT", template, 3, needsBody = false)((args, _) =>
+      handler(
+        pathArg[A](args, 0, template),
+        pathArg[B](args, 1, template),
+        pathArg[C](args, 2, template)
+      )
     )
 
   /** Routes `PATCH $$prefix$$template` to `handler`. */

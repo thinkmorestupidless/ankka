@@ -328,6 +328,55 @@ test("a bucket reachable from the internet shows its address beneath its name", 
 });
 
 
+test("a service shows what each topic source's topic no longer holds, per partition, and warns a view over a topic that keeps too little", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "topic sources are seeded on the fake");
+  const org = unique("gap-org");
+  const project = unique("gap-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    topics: [
+      { projectId: project, name: "transactions", partitions: 2, settings: { retention: "7d" } },
+      { projectId: project, name: "audit", partitions: 1, settings: { retention: "everything" } },
+    ],
+    services: [
+      {
+        projectId: project,
+        name: "ledger",
+        topicSources: [
+          {
+            kind: "view",
+            component: "entries",
+            topic: "transactions",
+            group: "ankka.money.ledger.view-v2.entries",
+            version: 2,
+            gap: {
+              partitions: [
+                { partition: 0, beginning: 1240, earliestRetained: "2026-09-01T10:00:00Z" },
+                { partition: 1, beginning: 0 },
+              ],
+              gone: true,
+            },
+          },
+          { kind: "view", component: "trail", topic: "audit", group: "ankka.money.ledger.view.trail", gap: { partitions: [{ partition: 0, beginning: 0 }] } },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/ledger`);
+  const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+  const entries = fact("Topic sources").locator('tr[data-topic-source="entries"]');
+  await expect(entries.locator("td[data-gap]")).toHaveAttribute("data-gap", "gone");
+  await entries.getByText("earlier messages gone").click();
+  await expect(entries.locator('li[data-partition="0"]')).toContainText("p0 from 1240 (2026-09-01T10:00:00Z)");
+  await expect(entries.locator('li[data-partition="1"]')).toContainText("holds nothing");
+  await expect(fact("Topic sources").locator('tr[data-topic-source="trail"] td[data-gap]')).toHaveText("everything");
+  await expect(fact("Warnings").locator('li[data-warning="retention"]')).toHaveText(
+    "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d",
+  );
+  await expect(fact("Warnings")).not.toContainText("audit");
+  await audit(page);
+});
+
 test("a service shows each topic source with how far behind it is, and what one is failing on", async ({ page, target, signIn, unique, audit }) => {
   test.skip(target.kind !== "fake", "topic sources are seeded on the fake");
   const org = unique("source-org");
@@ -354,4 +403,35 @@ test("a service shows each topic source with how far behind it is, and what one 
   await expect(byDay).toContainText("orders as order.v1");
   await expect(byDay).toContainText("cannot decode offset 4711");
   await audit(page);
+});
+
+// features/exposure/custom-hostnames.feature: the console shows a service's custom hostnames beside the
+// one the platform derived. The fake serves a hostname at once; a real control plane needs an issuer and
+// a proof record, which the compose stack has neither of.
+test("US3-9 the console shows a service's custom hostnames beside the one the platform derived", async ({ page, target, signIn, unique }) => {
+  test.skip(target.kind !== "fake", "a control plane needs an issuer and a proof record for a custom hostname");
+  const { project } = await tenancy(page, target, signIn, unique);
+  await apply(page, target, project, { name: "shop", service: { image: "shop:1" } });
+  await page.waitForURL(`${target.url}/projects/${project}/services/shop`);
+  await ops(page).getByRole("button", { name: "Expose" }).click();
+  await expect(page.getByRole("link", { name: `https://shop-${project}.example.test` })).toBeVisible();
+
+  const hostnames = page.locator("[data-hostnames]");
+  const operations = page.locator("[data-hostname-operations]");
+  const name = `app-${project}.example.com`;
+  await operations.getByLabel("Add a custom hostname").fill(name);
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Add" }).click()]);
+  const row = hostnames.locator(`[data-custom-hostname="${name}"]`);
+  await expect(row).toContainText("serving");
+  await expect(row).toContainText(`Create CNAME ${name} → shop-${project}.example.test`);
+  await expect(hostnames.locator("[data-proof-record]")).toHaveText(`TXT _ankka.<hostname> "ankka-project=${project}"`);
+
+  // A name the project has not proved is refused, in the control plane's words.
+  await operations.getByLabel("Add a custom hostname").fill("unproved.example.com");
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Add" }).click()]);
+  await expect(operations).toContainText("does not carry the proof record");
+
+  await operations.getByLabel("Remove a custom hostname").selectOption(name);
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), operations.getByRole("button", { name: "Remove" }).click()]);
+  await expect(hostnames.locator(`[data-custom-hostname="${name}"]`)).toHaveCount(0);
 });

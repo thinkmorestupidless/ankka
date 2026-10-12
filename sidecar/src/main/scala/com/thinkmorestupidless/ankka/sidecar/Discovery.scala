@@ -58,7 +58,12 @@ object Discovery:
    * approval-request reply and token, and `Decide` (feature 029). 1.12: recurring timers, one call
    * on `Client` and one module import, and the due time in a timed action's metadata (feature 032).
    * 1.13: a view's declared queries, the keyed view, and a version on a view that reads entities
-   * (feature 031).
+   * (feature 031). 1.14: a topic source's contract, broker and parallel flag, and a consumer's
+   * publication (feature 037). 1.15: the granted-caller matcher, the machine caller, and another
+   * project's topic (feature 040). 1.16: a workflow as the source of a view or a consumer, and its
+   * standing on their requests (feature 046); refused from a process that declares an earlier
+   * minor. 1.17: a view's query as a stream and a watch, `QueryStream` and `Watch` on `Client`, and
+   * a declared query's `watched` (feature 047).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -140,6 +145,24 @@ object Discovery:
   /** The minor that introduced socket routes. */
   private val SocketsSince = 9
 
+  /** The first minor whose SDKs may declare granted callers and another project's topic. */
+  private val GrantsSince = 15
+
+  /**
+   * Whether an SDK speaking `version` predates grants, so cannot have meant another project's
+   * topic.
+   */
+  private def beforeGrants(version: String): Boolean = minorOf(version).exists(_ < GrantsSince)
+
+  /**
+   * The first minor that reads a workflow as a source (feature 046). A process declaring an earlier
+   * one cannot have meant one, and would be handed changes with no standing and no error.
+   */
+  private val WorkflowSourcesSince = 16
+
+  /** The minor that introduced a watched query. */
+  private val WatchedSince = 17
+
   private def minorOf(version: String): Option[Int] =
     version.split('.').toList match
       case _ :: minor :: Nil => minor.toIntOption
@@ -165,6 +188,20 @@ object Discovery:
       case _ =>
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
           s"'$protocolVersion'; the major versions must match"
+
+    // A view's declared queries as discovery states them. A query declared watched needs 1.17: an
+    // older SDK cannot have meant it, and a runtime from before would refuse its every watch.
+    def declared(
+        id: ComponentId,
+        view: String,
+        queries: Seq[ankka.protocol.v1.discovery.DeclaredQuery]
+    ): Vector[DeclaredQuery] =
+      queries.foreach { q =>
+        if q.watched && minorOf(spec.protocolVersion).exists(_ < WatchedSince) then
+          problems += s"view '$view': query '${q.name}' is watched, which needs protocol " +
+            s"1.$WatchedSince; the SDK speaks ${spec.protocolVersion}"
+      }
+      queries.map(q => DeclaredQuery(id, q.name, q.statement, q.watched)).toVector
 
     val descriptors = Vector.newBuilder[RemoteDescriptor]
     val agents      = Vector.newBuilder[Component]
@@ -218,7 +255,7 @@ object Discovery:
                     read.toVector,
                     d.rowManifest,
                     d.version,
-                    d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                    declared(id, c.id, d.declaredQueries)
                   )
             case (Kind.VIEW, Component.Detail.View(d)) =>
               source(s"view '${c.id}'", c.id, d.source, problems).foreach { s =>
@@ -228,21 +265,30 @@ object Discovery:
                   d.rowManifest,
                   d.queries.map(MethodName(_)).toSet,
                   d.version,
-                  d.declaredQueries.map(q => DeclaredQuery(id, q.name, q.statement)).toVector
+                  declared(id, c.id, d.declaredQueries)
                 )
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>
               source(s"consumer '${c.id}'", c.id, d.source, problems).foreach { s =>
                 val produces = d.produces.map(p =>
-                  Publication(p.topic, p.contract.map(contract), p.broker.filter(_.nonEmpty))
+                  Publication(
+                    p.topic,
+                    p.contract.map(contract),
+                    p.broker.filter(_.nonEmpty),
+                    p.project.filter(_.nonEmpty)
+                  )
                 )
                 if produces.exists(p => d.producesTo.exists(_ != p.topic)) then
                   problems += s"consumer '${c.id}' names '${d.producesTo.get}' in produces_to and " +
                     s"'${produces.get.topic}' in produces; a consumer publishes to one topic"
+                if produces.exists(_.project.isDefined) && beforeGrants(spec.protocolVersion) then
+                  problems += s"consumer '${c.id}' publishes to another project's topic, which " +
+                    s"needs protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
                 descriptors += RemoteConsumerDescriptor(
                   id,
                   s,
-                  d.producesTo,
+                  // As the runtime carries it: `<project>/<name>` for another project's topic.
+                  produces.map(_.address).orElse(d.producesTo),
                   startDeclarable = declaresStartPositions(spec.protocolVersion),
                   version = d.version,
                   produces = produces
@@ -305,6 +351,21 @@ object Discovery:
       case _ => ()
     }
 
+    // A workflow read as a source needs 1.16, from both ends: a runtime before it refuses the
+    // source as having no change stream, and one at it refuses a process that says it is older.
+    if minorOf(spec.protocolVersion).exists(_ < WorkflowSourcesSince) then
+      def workflows(named: String, sources: Seq[RemoteSource]) =
+        sources.collect { case RemoteSource.Component(ComponentKind.Workflow, id) =>
+          problems += s"$named reads workflow '$id', which needs protocol 1.$WorkflowSourcesSince; " +
+            s"the SDK speaks ${spec.protocolVersion}"
+        }
+      built.foreach {
+        case v: RemoteViewDescriptor      => workflows(s"view '${v.componentId}'", Seq(v.source))
+        case v: RemoteKeyedViewDescriptor => workflows(s"view '${v.componentId}'", v.sources)
+        case c: RemoteConsumerDescriptor => workflows(s"consumer '${c.componentId}'", Seq(c.source))
+        case _                           => ()
+      }
+
     ComponentRegistry.from(built) match
       case Left(more) => problems ++= more
       case Right(_)   => ()
@@ -366,7 +427,29 @@ object Discovery:
             problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, which needs " +
               s"protocol 1.$SocketsSince; the SDK speaks ${spec.protocolVersion}"
       }
+      // Feature 040: an SDK before 1.15 cannot have meant granted callers, and a runtime before it
+      // would read the matcher as nobody — refused here, as a socket route is, so the mismatch is
+      // named at start rather than found as a 403.
+      val grantsBefore = minorOf(spec.protocolVersion).exists(_ < GrantsSince)
+      if grantsBefore && e.allowCallers.exists(_.kind.isGranted) then
+        problems += s"endpoint '${e.id}' admits granted callers, which needs protocol " +
+          s"1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      e.routes.filter(r => grantsBefore && r.allowCallers.exists(_.kind.isGranted)).foreach { r =>
+        problems += s"endpoint '${e.id}': route '${r.id}' admits granted callers, which needs " +
+          s"protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      }
     }
+    // Feature 040: a runtime before 1.15 would read another project's topic as this project's.
+    if beforeGrants(spec.protocolVersion) then
+      spec.components.foreach { c =>
+        val sources = c.detail match
+          case Component.Detail.View(d)     => d.source.toVector ++ d.sources
+          case Component.Detail.Consumer(d) => d.source.toVector
+          case _                            => Vector.empty
+        if sources.exists(_.project.exists(_.nonEmpty)) then
+          problems += s"component '${c.id}' reads another project's topic, which needs " +
+            s"protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
+      }
 
     val found = problems.result()
     if found.nonEmpty then Left(found)
@@ -435,7 +518,9 @@ object Discovery:
       TopicOptions(
         src.contract.map(contract),
         src.broker.filter(_.nonEmpty),
-        src.parallel.getOrElse(false)
+        src.parallel.getOrElse(false),
+        // 1.15: another project's topic; refused below on an earlier Spec.
+        src.project.filter(_.nonEmpty)
       )
     )
     s.map(_.source) match

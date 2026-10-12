@@ -220,7 +220,14 @@ object Rendering:
       moveActions: Vector[Action] = Vector.empty,
       // Why the service's access to its secrets holds its Deployment back (feature 038), decided by
       // the caller from the provider's answers; `None` when it is granted or never asked.
-      secretHold: Option[SecretAccess.Hold] = None
+      secretHold: Option[SecretAccess.Hold] = None,
+      // The project's resource (feature 041): its database's replicas and retention, and the
+      // backup credential's generation, which shape the cluster and its archiving. Read by the
+      // caller for the same reason.
+      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None,
+      // Other projects' topics granted to this service (feature 040), read by the caller from
+      // every `AnkkaProject`: entries on its broker user, and nothing else.
+      granted: Vector[GrantedTopic] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -255,8 +262,8 @@ object Rendering:
     if problems.nonEmpty then Left(problems)
     else
       Right(
-        (Action.EnsureNamespace(namespace) +:
-          databaseActions(resource, spec, namespace, settings, databasePlan)) ++
+        ((Action.EnsureNamespace(namespace) +:
+          databaseActions(resource, spec, namespace, settings, databasePlan, project)) ++
           identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
@@ -264,7 +271,7 @@ object Rendering:
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
           moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
-          brokerActions(spec, broker) ++
+          brokerActions(spec, broker, granted) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
           // provider's to say, and an instance started without them would be started wrong. Nor
           // while its access to its secrets is not granted: every read would be refused.
@@ -308,9 +315,14 @@ object Rendering:
             )
             .toVector :+
           addressAction(resource, spec, namespace) :+
-          grpcPeersAction(resource, spec, namespace) :+
-          routeAction(resource, spec, namespace, settings.baseDomain) :+
-          backendTlsAction(resource, spec, namespace, settings.baseDomain)
+          grpcPeersAction(resource, spec, namespace)) ++
+          // Feature 045: the certificates and the set before the route that names the set, and
+          // what is no longer named after it, so a route never names a set that is gone.
+          HostnameRendering.ensure(resource, spec, namespace, settings) ++
+          (Vector(
+            routeAction(resource, spec, namespace, settings),
+            backendTlsAction(resource, spec, namespace, settings.baseDomain)
+          ) ++ HostnameRendering.prune(resource, spec, namespace, settings))
       )
 
   /**
@@ -769,9 +781,12 @@ object Rendering:
    */
   private def brokerActions(
       spec: AnkkaServiceSpec,
-      broker: Option[BrokerSettings]
+      broker: Option[BrokerSettings],
+      granted: Vector[GrantedTopic]
   ): Vector[Action] =
-    broker.toVector.map(settings => Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)))
+    broker.toVector.map(settings =>
+      Action.EnsureKafkaUser(StrimziRendering.user(spec, settings, granted))
+    )
 
   private def zeroTrustActions(
       resource: AnkkaService,
@@ -953,11 +968,20 @@ object Rendering:
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      baseDomain: Option[String]
+      settings: Settings
   ): Action =
-    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
+    (spec.exposed, spec.port.orElse(spec.grpcPort), settings.baseDomain) match
       case (true, Some(_), Some(base)) =>
-        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, base))
+        Action.EnsureHttpRoute(
+          httpRoute(
+            resource,
+            spec,
+            namespace,
+            base,
+            HostnameRendering.rendered(spec, settings),
+            HostnameRendering.parent(spec, settings)
+          )
+        )
       case _ =>
         Action.RemoveHttpRoute(
           namespace,
@@ -982,7 +1006,11 @@ object Rendering:
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      baseDomain: String
+      baseDomain: String,
+      // Feature 045: the custom hostnames rendered, after the derived one, and the set that serves
+      // them as a second parent. A service with none renders the route it rendered before.
+      customHostnames: Vector[String] = Vector.empty,
+      listenerSet: Option[io.fabric8.kubernetes.api.model.gatewayapi.v1.ParentReference] = None
   ): HTTPRoute =
     val grpcRule = spec.grpcPort.map { port =>
       new HTTPRouteRuleBuilder()
@@ -1021,15 +1049,17 @@ object Rendering:
       .withSpec(
         new HTTPRouteSpecBuilder()
           .withParentRefs(
-            new ParentReferenceBuilder()
+            (new ParentReferenceBuilder()
               .withGroup("gateway.networking.k8s.io")
               .withKind("Gateway")
               .withName(GatewayName)
               .withNamespace(GatewayNamespace)
               .withSectionName(GatewaySection)
-              .build()
+              .build() +: listenerSet.toVector)*
           )
-          .withHostnames(Hostnames.of(spec.serviceName, spec.projectId, baseDomain))
+          .withHostnames(
+            (Hostnames.of(spec.serviceName, spec.projectId, baseDomain) +: customHostnames)*
+          )
           .withRules((grpcRule.toVector ++ httpRule.toVector)*)
           .build()
       )
@@ -1201,17 +1231,28 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String,
       settings: Settings,
-      plan: ProvisioningPlan
+      plan: ProvisioningPlan,
+      project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec]
   ): Vector[Action] =
+    val database = project.flatMap(_.database)
     def tls: Vector[Action] =
       CnpgRendering.projectAuthority(namespace).map {
         case issuer if issuer.getKind == "Issuer" => Action.EnsureIssuer(issuer)
         case certificate                          => Action.EnsureCertificate(certificate)
-      } ++ Vector(
-        Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings)),
-        Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
-        Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
-      )
+      } ++
+        // Feature 041: where the cluster archives, before the cluster that names it. Nothing
+        // without a backup target.
+        CnpgRendering.backupActions(
+          namespace,
+          spec.projectId,
+          settings,
+          database,
+          project.flatMap(_.backups).map(_.credentialGeneration).getOrElse(0)
+        ) ++ Vector(
+          Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings, database)),
+          Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
+          Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
+        )
     // On every pass that provisions, because the operator never reads a Secret to learn whether it
     // is there: a `create` answered with a conflict is how it finds out, once per process.
     def credentials: Action =
@@ -1301,7 +1342,12 @@ object Rendering:
     // The project's declarations (feature 037) ride beside the TLS volumes on every pod: optional,
     // so a project without them starts as before.
     val tlsVolumes =
-      ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec) ++
+      ZeroTrust.volumes(
+        held,
+        spec,
+        spec.databaseCluster.getOrElse(CnpgRendering.projectClusterName)
+      ) ++
+        moduleVolumes(spec) ++
         projectVolumes(spec)
     val moduleInit = moduleInitContainers(spec)
 
@@ -1334,7 +1380,9 @@ object Rendering:
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-            .withInitContainers((moduleInit :+ SchemaInit.container(spec.serviceName))*)
+            .withInitContainers(
+              (moduleInit :+ SchemaInit.container(spec.serviceName, spec.databaseCluster))*
+            )
             .withContainers(containers*)
             .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
             // The database key is mounted readable by this group and nobody else, which is what
@@ -1877,7 +1925,10 @@ object Rendering:
         (spec.env.map(
           environment
         ) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++ secretKeyEnv ++
-          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty)
+          (if withDatabaseEnv then
+             (ZeroTrust.Database.Environment ++ ZeroTrust.Database.switched(spec.databaseCluster))
+               .map(literal)
+           else Vector.empty)
           ++ projectEnvironment(spec))*
       )
       .withEnvFrom(envFrom*)

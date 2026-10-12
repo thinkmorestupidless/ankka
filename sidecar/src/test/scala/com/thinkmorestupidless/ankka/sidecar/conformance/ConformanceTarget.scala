@@ -156,6 +156,13 @@ trait ConformanceTarget:
   /** A discovery with this protocol version; `Left` is the refusal. Process targets only. */
   def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]]
 
+  /**
+   * One discovery asked of the target by a runtime stating `protocolVersion`, and the target's
+   * refusal of it if it refused; `None` for a target in this process. A sidecar retries a refused
+   * discovery until the target answers, so this asks once rather than through the sidecar.
+   */
+  def refusalAt(protocolVersion: String): Option[Option[String]]
+
   /** The statement of a view's declared query, as the target declared it. */
   def declaredStatement(view: String, query: String): Option[String]
 
@@ -183,6 +190,23 @@ trait ConformanceTarget:
   def stop(): Unit
 
 object ConformanceTarget:
+
+  /**
+   * The grants every target's server holds (feature 040): `billing/invoices` may call
+   * `GET /callers/granted`, and nobody else holds anything. The same set in every target, so every
+   * language's `Callers.granted` is held to one answer.
+   */
+  val grants: com.thinkmorestupidless.ankka.http.Grants =
+    com.thinkmorestupidless.ankka.http.Grants.of(
+      com.thinkmorestupidless.ankka.http.GrantEntry(
+        com.thinkmorestupidless.ankka.http.Caller.Service("billing", "invoices"),
+        com.thinkmorestupidless.ankka.http.GrantTarget.Route("GET", "/callers/granted")
+      ),
+      com.thinkmorestupidless.ankka.http.GrantEntry(
+        com.thinkmorestupidless.ankka.http.Caller.Machine("affiliates", "network"),
+        com.thinkmorestupidless.ankka.http.GrantTarget.Route("GET", "/callers/granted")
+      )
+    )
 
   /**
    * Where the target's service finds other services: `scripted`, and `nobody-home` at a port
@@ -324,9 +348,11 @@ object ConformanceTarget:
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(
-          reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
-        )
+        HttpServer
+          .at("127.0.0.1", 0)(
+            reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
+          )
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       ConformanceTarget.withImpostor,
@@ -354,6 +380,7 @@ object ConformanceTarget:
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
+    def refusalAt(protocolVersion: String): Option[Option[String]]                  = None
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(reference.descriptors, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
@@ -444,13 +471,16 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
+        // First, as Main wires it: the callback server is up before a projection redelivers.
+        SidecarExtension(settings, conversation, timers, served),
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
-        SidecarExtension(settings, conversation, timers, served)
+        HttpServer
+          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
@@ -484,6 +514,16 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(Discovery.discover(channel, settings, BuildInfo.version, protocolVersion).map(_ => ()))
+    def refusalAt(protocolVersion: String): Option[Option[String]] =
+      val stub = ankka.protocol.v1.discovery.DiscoveryGrpc
+        .blockingStub(channel)
+        .withDeadlineAfter(10, java.util.concurrent.TimeUnit.SECONDS)
+      Some(
+        Try(
+          stub.discover(ankka.protocol.v1.discovery.SidecarInfo(protocolVersion, BuildInfo.version))
+        ).failed.toOption
+          .map(_.getMessage)
+      )
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
@@ -617,13 +657,15 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
+        SidecarExtension(settings, conversation, timers, served, Some(imports)),
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
-        HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
-        SidecarExtension(settings, conversation, timers, served, Some(imports))
+        HttpServer
+          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
@@ -647,6 +689,11 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(discover(protocolVersion).map(_ => ()))
+    def refusalAt(protocolVersion: String): Option[Option[String]] =
+      Some(
+        Try(discover(protocolVersion))
+          .fold(e => Some(e.toString), _.left.toOption.map(_.mkString("; ")))
+      )
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(discovered.spec, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =

@@ -55,8 +55,51 @@ gave topic views theirs): its projections' ids carry the version (`ViewProjectio
 view's projection is named), and every write of such a view is guarded by the recorded version
 (`EntityViewGuard`), which pauses a projection that finds the view behind.
 
+## A workflow is a source, and a change from one carries its standing
+
+Feature 046. `ChangeSource.stateOf(workflowCompanion)` (and `RemoteSource.Component(Workflow, id)` from a
+process) is read from the event journal like an entity's events, by `eventsBySlices[WorkflowRecord]`, with
+the same exactly-once view projection and at-least-once consumer. Only a `state` record is a change: the
+engine stamps it with the standing once the whole effect is applied (`WorkflowRecord.standing`,
+`WorkflowHost.standingOf`, the engine's `stamped`), and a transition, pause, end, failure or retry that
+records no state is no change. `ChangeReader` is the one place a journal record becomes a `SourceChange`
+for every event handler (in process, remote, keyed); `WorkflowChanges.read` the one reader of a workflow
+record, `RemoteWorkflowHost.pack`/`unpack` the one form of a process's state. The standing rides on
+`ChangeContext.standing`/`KeyedChange.standing` and, from protocol 1.16, `ViewRequest.standing` and
+`ConsumerRequest.standing`; the topology draws a `workflow` connection.
+
+## A view's rows can be streamed and watched
+
+Feature 047. `ViewQueries.allStream`/`whereStream`/`orderedStream`/`askStream` run one statement under a
+portal for the stream's life (`Database.stream`); `watch`/`watchRow` keep a declared query declared
+`.watched`, or one row, open (`ViewWatches`). **Every write of a view's row announces itself in the same
+statement**: `ViewStore.upsert` and `delete` are data-modifying CTEs whose outer select calls
+`pg_notify('ankka_views', '<table>|<key>')`, and a rebuild's `TRUNCATE` is followed by `<table>|!rebuilt`
+in its transaction. Postgres delivers on commit and never on rollback, which is the whole reason the
+announcement is the database's and not the cluster's: a projection's session commits after its handler's
+`Future`, outside ankka's code. One unpooled `LISTEN` connection per instance (`ViewListener`) calls each
+view's registry; the evaluator re-runs the watched statement for each written key
+(`SELECT payload FROM (<sql>) ankka_watched WHERE row_key = $n`), which is why a watched statement selects
+`row_key` and has no limit or aggregate (`QueryCheck.watchedProblem`).
+
 ## Traps
 
+- **Jackson writes an absent `Option` as a `null` property.** `WorkflowRecord.standing` added with a default
+  of `None` changed the bytes of every record of every kind, and the pinned journal
+  (`workflow-record.txt`) was rewritten on the first run. `@JsonInclude(NON_ABSENT)` on the field keeps an
+  unstamped record byte for byte the old form; the fixture was pinned before the field existed, so it is
+  the release before's journal, and `WorkflowRecordCompatibilitySuite` also reads the new form into a copy
+  of the old case class.
+- **A record wrongly read as a change can stall a projection instead of reaching a view.** A workflow's
+  `fail` or `transition` record holds no state, so a reader that delivered one would fail decoding empty
+  bytes and be retried: a running service then shows *no* change, which is what the "no change" scenario
+  asserts. The red proof for "a record that holds no state is no change" is `WorkflowChangesSuite`, which is
+  pure. A negative check in a running service must also first wait for the last change it expects to be
+  there (the conformance case waits for the `reserved` row before the failure): a projection three seconds
+  behind looks exactly like one that skipped the record.
+- **A new way of writing a view's row must go through `ViewStore.upsert` or `delete`**, or no watcher
+  hears of it. `ViewAnnounceSuite` writes through a projection and a transaction and reads the
+  notification from another connection.
 - **A projection's `R2dbcSession` reads a row count from every statement, and a `SET` reports none.**
   `SET LOCAL statement_timeout` through `session.updateOne` failed every keyed view change with a
   `NullPointerException` deep in pekko-persistence-r2dbc's `updateOneInTx`. Set a transaction-local setting
@@ -139,6 +182,16 @@ view's projection is named), and every write of such a view is guarded by the re
   `KafkaCredential` is `Certificate(dir)` through `KafkaTls` or `Sasl(dir)` as `SASL_SSL` with a PEM
   truststore. `ProjectionRuntime.subscriberFor`/`publisherFor` pick by `TopicOptions.broker` and
   `Publication.broker`; a declared broker's topics have no prefix and are not "undeclared".
+- **Another project's topic travels as `<project>/<name>` and nowhere else changes** (feature 040).
+  `TopicOptions.project` and `Publication.project` become a `TopicAddress` at the runtime's edge, so the
+  subscriber, the publisher, the in-memory broker, declared connections and the topology all carry the
+  slash form, and `KafkaConnection.qualified` alone turns it into `<project>.<name>` — never this
+  project's prefix. A Kafka name cannot hold `/`, so the forms cannot meet; but `topic:<broker>/<name>`
+  is a declared broker's node too, which is why a component may not name both (`crossProjectProblems`)
+  and the status reads a declared edge's `broker` to tell them apart. The broker enforces the grant: the
+  operator renders one literal ACL entry per granted right on the grantee's `KafkaUser`, read from every
+  `AnkkaProject` (`GrantedTopic.naming`), and requeues grantees from the old and the new resource, or a
+  revocation would wait for the five-minute resync.
 - **Parallel partitions are a partitioned source with one actor per lane.** `TopicSubscription.parallel`
   switches `KafkaSubscriber` to `committablePartitionedSource`, each lane `.async` with its own handler
   instance (`subscribeTopic`'s `lanes`), and a failed message retried in its lane (`RestartSource` around
@@ -158,3 +211,32 @@ view's projection is named), and every write of such a view is guarded by the re
   `RemoteProjection.consumerMetadata`), and an SDK fails the change rather than answer
   `produce_all` to a request that does not carry `1.3` or later. An SDK sends an empty list as
   `done` and a single un-keyed message as `produce`, so the guard fires only where it must.
+- **A message published from a journal event has an id the event decides** (feature 041):
+  `<line>/<persistence id>/<sequence>`, with `/<n>` for each of several, unless the handler declared a
+  `ce-id`. The line is the cluster the database was on when the event was written (`HistoryLines`), so an
+  event published again after a restore keeps its id. Nothing on the platform deduplicates by it: every
+  view and consumer reads a message published again as a new one, which a restore's report says.
+- **A restore lists what the broker holds past its moment, asked of the services.** Only a service holds
+  a credential for its topics, so `Divergence` (each topic it publishes to or reads, and its groups) is
+  served on the observe port and asked by the control plane as a restore is read.
+- **The runtime reads a topic's cleanup policy and minimum in-sync copies from the broker, never from
+  the declarations** (feature 043). `TopicConfigs` holds one `Admin` per publisher and per subscriber,
+  made on first use, and answers a stale reading at once while it fetches a new one, so a topic
+  declared compacted while a service runs is known within `TopicConfigs.Interval` and no restart. Only
+  a message with neither key nor subject waits for a reading; it is refused with `KeylessPublication` in
+  `KafkaPublisher.publish` (and the in-memory broker once a test calls `compact`), before anything is
+  sent — in the publisher and not `publishAll`, since a single `Produce` never passes there.
+- **An `Admin` given `default.api.timeout.ms` below `request.timeout.ms` refuses to be created**, and
+  the failure read as "the broker cannot say", which meant no topic was ever known to be compacted and
+  no `acks` refusal ever fired. Every offline suite passed; `KafkaSuite`'s keyless case, against a real
+  broker, was what failed. Set both, and keep the cause in the warning.
+- **The retention gap is merged per partition, never summed.** Every instance of a service reads the
+  same partitions' beginnings, so `ServiceEndpoint.gapOf` keeps one row per partition, `gone` if any
+  instance says so, `compacted` only if all do. The lag beside it is summed over instances, which
+  over-counts: every instance reports every partition. Left as it is; do not copy it.
+- **The gap's time rule reads `ankka_view_versions.built_at`**, which `rebuild` already writes; no DDL
+  file holds that table. A reader of the gap must not claim to know the first offset ever written: a
+  beginning above zero says only that something before it is gone.
+- **A test topic is not in the broker's metadata the moment it is created.** `KafkaSuite.createTopic`
+  waited for leaders with `describeTopics`, which throws `UnknownTopicOrPartitionException` until the
+  metadata has the topic; on a loaded machine every case failed there. It now reads that as not led.

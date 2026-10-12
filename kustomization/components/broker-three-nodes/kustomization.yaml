@@ -1,0 +1,17 @@
+# The installation's broker on three nodes, for a new installation: listed after `broker` and
+# `controlplane`, it raises the node pool to three and states every setting that counts copies for
+# three, the broker's two internal topics included, and has the control plane give a topic declared
+# with no copies three of them, two of which must hold a message before it is acknowledged.
+#
+# It holds three times the storage of the one-node shape: every partition is on every node.
+#
+# It is a shape for a new installation, not a conversion. The broker component's node pool is both
+# controller and broker, so changing its replicas on a running broker changes the KRaft controller
+# quorum, which the platform does not do; and a topic made before keeps the copies it was made with.
+# Growing a running broker is the platform administrator's own procedure, by Strimzi's.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: node-pool.yaml
+  - path: kafka-replication.yaml
+  - path: controlplane-defaults.yaml

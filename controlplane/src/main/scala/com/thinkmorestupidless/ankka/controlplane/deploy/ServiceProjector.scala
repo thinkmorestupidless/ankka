@@ -40,12 +40,32 @@ import scala.util.control.NonFatal
  */
 final class ServiceProjector private (
     config: DeployConfig,
-    clientFactory: DeployConfig => AnkkaServiceClient
+    clientFactory: DeployConfig => AnkkaServiceClient,
+    backups: => com.thinkmorestupidless.ankka.controlplane.BackupConfig,
+    /** Feature 041: after the control plane's own restore, nothing is written until released. */
+    hold: RestoreHold
 ) extends RuntimeExtension
     with RegistryWriter
     with ProjectSecretWriter
     with ProjectTopicsReader
-    with ProjectSchemaStore:
+    with ProjectSchemaStore
+    with PlatformBackupsReader
+    with RehearsalNamespaces:
+
+  def controlPlaneBackups(): Option[com.thinkmorestupidless.ankka.crd.LineStatus] =
+    client.flatMap(_.controlPlaneBackups())
+
+  override def copyStatus(): Map[String, String] = client.fold(Map.empty)(_.copyStatus())
+
+  def ensureRehearsalNamespace(projectId: String): Unit =
+    client match
+      case Some(resources) =>
+        resources.ensureRehearsalNamespace(
+          com.thinkmorestupidless.ankka.crd.Recovery
+            .rehearsalNamespace(config.namespacePrefix, projectId),
+          projectId
+        )
+      case None => throw new IllegalStateException("the cluster client is not started")
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
 
@@ -104,23 +124,62 @@ final class ServiceProjector private (
       case None => throw new IllegalStateException("the cluster client is not started")
 
   /**
+   * Where machine tokens' signing keys are written (feature 040): the Secret `secret` in the
+   * control plane's own `namespace`, one `<kid>.pem` entry per key, by the merge patch that writes
+   * a project secret's entries — `create` and `patch`, never `get`.
+   */
+  def machineKeyWriter(
+      namespace: String,
+      secret: String
+  ): com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter =
+    new com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyWriter:
+      private def resources =
+        client.getOrElse(throw new IllegalStateException("the cluster client is not started"))
+      def addKey(kid: String, pem: String): Unit =
+        resources.setSecretEntries(namespace, secret, Map(s"$kid.pem" -> pem))
+      def removeKeys(kids: Seq[String]): Unit =
+        kids.foreach(kid => resources.removeSecretEntry(namespace, secret, s"$kid.pem"))
+
+  /**
    * Writes a project's declared topics to the cluster as its `AnkkaProject` (feature 027). Called
    * by `ProjectTopicsTrigger` when the declarations change; it throws when the cluster cannot take
    * the write, so the trigger is retried with its projection's backoff until it can.
    */
+  /**
+   * Writes a registered machine as its `AnkkaMachine`, or removes it when it is gone (feature 040).
+   * `None` is a machine that is not registered.
+   */
+  def projectMachine(
+      organizationId: String,
+      name: String,
+      machine: Option[com.thinkmorestupidless.ankka.controlplane.api.MachineSummary]
+  ): Unit =
+    client match
+      case Some(resources) =>
+        machine match
+          case Some(m) =>
+            resources.putMachine(
+              com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec(
+                organizationId,
+                name,
+                m.byteRates.map(_.produceBytesPerSecond),
+                m.byteRates.map(_.consumeBytesPerSecond),
+                m.byteRates.map(_.requestPercentage)
+              )
+            )
+          case None => resources.deleteMachine(organizationId, name)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  /** Whether the projector has its cluster client and its projection: whether it can write. */
+  def ready: Boolean = client.isDefined && projection.isDefined
+
   def projectTopics(projectId: String): Unit =
     (client, projection) match
       case (Some(resources), Some(work)) =>
         resources.putProject(
           config.namespaceFor(projectId),
           projectId,
-          ProjectProjection.spec(
-            projectId,
-            work.topicsOf(projectId),
-            work.brokersOf(projectId),
-            work.secretsOf(projectId),
-            work.locationOf(projectId)
-          )
+          work.projectSpecOf(projectId)
         )
       case _ => throw new IllegalStateException("the cluster client is not started")
 
@@ -143,10 +202,11 @@ final class ServiceProjector private (
   def start(service: RunningService): Unit =
     given system: ActorSystem[?] = service.system
 
-    val resources = clientFactory(config)
+    val resources = HeldClient(clientFactory(config), hold)
     client = Some(resources)
 
-    val work = new Projection(resources, config, service.componentClient, service.viewClient)
+    val work =
+      new Projection(resources, config, service.componentClient, service.viewClient, backups, hold)
     projection = Some(work)
 
     // Status arrives by watch, so a change in the cluster reaches `services list` in about
@@ -169,6 +229,9 @@ final class ServiceProjector private (
       config.sweepInterval
     )
 
+  /** One sweep now, on the caller's thread, as the timer would run it: for a suite. */
+  private[controlplane] def sweepNow(): Unit = projection.foreach(_.sweep())
+
   override def stop(): Unit =
     watching.foreach(_.close())
     client.foreach(_.close())
@@ -179,12 +242,23 @@ final class ServiceProjector private (
 object ServiceProjector:
 
   /** Uses the ambient cluster credentials. */
-  def apply(config: DeployConfig): ServiceProjector =
-    new ServiceProjector(config, c => Fabric8AnkkaServiceClient(c.namespacePrefix))
+  def apply(
+      config: DeployConfig,
+      backups: com.thinkmorestupidless.ankka.controlplane.BackupConfig =
+        com.thinkmorestupidless.ankka.controlplane.BackupConfig.default,
+      hold: RestoreHold = RestoreHold.none
+  ): ServiceProjector =
+    new ServiceProjector(config, c => Fabric8AnkkaServiceClient(c.namespacePrefix), backups, hold)
 
   /** For tests: supply a fake so the whole projector runs with no cluster. */
-  def withClient(config: DeployConfig, client: AnkkaServiceClient): ServiceProjector =
-    new ServiceProjector(config, _ => client)
+  def withClient(
+      config: DeployConfig,
+      client: AnkkaServiceClient,
+      backups: => com.thinkmorestupidless.ankka.controlplane.BackupConfig =
+        com.thinkmorestupidless.ankka.controlplane.BackupConfig.default,
+      hold: RestoreHold = RestoreHold.none
+  ): ServiceProjector =
+    new ServiceProjector(config, _ => client, backups, hold)
 
 /**
  * The off-actor half.
@@ -197,7 +271,12 @@ private[deploy] final class Projection(
     client: AnkkaServiceClient,
     config: DeployConfig,
     componentClient: ComponentClient,
-    viewClient: ViewClient
+    viewClient: ViewClient,
+    backups: => com.thinkmorestupidless.ankka.controlplane.BackupConfig =
+      com.thinkmorestupidless.ankka.controlplane.BackupConfig.default,
+    hold: RestoreHold = RestoreHold.none,
+    metrics: com.thinkmorestupidless.ankka.controlplane.BackupMetrics =
+      new com.thinkmorestupidless.ankka.controlplane.BackupMetrics()
 ):
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
@@ -214,6 +293,26 @@ private[deploy] final class Projection(
    * is a state the delete path handles, and failing the projection over it would be a worse answer
    * than leaving the reference off.
    */
+  /**
+   * Everything a project's resource says, read from the project: the one place it is put together.
+   * Two things write the resource — a project's own changes and, since feature 041, the sweep — and
+   * the spec is a whole document, so a writer that left something out would take it away every time
+   * it wrote: the sweep once removed every grant (feature 040) every two seconds.
+   */
+  def projectSpecOf(projectId: String): com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec =
+    ProjectProjection.spec(
+      projectId,
+      topicsOf(projectId),
+      brokersOf(projectId),
+      secretsOf(projectId),
+      locationOf(projectId),
+      restoresOf(projectId),
+      databaseOf(projectId),
+      rehearsalsOf(projectId),
+      credentialGenerationOf(projectId),
+      grantsOf(projectId)
+    )
+
   /** A project's declared topics, from the project itself; none for a project that is gone. */
   def topicsOf(
       projectId: String
@@ -222,6 +321,40 @@ private[deploy] final class Projection(
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.topics)
       .invoke()
+
+  /** The project's restores (feature 041); none for a project that is gone. */
+  def restoresOf(
+      projectId: String
+  ): Map[String, com.thinkmorestupidless.ankka.controlplane.domain.Restore] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.restores)
+      .invoke()
+
+  def credentialGenerationOf(projectId: String): Int =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.backupCredentialGeneration)
+      .invoke()
+
+  def rehearsalsOf(
+      projectId: String
+  ): Map[String, com.thinkmorestupidless.ankka.controlplane.domain.Rehearsal] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.rehearsals)
+      .invoke()
+
+  /** What the project asks of its database (feature 041); the defaults are rendered as none. */
+  def databaseOf(
+      projectId: String
+  ): Option[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] =
+    Some(
+      componentClient
+        .forEventSourcedEntity(EntityId(projectId))
+        .call(ProjectEntity.database)
+        .invoke()
+    ).filter(_ != com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting())
 
   def brokersOf(projectId: String): Map[String, DeclaredBroker] =
     componentClient
@@ -243,6 +376,15 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.bucketLocation)
+      .invoke()
+
+  /** Every grant the project has made (feature 040); the projection keeps the accepted ones. */
+  def grantsOf(
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.grants)
       .invoke()
 
   private def registryOf(projectId: String): Option[RegistryRef] =
@@ -323,6 +465,97 @@ private[deploy] final class Projection(
           Vector.empty
 
     (desired ++ existing).distinct.foreach(projectOne)
+    sweepProjects(desired.map(_.projectId).distinct)
+    // A held control plane also lists the projects it does not know (feature 041).
+    try
+      hold.unknownProjects(
+        client
+          .platformProjects()
+          .filterNot(p =>
+            componentClient
+              .forEventSourcedEntity(EntityId(p))
+              .call(ProjectEntity.exists)
+              .invoke()
+          )
+      )
+    catch case NonFatal(failure) => log.debug("could not list the platform's projects", failure)
+
+  /**
+   * Every project with a service has its resource, and its backups are numbers (feature 041).
+   *
+   * A project's resource was written only when it declared a topic; since feature 041 it is where
+   * the operator reports the project's backups, so every project with a service has one, made here
+   * by the same write a declaration makes. And the backup gauges are set from what each reports, so
+   * an alert on a failing archive does not wait for a member to read the status.
+   */
+  private def sweepProjects(projects: Vector[String]): Unit =
+    val copy =
+      com.thinkmorestupidless.ankka.controlplane.BackupViews.secondary(client.copyStatus())
+    metrics.copy(copy)
+    projects.foreach { projectId =>
+      try
+        client.putProject(config.namespaceFor(projectId), projectId, projectSpecOf(projectId))
+        val status = client.projectStatus(config.namespaceFor(projectId), projectId)
+        // A restore's end, from what the operator reported, recorded once by the entity
+        // (feature 041): a repeat records nothing, so every sweep may say it.
+        for
+          reported <- status.toVector
+          restore  <- reported.restores
+          if Set("Verified", "InUse", "Failed").contains(restore.phase)
+        do
+          componentClient
+            .forEventSourcedEntity(EntityId(projectId))
+            .call(ProjectEntity.observeRestore)
+            .invoke(
+              com.thinkmorestupidless.ankka.controlplane.domain.ObserveRestore(
+                restore.name,
+                restore.phase,
+                restore.reachedAt.flatMap(t => scala.util.Try(java.time.Instant.parse(t)).toOption),
+                restore.detail
+              )
+            ): Unit
+        // A rehearsal's end, likewise; one the schedule started is recorded by its end.
+        for
+          reported  <- status.toVector
+          rehearsal <- reported.rehearsals
+          if Set("Completed", "Failed", "NotRemoved").contains(rehearsal.outcome)
+          moment <- scala.util.Try(java.time.Instant.parse(rehearsal.targetTime)).toOption
+        do
+          componentClient
+            .forEventSourcedEntity(EntityId(projectId))
+            .call(ProjectEntity.observeRehearsal)
+            .invoke(
+              com.thinkmorestupidless.ankka.controlplane.domain.ObserveRehearsal(
+                rehearsal.name,
+                com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase,
+                moment,
+                rehearsal.outcome,
+                rehearsal.elapsedSeconds,
+                rehearsal.detail
+              )
+            ): Unit
+        // The view the project's status route answers with, so the metrics and the status agree: its
+        // restores and rehearsals are the entity's, which keeps a rehearsal the operator no longer
+        // reports once its cluster is removed.
+        val entity = componentClient.forEventSourcedEntity(EntityId(projectId))
+        val view = com.thinkmorestupidless.ankka.controlplane.BackupViews.project(
+          projectId,
+          status,
+          backups,
+          entity.call(ProjectEntity.restores).invoke(),
+          entity.call(ProjectEntity.rehearsals).invoke(),
+          copy = copy
+        )
+        metrics.publish(projectId, view)
+        // FR-025: a rehearsal that failed is a backup failure, as a metric too.
+        view.rehearsal
+          .filter(_.outcome != "Running")
+          .foreach(latest => metrics.rehearsal(projectId, latest.outcome != "Completed"))
+      catch
+        case NonFatal(failure) =>
+          log.debug("could not sweep project {}: {}", projectId, failure.getMessage)
+    }
+    (metrics.reported -- projects).foreach(metrics.forget)
 
   /**
    * Every service in the organization's projects, suspended or reinstated (feature 008, FR-033).

@@ -66,6 +66,19 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
               )
             )
 
+          // A switch rolls the service as a restart does (feature 041).
+          case ServiceSwitched(cluster, generation, _, _) =>
+            effects.updateRow(
+              row.copy(
+                generation = generation,
+                lifecycle = ServiceLifecycle.UpdateInProgress,
+                readyInstances = 0,
+                detail = None,
+                confirmed = true,
+                databaseCluster = cluster
+              )
+            )
+
           case _: ServicePaused =>
             effects.updateRow(
               row.copy(
@@ -91,8 +104,37 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
 
           // The row carries the boolean only; the endpoint adds the hostname on the way out, since
           // the base domain is configuration the view does not have.
-          case _: ServiceExposed   => effects.updateRow(row.copy(exposed = true))
-          case _: ServiceUnexposed => effects.updateRow(row.copy(exposed = false))
+          // Custom hostnames (feature 045) follow the entity's own rule: while unexposed each is
+          // pending because none is served, and once exposed each waits for the operator's word.
+          case _: ServiceExposed =>
+            effects.updateRow(
+              row.copy(
+                exposed = true,
+                customHostnames = row.customHostnames.map(h => CustomHostname(h.hostname))
+              )
+            )
+          case _: ServiceUnexposed =>
+            effects.updateRow(
+              row.copy(
+                exposed = false,
+                customHostnames = row.customHostnames.map(h =>
+                  CustomHostname(h.hostname, "pending", Some(Service.NotExposedReason))
+                )
+              )
+            )
+
+          case CustomHostnameAdded(hostname, _, _) =>
+            if row.customHostnames.exists(_.hostname == hostname) then effects.ignore()
+            else
+              val added =
+                if row.exposed then CustomHostname(hostname)
+                else CustomHostname(hostname, "pending", Some(Service.NotExposedReason))
+              effects.updateRow(row.copy(customHostnames = row.customHostnames :+ added))
+
+          case CustomHostnameRemoved(hostname, _, _, _) =>
+            effects.updateRow(
+              row.copy(customHostnames = row.customHostnames.filterNot(_.hostname == hostname))
+            )
 
           case ServiceObserved(
                 generation,
@@ -104,7 +146,9 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 database,
                 broker,
                 objectStorage,
-                storage
+                storage,
+                _,
+                hostnames
               ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself
@@ -142,7 +186,16 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   objectStore = storage.flatMap(_.store),
                   bucketLocation = storage.flatMap(_.location),
                   softDeleteDays = storage.flatMap(_.softDeleteDays),
-                  storageMove = storage.flatMap(_.move).map(Service.storageMovePhrase)
+                  storageMove = storage.flatMap(_.move).map(Service.storageMovePhrase),
+                  customHostnames =
+                    if !row.exposed then row.customHostnames
+                    else
+                      row.customHostnames.map { held =>
+                        hostnames.find(_.hostname == held.hostname) match
+                          case Some(report) =>
+                            CustomHostname(held.hostname, report.state, report.reason)
+                          case None => CustomHostname(held.hostname)
+                      }
                 )
               )
 

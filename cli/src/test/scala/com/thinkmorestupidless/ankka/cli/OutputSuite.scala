@@ -136,6 +136,145 @@ class OutputSuite extends munit.FunSuite:
     assert(lines(2).contains("the installation has no broker"), rendered)
   }
 
+  // features/broker/retention.feature: each setting, marked as the installation's default
+  test(
+    "a project's topics show every setting, a star on each the installation supplied (feature 043)"
+  ) {
+    val settings = TopicSettingsView(
+      "90d",
+      "none",
+      "delete",
+      "1d",
+      "0s",
+      "none",
+      Some(3),
+      Some(2),
+      Vector(
+        "retentionSize",
+        "cleanup",
+        "tombstoneWindow",
+        "minCompactionLag",
+        "maxCompactionLag",
+        "copies",
+        "minInSync"
+      )
+    )
+    val rendered = Output.projectTopics(
+      Vector(
+        ProjectTopic(
+          "transactions",
+          12,
+          Some("provisioned"),
+          settings = Some(settings),
+          copiesHeld = Some(3),
+          brokerNodes = Some(3)
+        ),
+        ProjectTopic(
+          "notices",
+          3,
+          Some("provisioned"),
+          Some("copies are the broker's; single copy"),
+          settings = Some(settings.copy(retention = "7d", copies = None, minInSync = None)),
+          copiesHeld = Some(1)
+        )
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assertEquals(lines.head, "broker: 3 nodes")
+    assert(
+      lines(1).startsWith("TOPIC") && lines(1).contains("RETENTION") && lines(1).contains(
+        "IN-SYNC"
+      ),
+      rendered
+    )
+    val transactions = lines.find(_.startsWith("transactions")).get
+    assert(
+      transactions.contains("90d ") && transactions.contains("none*") && transactions.contains(
+        "3*"
+      ),
+      transactions
+    )
+    val notices = lines.find(_.startsWith("notices")).get
+    assert(notices.contains("broker (1)") && notices.contains("single copy"), notices)
+  }
+
+  test("a project's history names each change, from what to what, and who made it") {
+    val rendered = Output.projectHistory(
+      Vector(
+        ProjectHistoryView(
+          "topic-changed",
+          Some("Alice"),
+          Some(java.time.Instant.parse("2026-10-08T10:00:00Z")),
+          topic = Some("transactions"),
+          changes = Vector(SettingChange(Setting.Retention, "90d", "180d"))
+        ),
+        ProjectHistoryView("topic-filled", topic = Some("notices")),
+        ProjectHistoryView("database-set", Some("Olive"), detail = Some("2 instances"))
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines(1).contains("Alice") && lines(1).contains("retention 90d → 180d"), rendered)
+    assert(lines(2).contains("the platform") && lines(2).contains("notices"), rendered)
+    assert(lines(3).contains("Olive") && lines(3).contains("2 instances"), rendered)
+  }
+
+  // features/topics/gap.feature: the retention gap and the warning in `services get`
+  test("a service's topic sources say what their topics still hold, and its warnings are listed") {
+    val at = java.time.Instant.parse("2026-09-01T10:00:00Z")
+    val source = TopicSourceReport(
+      "view",
+      "entries",
+      "transactions",
+      "ankka.money.ledger.view-v2.entries",
+      "earliest",
+      2,
+      gap = Some(
+        RetentionGapReport(
+          Vector(PartitionGapReport(0, 1240, Some(at)), PartitionGapReport(1, 0, None)),
+          gone = true
+        )
+      )
+    )
+    val rendered = Output.service(
+      status("ledger").copy(
+        topicSources = Some(Vector(source)),
+        warnings = Some(
+          Vector(
+            ServiceWarning(
+              "retention",
+              "entries",
+              "transactions",
+              "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d"
+            )
+          )
+        )
+      ),
+      Format.Table
+    )
+    assert(
+      rendered.contains(
+        s"retained: p0 from 1240 ($at), p1 from 0 (holds nothing); earlier messages gone"
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains("retention: view 'entries' reads topic 'transactions', which keeps 7d"),
+      rendered
+    )
+    assertEquals(
+      Output.retained(RetentionGapReport(Vector(PartitionGapReport(0, 0, Some(at))))),
+      "everything"
+    )
+    assertEquals(
+      Output.retained(
+        RetentionGapReport(Vector(PartitionGapReport(0, 9, Some(at))), compacted = true)
+      ),
+      "compacted"
+    )
+  }
+
   test("a single service shows its database phrase when one has been reported") {
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     assert(rendered.contains("database"), rendered)
@@ -173,6 +312,68 @@ class OutputSuite extends munit.FunSuite:
     val private_ = Output.service(status("cart"), Format.Table)
     assert(private_.contains("hostname"), private_)
     assert(private_.contains("not exposed"), private_)
+  }
+
+  // --- Custom hostnames (feature 045)
+
+  private val withHostnames =
+    status("cart", hostname = Some("https://cart-checkout.example.test"), exposed = true).copy(
+      customHostnames = Vector(
+        CustomHostname(
+          "app.example.com",
+          "serving",
+          record = Some(DnsRecord("app.example.com", "CNAME", "cart-checkout.example.test"))
+        ),
+        CustomHostname(
+          "example.com",
+          "pending",
+          Some("waiting for the certificate: no such host"),
+          note = Some("an apex cannot be a CNAME; this installation has published no address")
+        )
+      ),
+      proofRecord = Some(DnsRecord("_ankka.<hostname>", "TXT", "ankka-project=checkout"))
+    )
+
+  test("the listing shows each custom hostname after the derived one, marking one not serving") {
+    val rendered = Output.services(Vector(withHostnames), Format.Table)
+    assert(
+      rendered.contains("https://cart-checkout.example.test, app.example.com, example.com!"),
+      rendered
+    )
+  }
+
+  test(
+    "a single service shows each custom hostname, where it stands, its record, and the proof record"
+  ) {
+    val rendered = Output.service(withHostnames, Format.Table)
+    assert(rendered.contains("app.example.com  serving"), rendered)
+    assert(
+      rendered.contains("  create CNAME app.example.com → cart-checkout.example.test"),
+      rendered
+    )
+    assert(
+      rendered.contains("example.com  pending: waiting for the certificate: no such host"),
+      rendered
+    )
+    assert(
+      rendered.contains("  an apex cannot be a CNAME; this installation has published no address"),
+      rendered
+    )
+    assert(rendered.contains("TXT _ankka.<hostname> \"ankka-project=checkout\""), rendered)
+    // A service with none shows neither block.
+    val plain = Output.service(status("cart"), Format.Table)
+    assert(!plain.contains("custom hostnames") && !plain.contains("proof record"), plain)
+  }
+
+  test("adding a hostname prints the record to create, or why there is none") {
+    val added = Output.hostnameAdded(withHostnames, "App.Example.COM.")
+    assertEquals(
+      added,
+      "added 'app.example.com' to service 'cart'\n" +
+        "create CNAME app.example.com → cart-checkout.example.test\n" +
+        "keep the proof record: it is not read again, but it is how the claim was made"
+    )
+    assert(Output.hostnameAdded(withHostnames, "example.com").contains("an apex cannot be a CNAME"))
   }
 
   test("exposed with no hostname — no base domain on the control plane — says so plainly") {
@@ -240,7 +441,39 @@ class OutputSuite extends munit.FunSuite:
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     for label <- Vector("process", "callers", "mounts") do
       assert(!rendered.linesIterator.exists(_.startsWith(label)), rendered)
-    assertEquals(rendered.linesIterator.toVector.last, "database    provisioned")
+    // Its own lines end with its database and, a ready service whose operator reported no grants
+    // volume, that a grant on its routes waits for a rollout (feature 040).
+    assertEquals(
+      rendered.linesIterator.toVector.takeRight(2),
+      Vector("database    provisioned", "grants      rollout needed")
+    )
+  }
+
+  test("a service says whether its grants are mounted, and each other project's topic it uses") {
+    val rendered = Output.service(
+      status("attribution").copy(
+        grants = Some("mounted"),
+        crossProjectTopics = Some(
+          Vector(
+            CrossProjectTopic("spinvibe", "casino.players", "consume", "granted"),
+            CrossProjectTopic("spinvibe", "payments.deposits", "produce", "not granted (pending)")
+          )
+        )
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines.contains("grants                mounted"), rendered)
+    assert(
+      lines.contains("cross-project topics  spinvibe/casino.players     consume  granted"),
+      rendered
+    )
+    assert(
+      lines.contains(
+        "                      spinvibe/payments.deposits  produce  not granted (pending)"
+      ),
+      rendered
+    )
   }
 
   test("a service with a bucket says so after its database, and its address when it has one") {

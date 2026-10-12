@@ -52,6 +52,9 @@ trait KeyedChange[Row]:
   /** The view's own rows. */
   def rows: ViewRows[Row]
 
+  /** Of a change from a workflow, where it stood once the effect was applied; `None` otherwise. */
+  def standing: Option[WorkflowLifecycle] = None
+
 /**
  * One source of a keyed view, with what the view does with each of its changes and with its
  * entity's deletion.
@@ -66,6 +69,7 @@ final class KeyedSource[V, Row] private[ankka] (
   def componentId: ComponentId = source match
     case ChangeSource.EventSourced(id, _)   => id
     case ChangeSource.KeyValue(id, _)       => id
+    case ChangeSource.Workflow(id, _)       => id
     case ChangeSource.Topic(topic, _, _, _) => ComponentId(topic)
 
   /** Decodes one change of this source. */
@@ -148,6 +152,25 @@ object KeyedView:
         declared += query
         query
       }
+
+    extension (query: DeclaredQuery)
+      /**
+       * Declares this query as one that can be watched: `query("open")(statement).watched`. Its
+       * statement must select `row_key` beside `payload`, have no limit and not aggregate; that is
+       * checked when the service starts.
+       */
+      protected final def watched: DeclaredQuery =
+        declaring(s"the query '${query.name}' as watched") {
+          val watchable = query.copy(watchable = true)
+          val at        = declared.indexWhere(_.name == query.name)
+          if at < 0 then
+            throw IllegalStateException(
+              s"view '$componentId' does not declare the query '${query.name}'; watch a query this " +
+                "companion declares"
+            )
+          declared(at) = watchable
+          watchable
+        }
 
     final def descriptor: KeyedViewDescriptor[V, Row] =
       val (taking, queries) = synchronized {

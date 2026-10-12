@@ -109,13 +109,16 @@ mod tests {
                 "cart-graph",
                 "cart-rows",
                 "checkout",
+                "checkout-ends",
                 "checkout-fanout",
                 "checkout-recorder",
+                "checkout-rows",
                 "conformance",
                 "contract-relay",
                 "joined-left",
                 "joined-right",
                 "joined-rows",
+                "partner-relay",
                 "profile",
                 "profile-graph",
                 "reminder",
@@ -138,7 +141,7 @@ mod tests {
                 .any(|id| ["cart-graph", "checkout-fanout", "profile-graph"].contains(&id.as_str())),
             "{ids:?}"
         );
-        assert_eq!(ids.len(), 14, "{ids:?}");
+        assert_eq!(ids.len(), 16, "{ids:?}");
     }
 
     use crate::conformance::{

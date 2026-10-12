@@ -24,6 +24,17 @@ spec:
             matchLabels:
               gateway.envoyproxy.io/owning-gateway-name: ankka
               gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+        # The database instances, which archive into the backup buckets (feature 041). CNPG's pods
+        # carry `cnpg.io/cluster`, not the platform's managed-by label, so the rule above refuses
+        # them: a project's in a project namespace, the control plane's in its own.
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchExpressions: [{ key: cnpg.io/cluster, operator: Exists }]
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-controlplane }
+          podSelector:
+            matchExpressions: [{ key: cnpg.io/cluster, operator: Exists }]
     # Administration: the operator alone.
     - ports: [{ protocol: TCP, port: 3903 }]
       from:

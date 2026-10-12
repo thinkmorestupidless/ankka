@@ -1,0 +1,72 @@
+# The copy writes its status and nothing else; the control plane reads it and nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garage-copy
+  namespace: garage-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: garage-copy-status-writer
+  namespace: garage-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["garage-copy-status"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-copy-status-writer
+  namespace: garage-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: garage-copy-status-writer
+subjects:
+  - kind: ServiceAccount
+    name: garage-copy
+    namespace: garage-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: garage-copy-status-reader
+  namespace: garage-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["garage-copy-status"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-copy-status-reader
+  namespace: garage-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: garage-copy-status-reader
+subjects:
+  - kind: ServiceAccount
+    name: ankka-controlplane
+    namespace: ankka-controlplane
+---
+# The copy reads every bucket and asks the administration API for its own key.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: garage-copy
+  namespace: garage-system
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: garage }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 3900 }, { protocol: TCP, port: 3903 }]
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: garage-copy }

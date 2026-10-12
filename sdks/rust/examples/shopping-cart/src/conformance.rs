@@ -187,6 +187,84 @@ impl Consumer for CheckoutRecorder {
     }
 }
 
+// ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+// docs:start workflow-view
+/// A checkout's row: its state's status, and where the workflow stood when it recorded it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckoutRow {
+    pub id: String,
+    pub status: String,
+    pub standing: String,
+    pub step: Option<String>,
+    pub failure: Option<String>,
+}
+
+pub struct CheckoutRows;
+
+impl View for CheckoutRows {
+    type Row = CheckoutRow;
+    type Event = Checkout;
+    const COMPONENT_ID: &'static str = "checkout-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("checkout-row");
+
+    fn source() -> Source {
+        Source::of(CheckoutWorkflow)
+    }
+
+    fn on_event(_: Option<CheckoutRow>, state: Checkout, ctx: &Context) -> ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        let unknown = Standing::of("Unknown");
+        let standing = ctx.standing().unwrap_or(&unknown);
+        ViewEffect::UpdateRow(CheckoutRow {
+            id: ctx.metadata().subject().unwrap_or_default().to_string(),
+            status: state.status,
+            standing: standing.status.clone(),
+            step: standing.step.clone(),
+            failure: standing.failure.clone(),
+        })
+    }
+
+    fn declared() -> Vec<DeclaredQuery> {
+        let table = table_of(Self::COMPONENT_ID);
+        vec![query(
+            "by-standing",
+            format!("SELECT payload FROM {table} WHERE payload::jsonb->>'standing' = :standing"),
+        )]
+    }
+}
+// docs:end workflow-view
+
+// docs:start workflow-consumer
+/// Records each checkout that ended, completed or failed, and nothing else.
+pub struct CheckoutEnds;
+
+impl Consumer for CheckoutEnds {
+    type Message = Checkout;
+    const COMPONENT_ID: &'static str = "checkout-ends";
+
+    fn source() -> Source {
+        Source::of(CheckoutWorkflow)
+    }
+
+    fn on_message(_: Checkout, ctx: &Context) -> ConsumerEffect {
+        // Running or paused: not an end, and nothing to do.
+        let Some(standing) = ctx.standing().filter(|s| s.is_terminal()) else {
+            return consumer::ignore();
+        };
+        let end = match &standing.failure {
+            Some(why) => format!("{}: {why}", standing.status),
+            None => standing.status.clone(),
+        };
+        let id = format!("end-{}", ctx.metadata().subject().unwrap_or_default());
+        let recorded: Result<String, CommandError> = ctx.client().invoke(Profile, &id, "set", end);
+        recorded.expect("the profile records the end");
+        consumer::done()
+    }
+}
+// docs:end workflow-consumer
+
 // ── checkout-fanout: a consumer that publishes several messages for one change ──
 
 // docs:start fanout
@@ -623,6 +701,35 @@ impl Consumer for ContractRelay {
 }
 // docs:end contract-relay
 
+// ── partner-relay: another project's topic, read and published to (1.15) ──
+
+// docs:start partner-relay
+/// Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other.
+pub struct PartnerRelay;
+
+impl Consumer for PartnerRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "partner-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-shared").project("partner")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(Publication::to("conformance-shared-relayed").project("partner"))
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
+}
+// docs:end partner-relay
+
 // ── cart-graph and profile-graph: graph consumers over each kind of entity ──
 
 /// The example's cart graph, published to the topic the suite reads.
@@ -1052,12 +1159,62 @@ impl ConformanceEndpoint {
         Ok("started".to_string())
     }
 
+    /// Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    fn start_and_await_checkout(request: &Request, mode: String) -> Result<String, HttpProblem> {
+        let ended: Result<Checkout, CommandError> = request.client().invoke_then_await_end(
+            CheckoutWorkflow,
+            request.path("id"),
+            "start",
+            mode,
+            Duration::of_seconds(30),
+        );
+        match ended {
+            Ok(checkout) => Ok(checkout.status),
+            Err(failed) if failed.code == ErrorCode::WorkflowFailed => {
+                let field = |name: &str| failed.details.get(name).cloned().unwrap_or_default();
+                Err(HttpProblem::new(
+                    424,
+                    format!("{}: {}", field("step"), field("reason")),
+                ))
+            }
+            Err(refused) => Err(refused.into()),
+        }
+    }
+
     fn checkout_status(request: &Request) -> Result<String, HttpProblem> {
         let checkout: Checkout =
             request
                 .client()
                 .invoke(CheckoutWorkflow, request.path("id"), "status", ())?;
         Ok(checkout.status)
+    }
+
+    fn checkout_row(request: &Request) -> Result<CheckoutRow, HttpProblem> {
+        let id = request.path("id").to_string();
+        let rows: Vec<CheckoutRow> = request.client().query(CheckoutRows, "get", id.clone())?;
+        rows.into_iter()
+            .next()
+            .ok_or_else(|| HttpProblem::new(404, format!("no row for '{id}'")))
+    }
+
+    fn checkout_rows(request: &Request) -> Result<Vec<String>, HttpProblem> {
+        let standing = request.path("standing");
+        let rows: Vec<CheckoutRow> =
+            request
+                .client()
+                .ask(CheckoutRows, "by-standing", &[("standing", standing)])?;
+        Ok(rows.into_iter().map(|row| row.id).collect())
+    }
+
+    fn checkout_end(request: &Request) -> Result<String, HttpProblem> {
+        let id = request.path("id");
+        let end: String = request
+            .client()
+            .invoke(Profile, &format!("end-{id}"), "get", ())?;
+        if end == "none" {
+            return Err(HttpProblem::new(404, format!("'{id}' has not ended")));
+        }
+        Ok(end)
     }
 
     fn remind(request: &Request, (): ()) -> Result<Done, HttpProblem> {
@@ -1176,6 +1333,16 @@ impl Endpoint for ConformanceEndpoint {
             .delete("/profile/{id}", ConformanceEndpoint::delete_profile)
             .post("/checkout/{id}", ConformanceEndpoint::start_checkout)
             .get("/checkout/{id}", ConformanceEndpoint::checkout_status)
+            .get("/checkout/{id}/row", ConformanceEndpoint::checkout_row)
+            .get(
+                "/checkout-rows/{standing}",
+                ConformanceEndpoint::checkout_rows,
+            )
+            .get("/checkout/{id}/end", ConformanceEndpoint::checkout_end)
+            .post(
+                "/checkout-await/{id}",
+                ConformanceEndpoint::start_and_await_checkout,
+            )
             .post("/remind/{id}", ConformanceEndpoint::remind)
             .post("/recur/{id}", ConformanceEndpoint::recur)
             .post("/recur/{id}/again", ConformanceEndpoint::recur_again)
@@ -1196,6 +1363,7 @@ impl CallersEndpoint {
     fn whoami(request: &Request) -> Result<String, HttpProblem> {
         Ok(match request.caller() {
             Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
             Caller::Gateway => "gateway".to_string(),
             Caller::Local => "local".to_string(),
         })
@@ -1218,6 +1386,8 @@ impl Endpoint for CallersEndpoint {
             .get("/whoami", CallersEndpoint::whoami)
             .get("/self", |_: &Request| Ok("self".to_string()))
             .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
     }
 }
 
@@ -1419,7 +1589,9 @@ pub fn build() -> Service {
         .register_as(JoinedLeft, shape)
         .register_as(JoinedRight, shape)
         .register(JoinedRows)
-        .register(CheckoutRecorder);
+        .register(CheckoutRecorder)
+        .register(CheckoutRows)
+        .register(CheckoutEnds);
     // The three that publish need a broker, and a runtime with none refuses a module that has
     // them. So they are registered where one is named, as the example's own are: the conformance
     // suite names one, and a cluster this module is deployed to without one does not.
@@ -1429,6 +1601,7 @@ pub fn build() -> Service {
             .register(TopicRows)
             .register(TopicRelay)
             .register(ContractRelay)
+            .register(PartnerRelay)
             .register(ConformanceCartGraph)
             .register(ProfileGraph),
         None => service,

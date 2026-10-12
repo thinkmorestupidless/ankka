@@ -27,6 +27,28 @@ object StrimziRendering:
   /** What a compacted topic's `KafkaTopic` carries (feature 037). */
   val CompactedConfig: Map[String, Object] = Map("cleanup.policy" -> "compact")
 
+  /**
+   * The Kafka configuration a declared topic states (feature 043), from the entry's numbers: every
+   * key, so nothing is left to the broker's defaults. The control plane writes the same keys from
+   * the same settings (`TopicSettings.toKafka`); both are held to
+   * `protocol/fixtures/topics/settings.json`. An entry with no settings, declared before topics
+   * stated them, says what it said before: the compaction alone, or nothing.
+   */
+  def kafkaConfig(entry: ProjectTopicEntry): Option[Map[String, Object]] =
+    entry.retentionMs match
+      case None => Option.when(entry.compacted)(CompactedConfig)
+      case Some(retention) =>
+        val keys: Vector[(String, Option[Any])] = Vector(
+          "retention.ms"          -> Some(retention),
+          "retention.bytes"       -> entry.retentionBytes,
+          "cleanup.policy"        -> entry.cleanupPolicy,
+          "delete.retention.ms"   -> entry.deleteRetentionMs,
+          "min.compaction.lag.ms" -> entry.minCompactionLagMs,
+          "max.compaction.lag.ms" -> entry.maxCompactionLagMs,
+          "min.insync.replicas"   -> entry.minInsyncReplicas
+        )
+        Some(keys.collect { case (key, Some(value)) => key -> (value.toString: Object) }.toMap)
+
   /** Whether a topic's config says the broker keeps the last message under each key. */
   def compacted(config: Option[Map[String, Object]]): Boolean =
     config.exists(
@@ -46,13 +68,18 @@ object StrimziRendering:
     Labels.identity(spec.projectId, spec.serviceName) +
       (StrimziDefinitions.ClusterLabel -> broker.cluster)
 
-  def user(spec: AnkkaServiceSpec, broker: BrokerSettings): KafkaUserResource =
+  def user(
+      spec: AnkkaServiceSpec,
+      broker: BrokerSettings,
+      // Feature 040: other projects' topics granted to this service, each one literal entry.
+      granted: Vector[GrantedTopic] = Vector.empty
+  ): KafkaUserResource =
     KafkaUserResource(
       broker.namespace,
       BrokerNames.user(spec.projectId, spec.serviceName),
       labels(spec, broker),
       KafkaUserSpec(
-        KafkaUserAuthentication("tls-external"),
+        Some(KafkaUserAuthentication("tls-external")),
         KafkaUserAuthorization(
           "simple",
           Vector(
@@ -68,10 +95,26 @@ object StrimziRendering:
               ),
               GroupOperations
             )
-          )
+          ) ++ grantedRules(granted)
         )
       )
     )
+
+  /**
+   * One literal entry per granted right on another project's topic, in a stable order so an
+   * unchanged set of grants applies an unchanged user. No group and no prefix: a grantee reads
+   * under its own groups, which its own prefix entry already covers.
+   */
+  def grantedRules(granted: Vector[GrantedTopic]): Vector[AclRule] =
+    granted.distinct.sortBy(g => (g.project, g.topic, g.right)).flatMap { g =>
+      val operations = g.right match
+        case GrantedTopic.Consume => Some(Vector("Read", "Describe"))
+        case GrantedTopic.Produce => Some(Vector("Write", "Describe"))
+        case _                    => None
+      operations.map(ops =>
+        AclRule(AclResource("topic", BrokerNames.topic(g.project, g.topic), "literal"), ops)
+      )
+    }
 
   /** A topic the project declares: the project's, so labelled for the project alone. */
   def topic(
@@ -89,7 +132,8 @@ object StrimziRendering:
       ),
       KafkaTopicSpec(
         partitions = entry.partitions,
-        config = Option.when(entry.compacted)(StrimziRendering.CompactedConfig)
+        replicas = entry.replicas,
+        config = kafkaConfig(entry)
       )
     )
 

@@ -24,6 +24,7 @@ import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome, StepRef}
 import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode, Metadata}
 import com.thinkmorestupidless.ankka.runtime.remote.*
+import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
 
 import scala.concurrent.duration.*
 
@@ -34,14 +35,15 @@ import scala.concurrent.duration.*
  */
 private[sidecar] object Translate:
   def toCode(code: ErrorCode): pb.ErrorCode = code match
-    case ErrorCode.BadRequest   => pb.ErrorCode.BAD_REQUEST
-    case ErrorCode.Unauthorized => pb.ErrorCode.UNAUTHORIZED
-    case ErrorCode.Forbidden    => pb.ErrorCode.FORBIDDEN
-    case ErrorCode.NotFound     => pb.ErrorCode.NOT_FOUND
-    case ErrorCode.Conflict     => pb.ErrorCode.CONFLICT
-    case ErrorCode.Timeout      => pb.ErrorCode.TIMEOUT
-    case ErrorCode.Unavailable  => pb.ErrorCode.UNAVAILABLE
-    case ErrorCode.Internal     => pb.ErrorCode.INTERNAL
+    case ErrorCode.BadRequest     => pb.ErrorCode.BAD_REQUEST
+    case ErrorCode.Unauthorized   => pb.ErrorCode.UNAUTHORIZED
+    case ErrorCode.Forbidden      => pb.ErrorCode.FORBIDDEN
+    case ErrorCode.NotFound       => pb.ErrorCode.NOT_FOUND
+    case ErrorCode.Conflict       => pb.ErrorCode.CONFLICT
+    case ErrorCode.Timeout        => pb.ErrorCode.TIMEOUT
+    case ErrorCode.Unavailable    => pb.ErrorCode.UNAVAILABLE
+    case ErrorCode.Internal       => pb.ErrorCode.INTERNAL
+    case ErrorCode.WorkflowFailed => pb.ErrorCode.WORKFLOW_FAILED
   def toPayload(p: Payload): pb.Payload =
     pb.Payload(p.contentType, p.manifest, ByteString.copyFrom(p.data))
   def fromPayload(p: pb.Payload): Payload = Payload(p.contentType, p.manifest, p.data.toByteArray)
@@ -50,15 +52,16 @@ private[sidecar] object Translate:
   def fromMetadata(m: Option[pb.Metadata]): Metadata =
     Metadata(m.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toVector)
   def fromCode(code: pb.ErrorCode): ErrorCode = code match
-    case pb.ErrorCode.BAD_REQUEST  => ErrorCode.BadRequest
-    case pb.ErrorCode.UNAUTHORIZED => ErrorCode.Unauthorized
-    case pb.ErrorCode.FORBIDDEN    => ErrorCode.Forbidden
-    case pb.ErrorCode.NOT_FOUND    => ErrorCode.NotFound
-    case pb.ErrorCode.CONFLICT     => ErrorCode.Conflict
-    case pb.ErrorCode.TIMEOUT      => ErrorCode.Timeout
-    case pb.ErrorCode.UNAVAILABLE  => ErrorCode.Unavailable
-    case _                         => ErrorCode.Internal
-  def fromError(e: pb.Error): CommandError = CommandError(e.message, fromCode(e.code))
+    case pb.ErrorCode.BAD_REQUEST     => ErrorCode.BadRequest
+    case pb.ErrorCode.UNAUTHORIZED    => ErrorCode.Unauthorized
+    case pb.ErrorCode.FORBIDDEN       => ErrorCode.Forbidden
+    case pb.ErrorCode.NOT_FOUND       => ErrorCode.NotFound
+    case pb.ErrorCode.CONFLICT        => ErrorCode.Conflict
+    case pb.ErrorCode.TIMEOUT         => ErrorCode.Timeout
+    case pb.ErrorCode.UNAVAILABLE     => ErrorCode.Unavailable
+    case pb.ErrorCode.WORKFLOW_FAILED => ErrorCode.WorkflowFailed
+    case _                            => ErrorCode.Internal
+  def fromError(e: pb.Error): CommandError = CommandError(e.message, fromCode(e.code), e.details)
   def fromFailure(f: pb.Failure): ProcessFailure =
     ProcessFailure(
       f.commandId,
@@ -151,15 +154,34 @@ private[sidecar] object Translate:
     )
 
   private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
-    import ankka.protocol.v1.endpoint.{Caller as PbCaller, ServiceCaller}
+    import ankka.protocol.v1.endpoint.{Caller as PbCaller, MachineCaller, ServiceCaller}
     import ankka.protocol.v1.payload.Empty
     c match
       case RemoteCaller.Gateway => PbCaller(PbCaller.Kind.Gateway(Empty()))
       case RemoteCaller.Service(p, name) =>
         PbCaller(PbCaller.Kind.Service(ServiceCaller(p, name)))
+      case RemoteCaller.Machine(organization, name) =>
+        PbCaller(PbCaller.Kind.Machine(MachineCaller(organization, name)))
       case RemoteCaller.Local => PbCaller(PbCaller.Kind.Local(Empty()))
 
   // ── The stateless calls: what is sent, and what the answer means ──────────
+
+  /** A workflow's standing on the wire (protocol 1.16): its words, as the lifecycle query's. */
+  def toStanding(standing: WorkflowLifecycle): pb.WorkflowStanding =
+    pb.WorkflowStanding(
+      status = standing.status,
+      step = standing.pendingStep,
+      retries = standing.retries,
+      failure = standing.failure
+    )
+
+  def fromStanding(standing: pb.WorkflowStanding): WorkflowLifecycle =
+    WorkflowLifecycle(
+      standing.status,
+      standing.step.filter(_.nonEmpty),
+      standing.retries,
+      standing.failure.filter(_.nonEmpty)
+    )
 
   def toViewRequest(request: ViewRequest): PbViewRequest =
     PbViewRequest(
@@ -168,7 +190,8 @@ private[sidecar] object Translate:
       metadata = Some(toMetadata(request.metadata)),
       row = request.row.map(toPayload),
       deleted = request.event.isEmpty,
-      sourceId = request.sourceId.map(_.toString)
+      sourceId = request.sourceId.map(_.toString),
+      standing = request.standing.map(toStanding)
     )
 
   def fromViewEffect(effect: ViewEffect): ViewOutcome = effect.effect match
@@ -188,7 +211,8 @@ private[sidecar] object Translate:
       componentId = request.componentId,
       message = request.message.map(toPayload),
       metadata = Some(toMetadata(request.metadata)),
-      deleted = request.message.isEmpty
+      deleted = request.message.isEmpty,
+      standing = request.standing.map(toStanding)
     )
 
   def fromConsumerEffect(effect: ConsumerEffect): ConsumerOutcome = effect.effect match

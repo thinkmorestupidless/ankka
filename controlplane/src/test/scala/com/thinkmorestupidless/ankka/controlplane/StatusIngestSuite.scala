@@ -186,6 +186,48 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
       )
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("each custom hostname's report is carried verbatim, in order, and the detail is untouched") {
+    val observation = StatusIngest.observe(
+      service(),
+      ClusterView.Reported(
+        AnkkaServiceStatus(
+          generation = 4L,
+          lifecycle = "Ready",
+          readyInstances = 1,
+          desiredInstances = 1,
+          hostnames = List(
+            com.thinkmorestupidless.ankka.crd.HostnameStatus("b.example.com", "serving"),
+            com.thinkmorestupidless.ankka.crd.HostnameStatus("a.example.com", "pending", Some("x"))
+          )
+        )
+      )
+    )
+    assertEquals(
+      observation.hostnames,
+      Vector(
+        com.thinkmorestupidless.ankka.controlplane.domain
+          .HostnameReport("b.example.com", "serving"),
+        com.thinkmorestupidless.ankka.controlplane.domain
+          .HostnameReport("a.example.com", "pending", Some("x"))
+      )
+    )
+    assertEquals(observation.detail, None)
+  }
+
+  test("an unreachable cluster restates the hostnames last reported") {
+    val reported = service().copy(hostnameReports =
+      Vector(
+        com.thinkmorestupidless.ankka.controlplane.domain.HostnameReport("a.example.com", "serving")
+      )
+    )
+    assertEquals(
+      StatusIngest.observe(reported, ClusterView.Unreachable("refused")).hostnames,
+      reported.hostnameReports
+    )
+  }
+
   // Feature 039: what the operator reported of a bucket beyond its phase.
 
   test("the store, the bucket as reported, its location, window and a move are carried") {
@@ -231,4 +273,43 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
     val known = service().copy(storage = Some(report))
     for view <- Vector(ClusterView.Unreachable("down"), ClusterView.NoReport) do
       assertEquals(StatusIngest.observe(known, view).storage, Some(report), view.toString)
+  }
+
+  // Grants (feature 040).
+
+  test(
+    "an operator that reports the grants mounted is carried to the status; one that predates grants is not"
+  ) {
+    def reportedGrants(grants: Option[String]) =
+      StatusIngest.observe(
+        service(),
+        ClusterView.Reported(
+          AnkkaServiceStatus(
+            generation = 4L,
+            lifecycle = "Ready",
+            readyInstances = 1,
+            desiredInstances = 1,
+            grants = grants
+          )
+        )
+      )
+    val mounted = reportedGrants(Some("mounted"))
+    assertEquals(mounted.grants, Some("mounted"))
+    val status = service()
+      .onObserved(
+        com.thinkmorestupidless.ankka.controlplane.domain.ServiceEvent.ServiceObserved(
+          4L,
+          ServiceLifecycle.Ready,
+          1,
+          1,
+          None,
+          confirmed = true,
+          grants = mounted.grants
+        )
+      )
+    assertEquals(reportedGrants(None).grants, None)
+    // What `services get` shows: mounted, or, for a running service an older operator rendered,
+    // that it must be rolled out before a grant reaches it.
+    assertEquals(status.toStatus.grantsPhrase, Some("mounted"))
+    assertEquals(status.copy(grants = None).toStatus.grantsPhrase, Some("rollout needed"))
   }

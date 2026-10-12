@@ -31,6 +31,7 @@ pub mod proto;
 pub mod secrets;
 pub mod service;
 pub mod services;
+pub mod standing;
 pub mod start_from;
 pub mod testkit;
 
@@ -44,6 +45,7 @@ pub use contract::Contract;
 pub use secrets::Secrets;
 pub use service::{Problem, Service};
 pub use services::{RequestOptions, ServiceClient, ServiceError, ServiceResponse, Services};
+pub use standing::Standing;
 pub use start_from::StartFrom;
 
 /// serde, as this library uses it: the derives a service's types need.

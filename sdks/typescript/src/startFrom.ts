@@ -52,7 +52,16 @@ export function olderThanDeclaredQueries(protocolVersion: string): boolean {
   return olderThan(protocolVersion, DECLARED_QUERY_PROTOCOL)
 }
 
+/** Whether a sidecar speaking `protocolVersion` would not know a watched query. */
+export function olderThanViewStreams(protocolVersion: string): boolean {
+  return olderThan(protocolVersion, [1, 17])
+}
+
 /** Whether a sidecar speaking `protocolVersion` would ignore a topic's contract, broker and parallel reading. */
+export function olderThanWorkflowSources(protocolVersion: string): boolean {
+  return olderThan(protocolVersion, [1, 16])
+}
+
 export function olderThanContracts(protocolVersion: string): boolean {
   return olderThan(protocolVersion, [1, 14])
 }

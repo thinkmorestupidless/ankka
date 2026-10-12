@@ -368,6 +368,9 @@ final class ServiceBuilder private[ankka] (
     // start only once the node is genuinely up.
     service.awaitReady()
     service.registerShutdown()
+    // Before any projection publishes (feature 041): the line this database is on is recorded, and
+    // every line it has been on is read, so a message's id is made from a complete list.
+    if !NoDatabase.declared(system.settings.config) then HistoryLines(system).start()
     extensions.foreach { extension =>
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
@@ -464,7 +467,18 @@ final class ServiceBuilder private[ankka] (
  * A request's span says only that HTTP served it and by which route; this is what puts that route,
  * and every call made from it, on the endpoint a developer wrote.
  */
-final case class ServedRoute(method: String, path: String, streaming: Boolean, endpoint: String)
+/**
+ * A route a server serves. `grantable` when its ACL admits granted callers (feature 040), which is
+ * how the control plane tells a grant on a route that can never open it from one waiting for the
+ * route to appear.
+ */
+final case class ServedRoute(
+    method: String,
+    path: String,
+    streaming: Boolean,
+    endpoint: String,
+    grantable: Boolean = false
+)
 
 object ServedRoute:
   /**
@@ -603,6 +617,11 @@ final class AnkkaService private[ankka] (
       try observe.foreach(_.stop())
       catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
       observability = None
+
+      // Before the extensions: a watch served as server-sent events is told why it ended while
+      // the server can still send it.
+      try viewClient.stopWatches()
+      catch case failure: Throwable => system.log.warn("view watches failed to stop", failure)
 
       extensions.reverse.foreach { extension =>
         try extension.stop()

@@ -129,6 +129,22 @@ broker: reachable by registered machines, through the gateway, at hostnames of t
 Where an exposed service answers from outside the cluster, for HTTP and for gRPC, or where an
 exposed broker answers a registered machine. The platform derives it; nobody chooses it.
 
+### custom hostname
+A hostname under a domain its owner brings, added to an exposed service beside the one
+the platform derived, by a member and never by a descriptor. The owner points the name at the
+installation; the platform obtains a certificate for it and serves it as it serves the derived
+hostname, and manages no DNS. One custom hostname is held by one service of the installation, and a
+platform administrator can take it away.
+
+Avoid: own domain, vanity domain, bring-your-own domain, custom domain
+
+### proof record
+The `TXT` record beside a custom hostname, at `_ankka.<hostname>`, whose value names the project
+that may use the name. The control plane looks it up once, when a member adds the hostname, and
+records the claim only when it is there; one value proves every hostname the project brings.
+
+Avoid: verification record, TXT record, ownership record
+
 ### gateway
 What every request and call from outside the cluster passes through to reach an exposed service.
 It is the calling workload of each of them, whoever sent it; an ACL that admits the
@@ -1573,8 +1589,8 @@ installation's console is one host, and the hosted product's website another.
 ## Graph deltas
 
 ### change
-One event, state or deletion of one entity, one record of a workflow with the state and the
-standing after it, or one message from a topic, as a view or a consumer is handed it.
+One event, state or deletion of one entity, one state a workflow recorded with the standing after
+the effect that recorded it, or one message from a topic, as a view or a consumer is handed it.
 
 ### key
 What a message is published under. Messages under one key are delivered in order, and a compacted topic keeps the last of them. A message's key is its entity's id unless the message names another; the key does not change which entity the message is about.
@@ -2081,7 +2097,7 @@ whichever object store it ends on.
 ## Cross-project access
 
 ### grant
-*Proposed.* What a project holds to let one grantee reach one target of its own. An owner of the
+What a project holds to let one grantee reach one target of its own. An owner of the
 project's organization makes it, as data, and no code of either side changes for it. A grant
 within that organization is accepted when it is made; one to a grantee of another organization is
 pending until an owner there accepts it. Only an accepted grant opens anything; an ended grant is
@@ -2091,64 +2107,80 @@ its grantee and its target, so the same one made twice is one grant.
 Avoid: access grant, ACL entry
 
 ### grantor
-*Proposed.* The project that holds a grant, and the owners of its organization, who make,
+The project that holds a grant, and the owners of its organization, who make,
 withdraw and revoke it.
 
 ### grantee
-*Proposed.* Who a grant names: a service of another project, or a registered machine. The
+Who a grant names: a service of another project, or a registered machine. The
 organization it belongs to is the one a cross-organization grant is offered to, and whose owners
 accept, decline or relinquish it. It is not a principal, which is what an authenticator
 established of a request.
 
 ### target
-*Proposed.* What one grant opens: one route or one method of one of the grantor's services, one of
-the grantor's declared topics to consume, to produce to, or both, or the right to ask for the
-erasure of the grantor's data subjects. Never more than one, and never a prefix or a pattern.
+What one grant opens: one route or one method of one of the grantor's services, one of
+the grantor's declared topics to consume or to produce to, or the right to ask for the erasure of
+the grantor's data subjects. Never more than one, and never a prefix or a pattern: a grantee that
+both consumes and produces to one topic holds two grants.
 
 ### consume
-*Proposed.* Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
+Of a topic grant: lets the grantee read the topic, under a group of its own. It gives
 no position: where the grantee starts reading is its own start position.
 
 ### produce
-*Proposed.* Of a topic grant: lets the grantee publish to the topic.
+Of a topic grant: lets the grantee publish to the topic.
 
 ### in effect
-*Proposed.* Of a grant: accepted, and reached where it is read, so that its grantee reaches its
+Of a grant: accepted, and reached where it is read, so that its grantee reaches its
 target. A grant that is not in effect says why: "pending", "declined", "withdrawn", "revoked",
-"relinquished", "route not seen", "route not grantable", "rollout needed" or "broker not exposed".
+"relinquished", "lapsed", "route not seen", "route not grantable", "rollout needed" or "broker not
+exposed".
 
 Avoid: active grant, live grant
 
 ### accept
-*Proposed.* Of an owner of the grantee's organization and a pending grant: take it, so that it is
+Of an owner of the grantee's organization and a pending grant: take it, so that it is
 in effect.
 
 ### decline
-*Proposed.* Of an owner of the grantee's organization and a pending grant: refuse it, so that it
+Of an owner of the grantee's organization and a pending grant: refuse it, so that it
 never takes effect.
 
 ### withdraw
-*Proposed.* Of the grantor and a pending grant: take it back before it is answered, so that it is
+Of the grantor and a pending grant: take it back before it is answered, so that it is
 no longer offered.
 
 ### relinquish
-*Proposed.* Of an owner of the grantee's organization and an accepted grant: give it up, without
+Of an owner of the grantee's organization and an accepted grant: give it up, without
 the grantor, so that it opens nothing again.
 
+### lapsed
+Of a grant: ended because its grantee was deleted, the project or the registered machine, as an
+event on the granting project attributed to the owner who deleted it. A machine registered again
+under the same name is a new grantee and holds nothing. As a verb, lapse.
+
+### external listener
+The installation's broker as registered machines reach it from outside: a listener at
+`broker.<base domain>:9094`, through the gateway, that admits a connection only with a machine token
+the control plane issued. An installation that has not exposed its broker has none.
+
+### keys port
+The control plane's port 7629, which serves inside the cluster only the public keys machine tokens are
+signed with, and asks for no client certificate, so the broker and services can verify a machine token.
+
 ### granted caller
-*Proposed.* A calling workload that holds a grant in effect on the route or the method it is
+A calling workload that holds a grant in effect on the route or the method it is
 calling: a service of another project, or a registered machine. An ACL that admits granted callers
 is what makes a route grantable; it admits no caller without a grant.
 
 Avoid: granted matcher
 
 ### grantable
-*Proposed.* Of a route or a method: its ACL admits granted callers, so that a grant on it opens
+Of a route or a method: its ACL admits granted callers, so that a grant on it opens
 it. A grant on one that is not is accepted and reported as "route not grantable"; a web-hosted
 service's routes are never grantable.
 
 ### registered machine
-*Proposed.* A machine outside the installation that an owner registered on an organization, which
+A machine outside the installation that an owner registered on an organization, which
 proves which machine it is with a machine token. It holds no grant; grants name it. On the broker
 it is a credential of its own, with no topic until a grant gives it one, and it is kept when the
 machine is deleted. It is not a member, and it is not a deploy token.
@@ -2156,16 +2188,16 @@ machine is deleted. It is not a member, and it is not a deploy token.
 Avoid: external machine, outside machine, partner machine
 
 ### client id
-*Proposed.* The name a registered machine gives the token route when it asks for a machine token,
+The name a registered machine gives the token route when it asks for a machine token,
 together with its client secret.
 
 ### client secret
-*Proposed.* What a registered machine proves itself with to the token route: shown once, when the
+What a registered machine proves itself with to the token route: shown once, when the
 machine is registered, and never again; the control plane keeps only a digest of it. It is not a
 secret, which a project keeps for a descriptor, nor a service secret.
 
 ### machine token
-*Proposed.* What the control plane signs for a registered machine, for its client id and client
+What the control plane signs for a registered machine, for its client id and client
 secret: a token that names the machine and nothing else, lives fifteen minutes, and is checked
 against the control plane's keys without asking it. It carries no grant, so a grant changes
 without a new machine token and a revocation never waits for one to expire. On a route it is
@@ -2174,16 +2206,16 @@ sent as any token is; on the broker it is what the registered machine proves its
 Avoid: client credentials token
 
 ### token route
-*Proposed.* Where a registered machine asks the control plane for a machine token. A client id
+Where a registered machine asks the control plane for a machine token. A client id
 that asks more often than the installation allows is refused there for a while.
 
 ### byte rate
-*Proposed.* How many bytes a second the broker lets a registered machine publish, and how many it
+How many bytes a second the broker lets a registered machine publish, and how many it
 lets it read, from the installation's defaults; an owner may set one machine's within the
 installation's ceiling. It is not a quota, which counts projects, services and instances.
 
 ### throttled
-*Proposed.* Of a registered machine: made to wait by the broker because it has reached its byte
+Of a registered machine: made to wait by the broker because it has reached its byte
 rate. What it reads still arrives, later; the installation's services are never throttled for it.
 
 ## Backups and recovery
@@ -2194,6 +2226,10 @@ restored as a whole. A project has one until a restore makes another beside it; 
 the one each service is on.
 
 Avoid: Postgres cluster, database cluster
+
+### backup
+*Proposed.* What the platform keeps of a project database outside it, from which the project
+database can be brought back: its base backups and its archive, in its backup bucket.
 
 ### backup target
 *Proposed.* Where an installation's backups go: its object store, named once for the installation.
@@ -2222,9 +2258,9 @@ bucket, and, where the installation requires a copy outside the failure domain, 
 backup has one.
 
 ### retention window
-*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation,
-and a project may set its own. A base backup or archive older than it is removed only once a newer
-base backup has completed.
+*Proposed.* How far back a project can be restored to: 30 days as shipped, set for the installation
+as a floor, and a project may set a longer one of its own, never a shorter. A base backup or archive
+older than it is removed only once a newer base backup has completed.
 
 ### restore
 *Proposed.* A project database made anew at a moment in the retention window, beside the current
@@ -2240,7 +2276,7 @@ Avoid: point-in-time recovery, PITR
 
 ### switch
 *Proposed.* Moving one service of a project from the project database it is on to another of the
-project's, a restore or one it left, at the service's next rolling update. An owner switches one
+project's, a restore or one it left, by a rolling update the switch starts. An owner switches one
 service at a time; the project database the service leaves is kept, and switching back is the same
 action.
 
@@ -2449,9 +2485,8 @@ one before it is gone. The erasure of a data subject's objects becomes final whe
 It is defined by object storage on Google Cloud (spec 039).
 
 ### switched
-*Proposed.* Of a service: given a restored database in place of the one it had (spec 041). A
-service that is switched is not ready until it has applied the erasure log to the restored
-database.
+*Proposed.* Of a service: moved by a switch (spec 041) to a restore, or back to a project database
+it left. A service switched to a restore is not ready until it has applied the erasure log to it.
 
 ## Cloud provider
 
@@ -2544,10 +2579,6 @@ store encrypts with.
 
 Avoid: KMS key, root key
 
-### backup
-*Proposed.* A copy of a project's database that the platform keeps outside it, from which the
-database can be brought back.
-
 ### credential generation
 *Proposed.* A count on a cloud request. Raising it asks the cloud provider for a new credential
 in the same secret, and the old credential is ended once the rotation grace has passed since the
@@ -2566,34 +2597,51 @@ Avoid: fake provider, stub provider, mock provider
 ## Workflow sources
 
 ### standing
-*Proposed.* Of a workflow: where the platform says it has got to — running, paused, completed or
+Of a workflow: where the platform says it has got to — not started, running, paused, completed or
 failed — with the step it is on or waits after, how many times each step was retried and, when it
-failed, why. It is not the workflow's state, which is the developer's own type and says what the
-process decided.
+failed, why; or unknown, for a state recorded before the platform stamped standings. Not started is a
+workflow that has recorded a state and moved to no step yet. It is not the workflow's state, which is
+the developer's own type and says what the process decided.
 
-Avoid: workflow status
+Avoid: workflow status, workflow lifecycle
 
 ### transition
-*Proposed.* A workflow moving to a step, which the platform records before the step runs.
+A workflow moving to a step, which the platform records before the step runs.
 
 ### workflow subscription
-*Proposed.* A declared connection from a workflow to a view or consumer that reads its changes.
+A declared connection from a workflow to a view or consumer that reads its changes.
 
 ## View streams
 
 ### removal
-*Proposed.* What a watcher is given for a row it has that no longer matches the watched query or
+What a watcher is given for a row it has that no longer matches the watched query or
 was deleted: the row key and no row.
 
+### caught up
+What a watcher is told once, after the rows the watched query matches now and before any
+change, so that it knows it holds the whole listing; told at once when nothing matches now.
+
 ### watch bound
-*Proposed.* The platform setting that bounds how many watches one instance holds open at once.
+The platform setting that bounds how many watches one instance holds open at once:
+1000 as shipped.
+
+### unread bound
+How many rows one watch holds for a watcher that has not read them yet, one per row
+key: 256 as shipped, set for the platform and overridable by the watcher.
+
+### overflow strategy
+What a watch does when it holds as many unread rows as its unread bound and another
+arrives: drop-head, which drops the oldest unread row, unless the watcher chose drop-tail, drop-new,
+drop-all or fail. A watcher is never backpressured into the view's writes.
 
 ### idle timeout
-*Proposed.* How long a connection may be quiet before the service ends it.
+How long a connection may be quiet before the service ends it.
 
 ### heartbeat
-*Proposed.* A part of a stream that carries nothing but that the connection is alive, sent while a
+A part of a stream that carries nothing but that the connection is alive, sent while a
 wait goes on.
+
+Avoid: keep-alive, ping
 
 ## Everyday words
 
@@ -2670,4 +2718,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately

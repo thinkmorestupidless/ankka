@@ -99,25 +99,32 @@ private[ankka] object ProjectionSupport:
       subject: String,
       sequenceNr: Long,
       row: Option[Any],
-      record: JournalRecord,
+      change: SourceChange,
       observability: Observability
   ): ViewEffect[Any] =
     view._setRow(row)
-    view._setContext(Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true)))
+    view._setContext(
+      Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true, standingOf(change)))
+    )
     // A projection has no inbound request, so this span is a trace root — correctly so. A view
     // catching up is its own piece of work, not part of whatever wrote the event minutes ago,
     // and threading the writer's trace into it would make one request appear to last for hours.
     try
       handling(observability, descriptor.componentId.toString, ViewDescriptor.OnChange.name) {
-        record.kind match
-          case JournalRecord.KindDomain =>
-            view.onChange(descriptor.source.decoder.fromBytes(record.payload))
-          case JournalRecord.KindDeleted => view.onDelete
-          // A TTL being set is a storage fact, not a domain change — nothing for a view
-          // to project. The row disappears when the deletion itself is journalled.
-          case _ => ViewEffect.Ignore
+        change match
+          case SourceChange.Changed(payload, _) =>
+            view.onChange(descriptor.source.decoder.fromBytes(payload.data))
+          case SourceChange.Deleted => view.onDelete
+          // A TTL being set, or a workflow record that holds no state: nothing for a view to
+          // project. The row disappears when the deletion itself is journalled.
+          case SourceChange.Skip => ViewEffect.Ignore
       }
     finally view._setContext(None)
+
+  /** The standing a change carries: a workflow's, and none for anything else. */
+  def standingOf(change: SourceChange): Option[WorkflowLifecycle] = change match
+    case SourceChange.Changed(_, standing) => standing
+    case _                                 => None
 
   /** Writes the row change through the projection's transaction. */
   def applyView[A](
@@ -225,13 +232,25 @@ private[ankka] object ProjectionSupport:
    * `ce-subject` is set to the source entity id unless the consumer set it itself, so per-entity
    * ordering survives the hop onto a broker partition.
    */
+  /**
+   * A message published from a journal event carries an id made from the event (feature 041),
+   * unless the handler declared one; several from one event are told apart by their place.
+   */
+  def withEventId(metadata: Metadata, eventId: Option[String], index: Option[Int]): Metadata =
+    eventId match
+      case Some(id) if metadata.eventId.isEmpty =>
+        metadata.add(Metadata.CeId, index.fold(id)(i => s"$id/$i"))
+      case _ => metadata
+
   def applyConsumer(
       effect: ConsumerEffect[Any],
       subject: String,
       descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
       publisher: Option[MessagePublisher],
-      context: Option[TraceContext] = None
+      context: Option[TraceContext] = None,
+      eventId: Option[String] = None
   ): Future[Done] =
+    def identified(metadata: Metadata, index: Option[Int]) = withEventId(metadata, eventId, index)
     effect match
       case ConsumerEffect.Done | ConsumerEffect.Ignore =>
         Future.successful(Done)
@@ -248,10 +267,10 @@ private[ankka] object ProjectionSupport:
               subject,
               topic,
               target,
-              messages.map(m =>
+              messages.zipWithIndex.map((m, index) =>
                 Encoded(
                   serializer.toBytes(m.payload),
-                  stamped(typed(m.metadata, contract), context),
+                  stamped(typed(identified(m.metadata, Some(index)), contract), context),
                   m.key
                 )
               )
@@ -274,7 +293,7 @@ private[ankka] object ProjectionSupport:
             target.publish(
               topic,
               serializer.toBytes(payload),
-              stamped(typed(withSubject, contract), context)
+              stamped(typed(identified(withSubject, None), contract), context)
             )
 
           case _ =>

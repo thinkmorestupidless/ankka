@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.{ComponentRegistry, Metadata}
+import com.thinkmorestupidless.ankka.core.{ComponentKind, ComponentRegistry, Metadata}
+import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
 
 /**
  * Where a call came from: the component that made it, and the handler in that component.
@@ -95,9 +96,14 @@ object DeclaredNames:
     val declared = registry.components.flatMap { descriptor =>
       descriptor.declaredHandlers.map(handler => descriptor.componentId.toString -> handler.name)
     }
+    // A workflow answers a wait for its end itself; a call to it is the workflow's, by that name.
+    val waits = registry.components.collect {
+      case descriptor if descriptor.kind == ComponentKind.Workflow =>
+        descriptor.componentId.toString -> (WorkflowLifecycle.AwaitEnd: String)
+    }
     val served = routes.map(route => route.endpoint -> routeName(route))
     new DeclaredNames(
-      (declared ++ served).toSet,
+      (declared ++ waits ++ served).toSet,
       registry.components.map(_.componentId.toString).toSet
     )
 

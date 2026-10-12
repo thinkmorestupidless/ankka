@@ -23,6 +23,7 @@
 #   kubectl config current-context          # look at it. really look at it.
 #   kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
+#   kubectl apply -k kustomization/components/cnpg-barman --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
 #   kubectl apply -f kustomization/components/broker/namespace.yaml --server-side
 #   kubectl apply -k kustomization/components/broker/strimzi --server-side --force-conflicts
@@ -57,6 +58,9 @@ kind: Kustomization
 
 components:
   - ../../components/cnpg
+  # What archives every project database (feature 041); needs cert-manager. Apply it after
+  # cert-manager is ready and before the overlay, as the header's list says.
+  - ../../components/cnpg-barman
   - ../../components/certmanager
   - ../../components/trust-manager
   - ../../components/pki
@@ -71,6 +75,10 @@ components:
   # Strimzi's CRDs go first, as CNPG's do: apply components/broker/strimzi before the overlay.
   - ../../components/broker
   - ../../components/garage
+  # Feature 041: Garage on three machines, each object on all three, and every bucket copied every
+  # hour to a secondary store outside the cluster. The local platform keeps one node and no copy.
+  - ../../components/garage-replicated
+  - ../../components/garage-copy
   - ../../components/postgres
   - ../../components/keycloak-operator
   - ../../components/keycloak
@@ -78,6 +86,13 @@ components:
   # After the control plane, whose Deployment it tells where the record of secret reads is kept.
   - ../../components/secret-reads
   - ../../components/console
+  # Backups into the installation's store (feature 041), after the Deployments it patches. The
+  # retention floor and the schedule are its defaults, 30 days and midnight; an installation sets
+  # its own with a patch of the same variables in its own overlay.
+  - ../../components/backups
+  # The broker exposed to machines outside the cluster, through the Gateway on 9094 (feature 040).
+  # After the broker, the gateway and the control plane, whose objects it patches.
+  - ../../components/broker-external
 
 resources:
   - platform-configmap.yaml
@@ -121,7 +136,8 @@ patches:
     target:
       kind: Deployment
       name: ankka-operator
-  # The broker sized for this cluster.
+  # The broker sized for this cluster. Three nodes is components/broker-three-nodes, listed with the
+  # components above, for a new installation; broker-size.yaml says how.
   - path: broker-size.yaml
     target:
       kind: KafkaNodePool
@@ -188,6 +204,24 @@ patches:
       metadata:
         name: ankka-object-store-admin
         namespace: ankka-operator
+  # The secondary store's credential, likewise: until the installation creates `garage-secondary`
+  # in `garage-system` (ENDPOINT, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGION), every copy fails and
+  # says so on the installation's status.
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: garage-secondary
+        namespace: garage-system
+  # And the copy's own key for reading Garage: GK and 24 hex digits, and 64 for the secret.
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: garage-copy-key
+        namespace: garage-system
 
   # The console's realm client, without the development secret and without the address a laptop's
   # console signs in from. With no secret in the import, Keycloak generates one; nothing secret is
@@ -276,6 +310,78 @@ replacements:
         options:
           delimiter: "."
           index: 1
+      # The broker exposed to machines (feature 040): its listener's hostnames and certificate.
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.listeners.[name=external].configuration.bootstrap.host
+          - spec.kafka.listeners.[name=external].configuration.hostTemplate
+        options:
+          delimiter: "."
+          index: 1
+      # The base domain the external listener's issuer is read from, as a whole value.
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.template.kafkaContainer.env.[name=ANKKA_BASE_DOMAIN].value
+      - select:
+          kind: Gateway
+          name: ankka
+        fieldPaths:
+          - spec.listeners.[name=broker].hostname
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Certificate
+          name: ankka-broker-external
+        fieldPaths:
+          - spec.dnsNames.0
+        options:
+          delimiter: "."
+          index: 1
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerExternalBootstrap
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_BROKER_EXTERNAL_BOOTSTRAP].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.publicIssuer
+    targets:
+      - select:
+          kind: Certificate
+          name: ankka-broker-external
+        fieldPaths:
+          - spec.issuerRef.name
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerMaxConnectionsPerIp
+    targets:
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.config.max\.connections\.per\.ip
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.brokerExternalConnectionRate
+    targets:
+      - select:
+          kind: Kafka
+          name: ankka
+        fieldPaths:
+          - spec.kafka.config.listener\.name\.external\.max\.connection\.creation\.rate
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -336,6 +442,33 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+  # Custom hostnames (feature 045): the ClusterIssuer that obtains each one's certificate, for both
+  # Deployments, and the address an apex hostname's record points at, for the control plane.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.hostnameIssuer
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HOSTNAME_ISSUER].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HOSTNAME_ISSUER].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.gatewayAddress
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_GATEWAY_ADDRESS].value
   # The installation's object store (feature 039), read by the operator and the control plane alike.
   - source:
       kind: ConfigMap

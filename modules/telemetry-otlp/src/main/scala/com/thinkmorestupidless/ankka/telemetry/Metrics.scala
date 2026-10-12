@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.telemetry
 
-import com.thinkmorestupidless.ankka.runtime.{Names, Recorder}
+import com.thinkmorestupidless.ankka.runtime.{Gauges, Names, Recorder}
 import io.opentelemetry.api.common.{AttributeKey, Attributes}
 import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter
 import io.opentelemetry.sdk.common.CompletableResultCode
@@ -25,7 +25,8 @@ final class Metrics(
     cursor: Recorder.Cursor,
     resource: Resource,
     settings: TelemetrySettings,
-    outage: Outage
+    outage: Outage,
+    gauges: Gauges = Gauges.global
 ):
   import Metrics.*
 
@@ -103,6 +104,21 @@ final class Metrics(
     .setDescription("Spans the trace window overwrote before they could be exported.")
     .setUnit("{span}")
     .buildWithCallback(measurement => measurement.record(cursor.lost)): Unit
+
+  // What the process watches rather than does (feature 041): a gauge per name, registered the first
+  // time the name is set, since a control plane sets a project's backup gauges long after start.
+  gauges.onNewName { (name, description) =>
+    meter
+      .gaugeBuilder(name)
+      .setDescription(description)
+      .buildWithCallback { measurement =>
+        gauges.snapshot(name).foreach { (attributes, value) =>
+          val builder = Attributes.builder()
+          attributes.foreach((key, v) => builder.put(key, v))
+          measurement.record(value, builder.build())
+        }
+      }: Unit
+  }
 
   /** Exports once more and stops, within `timeoutMillis`. */
   def stop(timeoutMillis: Long): Unit =

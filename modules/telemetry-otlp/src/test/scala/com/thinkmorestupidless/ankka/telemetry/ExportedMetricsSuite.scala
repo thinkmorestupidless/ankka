@@ -92,6 +92,20 @@ class ExportedMetricsSuite extends munit.FunSuite with LogCapturing:
     )(_.value >= 1): Unit
   }
 
+  test(
+    "a gauge the process sets after it started is exported, with its attributes and its latest value"
+  ) {
+    // Feature 041: the control plane sets a project's backup gauges long after its exporter started.
+    val gauges = com.thinkmorestupidless.ankka.runtime.Gauges.global
+    gauges.set("ankka.test.watched", Map("ankka.project" -> "shop"), 2.5, "a test's gauge")
+    latest("ankka.test.watched", Map("ankka.project" -> "shop"))(_.value == 2.5): Unit
+    gauges.set("ankka.test.watched", Map("ankka.project" -> "shop"), 7.0)
+    val (metric, _) =
+      latest("ankka.test.watched", Map("ankka.project" -> "shop"))(_.value == 7.0)
+    assert(!metric.monotonic, "a gauge is not a counter")
+    gauges.remove("ankka.test.watched", Map("ankka.project" -> "shop"))
+  }
+
   test("the spans the window lost before they were exported are counted") {
     // 200 invocations through a window of 64, read once every 100 ms: some are lost, or none are;
     // either way the metric is there and says how many.

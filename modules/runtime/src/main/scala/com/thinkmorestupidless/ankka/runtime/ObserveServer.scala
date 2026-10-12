@@ -55,6 +55,11 @@ object ObserveServer:
     def service(): String
     def topology(): String
 
+    /** What the broker holds past a moment (feature 041), as `Divergence.json`. */
+    def divergence(since: java.time.Instant): String =
+      val _ = since
+      "[]"
+
   /**
    * Starts the listener if the configuration says to, which the Kubernetes overlay does. Returns
    * none, after logging why, when it is off or cannot start — a failure here must never take a
@@ -114,6 +119,22 @@ object ObserveServer:
     server.createContext(
       "/observability/topology",
       exchange => serve(exchange, "/observability/topology", documents.topology())
+    )
+    // Feature 041: `?since=<instant>`, what a restore to that moment could not rewind.
+    server.createContext(
+      "/observability/divergence",
+      exchange =>
+        val since = Option(exchange.getRequestURI.getQuery).toVector
+          .flatMap(_.split('&'))
+          .collectFirst { case q if q.startsWith("since=") => q.stripPrefix("since=") }
+          .flatMap(t =>
+            scala.util.Try(java.time.Instant.parse(java.net.URLDecoder.decode(t, "UTF-8"))).toOption
+          )
+        since match
+          case None =>
+            ObservabilityEndpoint.respondError(exchange, 400, "since=<an instant> is required")
+          case Some(at) =>
+            serve(exchange, "/observability/divergence", documents.divergence(at))
     )
     server.setExecutor(null)
     server.start()

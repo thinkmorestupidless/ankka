@@ -275,6 +275,19 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(plain.exposeObjectStorage, false)
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("custom hostnames are projected whole, exposed or not, and none by default") {
+    val Right(none) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(none.customHostnames, Nil)
+    val holding = service().onHostnameAdded("app.example.com").onHostnameAdded("example.com")
+    val Right(unexposed) = ServiceProjection.project(holding, config): @unchecked
+    assertEquals(unexposed.customHostnames, List("app.example.com", "example.com"))
+    assertEquals(unexposed.exposed, false)
+    val Right(exposed) = ServiceProjection.project(holding.onExposed, config): @unchecked
+    assertEquals(exposed.customHostnames, List("app.example.com", "example.com"))
+  }
+
   // Feature 039.
 
   private def asking(f: ServiceSpec => ServiceSpec = identity) =
@@ -313,9 +326,14 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
-  /** A pair whose namespace fits and whose Garage bucket name, `<project>.<service>`, does not. */
+  /**
+   * A pair whose namespace fits and whose Garage bucket name, `<project>.<service>`, does not: the
+   * longest project id there is (its backup bucket's bound), and a service name past the rest.
+   */
   private def longName(d: ServiceDescriptor) =
-    Service.empty(ServiceKey("p" * 57, "reports-archive")).onApplied(d, 1L)
+    Service
+      .empty(ServiceKey("p" * ProjectId.MaxLength, "reports-archive-monthly"))
+      .onApplied(d, 1L)
 
   test("the bucket name's limit is Garage's alone: a name the provider makes is never too long") {
     val Left(onGarage) = ServiceProjection.project(longName(asking()), config): @unchecked

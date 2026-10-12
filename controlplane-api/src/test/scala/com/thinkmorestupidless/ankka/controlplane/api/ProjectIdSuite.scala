@@ -45,5 +45,20 @@ class ProjectIdSuite extends munit.FunSuite:
 
   test("the bound leaves room for the default namespace prefix") {
     // "ankka-" + id must fit in a 63 character DNS label.
-    assertEquals("ankka-".length + ProjectId.MaxLength, 63)
+    assert("ankka-".length + ProjectId.MaxLength <= 63)
+  }
+
+  test("the bound is the project's backup bucket's, since feature 041") {
+    // platform.backups.<id> must fit in a bucket's 63 characters, and the rehearsal namespace in a label.
+    assertEquals(ProjectId.MaxLength, 46)
+    assert(ProjectId.problems("a" * 47).exists(_.contains("over the 46")))
+    assert("ankka-".length + ProjectId.MaxLength + ProjectId.RehearsalSuffix.length <= 63)
+  }
+
+  test("a project id ending in -rehearsal is refused, since it would name another's rehearsals") {
+    val problems = ProjectId.problems("shop-rehearsal")
+    assertEquals(problems.size, 1)
+    assert(problems.head.contains("-rehearsal"), problems.head)
+    assert(ProjectId.isValid("rehearsals"))
+    assert(ProjectId.isValid("rehearsal-tools"))
   }

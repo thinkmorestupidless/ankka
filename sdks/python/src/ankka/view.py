@@ -16,6 +16,7 @@ from ankka.start_from import StartFrom
 from ankka.context import Metadata
 from ankka.effects.view import DeleteRow, Ignore, UpdateRow, ViewEffect, ViewEffects
 from ankka.event_sourced_entity import RegistrationError
+from ankka.standing import Standing
 
 Src = TypeVar("Src")
 Row = TypeVar("Row")
@@ -32,16 +33,25 @@ class DeclaredQuery:
 
     name: str
     statement: str
+    watched: bool = False
 
 
-def query(name: str, statement: str) -> DeclaredQuery:
-    """Declares a query a view can be asked by ``name``; keep it as a class attribute of the view."""
-    return DeclaredQuery(name, statement)
+def query(name: str, statement: str, *, watched: bool = False) -> DeclaredQuery:
+    """Declares a query a view can be asked by ``name``; keep it as a class attribute of the view.
+    ``watched=True`` declares that it may also be watched: its statement then selects ``row_key``
+    beside ``payload``, has no limit and does not aggregate, which the platform checks at start."""
+    return DeclaredQuery(name, statement, watched)
 
 
 def table_of(component_id: str) -> str:
     """The table holding a view's rows, for a declared query's statement to name."""
     return "ankka_view_" + "".join(c if c.isalnum() else "_" for c in component_id)
+
+
+def declares_watched(cls: type) -> bool:
+    """Whether ``cls`` declares a query that may be watched, which a sidecar older than 1.17 would
+    not know."""
+    return any(q.watched for q in getattr(cls, "_declared_queries", ()))
 
 
 def declares_queries(cls: type) -> bool:
@@ -80,6 +90,9 @@ class View(Generic[Src, Row]):
     contract: ClassVar[Contract | None] = None
     broker: ClassVar[str | None] = None
     parallel: ClassVar[bool] = False
+    # Another project's topic (1.15): the id of the project whose topic `topic` is. The broker
+    # serves it while that project grants this service consume on it.
+    project: ClassVar[str | None] = None
     event_codec: ClassVar[Codec[Any]]
     row_codec: ClassVar[Codec[Any]]
     queries: ClassVar[tuple[str, ...]] = ("get", "all")
@@ -105,10 +118,17 @@ class View(Generic[Src, Row]):
         self.effects: ViewEffects[Row] = ViewEffects()
         self._row: Row | None = None
         self._metadata: Metadata = Metadata()
+        self._standing: Standing | None = None
 
     @property
     def row(self) -> Row | None:
         return self._row
+
+    @property
+    def standing(self) -> Standing | None:
+        """Of a change from a workflow: where it stood once the effect that recorded the state was
+        applied. None for a change from an entity or a topic."""
+        return self._standing
 
     @property
     def metadata(self) -> Metadata:
@@ -134,15 +154,19 @@ class View(Generic[Src, Row]):
                 queries=list(cls.queries),
                 version=cls.version,
                 declared_queries=[
-                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement) for q in cls._declared_queries
+                    discovery_pb2.DeclaredQuery(name=q.name, statement=q.statement, watched=q.watched)
+                    for q in cls._declared_queries
                 ],
             ),
         )
 
-    async def _handle(self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata) -> ViewEffect:
+    async def _handle(
+        self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata, standing: Standing | None = None
+    ) -> ViewEffect:
         """``event_bytes`` is None when the source was deleted."""
         self._row = self.row_codec.decode(row_bytes) if row_bytes is not None else None
         self._metadata = metadata
+        self._standing = standing
         try:
             result = self.on_delete() if event_bytes is None else self.on_change(self.event_codec.decode(event_bytes))
             if isinstance(result, Awaitable):

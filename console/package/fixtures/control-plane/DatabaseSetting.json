@@ -1,0 +1,1 @@
+{"type":"DatabaseSetting","json":{"replicas":2,"synchronous":true,"retentionDays":45,"rehearse":"weekly"}}

@@ -1,11 +1,14 @@
 package com.thinkmorestupidless.ankka.runtime.remote
 
+import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
+import com.thinkmorestupidless.ankka.runtime.{ChangeReader, SourceChange}
 import com.thinkmorestupidless.ankka.core.effect.ViewEffect
 import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata, Serializer}
 import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
   EntityViewGuard,
   Database,
+  HistoryLines,
   IncomingMessage,
   JournalRecord,
   MessagePublisher,
@@ -123,7 +126,8 @@ private[ankka] final class RemoteView(
       sequence: Long,
       change: Option[Payload],
       row: Option[Array[Byte]],
-      parent: Option[TraceContext] = None
+      parent: Option[TraceContext] = None,
+      standing: Option[WorkflowLifecycle] = None
   ): Future[ViewOutcome] =
     // A change from a journal is a trace's root, as for a Scala view; a message from a topic
     // continues the trace it carries.
@@ -137,7 +141,8 @@ private[ankka] final class RemoteView(
             Trace.into(changeMetadata(subject, sequence), span.context),
             CallOrigin(descriptor.componentId.toString, "on-change")
           ),
-          row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes))
+          row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes)),
+          standing = standing
         )
       )
       .transform { result =>
@@ -192,7 +197,8 @@ private[ankka] final class RemoteKeyedView(
   def handle(source: ComponentId)(
       subject: String,
       sequence: Long,
-      change: Option[(Array[Byte], String)]
+      change: Option[Payload],
+      standing: Option[WorkflowLifecycle]
   ): Future[Vector[(String, Option[String])]] =
     val handler = source.toString
     val span = observability.recorder.begin(
@@ -205,15 +211,14 @@ private[ankka] final class RemoteKeyedView(
       .handleView(
         ViewRequest(
           descriptor.componentId,
-          change.map((bytes, manifest) =>
-            Payload(Payload.contentTypeFor(manifest), manifest, bytes)
-          ),
+          change,
           CallOrigin.into(
             Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
             CallOrigin(descriptor.componentId.toString, handler)
           ),
           None,
-          Some(source)
+          Some(source),
+          standing
         )
       )
       .transform { result =>
@@ -234,26 +239,33 @@ private[ankka] final class RemoteKeyedView(
       }
 
 /** Exactly-once over an event sourced entity: the row and the offset in one transaction. */
-private[ankka] final class RemoteViewEventHandler(view: RemoteView, guard: EntityViewGuard)(using
+private[ankka] final class RemoteViewEventHandler[A](
+    view: RemoteView,
+    guard: EntityViewGuard,
+    reader: ChangeReader[A]
+)(using
     ec: ExecutionContext
-) extends R2dbcHandler[EventEnvelope[JournalRecord]]:
+) extends R2dbcHandler[EventEnvelope[A]]:
   import RemoteProjection.*
 
-  def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
-    record.kind match
-      // A TTL being set is a storage fact, not a domain change — nothing to project.
-      case JournalRecord.KindExpiry => Future.successful(Done)
-      case kind =>
-        val change = if kind == JournalRecord.KindDomain then Some(payloadOf(record)) else None
+    reader.read(envelope.event) match
+      // A TTL being set, or a workflow record that holds no state: nothing to project.
+      case SourceChange.Skip => Future.successful(Done)
+      case read =>
+        val change = read match
+          case SourceChange.Changed(payload, _) => Some(payload)
+          case _                                => None
+        val standing = ProjectionSupport.standingOf(read)
         guard
           .inSession(session)
           .flatMap(_ => ProjectionSupport.loadRow(session, view.table, subject, Serializer.bytes))
           .flatMap { row =>
-            view.decide(subject, envelope.sequenceNr, change, row).flatMap { outcome =>
-              ProjectionSupport
-                .applyView(session, view.table, subject, toEffect(outcome), Serializer.bytes)
+            view.decide(subject, envelope.sequenceNr, change, row, None, standing).flatMap {
+              outcome =>
+                ProjectionSupport
+                  .applyView(session, view.table, subject, toEffect(outcome), Serializer.bytes)
             }
           }
 
@@ -342,7 +354,9 @@ private[ankka] final class RemoteConsumer(
       subject: String,
       sequence: Long,
       change: Option[Payload],
-      parent: Option[TraceContext] = None
+      parent: Option[TraceContext] = None,
+      eventId: Option[String] = None,
+      standing: Option[WorkflowLifecycle] = None
   ): Future[Done] =
     val span    = RemoteProjection.begin(observability, componentRef, handlerRef, parent)
     val context = Some(span.context)
@@ -354,7 +368,8 @@ private[ankka] final class RemoteConsumer(
           CallOrigin.into(
             Trace.into(consumerMetadata(subject, sequence), span.context),
             CallOrigin(descriptor.componentId.toString, "on-message")
-          )
+          ),
+          standing
         )
       )
       .transform { result =>
@@ -383,12 +398,13 @@ private[ankka] final class RemoteConsumer(
                 subject,
                 topic,
                 target,
-                messages.map(m =>
+                messages.zipWithIndex.map((m, index) =>
                   ProjectionSupport.Encoded(
                     m.payload.data,
                     ProjectionSupport.stamped(
                       ProjectionSupport.typed(
-                        m.metadata
+                        ProjectionSupport
+                          .withEventId(m.metadata, eventId, Some(index))
                           .set(PayloadKeys.Manifest, m.payload.manifest)
                           .set(PayloadKeys.ContentType, m.payload.contentType),
                         descriptor.publication.flatMap(_.contract)
@@ -413,7 +429,12 @@ private[ankka] final class RemoteConsumer(
               // the hop onto a partition; the manifest travels so a topic-sourced remote
               // component can decode what it gets.
               val enriched = ProjectionSupport.typed(
-                (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
+                ProjectionSupport
+                  .withEventId(
+                    if metadata.subject.isDefined then metadata else metadata.withSubject(subject),
+                    eventId,
+                    None
+                  )
                   .set(PayloadKeys.Manifest, payload.manifest)
                   .set(PayloadKeys.ContentType, payload.contentType),
                 descriptor.publication.flatMap(_.contract)
@@ -430,33 +451,48 @@ private[ankka] final class RemoteConsumer(
         case ConsumerOutcome.Done | ConsumerOutcome.Ignore => Future.successful(Done)
       }
 
-private[ankka] final class RemoteConsumerEventHandler(consumer: RemoteConsumer)
-    extends Handler[EventEnvelope[JournalRecord]]:
-  import RemoteProjection.*
+private[ankka] final class RemoteConsumerEventHandler[A](
+    consumer: RemoteConsumer,
+    lines: HistoryLines,
+    reader: ChangeReader[A]
+) extends Handler[EventEnvelope[A]]:
 
-  def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
-    record.kind match
-      case JournalRecord.KindDomain =>
-        consumer.handle(subject, envelope.sequenceNr, Some(payloadOf(record)))
-      case JournalRecord.KindDeleted => consumer.handle(subject, envelope.sequenceNr, None)
-      case _                         => Future.successful(Done)
+    val eventId = lines
+      .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
+      .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
+    reader.read(envelope.event) match
+      case SourceChange.Changed(payload, standing) =>
+        consumer.handle(subject, envelope.sequenceNr, Some(payload), None, eventId, standing)
+      case SourceChange.Deleted =>
+        consumer.handle(subject, envelope.sequenceNr, None, eventId = eventId)
+      case SourceChange.Skip => Future.successful(Done)
 
-private[ankka] final class RemoteConsumerStateHandler(consumer: RemoteConsumer)
-    extends Handler[DurableStateChange[StateRecord]]:
+private[ankka] final class RemoteConsumerStateHandler(
+    consumer: RemoteConsumer,
+    lines: HistoryLines
+) extends Handler[DurableStateChange[StateRecord]]:
   import RemoteProjection.*
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
+    def eventId(revision: Long) = lines
+      .lineOf(HistoryLines.writtenAt(change))
+      .map(HistoryLines.messageId(_, change.persistenceId, revision))
     change match
       // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
       case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-        consumer.handle(subject, updated.revision, None)
+        consumer.handle(subject, updated.revision, None, eventId = eventId(updated.revision))
       case updated: UpdatedDurableState[StateRecord] =>
-        consumer.handle(subject, updated.revision, Some(payloadOf(updated.value)))
+        consumer.handle(
+          subject,
+          updated.revision,
+          Some(payloadOf(updated.value)),
+          eventId = eventId(updated.revision)
+        )
       case deleted: DeletedDurableState[StateRecord] =>
-        consumer.handle(subject, deleted.revision, None)
+        consumer.handle(subject, deleted.revision, None, eventId = eventId(deleted.revision))
 
 private[ankka] final class RemoteConsumerTopicHandler(consumer: RemoteConsumer):
 

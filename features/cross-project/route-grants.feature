@@ -78,4 +78,4 @@ Feature: Granting a route to a service of another project
     When a member applies the descriptor of "wallet" again
     Then within "120" seconds the grant is in effect
     And "merchant" is served that route
-    And "wallet" is no longer among the services the operator reports as needing to be applied again
+    And the status of "wallet" says its grants are mounted

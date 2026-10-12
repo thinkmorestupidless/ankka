@@ -74,10 +74,15 @@ export const installationSecretsSchema = z.object({
 });
 export type InstallationSecrets = z.infer<typeof installationSecretsSchema>;
 
-/** `GET /installation`: the platform's version, its cloud when it names a provider, and its secrets. */
+/**
+ * `GET /installation`: the platform's version, and its cloud when it names a provider; and its
+ * backups (feature 041); and where it keeps its secrets (feature 038).
+ */
 export const installationSchema = z.object({
   platformVersion: z.string(),
   cloud: optional(cloudInstallationSchema),
+  // Lazily: its schema is with the other backup schemas, below.
+  backups: optional(z.lazy(() => installationStatusSchema)),
   secrets: optional(installationSecretsSchema),
 });
 export type Installation = z.infer<typeof installationSchema>;
@@ -169,6 +174,24 @@ export const secretStoreReportSchema = z.object({
 });
 export type SecretStoreReport = z.infer<typeof secretStoreReportSchema>;
 
+/** A DNS record a member creates at their provider; the platform writes none. */
+export const dnsRecordSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  value: z.string(),
+});
+export type DnsRecord = z.infer<typeof dnsRecordSchema>;
+
+/** One custom hostname of a service: where it stands, and the record that points it at the installation. */
+export const customHostnameSchema = z.object({
+  hostname: z.string(),
+  state: z.string().default("pending"),
+  reason: optional(z.string()),
+  record: optional(dnsRecordSchema),
+  note: optional(z.string()),
+});
+export type CustomHostname = z.infer<typeof customHostnameSchema>;
+
 export const serviceStatusSchema = z.object({
   name: z.string(),
   projectId: z.string(),
@@ -198,6 +221,8 @@ export const serviceStatusSchema = z.object({
   topicChecks: optional(z.array(z.lazy(() => topicCheckSchema))),
   /** Each topic source of the service with how far behind it is, from its instances; absent when not read. */
   topicSources: optional(z.array(z.lazy(() => topicSourceReportSchema))),
+  /** What a member should know and need not act on, worked out from the project's declarations now. */
+  warnings: optional(z.array(z.lazy(() => serviceWarningSchema))),
   objectStorage: optional(z.string()),
   bucket: optional(z.string()),
   bucketAddress: optional(z.string()),
@@ -209,6 +234,16 @@ export const serviceStatusSchema = z.object({
   softDeleteDays: optional(z.number().int()),
   /** Where a move of the bucket from Garage is, as a phrase; its detail is in `detail`. */
   storageMove: optional(z.string()),
+  /** The project database cluster the service is on, when a member switched it to a restore. */
+  databaseCluster: optional(z.string()),
+  /** `mounted` when the service's instances read their project's grants (feature 040). */
+  grants: optional(z.string()),
+  /** Each other project's topic the service uses, and whether that project grants it; absent when not read. */
+  crossProjectTopics: optional(z.array(z.lazy(() => crossProjectTopicSchema))),
+  /** Names under domains the project's owner brings, served beside the derived hostname. */
+  customHostnames: z.array(customHostnameSchema).default([]),
+  /** The TXT record that proves the project controls a name it brings; on a read of one service. */
+  proofRecord: optional(dnsRecordSchema),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -219,6 +254,14 @@ export type StorageMoveRequest = z.infer<typeof storageMoveRequestSchema>;
 /** `PUT /projects/{id}/location`. */
 export const setProjectLocationSchema = z.object({ location: z.string() });
 export type SetProjectLocation = z.infer<typeof setProjectLocationSchema>;
+
+export const crossProjectTopicSchema = z.object({
+  project: z.string(),
+  topic: z.string(),
+  right: z.string(),
+  status: z.string(),
+});
+export type CrossProjectTopic = z.infer<typeof crossProjectTopicSchema>;
 
 export const historyActorSchema = z.object({
   subject: z.string(),
@@ -235,8 +278,12 @@ export const historyEntrySchema = z.object({
   /** On an entry that recorded a descriptor: its image, and a digest two such entries share exactly when the descriptors are the same. */
   image: optional(z.string()),
   digest: optional(z.string()),
+  /** On a custom hostname's entry: the name it added or removed. */
+  hostname: optional(z.string()),
   /** On a rollback: the generation whose descriptor was applied again. */
   rolledBackTo: optional(z.number().int()),
+  /** What else the entry says: for a switch, which cluster the service left and which it is on. */
+  detail: optional(z.string()),
 });
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 
@@ -456,14 +503,41 @@ export type TopicCheck = z.infer<typeof topicCheckSchema>;
 
 /**
  * `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has, whether the broker keeps
- * only the last message under each key, and the contract it carries with its schema document.
+ * only the last message under each key, and the contract it carries with its schema document; and
+ * how long it keeps, how it is cleaned and how many copies it has, each in the words a member types.
+ * A new topic needs its partitions and takes every setting left out from the installation; a topic
+ * already declared keeps what is left out. `removes` restates what a change that removes messages
+ * removes, in the control plane's own words.
  */
 export const topicDeclarationRequestSchema = z.object({
-  partitions: z.number().int(),
+  partitions: optional(z.number().int()),
   compacted: z.boolean().default(false),
   contract: optional(z.object({ name: z.string(), schema: z.unknown() })),
+  retention: optional(z.string()),
+  retentionSize: optional(z.string()),
+  cleanup: optional(z.string()),
+  tombstoneWindow: optional(z.string()),
+  minCompactionLag: optional(z.string()),
+  maxCompactionLag: optional(z.string()),
+  copies: optional(z.number().int()),
+  minInSync: optional(z.number().int()),
+  removes: optional(z.string()),
 });
 export type TopicDeclarationRequest = z.input<typeof topicDeclarationRequestSchema>;
+
+/** A declared topic's every setting in words, and the ones the installation supplied. */
+export const topicSettingsViewSchema = z.object({
+  retention: z.string(),
+  retentionSize: z.string(),
+  cleanup: z.string(),
+  tombstoneWindow: z.string(),
+  minCompactionLag: z.string(),
+  maxCompactionLag: z.string(),
+  copies: optional(z.number().int()),
+  minInSync: optional(z.number().int()),
+  defaulted: z.array(z.string()).default([]),
+});
+export type TopicSettingsView = z.infer<typeof topicSettingsViewSchema>;
 
 /** A topic a project declares, and how far the platform has got with it. */
 export const projectTopicSchema = z.object({
@@ -474,8 +548,47 @@ export const projectTopicSchema = z.object({
   compacted: z.boolean().default(false),
   contract: optional(contractSchema),
   checks: z.array(topicCheckSchema).default([]),
+  settings: optional(topicSettingsViewSchema),
+  /** How many copies the broker holds, as the operator last saw. */
+  copiesHeld: optional(z.number().int()),
+  /** How many broker nodes the installation's broker has. */
+  brokerNodes: optional(z.number().int()),
 });
 export type ProjectTopic = z.infer<typeof projectTopicSchema>;
+
+/** One setting a declaration changed, from what to what. */
+export const settingChangeSchema = z.object({
+  setting: z.string(),
+  from: z.string(),
+  to: z.string(),
+});
+export type SettingChange = z.infer<typeof settingChangeSchema>;
+
+/** Where a partition begins on the broker, and when that message was published. */
+export const partitionGapReportSchema = z.object({
+  partition: z.number().int(),
+  beginning: z.number().int(),
+  earliestRetained: optional(z.string()),
+});
+export type PartitionGapReport = z.infer<typeof partitionGapReportSchema>;
+
+/** What a topic source's topic no longer holds, per partition, and whether earlier messages are gone. */
+export const retentionGapReportSchema = z.object({
+  partitions: z.array(partitionGapReportSchema),
+  compacted: z.boolean().default(false),
+  gone: z.boolean().default(false),
+  readAt: optional(z.string()),
+});
+export type RetentionGapReport = z.infer<typeof retentionGapReportSchema>;
+
+/** Something about a service a member should know: a view over a topic that keeps too little. */
+export const serviceWarningSchema = z.object({
+  kind: z.string(),
+  component: z.string(),
+  topic: z.string(),
+  message: z.string(),
+});
+export type ServiceWarning = z.infer<typeof serviceWarningSchema>;
 
 /**
  * A topic source as a service's instances report it: what reads which topic under which group, the
@@ -495,6 +608,8 @@ export const topicSourceReportSchema = z.object({
   contract: optional(z.string()),
   lag: optional(z.number().int()),
   failing: optional(z.string()),
+  /** What the broker still holds of the topic, per partition. */
+  gap: optional(retentionGapReportSchema),
 });
 export type TopicSourceReport = z.infer<typeof topicSourceReportSchema>;
 
@@ -547,6 +662,299 @@ export type ReadRecord = z.infer<typeof readRecordSchema>;
 export const secretReadsPageSchema = z.object({ records: z.array(readRecordSchema).default([]) });
 export type SecretReadsPage = z.infer<typeof secretReadsPageSchema>;
 
+// ── Backups and recovery (feature 041) ──────────────────────────────────────
+
+/** One line of history's backups: `phase` is `backing up`, `failing` or `not backed up`. */
+export const backupLineSchema = z.object({
+  line: z.string(),
+  cluster: z.string(),
+  phase: z.string(),
+  lastBaseBackup: optional(z.string()),
+  firstRestorable: optional(z.string()),
+  lastRestorable: optional(z.string()),
+  archiveLagSeconds: optional(z.number()),
+  failing: optional(z.string()),
+  copiedAt: optional(z.string()),
+});
+export type BackupLine = z.infer<typeof backupLineSchema>;
+
+export const projectDatabaseSchema = z.object({
+  cluster: z.string(),
+  instances: z.number().int(),
+  readyInstances: z.number().int(),
+  primary: optional(z.string()),
+  synchronous: z.boolean().default(false),
+  writesWaitingOn: optional(z.string()),
+});
+export type ProjectDatabase = z.infer<typeof projectDatabaseSchema>;
+
+/** One of the project's database clusters: `live`, a `restore`, or `left` once every service has left it. */
+export const projectClusterSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  phase: z.string(),
+  services: z.array(z.string()).default([]),
+  since: optional(z.string()),
+  leftAt: optional(z.string()),
+});
+export type ProjectCluster = z.infer<typeof projectClusterSchema>;
+
+/** What one service's database holds in a restore or a rehearsal; secrets by name only. */
+export const serviceVerificationSchema = z.object({
+  name: z.string(),
+  present: z.boolean(),
+  journalRows: z.number().int().default(0),
+  stateRows: z.number().int().default(0),
+  offsetRows: z.number().int().default(0),
+  timerRows: z.number().int().default(0),
+  highestSequence: z.number().int().default(0),
+  changedSecrets: z.array(z.string()).default([]),
+});
+export type ServiceVerification = z.infer<typeof serviceVerificationSchema>;
+
+/** A topic past a restore's moment: messages newer than it, and how many of them a group has read. */
+export const topicDivergenceSchema = z.object({
+  topic: z.string(),
+  group: optional(z.string()),
+  after: z.number().int().default(0),
+  read: optional(z.number().int()),
+  services: z.array(z.string()).default([]),
+});
+export type TopicDivergence = z.infer<typeof topicDivergenceSchema>;
+
+/** A restore: `Restoring`, `Verified`, `Failed` or `InUse`, with what each service's database holds. */
+export const restoreViewSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  moment: z.string(),
+  phase: z.string(),
+  requestedBy: optional(z.string()),
+  requestedAt: optional(z.string()),
+  reachedAt: optional(z.string()),
+  services: z.array(serviceVerificationSchema).default([]),
+  detail: optional(z.string()),
+  broker: z.array(topicDivergenceSchema).default([]),
+  notAsked: z.array(z.string()).default([]),
+  note: optional(z.string()),
+});
+export type RestoreView = z.infer<typeof restoreViewSchema>;
+
+/** A rehearsal: `Running`, `Completed`, `Failed` or `NotRemoved`, and how long it took. */
+export const rehearsalViewSchema = z.object({
+  name: z.string(),
+  line: z.string(),
+  moment: z.string(),
+  outcome: z.string(),
+  requestedBy: optional(z.string()),
+  requestedAt: optional(z.string()),
+  elapsedSeconds: optional(z.number().int()),
+  detail: optional(z.string()),
+  services: z.array(serviceVerificationSchema).default([]),
+});
+export type RehearsalView = z.infer<typeof rehearsalViewSchema>;
+
+export const projectStatusSchema = z.object({
+  id: z.string(),
+  backedUp: z.boolean(),
+  target: z.string(),
+  lines: z.array(backupLineSchema).default([]),
+  database: optional(projectDatabaseSchema),
+  detail: optional(z.string()),
+  clusters: z.array(projectClusterSchema).default([]),
+  restores: z.array(restoreViewSchema).default([]),
+  rehearsal: optional(rehearsalViewSchema),
+});
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+
+export const secondaryStoreSchema = z.object({
+  lastCompleted: optional(z.string()),
+  lastFailed: optional(z.string()),
+  failure: optional(z.string()),
+  buckets: optional(z.number().int()),
+  deletedObjects: optional(z.number().int()),
+});
+export type SecondaryStore = z.infer<typeof secondaryStoreSchema>;
+
+export const installationStatusSchema = z.object({
+  backupTarget: z.string(),
+  retentionDays: z.number().int(),
+  copyRequired: z.boolean(),
+  sharesFailureDomain: z.boolean(),
+  encryption: z.string(),
+  controlPlane: optional(backupLineSchema),
+  notBackedUp: optional(z.string()),
+  secondaryStore: optional(secondaryStoreSchema),
+});
+export type InstallationStatus = z.infer<typeof installationStatusSchema>;
+
+export const serviceDifferenceSchema = z.object({
+  project: z.string(),
+  service: z.string(),
+  recordedGeneration: optional(z.number().int()),
+  clusterGeneration: optional(z.number().int()),
+  recordedImage: optional(z.string()),
+  clusterImage: optional(z.string()),
+});
+export type ServiceDifference = z.infer<typeof serviceDifferenceSchema>;
+
+/** Whether the control plane is held after its own database was restored, and what differs. */
+export const restoreHoldStatusSchema = z.object({
+  held: z.boolean(),
+  restoredAt: optional(z.string()),
+  targetTime: optional(z.string()),
+  releasedAt: optional(z.string()),
+  releasedBy: optional(z.string()),
+  services: z.array(serviceDifferenceSchema).default([]),
+  topics: z.array(z.string()).default([]),
+  unknownProjects: z.array(z.string()).default([]),
+  reconciled: z.array(z.string()).default([]),
+});
+export type RestoreHoldStatus = z.infer<typeof restoreHoldStatusSchema>;
+
+/** `POST /projects/{id}/restores`: the moment, and the line when services are on more than one. */
+export const restoreRequestSchema = z.object({ moment: z.string(), line: optional(z.string()) });
+export type RestoreRequest = z.input<typeof restoreRequestSchema>;
+
+/** `POST /services/{p}/{n}/switch`: the cluster to move the service to. */
+export const switchRequestSchema = z.object({ cluster: z.string() });
+export type SwitchRequest = z.input<typeof switchRequestSchema>;
+
+/** `POST /projects/{id}/rehearsals`: both may be left out, for the latest restorable moment. */
+export const rehearsalRequestSchema = z.object({ moment: optional(z.string()), line: optional(z.string()) });
+export type RehearsalRequest = z.input<typeof rehearsalRequestSchema>;
+
+export const credentialReissuedSchema = z.object({ project: z.string(), generation: z.number().int() });
+export type CredentialReissued = z.infer<typeof credentialReissuedSchema>;
+
+/** What a project asks of its database, whole. */
+export const databaseSettingSchema = z.object({
+  replicas: z.number().int().default(0),
+  synchronous: z.boolean().default(false),
+  retentionDays: optional(z.number().int()),
+  rehearse: optional(z.string()),
+});
+export type DatabaseSetting = z.infer<typeof databaseSettingSchema>;
+
+/**
+ * Who did what to a project: to its database, or to the topic `topic` names, with each setting it
+ * changed (feature 043).
+ */
+export const projectHistoryViewSchema = z.object({
+  kind: z.string(),
+  by: optional(z.string()),
+  at: optional(z.string()),
+  detail: optional(z.string()),
+  topic: optional(z.string()),
+  changes: z.array(settingChangeSchema).default([]),
+});
+export type ProjectHistoryView = z.infer<typeof projectHistoryViewSchema>;
+
+// ── Grants and machines (feature 040) ───────────────────────────────────────
+
+/** What a grant opens: one route, one gRPC method, one topic with one right, or the erasure. */
+export const grantTargetSchema = z.object({
+  kind: z.string(),
+  service: optional(z.string()),
+  method: optional(z.string()),
+  path: optional(z.string()),
+  topic: optional(z.string()),
+  right: optional(z.string()),
+  decrypt: z.boolean().default(false),
+});
+export type GrantTarget = z.infer<typeof grantTargetSchema>;
+
+/** Who did something to a grant, and when. */
+export const grantActSchema = z.object({
+  by: optional(z.string()),
+  at: optional(z.string()),
+});
+export type GrantAct = z.infer<typeof grantActSchema>;
+
+export const grantRequestSchema = z.object({
+  grantee: z.string(),
+  target: grantTargetSchema,
+});
+export type GrantRequest = z.infer<typeof grantRequestSchema>;
+
+/** A grant as its project lists it; `effect` is `in effect`, or why not. */
+export const grantDetailSchema = z.object({
+  id: z.string(),
+  grantee: z.string(),
+  target: grantTargetSchema,
+  state: z.string(),
+  effect: z.string(),
+  granted: grantActSchema,
+  answered: optional(grantActSchema),
+  ended: optional(grantActSchema),
+});
+export type GrantDetail = z.infer<typeof grantDetailSchema>;
+
+export const grantChangeRecordSchema = z.object({
+  change: z.string(),
+  by: optional(z.string()),
+  at: optional(z.string()),
+});
+
+export const topicSettingsSchema = z.object({
+  partitions: z.number().int(),
+  compacted: z.boolean().default(false),
+  retention: optional(z.string()),
+  copies: optional(z.number().int()),
+});
+
+/** A grant as its grantee's side records it. */
+export const receivedGrantDetailSchema = z.object({
+  id: z.string(),
+  grantingProject: z.string(),
+  grantingOrganization: z.string(),
+  grantee: z.string(),
+  target: grantTargetSchema,
+  state: z.string(),
+  changes: z.array(grantChangeRecordSchema).default([]),
+  topic: optional(topicSettingsSchema),
+});
+export type ReceivedGrantDetail = z.infer<typeof receivedGrantDetailSchema>;
+
+export const machineRegistrationSchema = z.object({ name: z.string() });
+
+/** A machine just registered: its secret, shown this once. */
+export const machineRegisteredSchema = z.object({
+  name: z.string(),
+  clientId: z.string(),
+  clientSecret: z.string(),
+  tokenUrl: z.string(),
+  brokerBootstrap: optional(z.string()),
+});
+export type MachineRegistered = z.infer<typeof machineRegisteredSchema>;
+
+export const byteRatesRequestSchema = z.object({
+  produceBytesPerSecond: z.number().int(),
+  consumeBytesPerSecond: z.number().int(),
+  requestPercentage: z.number().int(),
+});
+export type ByteRatesRequest = z.infer<typeof byteRatesRequestSchema>;
+
+export const machineSummarySchema = z.object({
+  name: z.string(),
+  clientId: z.string(),
+  registeredBy: optional(z.string()),
+  registeredAt: optional(z.string()),
+  byteRates: optional(byteRatesRequestSchema),
+});
+export type MachineSummary = z.infer<typeof machineSummarySchema>;
+
+export const tokenResponseSchema = z.object({
+  access_token: z.string(),
+  token_type: z.string(),
+  expires_in: z.number().int(),
+});
+
+export const jsonWebKeySetSchema = z.object({
+  keys: z.array(
+    z.object({ kty: z.string(), use: z.string(), alg: z.string(), kid: z.string(), n: z.string(), e: z.string() }),
+  ),
+});
+
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -596,4 +1004,24 @@ export const schemasByType: Record<string, z.ZodType> = {
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,
   SecretReadsPage: secretReadsPageSchema,
+  ProjectStatus: projectStatusSchema,
+  InstallationStatus: installationStatusSchema,
+  RestoreRequest: restoreRequestSchema,
+  RestoreView: restoreViewSchema,
+  SwitchRequest: switchRequestSchema,
+  ProjectHistoryView: projectHistoryViewSchema,
+  DatabaseSetting: databaseSettingSchema,
+  RehearsalRequest: rehearsalRequestSchema,
+  RehearsalView: rehearsalViewSchema,
+  RestoreHoldStatus: restoreHoldStatusSchema,
+  CredentialReissued: credentialReissuedSchema,
+  GrantRequest: grantRequestSchema,
+  GrantDetail: grantDetailSchema,
+  ReceivedGrantDetail: receivedGrantDetailSchema,
+  MachineRegistration: machineRegistrationSchema,
+  MachineRegistered: machineRegisteredSchema,
+  MachineSummary: machineSummarySchema,
+  ByteRatesRequest: byteRatesRequestSchema,
+  TokenResponse: tokenResponseSchema,
+  JsonWebKeySet: jsonWebKeySetSchema,
 };

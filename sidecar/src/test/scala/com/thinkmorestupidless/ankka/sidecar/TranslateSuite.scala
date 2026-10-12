@@ -102,3 +102,74 @@ class TranslateSuite extends munit.FunSuite:
         )
       case other => fail(s"expected rows, got $other")
   }
+
+  // ── A workflow's standing (protocol 1.16) ─────────────────────────────────
+
+  private val standing = com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle(
+    "Paused",
+    Some("charge"),
+    Map("reserve" -> 2),
+    None
+  )
+
+  private val change = com.thinkmorestupidless.ankka.runtime.remote.Payload(
+    "application/json",
+    "checkout",
+    """{"id":"c1"}""".getBytes("UTF-8")
+  )
+
+  test("a view's request from a workflow carries its standing, and it reads back the same") {
+    val request = Translate.toViewRequest(
+      com.thinkmorestupidless.ankka.runtime.remote.ViewRequest(
+        com.thinkmorestupidless.ankka.core.ComponentId("checkouts"),
+        Some(change),
+        com.thinkmorestupidless.ankka.core.Metadata.empty,
+        None,
+        standing = Some(standing)
+      )
+    )
+    val wire = ankka.protocol.v1.view.ViewRequest.parseFrom(request.toByteArray)
+    assertEquals(wire.standing.map(Translate.fromStanding), Some(standing))
+  }
+
+  test(
+    "a consumer's request from a workflow carries its standing, and an Unknown one as the word"
+  ) {
+    val unknown = com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle.unknown
+    val request = Translate.toConsumerRequest(
+      com.thinkmorestupidless.ankka.runtime.remote.ConsumerRequest(
+        com.thinkmorestupidless.ankka.core.ComponentId("ends"),
+        Some(change),
+        com.thinkmorestupidless.ankka.core.Metadata.empty,
+        Some(unknown)
+      )
+    )
+    val wire = ankka.protocol.v1.consumer.ConsumerRequest.parseFrom(request.toByteArray)
+    assertEquals(wire.standing.map(_.status), Some("Unknown"))
+    assertEquals(wire.standing.map(Translate.fromStanding), Some(unknown))
+  }
+
+  test("a request from an entity carries no standing") {
+    val request = Translate.toConsumerRequest(
+      com.thinkmorestupidless.ankka.runtime.remote.ConsumerRequest(
+        com.thinkmorestupidless.ankka.core.ComponentId("ends"),
+        Some(change),
+        com.thinkmorestupidless.ankka.core.Metadata.empty
+      )
+    )
+    assertEquals(request.standing, None)
+  }
+
+  test("a failed workflow's code and details cross both ways") {
+    import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+    assertEquals(Translate.toCode(ErrorCode.WorkflowFailed), pb.ErrorCode.WORKFLOW_FAILED)
+    assertEquals(Translate.fromCode(pb.ErrorCode.WORKFLOW_FAILED), ErrorCode.WorkflowFailed)
+    val wire =
+      pb.Error("it failed", pb.ErrorCode.WORKFLOW_FAILED, Map("step" -> "boil", "reason" -> "dry"))
+    assertEquals(
+      Translate.fromError(pb.Error.parseFrom(wire.toByteArray)),
+      CommandError("it failed", ErrorCode.WorkflowFailed, Map("step" -> "boil", "reason" -> "dry"))
+    )
+    // Every code there is crosses and comes back as itself.
+    ErrorCode.values.foreach(code => assertEquals(Translate.fromCode(Translate.toCode(code)), code))
+  }

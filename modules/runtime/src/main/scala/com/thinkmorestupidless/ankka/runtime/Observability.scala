@@ -126,11 +126,12 @@ final class Observability(
       callee: String,
       handler: String,
       outcome: SpanOutcome,
-      durationNanos: Long
+      durationNanos: Long,
+      streaming: Boolean = false
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
       keyOf(believed(origin), callee, handler)
-        .foreach(calls.handled(_, outcome, durationNanos, false, System.currentTimeMillis()))
+        .foreach(calls.handled(_, outcome, durationNanos, streaming, System.currentTimeMillis()))
 
   /** As `made`, for a call that got no answer: another service that timed out or was not there. */
   private[ankka] def madeUnanswered(
@@ -290,6 +291,10 @@ object Observability extends ExtensionId[Observability]:
   private[ankka] def outcomeOf(reply: EntityProtocol.Reply): SpanOutcome = reply match
     case _: EntityProtocol.Succeeded       => SpanOutcome.Ok
     case rejected: EntityProtocol.Rejected => outcomeOf(rejected.toCommandError)
+    // A wait answered with its workflow's end, a failure included, did what it was asked.
+    case _: EntityProtocol.WorkflowFailed => SpanOutcome.Ok
+    // Not an end at all: the wait goes on.
+    case _: EntityProtocol.NotYet => SpanOutcome.Ok
 
   private[ankka] def outcomeOf(
       error: com.thinkmorestupidless.ankka.core.CommandError

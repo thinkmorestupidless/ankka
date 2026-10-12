@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata}
+import com.fasterxml.jackson.annotation.JsonInclude
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata, WorkflowEnd}
 import org.apache.pekko.actor.typed.ActorRef
 
 /**
@@ -69,6 +70,11 @@ object EntityProtocol:
   private[ankka] case object PauseTimedOut extends Command
 
   /**
+   * A wait for a workflow's end has held its ask as long as it may; the waiter is told "not yet".
+   */
+  private[ankka] final case class WaiterHeld(key: Long) extends Command
+
+  /**
    * Extension point for ankka modules that host their own sharded component kinds.
    *
    * Note the cost: because this sub-trait is not sealed, the compiler treats `Command` as open and
@@ -135,6 +141,32 @@ object EntityProtocol:
   object Rejected:
     def apply(error: CommandError): Rejected = Rejected(error.message, error.code.toString)
 
+  /**
+   * A wait for a workflow's end was held as long as one ask allows, and the workflow has not ended:
+   * the caller asks again until its own deadline. Also what every waiter is told when the
+   * workflow's actor stops, so a workflow that moves or is passivated loses no caller for longer
+   * than it takes to ask again. Only an instance that knows waiting sends it, to a caller that
+   * asked to wait.
+   */
+  final case class NotYet(heldMillis: Long) extends Reply
+
+  /**
+   * The workflow a caller waited for failed — `step` names the step, when one did — or was deleted.
+   * A reply of its own rather than a `Rejected`: the call was answered, and the step and the reason
+   * are fields a caller in any language reads.
+   */
+  final case class WorkflowFailed(step: Option[String], reason: String, deleted: Boolean)
+      extends Reply:
+    def toCommandError(componentId: String, entityId: String): CommandError =
+      val message =
+        if deleted then s"workflow $componentId '$entityId' was deleted"
+        else s"workflow $componentId '$entityId' failed: $reason"
+      CommandError(
+        message,
+        ErrorCode.WorkflowFailed,
+        WorkflowEnd.Failure(step, reason, deleted).details
+      )
+
 /**
  * One journal record.
  *
@@ -198,11 +230,13 @@ final case class RemoteStateRecord(
  * Flat, like `JournalRecord`, and for the same reason: this is the durable record of a business
  * process, and it should stay readable without ankka to interpret it.
  *
- *   - `kind = 0` — the workflow's state changed
+ *   - `kind = 0` — the workflow's state changed; from spec 046 `standing` holds where the workflow
+ *     stood once the whole effect that recorded the state was applied, and a record written before
+ *     holds none
  *   - `kind = 1` — a step was scheduled; `step` and `stepInput` say which and with what
  *   - `kind = 2` — the workflow paused; `deadlineMillis`/`step` hold the timeout, if any
  *   - `kind = 3` — completed
- *   - `kind = 4` — failed; `message` says why
+ *   - `kind = 4` — failed; `message` says why, and `step` names the step that failed, when one did
  *   - `kind = 5` — a step retry was recorded
  *   - `kind = 6` — the workflow's state was deleted
  */
@@ -212,8 +246,24 @@ final case class WorkflowRecord(
     step: String,
     stepInput: Array[Byte],
     message: String,
-    deadlineMillis: Long
+    deadlineMillis: Long,
+    // Left out when absent, so a record that carries no standing is written byte for byte as the
+    // release before wrote it, and the pinned journal stays the journal.
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    standing: Option[StandingRecord] = None
 ) extends AnkkaSerializable
+
+/**
+ * Where a workflow stood once the effect that recorded a state was applied: the engine's status by
+ * name, the step it is on or waits after (empty for none), its retries, and why it failed (empty
+ * when it did not). Flat and string-keyed like the record it sits on.
+ */
+final case class StandingRecord(
+    status: String,
+    step: String,
+    retries: Map[String, Int],
+    failure: String
+)
 
 object WorkflowRecord:
   val KindStateUpdated  = 0
@@ -226,8 +276,8 @@ object WorkflowRecord:
 
   private val NoBytes = Array.emptyByteArray
 
-  def stateUpdated(state: Array[Byte]): WorkflowRecord =
-    WorkflowRecord(KindStateUpdated, state, "", NoBytes, "", 0L)
+  def stateUpdated(state: Array[Byte], standing: Option[StandingRecord] = None): WorkflowRecord =
+    WorkflowRecord(KindStateUpdated, state, "", NoBytes, "", 0L, standing)
 
   def transitioned(step: String, input: Array[Byte]): WorkflowRecord =
     WorkflowRecord(KindTransitioned, NoBytes, step, input, "", 0L)
@@ -237,8 +287,9 @@ object WorkflowRecord:
 
   val ended: WorkflowRecord = WorkflowRecord(KindEnded, NoBytes, "", NoBytes, "", 0L)
 
-  def failed(message: String): WorkflowRecord =
-    WorkflowRecord(KindFailed, NoBytes, "", NoBytes, message, 0L)
+  /** `step` is the step that failed, or empty: a record from before it was written has none. */
+  def failed(message: String, step: String = ""): WorkflowRecord =
+    WorkflowRecord(KindFailed, NoBytes, step, NoBytes, message, 0L)
 
   def retryRecorded(step: String): WorkflowRecord =
     WorkflowRecord(KindRetryRecorded, NoBytes, step, NoBytes, "", 0L)

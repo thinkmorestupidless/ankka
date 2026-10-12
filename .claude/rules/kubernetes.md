@@ -147,6 +147,25 @@ scripted provider in its Garage-backed mode (`ScriptedStore.InGarage`), so a pod
 move caught part way finishes in a pass or two with a few objects, so those scenarios are held by
 `MoverSuite` and `StorageMoveSuite` and named in `ranElsewhere`.
 
+## Grants and machines reach the cluster through resources the operator already watches
+
+Feature 040. A project's accepted grants are `AnkkaProject.spec.grants`; `ProjectConfig` writes them as
+`grants.json` in the `ankka-project` ConfigMap every platform container already mounts, and the
+machine issuer and key URL as `machines.json` beside it (operator `Settings.machines`). Neither is an
+environment variable, so a grant changes no pod template and upgrading the operator rolls nothing; the
+runtime finds `grants.json` beside the declarations and re-reads it (`GrantsFile`). A granted topic is a
+literal ACL entry on the grantee service's `KafkaUser` (`GrantedTopic`, `StrimziRendering.grantedRules`),
+and the operator requeues every grantee of an old or new `AnkkaProject` so a revoked grant leaves the
+user at once. A registered machine is a cluster-scoped `AnkkaMachine` (schema `ankkamachine.yaml`), which
+`MachineReconciler` renders as a `KafkaUser` `machine.<org>.<name>` with no authentication of its own,
+its granted topics, groups `ankka.machine.<org>.<name>.` and quotas clamped to the installation's ceiling.
+
+The `broker-external` component exposes the broker to machines: an `external` OAUTHBEARER listener on
+9094 verifying tokens against the control plane's `keys` port, a TLS passthrough Gateway listener
+`broker` with Strimzi's `tlsroute`s, and a certificate from the installation's public issuer, all filled
+from four `ankka-platform` keys. The cloud overlay lists it; the local one does not, and kind publishes
+9094 only on a cluster created with `kind.yaml`'s `30094` mapping, which kind fixes at creation.
+
 ## Deploying locally
 
 ```bash
@@ -250,6 +269,17 @@ ConfigMap for nothing.
   only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service
   certificate carries a common name on an installation with a broker — and only there, so nothing else's
   rendering changed.
+- **Strimzi 1.x has no `oauth` listener authentication.** OAUTHBEARER is `type: custom`, `sasl: true`,
+  with strimzi-kafka-oauth's callback handler and its options as one JAAS line; the API server refuses
+  `oauth` by name. A value inside that line cannot be filled by a kustomize delimiter replacement, so
+  the broker-external listener reads its base domain through `${strimzienv:ANKKA_BASE_DOMAIN}`.
+- **A certificate a Kafka listener presents must ask cert-manager for `encoding: PKCS8`.** cert-manager
+  writes an RSA key as PKCS#1 by default and Kafka loads a PEM key only as PKCS#8; the broker exits at
+  start with `Invalid PEM keystore configs … algid parse error`. The external listener's certificate
+  forgot it once; `RemoteOverlaySuite` pins it.
+- **A listener setting is a line of a properties file.** Strimzi writes `listenerConfig` there, so a
+  newline inside a value (a blank line in a folded YAML block) ends it: `JAAS config entry not
+  terminated by semi-colon`.
 - **Strimzi replaces the broker's pod whenever its listener certificate changes**, measured within 12s. The
   broker's certificate therefore lives a year, not the day every workload's does.
 - **A custom listener trusts an authority by its certificate; Strimzi's own client authority wants the key.**
@@ -576,3 +606,116 @@ ConfigMap for nothing.
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
   service rolling on upgrade, and is never accepted.
+- **A declared topic states every setting and its copies on its `KafkaTopic`** (feature 043):
+  `StrimziRendering.kafkaConfig` writes the seven keys from the `AnkkaProject` entry's numbers, and
+  `TopicProvisioning.decide` answers `Ready` only when the resource's `config` and `replicas` equal the
+  declaration's, so a setting Strimzi has not yet applied reads as waiting. An entry with no settings —
+  a topic declared before them, until the control plane's sweep fills it — renders exactly as before,
+  which `ProjectRenderingSuite` pins. The operator has no `controlplane-api`, so the key names are held
+  to the control plane's by `protocol/fixtures/topics/settings.json`, read by `StrimziModelsSuite`.
+- **The operator reads the broker's node count from its `KafkaNodePool`s** (`get`/`list`, nothing
+  else, in the broker component's Role) and fails a topic asking for more copies than the pools' broker
+  replicas, rendering nothing for it. Copies are fixed: Strimzi changes a topic's replication only
+  through Cruise Control, which is not installed.
+- **`components/broker-three-nodes` is a shape for a new installation, not a conversion.** The node
+  pool is controller and broker both, so its replicas are the KRaft quorum. The component also sets the
+  control plane's default copies; `BrokerShapeSuite` asserts each value from the parsed render, and that
+  the local overlay still says one everywhere. `BrokerStack.install(k3s, nodes = 3)` makes the same
+  shape on k3s and fails if a line it rewrites is missing from `kafka.yaml`.
+
+## Backups and recovery (feature 041)
+
+Every project database archives through the Barman Cloud plugin into `platform.backups.<project>` when the
+installation names a target (`ANKKA_BACKUP_*`, `BackupSettings`), rendered in the service pass beside the
+cluster (`CnpgRendering.backupActions`) because a project may have no `AnkkaProject`. The project
+reconciler reports lines, restores, rehearsals and clusters on the project's status; the control plane
+journals a restore's or rehearsal's end from there. A restore is a second cluster beside `ankka-db`
+(`RestoreRendering`); a switched service is told `ANKKA_DB_HOST` and `ANKKA_DB_LINE` literally on its pod.
+A rehearsal runs in `ankka-<project>-rehearsal`, the one namespace the operator may delete a cluster in,
+granted by a RoleBinding the control plane writes there (`bind` on `ankka-operator-rehearsal` alone).
+
+- **Adding the plugin to a running cluster restarts its instance once** (about 20 seconds, measured). So
+  turning backups on restarts every project database once; it rolls no service pod.
+- **CNPG refuses to archive into a non-empty archive.** A restore archives nothing until a service is
+  switched to it, and then under its own name; it never reuses the line it was made from.
+- **A recovery that cannot reach its moment is never `Failed`.** CNPG leaves it `Setting up primary`; the
+  operator reports a restore or rehearsal failed after `restoreTimeout` (30 minutes).
+- **A restore gets no `Database` or `DatabaseRole` objects.** Its roles and databases come with the
+  restored data, and the same CNPG objects on two clusters in one namespace collide.
+- **The operator reads inside a database by `psql` over `pods/exec`**, as `postgres` on the socket,
+  with every statement in `DatabaseQueries`; a literal `env` value beats the same key from `envFrom`.
+- **CNPG's release limits its operator to 100m CPU.** With the plugin and a cluster per scenario on one
+  k3s node, its health check timed out and the kubelet killed it every minute, and every write to a CNPG
+  resource then failed with `no endpoints available for service "cnpg-webhook-service"`. `BackupStack`
+  raises the limit on the test node; an installation with many projects may need to as well.
+- **Garage's NetworkPolicy must admit CNPG's pods**, which carry `cnpg.io/cluster`, not the platform's
+  managed-by label; `zero-trust.yaml` has a rule for project namespaces and one for `ankka-controlplane`.
+- **The suite's operator runs with admin credentials**, so taking a RoleBinding away refuses it nothing.
+  `RehearsalsClusterFeatures` refuses a delete with a ValidatingAdmissionPolicy, which binds everyone.
+- **A Garage node that replaces a lost one has a new id, and refuses requests until it has a role.**
+  Garage answers `500 Layout not ready` (or "no such key" on S3) for about one request in three, since
+  the `garage` Service still routes to it. So `garage-layout` is a Deployment that reconciles every 15
+  seconds and gives the new node the lost one's zone, not a Job someone has to run again. A role whose
+  node is merely down, with nothing new to take its place, is left alone. Every admin call the hourly
+  copy makes is tried three times for the same reason: a 500 on its key lookup read as "no key", and the
+  import then failed 409 on a key that was there.
+- **Every reconciler's executor comes from `Fabric8Executor.of(client, settings)`.** The project
+  reconciler built a bare `Fabric8Executor(client)`, with no store, and every rehearsal failed with "an
+  object storage action was rendered with no store" — in production as much as in the suite.
+- **A base backup scheduled before the cluster archives fails, and the next is a day away.** The
+  ScheduledBackup's `immediate` backup ran while CNPG was still adding the plugin ("requested plugin
+  is not available", or "instance manager was restarted during backup"), for every project that
+  existed before backups and every switched restore. Gating the schedule on `ContinuousArchiving` is
+  not enough: on a cluster that existed before backups the condition is already `True` before the
+  plugin is added ("the cluster has no plugin configured"). So the executor also takes the first base
+  backup again (`BaseBackupRetry`): two minutes after the last failure, at most five times, and only
+  while none has completed. The control plane's own database, whose schedule is the `backups`
+  component's, is retried the same way from `PlatformBackups`: its first base backup can run before the
+  operator has issued its credential, and a restore with no base backup waits for ever, never failing.
+- **A rehearsal leaves the operator's report when its cluster is removed.** The rehearsal gauge read
+  the report and missed it; the projector builds the same view the status route does, from the
+  entity's record, and sets every backup metric from that.
+- **A rehearsal schedule needs a namespace only the control plane can make.** `PUT
+  /projects/{id}/database` with `rehearse` ensures the rehearsal namespace before it records the
+  schedule, as `POST /projects/{id}/rehearsals` does; without it the operator had nowhere to rehearse.
+- **An untyped resource's `status` is Scala collections in the control plane, not Java ones.** The
+  platform registers Jackson's Scala module with fabric8's mapper, so `GenericKubernetesResource`'s
+  additional properties come back as Scala `Map`s and `List`s; a read matching `java.util.Map` found
+  nothing, silently, and the control plane never reported its own backups. An offline probe passed
+  because it unmarshalled with fabric8's plain mapper. `ControlPlaneLine` accepts both.
+- **The archive's lag says when a segment was sent, not what it held.** `lastRestorable` is
+  `last_archived_time`, and a segment holding only commits from before a moment can be archived after
+  it; a recovery to that moment replays everything, meets no later commit and fails "recovery ended
+  before configured recovery target was reached", for ever. Before a restore's or a rehearsal's cluster
+  is first rendered, `RecoveryPoint` writes an empty transaction on the source, switches the segment
+  and waits for the archive to hold it.
+- **A held control plane writes nothing to the cluster.** After its own database's restore it starts on a
+  marker row (`ankka_restore_marker`) and its projector's client is a `HeldClient`, which compares every
+  write with the cluster and records the difference, until `ankka installation restore --release`.
+- **A listener in a `ListenerSet` loses only an *equal* hostname to the Gateway's own listeners.** A
+  set's `*.<base>` is `Conflicted: HostnameConflict`; a set's `api.<base>` is accepted and
+  programmed, because it is more specific than the Gateway's `*.<base>` — and Envoy then selects it
+  for that name. So the operator renders no custom hostname under the base domain whatever the
+  resource says (`HostnameRendering.refusal`), beside the control plane's own refusal (feature 045,
+  spike S1). A route attaches to a set only through a `parentRef` of `kind: ListenerSet`; one naming
+  the Gateway attaches to the Gateway's own listeners alone.
+- **cert-manager leaves a Certificate's Secret behind when the Certificate is deleted**, unless the
+  controller runs with `--enable-certificate-owner-ref`. A pruned custom hostname's key then outlives
+  it, and a Certificate of the same name later is `Ready` at once from the stale Secret — which made a
+  "does not resolve yet" case read as serving. The certmanager component's patch sets the flag; the
+  patch replaces the whole `args` list, so it repeats the release's own and a version bump must too.
+- **cert-manager's HTTP-01 solver on the Gateway API is off until `--enable-gateway-api`**, and its
+  solver route is written in the *Certificate's* namespace with the issuer's `parentRefs`, so the
+  listener it names must admit that namespace (the Gateway's `http` listener admits managed
+  namespaces). Its self-check uses `--acme-http01-solver-nameservers` when given, yet Go's resolver
+  error still names the pod's own DNS server (`lookup x on 10.43.0.10:53: lame referral`): read the
+  message as the name, not the server.
+- **Pebble's images are tagged without a `v`** (`ghcr.io/letsencrypt/pebble:2.10.1`), take `-config`
+  and `-dnsserver` as container args, and serve their root at `GET /roots/0` on 15000. `AcmeStack`
+  pulls them before importing, since `ClusterImages.importInto` exports only what the daemon holds.
+- **The operator's client hands a `GenericKubernetesResource`'s untyped fields over as Scala
+  collections**, because `AnkkaSerialization` registers the Scala module: `status` is an immutable
+  `HashMap` and `conditions` a `List`, where fabric8's own mapper gives `java.util` ones. A reader that
+  matched only Java collections read every cert-manager field as absent, offline tests passed, and on
+  k3s a `Ready` certificate was reported "being issued" for ever. `Generic` (operator) reads both, and
+  `GenericSuite` holds both shapes.

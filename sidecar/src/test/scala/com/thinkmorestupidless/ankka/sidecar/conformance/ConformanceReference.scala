@@ -167,7 +167,12 @@ object ConformanceReference:
         )
         .build
 
-    /** `mode`: `ok`, `fail` (charge is declined) or `pause` (a pause before charging). */
+    /**
+     * `mode`: `ok`, `fail` (charge is declined and compensated), `pause` (a pause before charging),
+     * `abort` (declined; the compensation records it and fails the workflow), `drop` (declined; the
+     * compensation fails the workflow and records nothing) or `doomed` (declined, and the
+     * compensation fails too, so the workflow fails).
+     */
     def start(mode: String): Effect[String] =
       if currentState.status != "new" then effects.error("already started", ErrorCode.Conflict)
       else
@@ -189,10 +194,15 @@ object ConformanceReference:
         .updateState(currentState.copy(status = "waiting"))
         .thenPause(1500.millis, Checkout.charge.ref)
     def chargeStep: StepEffect =
-      if currentState.mode == "fail" then throw RuntimeException("payment declined")
+      if Set("fail", "abort", "drop", "doomed").contains(currentState.mode) then
+        throw RuntimeException("payment declined")
       else stepEffects.updateState(currentState.copy(status = "charged")).thenEnd
-    def compensateStep: StepEffect =
-      stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
+    def compensateStep: StepEffect = currentState.mode match
+      case "abort" =>
+        stepEffects.updateState(currentState.copy(status = "aborted")).thenFail("payment declined")
+      case "drop"   => stepEffects.thenFail("payment declined")
+      case "doomed" => throw RuntimeException("compensation failed too")
+      case _        => stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
     def status: ReadOnlyEffect[String] = effects.reply(currentState.status)
 
   object Checkout
@@ -238,6 +248,68 @@ object ConformanceReference:
       ):
     def create(ctx: ViewComponentContext) = new CartRowsView
 
+  // ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+  // docs:start workflow-view
+  /** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+  final case class CheckoutRow(
+      id: String,
+      status: String,
+      standing: String,
+      step: Option[String],
+      failure: Option[String]
+  )
+
+  final class CheckoutRowsView extends View[CheckoutState, CheckoutRow]:
+    def onChange(state: CheckoutState): Effect =
+      // A change from a workflow carries its standing: where it stood once the effect that
+      // recorded `state` was applied.
+      val standing = updateContext.standing.getOrElse(WorkflowLifecycle.unknown)
+      effects.updateRow(
+        CheckoutRow(
+          updateContext.subject,
+          state.status,
+          standing.status,
+          standing.pendingStep,
+          standing.failure
+        )
+      )
+
+  object CheckoutRows
+      extends View.Companion[CheckoutRowsView, CheckoutState, CheckoutRow](
+        componentId = ComponentId("checkout-rows"),
+        source = ChangeSource.stateOf(Checkout),
+        rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
+      ):
+    def create(ctx: ViewComponentContext) = new CheckoutRowsView
+    val byStanding = query("by-standing")(
+      s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
+    )
+  // docs:end workflow-view
+
+  // docs:start workflow-consumer
+  /** Records each checkout that ended, completed or failed, and nothing else. */
+  final class CheckoutEnds(client: ComponentClient) extends Consumer[CheckoutState, Nothing]:
+    def onMessage(state: CheckoutState): Effect =
+      messageContext.standing match
+        case Some(standing) if standing.isTerminal =>
+          val end = standing.failure.fold(standing.status)(why => s"${standing.status}: $why")
+          client
+            .forKeyValueEntity(EntityId(s"end-${messageContext.subject}"))
+            .call(Profile.set)
+            .invoke(end): Unit
+          effects.done()
+        // Running or paused: not an end, and nothing to do.
+        case _ => effects.ignore()
+
+  object CheckoutEnds
+      extends Consumer.Companion[CheckoutEnds, CheckoutState, Nothing](
+        componentId = ComponentId("checkout-ends"),
+        source = ChangeSource.stateOf(Checkout)
+      ):
+    def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
+  // docs:end workflow-consumer
+
   // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
 
   enum TreeEvent:
@@ -280,6 +352,12 @@ object ConformanceReference:
       |  SELECT n.row_key, n.payload FROM $table n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
       |)
       |SELECT payload FROM below ORDER BY row_key""".stripMargin)
+
+    // docs:start watched-query
+    /** Every row, by key, watchable: the same statement in every language. */
+    val allRows = query("all-rows")(s"SELECT row_key, payload FROM $table ORDER BY row_key").watched
+    // docs:end watched-query
+
     def create(ctx: ViewComponentContext) = new TreeRowsView
 
   // ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
@@ -486,6 +564,37 @@ object ConformanceReference:
     override def produces: Option[Publication] =
       Some(Publication(Contracted, Some(OrderContract), Some(DeclaredBroker)))
   // docs:end contract-relay
+
+  // ── partner-relay: another project's topic, read and published to (feature 040) ──
+
+  /** The project whose topics `partner-relay` reads and publishes to. */
+  val Partner: String = "partner"
+
+  /** What `partner-relay` reads, and where it republishes: both topics of project `partner`. */
+  val Shared: String        = "conformance-shared"
+  val SharedRelayed: String = "conformance-shared-relayed"
+
+  // docs:start partner-relay
+  /**
+   * Reads `conformance-shared` of project `partner` from the earliest, and republishes to its
+   * other.
+   */
+  final class PartnerRelay extends Consumer[Fanned, Fanned]:
+    def onMessage(message: Fanned): Effect = effects.produce(message)
+
+  object PartnerRelay
+      extends Consumer.Companion[PartnerRelay, Fanned, Fanned](
+        componentId = ComponentId("partner-relay"),
+        source = ChangeSource
+          .fromTopic(Partner, Shared, Codecs.serializer[Fanned]("fanned"), StartFrom.Earliest)
+      ):
+    def create(ctx: ConsumerContext) = new PartnerRelay
+
+    override val outputSerializer: Option[Serializer[Fanned]] =
+      Some(Codecs.serializer[Fanned]("fanned"))
+
+    override def produces: Option[Publication] = produceTo(Partner, SharedRelayed)
+  // docs:end partner-relay
 
   /**
    * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
@@ -746,8 +855,9 @@ object ConformanceReference:
         .getOrElse(throw HttpProblem.notFound(s"no row for '$cartId'"))
     }
 
-  given JsonValueCodec[TreeRow]   = Codecs.make[TreeRow]
-  given JsonValueCodec[JoinedRow] = Codecs.make[JoinedRow]
+  given JsonValueCodec[TreeRow]     = Codecs.make[TreeRow]
+  given JsonValueCodec[CheckoutRow] = Codecs.make[CheckoutRow]
+  given JsonValueCodec[JoinedRow]   = Codecs.make[JoinedRow]
 
   /** Records on either side of the keyed view, and reads its rows. */
   final class JoinedEndpoint(clients: EndpointClients) extends HttpEndpoint("/joined"):
@@ -778,6 +888,16 @@ object ConformanceReference:
     get("/{nodeId}/below") { (nodeId: String) =>
       clients.viewClient.forView(TreeRows).ask(TreeRows.under, "row" -> nodeId).map(_.key)
     }
+    // docs:start stream
+    // Every row's key, as the database yields the rows: one event each, then the end.
+    sse("/streamed")(() =>
+      clients.viewClient.forView(TreeRows).askStream(TreeRows.allRows).map(_.key)
+    )
+    // docs:end stream
+    // docs:start watch
+    // The rows now, `caught-up`, then each row as it is written, as named events.
+    sseEvents("/watched")(() => clients.viewClient.forView(TreeRows).watch(TreeRows.allRows).asSse)
+    // docs:end watch
 
   final case class Echo(a: Vector[String], b: Option[String], headers: Map[String, String])
   given JsonValueCodec[Echo]           = Codecs.make[Echo]
@@ -807,6 +927,7 @@ object ConformanceReference:
 
   private def callerWord(caller: Caller): String = caller match
     case Caller.Service(project, name) => s"service:$project/$name"
+    case Caller.Machine(org, name)     => s"machine:$org/$name"
     case Caller.Gateway                => "gateway"
     case Caller.Local                  => "local"
 
@@ -931,6 +1052,30 @@ object ConformanceReference:
       checkout(id).call(Checkout.start).invoke(mode)
     }
     get("/checkout/{id}")((id: String) => checkout(id).call(Checkout.status).invoke())
+    get("/checkout/{id}/row") { (id: String) =>
+      clients.viewClient
+        .forView(CheckoutRows)
+        .get(id)
+        .getOrElse(throw HttpProblem.notFound(s"no row for '$id'"))
+    }
+    get("/checkout-rows/{standing}") { (standing: String) =>
+      clients.viewClient
+        .forView(CheckoutRows)
+        .ask(CheckoutRows.byStanding, "standing" -> standing)
+        .map(_.id)
+    }
+    get("/checkout/{id}/end") { (id: String) =>
+      val end = profile(s"end-$id").call(Profile.get).invoke()
+      if end == "none" then throw HttpProblem.notFound(s"'$id' has not ended") else end
+    }
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    postBody("/checkout-await/{id}") { (id: String, mode: String) =>
+      try checkout(id).call(Checkout.start).thenAwaitEnd(30.seconds).invoke(mode).status
+      catch
+        case failed: CommandError if failed.code == ErrorCode.WorkflowFailed =>
+          val end = WorkflowEnd.failure(failed).get
+          throw HttpProblem(424, s"${end.step.getOrElse("")}: ${end.reason}")
+    }
     post[String, Done]("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))
       Done
@@ -1077,6 +1222,7 @@ object ConformanceReference:
     get("/whoami")(() =>
       caller match
         case Caller.Service(project, name) => s"service:$project/$name"
+        case Caller.Machine(org, name)     => s"machine:$org/$name"
         case Caller.Gateway                => "gateway"
         case Caller.Local                  => "local"
     )
@@ -1084,6 +1230,11 @@ object ConformanceReference:
     withAcl(Acl.allowCallers(Callers.self)) {
       get("/self")(() => "self")
       sse("/events")(() => Source.single("tick"))
+    }
+
+    // Feature 040: whoever the project granted this route to (`ConformanceTarget.grants`).
+    withAcl(Acl.allowCallers(Callers.granted)) {
+      get("/granted")(() => "granted")
     }
 
   /**
@@ -1123,12 +1274,15 @@ object ConformanceReference:
     "conformance",
     "profile",
     "checkout",
+    "checkout-rows",
+    "checkout-ends",
     "cart-rows",
     "checkout-recorder",
     "checkout-fanout",
     "topic-rows",
     "topic-relay",
     "contract-relay",
+    "partner-relay",
     "tree-node",
     "tree-rows",
     "joined-left",
@@ -1147,12 +1301,15 @@ object ConformanceReference:
     Conformance.descriptor,
     Profile.descriptor,
     Checkout.descriptor,
+    CheckoutRows.descriptor,
+    CheckoutEnds.descriptor,
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     CheckoutFanout.descriptor,
     TopicRows.descriptor,
     TopicRelay.descriptor,
     ContractRelay.descriptor,
+    PartnerRelay.descriptor,
     TreeNode.descriptor,
     TreeRows.descriptor,
     JoinedLeft.descriptor,

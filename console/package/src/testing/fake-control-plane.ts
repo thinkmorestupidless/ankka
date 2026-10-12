@@ -2,7 +2,8 @@
  * A control plane in one process: every route the console uses, over in-memory state, with the
  * control plane's rules as the console can observe them — who sees what, `404` rather than `403`
  * for an outsider, owner-only operations, tombstoned ids, `409` for a non-empty delete, a disabled
- * organization refusing changes, descriptor validation, a deploy token shown once.
+ * organization refusing changes, descriptor validation, a deploy token shown once, grants made,
+ * listed and ended with their effect, and machines registered with a secret shown once.
  *
  * It answers from state rather than from a script, so it cannot run out quietly. What a test needs
  * to steer is explicit: `script()` makes the next answer on one route a given status, `tick()` moves
@@ -34,6 +35,10 @@ export interface FakeControlPlaneOptions {
   signupUrl?: string;
   baseDomain?: string;
   port?: number;
+  /** The broker's address outside the cluster; unset, the installation does not expose its broker and a machine's topic grant opens nothing. */
+  brokerBootstrap?: string;
+  /** The most bytes a second a machine may be given on either side; the control plane's default is 32 MiB. */
+  byteRateCeiling?: number;
 }
 
 type Role = "owner" | "member";
@@ -89,7 +94,23 @@ interface Project {
   brokers?: Map<string, BrokerRecord>;
   /** Where the project's new buckets in Google Cloud Storage are made (feature 039). */
   location?: string;
+  /** Feature 041: restores asked for, in order, and rehearsals. Restores verify at once here. */
+  restores?: { name: string; line: string; moment: string; requestedBy?: string; requestedAt: string }[];
+  rehearsals?: { name: string; line: string; moment: string; requestedBy?: string; requestedAt: string }[];
+  databaseHistory?: { kind: string; by?: string; at: string; detail?: string }[];
+  credentialGeneration?: number;
+  database?: { replicas: number; synchronous: boolean; retentionDays?: number; rehearse?: string };
+  /** The changes to its topics, newest first. */
+  history?: ProjectHistoryRecord[];
   hidden: boolean;
+}
+
+interface ProjectHistoryRecord {
+  kind: string;
+  topic: string;
+  actor?: { subject: string; display?: string; administrative: boolean };
+  at?: string;
+  changes: { setting: string; from: string; to: string }[];
 }
 
 interface BrokerRecord {
@@ -115,6 +136,13 @@ interface TopicSourceRecord {
   contract?: string;
   lag?: number;
   failing?: string;
+  /** What the broker still holds of the topic, per partition. */
+  gap?: {
+    partitions: { partition: number; beginning: number; earliestRetained?: string }[];
+    compacted?: boolean;
+    gone?: boolean;
+    readAt?: string;
+  };
 }
 
 const topicSourceOnTheWire = (t: TopicSourceRecord) => ({
@@ -130,7 +158,73 @@ const topicSourceOnTheWire = (t: TopicSourceRecord) => ({
   contract: t.contract ?? null,
   lag: t.lag ?? null,
   failing: t.failing ?? null,
+  gap: t.gap ?? null,
 });
+
+/** A topic's settings, in the words a member types, as the control plane keeps them. */
+interface TopicSettingsRecord {
+  retention: string;
+  retentionSize: string;
+  cleanup: string;
+  tombstoneWindow: string;
+  minCompactionLag: string;
+  maxCompactionLag: string;
+  copies?: number;
+  minInSync?: number;
+}
+
+const SettingNames = [
+  "retention",
+  "retentionSize",
+  "cleanup",
+  "tombstoneWindow",
+  "minCompactionLag",
+  "maxCompactionLag",
+  "copies",
+  "minInSync",
+] as const;
+type SettingName = (typeof SettingNames)[number];
+
+/** The installation's shipped defaults and bounds, as the control plane's reference.conf has them. */
+const TopicDefaults: Required<TopicSettingsRecord> = {
+  retention: "7d",
+  retentionSize: "none",
+  cleanup: "delete",
+  tombstoneWindow: "1d",
+  minCompactionLag: "0s",
+  maxCompactionLag: "none",
+  copies: 1,
+  minInSync: 1,
+};
+const MostCopies = 3;
+const WarningThresholdMs = 30 * 86400000;
+
+const DurationUnits: Record<string, number> = { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 };
+/** Milliseconds, Infinity for everything; NaN for words that are not a duration. */
+const millis = (text: string): number => {
+  if (text === "everything" || text === "none") return Infinity;
+  const m = /^([0-9]{1,15})(ms|s|m|h|d)$/.exec(text.trim());
+  return m ? Number(m[1]) * DurationUnits[m[2]] : NaN;
+};
+const SizeUnits: Record<string, number> = { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4 };
+const bytes = (text: string): number => {
+  if (text === "none") return Infinity;
+  const m = /^([0-9]{1,15})(B|KiB|MiB|GiB|TiB)$/.exec(text.trim());
+  return m ? Number(m[1]) * SizeUnits[m[2]] : NaN;
+};
+
+/** What a change removes, in the control plane's words, or nothing. */
+const removalOf = (before: TopicSettingsRecord, after: TopicSettingsRecord): string | undefined => {
+  const deletes = after.cleanup !== "compact";
+  const parts: string[] = [];
+  const shorter = deletes && millis(after.retention) < millis(before.retention);
+  if (shorter) parts.push(`messages older than ${after.retention}`);
+  if (!shorter && deletes && before.cleanup === "compact" && Number.isFinite(millis(after.retention)))
+    parts.push(`messages older than ${after.retention}, which compaction kept`);
+  if (deletes && bytes(after.retentionSize) < bytes(before.retentionSize))
+    parts.push(`messages beyond ${after.retentionSize} on a partition`);
+  return parts.length > 0 ? parts.join("; ") : undefined;
+};
 
 interface TopicRecord {
   partitions: number;
@@ -138,6 +232,11 @@ interface TopicRecord {
   detail?: string;
   compacted?: boolean;
   contract?: { name: string; fingerprint: string; schema: unknown };
+  /** Every setting, and the ones the installation supplied; absent for a topic seeded without them. */
+  settings?: TopicSettingsRecord;
+  defaulted?: SettingName[];
+  /** How many copies the broker holds, as a seed says. */
+  copiesHeld?: number;
 }
 
 /** One side a running service takes on a declared topic with a contract, against it; `topic` is the fake's own, for the project's listing. */
@@ -168,6 +267,8 @@ function fakeFingerprint(schema: unknown): string {
 interface Service {
   name: string;
   projectId: string;
+  /** Custom hostnames (feature 045), in the order added; the fake serves each at once. */
+  customHostnames?: string[];
   lifecycle: string;
   generation: number;
   image: string;
@@ -178,6 +279,8 @@ interface Service {
   paused: boolean;
   /** What the cluster reports of its database; `null` until it has reported one. */
   database: string | null;
+  /** The restore a member switched it to (feature 041); the project database when absent. */
+  databaseCluster?: string;
   history: {
     kind: string;
     generation: number;
@@ -185,6 +288,7 @@ interface Service {
     at: string;
     image?: string;
     digest?: string;
+    hostname?: string;
     rolledBackTo?: number;
   }[];
   /** The descriptor in force, and the applied ones a rollback can return to, newest first, at most fifty. */
@@ -247,6 +351,44 @@ interface Token {
   revoked: boolean;
 }
 
+/** What one grant opens, flat as the control plane holds it (feature 040). */
+export interface FakeGrantTarget {
+  kind: string;
+  service?: string;
+  method?: string;
+  path?: string;
+  topic?: string;
+  right?: string;
+  decrypt?: boolean;
+}
+
+interface GrantAct {
+  by?: string;
+  at: string;
+}
+
+/** A grant a project made; `changes` is what the grantee's side records of it. */
+interface Grant {
+  id: string;
+  projectId: string;
+  grantee: string;
+  target: FakeGrantTarget;
+  state: string;
+  granted: GrantAct;
+  answered?: GrantAct;
+  ended?: GrantAct;
+  changes: { change: string; by?: string; at: string }[];
+}
+
+interface Machine {
+  organizationId: string;
+  name: string;
+  registeredBy?: string;
+  registeredAt: string;
+  byteRates?: { produceBytesPerSecond: number; consumeBytesPerSecond: number; requestPercentage: number };
+  hidden: boolean;
+}
+
 interface Caller {
   subject: string;
   name?: string;
@@ -305,6 +447,10 @@ export interface FakeControlPlane {
     services: Map<string, Service>;
     tokens: Map<string, Token>;
     tombstones: Set<string>;
+    /** Every project's grants, by id. */
+    grants: Map<string, Grant>;
+    /** Registered machines, by `<organization>/<name>`. */
+    machines: Map<string, Machine>;
   };
   seed(seed: FakeSeed): void;
   close(): Promise<void>;
@@ -323,6 +469,8 @@ export interface FakeSeed {
   cloud?: FakeCloud | null;
   /** Where the installation keeps new buckets (feature 039); Garage until a suite says otherwise. */
   objectStore?: "garage" | "gcs";
+  /** Feature 041: start held, as a control plane whose own database was restored. */
+  held?: { targetTime: string; services?: { project: string; service: string; recordedImage?: string; clusterImage?: string }[] };
   organizations?: { id: string; name: string; owners?: string[]; members?: string[]; disabled?: boolean }[];
   projects?: { id: string; name: string; organizationId: string }[];
   services?: {
@@ -362,7 +510,13 @@ export interface FakeSeed {
     detail?: string;
     compacted?: boolean;
     contract?: { name: string; schema: unknown };
+    /** Its settings, each the installation's shipped default unless given; none for a topic from before settings. */
+    settings?: Partial<TopicSettingsRecord>;
   }[];
+  /** Grants a project made, as if an owner had made them: accepted within its organization, pending to another, unless `state` says. */
+  grants?: { projectId: string; grantee: string; target: FakeGrantTarget; state?: string; by?: string }[];
+  /** Machines registered on an organization. */
+  machines?: { organizationId: string; name: string; byteRates?: Machine["byteRates"] }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -372,6 +526,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   const services = new Map<string, Service>();
   const tokens = new Map<string, Token>();
   const tombstones = new Set<string>();
+  const grants = new Map<string, Grant>();
+  const machines = new Map<string, Machine>();
   const visited = new Set<string>();
   const counts = new Map<string, number>();
   const scripted = new Map<string, { status: number; error: string }[]>();
@@ -461,6 +617,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       suspended,
       paused: s.paused,
       hosting: s.hosting ?? "embedded",
+      databaseCluster: s.databaseCluster ?? null,
       protocol: null,
       mounts: s.mounts ?? [],
       callers: s.callers ?? [],
@@ -469,6 +626,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       undeclaredTopics: s.undeclaredTopics ?? null,
       topicChecks: s.topicChecks ? s.topicChecks.map(checkOnTheWire) : null,
       topicSources: s.topicSources ? s.topicSources.map(topicSourceOnTheWire) : null,
+      warnings: warningsOf(s),
       objectStorage: s.provisionObjectStorage ? "provisioned" : s.ownObjectStore ? "supplied" : null,
       bucket: s.provisionObjectStorage ? `${s.projectId}.${s.name}` : null,
       bucketAddress:
@@ -479,7 +637,35 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       bucketLocation: s.provisionObjectStorage && s.objectStore === "gcs" ? (s.bucketLocation ?? null) : null,
       softDeleteDays: s.provisionObjectStorage && s.objectStore === "gcs" ? 7 : null,
       storageMove: s.storageMove ?? null,
+      customHostnames: (s.customHostnames ?? []).map((hostname) => ({
+        hostname,
+        // The fake has no authority to wait for: an exposed service's hostnames serve at once.
+        state: s.exposed ? "serving" : "pending",
+        ...(s.exposed ? {} : { reason: "the service is not exposed" }),
+        ...(hostname.split(".").length === 2
+          ? { note: "an apex cannot be a CNAME; this installation has published no address" }
+          : { record: { name: hostname, kind: "CNAME", value: `${s.name}-${s.projectId}.${options.baseDomain ?? "example.test"}` } }),
+      })),
     };
+  };
+
+  /** A read of one service carries the proof record its project's custom hostnames need. */
+  const oneService = (s: Service) => ({
+    ...serviceStatus(s),
+    proofRecord: { name: "_ankka.<hostname>", kind: "TXT", value: `ankka-project=${s.projectId}` },
+  });
+
+  /** The control plane's refusals 1 to 5 (contracts/control-plane.md), in its words. */
+  const hostnameProblem = (requested: string): string | null => {
+    const h = requested.trim().toLowerCase().replace(/\.$/, "");
+    const base = options.baseDomain ?? "example.test";
+    if (/[\/:\s]/.test(h)) return `a custom hostname is a name alone: '${requested}' has a scheme, a path or a port`;
+    if (h.includes("*")) return "a custom hostname cannot be a wildcard";
+    const bad = h.split(".").find((l) => !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(l));
+    if (bad !== undefined) return `'${h}' is not a hostname: label '${bad}' must be letters, digits and '-', and cannot start or end with '-'`;
+    if (h.split(".").length < 2) return `'${h}' is not a name on the internet: a custom hostname has at least two labels`;
+    if (h === base || h.endsWith(`.${base}`)) return `a custom hostname cannot be under the base domain '${base}': those names are the platform's`;
+    return null;
   };
 
   // ── Authorization, the control plane's rules ──────────────────────────────
@@ -503,6 +689,28 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const member = org.members.get(c.subject);
     if (!member && !isAdmin(c)) throw new HttpError(404, `organization '${id}' not found`);
     return { org, role: member?.role };
+  }
+
+  /**
+   * A warning for each view reading a topic its project declares to keep less than the installation's
+   * threshold (feature 043), worked out from the declarations as they are now, as the control plane does.
+   */
+  function warningsOf(s: { projectId: string; topicSources?: TopicSourceRecord[] }) {
+    const topics = projects.get(s.projectId)?.topics;
+    const warnings = (s.topicSources ?? []).flatMap((source) => {
+      const settings = topics?.get(source.topic)?.settings;
+      if (source.kind !== "view" || !settings || settings.cleanup !== "delete") return [];
+      if (!(millis(settings.retention) < WarningThresholdMs)) return [];
+      return [
+        {
+          kind: "retention",
+          component: source.component,
+          topic: source.topic,
+          message: `view '${source.component}' reads topic '${source.topic}', which keeps ${settings.retention}; the installation warns below 30d`,
+        },
+      ];
+    });
+    return warnings.length > 0 ? warnings : null;
   }
 
   function requireWrite(org: Org) {
@@ -582,6 +790,14 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
       // Feature 038: where secrets are kept, as an installation that has said nothing answers.
       secrets: { backend: "postgres", recordRetention: "365d", auditLog: "unknown" },
+      // Feature 041: where the backups go, as an installation with Garage and no copy says it.
+      backups: {
+        backupTarget: "object-store",
+        retentionDays: 30,
+        copyRequired: false,
+        sharesFailureDomain: true,
+        encryption: "none: Garage holds no key the archiver can send",
+      },
     };
   });
 
@@ -928,12 +1144,33 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const { project, org } = requireProject(c, p.projectId);
     requireWrite(org);
     const name = p.name;
-    const request = body as { partitions?: number; compacted?: boolean; contract?: { name?: string; schema?: unknown } };
-    const partitions = Number(request.partitions);
+    const request = body as {
+      partitions?: number;
+      compacted?: boolean;
+      contract?: { name?: string; schema?: unknown };
+      removes?: string;
+    } & Partial<TopicSettingsRecord>;
+    project.topics ??= new Map();
+    const current = project.topics.get(name);
+    if (request.partitions === undefined && current === undefined)
+      throw new HttpError(400, `topic '${name}': partitions is required for a new topic`);
+    const partitions = request.partitions === undefined ? current!.partitions : Number(request.partitions);
     const problems: string[] = [];
     if (!TopicName.test(name)) problems.push(`topic '${name}': ${TopicNameRule}`);
     if (!Number.isInteger(partitions) || partitions < 1 || partitions > 1000)
       problems.push(`topic '${name}': partitions ${partitions} is outside the range 1-1000`);
+    // Settings (feature 043): the words, the bounds, fixed copies and an owner's removal.
+    for (const key of ["retention", "tombstoneWindow", "minCompactionLag", "maxCompactionLag"] as const) {
+      const value = request[key];
+      if (value !== undefined && Number.isNaN(millis(value))) problems.push(`topic '${name}': ${key} "${value}" is not a duration`);
+    }
+    if (request.retentionSize !== undefined && Number.isNaN(bytes(request.retentionSize)))
+      problems.push(`topic '${name}': retentionSize "${request.retentionSize}" is not a size`);
+    if (request.cleanup !== undefined && !["delete", "compact", "compact,delete"].includes(request.cleanup))
+      problems.push(`topic '${name}': cleanup "${request.cleanup}" is not "delete", "compact" or "compact,delete"`);
+    if (request.compacted === true && request.cleanup === "delete") problems.push(`topic '${name}': compacted and cleanup disagree`);
+    if (request.copies !== undefined && request.copies > MostCopies)
+      problems.push(`topic '${name}': copies ${request.copies} is more than the installation's most, ${MostCopies}`);
     // A contract's own rules: its name, and a schema that is a JSON document (feature 037).
     if (request.contract !== undefined && request.contract !== null) {
       const contractName = String(request.contract.name ?? "");
@@ -941,14 +1178,58 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       if (request.contract.schema === undefined || request.contract.schema === null) problems.push(`topic '${name}': the contract's schema is missing`);
     }
     if (problems.length > 0) throw new HttpError(400, problems.join("; "));
-    project.topics ??= new Map();
-    const has = project.topics.get(name)?.partitions;
+    const has = current?.partitions;
     if (has !== undefined && has > partitions)
       throw new HttpError(409, `topic '${name}' has ${has} partitions and cannot have fewer; ${partitions} was asked`);
+    const asked: Partial<TopicSettingsRecord> = {};
+    for (const key of SettingNames) if (request[key] !== undefined) (asked as Record<string, unknown>)[key] = request[key];
+    if (request.compacted === true && asked.cleanup === undefined) asked.cleanup = "compact";
+    const before = current?.settings;
+    if (before !== undefined) {
+      const fixed = (key: "copies" | "minInSync") => asked[key] !== undefined && asked[key] !== before[key];
+      if (fixed("copies") || fixed("minInSync"))
+        throw new HttpError(409, `topic '${name}': copies and minimum in-sync copies are fixed when a topic is declared`);
+    }
+    const settings: TopicSettingsRecord = { ...(before ?? TopicDefaults), ...asked };
+    const defaulted = (current?.defaulted ?? (before ? [] : [...SettingNames])).filter((s) => asked[s] === undefined);
+    const removal = before ? removalOf(before, settings) : undefined;
+    if (removal === undefined && request.removes !== undefined)
+      throw new HttpError(400, `topic '${name}': this declaration removes nothing`);
+    if (removal !== undefined) {
+      const { role } = requireOrg(c, org.id);
+      if (role !== "owner" && !isAdmin(c)) throw new HttpError(403, `owner role required: this declaration removes ${removal}`);
+      if (request.removes?.trim() !== removal)
+        throw new HttpError(
+          400,
+          `this declaration removes ${removal}; a declaration that removes messages says so with "removes"`,
+        );
+    }
+    const changes = before
+      ? SettingNames.flatMap((s) =>
+          String(before[s] ?? "the broker's") === String(settings[s] ?? "the broker's")
+            ? []
+            : [{ setting: s, from: String(before[s] ?? "the broker's"), to: String(settings[s] ?? "the broker's") }],
+        )
+      : [];
     const contract = request.contract
       ? { name: String(request.contract.name), schema: request.contract.schema, fingerprint: fakeFingerprint(request.contract.schema) }
       : undefined;
-    project.topics.set(name, { ...(project.topics.get(name) ?? {}), partitions, compacted: request.compacted === true, contract });
+    const same =
+      current !== undefined && current.partitions === partitions && changes.length === 0 &&
+      (current.contract?.fingerprint ?? null) === (contract?.fingerprint ?? null);
+    if (same) return "done";
+    project.topics.set(name, {
+      ...(current ?? {}),
+      partitions,
+      compacted: settings.cleanup !== "delete",
+      contract,
+      settings,
+      defaulted,
+    });
+    project.history = [
+      { kind: current ? "topic-changed" : "topic-declared", topic: name, actor: actor(c), at: now(), changes },
+      ...(project.history ?? []),
+    ].slice(0, 50);
     return "done";
   });
 
@@ -982,6 +1263,16 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         compacted: t.compacted ?? false,
         contract: t.contract ? { name: t.contract.name, fingerprint: t.contract.fingerprint } : null,
         checks: t.contract ? checks.filter((c) => c.topic === name).map(checkOnTheWire) : [],
+        settings: t.settings
+          ? {
+              ...t.settings,
+              copies: t.settings.copies ?? null,
+              minInSync: t.settings.minInSync ?? null,
+              defaulted: (t.defaulted ?? []).filter((s) => SettingNames.includes(s)),
+            }
+          : null,
+        copiesHeld: t.copiesHeld ?? t.settings?.copies ?? null,
+        brokerNodes: null,
       }));
   });
 
@@ -1028,12 +1319,519 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       .map(([name, b]) => ({ name, bootstrap: b.bootstrap, shape: b.shape, secret: b.secret, declaredAt: b.declaredAt }));
   });
 
+  // Backups and recovery (feature 041). The fake's project database is backed up from a day ago to
+  // now, and a restore is verified the moment it is asked for, holding every service's database.
+  const restoreView = (project: Project, r: NonNullable<Project["restores"]>[number]) => ({
+    name: r.name,
+    line: r.line,
+    moment: r.moment,
+    phase: [...services.values()].some((s) => s.projectId === project.id && s.databaseCluster === r.name) ? "InUse" : "Verified",
+    requestedBy: r.requestedBy,
+    requestedAt: r.requestedAt,
+    reachedAt: r.moment,
+    services: [...services.values()]
+      .filter((s) => s.projectId === project.id)
+      .map((s) => ({ name: s.name, present: true, journalRows: 1, highestSequence: 1 })),
+  });
+  const remember = (project: Project, kind: string, c: Caller, detail?: string) => {
+    project.databaseHistory ??= [];
+    project.databaseHistory.unshift({ kind, by: c.name ?? c.subject, at: now(), detail });
+  };
+  let hold: { targetTime: string; services?: { project: string; service: string; recordedImage?: string; clusterImage?: string }[]; releasedAt?: string; releasedBy?: string } | undefined;
+
+  route("GET", "/installation/restore", () =>
+    hold
+      ? { held: hold.releasedAt === undefined, targetTime: hold.targetTime, restoredAt: hold.targetTime, releasedAt: hold.releasedAt, releasedBy: hold.releasedBy, services: hold.releasedAt ? [] : (hold.services ?? []) }
+      : { held: false },
+  );
+
+  route("POST", "/installation/restore/release", (c) => {
+    if (!isAdmin(c)) throw new HttpError(403, "only a platform administrator releases a held control plane");
+    if (hold && hold.releasedAt === undefined) hold = { ...hold, releasedAt: now(), releasedBy: c.name ?? c.subject };
+    return hold ? { held: false, targetTime: hold.targetTime, releasedAt: hold.releasedAt, releasedBy: hold.releasedBy } : { held: false };
+  });
+
+  route("GET", "/projects/{projectId}/restores", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return (project.restores ?? []).map((r) => restoreView(project, r));
+  });
+
+  route("POST", "/projects/{projectId}/backups/credential", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireOwner(c, org.id);
+    project.credentialGeneration = (project.credentialGeneration ?? 0) + 1;
+    remember(project, "backup-credential-reissued", c, `generation ${project.credentialGeneration}`);
+    return { project: project.id, generation: project.credentialGeneration };
+  });
+
+  // One history, newest first: the database's (feature 041) and the topics' (feature 043).
+  route("GET", "/projects/{projectId}/history", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const topics = (project.history ?? []).map((h) => ({
+      kind: h.kind,
+      by: h.actor ? (h.actor.display ?? h.actor.subject) : undefined,
+      at: h.at,
+      topic: h.topic,
+      changes: h.changes,
+    }));
+    return [...(project.databaseHistory ?? []), ...topics].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+  });
+
+  route("GET", "/projects/{projectId}/database", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return project.database ?? { replicas: 0, synchronous: false };
+  });
+
+  route("PUT", "/projects/{projectId}/database", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const b = body as { replicas?: number; synchronous?: boolean; retentionDays?: number; rehearse?: string };
+    const setting = { replicas: b.replicas ?? 0, synchronous: b.synchronous ?? false, retentionDays: b.retentionDays, rehearse: b.rehearse };
+    const problems: string[] = [];
+    if (setting.replicas < 0 || setting.replicas > 4) problems.push(`replicas must be between 0 and 4, not ${setting.replicas}`);
+    if (setting.synchronous && setting.replicas === 0) problems.push("a synchronous database needs at least one replica to wait for");
+    if (setting.retentionDays !== undefined && setting.retentionDays < 30) problems.push(`backups are kept at least 30 days on this installation, not ${setting.retentionDays}`);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    project.database = setting;
+    remember(project, "database-set", c, `${setting.replicas} replica${setting.replicas === 1 ? "" : "s"}${setting.synchronous ? ", synchronous" : ""}`);
+    return setting;
+  });
+
+  const minuteName = (prefix: string) => `ankka-db-${prefix}${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 12)}`;
+
+  route("GET", "/projects/{projectId}/status", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const day = new Date(Date.now() - 86_400_000).toISOString();
+    const onCluster = (name: string) => [...services.values()].filter((s) => s.projectId === project.id && (s.databaseCluster ?? "ankka-db") === name).map((s) => s.name);
+    const restores = project.restores ?? [];
+    return {
+      id: project.id,
+      backedUp: true,
+      target: "object-store",
+      lines: [{ line: "ankka-db", cluster: "ankka-db", phase: "backing up", lastBaseBackup: day, firstRestorable: day, lastRestorable: now() }],
+      database: { cluster: "ankka-db", instances: 1, readyInstances: 1, primary: "ankka-db-1" },
+      clusters: [
+        { name: "ankka-db", line: "ankka-db", phase: onCluster("ankka-db").length === 0 && restores.length > 0 ? "left" : "live", services: onCluster("ankka-db") },
+        ...restores.map((r) => ({ name: r.name, line: r.line, phase: "restore", services: onCluster(r.name), since: r.requestedAt })),
+      ],
+      restores: restores.map((r) => restoreView(project, r)),
+    };
+  });
+
+  route("POST", "/projects/{projectId}/restores", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireOwner(c, org.id);
+    const request = body as { moment?: string; line?: string };
+    const moment = String(request.moment ?? "");
+    if (Number.isNaN(Date.parse(moment)) || Date.parse(moment) > Date.now() || Date.parse(moment) < Date.now() - 86_400_000)
+      throw new HttpError(400, `${project.id} can be restored between ${new Date(Date.now() - 86_400_000).toISOString()} and ${now()}`);
+    project.restores ??= [];
+    const restore = { name: minuteName("r"), line: request.line ?? "ankka-db", moment, requestedBy: c.name ?? c.subject, requestedAt: now() };
+    if (project.restores.some((r) => r.name === restore.name)) throw new HttpError(409, `a restore of ${project.id} is in progress: ${restore.name}`);
+    project.restores.push(restore);
+    remember(project, "restore-requested", c, `${restore.name}, of ${restore.line} at ${moment}`);
+    return { ...restoreView(project, restore), phase: "Restoring", services: [] };
+  });
+
+  route("GET", "/projects/{projectId}/restores/{name}", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    const restore = project.restores?.find((r) => r.name === p.name);
+    if (!restore) throw new HttpError(404, `${project.id} has no restore named ${p.name}`);
+    return restoreView(project, restore);
+  });
+
+  route("POST", "/projects/{projectId}/rehearsals", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    project.rehearsals ??= [];
+    const rehearsal = { name: minuteName("x"), line: "ankka-db", moment: now(), requestedBy: c.name ?? c.subject, requestedAt: now() };
+    project.rehearsals.push(rehearsal);
+    remember(project, "rehearsal-requested", c, rehearsal.name);
+    return { ...rehearsal, outcome: "Running" };
+  });
+
+  route("GET", "/projects/{projectId}/rehearsals", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return (project.rehearsals ?? []).map((r) => ({ ...r, outcome: "Completed", elapsedSeconds: 118 }));
+  });
+
+  route("POST", "/services/{projectId}/{name}/switch", (c, p, body) => {
+    const { service, org } = requireService(c, p.projectId, p.name);
+    requireOwner(c, org.id);
+    const cluster = String((body as { cluster?: string }).cluster ?? "");
+    const project = projects.get(p.projectId)!;
+    if (cluster !== "ankka-db" && !project.restores?.some((r) => r.name === cluster))
+      throw new HttpError(400, `${cluster} is not a restore of ${p.projectId} that can be switched to`);
+    const next = cluster === "ankka-db" ? undefined : cluster;
+    if (next !== service.databaseCluster) {
+      service.databaseCluster = next;
+      service.generation += 1;
+    }
+    return serviceStatus(service);
+  });
+
+  // ── Grants (feature 040): the control plane's rules and words ─────────────
+
+  const display = (c: Caller) => c.name ?? c.email ?? c.subject;
+  const noSuchProject = (id: string) => new HttpError(404, `no such project '${id}'`);
+
+  /** A project's grants are read by its organization's members and written by its owners; an outsider is told there is no project. */
+  function grantProject(c: Caller, id: string, owner: boolean): { project: Project; org: Org } {
+    const project = projects.get(id);
+    if (!project) throw noSuchProject(id);
+    const org = organizations.get(project.organizationId);
+    const role = org?.members.get(c.subject)?.role;
+    if (!org || (!role && !isAdmin(c))) throw noSuchProject(id);
+    if (owner) {
+      if (role !== "owner" && !isAdmin(c)) throw new HttpError(403, `owner role required in organization '${org.id}'`);
+      requireWrite(org);
+    }
+    return { project, org };
+  }
+
+  const parseGrantee = (text: string) => {
+    const m = /^(service|machine):([^/]+)\/([^/]+)$/.exec(text);
+    return m ? { kind: m[1] as "service" | "machine", scope: m[2], name: m[3] } : null;
+  };
+
+  const HttpMethods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+  const GrpcMethod = /^[A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*$/;
+  const MachineNameRule = "lowercase letters, digits and '-', starting with a letter";
+
+  const machineNameProblems = (name: string): string[] =>
+    name === "" ? ["a machine needs a name"] : NameRule.test(name) ? [] : [`machine name '${name}' is invalid: ${MachineNameRule}`];
+
+  /** Everything wrong with the grantee and the target, all at once, as `GrantRules.problems` words it. */
+  function grantProblems(grantee: string, t: FakeGrantTarget): string[] {
+    const problems: string[] = [];
+    const g = parseGrantee(grantee);
+    if (!g) problems.push(`grantee '${grantee}' is not "service:<project>/<service>" or "machine:<organization>/<name>"`);
+    else if (g.kind === "service") {
+      if (!NameRule.test(g.scope)) problems.push(`grantee: project id '${g.scope}' is invalid: lowercase letters, digits and '-', starting with a letter`);
+      if (!NameRule.test(g.name)) problems.push(`grantee: service name '${g.name}' is invalid`);
+    } else {
+      if (!NameRule.test(g.scope))
+        problems.push(
+          `grantee: organization '${g.scope}' cannot have machines: an organization's id is part of a machine's name on the broker, so it must be lowercase letters, digits and '-', starting with a letter`,
+        );
+      problems.push(...machineNameProblems(g.name).map((p) => `grantee: ${p}`));
+    }
+    const none = (field: keyof FakeGrantTarget) => (t[field] !== undefined ? [`a ${t.kind} target has no ${field}`] : []);
+    switch (t.kind) {
+      case "route":
+        if (!t.service) problems.push("a route target needs a service");
+        if (!t.method || !HttpMethods.includes(t.method)) problems.push(`a route target's method is one of ${HttpMethods.join(", ")}`);
+        if (!t.path?.startsWith("/")) problems.push("a route target's path is a template beginning with '/'");
+        problems.push(...none("topic"), ...none("right"));
+        break;
+      case "method":
+        if (!t.service) problems.push("a method target needs a service");
+        if (!t.method || !GrpcMethod.test(t.method)) problems.push('a method target\'s method is a gRPC method, "<Service>/<Method>"');
+        problems.push(...none("path"), ...none("topic"), ...none("right"));
+        break;
+      case "topic":
+        if (!t.topic) problems.push("a topic target needs a topic");
+        else if (!TopicName.test(t.topic)) problems.push(`topic '${t.topic}': ${TopicNameRule}`);
+        if (t.right !== "consume" && t.right !== "produce") problems.push("a topic target's right is one of consume, produce");
+        problems.push(...none("service"), ...none("method"), ...none("path"));
+        break;
+      case "erasure":
+        problems.push(...none("service"), ...none("method"), ...none("path"), ...none("topic"), ...none("right"));
+        break;
+      default:
+        problems.push(`target kind '${t.kind}' is not one of route, method, topic, erasure`);
+    }
+    if (t.service !== undefined && !NameRule.test(t.service)) problems.push(`target: service name '${t.service}' is invalid`);
+    if (t.decrypt && !(t.kind === "topic" && t.right === "consume")) problems.push("only a grant to consume a topic may allow decryption");
+    return problems;
+  }
+
+  /** The target as the wire carries it: only the fields it has, and `decrypt` always. */
+  const targetOnTheWire = (t: FakeGrantTarget) => ({
+    kind: t.kind,
+    ...(t.service === undefined ? {} : { service: t.service }),
+    ...(t.method === undefined ? {} : { method: t.method }),
+    ...(t.path === undefined ? {} : { path: t.path }),
+    ...(t.topic === undefined ? {} : { topic: t.topic }),
+    ...(t.right === undefined ? {} : { right: t.right }),
+    decrypt: t.decrypt ?? false,
+  });
+
+  const sameTarget = (a: FakeGrantTarget, b: FakeGrantTarget) => JSON.stringify(targetOnTheWire(a)) === JSON.stringify(targetOnTheWire(b));
+  const live = (g: Grant) => g.state === "pending" || g.state === "accepted";
+
+  /**
+   * Whether a grant opens what it names, or why not, as `GrantEffect` reads it — short of the
+   * instances' topology, which the fake does not have: a service with a ready instance that is not
+   * web-hosted is taken to have the route and to have mounted its grants.
+   */
+  function effectOf(g: Grant): string {
+    if (g.state !== "accepted") return g.state;
+    if (g.target.kind === "route" || g.target.kind === "method") {
+      const s = services.get(serviceKey(g.projectId, g.target.service ?? ""));
+      if (!s) return "route not seen";
+      if (s.hosting === "web") return "route not grantable";
+      if (s.paused || s.readyInstances < 1) return "route not seen";
+      return "in effect";
+    }
+    if (g.target.kind === "topic" && g.grantee.startsWith("machine:") && !options.brokerBootstrap) return "broker not exposed";
+    return "in effect";
+  }
+
+  const grantDetail = (g: Grant, effect: string) => ({
+    id: g.id,
+    grantee: g.grantee,
+    target: targetOnTheWire(g.target),
+    state: g.state,
+    effect,
+    granted: g.granted,
+    ...(g.answered ? { answered: g.answered } : {}),
+    ...(g.ended ? { ended: g.ended } : {}),
+  });
+
+  const receivedDetail = (g: Grant) => {
+    const granting = projects.get(g.projectId);
+    const topic = g.target.kind === "topic" && g.target.topic ? granting?.topics?.get(g.target.topic) : undefined;
+    return {
+      id: g.id,
+      grantingProject: g.projectId,
+      grantingOrganization: granting?.organizationId ?? "",
+      grantee: g.grantee,
+      target: targetOnTheWire(g.target),
+      state: g.state,
+      changes: g.changes,
+      ...(topic ? { topic: { partitions: topic.partitions, compacted: topic.compacted ?? false } } : {}),
+    };
+  };
+
+  const byGranted = (a: Grant, b: Grant) => a.granted.at.localeCompare(b.granted.at) || a.id.localeCompare(b.id);
+
+  function makeGrant(project: Project, org: Org, grantee: string, target: FakeGrantTarget, by: string | undefined, state?: string): Grant {
+    const g = parseGrantee(grantee)!;
+    const granteeOrg = g.kind === "service" ? projects.get(g.scope)?.organizationId : g.scope;
+    const pending = granteeOrg !== org.id;
+    const at = now();
+    const grant: Grant = {
+      id: randomBytes(8).toString("hex"),
+      projectId: project.id,
+      grantee,
+      target,
+      state: state ?? (pending ? "pending" : "accepted"),
+      granted: { by, at },
+      changes: [{ change: pending ? "offered" : "made", by, at }],
+    };
+    grants.set(grant.id, grant);
+    return grant;
+  }
+
+  route("POST", "/projects/{projectId}/grants", (c, p, body) => {
+    const { project, org } = grantProject(c, p.projectId, true);
+    const b = (body ?? {}) as { grantee?: string; target?: FakeGrantTarget };
+    const grantee = String(b.grantee ?? "");
+    const raw = b.target ?? { kind: "" };
+    const target: FakeGrantTarget = {
+      kind: String(raw.kind ?? ""),
+      service: raw.service ?? undefined,
+      method: raw.method ?? undefined,
+      path: raw.path ?? undefined,
+      topic: raw.topic ?? undefined,
+      right: raw.right ?? undefined,
+      decrypt: raw.decrypt === true,
+    };
+    const problems = grantProblems(grantee, target);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    const g = parseGrantee(grantee)!;
+    if (g.kind === "service" && !projects.has(g.scope)) throw noSuchProject(g.scope);
+    if (g.kind === "machine" && !organizations.has(g.scope)) throw new HttpError(404, `no such organization '${g.scope}'`);
+    if (target.kind === "topic" && !project.topics?.has(target.topic!)) throw new HttpError(404, `project '${project.id}' has not declared the topic '${target.topic}'`);
+    if (g.kind === "service" && g.scope === project.id) throw new HttpError(400, "a project's own services need no grant: name them in the route's ACL instead");
+    // Granting what a live grant already grants answers that grant.
+    const existing = [...grants.values()].find((x) => x.projectId === project.id && x.grantee === grantee && live(x) && sameTarget(x.target, target));
+    const grant = existing ?? makeGrant(project, org, grantee, target, display(c));
+    return grantDetail(grant, grant.state === "accepted" ? "in effect" : grant.state);
+  });
+
+  route("GET", "/projects/{projectId}/grants", (c, p) => {
+    const { project } = grantProject(c, p.projectId, false);
+    return [...grants.values()]
+      .filter((g) => g.projectId === project.id)
+      .sort(byGranted)
+      .map((g) => grantDetail(g, effectOf(g)));
+  });
+
+  route("GET", "/projects/{projectId}/grants/received", (c, p) => {
+    const { project } = grantProject(c, p.projectId, false);
+    return [...grants.values()]
+      .filter((g) => g.grantee.startsWith(`service:${project.id}/`))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(receivedDetail);
+  });
+
+  route("DELETE", "/projects/{projectId}/grants/{grantId}", (c, p) => {
+    const { project } = grantProject(c, p.projectId, true);
+    const g = grants.get(p.grantId);
+    if (!g || g.projectId !== project.id) throw new HttpError(404, `project '${project.id}' has no grant '${p.grantId}'`);
+    const [to, verb, applies] = g.state === "pending" ? ["withdrawn", "withdraw", "a pending"] : ["revoked", "revoke", "an accepted"];
+    if (g.state !== "pending" && g.state !== "accepted") throw new HttpError(409, `grant '${g.id}' is ${g.state}; ${verb} applies to ${applies} grant`);
+    const at = now();
+    g.state = to;
+    g.ended = { by: display(c), at };
+    g.changes.push({ change: to, by: display(c), at });
+    return "done";
+  });
+
+  /** The grants naming one of the organization's machines, or a service of one of its projects. */
+  function offeredTo(org: Org): Grant[] {
+    const own = new Set([...projects.values()].filter((x) => x.organizationId === org.id).map((x) => x.id));
+    return [...grants.values()]
+      .filter((g) => {
+        const grantee = parseGrantee(g.grantee);
+        return grantee !== null && (grantee.kind === "machine" ? grantee.scope === org.id : own.has(grantee.scope));
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  route("GET", "/organizations/{organizationId}/grants", (c, p) => {
+    const { org } = requireOrg(c, p.organizationId);
+    return offeredTo(org).map(receivedDetail);
+  });
+
+  /**
+   * An owner of the grantee's organization answers a grant: a member is 403, a grant not offered to
+   * the organization 404 whoever asks (its id discloses nothing), a grant in the wrong state 409.
+   */
+  const answers = {
+    accept: { from: "pending", to: "accepted", applies: "a pending" },
+    decline: { from: "pending", to: "declined", applies: "a pending" },
+    relinquish: { from: "accepted", to: "relinquished", applies: "an accepted" },
+  } as const;
+  for (const [verb, rule] of Object.entries(answers)) {
+    route("POST", `/organizations/{organizationId}/grants/{grantId}/${verb}`, (c, p) => {
+      const org = requireOwner(c, p.organizationId);
+      requireWrite(org);
+      const g = offeredTo(org).find((x) => x.id === p.grantId);
+      if (!g) throw new HttpError(404, `no grant '${p.grantId}' is offered to '${org.id}'`);
+      if (g.state !== rule.from) throw new HttpError(409, `grant '${g.id}' is ${g.state}; ${verb} applies to ${rule.applies} grant`);
+      const at = now();
+      const act = { by: display(c), at };
+      g.state = rule.to;
+      if (verb !== "relinquish") g.answered = act;
+      if (verb !== "accept") g.ended = act;
+      g.changes.push({ change: rule.to, ...act });
+      return "done";
+    });
+  }
+
+  // ── Machines (feature 040): an owner registers, limits and deletes; a member lists ──
+
+  const machineKey = (o: string, n: string) => `${o}/${n}`;
+  // `ankka.controlplane.machines.byte-rate-ceiling`, 32 MiB a second unless the installation says otherwise.
+  const ByteRateCeiling = options.byteRateCeiling ?? 33_554_432;
+
+  const machineSummary = (m: Machine) => ({
+    name: m.name,
+    clientId: `machine:${m.organizationId}/${m.name}`,
+    registeredBy: m.registeredBy,
+    registeredAt: m.registeredAt,
+    ...(m.byteRates ? { byteRates: m.byteRates } : {}),
+  });
+
+  route("GET", "/organizations/{organizationId}/machines", (c, p) => {
+    const { org } = requireOrg(c, p.organizationId);
+    return [...machines.values()]
+      .filter((m) => m.organizationId === org.id && !m.hidden)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(machineSummary);
+  });
+
+  route("POST", "/organizations/{organizationId}/machines", (c, p, body) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    const name = String((body as { name?: string } | undefined)?.name ?? "");
+    const problems = machineNameProblems(name);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    if (machines.has(machineKey(org.id, name))) throw new HttpError(409, `machine '${name}' is already registered on '${org.id}'`);
+    machines.set(machineKey(org.id, name), { organizationId: org.id, name, registeredBy: display(c), registeredAt: now(), hidden: hideNew });
+    return {
+      name,
+      clientId: `machine:${org.id}/${name}`,
+      // 32 random bytes as hex: the only time the secret exists outside the machine that holds it.
+      clientSecret: randomBytes(32).toString("hex"),
+      tokenUrl: `${base}/oauth/token`,
+      ...(options.brokerBootstrap ? { brokerBootstrap: options.brokerBootstrap } : {}),
+    };
+  });
+
+  route("DELETE", "/organizations/{organizationId}/machines/{name}", (c, p) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    if (!machines.delete(machineKey(org.id, p.name))) throw new HttpError(404, `no such machine '${machineKey(org.id, p.name)}'`);
+    return "done";
+  });
+
+  route("PUT", "/organizations/{organizationId}/machines/{name}/byte-rates", (c, p, body) => {
+    const org = requireOwner(c, p.organizationId);
+    requireWrite(org);
+    const b = (body ?? {}) as { produceBytesPerSecond?: number; consumeBytesPerSecond?: number; requestPercentage?: number };
+    const produce = Number(b.produceBytesPerSecond ?? 0);
+    const consume = Number(b.consumeBytesPerSecond ?? 0);
+    const percentage = Number(b.requestPercentage ?? 0);
+    if (![produce, consume, percentage].every(Number.isInteger)) throw new HttpError(400, "byte rates and the request percentage are whole numbers");
+    const rate = (label: string, value: number) =>
+      value <= 0 ? [`${label} must be more than nothing`] : value > ByteRateCeiling ? [`${label} of ${value} bytes a second is over the installation's ceiling of ${ByteRateCeiling}`] : [];
+    const problems = [
+      ...rate("the produce byte rate", produce),
+      ...rate("the consume byte rate", consume),
+      ...(percentage < 1 || percentage > 100 ? ["the request percentage is from 1 to 100"] : []),
+    ];
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    const m = machines.get(machineKey(org.id, p.name));
+    if (!m) throw new HttpError(404, `no such machine '${machineKey(org.id, p.name)}'`);
+    m.byteRates = { produceBytesPerSecond: produce, consumeBytesPerSecond: consume, requestPercentage: percentage };
+    return machineSummary(m);
+  });
+
   route("GET", "/services/{projectId}", (c, p) => {
     requireProject(c, p.projectId);
     return [...services.values()].filter((s) => s.projectId === p.projectId).map(serviceStatus);
   });
 
-  route("GET", "/services/{projectId}/{name}", (c, p) => serviceStatus(requireService(c, p.projectId, p.name).service));
+  route("GET", "/services/{projectId}/{name}", (c, p) => oneService(requireService(c, p.projectId, p.name).service));
+
+  // Custom hostnames (feature 045). A name whose first label is `unproved` stands for one that does not
+  // carry the project's proof record.
+  route("PUT", "/services/{projectId}/{name}/hostnames/{hostname}", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    const hostname = p.hostname.trim().toLowerCase().replace(/\.$/, "");
+    const problem = hostnameProblem(p.hostname);
+    if (problem !== null) throw new HttpError(409, problem);
+    const held = s.customHostnames ?? [];
+    if (held.includes(hostname)) return oneService(s);
+    if (!s.exposed) throw new HttpError(409, `service '${s.name}' is not exposed`);
+    if (held.length >= 5) throw new HttpError(409, `service '${s.name}' holds 5 custom hostnames, the most a service can hold`);
+    const holder = [...services.values()].find((o) => o !== s && (o.customHostnames ?? []).includes(hostname));
+    if (holder) throw new HttpError(409, `'${hostname}' is held by service '${holder.name}' in project '${holder.projectId}'`);
+    if (hostname.split(".")[0] === "unproved")
+      throw new HttpError(
+        409,
+        `'${hostname}' does not carry the proof record of project '${s.projectId}': create TXT _ankka.${hostname} with the value "ankka-project=${s.projectId}"`,
+      );
+    s.customHostnames = [...held, hostname];
+    s.history.push({ kind: "hostname added", generation: s.generation, actor: actor(c), at: now(), hostname });
+    return oneService(s);
+  });
+
+  route("DELETE", "/services/{projectId}/{name}/hostnames/{hostname}", (c, p) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    if (!isAdmin(c)) requireWrite(org);
+    const hostname = p.hostname.trim().toLowerCase().replace(/\.$/, "");
+    if ((s.customHostnames ?? []).includes(hostname)) {
+      s.customHostnames = (s.customHostnames ?? []).filter((h) => h !== hostname);
+      s.history.push({ kind: isAdmin(c) ? "hostname taken away" : "hostname removed", generation: s.generation, actor: actor(c), at: now(), hostname });
+    }
+    return oneService(s);
+  });
 
   route("PUT", "/services/{projectId}/{name}", (c, p, body) => {
     const { org } = requireProject(c, p.projectId);
@@ -1374,11 +2172,13 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       hideNew = false;
       for (const o of organizations.values()) o.hidden = false;
       for (const p of projects.values()) p.hidden = false;
+      for (const m of machines.values()) m.hidden = false;
     },
-    state: { organizations, projects, services, tokens, tombstones },
+    state: { organizations, projects, services, tokens, tombstones, grants, machines },
     seed(seed) {
       if (seed.objectStore) objectStore = seed.objectStore;
       if (seed.cloud !== undefined) cloud = seed.cloud;
+      if (seed.held) hold = { ...seed.held, releasedAt: undefined, releasedBy: undefined };
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
         for (const s of o.owners ?? []) members.set(s, { role: "owner", since: now() });
@@ -1453,7 +2253,20 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           detail: t.detail,
           compacted: t.compacted,
           contract: t.contract ? { ...t.contract, fingerprint: fakeFingerprint(t.contract.schema) } : undefined,
+          settings: t.settings ? { ...TopicDefaults, ...t.settings } : undefined,
+          defaulted: t.settings ? SettingNames.filter((s) => t.settings![s] === undefined) : undefined,
         });
+      }
+      for (const m of seed.machines ?? []) {
+        machines.set(machineKey(m.organizationId, m.name), { organizationId: m.organizationId, name: m.name, registeredBy: "seed", registeredAt: now(), byteRates: m.byteRates, hidden: false });
+      }
+      for (const g of seed.grants ?? []) {
+        const project = projects.get(g.projectId);
+        const org = project && organizations.get(project.organizationId);
+        if (!project || !org) throw new Error(`no project ${g.projectId}`);
+        if (!parseGrantee(g.grantee)) throw new Error(`grantee ${g.grantee} is not service:<project>/<name> or machine:<organization>/<name>`);
+        const grant = makeGrant(project, org, g.grantee, g.target, g.by ?? "seed", g.state);
+        if (g.state && g.state !== "pending" && g.state !== "accepted") grant.ended = { by: g.by ?? "seed", at: grant.granted.at };
       }
     },
     close: () =>

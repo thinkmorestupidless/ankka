@@ -43,7 +43,11 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_CLOUD_LOCATION",
         "ANKKA_CLOUD_KMS_KEY",
         "ANKKA_CLOUD_ACKNOWLEDGEMENT_BOUND",
-        "ANKKA_CLOUD_ROTATION_GRACE"
+        "ANKKA_CLOUD_ROTATION_GRACE",
+        "ANKKA_PROJECT_GRANTS",
+        "ANKKA_MACHINE_ISSUER",
+        "ANKKA_MACHINE_JWKS_URL",
+        "ANKKA_MACHINE_JWKS_CA"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -79,7 +83,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
 
   test(
     "the variables for the platform's program alone: a model's, a database's, the issuers', " +
-      "a socket's limits, an MCP server's, a declared broker's, the secret key"
+      "a socket's limits, an MCP server's, a declared broker's, a watch's limits, the SSE " +
+      "heartbeat, the secret key"
   ) {
     assertEquals(
       RuntimeOnlyPrefixes,
@@ -90,7 +95,9 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_AUTH_",
         "ANKKA_SOCKET_",
         "ANKKA_MCP_",
-        "ANKKA_TOPIC_BROKER_"
+        "ANKKA_TOPIC_BROKER_",
+        "ANKKA_VIEW_",
+        "ANKKA_SSE_"
       )
     )
     // The secret store's settings reach the platform's program alone, which holds the store; the
@@ -149,6 +156,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(runtimeOnly("ANKKA_AUTH_ISSUERS"))
     assert(runtimeOnly("ANKKA_SOCKET_KEEP_ALIVE"), "the platform's program holds the socket")
     assert(runtimeOnly("ANKKA_MCP_TICKETS_TOKEN"))
+    assert(runtimeOnly("ANKKA_VIEW_WATCH_BOUND"), "the platform's program holds the watches")
+    assert(runtimeOnly("ANKKA_SSE_HEARTBEAT"), "the platform's program serves the stream")
     assert(!runtimeOnly("ANKKA_SECRET_KEYS"))
     assert(!runtimeOnly("ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
     assert(!runtimeOnly("GREETING"))
@@ -166,6 +175,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(withheldFromModule("ANKKA_AUTH_ISSUERS"), "runtime-only by prefix: the issuers")
     assert(withheldFromModule("ANKKA_SOCKET_MAX_FRAME_SIZE"), "runtime-only by prefix: a socket's")
     assert(withheldFromModule("ANKKA_MCP_TICKETS_URL"), "runtime-only by prefix: an MCP server")
+    assert(withheldFromModule("ANKKA_VIEW_UNREAD_BOUND"), "runtime-only by prefix: a watch's")
+    assert(withheldFromModule("ANKKA_SSE_HEARTBEAT"), "runtime-only by prefix: the SSE heartbeat")
     assert(withheldFromModule("ANKKA_CLUSTER_SERVICE_X"), "read by the runtime")
     assert(withheldFromModule("ANKKA_BASE_DOMAIN"), "read by the runtime, by name")
     assert(!withheldFromModule("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "shared, so a module may read it")
@@ -180,6 +191,13 @@ class PlatformVariablesSuite extends munit.FunSuite:
       !runtimeOnly(OtlpEndpoint),
       "a process is not given it, and a descriptor may not give it"
     )
+  }
+
+  test("which grants name a service, and how it believes a machine, are the platform's to say") {
+    for name <- Vector(ProjectGrants, MachineIssuer, MachineJwksUrl, MachineJwksCa) do
+      assert(platformOnly(name), name)
+      assert(withheldFromModule(name), name)
+    assert(!platformOnly(MachineTokenRate), "the control plane's own setting, never a service's")
   }
 
   test("the object store's variables are the developer's program's, by prefix") {

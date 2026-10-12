@@ -3,8 +3,10 @@
  * yours with your role in each, or every one of them for a platform administrator — and what the
  * installation is: its version, and its cloud when it names one (feature 044).
  */
-import { useLoaderData, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { guard, pageData, useConsoleContext, withShell } from "../context.ts";
+import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
+import { act, guard, pageData, text, useConsoleContext, withShell } from "../context.ts";
+import { ConsoleForm, Submit, useConsole, when } from "../ui/console.tsx";
+import { Refused } from "../ui/refused.tsx";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { ConsoleLink } from "../ui/console.tsx";
 import { Page } from "../ui/shell.tsx";
@@ -15,26 +17,41 @@ export const meta: MetaFunction = () => [{ title: "Organizations · ankka" }];
 export async function loader({ context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   return guard(ctx, async () => {
-    const [whoami, organizations, installation] = await Promise.all([
+    const [whoami, organizations, installation, hold] = await Promise.all([
       ctx.client.whoami(),
       ctx.client.listOrganizations(),
       ctx.client.installation(),
+      // Whether the control plane is held (feature 041); one that cannot say leaves it out.
+      ctx.client.restoreHold().catch(() => undefined),
     ]);
     const shell = {
       area: "organizations" as const,
       crumbs: [{ label: "Organizations" }],
       primary: { label: "Create an organization", to: "organizations/new", operation: "organization.create" as const },
     };
-    return { console: withShell(await pageData(ctx), shell), whoami, organizations, installation };
+    return { console: withShell(await pageData(ctx), shell), whoami, organizations, installation, hold };
+  });
+}
+
+export async function action({ request, context }: ActionFunctionArgs) {
+  const ctx = useConsoleContext(context);
+  const form = await request.formData();
+  const intent = text(form, "intent");
+  return act(ctx, intent, form, async () => {
+    if (intent !== "release") throw new Response(`unknown operation '${intent}'`, { status: 400 });
+    await ctx.client.releaseRestoreHold();
+    return redirect(ctx.href(""));
   });
 }
 
 const roleWords = { owner: "Owner", member: "Member" } as const;
 
 export default function Front() {
-  const { whoami, organizations, installation } = useLoaderData<typeof loader>();
+  const { whoami, organizations, installation, hold } = useLoaderData<typeof loader>();
   const cloud = installation.cloud ?? null;
+  const backups = installation.backups ?? null;
   const hostActions = useHostActions("organization.create");
+  const { shows } = useConsole();
   return (
     <Page
       inspector={
@@ -51,6 +68,44 @@ export default function Front() {
         {whoami.email && whoami.name ? ` (${whoami.email})` : null}
         {whoami.platformAdmin ? ", a platform administrator: you see every organization in this installation." : "."}
       </p>
+
+      {hold?.held ? (
+        <section className="ac-card" aria-labelledby="hold-title" data-held="yes">
+          <h2 id="hold-title">The control plane is held</h2>
+          <p>
+            Its database was restored to {hold.targetTime ? when(hold.targetTime) : "an earlier moment"}, and it changes nothing in the cluster until a platform administrator releases
+            it.
+          </p>
+          {hold.services.length > 0 ? (
+            <ul className="ac-topics" aria-label="Services that differ">
+              {hold.services.map((d) => (
+                <li key={`${d.project}/${d.service}`} data-differs={`${d.project}/${d.service}`}>
+                  {d.project}/{d.service}: recorded {d.recordedImage ?? "nothing"}, the cluster runs {d.clusterImage ?? "nothing"}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {hold.unknownProjects.length > 0 ? <p>Projects the database does not know: {hold.unknownProjects.join(", ")}.</p> : null}
+          {whoami.platformAdmin && shows("installation.release") ? (
+            <ConsoleForm intent="release">
+              <Submit intent="release">Release the control plane</Submit>
+            </ConsoleForm>
+          ) : null}
+          <Refused intent="release" />
+        </section>
+      ) : hold?.releasedAt ? (
+        <p data-held="released">
+          The control plane was released after its database's restore, {when(hold.releasedAt)}
+          {hold.releasedBy ? ` by ${hold.releasedBy}` : ""}.
+        </p>
+      ) : null}
+
+      {backups ? (
+        <p className="ac-hint" data-backups={backups.backupTarget}>
+          {backups.notBackedUp ??
+            `Backups are kept at least ${backups.retentionDays} days${backups.sharesFailureDomain ? ", in the cluster they back up" : ", with a copy outside the cluster"}.`}
+        </p>
+      ) : null}
 
       {organizations.length === 0 ? (
         <p className="ac-empty">

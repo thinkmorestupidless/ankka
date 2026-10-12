@@ -57,8 +57,8 @@ Five decisions shape this feature.
   leaves is kept, under the platform's rule that nothing is destroyed. A restore that turned out to be the
   wrong moment is undone by switching back. A restore is not a rollback (033): a rollback runs an earlier
   image against the current data; a restore runs the current image against earlier data.
-- **Replicas are a project's choice.** The default stays one instance, which is right for development and
-  pilots. A project may ask for more, with automatic failover, and may ask for synchronous replication for a
+- **Replicas are a project's choice.** The default stays a primary alone, which is right for development and
+  pilots. A project may ask for replicas, with automatic failover, and may ask for synchronous replication for a
   money path, accepting the write latency it costs.
 - **The platform reports what a restore cannot rewind; it does not rewind it.** A restore rewinds a
   service's journals and its projection offsets. Kafka is not restored, and other projects are not rewound.
@@ -108,7 +108,9 @@ writes (namespaces, Secrets, certificates), which an installation's own cluster 
 - Q: What is the "line of history" a message id names? → A: A value the platform writes at restore time,
   never Postgres's timeline id, which also changes on every failover promotion. It is kept in a
   restore-boundary table — the line's id and, per entity, the sequence at which the line began — added under
-  the additive-schema rule. A message id derives from the line, the entity and the sequence.
+  the additive-schema rule. A message id derives from the line, the entity and the sequence. *Revised in
+  planning (research R16):* the line is kept by the moment it began, and an event belongs to the latest line
+  that began no later than the event's own time; the per-entity boundary is not needed.
 - Q: Does the id make re-publication harmless? → A: No. Topic-sourced views and consumers are at-least-once
   and do not deduplicate by id, so re-published events re-apply everywhere and a counting consumer counts
   twice. The id helps only consumers that deduplicate. The member assesses the rest from the report.
@@ -121,8 +123,8 @@ writes (namespaces, Secrets, certificates), which an installation's own cluster 
   component with its own grant. Each project's backup bucket gets a credential minted for it — by the
   operator on Garage as 034 does, through 044-cloud-provider's platform-bucket request on Google Cloud
   Storage — into a Secret the project's database instances read. Rotation is a re-issue.
-- Q: Are backups encrypted at rest? → A: Yes, by the archiver before upload, under one key per installation
-  held in the secret store (038). Garage encrypts nothing; a backup is unreadable without the key.
+- Q: Are backups encrypted at rest? → A: Yes, under one key per installation that no service reaches, so a
+  backup is unreadable without it. Revised in the clarify session below: the store encrypts, not the archiver.
 - Q: Must a real-money installation copy its backups off the cluster? → A: An installation may require it:
   with the requirement set, a project is not "backed up" until a copy exists outside the failure domain. Off
   as shipped. The copy mirrors deletions, so a deleted object does not outlive its deletion in the copy.
@@ -133,6 +135,27 @@ writes (namespaces, Secrets, certificates), which an installation's own cluster 
 - Q: Which other stores are backed up here? → A: 038's read record and 042's keyring database, each as a
   store in its own right, the keyring's in a bucket of its own. After a restore, services replay 042's
   erasure log — only a service knows its view schema — and a switched service is not ready until it has.
+
+### Session 2026-10-08 (clarify)
+
+- Q: FR-003b has the archiver encrypt before upload, but the Barman Cloud plugin encrypts server-side only
+  (SSE-S3 or SSE-KMS on S3, a KMS key on Google Cloud Storage). Which encryption is meant? → A: Server-side
+  under a key the installation holds: SSE-C on Garage with a key from 038's secret store, 044's installation
+  key on Google Cloud Storage. The bucket's credential alone reads nothing; the key is never in the bucket.
+  *Revised in planning (research R2):* the archiver sends SSE-S3 or SSE-KMS only and Garage accepts SSE-C
+  only, so on Garage the platform encrypts no backup, stated as a limitation; on Google Cloud Storage the
+  bucket is encrypted under 044's installation key.
+- Q: Does a switch roll the service, or does the service wait for its next deploy to move? → A: The switch
+  starts a rolling update of the service at once; the service is on the new database when that update
+  completes. "Next rollout" means the one the switch starts.
+- Q: Does the project's database setting count instances or replicas? → A: Replicas, none by default: the
+  glossary's and the features' word. "Two replicas" is a primary and two replicas; "0 instances" cannot be
+  said.
+- Q: How often is Garage copied to the secondary store as shipped? → A: Hourly. The copy interval is the
+  recovery point for the loss of the whole cluster on a Garage installation.
+- Q: May a project's retention override be shorter than the installation's? → A: No. The installation's
+  retention is a floor: a project may keep its backups longer, never for less time, and a shorter value is
+  refused naming the installation's.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -162,6 +185,7 @@ bound, then restore the target and assert both clear.
 - added `features/databases/backups.feature`: the database of the control plane is backed up as a project database is
 - added `features/databases/backups.feature`: a database a service declares of its own is not backed up by the platform
 - added `features/databases/backups.feature`: an installation with no backup target deploys as before and says that nothing is backed up
+- added `features/databases/backups.feature`: a storage credential of a service reaches no backup bucket
 
 ---
 
@@ -171,8 +195,8 @@ A bad release of the rewards service wrote wrong balances for forty minutes; the
 An owner of the organization restores the project to the minute before the release, into a new database
 beside the current one. The platform reports the restore complete and verified: every service's database
 present, the moment reached, and for each service the journal's highest sequence and its row counts. The
-owner reviews it and switches the rewards service, and only it. Rewards rolls onto the restored database at
-its next rollout; the wallet keeps writing to the live one. The project now runs on two clusters, and its
+owner reviews it and switches the rewards service, and only it. The switch rolls rewards onto the restored
+database then and there; the wallet keeps writing to the live one. The project now runs on two clusters, and its
 status says so, until the owner moves the rest or abandons the restored cluster. The cluster a service left is
 kept, and switching back is the same action.
 
@@ -237,15 +261,15 @@ restored offsets carry the ids they carried before; publish a new event and asse
 
 ### User Story 4 - A project asks for replicas and survives losing its primary (Priority: P2)
 
-A project that carries money asks for three database instances with synchronous replication. When the node
-holding the primary is lost, a replica is promoted, the project's services reconnect, and no acknowledged
-write is lost. Another project leaves the setting alone and keeps one instance.
+A project that carries money asks for two replicas of its database with synchronous replication. When the
+node holding the primary is lost, a replica is promoted, the project's services reconnect, and no acknowledged
+write is lost. Another project leaves the setting alone and keeps a primary alone.
 
 **Why this priority**: Recovery restores what was lost; replicas mean it is not lost. For a wallet a restore
 is the last resort, not the first, but recovery comes first because without it a replica faithfully copies
 a bad write.
 
-**Independent Test**: In a k3s suite with more than one node, set a project to three instances with
+**Independent Test**: In a k3s suite with more than one node, set a project to two replicas with
 synchronous replication, write continuously from a service, delete the primary's pod and its volume, and
 assert a replica is promoted, writes resume within the bound, and every write the service was told succeeded
 is present.
@@ -325,8 +349,8 @@ lists S as differing (1 desired, 2 running), and that S keeps running version 2 
 
 An installation that keeps its objects on Garage rather than Google Cloud Storage runs Garage on three
 nodes, each object on all three, and names a second store outside the cluster to which every bucket — the
-services' and the backup buckets alike — is mirrored on a schedule: an object deleted in Garage is deleted in
-the copy at the next run, so the copy never holds what the installation has erased. Losing one Garage node
+services' and the backup buckets alike — is mirrored on a schedule, hourly as shipped: an object deleted in
+Garage is deleted in the copy at the next run, so the copy never holds what the installation has erased. Losing one Garage node
 loses nothing; losing the cluster loses at most one copy interval of objects, and none of the database archive
 older than that. A real-money installation sets the requirement that a project is not "backed up" until its
 backups have a copy outside the failure domain; with it set and no secondary store, every project's status
@@ -368,8 +392,9 @@ backup bucket.
 - A service switched to a restored cluster is then switched back: the live cluster holds the writes it had
   before the switch and none made on the restored one; the report of the switch back says so, and lists the
   topics those writes published to, as a restore's report does.
-- The retention window shortens: base backups and archive older than the new window are removed only after
-  a newer base backup has completed, so the restorable window never has a gap.
+- The retention window shortens — the installation lowers its floor, or a project drops an override that was
+  longer: base backups and archive older than the new window are removed only after a newer base backup has
+  completed, so the restorable window never has a gap.
 - A project with backups is deleted from the control plane: its backup bucket is kept, like its database,
   and the platform never removes it.
 - A restored database's secret store (023, 038's Postgres backend) holds every service secret as it was at
@@ -379,15 +404,16 @@ backup bucket.
   the project's database, so the restored events stay unreadable; each service switched to the restored
   database replays the erasure log itself — only it knows its view schema — before it reports ready, so
   nothing recorded about the erased subject reappears in state or views.
-- A switch while the service is mid-rollout: the switch waits for the rollout to finish and then rolls the
+- A switch while the service is mid-rollout: the switch is accepted and recorded at once; the platform
+  applies it to the running service only when the rollout in progress has finished, and then rolls the
   service again.
-- The backup encryption key (038) is lost: every backup is unreadable, and the installation's status says
-  so as a backup failure. The key is a secret in the installation's secret store and is backed up as that
-  store is; it is never in a backup bucket.
+- The backup key is lost (Google Cloud Storage): every backup is unreadable, and the installation's status
+  says so as a backup failure; the key is 044's installation key, whose loss 044 covers. It is never in a
+  backup bucket.
 - The object store is lost along with the cluster: every backup is gone with it unless the installation's
   object store is outside the cluster (Google Cloud Storage) or Garage copies to a secondary store (User
   Story 7). The installation's status says which applies.
-- A project at many instances asks for synchronous replication with only one healthy replica: writes wait
+- A project with replicas asks for synchronous replication with only one healthy replica: writes wait
   for it, as synchronous replication means, and the status reports the replica that is holding writes.
 
 ## Requirements *(mandatory)*
@@ -414,16 +440,20 @@ backup bucket.
   034 mints a service's; through 044-cloud-provider's request for a platform bucket on Google Cloud Storage —
   written into a Secret the database instances read and nothing else does. A member MUST be able to re-issue
   it, and the old credential MUST stop working when the new one is in use.
-- **FR-003b**: Every base backup and archived segment MUST be encrypted by the archiver before it is
-  uploaded, under one key per installation kept in the secret store (038), so that a backup bucket's contents
-  are unreadable without it. The key MUST never be written to a backup bucket.
-- **FR-004**: Retention MUST be an installation setting (30 days as shipped) that a project may override
-  with its own value. The platform MUST remove base backups and archive older than the window only once a
+- **FR-003b**: On Google Cloud Storage, every base backup and archived segment MUST be stored encrypted
+  under the installation key 044 names, which encrypts every bucket the cloud provider makes, so a backup
+  bucket's contents are unreadable with the bucket's credential alone; the key MUST never be written to a
+  backup bucket. On Garage the platform encrypts no backup — the archiver offers only the encryption modes
+  Garage lacks (research R2) — and `docs/reference/limitations.md` MUST say so, with the installation's
+  volume encryption named as what protects a backup there.
+- **FR-004**: Retention MUST be an installation setting (30 days as shipped) that is a floor: a project
+  may set a longer window of its own, and a shorter one MUST be refused naming the installation's. The
+  platform MUST remove base backups and archive older than the window only once a
   newer base backup has completed, so every moment inside the window stays restorable.
 - **FR-005**: A project's status MUST report: whether it is backed up, the time of its last completed base
   backup, the earliest and latest moments it can be restored to, the archive's lag, and, when backups are
-  failing, the reason. With the installation requiring an off-cluster copy (FR-033a), "backed up" MUST mean a
-  copy of the latest base backup exists outside the failure domain.
+  failing, the reason. With the installation requiring an off-cluster copy, "backed up" is as FR-033a
+  defines it.
 - **FR-006**: A failure to archive or to complete a base backup MUST appear on the project's status within
   five minutes, and as a metric labelled with the project, exported through the installation's telemetry
   (026). The archive's lag MUST be exported as a metric too, as the recovery point the project actually has.
@@ -448,8 +478,8 @@ backup bucket.
   the switch MUST NOT report the service ready until it has. The platform replays nothing on a service's
   behalf; only the service knows its view schema.
 - **FR-013**: An owner MUST be able to switch one service of the project to a completed restore, and each
-  service separately. A switched service MUST move to the restored database at its next rollout and no other
-  service MUST move with it. A switch of a service that has no database in the restore MUST be refused,
+  service separately. A switch MUST start a rolling update of that service at once, and the service MUST be
+  on the restored database when that update completes; no other service MUST move with it. A switch of a service that has no database in the restore MUST be refused,
   naming it.
 - **FR-013a**: A project's status MUST name the cluster each service is on, and MUST say when its services
   are on more than one cluster.
@@ -471,12 +501,13 @@ backup bucket.
 - **FR-019**: A message published from a journal event MUST carry an id derived from the event's line of
   history, its entity and its sequence number, so that re-publishing the same event after a restore gives the
   same id.
-- **FR-020**: The line of history MUST be a value the platform writes when a restored cluster is first
-  switched to, kept in a restore-boundary table in the service's database — the line's id and, per entity,
-  the sequence at which the line began — added under the additive-schema rule. It MUST NOT be Postgres's
-  timeline, which changes on every failover promotion. An event persisted after a restore MUST therefore
-  never share an id with an event persisted before it, even with the same entity and sequence number, and a
-  failover MUST NOT change the ids of events published after it.
+- **FR-020**: The line of history MUST be a value the platform writes when a service first starts on a
+  cluster, kept in a table in the service's database — the line's id and the moment it began — added under
+  the additive-schema rule; an event belongs to the latest line that began no later than the event's own
+  recorded time (research R16). It MUST NOT be Postgres's timeline, which changes on every failover
+  promotion. An event persisted after a restore MUST therefore never share an id with an event persisted
+  before it, even with the same entity and sequence number, and a failover MUST NOT change the ids of
+  events published after it.
 - **FR-020a**: The restore's report, and `docs/platform/databases.md`, MUST state that topic-sourced views and
   consumers in the platform apply a re-published event again, and that the id protects only a consumer that
   deduplicates by it.
@@ -502,17 +533,17 @@ backup bucket.
 
 **Replicas**
 
-- **FR-026**: A member MUST be able to set a project's database instance count, one by default, and to ask
-  for synchronous replication. The setting MUST be held on the project, as its topic declarations are, not
+- **FR-026**: A member MUST be able to set how many replicas a project's database runs, none by default, and
+  to ask for synchronous replication. The setting MUST be held on the project, as its topic declarations are, not
   on any service's descriptor.
-- **FR-027**: With more than one instance, the platform MUST fail over to a replica automatically when the
+- **FR-027**: With at least one replica, the platform MUST fail over to a replica automatically when the
   primary is lost, and the project's services MUST resume without a redeploy: a service's connection pool
   MUST drop connections to the lost primary and reconnect to the promoted one on its own, within the bound
   SC-006 sets.
 - **FR-028**: With synchronous replication, a write MUST NOT be acknowledged until at least one replica holds
   it.
-- **FR-029**: The project's status MUST report how many instances are ready, which is primary, and, with
-  synchronous replication, whether writes are waiting on a replica.
+- **FR-029**: The project's status MUST report how many of the primary and its replicas are ready, which is
+  the primary, and, with synchronous replication, whether writes are waiting on a replica.
 
 **The control plane's database**
 
@@ -532,7 +563,7 @@ backup bucket.
   installation choice; the local installation MUST stay one node.
 - **FR-033**: An installation on Garage MUST be able to name a secondary store outside the cluster, any
   S3-compatible store, to which every bucket of the installation's Garage — services' and backups' alike —
-  is mirrored on a schedule the installation sets: an object deleted from Garage MUST be deleted from the
+  is mirrored on a schedule the installation sets, hourly as shipped: an object deleted from Garage MUST be deleted from the
   secondary store at the next run, and the copy MUST never accumulate what Garage no longer holds. The
   installation's status MUST report the time of the last complete copy, and a failed copy as FR-006 reports
   a backup failure.
@@ -560,21 +591,22 @@ backup bucket.
 - **Backup bucket**: one per project, one for the control plane, one for the read record and one for the
   keyring, created by the platform, unreachable by any service, never deleted; each with a credential of its
   own, held in a Secret its database instances read.
-- **Backup key**: one per installation, in the secret store; every backup is encrypted under it before upload.
+- **Backup key**: on Google Cloud Storage, 044's installation key, which the store encrypts every backup
+  under; never in a backup bucket. On Garage there is none.
 - **Line of history**: one database's continuous archive since it was created or a restored cluster was
-  first switched to; a value the platform writes, kept in a restore-boundary table with each entity's
-  sequence at the boundary; every message id published from the line says which one.
+  first switched to; a value the platform writes, kept in a table with the moment the line began; every
+  message id published from the line says which one.
 - **Restore**: a request to recreate a project's cluster at a moment; holds the moment, who asked, the new
   cluster, its verification per service, the topic and consumer group divergence, the changed secret names,
   and its phase (`Restoring`, `Verified`, `Failed`, `InUse` once any service is switched to it).
-- **Switch**: moving one service from one of its project's clusters to another; recorded with who, when and
-  the service; reversible.
+- **Switch**: moving one service from one of its project's clusters to another by a rolling update the
+  switch starts; recorded with who, when and the service; reversible.
 - **Rehearsal**: a restore into a throwaway database in the project's rehearsal namespace, verified, timed
   and removed, with a time to live; its report is kept.
 - **Restore marker**: the row the control plane's restore procedure writes, which holds projection until a
   platform administrator releases it.
-- **Database setting** (per project): instance count, synchronous replication, retention override, rehearsal
-  schedule.
+- **Database setting** (per project): number of replicas, synchronous replication, retention override (never
+  below the installation's), rehearsal schedule.
 
 ## Success Criteria *(mandatory)*
 
@@ -592,13 +624,17 @@ backup bucket.
 - **SC-005**: A re-published event carries the id it carried before the restore, and a new event after the
   restore never carries an id any earlier message carried, shown with an entity whose sequence numbers
   overlap the lost ones; a failover promotion changes no id.
-- **SC-006**: With three instances and synchronous replication, deleting the primary's pod and volume loses
+- **SC-006**: With two replicas and synchronous replication, deleting the primary's pod and volume loses
   no acknowledged write, and writes resume within 60 seconds without a redeploy.
 - **SC-007**: A rehearsal of a project with 50 GiB of data completes, verified, in under 60 minutes on the
   reference cloud installation, and its report states the time taken.
-- **SC-010**: A backup bucket's contents, read with the bucket's own credential but without the installation's
-  backup key, yield no readable base backup and no readable archive segment.
+- **SC-010**: On Google Cloud Storage, a backup bucket's encryption key is the installation's, shown by the
+  bucket's configuration when 044 lands; on Garage the installation's status says `encryption: none` with the
+  reason, asserted by the backups suite, and the limitation is in the documentation.
 - **SC-011**: An object deleted from a Garage bucket is absent from the secondary store after the next copy.
+- **SC-012**: On a Garage installation with a secondary store at the shipped interval, losing the whole
+  cluster loses at most one hour of objects and of archive, shown in the k3s suite by a copy that completes
+  within the hour of a write.
 - **SC-008**: A control plane restored to before a deploy changes no running service until its projection is
   released.
 - **SC-009**: No service credential can read, list or delete any object in a backup bucket, shown with each
@@ -608,10 +644,12 @@ backup bucket.
 
 - CloudNativePG archives to an object store through its Barman Cloud plugin (`barmancloud.cnpg.io`
   resources); CNPG's in-tree object store support is deprecated. Planning confirms the plugin against CNPG
-  1.30, and its client-side encryption as the mechanism for FR-003b. The plugin speaks S3 and Google Cloud
-  Storage, so Garage and 039's buckets are both targets.
-- The operator's partial `ClusterSpec` gains the fields this needs — the backup section, instance count from
-  the project's setting, synchronous replication — and a project's `AnkkaProject` resource carries the
+  1.30. The plugin encrypts server-side with SSE-S3 or SSE-KMS only, and Garage offers SSE-C only, so on
+  Garage nothing encrypts a backup (FR-003b); on Google Cloud Storage the bucket is encrypted by 044 before
+  the plugin sees it. The plugin speaks S3 and Google Cloud Storage, so Garage and 039's buckets are both
+  targets.
+- The operator's partial `ClusterSpec` gains the fields this needs — the backup section, `instances` as one
+  more than the project's replicas, synchronous replication — and a project's `AnkkaProject` resource carries the
   project's database setting, as it carries topic declarations.
 - A restored cluster lives in the project's namespace under a new name beside `ankka-db`. A service's host is
   `ANKKA_DB_HOST` in its own credential Secret (`CnpgRendering.credentialSecret`), which is why the switch is
@@ -636,19 +674,25 @@ backup bucket.
 - Kafka consumers in this platform commit their positions to the broker, not to Postgres, which is why a
   restore can leave a consumer group ahead of its database and why FR-018 lists them.
 - "Owner" is the organization role that exists today; no new role is added.
+- A project id may not end in `-rehearsal` (its rehearsal namespace is derived from it) and a project whose
+  id is longer than 46 characters has no backup bucket, since a bucket name is at most 63; the control plane
+  refuses both at creation from now on (research R4).
+- A restored cluster archives nothing until a service is switched to it: CNPG refuses a cluster whose
+  archive is not empty, and FR-016 says a line begins at the switch (research R12).
 
 ## Dependencies
 
 - **039-gcs-object-storage**: for Google Cloud Storage as a backup target. Garage serves until then.
 - **044-cloud-provider**: mints the credential for a platform-owned backup bucket on Google Cloud Storage
-  (FR-003a); on Garage the operator mints it as 034 does.
+  (FR-003a), and its installation key is the backup key there (FR-003b); on Garage the operator mints the
+  credential as 034 does and the key is 038's.
 - **042-personal-data-erasure**: FR-012 has each switched service replay its erasure log; FR-031 has the
   control plane reconcile the log from its bucket copy; FR-002 backs up the keyring's database. Until 042
   lands there is no log and no keyring, and those clauses are vacuous.
 - **043-topic-retention**: Kafka's durability, by replication, is there, not here.
 - **026-telemetry-export**: the backup failure and archive lag metrics are exported through it.
-- **038-secret-store-backends**: the backup key (FR-003b) lives in its secret store, and its read record is
-  backed up here (FR-002). On the Secret Manager backend, service secrets are not in the database and FR-022
+- **038-secret-store-backends**: on Garage the backup key (FR-003b) lives in its secret store, and its read
+  record is backed up here (FR-002). On the Secret Manager backend, service secrets are not in the database and FR-022
   lists nothing; on the Postgres backend they are restored with it.
 - Gates eitheror's migration of a live casino onto ankka: the casino plan's Phase 0 lists backups as the
   first real-money gap.

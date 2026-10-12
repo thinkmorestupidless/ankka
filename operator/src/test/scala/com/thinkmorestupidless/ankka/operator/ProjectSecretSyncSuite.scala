@@ -129,7 +129,7 @@ class ProjectSecretSyncSuite extends munit.FunSuite:
       None,
       Map.empty,
       None,
-      requests
+      secretSyncs = requests
     )
     assertEquals(actions.count(_.isInstanceOf[Action.EnsureCloudResource]), 2)
   }

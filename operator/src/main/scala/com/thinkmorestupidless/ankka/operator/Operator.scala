@@ -54,6 +54,14 @@ final class Operator(
     projects.getOrElse(ProjectReconciler(client, settings))
   private val projectQueue = new WorkQueue(settings, projectReconciler.reconcile)
 
+  /**
+   * Registered machines' broker users (feature 040), on a queue of their own, keyed by the
+   * machine's resource name with no namespace: the resource is cluster-scoped.
+   */
+  private val machineReconciler =
+    new MachineReconciler(client, settings, new Fabric8Executor(client))
+  private val machineQueue = new WorkQueue(settings, machineReconciler.reconcile)
+
   private var informers: Vector[SharedIndexInformer[?]] = Vector.empty
 
   /** Only namespaces this operator is responsible for. */
@@ -95,6 +103,67 @@ final class Operator(
       def onDelete(obj: T, deletedFinalStateUnknown: Boolean): Unit =
         toRef(obj).foreach(target.enqueue)
 
+  /**
+   * A project's pass writes its status, and since feature 041 the status carries the archive's lag,
+   * which differs every pass: were a status write a reason to reconcile, each pass would ask for
+   * the next one. So an update is passed on only when the spec changed (the generation moved) or
+   * when nothing changed at all, which is the informer's resync.
+   */
+  private def specChanges[T <: io.fabric8.kubernetes.api.model.HasMetadata](
+      inner: ResourceEventHandler[T]
+  ): ResourceEventHandler[T] =
+    new ResourceEventHandler[T]:
+      def onAdd(obj: T): Unit = inner.onAdd(obj)
+      def onUpdate(old: T, updated: T): Unit =
+        val resync = old.getMetadata.getResourceVersion == updated.getMetadata.getResourceVersion
+        val generation = old.getMetadata.getGeneration != updated.getMetadata.getGeneration
+        if resync || generation then inner.onUpdate(old, updated)
+      def onDelete(obj: T, deletedFinalStateUnknown: Boolean): Unit =
+        inner.onDelete(obj, deletedFinalStateUnknown)
+
+  /**
+   * A project's resource changed: the project is reconciled, and so is every service of it, whose
+   * declared brokers (feature 037) are mounted from it. So is every service of another project its
+   * topic grants name, before or after the change (feature 040): a grant made or revoked is an
+   * entry on that service's broker user, which must not wait for a resync.
+   */
+  private def projectChanged(old: Option[AnkkaProject], now: AnkkaProject): Unit =
+    Option(now.getMetadata).filter(m => watched(m.getNamespace)).foreach { m =>
+      client
+        .resources(classOf[AnkkaService])
+        .inNamespace(m.getNamespace)
+        .list()
+        .getItems
+        .asScala
+        .foreach(s => queue.enqueue(ServiceRef(m.getNamespace, s.getMetadata.getName)))
+      val grantees = (old.toVector :+ now)
+        .flatMap(p => Option(p.getSpec).toVector)
+        .flatMap(_.grants)
+        .filter(_.kind == "topic")
+        .flatMap(g => Operator.granteeService(g.grantee))
+        .distinct
+      grantees.foreach { (project, service) =>
+        val namespace = Names.namespace(settings.namespacePrefix, project)
+        if watched(namespace) then queue.enqueue(ServiceRef(namespace, service))
+      }
+      // A machine's grants are entries on its broker user too.
+      (old.toVector :+ now)
+        .flatMap(p => Option(p.getSpec).toVector)
+        .flatMap(_.grants)
+        .filter(_.kind == "topic")
+        .flatMap(g => Operator.granteeMachine(g.grantee))
+        .distinct
+        .foreach((organization, name) =>
+          machineQueue.enqueue(
+            ServiceRef(
+              "",
+              com.thinkmorestupidless.ankka.crd.AnkkaMachine.nameOf(organization, name)
+            )
+          )
+        )
+      projectQueue.enqueue(ServiceRef(m.getNamespace, m.getName))
+    }
+
   def start(): Unit =
     val resyncMillis = settings.resyncInterval.toMillis
 
@@ -119,24 +188,13 @@ final class Operator(
             .resources(classOf[AnkkaProject])
             .inAnyNamespace()
             .inform(
-              handler[AnkkaProject](p =>
-                Option(p.getMetadata)
-                  .filter(m => watched(m.getNamespace))
-                  .map { m =>
-                    // A project's declared brokers (feature 037) are mounted on every service of
-                    // the project: each is reconciled again when the project changes.
-                    client
-                      .resources(classOf[AnkkaService])
-                      .inNamespace(m.getNamespace)
-                      .list()
-                      .getItems
-                      .asScala
-                      .foreach(s =>
-                        queue.enqueue(ServiceRef(m.getNamespace, s.getMetadata.getName))
-                      )
-                    ServiceRef(m.getNamespace, m.getName)
-                  }
-              )(using projectQueue),
+              specChanges(new ResourceEventHandler[AnkkaProject] {
+                def onAdd(obj: AnkkaProject): Unit = projectChanged(None, obj)
+                def onUpdate(old: AnkkaProject, updated: AnkkaProject): Unit =
+                  projectChanged(Some(old), updated)
+                def onDelete(obj: AnkkaProject, deletedFinalStateUnknown: Boolean): Unit =
+                  projectChanged(None, obj)
+              }),
               resyncMillis
             )
         )
@@ -173,9 +231,66 @@ final class Operator(
           )
           None
 
-    informers = Vector(services, deployments) ++ projectInformer ++ cloudInformer
+    // Feature 041: a project's status says what its database's archive and instances are doing,
+    // so a change to its cluster or a new base backup reports it now rather than at the next
+    // resync: that is what puts a failing archive on the status within five minutes (SC-003).
+    // The project's resource is named for the project, in the project's namespace.
+    def projectOf(meta: io.fabric8.kubernetes.api.model.ObjectMeta): Option[ServiceRef] =
+      Option(meta)
+        .map(_.getNamespace)
+        .filter(watched)
+        // A rehearsal's cluster is its project's to report: its namespace is the project's own
+        // with the suffix, and nothing else may end so (`Recovery.projectProblems`).
+        .map(_.stripSuffix(com.thinkmorestupidless.ankka.crd.Recovery.RehearsalSuffix))
+        .map(ns => ServiceRef(ns, ns.stripPrefix(s"${settings.namespacePrefix}-")))
+    def databaseInformer[T <: io.fabric8.kubernetes.api.model.HasMetadata](kind: Class[T]) =
+      try
+        Some(
+          client
+            .resources(kind)
+            .inAnyNamespace()
+            .inform(handler[T](r => projectOf(r.getMetadata))(using projectQueue), resyncMillis)
+        )
+      catch
+        case scala.util.control.NonFatal(e) =>
+          log.warn(
+            "no {} type in this cluster; backups are not reported: {}",
+            kind.getSimpleName,
+            e.getMessage
+          )
+          None
+    val databaseInformers =
+      Vector(
+        databaseInformer(classOf[cnpg.PostgresCluster]),
+        databaseInformer(classOf[cnpg.PostgresBackup])
+      ).flatten
+
+    // As for AnkkaProject: a cluster without the type has its services reconciled all the same.
+    val machineInformer =
+      try
+        Some(
+          client
+            .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine])
+            .inform(
+              handler[com.thinkmorestupidless.ankka.crd.AnkkaMachine](m =>
+                Option(m.getMetadata).map(meta => ServiceRef("", meta.getName))
+              )(using machineQueue),
+              resyncMillis
+            )
+        )
+      catch
+        case scala.util.control.NonFatal(e) =>
+          log.warn(
+            "no AnkkaMachine type in this cluster; machines are given nothing: {}",
+            e.getMessage
+          )
+          None
+
+    informers = Vector(services, deployments) ++ projectInformer ++ cloudInformer ++
+      databaseInformers ++ machineInformer
     queue.start()
     projectQueue.start()
+    machineQueue.start()
 
     log.info(
       "operator watching namespaces '{}-*' (resync every {})",
@@ -188,11 +303,43 @@ final class Operator(
     try Thread.currentThread().join()
     catch case _: InterruptedException => Thread.currentThread().interrupt()
 
+  /**
+   * The platform's own databases' backup buckets and credentials (feature 041), ensured at start
+   * and on every resync by an executor of their own, which holds the store. A failure is logged and
+   * tried again at the next resync: it never stops the operator reconciling services.
+   */
+  private val platform: Option[java.util.concurrent.ScheduledExecutorService] =
+    Option.when(PlatformBackups.actions(settings).nonEmpty) {
+      val executor = Fabric8Executor.of(client, settings)
+      val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
+        val thread = new Thread(r, "ankka-operator-platform-backups")
+        thread.setDaemon(true)
+        thread
+      }
+      scheduler.scheduleWithFixedDelay(
+        () =>
+          try PlatformBackups.actions(settings).foreach(executor.execute)
+          catch
+            // An installation whose control plane is not in this cluster has no namespace for it.
+            case e: io.fabric8.kubernetes.client.KubernetesClientException if e.getCode == 404 =>
+              log.debug("no namespace for the control plane's backup credential: {}", e.getMessage)
+            case scala.util.control.NonFatal(e) =>
+              log.warn("could not ensure the platform's backup credentials: {}", e.getMessage)
+        ,
+        0L,
+        settings.resyncInterval.toMillis,
+        java.util.concurrent.TimeUnit.MILLISECONDS
+      ): Unit
+      scheduler
+    }
+
   def close(): Unit =
+    platform.foreach(_.shutdownNow()): Unit
     informers.foreach(_.close())
     informers = Vector.empty
     queue.stop()
     projectQueue.stop()
+    machineQueue.stop()
 
   /** Test seam. */
   private[operator] def workQueue: WorkQueue = queue
@@ -220,3 +367,19 @@ object Operator:
         case "AnkkaProject" => Some(Owner.Project)
         case _              => None
     yield kind -> ServiceRef(ns, owner.getName)
+
+  /** The organization and name a grantee word names, when it names a machine (`machine:o/n`). */
+  def granteeMachine(grantee: String): Option[(String, String)] =
+    grantee.stripPrefix("machine:") match
+      case rest if rest != grantee && rest.count(_ == '/') == 1 =>
+        val (organization, name) = rest.span(_ != '/')
+        Option.when(organization.nonEmpty && name.length > 1)((organization, name.drop(1)))
+      case _ => None
+
+  /** The project and service a grantee word names, when it names a service (`service:p/n`). */
+  def granteeService(grantee: String): Option[(String, String)] =
+    grantee.stripPrefix("service:") match
+      case rest if rest != grantee && rest.count(_ == '/') == 1 =>
+        val (project, service) = rest.span(_ != '/')
+        Option.when(project.nonEmpty && service.length > 1)((project, service.drop(1)))
+      case _ => None

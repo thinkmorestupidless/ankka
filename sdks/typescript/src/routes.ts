@@ -21,15 +21,19 @@ export type CallerMatcher =
   | { readonly kind: "service"; readonly name: string; readonly project?: string }
   | { readonly kind: "anyInProject" }
   | { readonly kind: "self" }
+  | { readonly kind: "granted" }
 
 /**
  * The callers an endpoint can name: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`. A named
- * service is in this service's own project unless `project` names another.
+ * service is in this service's own project unless `project` names another. `Callers.granted` is whoever this
+ * service's project has granted the route to — a service of another project, or a registered machine
+ * (protocol 1.15); a route that does not name it can never be granted.
  */
 export const Callers = Object.freeze({
   internet: Object.freeze({ kind: "internet" }) as CallerMatcher,
   anyInProject: Object.freeze({ kind: "anyInProject" }) as CallerMatcher,
   self: Object.freeze({ kind: "self" }) as CallerMatcher,
+  granted: Object.freeze({ kind: "granted" }) as CallerMatcher,
   service(name: string, options?: { readonly project?: string }): CallerMatcher {
     return Object.freeze(options?.project !== undefined ? { kind: "service", name, project: options.project } : { kind: "service", name })
   },
@@ -198,6 +202,24 @@ export interface SseEvent {
   readonly kind: "sse-event"
   readonly name: string
   readonly value: unknown
+}
+
+/**
+ * A watch as server-sent events, for an `sse` route: each row as `row` carrying the key and the row,
+ * each removal as `removed`, the marker as `caught-up`, and a watch that ended with a reason as a last
+ * event `ended` carrying it, so a page is told why.
+ */
+export async function* sseEvents<Row>(watch: AsyncIterable<{ readonly kind: "row"; readonly key: string; readonly row: Row } | { readonly kind: "removed"; readonly key: string } | { readonly kind: "caughtUp" }>): AsyncIterable<SseEvent> {
+  try {
+    for await (const event of watch) {
+      if (event.kind === "row") yield sseEvent("row", { key: event.key, row: event.row })
+      else if (event.kind === "removed") yield sseEvent("removed", { key: event.key })
+      else yield sseEvent("caught-up", {})
+    }
+  } catch (failure) {
+    if (failure instanceof Error && failure.name === "WatchEnded") yield sseEvent("ended", { reason: (failure as Error & { reason: string }).reason })
+    else throw failure
+  }
 }
 
 export function sseEvent(name: string, value: unknown): SseEvent {

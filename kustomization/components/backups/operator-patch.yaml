@@ -1,0 +1,26 @@
+# Where backups go, for how long, how often, whether a copy outside the cluster is required, and how
+# long a rehearsal's database may live. The container's name must be the operator's own,
+# `ankka-operator`: a strategic merge patch naming a container the Deployment lacks adds one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_BACKUP_TARGET
+              value: "object-store"
+            # The floor: a project may keep its backups longer, never for less time.
+            - name: ANKKA_BACKUP_RETENTION_DAYS
+              value: "30"
+            # CNPG's schedule: six fields, seconds first. Midnight, UTC.
+            - name: ANKKA_BACKUP_SCHEDULE
+              value: "0 0 0 * * *"
+            - name: ANKKA_BACKUP_COPY_REQUIRED
+              value: "off"
+            - name: ANKKA_REHEARSAL_TTL_HOURS
+              value: "24"

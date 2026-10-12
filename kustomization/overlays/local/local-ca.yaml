@@ -5,11 +5,17 @@
 #
 # A real installation replaces this file with its own issuer (DNS-01 for a wildcard) or a supplied
 # certificate in the ankka-wildcard-tls secret; the components reference only that secret.
+#
+# The root lives in cert-manager's namespace and `ankka-ca` is a ClusterIssuer, because a custom
+# hostname's certificate is issued in the service's own namespace (feature 045) and a Certificate
+# can name only an Issuer beside it or a ClusterIssuer. A ClusterIssuer reads its `ca.secretName`
+# in cert-manager's namespace — the trap that once made a namespaced Issuer the right shape here —
+# so the root moved there rather than the issuer staying put.
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: selfsigned
-  namespace: ankka-gateway
+  namespace: cert-manager
 spec:
   selfSigned: {}
 ---
@@ -17,7 +23,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: ankka-root-ca
-  namespace: ankka-gateway
+  namespace: cert-manager
 spec:
   isCA: true
   commonName: ankka local CA
@@ -30,14 +36,13 @@ spec:
     name: selfsigned
     kind: Issuer
 ---
-# A namespaced Issuer, not a ClusterIssuer: a ClusterIssuer's `ca.secretName` is looked up in
-# cert-manager's own namespace, not the Certificate's — `secrets "ankka-root-ca" not found`, seen
-# on the first spike. Everything here lives in ankka-gateway, so an Issuer there is the honest shape.
+# The installation's own authority, for the wildcard and for every custom hostname
+# (ANKKA_HOSTNAME_ISSUER=ankka-ca in platform-configmap.yaml). Its secret is in cert-manager's
+# namespace, where a ClusterIssuer looks.
 apiVersion: cert-manager.io/v1
-kind: Issuer
+kind: ClusterIssuer
 metadata:
   name: ankka-ca
-  namespace: ankka-gateway
 spec:
   ca:
     secretName: ankka-root-ca
@@ -53,4 +58,4 @@ spec:
     - "*.BASE_DOMAIN"
   issuerRef:
     name: ankka-ca
-    kind: Issuer
+    kind: ClusterIssuer

@@ -68,6 +68,29 @@ trait ObjectStore:
    */
   def deny(bucketId: String, accessKeyId: String): Unit
 
+  /**
+   * Lets the key do what `permission` says and no more (feature 041): a project database's archiver
+   * reads and writes its backup bucket and does not own it; a rehearsal only reads it. A store that
+   * cannot grant less than owner refuses rather than granting more than was asked.
+   */
+  def allowAs(bucketId: String, accessKeyId: String, permission: BucketPermission): Unit =
+    if permission == BucketPermission.Owner then allow(bucketId, accessKeyId)
+    else
+      throw new UnsupportedOperationException(
+        s"this object store cannot grant a key $permission alone on a bucket"
+      )
+
+/** What a key may do on one bucket. */
+enum BucketPermission(val read: Boolean, val write: Boolean, val owner: Boolean):
+  /** A service's own bucket: read, write and its settings (feature 034). */
+  case Owner extends BucketPermission(true, true, true)
+
+  /** An archiver's: objects in and out, retention's deletes among them, and no settings. */
+  case ReadWrite extends BucketPermission(true, true, false)
+
+  /** A rehearsal's: nothing it does can change an archive. */
+  case ReadOnly extends BucketPermission(true, false, false)
+
 /**
  * @param allowedKeys
  *   the access key ids allowed on the bucket

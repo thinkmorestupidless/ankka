@@ -131,7 +131,7 @@ See [Key value entities](../build/key-value-entities.md).
 | Associated items | `type Row`, `type Event`, `COMPONENT_ID`; optionally `ROW_MANIFEST` |
 | Must define | `source() -> Source` (`Source::of(ShoppingCart)`, or `Source::topic("name")` with `.start_from(..)`, `.contract(..)`, `.broker(..)`, `.parallel()`), `on_event(row, event, ctx) -> ViewEffect<Row>` |
 | May define | `on_deleted(row, ctx)`, which deletes the row by default; `queries()`, `["get", "all"]` by default; `declared()`, the view's declared queries (`query(name, statement)`); `version()` |
-| In a handler | `row` is the current row or `None`; `ctx.metadata().subject()` is the source's id |
+| In a handler | `row` is the current row or `None`; `ctx.metadata().subject()` is the source's id; `ctx.standing()` is a workflow source's `Standing`, else `None` |
 | Effects | `view::update_row(row)`, `view::delete_row()`, `view::ignore()` |
 | Querying | `ctx.client().query(CartRows, "by-id", key)`, `query(CartRows, "all", ())`, `query_by_name(view_id, name, key)`, or a declared query with `ask(view, name, values)` / `ask_by_name(view_id, name, values, limit)` |
 | Table name | `table_of(id)`, for a statement to name |
@@ -157,7 +157,7 @@ See [Views](../build/views.md).
 | Associated items | `type Message`, `COMPONENT_ID` |
 | Must define | `source() -> Source`, `on_message(message, ctx) -> ConsumerEffect` |
 | May define | `on_deleted(ctx)`, which ignores by default; `produces_to() -> Option<&str>`, a topic to publish to, or `produces() -> Option<Publication>` (`Publication::to(topic).contract(..).broker(..)`) |
-| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.client()` |
+| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.standing()`, a workflow source's `Standing`; `ctx.client()` |
 | Effects | `consumer::produce(value)`, `consumer::produce_with(value, metadata)`, `consumer::produce_all(messages)`, `consumer::done()`, `consumer::ignore()` |
 | One of several messages | `consumer::message(value)`, then `.key(key)` to publish it under a record key other than its subject and `.metadata(metadata)` for its headers; `Outgoing::of(payload)` takes a payload already encoded |
 
@@ -396,7 +396,7 @@ asks for. `with_service(build())` answers their calls to the service's entities 
 | Must define | `acl() -> Acl` (`Acl::AllowAll`, `Acl::DenyAll`, `Acl::Authenticated` or `Acl::Callers(vec![...])`), `routes() -> Routes<Self>` |
 | Declarations | `Routes::new().get(template, f)`, `.delete(template, f)`, `.post(template, f)`, `.put(...)`, `.patch(...)`; `.with_acl(acl)` after a route replaces the endpoint's for it |
 | Handlers | `get` and `delete`: `fn(&Request) -> Result<R, HttpProblem>`; `post`, `put`, `patch`: `fn(&Request, Body)`, the body decoded as `Body`, `()` for none. `R` is any serializable value or a `Response`; `Done` and `()` answer 204 |
-| Callers | `CallerMatcher::Internet`, `CallerMatcher::service(name)`, `CallerMatcher::Service { name, project }`, `CallerMatcher::AnyInProject`, `CallerMatcher::SelfService` |
+| Callers | `CallerMatcher::Internet`, `CallerMatcher::service(name)`, `CallerMatcher::Service { name, project }`, `CallerMatcher::AnyInProject`, `CallerMatcher::SelfService`, `CallerMatcher::Granted`; a request's `caller()` is `Caller::Gateway`, `Caller::Service`, `Caller::Machine` or `Caller::Local` |
 | In a handler | `request.path(name)`, `query(name)`, `header(name)`, `body_as::<T>()`, `principal()` (`subject`, `name`, `email`, `email_verified`, `roles`, `claims`, `issuer`), `caller()` (`Caller::Gateway`, `Caller::Service { project, name }` or `Caller::Local`), `metadata()`, `client()` |
 | Responses | `Response::json(v)`, `text(s)`, `html(s)`, `bytes(content_type, b)`, `redirect(location)`, `no_content()`, then `.status(n)`, `.header(name, value)` |
 | Errors | `HttpProblem::new(status, message)`; a `CommandError` from a call becomes its code's status with `?` |
@@ -422,6 +422,7 @@ let answer: String = ctx.client().invoke_by_name(Kind::Agent, "assistant", sessi
 | `invoke_stream(...)` | a streaming handler's tokens, delivered whole once the stream ends |
 | `query(View, name, key)`, `query_by_name(...)` | a view's rows |
 | `schedule(...)`, `schedule_recurring(...)`, `cancel(timer_id)` | timers; `schedule_recurring` since protocol 1.12 |
+| `await_end(Workflow, workflow_id, timeout)`, `invoke_then_await_end(Workflow, workflow_id, name, input, timeout)`, `await_end_by_name(...)` | waits for a workflow's end and answers its state, as `S`; a failed or deleted workflow is an `Err` whose code is `WorkflowFailed` and whose `details` hold `step` and `reason`. Since protocol 1.18. The instance is held for as long as the wait, so a module waits from a step, a route or a tool, not a command |
 
 A call blocks the handler until the runtime answers; a refusal is an `Err(CommandError)` whose `code` is the
 refusal's. Inside a handler `ctx.client()` carries the request's trace, so the call is a child span. See

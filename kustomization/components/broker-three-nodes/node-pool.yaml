@@ -1,0 +1,8 @@
+# Three nodes, each both controller and broker.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual
+  namespace: ankka-broker
+spec:
+  replicas: 3

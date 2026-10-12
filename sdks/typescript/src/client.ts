@@ -6,7 +6,7 @@
 
 import { Code, ConnectError, createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
 import { createGrpcTransport } from "@connectrpc/connect-node"
-import { Client, type QueryReply } from "./_proto/ankka/protocol/v1/client_pb.ts"
+import { Client, Overflow as ProtoOverflow, type QueryReply, type RowFrame } from "./_proto/ankka/protocol/v1/client_pb.ts"
 import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
 import { codecFor, jsonCodec, isCodec, textCodecs, binaryCodecs, codecForManifest, type Codec, type Shape } from "./codec.ts"
 import { CommandError, type ErrorDetail, type Metadata } from "./effects/common.ts"
@@ -42,8 +42,39 @@ function stubOf(connection: Connection): ConnectClient<typeof Client> {
   return connection.stub
 }
 
-function errorOf(error: { message: string; code: ProtoErrorCode }): ErrorDetail {
-  return { message: error.message, code: errorCodeFromProto(error.code) }
+function errorOf(error: { message: string; code: ProtoErrorCode; details?: Record<string, string> }): ErrorDetail {
+  return { message: error.message, code: errorCodeFromProto(error.code), details: { ...(error.details ?? {}) } }
+}
+
+/** The first protocol whose runtime can wait for a workflow's end; an older one answers `UNIMPLEMENTED`. */
+export const AWAIT_SINCE = "1.18"
+
+/** One part of a wait served as a stream: the wait goes on, or how it ended. */
+export type AwaitPart<S> =
+  | { readonly kind: "heartbeat" }
+  | { readonly kind: "ended"; readonly state: S }
+  | { readonly kind: "failed"; readonly error: CommandError }
+  | { readonly kind: "timed-out"; readonly message: string }
+
+/** A part as one line of JSON, which is what an `sse` route yields for it. */
+export function awaitPartJson<S>(part: AwaitPart<S>): string {
+  switch (part.kind) {
+    case "heartbeat":
+      return JSON.stringify({ heartbeat: true })
+    case "ended":
+      return JSON.stringify({ ended: part.state })
+    case "failed":
+      return JSON.stringify({ failed: { code: part.error.code, message: part.error.message, ...part.error.details } })
+    case "timed-out":
+      return JSON.stringify({ timedOut: true })
+  }
+}
+
+function timeoutOf(timeoutMillis: number): number {
+  if (!(timeoutMillis > 0)) {
+    throw new CommandError({ message: `a wait for a workflow's end needs a timeout of more than zero, not ${timeoutMillis}`, code: "BAD_REQUEST" })
+  }
+  return Math.max(1, Math.floor(timeoutMillis))
 }
 
 function inputPayload<I>(shape: Shape<I> | undefined, input: I | undefined): Payload {
@@ -118,8 +149,10 @@ export class Invocation<I, R> {
   readonly #name: string
   readonly #input: Shape<I> | undefined
   readonly #reply: Shape<R> | undefined
+  readonly #state: Shape<unknown> | undefined
 
-  constructor(connection: Connection, metadata: Metadata, kind: ComponentKind, componentId: string, entityId: string, name: string, input: Shape<I> | undefined, reply: Shape<R> | undefined) {
+  constructor(connection: Connection, metadata: Metadata, kind: ComponentKind, componentId: string, entityId: string, name: string, input: Shape<I> | undefined, reply: Shape<R> | undefined, state?: Shape<unknown>) {
+    this.#state = state
     this.#connection = connection
     this.#metadata = metadata
     this.#kind = kind
@@ -149,6 +182,17 @@ export class Invocation<I, R> {
     const outcome = await this.ask(input)
     if (outcome.kind === "awaiting-approval") throw new ApprovalAwaited(outcome.requests)
     return outcome.value
+  }
+
+  /**
+   * Sends this command to the workflow and then waits for its end, as one call: answered with the state it
+   * ended with, within `timeoutMillis` of the command being sent. A refusal of the command rejects at once and
+   * no wait begins; the command's own reply is not kept. `state` decodes it, unless the workflow class did.
+   */
+  thenAwaitEnd<S>(timeoutMillis: number, state?: Shape<S>): AwaitingInvocation<I, S> {
+    const shape = (state ?? this.#state) as Shape<S> | undefined
+    const calls = new Calls(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, shape)
+    return new AwaitingInvocation<I, S>(timeoutMillis, (input) => this.invoke(input), (left) => calls.awaitEnd<S>(left))
   }
 
   /** Calls an agent's handler for its outcome: the model's answer, or the approval requests the turn waits on. */
@@ -192,6 +236,36 @@ export class Invocation<I, R> {
   }
 }
 
+/** A command to a workflow followed by a wait for its end, with one deadline from the send. */
+export class AwaitingInvocation<I, S> {
+  readonly #timeoutMillis: number
+  readonly #send: (input: I | undefined) => Promise<unknown>
+  readonly #await: (leftMillis: number) => Promise<S>
+
+  constructor(timeoutMillis: number, send: (input: I | undefined) => Promise<unknown>, wait: (leftMillis: number) => Promise<S>) {
+    this.#timeoutMillis = timeoutMillis
+    this.#send = send
+    this.#await = wait
+  }
+
+  /** Sends the command and waits for the end; rejects as `Calls.awaitEnd` does. */
+  async invoke(input?: I): Promise<S> {
+    const deadline = Date.now() + timeoutOf(this.#timeoutMillis)
+    await this.#send(input)
+    return await this.#await(Math.max(1, deadline - Date.now()))
+  }
+}
+
+const awaitTooOld = (failure: unknown): never => {
+  if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+    throw new CommandError({
+      message: `the runtime beside this process is too old for waiting for a workflow's end, which needs protocol ${AWAIT_SINCE}; this process speaks ${PROTOCOL_VERSION}: ${failure.rawMessage}`,
+      code: "UNAVAILABLE",
+    })
+  }
+  throw failure
+}
+
 /** Calls on one component instance, by wire name. */
 export class Calls {
   readonly #connection: Connection
@@ -199,18 +273,70 @@ export class Calls {
   readonly #kind: ComponentKind
   readonly #componentId: string
   readonly #entityId: string
+  readonly #state: Shape<unknown> | undefined
 
-  constructor(connection: Connection, metadata: Metadata, kind: ComponentKind, componentId: string, entityId: string) {
+  constructor(connection: Connection, metadata: Metadata, kind: ComponentKind, componentId: string, entityId: string, state?: Shape<unknown>) {
     this.#connection = connection
     this.#metadata = metadata
     this.#kind = kind
     this.#componentId = componentId
     this.#entityId = entityId
+    this.#state = state
   }
 
   /** `call("add-item", LineItem, Done)`: the wire name, the input shape (omit for none) and the reply shape (omit for `done`). */
   call<I = undefined, R = unknown>(name: string, input?: Shape<I>, reply?: Shape<R>): Invocation<I, R> {
-    return new Invocation(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, name, input, reply)
+    return new Invocation(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, name, input, reply, this.#state)
+  }
+
+  #awaitRequest(timeoutMillis: number) {
+    return {
+      componentId: this.#componentId,
+      entityId: this.#entityId,
+      timeoutMillis: BigInt(timeoutOf(timeoutMillis)),
+      metadata: metadataToProto(this.#metadata),
+    }
+  }
+
+  /**
+   * Waits for this workflow's end, for at most `timeoutMillis`, and resolves with the state it ended with — at
+   * once when it already has. A workflow that failed or was deleted rejects with `CommandError` whose code is
+   * `WORKFLOW_FAILED` and whose `details` hold `step`, `reason` and `deleted`; a wait not answered in time
+   * rejects with `TIMEOUT` and the workflow runs on. A paused workflow has not ended. There is no default.
+   */
+  async awaitEnd<S>(timeoutMillis: number, state?: Shape<S>): Promise<S> {
+    const shape = (state ?? this.#state) as Shape<S> | undefined
+    const answer = await stubOf(this.#connection).awaitEnd(this.#awaitRequest(timeoutMillis)).catch(awaitTooOld)
+    const outcome = outcomeOf(shape, answer)
+    if (outcome.kind !== "answered") throw new CommandError({ message: "a workflow answered a wait as an agent", code: "INTERNAL" })
+    return outcome.value
+  }
+
+  /**
+   * The same wait as a stream, for an `sse` route that must outlast the idle timeout: a heartbeat while it goes
+   * on, then exactly one `ended`, `failed` or `timed-out` part. `awaitPartJson` renders a part as a line.
+   */
+  async *awaitEndParts<S>(timeoutMillis: number, state?: Shape<S>): AsyncIterable<AwaitPart<S>> {
+    const shape = (state ?? this.#state) as Shape<S> | undefined
+    try {
+      for await (const token of stubOf(this.#connection).awaitEndStream(this.#awaitRequest(timeoutMillis))) {
+        switch (token.token.case) {
+          case "heartbeat":
+            yield { kind: "heartbeat" }
+            break
+          case "ended":
+            yield { kind: "ended", state: decodeReply(shape, token.token.value) }
+            return
+          case "failed": {
+            const error = new CommandError(errorOf(token.token.value))
+            yield error.code === "TIMEOUT" ? { kind: "timed-out", message: error.message } : { kind: "failed", error }
+            return
+          }
+        }
+      }
+    } catch (failure) {
+      awaitTooOld(failure)
+    }
   }
 }
 
@@ -226,7 +352,64 @@ export class TypedCalls<C> {
   call<I, R>(handler: HandlerRef<C, I, R, any>): Invocation<I, R> {
     return this.#calls.call<I, R>(handler.name, handler.input, handler.reply)
   }
+
+  /** For a workflow: waits for its end and resolves with its state, decoded as the class declares it. */
+  awaitEnd<S = StateOf<C>>(timeoutMillis: number): Promise<S> {
+    return this.#calls.awaitEnd<S>(timeoutMillis)
+  }
+
+  /** For a workflow: the same wait as a stream of parts. */
+  awaitEndParts<S = StateOf<C>>(timeoutMillis: number): AsyncIterable<AwaitPart<S>> {
+    return this.#calls.awaitEndParts<S>(timeoutMillis)
+  }
 }
+
+/** The first protocol in which a view's query can be streamed and watched. */
+export const VIEW_STREAMS_SINCE = "1.17"
+
+/** What a watch of a view gives: a row as the query sees it now, a removal of one it gave, or the caught-up marker. */
+export type WatchEvent<Row> =
+  | { readonly kind: "row"; readonly key: string; readonly row: Row }
+  | { readonly kind: "removed"; readonly key: string }
+  | { readonly kind: "caughtUp" }
+
+/** What a watch does past its unread bound: none slows the view. */
+export type Overflow = "dropHead" | "dropTail" | "dropNew" | "dropAll" | "fail"
+
+export interface WatchOptions {
+  /** How many unread rows the watch holds, one per key; the instance's own bound when absent. */
+  readonly unread?: number
+  /** What it does past that bound; `dropHead`, the row changed longest ago, when absent. */
+  readonly overflow?: Overflow
+}
+
+/** A watch ended for `reason`: `rebuilt`, `instance-stopping`, `listener-lost` or `unread`. Watch again for the rows now. */
+export class WatchEnded extends Error {
+  readonly reason: string
+  constructor(reason: string) {
+    super(`the watch ended: ${reason}`)
+    this.name = "WatchEnded"
+    this.reason = reason
+  }
+}
+
+function overflowToProto(overflow: Overflow): ProtoOverflow {
+  switch (overflow) {
+    case "dropHead":
+      return ProtoOverflow.DROP_HEAD
+    case "dropTail":
+      return ProtoOverflow.DROP_TAIL
+    case "dropNew":
+      return ProtoOverflow.DROP_NEW
+    case "dropAll":
+      return ProtoOverflow.DROP_ALL
+    case "fail":
+      return ProtoOverflow.FAIL
+  }
+}
+
+/** A workflow instance's state type, read from its `state` getter. */
+type StateOf<C> = C extends { readonly state: infer S } ? S : unknown
 
 /** View queries: rows come back as a JSON array decoded with the row shape. */
 export class Views {
@@ -265,6 +448,84 @@ export class Views {
       ...(limit !== undefined ? { limit } : {}),
     })
     return Views.#rows(answer, row)
+  }
+
+  /**
+   * The rows of `all` or one of a view's declared queries as the database yields them: nothing
+   * collected, and no limit unless one is given. A statement the database ends, or a reader that
+   * takes nothing for its timeout, throws.
+   */
+  async *stream<Row>(viewId: string, name: string, values: Readonly<Record<string, string>>, row: Shape<Row>, options: { readonly limit?: number } = {}): AsyncIterable<Row> {
+    const frames = stubOf(this.#connection).queryStream({
+      viewId,
+      name,
+      metadata: metadataToProto(this.#metadata),
+      values: { ...values },
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    })
+    for await (const event of Views.#frames(frames, row)) if (event.kind === "row") yield event.row
+  }
+
+  /**
+   * A watch of one of a view's declared queries, declared `{ watched: true }`: every row it matches
+   * now, then `caughtUp`, then each row as it is written and matches and a `removed` for each given row
+   * that stops matching. Throws `WatchEnded` when it ends with a reason. `unread` bounds the rows held
+   * for a reader that has not read them, and `overflow` says what happens past that bound.
+   */
+  async *watch<Row>(viewId: string, name: string, values: Readonly<Record<string, string>>, row: Shape<Row>, options: WatchOptions = {}): AsyncIterable<WatchEvent<Row>> {
+    const frames = stubOf(this.#connection).watch({
+      viewId,
+      metadata: metadataToProto(this.#metadata),
+      target: { case: "named", value: { name, values: { ...values } } },
+      ...(options.unread !== undefined ? { unreadBound: options.unread } : {}),
+      overflow: overflowToProto(options.overflow ?? "dropHead"),
+    })
+    yield* Views.#frames(frames, row)
+  }
+
+  /** A watch of one row by its key: the row now, then `caughtUp`, then each version and a `removed` when it is deleted. */
+  async *watchRow<Row>(viewId: string, key: string, row: Shape<Row>, options: WatchOptions = {}): AsyncIterable<WatchEvent<Row>> {
+    const frames = stubOf(this.#connection).watch({
+      viewId,
+      metadata: metadataToProto(this.#metadata),
+      target: { case: "key", value: key },
+      ...(options.unread !== undefined ? { unreadBound: options.unread } : {}),
+      overflow: overflowToProto(options.overflow ?? "dropHead"),
+    })
+    yield* Views.#frames(frames, row)
+  }
+
+  static async *#frames<Row>(frames: AsyncIterable<RowFrame>, row: Shape<Row>): AsyncIterable<WatchEvent<Row>> {
+    const codec: Codec<Row> = isCodec(row) ? row : codecFor(row as Schema<Row>)
+    try {
+      for await (const frame of frames) {
+        switch (frame.frame.case) {
+          case "row":
+            yield { kind: "row", key: frame.frame.value.key, row: codec.decode(frame.frame.value.payload?.data ?? new Uint8Array()) }
+            break
+          case "removed":
+            yield { kind: "removed", key: frame.frame.value.key }
+            break
+          case "caughtUp":
+            yield { kind: "caughtUp" }
+            break
+          case "ended":
+            throw new WatchEnded(frame.frame.value.reason)
+          case "failed":
+            throw new CommandError(errorOf(frame.frame.value))
+          default:
+            return
+        }
+      }
+    } catch (failure) {
+      if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+        throw new CommandError({
+          message: `the runtime beside this process does not offer view streams, which need protocol ${VIEW_STREAMS_SINCE} (this SDK speaks ${PROTOCOL_VERSION}): ${failure.rawMessage}`,
+          code: "INTERNAL",
+        })
+      }
+      throw failure
+    }
   }
 
   static #rows<Row>(answer: QueryReply, row: Shape<Row>): Row[] {
@@ -605,7 +866,9 @@ export class ComponentClient {
 
   /** Typed calls through a component class's handler table: `client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)`. */
   of<C>(component: ComponentRef & { new (): C }, entityId: string): TypedCalls<C> {
-    return new TypedCalls<C>(new Calls(this.#connection, this.#metadata, component.prototype._kind, component.componentId, entityId))
+    // A workflow class declares its state's shape: what a wait for its end decodes the state with.
+    const state = (component as { readonly state?: Shape<unknown> }).state
+    return new TypedCalls<C>(new Calls(this.#connection, this.#metadata, component.prototype._kind, component.componentId, entityId, state))
   }
 }
 

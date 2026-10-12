@@ -53,12 +53,14 @@ import {
   on,
   declaredQuery,
   tableOf,
+  isTerminal,
   type Infer,
+  sseEvents,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
 import { CartRows } from "./cartRows.ts"
-import { CheckoutWorkflow } from "./checkoutWorkflow.ts"
+import { CheckoutWorkflow, type Checkout } from "./checkoutWorkflow.ts"
 import type { ShoppingCartEvent } from "./domain.ts"
 
 // ── conformance: an entity whose handlers are the protocol's edge cases ──
@@ -132,6 +134,61 @@ export class CheckoutRecorder extends Consumer<ShoppingCartEvent> {
     return this.effects.done()
   }
 }
+
+// ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+// docs:start workflow-view
+export const CheckoutRow = s.record("CheckoutRow", {
+  id: s.string,
+  status: s.string,
+  standing: s.string,
+  step: s.option(s.string),
+  failure: s.option(s.string),
+})
+export type CheckoutRow = Infer<typeof CheckoutRow>
+
+/** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+export class CheckoutRows extends View<Checkout, CheckoutRow> {
+  static readonly componentId = "checkout-rows"
+  static readonly source = CheckoutWorkflow
+  static readonly events = CheckoutWorkflow.state
+  static readonly row = jsonCodec(CheckoutRow, "checkout-row")
+  static readonly declared = [
+    declaredQuery("by-standing", `SELECT payload FROM ${tableOf("checkout-rows")} WHERE payload::jsonb->>'standing' = :standing`),
+  ]
+
+  onChange(state: Checkout) {
+    // A change from a workflow carries its standing: where it stood once the effect that recorded
+    // `state` was applied.
+    const standing = this.standing
+    return this.effects.updateRow({
+      id: this.subject,
+      status: state.status,
+      standing: standing?.status ?? "Unknown",
+      step: standing?.step ?? null,
+      failure: standing?.failure ?? null,
+    })
+  }
+}
+// docs:end workflow-view
+
+// docs:start workflow-consumer
+/** Records each checkout that ended, completed or failed, and nothing else. */
+export class CheckoutEnds extends Consumer<Checkout> {
+  static readonly componentId = "checkout-ends"
+  static readonly source = CheckoutWorkflow
+  static readonly message = CheckoutWorkflow.state
+
+  async onMessage(_state: Checkout) {
+    const standing = this.standing
+    // Running or paused: not an end, and nothing to do.
+    if (standing === undefined || !isTerminal(standing)) return this.effects.ignore()
+    const end = standing.failure === undefined ? standing.status : `${standing.status}: ${standing.failure}`
+    await this.client.of(Profile, `end-${this.subject}`).call(Profile.handlers.set).invoke(end)
+    return this.effects.done()
+  }
+}
+// docs:end workflow-consumer
 
 // ── checkout-fanout: several messages for one change (protocol 1.3) ──
 
@@ -222,6 +279,25 @@ export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof F
 }
 // docs:end contract-relay
 
+// ── partner-relay: another project's topic, read and published to (1.15) ──
+
+// docs:start partner-relay
+/** Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other. */
+export class PartnerRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "partner-relay"
+  static readonly topic = "conformance-shared"
+  static readonly project = "partner"
+  static readonly startFrom = StartFrom.earliest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-shared-relayed", project: "partner" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
+// docs:end partner-relay
+
 // ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
 export const TreePlaced = s.record("TreePlaced", { under: s.option(s.string) })
@@ -265,6 +341,9 @@ export class TreeRows extends View<TreePlaced, TreeRow> {
 )
 SELECT payload FROM below ORDER BY row_key`,
     ),
+    // docs:start watched-query
+    declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
+    // docs:end watched-query
   ]
 
   onChange(event: TreePlaced) {
@@ -286,6 +365,14 @@ export class TreeEndpoint extends Endpoint {
     below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
       (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
     ),
+    // docs:start stream
+    streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+      for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+    }),
+    // docs:end stream
+    // docs:start watch
+    watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+    // docs:end watch
   }
 }
 
@@ -639,6 +726,31 @@ export class ConformanceEndpoint extends Endpoint {
       return "started"
     }),
     checkoutStatus: get("/checkout/{id}", s.string, async (ep: ConformanceEndpoint, req) => (await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.status).invoke()).status),
+    checkoutRow: get("/checkout/{id}/row", CheckoutRow, async (ep: ConformanceEndpoint, req) => {
+      const found = await ep.client.views.get(CheckoutRows.componentId, req.params.id, CheckoutRow)
+      if (found === null) throw new HttpProblem(404, `no row for '${req.params.id}'`)
+      return found
+    }),
+    checkoutRows: get("/checkout-rows/{standing}", s.list(s.string), async (ep: ConformanceEndpoint, req) =>
+      (await ep.client.views.ask(CheckoutRows.componentId, "by-standing", { standing: req.params.standing }, CheckoutRow)).map((row) => row.id),
+    ),
+    checkoutEnd: get("/checkout/{id}/end", s.string, async (ep: ConformanceEndpoint, req) => {
+      const end = await ep.client.of(Profile, `end-${req.params.id}`).call(Profile.handlers.get).invoke()
+      if (end === "none") throw new HttpProblem(404, `'${req.params.id}' has not ended`)
+      return end
+    }),
+    // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+    startAndAwaitCheckout: post("/checkout-await/{id}", s.string, s.string, async (ep: ConformanceEndpoint, req, mode) => {
+      try {
+        const checkout = await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode)
+        return checkout.status
+      } catch (refused) {
+        if (refused instanceof CommandError && refused.code === ErrorCode.WorkflowFailed) {
+          throw new HttpProblem(424, `${refused.details.step ?? ""}: ${refused.details.reason ?? ""}`)
+        }
+        throw refused
+      }
+    }),
     remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
       return done
@@ -696,9 +808,12 @@ export class CallersEndpoint extends Endpoint {
   static readonly routes = {
     whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => {
       const c = req.caller
-      return c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
+      if (c.kind === "service") return `service:${c.project}/${c.name}`
+      if (c.kind === "machine") return `machine:${c.organization}/${c.name}`
+      return c.kind
     }),
     onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
+    granted: get("/granted", s.string, () => "granted", { acl: Acl.allowCallers(Callers.granted) }),
     events: sse("/events", async function* () {
       yield "tick"
     }, { acl: Acl.allowCallers(Callers.self) }),
@@ -828,6 +943,8 @@ export function referenceService() {
     .register(ShoppingCartEntity)
     .register(CartRows)
     .register(CheckoutWorkflow)
+    .register(CheckoutRows)
+    .register(CheckoutEnds)
     .register(Conformance)
     .register(Profile)
     .register(CheckoutRecorder)
@@ -835,6 +952,7 @@ export function referenceService() {
     .register(TopicRows)
     .register(TopicRelay)
     .register(ContractRelay)
+    .register(PartnerRelay)
     .register(TreeNode)
     .register(TreeRows)
     .register(JoinedLeft)

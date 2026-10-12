@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
+import com.thinkmorestupidless.ankka.runtime.remote.Payload
+import com.thinkmorestupidless.ankka.core.effect.ViewEffect
 import com.thinkmorestupidless.ankka.core.{
   ComponentDescriptor,
   ComponentId,
@@ -165,6 +166,11 @@ final class ProjectionRuntime private (
       // The project's word first: a broker the project does not declare is named as such, not as
       // a publisher nobody configured.
       rejectUndeclared(service.registry.components.toVector)
+      ProjectionRuntime.crossProjectProblems(service.registry.components.toVector) match
+        case Vector() => ()
+        case found =>
+          StartRefusal.refuse(found.mkString("; "), IllegalArgumentException(_))
+      rejectUnsafeAcks(service.registry.components.toVector)
       rejectUnsupported(views, consumers)
       rejectUnsupportedRemote(remoteViews, remoteConsumers)
 
@@ -317,7 +323,7 @@ final class ProjectionRuntime private (
             case _ => ()
           }
           DeclaredConnections.publicationOf(component).foreach { p =>
-            side(component.componentId, kind, "publishes to", p.topic, p.contract, p.broker)
+            side(component.componentId, kind, "publishes to", p.address, p.contract, p.broker)
           }
         }
         val found = problems.result()
@@ -326,6 +332,37 @@ final class ProjectionRuntime private (
             found.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
             IllegalArgumentException(_)
           )
+
+  /**
+   * A producer that does not wait for a topic's in-sync copies, refused at start (feature 043):
+   * with `acks` below `all`, a write the broker acknowledged can be lost with the one node that
+   * held it, which a topic declaring more than one in-sync copy exists to prevent. The producer's
+   * `acks` is its settings', from the service's own configuration; each topic's minimum is the
+   * broker's own word. A topic the broker does not know yet is not checked: publishing to it waits
+   * as ever.
+   */
+  private def rejectUnsafeAcks(components: Vector[ComponentDescriptor]): Unit =
+    val publications =
+      components.flatMap(c => DeclaredConnections.publicationOf(c).map(c.componentId -> _))
+    val problems = publications.flatMap { (id, p) =>
+      publisherFor(p.broker).collect { case kafka: KafkaPublisher => kafka }.flatMap { kafka =>
+        val acks = kafka.acks
+        if acks == "all" then None
+        else
+          val config =
+            try Await.result(kafka.describeTopic(p.topic), KafkaPublisher.TopicWait * 3)
+            catch case scala.util.control.NonFatal(_) => None
+          config.filter(_.minInSync > 1).map { c =>
+            s"consumer '$id' publishes to topic '${p.topic}', which needs ${c.minInSync} in-sync " +
+              s"copies, and the producer's acks is $acks; set acks=all"
+          }
+      }
+    }
+    if problems.nonEmpty then
+      StartRefusal.refuse(
+        problems.mkString("cannot start ankka projections:\n  - ", "\n  - ", ""),
+        IllegalArgumentException(_)
+      )
 
   /**
    * The same checks for remote components, plus one of their own: discovery lets a source name any
@@ -349,7 +386,8 @@ final class ProjectionRuntime private (
           // A source `DeclaredConnections` does not read as one: a component with no change stream.
           case (None, RemoteSource.Component(kind, sourceId)) =>
             problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
-              "a view or consumer follows an event sourced entity, a key value entity or a topic"
+              "a view or consumer follows an event sourced entity, a key value entity, a workflow " +
+              "or a topic"
           case _ => ()
     }
 
@@ -396,7 +434,8 @@ final class ProjectionRuntime private (
       startFrom: StartFrom,
       version: Int,
       handler: () => IncomingMessage => Future[Done],
-      parallel: Boolean
+      parallel: Boolean,
+      since: () => Future[Option[java.time.Instant]] = () => Future.successful(None)
   )(using system: ActorSystem[?]): Subscribed =
     val group = groupFor(kind, componentId, version)
     // A handler holds one component instance and sets its context per message, so a parallel
@@ -419,6 +458,7 @@ final class ProjectionRuntime private (
       }
     val subscription = TopicSubscription(topic, group, startFrom, parallel)
     val subscribed   = broker.subscribe(subscription, handle)
+    Divergence(system).touch(topic, Some(group), broker)
     subscriptions.add(subscribed): Unit
     val poll = system.scheduler.scheduleWithFixedDelay(
       ProjectionRuntime.LagInterval,
@@ -431,6 +471,13 @@ final class ProjectionRuntime private (
         )
     )(using system.executionContext)
     subscriptions.add(() => poll.cancel(): Unit): Unit
+    // Feature 043: what the broker still holds of the topic, now and every few minutes after.
+    reportGap(broker, componentId, topic, since)
+    val gapPoll = system.scheduler.scheduleWithFixedDelay(
+      ProjectionRuntime.GapInterval,
+      ProjectionRuntime.GapInterval
+    )(() => reportGap(broker, componentId, topic, since))(using system.executionContext)
+    subscriptions.add(() => gapPoll.cancel(): Unit): Unit
     sources.update(componentId)(_.copy(group = group))
     system.log.info(
       "topic source subscribed: kind={} component={} topic={} group={} start={} version={}",
@@ -442,6 +489,26 @@ final class ProjectionRuntime private (
       version
     )
     subscribed
+
+  /**
+   * Asks the broker what it still holds of `topic` and whether it is compacted, and puts the answer
+   * on the source's status (feature 043). A broker that cannot answer leaves the last report.
+   */
+  private def reportGap(
+      broker: MessageSubscriber,
+      componentId: ComponentId,
+      topic: String,
+      since: () => Future[Option[java.time.Instant]],
+      known: Option[Map[Int, Retained]] = None
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val retained           = known.fold(broker.earliestRetained(topic))(Future.successful)
+    (for
+      held   <- retained
+      config <- broker.topicConfig(topic).recover { case scala.util.control.NonFatal(_) => None }
+      start  <- since().recover { case scala.util.control.NonFatal(_) => None }
+    yield RetentionGap.of(held, config.exists(_.compacted), start, java.time.Instant.now()))
+      .foreach(gap => TopicSources(system).update(componentId)(_.copy(gap = Some(gap))))
 
   /** What the service says about each topic source, before it has subscribed. */
   private def declare(
@@ -516,7 +583,8 @@ final class ProjectionRuntime private (
             startFrom,
             declared,
             () => handler(guard),
-            parallel
+            parallel,
+            () => ViewVersions.builtAt(database, componentId)
           )
         )
       )
@@ -565,7 +633,7 @@ final class ProjectionRuntime private (
       declared: Int
   )(using system: ActorSystem[?]): Future[ViewVersions.Rebuilt] =
     given ExecutionContext = system.executionContext
-    def ask(delay: FiniteDuration): Future[Map[Int, Option[java.time.Instant]]] =
+    def ask(delay: FiniteDuration): Future[Map[Int, Retained]] =
       broker.earliestRetained(topic).recoverWith { case failure =>
         system.log.warn(
           "view '{}' waits to rebuild: the broker could not say what topic '{}' holds ({}); " +
@@ -581,8 +649,12 @@ final class ProjectionRuntime private (
     ask(1.second).flatMap { retained =>
       val reach = retained.toVector
         .sortBy(_._1)
-        .map((partition, at) => s"$partition=${at.fold("holds nothing")(_.toString)}")
+        .map((partition, r) =>
+          s"$partition=${r.earliestAt.fold("holds nothing")(_.toString)} from ${r.beginning}"
+        )
         .mkString(", ")
+      // Feature 043: what the rebuild reaches, shown where a member reads, not only in the log.
+      reportGap(broker, componentId, topic, () => Future.successful(None), Some(retained))
       system.log.info(
         "view rebuild: component={} table={} from version={} to version={} earliest retained per " +
           "partition: {}",
@@ -693,7 +765,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => ViewEventHandler(typed, client, guard(projection))
+              () => ViewEventHandler(typed, client, guard(projection), ChangeReader.journal)
             )
           }
         }
@@ -713,7 +785,30 @@ final class ProjectionRuntime private (
           }
         }
 
-      case ChangeSource.Topic(topic, _, startFrom, options) =>
+      case ChangeSource.Workflow(sourceId, decoder) =>
+        startEntityView(id, declared) {
+          daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
+            val range = eventSliceRanges(typed.parallelism)(index)
+            val projection =
+              ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
+            exactlyOnceWorkflowProjection(
+              projection,
+              sourceId,
+              range,
+              () =>
+                ViewEventHandler(
+                  typed,
+                  client,
+                  guard(projection),
+                  ChangeReader.workflow(decoder.manifest)
+                )
+            )
+          }
+        }
+
+      case ChangeSource.Topic(name, _, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           // A view that declares nowhere starts at the earliest message the broker holds.
           startTopicView(
@@ -750,8 +845,12 @@ final class ProjectionRuntime private (
       typed.sources.foreach { source =>
         val daemonName     = ViewProjections.daemon(id, Some(source.componentId))
         val projectionName = ViewProjections.name(id, Some(source.componentId), declared)
-        def handle(subject: String, sequence: Long, payload: Option[(Array[Byte], String)]) =
-          host.handle(source, subject, sequence, payload)
+        def handle(
+            subject: String,
+            sequence: Long,
+            payload: Option[Payload],
+            standing: Option[WorkflowLifecycle]
+        ) = host.handle(source, subject, sequence, payload, standing)
         source.source match
           case ChangeSource.EventSourced(sourceId, _) =>
             daemon(daemonName, 1) { _ =>
@@ -761,7 +860,8 @@ final class ProjectionRuntime private (
                 projection,
                 sourceId,
                 range,
-                () => KeyedViewEventHandler(host.core, guard(projection), handle)
+                () =>
+                  KeyedViewEventHandler(host.core, guard(projection), handle, ChangeReader.journal)
               )
             }
           case ChangeSource.KeyValue(sourceId, _) =>
@@ -773,6 +873,23 @@ final class ProjectionRuntime private (
                 sourceId,
                 range,
                 () => KeyedViewStateHandler(host.core, guard(projection), handle)
+              )
+            }
+          case ChangeSource.Workflow(sourceId, decoder) =>
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceWorkflowProjection(
+                projection,
+                sourceId,
+                range,
+                () =>
+                  KeyedViewEventHandler(
+                    host.core,
+                    guard(projection),
+                    handle,
+                    ChangeReader.workflow(decoder.manifest)
+                  )
               )
             }
           case ChangeSource.Topic(_, _, _, _) => () // refused by KeyedViewRules
@@ -792,6 +909,10 @@ final class ProjectionRuntime private (
     val processName = s"ankka-consumer-${typed.componentId}"
     // Where this consumer publishes: the declared broker it names, else the installation's.
     val target = publisherFor(typed.produces.flatMap(_.broker))
+    // What a restore cannot rewind includes what this consumer published (feature 041).
+    typed.produces.foreach(p =>
+      subscriberFor(p.broker).foreach(Divergence(system).touch(p.topic, None, _))
+    )
 
     typed.source match
       case ChangeSource.EventSourced(sourceId, _) =>
@@ -808,7 +929,9 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                HistoryLines(system),
+                ChangeReader.journal
               )
           )
         }
@@ -827,12 +950,36 @@ final class ProjectionRuntime private (
                 client,
                 Observability(system),
                 secrets,
-                services
+                services,
+                HistoryLines(system)
               )
           )
         }
 
-      case ChangeSource.Topic(topic, _, startFrom, options) =>
+      case ChangeSource.Workflow(sourceId, decoder) =>
+        daemon(processName, typed.parallelism) { index =>
+          val range = eventSliceRanges(typed.parallelism)(index)
+          atLeastOnceWorkflowProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () =>
+              ConsumerEventHandler(
+                typed,
+                target,
+                client,
+                Observability(system),
+                secrets,
+                services,
+                HistoryLines(system),
+                ChangeReader.workflow(decoder.manifest)
+              )
+          )
+        }
+
+      case ChangeSource.Topic(name, _, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           def handler =
             ConsumerTopicHandler(typed, target, client, Observability(system), secrets, services)
@@ -879,7 +1026,7 @@ final class ProjectionRuntime private (
               projection,
               sourceId,
               range,
-              () => RemoteViewEventHandler(view(), guard(projection))
+              () => RemoteViewEventHandler(view(), guard(projection), ChangeReader.journal)
             )
           }
         }
@@ -898,7 +1045,23 @@ final class ProjectionRuntime private (
           }
         }
 
-      case RemoteSource.Topic(topic, startFrom, options) =>
+      case RemoteSource.Component(ComponentKind.Workflow, sourceId) =>
+        startEntityView(id, declared) {
+          daemon(daemonName, parallelism) { index =>
+            val range      = eventSliceRanges(parallelism)(index)
+            val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+            exactlyOnceWorkflowProjection(
+              projection,
+              sourceId,
+              range,
+              () => RemoteViewEventHandler(view(), guard(projection), ChangeReader.remoteWorkflow)
+            )
+          }
+        }
+
+      case RemoteSource.Topic(name, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           startTopicView(
             broker,
@@ -941,7 +1104,7 @@ final class ProjectionRuntime private (
                 projection,
                 sourceId,
                 range,
-                () => KeyedViewEventHandler(core, guard(projection), handle)
+                () => KeyedViewEventHandler(core, guard(projection), handle, ChangeReader.journal)
               )
             }
           else if kind == ComponentKind.KeyValueEntity then
@@ -953,6 +1116,23 @@ final class ProjectionRuntime private (
                 sourceId,
                 range,
                 () => KeyedViewStateHandler(core, guard(projection), handle)
+              )
+            }
+          else if kind == ComponentKind.Workflow then
+            daemon(daemonName, 1) { _ =>
+              val range      = eventSliceRanges(1).head
+              val projection = ProjectionId(projectionName, s"${range.min}-${range.max}")
+              exactlyOnceWorkflowProjection(
+                projection,
+                sourceId,
+                range,
+                () =>
+                  KeyedViewEventHandler(
+                    core,
+                    guard(projection),
+                    handle,
+                    ChangeReader.remoteWorkflow
+                  )
               )
             }
         case RemoteSource.Topic(_, _, _) => () // refused by KeyedViewRules
@@ -972,6 +1152,9 @@ final class ProjectionRuntime private (
       publisherFor(descriptor.publication.flatMap(_.broker)),
       Observability(system)
     )
+    descriptor.publication.foreach(p =>
+      subscriberFor(p.broker).foreach(Divergence(system).touch(p.topic, None, _))
+    )
 
     descriptor.source match
       case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
@@ -981,7 +1164,7 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerEventHandler(consumer())
+            () => RemoteConsumerEventHandler(consumer(), HistoryLines(system), ChangeReader.journal)
           )
         }
 
@@ -992,11 +1175,29 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => RemoteConsumerStateHandler(consumer())
+            () => RemoteConsumerStateHandler(consumer(), HistoryLines(system))
           )
         }
 
-      case RemoteSource.Topic(topic, startFrom, options) =>
+      case RemoteSource.Component(ComponentKind.Workflow, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = eventSliceRanges(parallelism)(index)
+          atLeastOnceWorkflowProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () =>
+              RemoteConsumerEventHandler(
+                consumer(),
+                HistoryLines(system),
+                ChangeReader.remoteWorkflow
+              )
+          )
+        }
+
+      case RemoteSource.Topic(name, startFrom, options) =>
+        // `<project>/<name>` for another project's topic (feature 040).
+        val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           def handler = RemoteConsumerTopicHandler(consumer())
           if startFrom.isEmpty then
@@ -1060,6 +1261,33 @@ final class ProjectionRuntime private (
       range.max
     )
 
+  private def workflowSource(sourceId: ComponentId, range: Range)(using
+      system: ActorSystem[?]
+  ): SourceProvider[org.apache.pekko.persistence.query.Offset, EventEnvelope[WorkflowRecord]] =
+    EventSourcedProvider.eventsBySlices[WorkflowRecord](
+      system,
+      R2dbcReadJournal.Identifier,
+      sourceId,
+      range.min,
+      range.max
+    )
+
+  private def exactlyOnceWorkflowProjection(
+      id: ProjectionId,
+      sourceId: ComponentId,
+      range: Range,
+      handler: () => R2dbcHandler[EventEnvelope[WorkflowRecord]]
+  )(using system: ActorSystem[?]): Projection[EventEnvelope[WorkflowRecord]] =
+    R2dbcProjection.exactlyOnce(id, None, workflowSource(sourceId, range), handler)
+
+  private def atLeastOnceWorkflowProjection(
+      id: ProjectionId,
+      sourceId: ComponentId,
+      range: Range,
+      handler: () => Handler[EventEnvelope[WorkflowRecord]]
+  )(using system: ActorSystem[?]): Projection[EventEnvelope[WorkflowRecord]] =
+    R2dbcProjection.atLeastOnceAsync(id, None, workflowSource(sourceId, range), handler)
+
   private def exactlyOnceEventProjection(
       id: ProjectionId,
       sourceId: ComponentId,
@@ -1111,6 +1339,30 @@ final class ProjectionRuntime private (
 
 object ProjectionRuntime:
 
+  /**
+   * Feature 040: a topic is another project's or on a broker the project declared, never both. A
+   * declared broker is outside the installation and has no projects; the installation's broker
+   * enforces a grant, and only that broker has another project's topics.
+   */
+  def crossProjectProblems(components: Vector[ComponentDescriptor]): Vector[String] =
+    def refused(id: ComponentId, verb: String, address: String, broker: String) =
+      val (project, name) = TopicAddress.split(address)
+      s"'$id' $verb topic '$name' of project '${project.getOrElse("")}' on broker '$broker': " +
+        "another project's topic is on the installation's broker; name the project or the " +
+        "broker, not both"
+    components.flatMap { component =>
+      val sources = DeclaredConnections.sourcesOf(component).collect {
+        case DeclaredSource.Topic(address, _, Some(broker))
+            if TopicAddress.isCrossProject(address) =>
+          refused(component.componentId, "reads", address, broker)
+      }
+      val publication = DeclaredConnections.publicationOf(component).collect {
+        case p if p.project.isDefined && p.broker.isDefined =>
+          refused(component.componentId, "publishes to", p.address, p.broker.get)
+      }
+      sources ++ publication
+    }
+
   /** Runs views and consumers over entity sources only. */
   def apply(): ProjectionRuntime = new ProjectionRuntime(None, None)
 
@@ -1153,6 +1405,12 @@ object ProjectionRuntime:
   /** The first protocol in which a process can declare where a topic source starts. */
   val StartPositionProtocol: String = "1.7"
 
+  /**
+   * How often a topic source asks the broker what it still holds (feature 043): rarer than lag,
+   * since it reads the first record of every partition.
+   */
+  val GapInterval: FiniteDuration = 5.minutes
+
   /** How often a topic source asks its broker how far behind it is (feature 037). */
   val LagInterval: FiniteDuration = 30.seconds
 
@@ -1177,13 +1435,17 @@ object ProjectionRuntime:
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-/** Applies a view's effect and the projection offset in one transaction. */
-private final class ViewEventHandler(
+/**
+ * Applies a view's effect and the projection offset in one transaction, over an entity's journal or
+ * a workflow's: `reader` is how a record of that journal becomes a change.
+ */
+private final class ViewEventHandler[A](
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
     client: ComponentClient,
-    guard: EntityViewGuard
+    guard: EntityViewGuard,
+    reader: ChangeReader[A]
 )(using system: ActorSystem[?])
-    extends R2dbcHandler[EventEnvelope[JournalRecord]]:
+    extends R2dbcHandler[EventEnvelope[A]]:
 
   private given ExecutionContext = system.executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
@@ -1193,9 +1455,9 @@ private final class ViewEventHandler(
   // you are still somewhere it is safe to take it.
   private val observability = Observability(system)
 
-  def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    val change  = reader.read(envelope.event)
 
     guard
       .inSession(session)
@@ -1203,7 +1465,7 @@ private final class ViewEventHandler(
       .flatMap { row =>
         val effect =
           ProjectionSupport
-            .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
+            .runView(view, descriptor, subject, envelope.sequenceNr, row, change, observability)
         ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
       }
 
@@ -1267,40 +1529,63 @@ private final class ViewStateHandler(
     case updated: UpdatedDurableState[StateRecord] => updated.revision
     case deleted: DeletedDurableState[StateRecord] => deleted.revision
 
-/** Runs a consumer over an entity's events, publishing anything it produces. */
-private final class ConsumerEventHandler(
+/**
+ * Runs a consumer over an entity's events or a workflow's recorded states, publishing anything it
+ * produces: `reader` is how a record of that journal becomes a change.
+ */
+private final class ConsumerEventHandler[A](
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
     publisher: Option[MessagePublisher],
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
-) extends Handler[EventEnvelope[JournalRecord]]:
+    services: ServiceClients,
+    lines: HistoryLines,
+    reader: ChangeReader[A]
+) extends Handler[EventEnvelope[A]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
-  def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
+    reader.read(envelope.event) match
+      // No change: the consumer is not called, and no span says it was.
+      case SourceChange.Skip => Future.successful(Done)
+      case change =>
+        consumer._setContext(
+          Some(
+            SimpleChangeContext(
+              subject,
+              envelope.sequenceNr,
+              localOrigin = true,
+              ProjectionSupport.standingOf(change)
+            )
+          )
+        )
+        val (effect, context) =
+          try
+            ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
+              change match
+                case SourceChange.Changed(payload, _) =>
+                  consumer.onMessage(descriptor.source.decoder.fromBytes(payload.data))
+                case _ => consumer.onDelete
+            }
+          finally consumer._setContext(None)
 
-    consumer._setContext(
-      Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
-    )
-    val (effect, context) =
-      try
-        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
-          record.kind match
-            case JournalRecord.KindDomain =>
-              consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
-            case JournalRecord.KindDeleted => consumer.onDelete
-            case _                         => ConsumerEffect.Ignore
-        }
-      finally consumer._setContext(None)
-
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+        val eventId = lines
+          .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
+          .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
+        ProjectionSupport.applyConsumer(
+          effect,
+          subject,
+          descriptor,
+          publisher,
+          Some(context),
+          eventId
+        )
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(
@@ -1309,7 +1594,8 @@ private final class ConsumerStateHandler(
     client: ComponentClient,
     observability: Observability,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    lines: HistoryLines
 ) extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
@@ -1338,4 +1624,7 @@ private final class ConsumerStateHandler(
         }
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
+    val eventId = lines
+      .lineOf(HistoryLines.writtenAt(change))
+      .map(HistoryLines.messageId(_, change.persistenceId, revision))
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context), eventId)

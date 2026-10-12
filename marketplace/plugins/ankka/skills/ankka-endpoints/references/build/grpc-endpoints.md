@@ -153,15 +153,16 @@ the `Source` is cancelled. A `Source` that fails ends the call with the failure'
 part already produced:
 
 ```scala
-// The cart after each change, for as long as the caller watches. An entity does not stream its
-// state, so this reads it every half second and sends it when it differs; the caller's going
-// away cancels the stream.
+// The cart as the view writes it, for as long as the caller watches: a watch of the cart's row,
+// which the view announces on every write, so nothing polls. A row given twice is sent once; the
+// caller's going away ends the watch.
 serverStream(CartStreamsGrpc.METHOD_WATCH_CART) { request =>
-  Source
-    .tick(0.seconds, 500.millis, ())
-    .map(_ => cart(request.cartId).call(ShoppingCartEntity.getCart).invoke())
-    .statefulMap(() => Option.empty[domain.ShoppingCart])(
-      (last, now) => (Some(now), Option.when(!last.contains(now))(toProto(now))),
+  clients.viewClient
+    .forView(CartRows)
+    .watchRow(request.cartId)
+    .collect { case WatchEvent.Row(_, row) => toProto(row) }
+    .statefulMap(() => Option.empty[Cart])(
+      (last, now) => (Some(now), Option.when(!last.contains(now))(now)),
       _ => None
     )
     .collect { case Some(changed) => changed }
@@ -250,6 +251,12 @@ reads no request. The refusals are statuses:
 
 A call to a method the endpoint does not have is judged by the endpoint's ACL before it is answered
 `UNIMPLEMENTED`, so a closed endpoint does not disclose which methods it has.
+
+`Acl.allowCallers(Callers.granted)` admits a service of another project, or a registered machine, that
+this service's project has granted the method being called. A grant names one method as
+`<Service>/<Method>`, such as `WalletService/Deposit`, which opens that method of that service
+definition and no other: a caller granted `Deposit` is refused `GetBalance` with `PERMISSION_DENIED`.
+[Cross-project access](../platform/cross-project-access.md) describes how a project grants a method.
 
 A handler reads `caller`, `principal`, `metadata` and `call` on its own thread, as an HTTP handler reads
 `caller`, `principal` and `request`. In a cluster the caller is read from the client certificate the

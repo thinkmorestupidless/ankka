@@ -1,0 +1,69 @@
+# The control plane's own database archives as a project database does: into a bucket of its own,
+# `platform.backups-controlplane`, under the line `ankka-controlplane-db`, with a base backup on the
+# installation's schedule. The credential, `ankka-db-backups` in this namespace, is minted by the
+# operator when it starts with a backup target, as it mints a project's; until it exists the
+# cluster's archiver cannot start, and the installation's status says the control plane's database
+# is not backed up.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: ankka-backups
+  namespace: ankka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  retentionPolicy: "30d"
+  configuration:
+    destinationPath: s3://platform.backups-controlplane/
+    endpointURL: http://garage.garage-system.svc.cluster.local:3900
+    s3Credentials:
+      accessKeyId: { name: ankka-db-backups, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: ankka-db-backups, key: ACCESS_SECRET_KEY }
+      region: { name: ankka-db-backups, key: REGION }
+    wal: { compression: lz4, maxParallel: 2 }
+    data: { compression: lz4, jobs: 2 }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: ankka-controlplane-db-base
+  namespace: ankka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  # Six fields, seconds first: midnight, as the operator's default schedule for a project.
+  schedule: "0 0 0 * * *"
+  immediate: true
+  backupOwnerReference: cluster
+  method: plugin
+  pluginConfiguration: { name: barman-cloud.cloudnative-pg.io }
+  cluster: { name: ankka-controlplane-db }
+---
+# What the control plane reads of its own database's backups for `GET /installation`, and nothing
+# it could change.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ankka-controlplane-backups
+  namespace: ankka-controlplane
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+  - apiGroups: ["barmancloud.cnpg.io"]
+    resources: ["objectstores"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ankka-controlplane-backups
+  namespace: ankka-controlplane
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ankka-controlplane-backups
+subjects:
+  - kind: ServiceAccount
+    name: ankka-controlplane
+    namespace: ankka-controlplane

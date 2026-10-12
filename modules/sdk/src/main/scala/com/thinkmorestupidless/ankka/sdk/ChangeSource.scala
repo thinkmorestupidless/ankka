@@ -34,6 +34,15 @@ object ChangeSource:
     def describe = s"key-value-entity($componentId)"
 
   /**
+   * Each state a workflow records, with where the workflow stood once the effect that recorded it
+   * was applied, in order, exactly once to a view. A transition, a pause, an end or a failure that
+   * records no state is no change: a step whose outcome a reader must see records it in the state.
+   */
+  final case class Workflow[Src](componentId: ComponentId, decoder: Serializer[Src])
+      extends ChangeSource[Src]:
+    def describe = s"workflow($componentId)"
+
+  /**
    * Messages from a broker topic.
    *
    * `startFrom` is where the source begins the first time its consumer group reads the topic, and
@@ -56,7 +65,10 @@ object ChangeSource:
       val from   = startFrom.fold("")(start => s", from $start")
       val onto   = options.broker.fold("")(b => s", on $b")
       val stated = options.contract.fold("")(c => s", as ${c.name}")
-      s"topic($topic$from$onto$stated)"
+      s"topic($address$from$onto$stated)"
+
+    /** The topic as the runtime carries it: `<project>/<name>` for another project's. */
+    def address: String = TopicAddress.of(topic, options.project)
 
   def eventsOf[C <: EventSourcedEntity[S, E], S, E](
       companion: EventSourcedEntity.Companion[C, S, E]
@@ -67,6 +79,15 @@ object ChangeSource:
       companion: KeyValueEntity.Companion[C, S]
   ): ChangeSource[S] =
     KeyValue(companion.componentId, companion.stateSerializer)
+
+  /**
+   * Each state a workflow records. The change a handler is given is the state; where the workflow
+   * stood is `standing` on the change's context.
+   */
+  def stateOf[W <: com.thinkmorestupidless.ankka.sdk.Workflow[S], S](
+      companion: com.thinkmorestupidless.ankka.sdk.Workflow.Companion[W, S]
+  ): ChangeSource[S] =
+    Workflow(companion.componentId, companion.stateSerializer)
 
   /** A topic, starting wherever the component's default says: a view from the earliest message. */
   def fromTopic[Src](name: String, decoder: Serializer[Src]): ChangeSource[Src] =
@@ -88,6 +109,22 @@ object ChangeSource:
   ): ChangeSource[Src] =
     Topic(name, decoder, Some(startFrom), options)
 
+  /**
+   * Another project's topic (feature 040), starting wherever the component's default says. The
+   * broker serves it only while `project` grants this service consume on it.
+   */
+  def fromTopic[Src](project: String, name: String, decoder: Serializer[Src]): ChangeSource[Src] =
+    Topic(name, decoder, None, TopicOptions(project = Some(project)))
+
+  /** Another project's topic, starting at `startFrom` the first time the group reads it. */
+  def fromTopic[Src](
+      project: String,
+      name: String,
+      decoder: Serializer[Src],
+      startFrom: StartFrom
+  ): ChangeSource[Src] =
+    Topic(name, decoder, Some(startFrom), TopicOptions(project = Some(project)))
+
 /**
  * What a component says about a topic it reads, beyond its name: the contract it expects the topic
  * to carry (checked at start against the project's declaration), the declared broker the topic is
@@ -97,18 +134,45 @@ object ChangeSource:
 final case class TopicOptions(
     contract: Option[Contract] = None,
     broker: Option[String] = None,
-    parallel: Boolean = false
+    parallel: Boolean = false,
+    /**
+     * Feature 040: the project whose topic this is, when it is not this service's own. The broker
+     * serves it only while that project grants this service consume on it; this project's
+     * declarations are not consulted for it.
+     */
+    project: Option[String] = None
 )
 
 /**
  * A topic a consumer publishes to, with the contract it states for it and the declared broker it is
- * on. `produceTo` is the short form: the topic alone.
+ * on. `produceTo` is the short form: the topic alone. `project` names another project's topic
+ * (feature 040), which that project must grant this service produce on.
  */
 final case class Publication(
     topic: String,
     contract: Option[Contract] = None,
-    broker: Option[String] = None
-)
+    broker: Option[String] = None,
+    project: Option[String] = None
+):
+  /** The topic as the runtime carries it: `<project>/<name>` for another project's. */
+  def address: String = TopicAddress.of(topic, project)
+
+/**
+ * How the runtime carries a topic between a component and the broker (feature 040): the name the
+ * component wrote for one of its own project's topics, `<project>/<name>` for another project's. A
+ * Kafka topic name cannot hold `/`, so the two never meet; the broker connection turns the second
+ * into `<project>.<name>`, and the topology shows it as `topic:<project>/<name>`.
+ */
+object TopicAddress:
+  def of(topic: String, project: Option[String]): String = project.fold(topic)(p => s"$p/$topic")
+
+  /** The project and the name an address holds: no project for one of this project's topics. */
+  def split(address: String): (Option[String], String) =
+    address.indexOf('/') match
+      case -1 => (None, address)
+      case at => (Some(address.take(at)), address.drop(at + 1))
+
+  def isCrossProject(address: String): Boolean = address.contains('/')
 
 /**
  * Where a topic source begins, the first time its consumer group reads a partition.
@@ -142,8 +206,16 @@ trait ChangeContext:
   /** Whether the change originated in this region. */
   def localOrigin: Boolean
 
+  /**
+   * Of a change from a workflow: where the workflow stood once the effect that recorded the state
+   * was applied — running, paused, completed or failed, the step, the retries and the reason.
+   * `None` for a change from an entity or a topic.
+   */
+  def standing: Option[WorkflowLifecycle] = None
+
 private[ankka] final case class SimpleChangeContext(
     subject: String,
     sequenceNumber: Long,
-    localOrigin: Boolean
+    localOrigin: Boolean,
+    override val standing: Option[WorkflowLifecycle] = None
 ) extends ChangeContext

@@ -63,17 +63,7 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
 
     // Each topic source: where it reads, under which group, from where, at which version.
     val topicSources = TopicSources(running.system).all
-      .map { s =>
-        s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +
-          s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
-          s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
-          s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},""" +
-          s""""behind":${s.behind},""" +
-          s""""broker":${s.broker.fold("null")(Json.str)},""" +
-          s""""contract":${s.contract.fold("null")(Json.str)},""" +
-          s""""lag":${s.lag.fold("null")(_.toString)},""" +
-          s""""failing":${s.failing.fold("null")(Json.str)}}"""
-      }
+      .map(TopicSources.json)
       .mkString("[", ",", "]")
 
     s"""{"name":${Json.str(serviceName)},""" +
@@ -83,6 +73,16 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
 
   /** What the service is made of and how the parts are connected. */
   def topology(): String = TopologyJson.of(running, serviceName, instanceId, startedAt)
+
+  /** What the broker holds past `since`, for the topics this instance publishes to and reads. */
+  override def divergence(since: java.time.Instant): String =
+    given scala.concurrent.ExecutionContext = running.system.executionContext
+    Divergence.json(
+      scala.concurrent.Await.result(
+        Divergence(running.system).since(since),
+        scala.concurrent.duration.DurationInt(30).seconds
+      )
+    )
 
   /**
    * The handlers a component declares, whatever kind of entity it is.

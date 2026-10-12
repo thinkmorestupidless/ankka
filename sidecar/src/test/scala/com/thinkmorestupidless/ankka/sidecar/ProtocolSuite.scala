@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.14")
+    assertEquals(Discovery.ProtocolVersion, "1.18")
   }
 
   test(
@@ -365,6 +365,50 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test(
+    "discovery 1.17: a watched query reaches the remote view, and is refused from an earlier minor"
+  ) {
+    val source =
+      Some(Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart"))))
+    val watching = Component(
+      Kind.VIEW,
+      "carts",
+      Vector.empty,
+      Component.Detail.View(
+        ViewDetail(
+          source,
+          "row",
+          declaredQueries = Seq(
+            DeclaredQuery(
+              "open-carts",
+              "SELECT row_key, payload FROM ankka_view_carts",
+              watched = true
+            )
+          )
+        )
+      )
+    )
+    val entity = Component(
+      Kind.EVENT_SOURCED_ENTITY,
+      "cart",
+      Vector.empty,
+      Component.Detail.EventSourced(EventSourcedDetail(100))
+    )
+    val discovered =
+      validateSpec(topicSpec("1.17", entity, watching)).fold(p => fail(p.mkString), identity)
+    val carts = discovered.descriptors.collectFirst { case v: RemoteViewDescriptor => v }.get
+    assertEquals(
+      carts.declaredQueries.map(q => (q.name, q.watchable)),
+      Vector(("open-carts", true))
+    )
+    val refused =
+      validateSpec(topicSpec("1.14", entity, watching)).left.toOption.getOrElse(Vector.empty)
+    assert(
+      refused.exists(p => p.contains("query 'open-carts' is watched, which needs protocol 1.17")),
+      refused.toString
+    )
+  }
+
   test("discovery 1.14: a Spec from an earlier minor states nothing new and is accepted") {
     import ankka.protocol.v1.discovery.StartFrom as P
     val discovered = validateSpec(
@@ -406,6 +450,96 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     val problems =
       validateSpec(topicSpec("1.14", consumer("follower", Some(src)))).left.toOption.get
     assert(problems.exists(_.contains("which apply to a topic")), problems)
+  }
+
+  // ── Workflow sources (protocol 1.16) ──────────────────────────────────────
+
+  private val checkout = Component(
+    Kind.WORKFLOW,
+    "checkout",
+    Vector.empty,
+    Component.Detail.Workflow(WorkflowDetail(Vector("reserve")))
+  )
+
+  private val workflowSource =
+    Some(Source(Source.Source.Component(Source.ComponentRef(Kind.WORKFLOW, "checkout"))))
+
+  test("discovery 1.16: a view and a consumer that read a workflow are hosted") {
+    val discovered = validateSpec(
+      topicSpec(
+        "1.16",
+        checkout,
+        view("checkout-rows", workflowSource),
+        consumer("ends", workflowSource)
+      )
+    ).fold(p => fail(p.mkString("; ")), identity)
+    val sources = discovered.descriptors.collect {
+      case v: RemoteViewDescriptor     => v.source
+      case c: RemoteConsumerDescriptor => c.source
+    }
+    assertEquals(
+      sources.toSet,
+      Set(RemoteSource.Component(ComponentKind.Workflow, ComponentId("checkout")))
+    )
+  }
+
+  test(
+    "discovery: a workflow source from a process before 1.16 is refused, naming it and both versions"
+  ) {
+    val problems = validateSpec(
+      topicSpec(
+        "1.15",
+        checkout,
+        view("checkout-rows", workflowSource),
+        consumer("ends", workflowSource)
+      )
+    ).left.toOption.get
+    assert(
+      problems.exists(p =>
+        p.contains("view 'checkout-rows' reads workflow 'checkout'") && p.contains("1.16") && p
+          .contains("1.15")
+      ),
+      problems
+    )
+    assert(problems.exists(_.contains("consumer 'ends' reads workflow 'checkout'")), problems)
+  }
+
+  test(
+    "discovery 1.16: a start position or a contract on a workflow source is refused, as on an entity's"
+  ) {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val src =
+      workflowSource.map(_.copy(startFrom = named(P.Named.EARLIEST), parallel = Some(true)))
+    val problems =
+      validateSpec(topicSpec("1.16", checkout, consumer("ends", src))).left.toOption.get
+    assert(problems.exists(_.contains("declares a start position")), problems)
+    assert(problems.exists(_.contains("which apply to a topic")), problems)
+  }
+
+  test("discovery 1.16: a keyed view may read a workflow beside an entity") {
+    val cart = Component(
+      Kind.EVENT_SOURCED_ENTITY,
+      "cart",
+      Vector.empty,
+      Component.Detail.EventSourced(EventSourcedDetail(0))
+    )
+    val keyed = Component(
+      Kind.VIEW,
+      "joined",
+      Vector.empty,
+      Component.Detail.View(
+        ViewDetail(
+          None,
+          "row",
+          sources = Vector(
+            Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart"))),
+            workflowSource.get
+          )
+        )
+      )
+    )
+    validateSpec(topicSpec("1.16", checkout, cart, keyed))
+      .fold(p => fail(p.mkString("; ")), identity): Unit
   }
 
   test("discovery: what a process may not declare about a topic source is refused, all at once") {
@@ -1036,6 +1170,50 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         )
       )
     }
+  }
+
+  test(
+    "discovery 1.15: granted callers are declared under 1.15, and refused under an earlier minor"
+  ) {
+    import ankka.protocol.v1.discovery.{
+      CallerMatcher as PbMatcher,
+      Endpoint as PbEndpoint,
+      Route as PbRoute
+    }
+    import ankka.protocol.v1.payload.Empty
+    val granted = PbMatcher(PbMatcher.Kind.Granted(Empty()))
+    def spec(version: String) = Spec(
+      version,
+      None,
+      Vector.empty,
+      Vector(
+        PbEndpoint(
+          "wallets",
+          "/v1/wallets",
+          PbEndpoint.Acl.CALLERS,
+          Vector(
+            PbRoute(
+              "deposit",
+              "POST",
+              "/{player}/{currency}/deposits",
+              hasBody = true,
+              acl = Some(PbEndpoint.Acl.CALLERS),
+              allowCallers = Vector(granted)
+            )
+          ),
+          Vector(granted)
+        )
+      )
+    )
+    assert(validateSpec(spec("1.15")).isRight, validateSpec(spec("1.15")).toString)
+    assertEquals(
+      validateSpec(spec("1.14")).left.toOption.getOrElse(Vector.empty),
+      Vector(
+        "endpoint 'wallets' admits granted callers, which needs protocol 1.15; the SDK speaks 1.14",
+        "endpoint 'wallets': route 'deposit' admits granted callers, which needs protocol 1.15; " +
+          "the SDK speaks 1.14"
+      )
+    )
   }
 
   test("discovery: a socket route is a GET with no body that does not also stream") {

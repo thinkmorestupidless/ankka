@@ -42,10 +42,20 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
     // to say about them.
     case _: ProjectSecretEntriesSet | _: ProjectSecretEntryRemoved => effects.ignore()
     // A project's topics are read from the project itself, whose record is exact, not a listing.
-    case _: ProjectTopicDeclared | _: ProjectTopicRemoved => effects.ignore()
+    case _: ProjectTopicDeclared | _: ProjectTopicRemoved | _: ProjectTopicSettingsFilled =>
+      effects.ignore()
+    // A project's grants, held and received, are read from the project itself, likewise.
+    case _: GrantMade | _: GrantAccepted | _: GrantDeclined | _: GrantWithdrawn | _: GrantRevoked |
+        _: GrantRelinquished | _: GrantLapsed | _: GrantRecorded =>
+      effects.ignore()
     // Likewise a project's brokers (feature 037).
     case _: ProjectBrokerDeclared | _: ProjectBrokerRemoved => effects.ignore()
     case _: ProjectLocationSet                              => effects.ignore()
+    // And its restores (feature 041), read from the project and the cluster.
+    case _: ProjectRestoreRequested | _: ProjectRestoreEnded | _: ProjectDatabaseSet |
+        _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
+        _: ProjectBackupCredentialReissued =>
+      effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

@@ -239,6 +239,103 @@ object Main:
       list.orElse(create).orElse(revoke)
     }
 
+    val machines = Opts.subcommand(
+      "machines",
+      "Machines outside the installation that hold a token, and call what a project grants them."
+    ) {
+      val list = Opts.subcommand("list", "List an organization's machines.") {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.machines(ctx.client.listMachines(org), ctx.format)
+        }
+      }
+
+      val register = Opts.subcommand(
+        "register",
+        "Register a machine. Its secret is shown once and cannot be recovered."
+      ) {
+        (Opts.argument[String]("organization"), Opts.argument[String]("name"), contextOpt).mapN {
+          (org, name, ctx) => () =>
+            val problems = Machines.nameProblems(name)
+            if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+            Output.machineRegistered(ctx.client.registerMachine(org, name), ctx.format)
+        }
+      }
+
+      val delete = Opts.subcommand(
+        "delete",
+        "Delete a machine. Its tokens are refused from the next request for one."
+      ) {
+        (Opts.argument[String]("organization"), Opts.argument[String]("name"), contextOpt).mapN {
+          (org, name, ctx) => () =>
+            ctx.client.deleteMachine(org, name)
+            s"deleted machine '$name' of '$org'"
+        }
+      }
+
+      val byteRates = Opts.subcommand(
+        "byte-rates",
+        "Limit what a machine may move through the installation's broker."
+      ) {
+        (
+          Opts.argument[String]("organization"),
+          Opts.argument[String]("name"),
+          Opts.option[String]("produce", "Bytes a second it may publish: 1048576, 512KiB, 1MiB."),
+          Opts.option[String]("consume", "Bytes a second it may read."),
+          Opts.option[Int](
+            "request-percentage",
+            "The share of a broker thread it may use, 1 to 100."
+          ),
+          contextOpt
+        ).mapN { (org, name, produce, consume, percentage, ctx) => () =>
+          val rates =
+            ByteRatesRequest(ByteSizes.bytes(produce), ByteSizes.bytes(consume), percentage)
+          Output.machines(Vector(ctx.client.setMachineByteRates(org, name, rates)), ctx.format)
+        }
+      }
+
+      list.orElse(register).orElse(delete).orElse(byteRates)
+    }
+
+    val grants = Opts.subcommand(
+      "grants",
+      "Grants other projects made to the organization's machines and its projects' services."
+    ) {
+      val list = Opts.subcommand(
+        "list",
+        "List what the organization's machines and services hold or are offered, and every change."
+      ) {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.receivedGrants(ctx.client.organizationGrants(org), ctx.format)
+        }
+      }
+      def answer(verb: String, help: String, done: String) =
+        Opts.subcommand(verb, help) {
+          (Opts.argument[String]("organization"), Opts.argument[String]("grant"), contextOpt).mapN {
+            (org, grant, ctx) => () =>
+              ctx.client.answerGrant(org, grant, verb)
+              s"$done grant $grant"
+          }
+        }
+      list
+        .orElse(
+          answer(
+            "accept",
+            "Accept a grant offered to the organization. It takes effect.",
+            "accepted"
+          )
+        )
+        .orElse(
+          answer("decline", "Decline a grant offered to the organization. It ends.", "declined")
+        )
+        .orElse(
+          answer(
+            "relinquish",
+            "Give up a grant the organization holds, without its grantor.",
+            "relinquished"
+          )
+        )
+    }
+
     val invitations = Opts.subcommand("invitations", "Pending invitations.") {
       Opts.subcommand("revoke", "Withdraw an invitation that has not been claimed.") {
         (Opts.argument[String]("organization"), Opts.argument[String]("email"), contextOpt).mapN {
@@ -309,6 +406,8 @@ object Main:
       .orElse(delete)
       .orElse(members)
       .orElse(tokens)
+      .orElse(machines)
+      .orElse(grants)
       .orElse(invitations)
       .orElse(disable)
       .orElse(enable)
@@ -328,6 +427,130 @@ object Main:
       (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
         Output.project(ctx.client.getProject(id), ctx.format)
       }
+    }
+
+    val status = Opts.subcommand(
+      "status",
+      "Show whether a project is backed up, how far back it can be restored, and its database."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        Output.projectStatus(ctx.client.projectStatus(id), ctx.format)
+      }
+    }
+
+    val restore = Opts.subcommand(
+      "restore",
+      "Restore a project's database to a moment, into a new cluster beside the current one."
+    ) {
+      (
+        Opts.argument[String]("id"),
+        Opts.argument[String]("moment").mapValidated(Moments.parse),
+        Opts
+          .option[String]("line", "The line of history, when services are on more than one.")
+          .orNone,
+        contextOpt
+      ).mapN { (id, moment, line, ctx) => () =>
+        Output.restore(ctx.client.restoreProject(id, moment, line), ctx.format)
+      }
+    }
+
+    val restores = Opts.subcommand("restores", "List a project's restores, or show one.") {
+      val list = Opts.subcommand("list", "List the project's restores, oldest first.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.restores(ctx.client.restores(id), ctx.format)
+        }
+      }
+      val get = Opts.subcommand("get", "Show one restore: what each service's database holds.") {
+        (Opts.argument[String]("id"), Opts.argument[String]("name"), contextOpt).mapN {
+          (id, name, ctx) => () => Output.restore(ctx.client.restore(id, name), ctx.format)
+        }
+      }
+      list.orElse(get)
+    }
+
+    // Feature 041's database and feature 043's topics share one history; the project is the
+    // argument, or `-p` as for the project's other commands.
+    val history =
+      Opts.subcommand(
+        "history",
+        "Who did what to a project's database and its topics, newest first: each setting of a " +
+          "topic changed from what to what."
+      ) {
+        (Opts.argument[String]("id").orNone, contextOpt).mapN { (id, ctx) => () =>
+          Output.projectHistory(ctx.client.projectHistory(id.getOrElse(ctx.project)), ctx.format)
+        }
+      }
+
+    val backupsCommand = Opts.subcommand("backups", "A project's backups.") {
+      Opts.subcommand(
+        "reissue-credential",
+        "Issue the project's backup credential again; the old key stops working. Owners only."
+      ) {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          val issued = ctx.client.reissueBackupCredential(id)
+          s"the backup credential of '$id' is issued again, at generation ${issued.generation}"
+        }
+      }
+    }
+
+    val rehearse = Opts.subcommand(
+      "rehearse",
+      "Rehearse a restore of a project, in a namespace of its own; it changes nothing of the project."
+    ) {
+      (
+        Opts.argument[String]("id"),
+        Opts.argument[String]("moment").mapValidated(Moments.parse).orNone,
+        Opts.option[String]("line", "The line of history to rehearse.").orNone,
+        contextOpt
+      ).mapN { (id, moment, line, ctx) => () =>
+        Output.rehearsal(ctx.client.rehearseProject(id, moment, line), ctx.format)
+      }
+    }
+
+    val rehearsals = Opts.subcommand(
+      "rehearsals",
+      "List a project's rehearsals: who asked, when, the moment, the outcome and how long it took."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        Output.rehearsals(ctx.client.rehearsals(id), ctx.format)
+      }
+    }
+
+    val database = Opts.subcommand(
+      "database",
+      "Show or set what a project asks of its database: replicas, retention, rehearsals."
+    ) {
+      val show = Opts.subcommand("get", "Show what the project asks of its database.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          Output.databaseSetting(ctx.client.projectDatabase(id), ctx.format)
+        }
+      }
+      val set = Opts.subcommand(
+        "set",
+        "Set what the project asks of its database, whole; anything not given is the default."
+      ) {
+        (
+          Opts.argument[String]("id"),
+          Opts.option[Int]("replicas", "Replicas beside the primary, 0 to 4.").withDefault(0),
+          Opts
+            .flag("synchronous", "Every write waits for a replica to hold it.")
+            .orFalse,
+          Opts
+            .option[Int]("retention-days", "Days the project's backups are kept.")
+            .orNone,
+          Opts.option[String]("rehearse", "Rehearse a restore daily or weekly.").orNone,
+          contextOpt
+        ).mapN { (id, replicas, synchronous, retention, rehearse, ctx) => () =>
+          Output.databaseSetting(
+            ctx.client.setProjectDatabase(
+              id,
+              DatabaseSetting(replicas, synchronous, retention, rehearse)
+            ),
+            ctx.format
+          )
+        }
+      }
+      show.orElse(set)
     }
 
     val create = Opts.subcommand("create", "Create a project.") {
@@ -406,14 +629,47 @@ object Main:
     ) {
       val set = Opts.subcommand(
         "set",
-        "Declare a topic on the project, or give it more partitions. A topic is never given fewer. " +
-          "--compacted keeps the last message under each key; --contract and --schema declare " +
-          "what the topic carries, which every side must state."
+        "Declare a topic on the project, or change it. A topic is never given fewer partitions. " +
+          "A new topic takes every setting left out from the installation's defaults; a topic " +
+          "already declared keeps what is left out. --compacted is --cleanup compact; --contract " +
+          "and --schema declare what the topic carries, which every side must state. A change " +
+          "that removes messages is an owner's, and asks before it is sent."
       ) {
+        def setting(name: String, help: String) = Opts.option[String](name, help).orNone
+        val settings = (
+          setting("retention", "How long the topic keeps a message: 90d, 36h, or everything."),
+          setting("retention-size", "How much each partition keeps: 50GiB, or none."),
+          setting("cleanup", "delete, compact, or compact,delete."),
+          setting("tombstone-window", "How long a compacted topic keeps a deletion: 1d."),
+          setting("min-compaction-lag", "The soonest a compacted topic compacts a message: 1h."),
+          setting(
+            "max-compaction-lag",
+            "The latest a compacted topic compacts a message, or none."
+          ),
+          Opts
+            .option[Int]("copies", "How many copies the broker keeps; fixed once declared.")
+            .orNone,
+          Opts
+            .option[Int](
+              "min-in-sync",
+              "How many copies must hold a message before it is acknowledged; fixed once declared."
+            )
+            .orNone
+        ).tupled
         (
           Opts.argument[String]("name"),
-          Opts.option[Int]("partitions", "How many partitions the topic has."),
-          Opts.flag("compacted", "The broker keeps the last message under each key.").orFalse,
+          Opts
+            .option[Int](
+              "partitions",
+              "How many partitions the topic has; required for a new topic."
+            )
+            .orNone,
+          Opts
+            .flag(
+              "compacted",
+              "The broker keeps the last message under each key: --cleanup compact."
+            )
+            .orFalse,
           Opts
             .option[String]("contract", "The contract's name, such as order.v1; needs --schema.")
             .orNone,
@@ -423,16 +679,40 @@ object Main:
               "The contract's schema document, a JSON file; - reads standard input."
             )
             .orNone,
+          settings,
+          Opts
+            .option[String](
+              "removes",
+              "What a change that removes messages removes, in the control plane's words: the " +
+                "confirmation a script gives instead of answering the question."
+            )
+            .orNone,
           contextOpt
-        ).mapN { (name, partitions, compacted, contractName, schemaPath, ctx) => () =>
-          val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
-          val request  = TopicDeclarationRequest(partitions, compacted, contract)
-          val problems = ProjectTopics.problems(name, request)
-          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-          ctx.client.declareTopic(ctx.project, name, request)
-          val how = (if compacted then ", compacted" else "") +
-            contract.fold("")(c => s", carrying ${c.name}")
-          s"topic '$name' in '${ctx.project}' has $partitions partitions$how"
+        ).mapN {
+          (name, partitions, compacted, contractName, schemaPath, asked, removes, ctx) => () =>
+            val (retention, size, cleanup, tombstone, minLag, maxLag, copies, minInSync) = asked
+            val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
+            val request = TopicDeclarationRequest(
+              partitions,
+              compacted,
+              contract,
+              retention,
+              size,
+              cleanup,
+              tombstone,
+              minLag,
+              maxLag,
+              copies,
+              minInSync,
+              removes
+            )
+            val problems = ProjectTopics.problems(name, request)
+            if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+            TopicsCommand.declare(ctx.client, ctx.project, name, request, Console.in, Console.out)
+            val how = partitions.fold("")(n => s" with $n partitions") +
+              (if compacted then ", compacted" else "") +
+              contract.fold("")(c => s", carrying ${c.name}")
+            s"topic '$name' in '${ctx.project}' is declared$how"
         }
       }
 
@@ -596,8 +876,71 @@ object Main:
       }
     }
 
+    val grants = Opts.subcommand(
+      "grants",
+      "Grants: one service of another project, or one registered machine, given one route, gRPC " +
+        "method or topic right of this project's. Owners grant, withdraw and revoke; members list."
+    ) {
+      val make = Opts.subcommand(
+        "make",
+        "Grant one grantee one target. GRANTEE is service:<project>/<service> or " +
+          "machine:<organization>/<name>; TARGET is route <service> <METHOD> <path>, method " +
+          "<service> <Service/Method>, topic <name> consume|produce, or erasure. A grantee of " +
+          "another organization's is pending until an owner there accepts."
+      ) {
+        (
+          Opts.argument[String]("grantee"),
+          Opts.arguments[String]("target"),
+          Opts
+            .flag("decrypt", "With a topic consume grant: the grantee may decrypt personal fields.")
+            .orFalse,
+          contextOpt
+        ).mapN { (grantee, words, decrypt, ctx) => () =>
+          val request = GrantsCommand.request(grantee, words.toList, decrypt)
+          Output.grantMade(ctx.client.makeGrant(ctx.project, request), ctx.project, ctx.format)
+        }
+      }
+
+      def ending(verb: String, help: String) = Opts.subcommand(verb, help) {
+        (Opts.argument[String]("grant"), contextOpt).mapN { (grantId, ctx) => () =>
+          GrantsCommand.end(ctx.client, ctx.project, grantId, verb)
+        }
+      }
+
+      val withdraw =
+        ending("withdraw", "Take back a pending grant before the grantee's organization answers.")
+      val revoke =
+        ending("revoke", "End an accepted grant. The grantee is refused within two minutes.")
+
+      val list = Opts.subcommand(
+        "list",
+        "List the project's grants, live and ended, with whether each is in effect and why not."
+      ) {
+        contextOpt.map(ctx => () => Output.grants(ctx.client.listGrants(ctx.project), ctx.format))
+      }
+
+      val received = Opts.subcommand(
+        "received",
+        "List what other projects granted this project's services, with every change and who made it."
+      ) {
+        contextOpt.map(ctx =>
+          () => Output.receivedGrants(ctx.client.receivedGrants(ctx.project), ctx.format)
+        )
+      }
+
+      make.orElse(withdraw).orElse(revoke).orElse(list).orElse(received)
+    }
+
     list
       .orElse(get)
+      .orElse(status)
+      .orElse(restore)
+      .orElse(restores)
+      .orElse(history)
+      .orElse(database)
+      .orElse(rehearse)
+      .orElse(rehearsals)
+      .orElse(backupsCommand)
       .orElse(create)
       .orElse(rename)
       .orElse(delete)
@@ -607,6 +950,7 @@ object Main:
       .orElse(topics)
       .orElse(brokers)
       .orElse(location)
+      .orElse(grants)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -783,6 +1127,22 @@ object Main:
       }
     }
 
+    val switch = Opts.subcommand(
+      "switch",
+      "Move a service onto another of its project's database clusters: a verified restore, or back."
+    ) {
+      (
+        Opts.argument[String]("name"),
+        Opts.option[String](
+          "to",
+          "The cluster: a restore's name, or ankka-db for the project database."
+        ),
+        contextOpt
+      ).mapN { (name, cluster, ctx) => () =>
+        Output.service(ctx.client.switchService(ctx.project, name, cluster), ctx.format)
+      }
+    }
+
     val expose = Opts.subcommand(
       "expose",
       "Make a service reachable outside the cluster at its platform-derived hostname."
@@ -813,6 +1173,38 @@ object Main:
       }
     }
 
+    val hostnames = Opts.subcommand(
+      "hostnames",
+      "Custom hostnames: names under domains you bring, served beside the one the platform " +
+        "derives. Each is proved by a TXT record the control plane reads once."
+    ) {
+      val add = Opts.subcommand(
+        "add",
+        "Add a custom hostname to an exposed service. Refused until the proof record exists."
+      ) {
+        (Opts.argument[String]("service"), Opts.argument[String]("hostname"), contextOpt).mapN {
+          (name, hostname, ctx) => () =>
+            val status = ctx.client.addHostname(ctx.project, name, hostname)
+            ctx.format match
+              case Format.Json  => Output.service(status, ctx.format)
+              case Format.Table => Output.hostnameAdded(status, hostname)
+        }
+      }
+      val remove = Opts.subcommand(
+        "remove",
+        "Remove a custom hostname from a service. Nothing answers at it once removed."
+      ) {
+        (Opts.argument[String]("service"), Opts.argument[String]("hostname"), contextOpt).mapN {
+          (name, hostname, ctx) => () =>
+            val status = ctx.client.removeHostname(ctx.project, name, hostname)
+            ctx.format match
+              case Format.Json  => Output.service(status, ctx.format)
+              case Format.Table => s"removed '$hostname' from service '$name'"
+        }
+      }
+      add.orElse(remove)
+    }
+
     list
       .orElse(get)
       .orElse(applyCommand)
@@ -822,11 +1214,13 @@ object Main:
       .orElse(restart)
       .orElse(storage)
       .orElse(rollback)
+      .orElse(switch)
       .orElse(logs)
       .orElse(topology)
       .orElse(history)
       .orElse(expose)
       .orElse(unexpose)
+      .orElse(hostnames)
       .orElse(delete)
   }
 
@@ -954,17 +1348,45 @@ object Main:
       }
     }
 
+  private val whoamiCommand =
+    Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
+      contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
+    }
+
+  private val statusCommand =
+    Opts.subcommand(
+      "status",
+      "Show where the installation's backups go, for how long, and how safely."
+    ) {
+      contextOpt.map(ctx => () => Output.installation(ctx.client.backups(), ctx.format))
+    }
+
   private val installationCommand =
     Opts.subcommand(
       "installation",
       "Show the installation: its version, its cloud, and where it keeps its secrets."
     ) {
-      contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
-    }
-
-  private val whoamiCommand =
-    Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
-      contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
+      Opts
+        .subcommand(
+          "restore",
+          "Show whether the control plane is held after its database was restored, and what differs."
+        ) {
+          (
+            Opts
+              .flag("release", "Release the hold, so the control plane projects again (admins).")
+              .orFalse,
+            contextOpt
+          ).mapN { (release, ctx) => () =>
+            Output.restoreHold(
+              if release then ctx.client.releaseRestoreHold() else ctx.client.restoreHold(),
+              ctx.format
+            )
+          }
+        }
+        .orElse(
+          // With no subcommand, the installation itself (feature 044).
+          contextOpt.map(ctx => () => Output.installation(ctx.client.installation(), ctx.format))
+        )
     }
 
   private val versionCommand = Opts.subcommand("version", "Print the ankka version of this CLI.") {
@@ -1215,6 +1637,7 @@ object Main:
     loginCommand
       .orElse(logoutCommand)
       .orElse(whoamiCommand)
+      .orElse(statusCommand)
       .orElse(installationCommand)
       .orElse(organizationsCommand)
       .orElse(projectsCommand)
@@ -1276,6 +1699,21 @@ private[cli] final case class ExitWith(code: Int) extends RuntimeException(s"exi
  * other spellings: a CLI flag wants one obvious form, and an unrecognised one should say what it
  * wanted rather than guess.
  */
+/** A byte rate as a person writes it: a number of bytes, or one with KiB, MiB or GiB. */
+private object ByteSizes:
+
+  private val Pattern = raw"(\d+)\s*(KiB|MiB|GiB)?".r
+
+  def bytes(value: String): Long = value.trim match
+    case Pattern(n, unit) =>
+      n.toLong * (unit match
+        case "KiB" => 1024L
+        case "MiB" => 1024L * 1024
+        case "GiB" => 1024L * 1024 * 1024
+        case _     => 1L)
+    case other =>
+      throw ApiError(0, s"'$other' is not a byte rate: a number, or one with KiB, MiB or GiB")
+
 private object Durations:
 
   private val Pattern = raw"(\d+)([smhd])".r

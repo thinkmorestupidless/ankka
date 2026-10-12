@@ -7,7 +7,8 @@ import { create } from "@bufbuild/protobuf"
 import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
-import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
+import { Kind } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
+import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanViewStreams, olderThanWorkflowSources } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -15,7 +16,34 @@ import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions }
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
-  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol) ?? contractRefusal(spec, sidecarProtocol)
+  return (
+    workflowSourceRefusal(spec, sidecarProtocol) ??
+    startPositionRefusal(spec, sidecarProtocol) ??
+    declaredQueryRefusal(spec, sidecarProtocol) ??
+    contractRefusal(spec, sidecarProtocol) ??
+    watchedQueryRefusal(spec, sidecarProtocol)
+  )
+}
+
+/**
+ * A sidecar older than 1.16 would not read a workflow as a source: a view or consumer that does would
+ * be handed nothing. Refused at discovery, naming them.
+ */
+function workflowSourceRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanWorkflowSources(sidecarProtocol)) return undefined
+  const reading = spec.components
+    .filter((c) => {
+      const d = c.detail
+      if (d.case !== "view" && d.case !== "consumer") return false
+      const sources = d.case === "view" ? [d.value.source, ...d.value.sources] : [d.value.source]
+      return sources.some((s) => s?.source.case === "component" && s.source.value.kind === Kind.WORKFLOW)
+    })
+    .map((c) => c.id)
+  if (reading.length === 0) return undefined
+  return (
+    `${reading.join(", ")} read a workflow, which the sidecar does not know: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.16 or later.`
+  )
 }
 
 /**
@@ -39,6 +67,22 @@ function contractRefusal(spec: Spec, sidecarProtocol: string): string | undefine
   return (
     `${declaring.join(", ")} declare a topic's contract, broker or parallel reading, which the sidecar ignores: ` +
     `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.14 or later.`
+  )
+}
+
+/**
+ * A sidecar older than 1.17 would not know that a view's query may be watched, and a watch of it would
+ * be refused at its first asking. Refused at discovery, naming the views.
+ */
+function watchedQueryRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanViewStreams(sidecarProtocol)) return undefined
+  const watching = spec.components
+    .filter((c) => c.detail.case === "view" && c.detail.value.declaredQueries.some((q) => q.watched))
+    .map((c) => c.id)
+  if (watching.length === 0) return undefined
+  return (
+    `${watching.join(", ")} declare a watched query, which the sidecar does not know: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.17 or later.`
   )
 }
 
@@ -88,7 +132,10 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
     async discover(info) {
       log(`ankka: discovery from sidecar (protocol ${info.protocolVersion}, runtime ${info.runtimeVersion})`)
       const answer = spec()
-      const why = refusal(answer, info.protocolVersion) ?? socketRefusal(answer, info.protocolVersion)
+      const why =
+        refusal(answer, info.protocolVersion) ??
+        socketRefusal(answer, info.protocolVersion) ??
+        grantsRefusal(answer, info.protocolVersion)
       if (why !== undefined) {
         log(`ankka: ${why}`)
         problems.push(why)
@@ -116,4 +163,28 @@ export function socketRefusal(spec: Spec, runtime: string): string | undefined {
   const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
   if (speaks[0]! > SOCKETS_SINCE[0] || (speaks[0] === SOCKETS_SINCE[0] && speaks[1]! >= SOCKETS_SINCE[1])) return undefined
   return `this runtime speaks protocol ${runtime || "unknown"}; a socket route needs 1.9 (${routes.join(", ")})`
+}
+
+/** The protocol version whose runtimes admit granted callers. */
+export const GRANTS_SINCE: readonly [number, number] = [1, 15]
+
+/** Why `spec` cannot be declared to a runtime speaking `runtime`, or undefined. A runtime before 1.15
+ * does not know `Callers.granted`, and would admit nobody by it. */
+export function grantsRefusal(spec: Spec, runtime: string): string | undefined {
+  const grants = (callers: readonly { kind: { case?: string } }[]) => callers.some((m) => m.kind.case === "granted")
+  const endpoints = spec.endpoints
+    .filter((e) => grants(e.allowCallers) || e.routes.some((r) => grants(r.allowCallers)))
+    .map((e) => e.id)
+  // Another project's topic is 1.15's too: an older runtime would read it as this project's.
+  for (const c of spec.components) {
+    const d = c.detail
+    const sources = d.case === "view" ? [d.value.source, ...d.value.sources] : d.case === "consumer" ? [d.value.source] : []
+    const publishes = d.case === "consumer" && d.value.produces?.project !== undefined
+    if (sources.some((s) => s?.project !== undefined) || publishes) endpoints.push(c.id)
+  }
+  if (endpoints.length === 0) return undefined
+  const [major, minor] = runtime.split(".").map((part) => Number.parseInt(part, 10))
+  const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
+  if (speaks[0]! > GRANTS_SINCE[0] || (speaks[0] === GRANTS_SINCE[0] && speaks[1]! >= GRANTS_SINCE[1])) return undefined
+  return `this runtime speaks protocol ${runtime || "unknown"}; granted callers and another project's topics need 1.15 (${endpoints.join(", ")})`
 }

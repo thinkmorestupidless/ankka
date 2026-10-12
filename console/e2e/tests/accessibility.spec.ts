@@ -7,6 +7,21 @@ test("every page meets WCAG 2.1 AA as axe checks it", async ({ page, target, sig
   const org = unique("a11y");
   const project = unique("a11yp");
   seedTenancy(target, { org, project, service: "cart" });
+  // Grants made, received and held, and a machine, so their tables and forms are audited too.
+  const other = unique("a11yo");
+  target.controlPlane!.seed({
+    organizations: [{ id: other, name: "Other", owners: ["someone-else"] }],
+    projects: [{ id: `${other}-p`, name: "Other project", organizationId: other }],
+    topics: [{ projectId: `${other}-p`, name: "rounds", partitions: 3 }],
+    machines: [{ organizationId: org, name: "network", byteRates: { produceBytesPerSecond: 1024, consumeBytesPerSecond: 1024, requestPercentage: 10 } }],
+  });
+  target.controlPlane!.seed({
+    grants: [
+      { projectId: project, grantee: `machine:${other}/reader`, target: { kind: "erasure" } },
+      { projectId: `${other}-p`, grantee: `service:${project}/cart`, target: { kind: "topic", topic: "rounds", right: "consume" } },
+      { projectId: `${other}-p`, grantee: `machine:${org}/network`, target: { kind: "topic", topic: "rounds", right: "consume" } },
+    ],
+  });
   await signIn(page, "owner");
   const pages = [
     "/",
@@ -14,6 +29,7 @@ test("every page meets WCAG 2.1 AA as axe checks it", async ({ page, target, sig
     `/organizations/${org}`,
     `/organizations/${org}/members`,
     `/organizations/${org}/tokens`,
+    `/organizations/${org}/machines`,
     `/organizations/${org}/projects/new`,
     `/projects/${project}`,
     `/projects/${project}/services/apply`,

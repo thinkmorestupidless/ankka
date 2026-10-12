@@ -55,6 +55,38 @@ object Buckets:
     else Vector.empty
 
   /**
+   * The project whose name begins every bucket the platform keeps for itself (feature 041).
+   * `platform` is a reserved project id, so `platform.<anything>` is no service's bucket.
+   */
+  val PlatformProject: String = "platform"
+
+  /** A project's backup bucket: its database's archive and base backups (feature 041). */
+  def backup(projectId: String): String = s"$PlatformProject.backups.$projectId"
+
+  /**
+   * A platform database's backup bucket: `controlplane`, and later the read record's and keyring's.
+   */
+  def platformBackup(store: String): String = s"$PlatformProject.backups-$store"
+
+  /** The longest project id whose backup bucket fits in a bucket's name. */
+  val BackedUpProjectMaxLength: Int = MaxName - backup("").length
+
+  /** Why this project cannot have a backup bucket, if it cannot. */
+  def backupProblems(projectId: String): Vector[String] =
+    if projectId.length > BackedUpProjectMaxLength then
+      Vector(
+        s"project id '$projectId' is ${projectId.length} characters, over the " +
+          s"$BackedUpProjectMaxLength character limit its backup bucket's name allows"
+      )
+    else Vector.empty
+
+  /** Every backup credential's Secret ends so; no project secret may name one. */
+  val BackupSecretSuffix: String = "-backups"
+
+  /** The Secret holding a namespace's backup credential, which the database instances read. */
+  val BackupSecret: String = s"ankka-db$BackupSecretSuffix"
+
+  /**
    * The store's address on the internet: the scheme, its hostname and the port unless it is 443.
    */
   def publicEndpoint(baseDomain: String, httpsPort: Int): String =

@@ -8,6 +8,14 @@ paths:
 
 # The polyglot sidecar and the Python SDK
 
+## Protocol 1.15 gates grants
+
+Feature 040. A route or endpoint whose ACL admits granted callers, a component reading another project's
+topic and a publication to another project's topic each need protocol 1.15; discovery refuses them from an
+SDK speaking an earlier minor (`Discovery.beforeGrants`), naming the version, rather than letting a
+runtime read the matcher as nobody or the topic as the project's own. The three SDKs carry `project` on a
+source and a publication and refuse the same at start.
+
 ## Traps
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
@@ -15,6 +23,13 @@ paths:
   that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers
   `UNIMPLEMENTED` and each SDK reports as too old.
 
+- **A long wait is two calls of its own, not a field.** `AwaitEnd` and `AwaitEndStream` (1.18) are rpcs an
+  older runtime answers `UNIMPLEMENTED`, which every SDK reports naming 1.18. The hold and the re-ask are
+  the runtime's; a process sees one call. `Error.details` is read by every SDK (`error.details`) and is
+  filled only by a wait; prost's struct literals need `..Default::default()` for it.
+- **A module's panic message does not cross its trap.** A Rust step that panics fails with "Trapped on
+  unreachable instruction", not its text, so a conformance case may assert a failed workflow's step but
+  only that its reason is non-empty.
 - **A Python endpoint without its own `__init__` was handed a client and failed its first request**:
   `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
   so nothing noticed until the conformance suite's caller cases.
@@ -72,7 +87,24 @@ paths:
 - **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
   matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
   a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
+- **A workflow source is gated from both ends, as a socket route is.** A 1.15 SDK declaring one against a
+  1.16 runtime would be handed changes with no standing and no error, so `Discovery` refuses a workflow
+  source from a `Spec` below `WorkflowSourcesSince`, and each SDK refuses discovery from a runtime below
+  1.16 when it declares one.
 - **A socket field the runtime does not know is a plain GET to it.** A runtime before protocol 1.9 reads
   `Route.socket` as nothing and would serve the route as a request, so a socket route is refused from
   both ends: the sidecar refuses a `Spec` declaring one under an earlier minor — the first minor it gates
   on — and an SDK refuses discovery from a runtime stating an earlier version.
+- **A server-streaming rpc on `Client` sends only as the process reads.** `InvokeStream` calls `onNext`
+  from an actor with no flow control; `QueryStream` and `Watch` (1.17) go through `ClientService.drain`,
+  which takes a frame from the stream only when the call is ready. The sidecar does not depend on `grpc`,
+  so `Streams.drain` is not reachable from it.
+
+- **The callback server is the first extension to start and the last to stop.** Extensions start in
+  the order `Main` lists them, and a projection redelivering a consumer's message at a restart reached
+  the process before `SidecarExtension` had bound port 9011: the process's call back was refused, and
+  its gRPC channel then backed off for a second, failing every call behind it (the conformance suite's
+  `kv.recover-after-restart`, and the four cases after it, on CI only). `SidecarExtension` is wired
+  before the projections, the timers, the agents and HTTP, in `Main.build` and in `ConformanceTarget`
+  alike; its timer thunk answers "not running" rather than throwing in the moment before the timers
+  start.

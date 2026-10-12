@@ -48,7 +48,8 @@ then fails with the `Timeout` error code. A timeout means the caller stopped wai
 was not applied: the entity may have persisted its events a moment later. Timeouts and `Unavailable` are
 the two error codes a caller can reasonably retry, and a retry of a command that did happen must be safe.
 Make commands idempotent where a retry is likely — for example by carrying an id the entity can recognise
-as already handled.
+as already handled. A call granted from another project is no different: it is delivered at least once,
+and the idempotency key the callee recognises is the callee's own, whatever the caller sends.
 
 ## Views are eventually consistent
 

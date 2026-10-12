@@ -99,10 +99,15 @@ final case class Organization(
     invitations: Map[String, Invitation] = Map.empty,
     disabled: Boolean = false,
     quota: Option[Quota] = None,
-    record: UsageRecord = UsageRecord()
+    record: UsageRecord = UsageRecord(),
+    /** What projects granted this organization's machines, by grant id (feature 040). */
+    received: Map[String, ReceivedGrant] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
   def usage: Usage    = record.usage
+
+  def onGrantRecorded(fields: GrantRecordedFields): Organization =
+    copy(received = ReceivedGrant.fold(received, fields))
 
   /**
    * Whether this id has ever been used.
@@ -310,8 +315,16 @@ final case class DeclaredTopic(
      * Feature 037: the contract every side must state; its document is in the project's schema
      * store.
      */
-    contract: Option[Contract] = None
-)
+    contract: Option[Contract] = None,
+    /**
+     * Feature 043: every setting, `None` for a topic declared before topics stated them until the
+     * control plane's sweep fills it; and which of them the installation supplied.
+     */
+    settings: Option[TopicSettings] = None,
+    defaulted: Set[Setting] = Set.empty
+):
+  /** The settings and their marks, when the topic has any. */
+  def filled: Option[FilledSettings] = settings.map(FilledSettings(_, defaulted))
 
 /**
  * A broker a project declares beside the installation's (feature 037): where it is, the shape of
@@ -324,12 +337,171 @@ final case class DeclaredBroker(
     declaredAt: Option[Instant] = None
 )
 
+/**
+ * A restore of a project's database (feature 041): the line of history it reads, the moment, who
+ * asked and when, and how it ended. What it holds per service is read from the cluster, never kept
+ * here, so no row count reaches the journal.
+ */
+final case class Restore(
+    line: String,
+    targetTime: Instant,
+    requestedBy: Option[Actor] = None,
+    requestedAt: Option[Instant] = None,
+    outcome: Option[RestoreOutcome] = None
+)
+
+final case class RestoreOutcome(
+    succeeded: Boolean,
+    reachedAt: Option[Instant] = None,
+    detail: Option[String] = None,
+    at: Option[Instant] = None
+)
+
+/** A rehearsal of a restore (feature 041): as a restore, into the project's rehearsal namespace. */
+final case class Rehearsal(
+    line: String,
+    targetTime: Instant,
+    requestedBy: Option[Actor] = None,
+    requestedAt: Option[Instant] = None,
+    outcome: Option[RehearsalOutcome] = None
+)
+
+/** `Completed`, `Failed` or `NotRemoved`, with how long the restore took. */
+final case class RehearsalOutcome(
+    outcome: String,
+    elapsedSeconds: Option[Long] = None,
+    detail: Option[String] = None,
+    at: Option[Instant] = None
+)
+
+/**
+ * One thing done to the project, for its history: to its database (feature 041), or to the topic
+ * `topic` names, with each setting changed (feature 043).
+ */
+final case class ProjectHistoryEntry(
+    kind: String,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None,
+    detail: Option[String] = None,
+    topic: Option[String] = None,
+    changes: Vector[SettingChange] = Vector.empty
+)
+
+object Project:
+  val HistoryLimit: Int = 100
+
+/** Who did something to a grant, and when: what an event carried, kept on the grant. */
+final case class GrantMark(actor: Option[Actor] = None, at: Option[Instant] = None):
+  def display: GrantAct = GrantAct(actor.flatMap(_.display).orElse(actor.map(_.subject)), at)
+
+/**
+ * A grant a project holds (feature 040): one grantee, one target, and where it is in its life. The
+ * project is the grantor; this record, written by the project's own commands, is the only one a
+ * command writes. Identified by `id`; while it is live, also by its grantee and target together.
+ */
+final case class Grant(
+    id: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    state: GrantState,
+    granted: GrantMark = GrantMark(),
+    answered: Option[GrantMark] = None,
+    ended: Option[GrantMark] = None
+):
+  def detail(effect: String): GrantDetail =
+    GrantDetail(
+      id,
+      grantee,
+      target,
+      state,
+      effect,
+      granted.display,
+      answered.map(_.display),
+      ended.map(_.display)
+    )
+
+/** One change to a grant as the grantee side recorded it. */
+final case class GrantChangeEntry(
+    change: GrantChange,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None
+)
+
+/**
+ * A grant as the grantee side keeps it: on the grantee project for a service, on the organization
+ * for a machine. Derived from the granting project's events by a consumer, never written beside
+ * them, so the two cannot disagree for longer than the consumer takes.
+ */
+final case class ReceivedGrant(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    state: GrantState,
+    changes: Vector[GrantChangeEntry] = Vector.empty
+):
+  def recorded(change: GrantChange): Boolean = changes.exists(_.change == change)
+
+object ReceivedGrant:
+
+  /** The state a grant is in after `change`. */
+  def stateAfter(change: GrantChange): GrantState = change match
+    case GrantChange.Made | GrantChange.Accepted => GrantState.Accepted
+    case GrantChange.Offered                     => GrantState.Pending
+    case GrantChange.Declined                    => GrantState.Declined
+    case GrantChange.Withdrawn                   => GrantState.Withdrawn
+    case GrantChange.Revoked                     => GrantState.Revoked
+    case GrantChange.Relinquished                => GrantState.Relinquished
+    case GrantChange.Lapsed                      => GrantState.Lapsed
+
+  /** Fold one recorded change into what a grantee side holds, by the grant's id. */
+  def fold(
+      held: Map[String, ReceivedGrant],
+      recorded: GrantRecordedFields
+  ): Map[String, ReceivedGrant] =
+    val entry = GrantChangeEntry(recorded.change, recorded.actor, recorded.at)
+    val next = held.get(recorded.id) match
+      case Some(had) =>
+        had.copy(state = stateAfter(recorded.change), changes = had.changes :+ entry)
+      case None =>
+        ReceivedGrant(
+          recorded.id,
+          recorded.grantingProject,
+          recorded.grantingOrganization,
+          recorded.grantee,
+          recorded.target,
+          stateAfter(recorded.change),
+          Vector(entry)
+        )
+    held.updated(recorded.id, next)
+
+/** What a `GrantRecorded` event says, the same on a project and on an organization. */
+final case class GrantRecordedFields(
+    id: String,
+    grantingProject: String,
+    grantingOrganization: String,
+    grantee: Grantee,
+    target: GrantTarget,
+    change: GrantChange,
+    actor: Option[Actor] = None,
+    at: Option[Instant] = None
+)
+
+/**
+ * Who deleted a project or a registered machine, and when (feature 040): what a grant made to it
+ * just before is lapsed under, when the grant reaches the grantee's side only after the deletion.
+ */
+final case class Deletion(by: Option[Actor] = None, at: Option[Instant] = None)
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
     name: String,
     organizationId: String,
     deleted: Boolean = false,
+    /** Who deleted it and when (feature 040); none while it exists. */
+    deletion: Option[Deletion] = None,
     registry: Option[RegistryRef] = None,
     /** By the secret's name. A secret with no entry left is not here. */
     secrets: Map[String, ProjectSecretRef] = Map.empty,
@@ -341,9 +513,185 @@ final case class Project(
      * Where the project's new buckets in Google Cloud Storage are made, in the installation's own
      * words (feature 039); `None` is the installation's default.
      */
-    bucketLocation: Option[String] = None
+    bucketLocation: Option[String] = None,
+    /** Every restore ever asked for, by its cluster's name (feature 041). Never removed. */
+    restores: Map[String, Restore] = Map.empty,
+    /**
+     * Who did what to the project's database and its topics, newest last, the last
+     * `Project.HistoryLimit`.
+     */
+    history: Vector[ProjectHistoryEntry] = Vector.empty,
+    /** What the project asks of its database; none is the installation's defaults. */
+    database: Option[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] = None,
+    /** The latest rehearsals, by their cluster's name, the last `Project.HistoryLimit`. */
+    rehearsals: Map[String, Rehearsal] = Map.empty,
+    /**
+     * How many times the backup credential was asked to be issued again; the operator's generation.
+     */
+    backupCredentialGeneration: Int = 0,
+    /** The grants this project holds, by id (feature 040). An ended grant stays, as history. */
+    grants: Map[String, Grant] = Map.empty,
+    /** What other projects granted this project's services, by grant id (feature 040). */
+    received: Map[String, ReceivedGrant] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
+
+  /** The restore that has not ended, if one has not: a second is refused while it runs. */
+  def restoreInProgress: Option[String] =
+    restores.collectFirst { case (name, restore) if restore.outcome.isEmpty => name }
+
+  /** The rehearsal that has not ended, if one has not: a second is refused while it runs. */
+  def rehearsalInProgress: Option[String] =
+    rehearsals.collectFirst { case (name, r) if r.outcome.isEmpty => name }
+
+  def onRehearsalRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    keepRehearsals(rehearsals.updated(name, Rehearsal(line, targetTime, actor, at)))
+      .remember("rehearsal-requested", actor, at, Some(s"$name, of $line at $targetTime"))
+
+  /** A rehearsal's end; one the project's schedule started is recorded here, with no one asking. */
+  def onRehearsalEnded(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      outcome: String,
+      elapsedSeconds: Option[Long],
+      detail: Option[String],
+      at: Option[Instant]
+  ): Project =
+    val begun = rehearsals.getOrElse(name, Rehearsal(line, targetTime))
+    keepRehearsals(
+      rehearsals.updated(
+        name,
+        begun.copy(outcome = Some(RehearsalOutcome(outcome, elapsedSeconds, detail, at)))
+      )
+    ).remember(
+      if outcome == "Completed" then "rehearsal-completed" else "rehearsal-failed",
+      None,
+      at,
+      Some(
+        name + elapsedSeconds.fold("")(s => s" in ${s}s") + detail.fold("")(d => s": $d")
+      )
+    )
+
+  private def keepRehearsals(all: Map[String, Rehearsal]): Project =
+    copy(rehearsals =
+      all.toVector
+        .sortBy((n, r) => (r.requestedAt.getOrElse(Instant.EPOCH), n))
+        .takeRight(Project.HistoryLimit)
+        .toMap
+    )
+
+  def onBackupCredentialReissued(
+      generation: Int,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    copy(backupCredentialGeneration = generation)
+      .remember("backup-credential-reissued", actor, at, Some(s"generation $generation"))
+
+  def onDatabaseSet(
+      setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    val detail =
+      s"${setting.replicas} replica${if setting.replicas == 1 then "" else "s"}" +
+        (if setting.synchronous then ", synchronous" else "") +
+        setting.retentionDays.fold("")(d => s", kept $d days") +
+        setting.rehearse.fold("")(r => s", rehearsed $r")
+    copy(database = Some(setting)).remember("database-set", actor, at, Some(detail))
+
+  def onRestoreRequested(
+      name: String,
+      line: String,
+      targetTime: Instant,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    copy(restores = restores.updated(name, Restore(line, targetTime, actor, at)))
+      .remember("restore-requested", actor, at, Some(s"$name, of $line at $targetTime"))
+
+  def onRestoreEnded(
+      name: String,
+      succeeded: Boolean,
+      reachedAt: Option[Instant],
+      detail: Option[String],
+      at: Option[Instant]
+  ): Project =
+    restores.get(name) match
+      case None => this
+      case Some(restore) =>
+        copy(restores =
+          restores.updated(
+            name,
+            restore.copy(outcome = Some(RestoreOutcome(succeeded, reachedAt, detail, at)))
+          )
+        ).remember(
+          if succeeded then "restore-completed" else "restore-failed",
+          None,
+          at,
+          Some(name + detail.fold("")(d => s": $d"))
+        )
+
+  private def remember(
+      kind: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      detail: Option[String]
+  ): Project =
+    copy(history =
+      (history :+ ProjectHistoryEntry(kind, actor, at, detail)).takeRight(Project.HistoryLimit)
+    )
+
+  /** The live grant of this grantee on this target, if there is one. */
+  def liveGrant(grantee: Grantee, target: GrantTarget): Option[Grant] =
+    grants.values.find(g => g.state.live && g.grantee == grantee && g.target == target)
+
+  def onGrantMade(
+      id: String,
+      grantee: Grantee,
+      target: GrantTarget,
+      pending: Boolean,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    val state = if pending then GrantState.Pending else GrantState.Accepted
+    copy(grants = grants.updated(id, Grant(id, grantee, target, state, GrantMark(actor, at))))
+
+  /** An answer from the grantee's side: accepted or declined. */
+  def onGrantAnswered(
+      id: String,
+      state: GrantState,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    grants.get(id).fold(this) { g =>
+      val answered = Some(GrantMark(actor, at))
+      val ended    = Option.when(!state.live)(GrantMark(actor, at))
+      copy(grants = grants.updated(id, g.copy(state = state, answered = answered, ended = ended)))
+    }
+
+  /** An end from either side, or a lapse. */
+  def onGrantEnded(
+      id: String,
+      state: GrantState,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    grants
+      .get(id)
+      .fold(this)(g =>
+        copy(grants = grants.updated(id, g.copy(state = state, ended = Some(GrantMark(actor, at)))))
+      )
+
+  def onGrantRecorded(fields: GrantRecordedFields): Project =
+    copy(received = ReceivedGrant.fold(received, fields))
 
   /** As for [[Organization.known]] — a deleted project's id stays taken. */
   def known: Boolean = name.nonEmpty || deleted
@@ -353,6 +701,8 @@ final case class Project(
 
   def onRenamed(name: String): Project = copy(name = name)
   def onDeleted: Project               = copy(deleted = true)
+  def onDeleted(by: Option[Actor], at: Option[Instant]): Project =
+    copy(deleted = true, deletion = Some(Deletion(by, at)))
 
   def onRegistryConfigured(
       server: String,
@@ -379,12 +729,53 @@ final case class Project(
       partitions: Int,
       at: Option[Instant],
       compacted: Boolean = false,
-      contract: Option[Contract] = None
+      contract: Option[Contract] = None,
+      settings: Option[TopicSettings] = None,
+      defaulted: Vector[Setting] = Vector.empty,
+      actor: Option[Actor] = None,
+      changes: Vector[SettingChange] = Vector.empty
   ): Project =
-    val declaredAt = topics.get(name).fold(at)(_.declaredAt)
-    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt, compacted, contract)))
+    val had        = topics.get(name)
+    val declaredAt = had.fold(at)(_.declaredAt)
+    // A declaration from before settings, or from a node that does not know them, keeps what the
+    // topic had: it said nothing about them.
+    val (kept, marks) = settings match
+      case Some(s) => (Some(s), defaulted.toSet)
+      case None    => (had.flatMap(_.settings), had.fold(Set.empty[Setting])(_.defaulted))
+    val topic = DeclaredTopic(partitions, declaredAt, compacted, contract, kept, marks)
+    val kind  = if had.isEmpty then "topic-declared" else "topic-changed"
+    copy(topics = topics.updated(name, topic)).rememberTopic(kind, name, actor, at, changes)
 
-  def onTopicRemoved(name: String): Project = copy(topics = topics - name)
+  def onTopicSettingsFilled(
+      name: String,
+      settings: TopicSettings,
+      defaulted: Vector[Setting],
+      at: Option[Instant]
+  ): Project =
+    topics.get(name) match
+      case None => this
+      case Some(t) =>
+        copy(topics =
+          topics.updated(name, t.copy(settings = Some(settings), defaulted = defaulted.toSet))
+        )
+          .rememberTopic("topic-filled", name, None, at)
+
+  def onTopicRemoved(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  ): Project =
+    copy(topics = topics - name).rememberTopic("topic-removed", name, actor, at)
+
+  private def rememberTopic(
+      kind: String,
+      topic: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      changes: Vector[SettingChange] = Vector.empty
+  ): Project =
+    val entry = ProjectHistoryEntry(kind, actor, at, None, Some(topic), changes)
+    copy(history = (history :+ entry).takeRight(Project.HistoryLimit))
 
   def onBrokerDeclared(name: String, broker: DeclaredBroker): Project =
     val declaredAt = brokers.get(name).fold(broker.declaredAt)(_.declaredAt)
@@ -499,7 +890,23 @@ final case class Service(
     /**
      * The bucket's name as the operator last reported it (feature 044); see `Service.bucketNamed`.
      */
-    reportedBucket: Option[String] = None
+    reportedBucket: Option[String] = None,
+    /**
+     * Desired state (feature 041): the project database cluster the service is switched to, a
+     * restore or one it left. `None` is the project database. A switch bumps the generation, so it
+     * rolls the service as an apply does.
+     */
+    databaseCluster: Option[String] = None,
+    /** The operator's last report on whether the service reads its grants (feature 040). */
+    grants: Option[String] = None,
+    /**
+     * Desired state: the custom hostnames the service holds, in the order added (feature 045). Kept
+     * while the service is unexposed, so exposing it again brings each back; cleared by a delete,
+     * as exposure is.
+     */
+    customHostnames: Vector[String] = Vector.empty,
+    /** The operator's last word on each of them. */
+    hostnameReports: Vector[HostnameReport] = Vector.empty
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -521,7 +928,9 @@ final case class Service(
       actor: Option[Actor],
       at: Option[Instant],
       recorded: Option[ServiceDescriptor] = None,
-      rolledBackTo: Option[Long] = None
+      rolledBackTo: Option[Long] = None,
+      detail: Option[String] = None,
+      hostname: Option[String] = None
   ): Service =
     val entry = HistoryEntry(
       kind,
@@ -530,7 +939,9 @@ final case class Service(
       at,
       image = recorded.map(_.service.image),
       digest = recorded.map(_.digest),
-      rolledBackTo = rolledBackTo
+      rolledBackTo = rolledBackTo,
+      detail = detail,
+      hostname = hostname
     )
     copy(history = (entry +: history).take(Service.HistoryLimit))
 
@@ -645,6 +1056,16 @@ final case class Service(
       deleted = false
     )
 
+  def onSwitched(cluster: Option[String], generation: Long): Service =
+    copy(
+      databaseCluster = cluster,
+      generation = generation,
+      lifecycle = ServiceLifecycle.UpdateInProgress,
+      readyInstances = 0,
+      detail = None,
+      confirmed = true
+    )
+
   def onRestarted(generation: Long): Service =
     copy(
       generation = generation,
@@ -697,11 +1118,37 @@ final case class Service(
         database = event.database,
         broker = event.broker,
         objectStorage = event.objectStorage,
-        storage = event.storage
+        storage = event.storage,
+        grants = event.grants,
+        hostnameReports = event.hostnames
       )
 
   def onExposed: Service   = copy(exposed = true)
   def onUnexposed: Service = copy(exposed = false)
+
+  def holds(hostname: String): Boolean = customHostnames.contains(hostname)
+
+  def onHostnameAdded(hostname: String): Service =
+    if holds(hostname) then this else copy(customHostnames = customHostnames :+ hostname)
+
+  def onHostnameRemoved(hostname: String): Service =
+    copy(
+      customHostnames = customHostnames.filterNot(_ == hostname),
+      hostnameReports = hostnameReports.filterNot(_.hostname == hostname)
+    )
+
+  /**
+   * Each custom hostname with the operator's word on it. One not yet reported is pending with no
+   * reason; while the service is unexposed every one is pending, since none is served.
+   */
+  def hostnameStatuses: Vector[CustomHostname] =
+    customHostnames.map { hostname =>
+      if !exposed then CustomHostname(hostname, "pending", Some(Service.NotExposedReason))
+      else
+        hostnameReports.find(_.hostname == hostname) match
+          case Some(report) => CustomHostname(hostname, report.state, report.reason)
+          case None         => CustomHostname(hostname)
+    }
 
   /** A paused service keeps saying `Paused`: its members' choice is the more specific fact. */
   def onSuspended: Service =
@@ -731,6 +1178,9 @@ final case class Service(
       suspended = false,
       // A re-applied name starts private again: the route died with the service.
       exposed = false,
+      // And holds no hostname: the names are free for any service to claim (feature 045).
+      customHostnames = Vector.empty,
+      hostnameReports = Vector.empty,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0
@@ -782,7 +1232,11 @@ final case class Service(
       objectStore = storage.flatMap(_.store),
       bucketLocation = storage.flatMap(_.location),
       softDeleteDays = storage.flatMap(_.softDeleteDays),
-      storageMove = Service.moveStatus(storageMove, storage)
+      storageMove = Service.moveStatus(storageMove, storage),
+      databaseCluster = databaseCluster,
+      grants = grants,
+      // The records to create are the endpoint's to add: they need the installation's settings.
+      customHostnames = hostnameStatuses
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -842,11 +1296,17 @@ enum RollbackRefusal:
 
 object Service:
 
+  /** The project database's cluster, which a service is on unless switched (feature 041). */
+  val ProjectDatabase: String = "ankka-db"
+
   /**
    * How much history a service keeps in its state. Enough to answer "who did this"; never
    * unbounded.
    */
   val HistoryLimit = 50
+
+  /** Why every custom hostname of an unexposed service is pending (feature 045). */
+  val NotExposedReason: String = "the service is not exposed"
 
   /**
    * How many applied descriptors a service keeps to roll back to: as many as its history shows, so
@@ -868,10 +1328,17 @@ object Service:
           .remember(kind, actor, at, Some(descriptor), rolledBackTo)
       case ServiceRestarted(generation, actor, at) =>
         current.onRestarted(generation).remember("restarted", actor, at)
-      case ServicePaused(actor, at)     => current.onPaused.remember("paused", actor, at)
-      case ServiceResumed(actor, at)    => current.onResumed.remember("resumed", actor, at)
-      case ServiceExposed(actor, at)    => current.onExposed.remember("exposed", actor, at)
-      case ServiceUnexposed(actor, at)  => current.onUnexposed.remember("unexposed", actor, at)
+      case ServicePaused(actor, at)    => current.onPaused.remember("paused", actor, at)
+      case ServiceResumed(actor, at)   => current.onResumed.remember("resumed", actor, at)
+      case ServiceExposed(actor, at)   => current.onExposed.remember("exposed", actor, at)
+      case ServiceUnexposed(actor, at) => current.onUnexposed.remember("unexposed", actor, at)
+      case CustomHostnameAdded(hostname, actor, at) =>
+        current
+          .onHostnameAdded(hostname)
+          .remember("hostname added", actor, at, hostname = Some(hostname))
+      case CustomHostnameRemoved(hostname, actor, at, byAdministrator) =>
+        val kind = if byAdministrator then "hostname taken away" else "hostname removed"
+        current.onHostnameRemoved(hostname).remember(kind, actor, at, hostname = Some(hostname))
       case observed: ServiceObserved    => current.onObserved(observed)
       case ServiceDeleted(actor, at)    => current.onDeleted.remember("deleted", actor, at)
       case ServiceSuspended(actor, at)  => current.onSuspended.remember("suspended", actor, at)
@@ -888,6 +1355,12 @@ object Service:
         current
           .copy(storageSettingsGeneration = generation)
           .remember("storage-settings-reapplied", actor, at)
+      case ServiceSwitched(cluster, generation, actor, at) =>
+        val from = current.databaseCluster.getOrElse(Service.ProjectDatabase)
+        val to   = cluster.getOrElse(Service.ProjectDatabase)
+        current
+          .onSwitched(cluster, generation)
+          .remember("switched", actor, at, detail = Some(s"from $from to $to"))
 
   /**
    * The operator's reported database phase
@@ -904,9 +1377,10 @@ object Service:
     case "Waiting"     => "waiting for database"
     case "Provisioned" => "provisioned"
     case "Recovered"   => "recovered existing data"
-    case "Supplied"    => "supplied"
-    case "Failed"      => "database provisioning failed"
-    case other         => other
+    // The platform backs up only what it provisions (feature 041): this one is its owner's to.
+    case "Supplied" => "supplied; its owner's to back up"
+    case "Failed"   => "database provisioning failed"
+    case other      => other
 
   /** The operator's reported broker phase, as the short phrase `ServiceStatus.broker` documents. */
   def brokerPhrase(phase: String): String = phase match
@@ -1088,3 +1562,63 @@ object DeployToken:
 
   /** The longest lifetime that may be chosen. */
   val MaximumLifetime: java.time.Duration = java.time.Duration.ofDays(365)
+
+// ── Machines (feature 040) ────────────────────────────────────────────────────
+
+/** What a machine may move through the broker, each a ceiling the broker enforces. */
+final case class ByteRates(
+    produceBytesPerSecond: Long,
+    consumeBytesPerSecond: Long,
+    requestPercentage: Int
+)
+
+/**
+ * A machine registered on an organization, keyed `<organization>/<name>`. Deleting one is a
+ * tombstone that may be registered over: a new machine, a new secret, and no grant of the old
+ * one's, since a grant names the machine by its client id and the old grants lapsed with it.
+ */
+final case class Machine(
+    id: String,
+    organizationId: String = "",
+    name: String = "",
+    digest: String = "",
+    registeredBy: Option[Actor] = None,
+    registeredAt: Option[Instant] = None,
+    byteRates: Option[ByteRates] = None,
+    deleted: Boolean = false,
+    /** Who deleted it and when; none while it exists, and none again once registered anew. */
+    deletion: Option[Deletion] = None
+):
+  def exists: Boolean = organizationId.nonEmpty && !deleted
+
+  def clientId: String =
+    com.thinkmorestupidless.ankka.controlplane.api.Machines.clientId(organizationId, name)
+
+  def onRegistered(
+      organizationId: String,
+      name: String,
+      digest: String,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Machine =
+    Machine(id, organizationId, name, digest, actor, at)
+
+  def onByteRatesSet(rates: ByteRates): Machine = copy(byteRates = Some(rates))
+
+  def onDeleted(by: Option[Actor], at: Option[Instant]): Machine =
+    copy(deleted = true, deletion = Some(Deletion(by, at)))
+
+  def summary: com.thinkmorestupidless.ankka.controlplane.api.MachineSummary =
+    com.thinkmorestupidless.ankka.controlplane.api.MachineSummary(
+      name = name,
+      clientId = clientId,
+      registeredBy = registeredBy.flatMap(_.display),
+      registeredAt = registeredAt,
+      byteRates = byteRates.map(r =>
+        com.thinkmorestupidless.ankka.controlplane.api
+          .ByteRatesRequest(r.produceBytesPerSecond, r.consumeBytesPerSecond, r.requestPercentage)
+      )
+    )
+
+object Machine:
+  def key(organizationId: String, name: String): String = s"$organizationId/$name"

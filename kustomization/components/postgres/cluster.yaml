@@ -46,4 +46,6 @@ spec:
           - name: ankka-controlplane-schema
             key: 40-secrets-postgres.sql
           - name: ankka-controlplane-schema
+            key: 50-recovery-postgres.sql
+          - name: ankka-controlplane-schema
             key: 99-grants.sql

@@ -48,6 +48,17 @@ platform setting), the header rule (`OutboundHeaders`, held to the proxy's list 
 loopback) and `ScriptedServices` (a unit double) are the test kit's; `AnkkaTestKit.start(…,
 localServices = …)` sets `ankka.local-services` for one service rather than the whole JVM.
 
+## A granted caller is admitted by a matcher, from a file the platform writes
+
+Feature 040. `Callers.granted` admits a service of another project, or a registered machine
+(`Caller.Machine`, from a token `MachineTokens` verifies against the control plane's keys), on a route or
+gRPC method only while the project's grants name that caller on it. The grants are `Grants`, read by
+`GrantsFile` from `grants.json` beside the project declarations and re-read on an interval; a service
+without the file admits no granted caller. `Caller.Machine` is a new case of `Caller`, so a match over
+`Caller` that was exhaustive is not any more. A topic of another project is `TopicAddress`
+(`<project>/<name>`), carried to `KafkaConnection.qualified` as `<project>.<name>`; a project's own
+broker and another project's topic together are refused at start (`ProjectionRuntime.crossProjectProblems`).
+
 ## Timers: one row each, and the sweeper changes only the row it read
 
 A timer is a row of `ankka_timers` (feature 032). One that fires once has a finite `due_at`; a recurring
@@ -59,6 +70,22 @@ for the same handler and period keeps its next due, in one upsert, so a service 
 A recurring timer whose handler this instance lacks is deferred, not dropped: an older version of the
 service may hold the sweeper during a deploy that adds the handler. `TimerProbe` (testkit) is what a test
 reads due times from.
+
+## A wait for a workflow's end is a reserved method, a hold and a re-ask
+
+Feature 048. `forWorkflow(id).awaitEnd(Companion, timeout)` and `call(cmd).thenAwaitEnd(timeout)` send an
+`Invoke` of the reserved `ankka:await-end` (`WorkflowLifecycle.AwaitEnd`) whose payload is the millis the
+caller has left. `WorkflowEngine` answers at once when the run has ended or is `deleted`, otherwise holds a
+`Waiter` for at most half `ankka.ask-timeout` (`holdBound`, read by `WorkflowHost.behavior`) and answers
+`NotYet`; every journalled end — `Ended`, `Failed` from all five sites, `Deleted` — answers every waiter in
+the `thenRun` after the persist (`ended`, `answerWaiters`), and `PostStop` answers them `NotYet`.
+`ShardingTransport.awaitEnd` loops on `NotYet` and on an unanswered ask until the caller's deadline, as one
+`Client` span (`reserve`/`record`) counted once. Nothing about a wait is journalled. A failure records its
+step (`Event.Failed(_, step)`, `WorkflowRecord.step`, `WorkflowSnapshot.failedStep`) and answers
+`WorkflowFailed` with `details`; a completed state carries its manifest and content type as reply metadata
+for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Heartbeat.interval`: the one
+reader of `ankka.http.sse.heartbeat` (047's), which every SSE route's keep-alive and the sidecar's wait
+stream also take, so the interval cannot differ between them.
 
 ## Traps
 
@@ -160,6 +187,45 @@ reads due times from.
   cut off after a minute on a laptop, gateway or no gateway, unless it is pinged. The shim builds pekko's
   message stack itself, so the keep-alive is the `WebSocketSettings` handed to it — setting it on the
   server binding does nothing — and a keep-alive not shorter than the idle timeout fails startup.
+- **A count per "not yet" grows with the wait.** The engine counts a waiter `handled` once, when it is
+  answered with the end, never when it is told `NotYet`; the transport counts `unanswered` once, at the
+  caller's deadline, never per ask. `awaiting.feature`'s topology scenario waits across a hold and goes red
+  when either is counted per ask.
+- **An old instance is known by its words.** A runtime from before waiting answers `ankka:await-end` as an
+  unknown handler; `ShardingTransport.fromBeforeAwaiting` matches `WorkflowEngine.noHandler`'s text, and
+  `AwaitTransportSuite` holds the two together. Rewording that message without the matcher makes a wait
+  across a rolling update hang for its whole timeout.
+- **pekko writes `infinite` for an idle timeout Scala's `Duration` cannot parse.** `Heartbeat.interval`
+  reads the idle timeout as pekko does; `Duration(config.getString(...))` threw `NumberFormatException` on it.
 - **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
   enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
   `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.
+- **The pool must replace a dead connection before a caller sees it** (feature 041, R18): after a
+  failover every pooled connection to the old primary is dead, and the plugin's defaults hand one to the
+  next caller. `validation-query = "SELECT 1"` and `acquire-retry = 20` on the connection factory, and
+  `TCP_KEEPALIVE` from `DatabaseTls`.
+- **`HistoryLines` records the database's line at start, before any projection publishes**, and a
+  database without the table keeps random message ids rather than failing the start. On the platform the
+  line is the cluster `ANKKA_DB_HOST` names (`ankka-db-rw`), since naming it on the pod would roll every
+  service on upgrade; a switched service is given `ANKKA_DB_LINE`.
+- **`statement_timeout` bounds each fetch of a portal, not the stream.** A row stream fetched
+  `ankka.view.fetch-size` rows at a time is one `Execute` per fetch, so a long export runs past the
+  timeout — and a reader that stops reading holds the cursor with nothing to end it. `Database.stream`
+  adds `backpressureTimeout` at the same timeout and fails `Database.NotRead`; `DatabaseStreamSuite`
+  holds both halves.
+- **Pekko's eager `++` pulls one element early from its next part.** A bounded stage placed *ahead* of a
+  concatenation lets that element past its bound; `KeyedBuffer` is therefore a watch's last stage, passing
+  the rows now through with backpressure and going live at the caught-up marker. Found when an unread
+  bound of ten gave eleven rows.
+- **A `BroadcastHub` attaches a consumer asynchronously.** Anything that must hear every event from a
+  moment on registers synchronously instead (`ViewListener`'s callback set); the gap is exactly where a
+  watch reads its rows now.
+- **pekko-http learns that a reader of server-sent events left only when it next writes.** The SSE
+  heartbeat (`ankka.http.sse.heartbeat`, or half the idle timeout when sooner) is what ends a quiet
+  watch whose page closed; a test reading a watch over SSE closes its own socket and runs a short
+  heartbeat. The JDK's HTTP client does not close the connection when its body stream is closed.
+- **A `given` in a test suite is a lazy val bound to the first actor system.** After
+  `kit.restartService` a `given Materializer = Materializer(kit.service.system)` is the dead system's;
+  `inline given` re-evaluates. A watch on a peer runs on the peer's own materializer, or restarting the
+  first instance kills it.
+

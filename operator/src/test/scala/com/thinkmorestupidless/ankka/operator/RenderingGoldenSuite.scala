@@ -52,6 +52,15 @@ class RenderingGoldenSuite extends munit.FunSuite:
       Settings.default.copy(baseDomain = Some("example.test")),
       ProvisioningPlan.Ready(recovered = false)
     ),
+    (
+      // Feature 045: two custom hostnames, an apex among them; the certificates, the set and the
+      // route's second parent are the record.
+      "custom-hostnames",
+      base.copy(exposed = true, customHostnames = List("app.example.com", "example.com")),
+      Settings.default
+        .copy(baseDomain = Some("example.test"), hostnameIssuer = Some("letsencrypt-hostnames")),
+      ProvisioningPlan.Ready(recovered = false)
+    ),
     ("process", base.copy(hosting = "process"), Settings.default, provisioning),
     ("wasm", base.copy(hosting = "wasm"), Settings.default, provisioning),
     (

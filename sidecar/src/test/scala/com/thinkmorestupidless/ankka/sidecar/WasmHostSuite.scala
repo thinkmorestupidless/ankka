@@ -173,6 +173,40 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     assert(found.exists(p => p.contains("'watch'") && p.contains("streams")), found.toString)
   }
 
+  test("a module that would stream a view is refused when it is started") {
+    // features/view-streams/languages.feature. Built by hand: the crate cannot declare a watched
+    // query, so only a module built without it could.
+    import ankka.protocol.v1.discovery.{DeclaredQuery, Source, ViewDetail}
+    val view = Component(
+      kind = Kind.VIEW,
+      id = "carts",
+      detail = Component.Detail.View(
+        ViewDetail(
+          source = Some(
+            Source(Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "cart")))
+          ),
+          rowManifest = "cart-row",
+          declaredQueries = Seq(
+            DeclaredQuery(
+              "open-carts",
+              "SELECT row_key, payload FROM ankka_view_carts",
+              watched = true
+            )
+          )
+        )
+      )
+    )
+    val spec = cartSpec().copy(protocolVersion = "1.17", components = cartSpec().components :+ view)
+    val found = problems(WasmSpec(Some(spec), Seq.empty, "1"))
+    assert(
+      found.exists(p =>
+        p.contains("view 'carts': query 'open-carts' is watched") &&
+          p.contains("a module reads a view whole")
+      ),
+      found.toString
+    )
+  }
+
   test("a socket route is refused, naming the route: a module cannot hold a socket") {
     // Built by hand: the crate cannot declare one, so only a module built without it could.
     val endpoint = ankka.protocol.v1.discovery.Endpoint(
@@ -339,7 +373,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       case RemoteOutcome.Reply(payload, _) => assertEquals(String(payload.data, "UTF-8"), "hello")
       case other                           => fail(s"GREETING answered $other")
     ask("ANKKA_DB_PASSWORD") match
-      case RemoteOutcome.Error(CommandError(_, ErrorCode.NotFound)) => ()
+      case RemoteOutcome.Error(CommandError(_, ErrorCode.NotFound, _)) => ()
       case other => fail(s"ANKKA_DB_PASSWORD answered $other")
   }
 
@@ -456,6 +490,22 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   /** The conformance reference: the example's module built with its `conformance` feature. */
   private lazy val rustReference: Option[Path] = cargoModule("conformance")
+
+  /** The names a module imports from the runtime. */
+  private def importsOf(module: Path): Set[String] =
+    val parsed  = com.dylibso.chicory.wasm.Parser.parse(module)
+    val section = parsed.importSection()
+    (0 until section.importCount()).map(section.getImport).map(_.name()).toSet
+
+  test("a module that never waits for a workflow does not import await_end; one that does, does") {
+    assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
+    // A module importing it needs a runtime at protocol 1.18; one that never waits must not.
+    assert(!importsOf(rustCart.get).contains("await_end"), importsOf(rustCart.get).toString)
+    assert(
+      importsOf(rustReference.get).contains("await_end"),
+      importsOf(rustReference.get).toString
+    )
+  }
 
   private def http(method: String, url: String, json: Option[String] = None): (Int, String) =
     val request = HttpRequest.newBuilder(URI.create(url))

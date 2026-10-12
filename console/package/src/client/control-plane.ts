@@ -4,34 +4,59 @@ import {
   authDiscoverySchema,
   deployTokenCreatedSchema,
   deployTokenSummarySchema,
+  grantDetailSchema,
   historyEntrySchema,
+  machineRegisteredSchema,
+  machineSummarySchema,
   logsResponseSchema,
   membersResponseSchema,
   organizationSummarySchema,
   projectBrokerSchema,
+  projectStatusSchema,
+  credentialReissuedSchema,
+  databaseSettingSchema,
+  projectHistoryViewSchema,
+  restoreHoldStatusSchema,
+  rehearsalViewSchema,
+  restoreViewSchema,
   projectDetailSchema,
   projectSecretSummarySchema,
   projectSummarySchema,
   projectTopicSchema,
+  receivedGrantDetailSchema,
   rolledBackSchema,
   serviceStatusSchema,
   serviceTopologySchema,
   type AuthDiscovery,
   type BrokerDeclarationRequest,
+  type ByteRatesRequest,
   type CreateDeployToken,
   type CreateOrganization,
   type DeployTokenCreated,
   type DeployTokenSummary,
+  type GrantDetail,
+  type GrantRequest,
   type HistoryEntry,
   type LogsResponse,
+  type MachineRegistered,
+  type MachineSummary,
   type MembersResponse,
   type OrganizationSummary,
   type ProjectBroker,
+  type ProjectStatus,
+  type CredentialReissued,
+  type DatabaseSetting,
+  type InstallationStatus,
+  type ProjectHistoryView,
+  type RestoreHoldStatus,
+  type RehearsalView,
+  type RestoreView,
   type ProjectDetail,
   type ProjectSecretSummary,
   type ProjectSummary,
   type ProjectTopic,
   type Quota,
+  type ReceivedGrantDetail,
   type Role,
   type RolledBack,
   type ServiceStatus,
@@ -52,6 +77,9 @@ export type Transport = (url: string, init: RequestInit) => Promise<Response>;
  * refused and a new one must be obtained. `null` means nobody is signed in.
  */
 export type BearerSource = (options: { refresh: boolean }) => Promise<string | null>;
+
+/** What a grantee's organization may do to a grant offered to it, as the route's last segment says it. */
+export type GrantAnswer = "accept" | "decline" | "relinquish";
 
 export interface LogsQuery {
   instance?: string;
@@ -202,6 +230,42 @@ export class ControlPlaneClient {
     return this.#call("DELETE", `/organizations/${segment(id)}/tokens/${segment(tokenId)}`);
   }
 
+  // ── Machines and the grants an organization holds (feature 040) ─────────
+
+  /** The organization's registered machines; never a secret. */
+  machines(id: string): Promise<MachineSummary[]> {
+    return this.#call("GET", `/organizations/${segment(id)}/machines`, { schema: arrayOf(machineSummarySchema) });
+  }
+
+  /** Registers a machine. The reply carries its client secret, the only time it is ever shown. */
+  registerMachine(id: string, name: string): Promise<MachineRegistered> {
+    return this.#call("POST", `/organizations/${segment(id)}/machines`, { body: { name }, schema: machineRegisteredSchema });
+  }
+
+  deleteMachine(id: string, name: string): Promise<void> {
+    return this.#call("DELETE", `/organizations/${segment(id)}/machines/${segment(name)}`);
+  }
+
+  setMachineByteRates(id: string, name: string, rates: ByteRatesRequest): Promise<MachineSummary> {
+    return this.#call("PUT", `/organizations/${segment(id)}/machines/${segment(name)}/byte-rates`, {
+      body: rates,
+      schema: machineSummarySchema,
+    });
+  }
+
+  /** What the organization's machines and its projects' services hold, or are offered, from other projects. */
+  organizationGrants(id: string): Promise<ReceivedGrantDetail[]> {
+    return this.#call("GET", `/organizations/${segment(id)}/grants`, { schema: arrayOf(receivedGrantDetailSchema) });
+  }
+
+  /**
+   * Answers a grant from the grantee's side, as an owner of its organization: accepts or declines a
+   * pending one, or relinquishes an accepted one.
+   */
+  answerGrant(id: string, grantId: string, verb: GrantAnswer): Promise<void> {
+    return this.#call("POST", `/organizations/${segment(id)}/grants/${segment(grantId)}/${verb}`);
+  }
+
   // ── Projects ──────────────────────────────────────────────────────────────
 
   listProjects(): Promise<ProjectSummary[]> {
@@ -288,6 +352,98 @@ export class ControlPlaneClient {
     return this.#call("GET", `/projects/${segment(id)}/brokers`, { schema: arrayOf(projectBrokerSchema) });
   }
 
+  // ── Backups and recovery ──────────────────────────────────────────────────
+
+  /** Whether the project is backed up, how far back it can be restored, its database and its restores. */
+  projectStatus(id: string): Promise<ProjectStatus> {
+    return this.#call("GET", `/projects/${segment(id)}/status`, { schema: projectStatusSchema });
+  }
+
+  /** Restores the project's database to a moment, into a new cluster beside the current one. Owners only. */
+  restoreProject(id: string, moment: string, line?: string): Promise<RestoreView> {
+    return this.#call("POST", `/projects/${segment(id)}/restores`, { body: { moment, line }, schema: restoreViewSchema });
+  }
+
+  /** Issues the project's backup credential again; the old key stops working. Owners only. */
+  reissueBackupCredential(id: string): Promise<CredentialReissued> {
+    return this.#call("POST", `/projects/${segment(id)}/backups/credential`, { schema: credentialReissuedSchema });
+  }
+
+  listRestores(id: string): Promise<RestoreView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/restores`, { schema: arrayOf(restoreViewSchema) });
+  }
+
+  /** Who did what to the project's database, newest first. */
+  projectHistory(id: string): Promise<ProjectHistoryView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/history`, { schema: arrayOf(projectHistoryViewSchema) });
+  }
+
+  projectDatabase(id: string): Promise<DatabaseSetting> {
+    return this.#call("GET", `/projects/${segment(id)}/database`, { schema: databaseSettingSchema });
+  }
+
+  /** Sets what the project asks of its database, whole: replicas, synchronous writes, retention, rehearsals. */
+  setProjectDatabase(id: string, setting: DatabaseSetting): Promise<DatabaseSetting> {
+    return this.#call("PUT", `/projects/${segment(id)}/database`, { body: setting, schema: databaseSettingSchema });
+  }
+
+  /** Where the installation's backups go, for how long, and how safely: `backups` on `GET /installation`. */
+  async backups(): Promise<InstallationStatus> {
+    const installation = await this.installation();
+    if (!installation.backups) throw new Error("the control plane reported nothing of its backups");
+    return installation.backups;
+  }
+
+  /** Whether the control plane is held after its own database was restored, and what differs. */
+  restoreHold(): Promise<RestoreHoldStatus> {
+    return this.#call("GET", "/installation/restore", { schema: restoreHoldStatusSchema });
+  }
+
+  /** Releases a held control plane; a platform administrator's alone. */
+  releaseRestoreHold(): Promise<RestoreHoldStatus> {
+    return this.#call("POST", "/installation/restore/release", { schema: restoreHoldStatusSchema });
+  }
+
+  getRestore(id: string, name: string): Promise<RestoreView> {
+    return this.#call("GET", `/projects/${segment(id)}/restores/${segment(name)}`, { schema: restoreViewSchema });
+  }
+
+  /** Rehearses a restore in a namespace of its own; it changes nothing of the project. */
+  rehearseProject(id: string, moment?: string): Promise<RehearsalView> {
+    return this.#call("POST", `/projects/${segment(id)}/rehearsals`, { body: moment ? { moment } : {}, schema: rehearsalViewSchema });
+  }
+
+  listRehearsals(id: string): Promise<RehearsalView[]> {
+    return this.#call("GET", `/projects/${segment(id)}/rehearsals`, { schema: arrayOf(rehearsalViewSchema) });
+  }
+
+  /** Moves one service to another of its project's database clusters: a restore, or back. */
+  switchService(projectId: string, name: string, cluster: string): Promise<ServiceStatus> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/switch`, { body: { cluster }, schema: serviceStatusSchema });
+  }
+
+  // ── Grants (feature 040) ──────────────────────────────────────────────────
+
+  /** Grants a service of another project, or a machine, one route, method, topic or the erasure. */
+  makeGrant(id: string, request: GrantRequest): Promise<GrantDetail> {
+    return this.#call("POST", `/projects/${segment(id)}/grants`, { body: request, schema: grantDetailSchema });
+  }
+
+  /** The project's grants, live and ended, each with whether it is in effect and why not. */
+  grants(id: string): Promise<GrantDetail[]> {
+    return this.#call("GET", `/projects/${segment(id)}/grants`, { schema: arrayOf(grantDetailSchema) });
+  }
+
+  /** What other projects granted this project's services, and every change to each. */
+  receivedGrants(id: string): Promise<ReceivedGrantDetail[]> {
+    return this.#call("GET", `/projects/${segment(id)}/grants/received`, { schema: arrayOf(receivedGrantDetailSchema) });
+  }
+
+  /** Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. */
+  endGrant(id: string, grantId: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/grants/${segment(grantId)}`);
+  }
+
   // ── Services ──────────────────────────────────────────────────────────────
 
   listServices(projectId: string): Promise<ServiceStatus[]> {
@@ -312,6 +468,19 @@ export class ControlPlaneClient {
     operation: "pause" | "resume" | "restart" | "expose" | "unexpose",
   ): Promise<void> {
     return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/${operation}`);
+  }
+
+  /** Add a custom hostname; a refusal is the control plane's, shown as it says it. */
+  addHostname(projectId: string, name: string, hostname: string): Promise<ServiceStatus> {
+    return this.#call("PUT", `/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}`, {
+      schema: serviceStatusSchema,
+    });
+  }
+
+  removeHostname(projectId: string, name: string, hostname: string): Promise<ServiceStatus> {
+    return this.#call("DELETE", `/services/${segment(projectId)}/${segment(name)}/hostnames/${segment(hostname)}`, {
+      schema: serviceStatusSchema,
+    });
   }
 
   /** Issues the service's storage credential again; the old one works for the rotation grace. */

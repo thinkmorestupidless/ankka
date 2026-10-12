@@ -561,6 +561,7 @@ def test_the_references_graph_consumers_publish_the_cart_and_the_profile() -> No
         "profile-graph": "conformance-profile-graph",
         "topic-relay": "conformance-topic-relayed",
         "contract-relay": "conformance-contracted",
+        "partner-relay": "conformance-shared-relayed",
     }
 
 

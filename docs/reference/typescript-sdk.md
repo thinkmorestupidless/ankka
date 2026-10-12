@@ -134,7 +134,7 @@ See [Key value entities](../build/key-value-entities.md).
 | Statics | `componentId`, `source` (a component class) or `topic`, `events`, `row`, optionally `queries` (`["get", "all"]` by default), `declared` (`declaredQuery(name, statement)`) and `version` |
 | Must define | `onChange(event): ViewEffect<Row>` |
 | May override | `onDelete(): ViewEffect<Row>`, which deletes the row by default |
-| In a handler | `this.row` (the current row or `null`), `this.subject`, `this.metadata`, `this.effects` |
+| In a handler | `this.row` (the current row or `null`), `this.subject`, `this.metadata`, `this.standing` (a workflow source's `Standing`, else `undefined`), `this.effects` |
 | Effects | `updateRow(row)`, `deleteRow()`, `ignore()` |
 | Querying | `client.views.get(viewId, key, Row)`, `client.views.all(viewId, Row)`, `client.views.query(viewId, name, key, Row)`, `client.views.ask(viewId, name, values, Row, limit?)` |
 | Table name | `tableOf(componentId)`, for a statement to name |
@@ -159,7 +159,7 @@ See [Views](../build/views.md).
 | Statics | `componentId`, `source` or `topic`, `message`; for a topic, `startFrom`, `contract`, `broker`, `parallel`; to publish, `producesTo` (a topic, or a `Publication` with its contract and broker) and `out` |
 | Must define | `onMessage(message): ConsumerEffect<Out>` |
 | May override | `onDelete()`, which ignores by default |
-| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.client`, `this.effects` |
+| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.standing` (a workflow source's `Standing`, else `undefined`), `this.client`, `this.effects` |
 | Effects | `produce(out, metadata?)`, `produceAll(messages)`, `done()`, `ignore()` |
 | One of several messages | `{ payload, key?, metadata? }`; `key` is a record key other than the message's subject |
 
@@ -272,7 +272,7 @@ test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_M
 | Declarations | `get(template, reply, run, options?)`, `post`/`put`/`patch`/`del(template, body?, reply, run, options?)`, `sse(template, run, options?)`, `socket(template, (self, req, socket) => Promise<void>, options?)`; `options` may carry `acl` for that route alone and `params` schemas narrowing path parameters |
 | A socket | `for await (const text of socket)`, `await socket.receive()` (`undefined` once closed), `await socket.send(text)`, which rejects with `SocketClosed` once closed; testing, `EndpointTestKit.socket(path, frames)` answers what the handler sent and how it ended |
 | Handlers | `(self, req, body) => reply`, sync or `async`; `req.params` is typed from the template; the return value is encoded with the reply shape, `done` or `undefined` answers 204 |
-| Callers | `Callers.internet`, `Callers.service(name, { project })`, `Callers.anyInProject`, `Callers.self` |
+| Callers | `Callers.internet`, `Callers.service(name, { project })`, `Callers.anyInProject`, `Callers.self`, `Callers.granted`; a request's `caller.kind` is `gateway`, `service`, `machine` or `local` |
 | In a handler | `this.request`: `params`, `query.get`/`getAll`, `headers.get`, `principal` (`subject`, `name`, `email`, `emailVerified`, `roles`, `claims`, `issuer`), `metadata`, `caller` (`{ kind: "gateway" }`, `{ kind: "service", project, name }` or `{ kind: "local" }`); `this.client`, scoped to the request |
 | Errors | `throw new HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 
@@ -296,7 +296,7 @@ for await (const token of this.client.forAgent("assistant", session).call("chat"
 | Any component, typed | `client.of(Cls, entityId).call(Cls.handlers.name)` |
 | Event sourced entity | `client.forEventSourcedEntity(componentId, entityId)` |
 | Key value entity | `client.forKeyValueEntity(componentId, entityId)` |
-| Workflow | `client.forWorkflow(componentId, workflowId)` |
+| Workflow | `client.forWorkflow(componentId, workflowId)`; `client.of(Cls, id).awaitEnd(timeoutMillis)` waits for its end, `.awaitEndParts(timeoutMillis)` as parts for an `sse` route (`awaitPartJson` renders one), and `.call(Cls.handlers.name).thenAwaitEnd(timeoutMillis).invoke(input)` starts and waits as one call |
 | Agent | `client.forAgent(componentId, sessionId)` |
 
 `.call(...)` gives an invocation: `await invocation.invoke(input)`, or `for await (const token of

@@ -283,6 +283,18 @@ spec:
                       type: integer
                     writePauseBound:
                       type: string
+                databaseCluster:
+                  type: string
+                  description: >-
+                    The project database cluster the service is switched to, a restore or one it
+                    left (feature 041). Absent is the project database. A change rolls the service.
+                customHostnames:
+                  type: array
+                  description: >-
+                    The custom hostnames the service holds, each proved by the control plane and
+                    unique across the installation. Rendered only while the service is exposed.
+                  items:
+                    type: string
             status:
               type: object
               properties:
@@ -415,3 +427,26 @@ spec:
                           type: string
                         detail:
                           type: string
+                grants:
+                  type: string
+                  description: mounted once the service is rendered with the project's ConfigMap,
+                    whose grants file its running instances read. Absent for a web-hosted service.
+                hostnames:
+                  type: array
+                  description: >-
+                    Where each custom hostname stands, in the spec's order, while the service is
+                    exposed: pending, serving or rejected, with the authority's or the gateway's
+                    reason.
+                  items:
+                    type: object
+                    properties:
+                      hostname:
+                        type: string
+                      state:
+                        type: string
+                        enum:
+                          - pending
+                          - serving
+                          - rejected
+                      reason:
+                        type: string

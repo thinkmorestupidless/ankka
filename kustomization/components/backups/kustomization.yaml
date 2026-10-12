@@ -1,0 +1,20 @@
+# The installation's backups (feature 041): every project database, and the control plane's,
+# archived continuously into the installation's object store, with a base backup on a schedule.
+#
+# The operator is told where backups go and how long they are kept, and renders the rest per
+# project; the control plane is told the same target, floor and copy requirement, which it reports
+# and enforces; and the control plane's own database is given its archiver here. An overlay without
+# this component renders exactly what it rendered before the feature, and every status says nothing
+# is backed up.
+#
+# Needs the object store (the `garage` component), the archiver (`cnpg-barman`) and the control
+# plane's database (`postgres`), so it is listed after all three and after the Deployments it
+# patches. The operator refuses to start with `object-store` as the target and no store named.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - controlplane-database.yaml
+patches:
+  - path: operator-patch.yaml
+  - path: controlplane-patch.yaml
+  - path: controlplane-database-patch.yaml

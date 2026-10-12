@@ -84,6 +84,7 @@ fn discovery_carries_the_declared_queries_as_written() {
             statement:
                 "SELECT payload FROM ankka_view_tree_rows WHERE payload::jsonb->>'under' = :row"
                     .to_string(),
+            watched: false,
         }]
     );
 }
@@ -360,6 +361,7 @@ fn the_wire_effect_is_rows_in_order() {
             metadata: None,
             row: None,
             deleted: false,
+            standing: None,
             source_id: Some("left".into()),
         })
     })

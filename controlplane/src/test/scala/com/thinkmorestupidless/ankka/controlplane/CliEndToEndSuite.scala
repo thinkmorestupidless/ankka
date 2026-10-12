@@ -415,6 +415,25 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
     assert(!unexposedOut.contains("https://"), unexposedOut)
   }
 
+  // features/exposure/custom-hostnames.feature (feature 045): this control plane names no issuer for
+  // custom hostnames, which is the one thing this scenario needs and the k3s suite's cannot have.
+  test(
+    "a custom hostname is refused when the installation names no authority for custom hostnames"
+  ) {
+    assertEquals(cli("services", "expose", "cart")._1, 0)
+    val (code, _, err) = cli("services", "hostnames", "add", "cart", "app.example.com")
+    assertEquals(code, 1, err)
+    assert(
+      err.contains(
+        "the installation names no authority for custom hostnames (ANKKA_HOSTNAME_ISSUER)"
+      ),
+      err
+    )
+    val (_, got, _) = cli("services", "get", "cart")
+    assert(!got.contains("custom hostnames"), got)
+    assertEquals(cli("services", "unexpose", "cart")._1, 0)
+  }
+
   test("a service that serves no HTTP cannot be exposed, and the CLI says why") {
     val quiet = """{"name":"quiet","service":{"image":"registry.k8s.io/pause:3.9","http":false}}"""
     assertEquals(cli(Some(quiet), "services", "apply", "-f", "-")._1, 0)

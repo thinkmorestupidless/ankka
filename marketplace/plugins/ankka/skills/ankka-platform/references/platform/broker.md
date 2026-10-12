@@ -51,16 +51,39 @@ the platform issues every service carries the common name `<project>.<service>`,
 certificate, nothing more mounted.
 
 For each service with components the platform writes one `KafkaUser`, named `<project>.<service>`, in
-`ankka-broker`, with two permissions:
+`ankka-broker`, with two permissions, and one more for each grant it holds:
 
 | Resource | Name | Operations |
 |---|---|---|
 | topics | everything starting `<project>.` | read, publish, describe |
 | consumer groups | everything starting `ankka.<project>.<service>.` | read |
+| a granted topic, `consume` | exactly `<granting project>.<topic>` | read, describe |
+| a granted topic, `produce` | exactly `<granting project>.<topic>` | publish, describe |
 
 It can make nothing, and it can do nothing to the cluster itself. So a project is a boundary the broker
 keeps: a service of one project is refused another project's topics by the broker, whatever its code
-does, and its consumer groups are its own.
+does, unless that project grants it one, and its consumer groups are its own. A grant's entry names one
+topic exactly, never a prefix, and adds no consumer group: the grantee reads under its own. The entry is
+added when an owner of the granting project's organization grants the topic and removed when the grant
+ends, with no service redeployed.
+
+A registered machine has a user too, `machine.<organization>.<name>`, with no authentication of its own:
+the external listener names it from the token the control plane issued the machine. It may read and
+publish exactly the topics its accepted grants name, each a literal entry as a service's granted topic
+is, read under its own groups, `ankka.machine.<organization>.<name>.`, and no more than its byte rates,
+which Strimzi enforces as quotas. A deleted machine's user is kept, with no topic.
+
+## The external listener
+
+An installation that lists the `broker-external` component exposes the broker to registered machines
+on a second listener, `external`, on port 9094, reached through the Gateway at
+`broker.<base domain>:9094`. Its certificate is the installation's public wildcard, from the public
+issuer. A client authenticates with OAUTHBEARER and a machine token: the broker verifies it against the
+control plane's keys, read from the control plane's `keys` port inside the cluster, and refuses a
+connection with no token, another issuer's or an expired one. A token must be renewed within fifteen
+minutes, or the broker ends the connection. Only the Gateway's proxies reach the listener. The broker
+caps connections per client address, 64 by default, and new connections a second on this listener, 20
+by default, from the installation's `ankka-platform` settings.
 
 A service whose descriptor names a broker of its own is given nothing here: no user and no certificate
 name. A web-hosted service has no components and is given nothing either.
@@ -79,15 +102,50 @@ names one is on [Broker topics](../build/topics.md#a-topic-on-another-broker).
 
 ## Topics
 
-A member declares a project's topics on the project, once each, with their partitions, whether the
-broker keeps only the last message under each key, and the contract they carry. The declarations reach
-the cluster as an `AnkkaProject` resource in the project's namespace, written by the control plane. For
-each, the operator writes a `KafkaTopic` named `<project>.<name>` with the declared partitions, never
-fewer than the topic already has, and `cleanup.policy: compact` when the topic is declared compacted —
-applied to a topic already made as well as to a new one, and removed again when the declaration stops
-asking for it — and reports how far the broker has got with it. Replication is the broker's default, so
-it follows the installation's size. The name the broker holds is what the broker's own tools list; a
-service's code uses the declared name.
+A member declares a project's topics on the project, once each, with their partitions, their settings
+and the contract they carry. The declarations reach the cluster as an `AnkkaProject` resource in the
+project's namespace, written by the control plane. For each, the operator writes a `KafkaTopic` named
+`<project>.<name>` with the declared partitions, never fewer than the topic already has, its copies, and a
+`config` that names every setting: `retention.ms`, `retention.bytes`, `cleanup.policy`,
+`delete.retention.ms`, `min.compaction.lag.ms`, `max.compaction.lag.ms` and `min.insync.replicas`. No topic
+takes a setting from the broker's own defaults. A changed setting is applied to the topic in place, by
+Strimzi's topic operator, with nothing else touched; the operator reports a topic `waiting for broker`
+until its resource holds every setting declared. The name the broker holds is what the broker's own tools
+list; a service's code uses the declared name.
+
+A topic's copies are fixed when it is declared: Strimzi changes a topic's replication only through Cruise
+Control, which the platform does not install. The operator reads how many broker nodes the broker has from
+its node pools, and a topic asking for more copies than that is not made and is reported `failed`, naming
+the count. A topic declared before topics stated their copies has none on its resource, so the broker's
+`default.replication.factor` decided them when it was made.
+
+The values a topic's first declaration is given for a setting it leaves out, and the bounds every
+declaration is held to, are the control plane's, set as variables on its Deployment:
+
+| Variable | Means | Shipped |
+|---|---|---|
+| `ANKKA_TOPIC_DEFAULT_RETENTION` | Retention time of a declaration that gives none. | `7d` |
+| `ANKKA_TOPIC_DEFAULT_RETENTION_SIZE` | Retention size per partition, likewise. | `none` |
+| `ANKKA_TOPIC_DEFAULT_CLEANUP` | Cleanup policy, likewise. | `delete` |
+| `ANKKA_TOPIC_DEFAULT_TOMBSTONE_WINDOW` | Tombstone window, likewise. | `1d` |
+| `ANKKA_TOPIC_DEFAULT_MIN_COMPACTION_LAG` | Minimum compaction lag, likewise. | `0s` |
+| `ANKKA_TOPIC_DEFAULT_MAX_COMPACTION_LAG` | Maximum compaction lag, likewise. | `none` |
+| `ANKKA_TOPIC_DEFAULT_COPIES` | Copies, likewise. | `1` |
+| `ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC` | Minimum in-sync copies, likewise. | `1` |
+| `ANKKA_TOPIC_LONGEST_RETENTION` | The longest retention time a declaration may ask. | `everything` |
+| `ANKKA_TOPIC_LARGEST_RETENTION_SIZE` | The largest retention size per partition. | `none` |
+| `ANKKA_TOPIC_MOST_COPIES` | The most copies. | `3` |
+| `ANKKA_TOPIC_WARNING_THRESHOLD` | The retention time below which a view reading a topic is warned. | `30d` |
+
+The shipped seven days is a laptop's. A view built from a topic reaches only what the topic kept, so an
+installation serving facts that must outlive a week raises `ANKKA_TOPIC_DEFAULT_RETENTION` and
+`ANKKA_TOPIC_LONGEST_RETENTION` before its first topic is declared: a change later changes no topic
+already declared, each of which keeps the value it was given. A value the control plane cannot read, or a
+default outside its own bound, stops the control plane naming the variable.
+
+When the control plane starts, it fills the settings of any topic declared before topics stated them from
+the defaults then in force, and records on the project that the platform did; such a topic's copies stay
+what the broker gave it.
 
 A contract is not the broker's business: the operator writes the project's declarations, each topic's
 contract name and the fingerprint of its schema among them, into a `ConfigMap` named `ankka-project` in
@@ -125,8 +183,20 @@ still exists, the platform writes both again on its next pass.
 
 The component's values suit a laptop: one node, 2Gi of storage, a 512MB heap and 1Gi of memory. The
 example cloud overlay patches the node pool with `broker-size.yaml`, whose every value is marked `SET`:
-the node count, each node's storage, the heap and the memory and CPU it is given. More than one node
-also wants the Kafka's replication settings raised to match.
+the node count, each node's storage, the heap and the memory and CPU it is given.
+
+A new installation that wants its topics on three nodes lists the `broker-three-nodes` component after
+`broker` and `controlplane`. It sets the node pool to three, `default.replication.factor` and both
+internal topics' factors to three, `min.insync.replicas` and `transaction.state.log.min.isr` to two, and
+the control plane's default copies to three with two in sync, all together. One node can then stop
+without losing a message the broker acknowledged or refusing a publication. It holds three times the
+storage of one node, since every partition is on every node.
+
+It is a shape for a new installation, not a way to grow a running one. The broker's node is both
+controller and broker, so changing how many there are changes the controller quorum, which the platform
+does not do; growing a running broker is done by Strimzi's own procedure, and every topic made before keeps
+the copies it was made with, which its row in `ankka projects topics list` says has fewer copies than the
+installation's default.
 
 Strimzi's images come from quay.io. A cluster that pulls only through a cache of its own needs that
 cache to mirror quay.io/strimzi too.

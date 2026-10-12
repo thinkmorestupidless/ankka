@@ -1,6 +1,6 @@
 # Divergences from Akka
 
-> Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
+> Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views and their streams and watches, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 
 Source: https://docs.ankka.cloud/reference/akka-divergences/
 ankka reimplements Akka's component model — entities, views, consumers, workflows, timers, agents and HTTP
@@ -15,17 +15,29 @@ will recognise every component. The differences below are deliberate, and each h
 | `Entity::method` lambda inspection | typed handles declared on a companion | No reflection; the compiler checks every call site. |
 | `@FunctionTool` and reflection | the `FunctionTool` builder | A tool's schema and its argument decoder come from one instance and cannot disagree. |
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
+| `QueryStreamEffect` and `@Query(streamUpdates = true)` | a row stream, and a watch of a query declared watchable, with a caught-up marker and removals | A page knows when it has the whole listing and which rows left it, and a statement a watch cannot decide per row is refused at start. |
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` works whether it is declared before or after `/users/{id}`. |
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
 | A gRPC endpoint as an annotated class implementing the generated service, asynchronously | a `GrpcEndpoint` declaring a blocking handler per method against the generated descriptors | The same handler shape as every other ankka handler, and every method checked at startup. |
 | `BACKOFFICE` among the callers an ACL can name | no equivalent | There is no backoffice proxy to be the caller. |
+| `@Consume.FromWorkflow` hands a view or a consumer the workflow's state | a workflow source hands the state and the workflow's standing | A listing of failed workflows uses the engine's word for where each stands, not a status field every author must remember to write. |
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
 | `AutonomousAgent` declared by a `definition()` on the instance | a `definition` on the companion, tools on the instance | The definition is checked at registration; the tools need the instance's component client. |
 | A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
 | `Question.choice("…").option(…)` built inline in the effect | questions declared once as values, with declared wire ids and option keys | A question is checked where it is built, and reading an answer through the question that asked it is typed. |
+| A caller polls a workflow's status, or subscribes to notifications | `awaitEnd`, answered when the workflow ends | One call, no interval, and every workflow can be waited for without changing it. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
+
+## A workflow source carries the standing
+
+In Akka a view's table updater or a consumer annotated `@Consume.FromWorkflow` is handed each state the
+workflow records, and a reader that wants to know how far the workflow has got reads a status field its
+author wrote into the state. In ankka the same source, `ChangeSource.stateOf(workflow)`, hands each state
+with the workflow's standing: running, paused, completed or failed, the step, the retries and the failure
+reason, as the lifecycle query answers them. As in Akka, a transition or an end that records no state is
+no change. See [Reading a workflow](../build/views.md#reading-a-workflow).
 
 ## Registration is explicit
 
@@ -69,6 +81,17 @@ Akka views have their own query language. An ankka view stores each row as JSON 
 queried with SQL fragments over that JSON, through the view client. There is no parser to learn, any
 condition Postgres can express is available, and an index is something you create rather than something the
 platform infers.
+
+## Views stream and are watched
+
+Akka answers a view query as a stream with `QueryStreamEffect`, and keeps one open with
+`@Query(streamUpdates = true)`. ankka offers both: a query asked as a stream of rows, and a watch of a
+query its view declares watchable. A watch says when it has given every row that matched as it began —
+the caught-up marker — and gives a removal naming the key of each row it gave that stops matching, so a
+page can show a complete listing and keep it right. A watched statement selects each row's key, has no
+limit and does not aggregate, because a watch decides each written row alone; a statement it could not
+decide is refused when the service starts rather than silently missing rows. Like Akka's, a watch is live
+and not a record: it guarantees no delivery, and a reader of every change reads the source.
 
 ## Literal path segments win
 
@@ -167,6 +190,21 @@ not published how a judgment is read or tested, ankka's answers are its own:
   fails naming any question it cannot answer.
 - **A judged guardrail** asks questions of the text a guardrail sees, fails closed when it cannot decide,
   and says so with a different error code from a refusal.
+
+## A caller can wait for a workflow's end
+
+Akka offers no wait for a workflow's end. Its workflow command handlers reply when they return, so the
+reply to a starting command confirms the start; a caller learns how the workflow finished by polling a
+query, or by subscribing to notifications that are not guaranteed to be delivered.
+
+In ankka any caller that may call a workflow can wait for its end with a timeout of its own, or send a
+command and wait as one call, and is answered when the end is recorded:
+
+- **The answer is the end.** A completed workflow answers its state; a failed or deleted one answers an
+  error of its own, `WorkflowFailed`, naming the step and the reason. A paused workflow has not ended.
+- **Nothing changes in the workflow.** A wait is the caller's; the workflow's handlers are as they were.
+- **Nothing about a wait is recorded.** A caller whose workflow moves to another instance asks again and
+  is answered there.
 
 ## What Akka has that ankka does not
 

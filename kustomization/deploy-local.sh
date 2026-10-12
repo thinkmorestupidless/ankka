@@ -106,6 +106,13 @@ echo "==> installing trust-manager"
 kubectl apply -k kustomization/components/trust-manager --server-side --force-conflicts
 kubectl -n cert-manager rollout status deployment/trust-manager --timeout=180s
 
+echo "==> installing the Barman Cloud plugin"
+# What archives every project database (feature 041). After cert-manager, whose certificates its
+# channel to CNPG uses, and before the overlay, whose ObjectStores are instances of its CRD. The
+# overlay lists this component too, so the second apply is a no-op.
+kubectl apply -k kustomization/components/cnpg-barman --server-side --force-conflicts
+kubectl -n cnpg-system rollout status deployment/barman-cloud --timeout=180s
+
 echo "==> installing Strimzi"
 # The installation's broker is a Kafka run by Strimzi, and Strimzi's CRDs must exist before the
 # overlay's Kafka, KafkaNodePool and the operator's KafkaTopics and KafkaUsers are instances of one
@@ -298,7 +305,8 @@ echo "==> exporting the local certificate authority"
 # nothing is made to: the CLI is told about it (config set ca) and so is curl (--cacert). No step
 # here or in the README ever turns verification off.
 mkdir -p "$HOME/.ankka"
-kubectl -n ankka-gateway get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
+# In cert-manager's namespace, beside the ClusterIssuer that signs with it (feature 045).
+kubectl -n cert-manager get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
 
 API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 CONSOLE_URL="https://console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"

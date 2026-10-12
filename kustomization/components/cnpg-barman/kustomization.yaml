@@ -1,0 +1,14 @@
+# CloudNativePG's Barman Cloud plugin (feature 041): what archives a project database's
+# write-ahead log and takes its base backups, into the installation's object store.
+#
+# The plugin, not CNPG's in-tree `spec.backup.barmanObjectStore`: the in-tree support is
+# deprecated since CNPG 1.26 and removed in 1.31, and this repository pins 1.30. Installed into
+# `cnpg-system` beside the operator, as the plugin requires, and it needs cert-manager for the
+# certificates its gRPC channel to CNPG uses, which every overlay has.
+#
+# Fetched by URL and pinned to an exact release, as the cnpg component is, so the ObjectStore CRD
+# does not change under a running installation without a deliberate bump here.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.15.1/manifest.yaml

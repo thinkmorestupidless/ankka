@@ -12,6 +12,8 @@ kind: Kustomization
 
 components:
   - ../../components/cnpg
+  # After CNPG and needing cert-manager: what archives every project database (feature 041).
+  - ../../components/cnpg-barman
   - ../../components/certmanager
   - ../../components/trust-manager
   - ../../components/pki
@@ -32,6 +34,9 @@ components:
   # After the control plane, whose Deployment it tells where the record of secret reads is kept.
   - ../../components/secret-reads
   - ../../components/console
+  # After the operator, the control plane and the store, whose Deployments it patches: backups
+  # into the installation's store (feature 041).
+  - ../../components/backups
   # Where a developer reads their services' traces, metrics and logs: https://grafana.<base domain>.
   # Not the otel-collector component, which keeps nothing; the two make one namespace.
   - ../../components/telemetry-store
@@ -39,6 +44,10 @@ components:
 resources:
   - platform-configmap.yaml
   - local-ca.yaml
+
+# A laptop's instance counts; see instances.yaml.
+patches:
+  - path: instances.yaml
 
 # The base domain, written once in platform-configmap.yaml and copied everywhere it must match.
 # Where the target holds a prefixed form (`*.BASE_DOMAIN`, `api.BASE_DOMAIN`), the replacement
@@ -179,6 +188,33 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+  # Custom hostnames (feature 045): the ClusterIssuer that obtains each one's certificate, for both
+  # Deployments, and the address an apex hostname's record points at, for the control plane.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.hostnameIssuer
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HOSTNAME_ISSUER].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HOSTNAME_ISSUER].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.gatewayAddress
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_GATEWAY_ADDRESS].value
   # The installation's object store (feature 039): which store new buckets are made in, and Google
   # Cloud Storage's bucket name prefix and soft-delete window. The operator and the control plane
   # read the same three.

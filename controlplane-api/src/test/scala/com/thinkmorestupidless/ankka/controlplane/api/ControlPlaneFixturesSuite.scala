@@ -42,6 +42,53 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     def wrap(value: A) = s"""{"type":"$name","json":${writeToString(value)}}""" + "\n"
     Vector(s"$name.json" -> wrap(full), s"$name.minimal.json" -> wrap(minimal))
 
+  private val backupLine = BackupLine(
+    "ankka-db",
+    "ankka-db",
+    "backing up",
+    Some(at),
+    Some(at),
+    Some(at),
+    Some(12.0),
+    None,
+    None
+  )
+  private val verification =
+    ServiceVerification("wallet", present = true, 12L, 1L, 4L, 0L, 12L, Vector("api-key"))
+  private val restoreView = RestoreView(
+    "ankka-db-r202610081012",
+    "ankka-db",
+    at,
+    "Verified",
+    Some("Olive Owner"),
+    Some(at),
+    Some(at),
+    Vector(verification, ServiceVerification("rewards", present = false)),
+    None,
+    Vector(
+      TopicDivergence(
+        "transactions",
+        Some("ankka.shop.totals.view.sums"),
+        3L,
+        Some(2L),
+        Vector("ledger")
+      )
+    ),
+    Vector("totals"),
+    Some(BackupPhrases.Republished)
+  )
+  private val rehearsalView = RehearsalView(
+    "ankka-db-x202610090000",
+    "ankka-db",
+    at,
+    "Completed",
+    Some("Olive Owner"),
+    Some(at),
+    Some(118L),
+    None,
+    Vector(verification)
+  )
+
   private val registry = RegistrySummary("ghcr.io", "robot", Some(at), Some("Olive Owner"))
   private val quota    = Quota(Some(3), Some(10), Some(20))
   private val usage    = Usage(1, 2, 3)
@@ -70,7 +117,8 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       Installation(
         "0.12.0",
         Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka"))),
-        Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn))
+        secrets =
+          Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn))
       ),
       Installation("0.12.0")
     ),
@@ -141,13 +189,62 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
             )
           )
         ),
+        topicSources = Some(
+          Vector(
+            TopicSourceReport(
+              "view",
+              "entries",
+              "transactions",
+              "ankka.shop.cart.view-v2.entries",
+              "earliest",
+              2,
+              lag = Some(4L),
+              gap = Some(
+                RetentionGapReport(
+                  Vector(
+                    PartitionGapReport(0, 1240L, Some(at)),
+                    PartitionGapReport(1, 0L)
+                  ),
+                  compacted = false,
+                  gone = true,
+                  readAt = Some(later)
+                )
+              )
+            )
+          )
+        ),
+        warnings = Some(
+          Vector(
+            ServiceWarning(
+              "retention",
+              "entries",
+              "transactions",
+              "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d"
+            )
+          )
+        ),
         objectStorage = Some("provisioned"),
         bucket = Some("shop.cart"),
         bucketAddress = Some("https://storage.example.com/shop.cart"),
         objectStore = Some("gcs"),
         bucketLocation = Some("europe-west2"),
         softDeleteDays = Some(7),
-        storageMove = Some("write pause")
+        storageMove = Some("write pause"),
+        grants = Some("mounted"),
+        customHostnames = Vector(
+          CustomHostname(
+            "app.example.com",
+            "serving",
+            record = Some(DnsRecord("app.example.com", "CNAME", "cart-shop.example.com"))
+          ),
+          CustomHostname(
+            "example.com",
+            "pending",
+            Some("the certificate is being issued"),
+            note = Some("an apex cannot be a CNAME; this installation has published no address")
+          )
+        ),
+        proofRecord = Some(DnsRecord("_ankka.<hostname>", "TXT", "ankka-project=shop"))
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -191,7 +288,8 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
           image = Some("cart:1"),
           digest = Some("3f9a1c0be2d4" + "0" * 52),
           rolledBackTo = Some(1)
-        )
+        ),
+        HistoryEntry("hostname added", 3, hostname = Some("app.example.com"))
       ),
       Vector(HistoryEntry("restarted", 1))
     ),
@@ -264,8 +362,17 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     fixture(
       "TopicDeclarationRequest",
       TopicDeclarationRequest(
-        12,
+        Some(12),
         compacted = true,
+        retention = Some("90d"),
+        retentionSize = Some("50GiB"),
+        cleanup = Some("compact,delete"),
+        tombstoneWindow = Some("1d"),
+        minCompactionLag = Some("1h"),
+        maxCompactionLag = Some("none"),
+        copies = Some(3),
+        minInSync = Some(2),
+        removes = Some("messages older than 90d"),
         contract = Some(
           ContractDeclaration(
             "transaction.v1",
@@ -276,7 +383,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
           )
         )
       ),
-      TopicDeclarationRequest(1)
+      TopicDeclarationRequest(Some(1))
     ),
     fixture(
       "ProjectTopic",
@@ -298,7 +405,22 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
             "checked"
           ),
           TopicCheck("transactions", "ledger", "view:by-day", "reads", None, "mismatch")
-        )
+        ),
+        settings = Some(
+          TopicSettingsView(
+            "90d",
+            "none",
+            "compact",
+            "1d",
+            "0s",
+            "none",
+            Some(3),
+            Some(2),
+            Vector("retentionSize", "tombstoneWindow")
+          )
+        ),
+        copiesHeld = Some(3),
+        brokerNodes = Some(3)
       ),
       ProjectTopic("transactions", 12)
     ),
@@ -437,6 +559,100 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         differences = Vector.empty
       )
     ),
+    // Feature 041: backups, restores, switches, rehearsals and the project's database.
+    fixture(
+      "ProjectStatus",
+      ProjectStatus(
+        "shop",
+        backedUp = true,
+        "object-store",
+        Vector(backupLine),
+        Some(ProjectDatabase("ankka-db", 3, 3, Some("ankka-db-1"), synchronous = true, None)),
+        None,
+        Vector(
+          ProjectCluster("ankka-db", "ankka-db", "left", Vector.empty, None, Some(at)),
+          ProjectCluster(
+            "ankka-db-r202610081012",
+            "ankka-db-r202610081012",
+            "restore",
+            Vector("wallet"),
+            Some(at)
+          )
+        ),
+        Vector(restoreView),
+        Some(rehearsalView)
+      ),
+      ProjectStatus("shop", backedUp = false, "none", detail = Some(BackupPhrases.NoTarget))
+    ),
+    fixture(
+      "InstallationStatus",
+      InstallationStatus(
+        "object-store",
+        30,
+        copyRequired = true,
+        sharesFailureDomain = false,
+        BackupPhrases.GarageEncryption,
+        Some(backupLine),
+        None
+      ),
+      InstallationStatus(
+        "none",
+        30,
+        copyRequired = false,
+        sharesFailureDomain = true,
+        "none",
+        notBackedUp = Some(BackupPhrases.NoTarget)
+      )
+    ),
+    fixture("RestoreRequest", RestoreRequest(at, Some("ankka-db")), RestoreRequest(at)),
+    fixture(
+      "RestoreView",
+      restoreView,
+      RestoreView("ankka-db-r202610081012", "ankka-db", at, "Restoring")
+    ),
+    fixture("SwitchRequest", SwitchRequest("ankka-db-r202610081012"), SwitchRequest("ankka-db")),
+    fixture(
+      "ProjectHistoryView",
+      // Every field, though no entry has both a detail and a topic: the schema reads each.
+      ProjectHistoryView(
+        "topic-changed",
+        Some("Olive Owner"),
+        Some(at),
+        Some("ankka-db-r202610081012"),
+        Some("transactions"),
+        Vector(SettingChange(Setting.Retention, "90d", "180d"))
+      ),
+      ProjectHistoryView("database-set")
+    ),
+    fixture(
+      "DatabaseSetting",
+      DatabaseSetting(2, synchronous = true, Some(45), Some("weekly")),
+      DatabaseSetting()
+    ),
+    fixture(
+      "RestoreHoldStatus",
+      RestoreHoldStatus(
+        held = true,
+        Some(at),
+        Some(at),
+        None,
+        None,
+        Vector(
+          ServiceDifference("checkout", "cart", Some(1L), Some(2L), Some("cart:1"), Some("cart:2"))
+        ),
+        Vector("checkout"),
+        Vector("lab"),
+        Vector("the erasure log is up to date: 0 gained")
+      ),
+      RestoreHoldStatus(held = false)
+    ),
+    fixture("CredentialReissued", CredentialReissued("shop", 2), CredentialReissued("shop", 1)),
+    fixture("RehearsalRequest", RehearsalRequest(Some(at), Some("ankka-db")), RehearsalRequest()),
+    fixture(
+      "RehearsalView",
+      rehearsalView,
+      RehearsalView("ankka-db-x202610090000", "ankka-db", at, "Running")
+    ),
     fixture(
       "InstanceTopology",
       InstanceTopology(
@@ -481,7 +697,105 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         Vector.empty
       )
     )
-  ).flatten
+  ).flatten ++ grantFixtures
+
+  private def grantFixtures: Vector[(String, String)] =
+    val route   = GrantTarget.route("wallet", "POST", "/v1/wallets/{player}/{currency}/deposits")
+    val topic   = GrantTarget.topic("casino.players", GrantTarget.Consume, decrypt = true)
+    val ada     = GrantAct(Some("Ada Owner"), Some(at))
+    val bo      = GrantAct(Some("Bo Owner"), Some(later))
+    val rates   = ByteRatesRequest(1048576L, 4194304L, 50)
+    val machine = Grantee.Machine("affiliates", "network")
+    Vector(
+      fixture(
+        "GrantRequest",
+        GrantRequest("service:payments/merchant", route),
+        GrantRequest("service:payments/merchant", GrantTarget.erasure)
+      ),
+      fixture(
+        "GrantDetail",
+        GrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          machine,
+          topic,
+          GrantState.Revoked,
+          "revoked",
+          ada,
+          Some(bo),
+          Some(ada)
+        ),
+        GrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          Grantee.Service("payments", "merchant"),
+          route,
+          GrantState.Accepted,
+          "in effect",
+          GrantAct()
+        )
+      ),
+      fixture(
+        "ReceivedGrantDetail",
+        ReceivedGrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          "spinvibe",
+          "eitheror",
+          machine,
+          topic,
+          GrantState.Accepted,
+          Vector(
+            GrantChangeRecord(GrantChange.Offered, Some("Ada Owner"), Some(at)),
+            GrantChangeRecord(GrantChange.Accepted, Some("Bo Owner"), Some(later))
+          ),
+          Some(GrantedTopicSettings(3, compacted = true, Some("7d"), Some(3)))
+        ),
+        ReceivedGrantDetail(
+          "3f9c0a1b2c3d4e5f",
+          "spinvibe",
+          "eitheror",
+          Grantee.Service("payments", "merchant"),
+          route,
+          GrantState.Pending
+        )
+      ),
+      fixture(
+        "MachineRegistration",
+        MachineRegistration("network"),
+        MachineRegistration("network")
+      ),
+      fixture(
+        "MachineRegistered",
+        MachineRegistered(
+          "network",
+          "machine:affiliates/network",
+          "c0ffee" * 10 + "c0ff",
+          "https://api.example.com/oauth/token",
+          Some("broker.example.com:9094")
+        ),
+        MachineRegistered("network", "machine:affiliates/network", "s", "https://api/oauth/token")
+      ),
+      fixture(
+        "MachineSummary",
+        MachineSummary(
+          "network",
+          "machine:affiliates/network",
+          Some("Bo Owner"),
+          Some(at),
+          Some(rates)
+        ),
+        MachineSummary("network", "machine:affiliates/network")
+      ),
+      fixture("ByteRatesRequest", rates, ByteRatesRequest(1L, 1L, 1)),
+      fixture(
+        "TokenResponse",
+        TokenResponse("eyJ.e30.sig", "Bearer", 900L),
+        TokenResponse("t", "Bearer", 900L)
+      ),
+      fixture(
+        "JsonWebKeySet",
+        JsonWebKeySet(Vector(JsonWebKey("RSA", "sig", "RS256", "20261009000000ab12", "n", "AQAB"))),
+        JsonWebKeySet(Vector.empty)
+      )
+    ).flatten
 
   test("every fixture matches what the wire codecs write") {
     if update then Files.createDirectories(dir): Unit

@@ -79,17 +79,49 @@ object Output:
           )
         )
 
-  /** A project's declared topics, each with how far the platform has got with it (feature 027). */
+  /**
+   * A project's declared topics, each with how far the platform has got with it (feature 027) and
+   * every setting it has (feature 043), a `*` on each the installation supplied. Copies no
+   * declaration stated read as the broker's, with how many it holds.
+   */
   def projectTopics(rows: Vector[ProjectTopic], format: Format): String =
     format match
       case Format.Json => writeToString(rows)
       case Format.Table =>
-        table(
-          Vector("TOPIC", "PARTITIONS", "COMPACTED", "CONTRACT", "PHASE", "DETAIL", "CHECKS"),
+        def mark(row: ProjectTopic, field: String, value: String) =
+          if row.settings.exists(_.defaulted.contains(field)) then s"$value*" else value
+        def setting(row: ProjectTopic, field: String, read: TopicSettingsView => String) =
+          row.settings.fold("-")(s => mark(row, field, read(s)))
+        def held(row: ProjectTopic) = s"broker (${row.copiesHeld.fold("?")(_.toString)})"
+        def copies(row: ProjectTopic) =
+          row.settings.flatMap(_.copies).fold(held(row))(c => mark(row, "copies", c.toString))
+        def inSync(row: ProjectTopic) =
+          row.settings.flatMap(_.minInSync).fold("-")(m => mark(row, "minInSync", m.toString))
+        val nodes = rows.flatMap(_.brokerNodes).headOption.fold("")(n => s"broker: $n nodes\n")
+        nodes + table(
+          Vector(
+            "TOPIC",
+            "PARTITIONS",
+            "RETENTION",
+            "SIZE",
+            "CLEANUP",
+            "COPIES",
+            "IN-SYNC",
+            "COMPACTED",
+            "CONTRACT",
+            "PHASE",
+            "DETAIL",
+            "CHECKS"
+          ),
           rows.map(row =>
             Vector(
               row.name,
               row.partitions.toString,
+              setting(row, "retention", _.retention),
+              setting(row, "retentionSize", _.retentionSize),
+              setting(row, "cleanup", _.cleanup),
+              copies(row),
+              inSync(row),
               if row.compacted then "yes" else "no",
               row.contract.fold("-")(c => s"${c.name} ${c.fingerprint.take(15)}"),
               row.phase.getOrElse("-"),
@@ -116,6 +148,62 @@ object Output:
           Vector("BROKER", "BOOTSTRAP", "SHAPE", "SECRET", "DECLARED"),
           rows.map(row =>
             Vector(row.name, row.bootstrap, row.shape, row.secret, row.declaredAt.getOrElse("-"))
+          )
+        )
+
+  /** A project's grants: who, what, where each is in its life, and whether it opens anything. */
+  def grants(rows: Vector[GrantDetail], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("ID", "GRANTEE", "TARGET", "STATE", "EFFECT", "BY", "AT"),
+          rows.map(g =>
+            Vector(
+              g.id,
+              g.grantee.text,
+              g.target.text,
+              g.state.word,
+              g.effect,
+              g.granted.by.getOrElse("-"),
+              g.granted.at.fold("-")(_.toString)
+            )
+          )
+        )
+
+  /** One grant just made. */
+  def grantMade(grant: GrantDetail, projectId: String, format: Format): String =
+    format match
+      case Format.Json => writeToString(grant)
+      case Format.Table =>
+        val waits =
+          if grant.state == GrantState.Pending then
+            "; it is pending until an owner of the grantee's organization accepts it"
+          else ""
+        s"grant ${grant.id}: '$projectId' grants ${grant.grantee.text} ${grant.target.text}$waits"
+
+  /** What a project's services or an organization's machines were granted, and from whom. */
+  def receivedGrants(rows: Vector[ReceivedGrantDetail], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("ID", "FROM", "GRANTEE", "TARGET", "STATE", "TOPIC", "LAST CHANGE"),
+          rows.map(r =>
+            Vector(
+              r.id,
+              s"${r.grantingProject} (${r.grantingOrganization})",
+              r.grantee.text,
+              r.target.text,
+              r.state.word,
+              r.topic.fold("-")(t =>
+                s"${t.partitions} partitions" + (if t.compacted then ", compacted" else "") +
+                  t.retention.fold("")(d => s", kept $d")
+              ),
+              r.changes.lastOption.fold("-")(c =>
+                s"${c.change.word} by ${c.by.getOrElse("-")}" + c.at.fold("")(a => s" at $a")
+              )
+            )
           )
         )
 
@@ -170,6 +258,230 @@ object Output:
         val width = fields.map(_._1.length).max
         fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
 
+  /**
+   * A project's backups and database (feature 041): a line for the project, a row per line of
+   * history, and a line for the database.
+   */
+  def projectStatus(status: ProjectStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val headline =
+          if status.backedUp then s"${status.id}: backed up"
+          else s"${status.id}: not backed up" + status.detail.fold("")(d => s" ($d)")
+        val lines =
+          if status.lines.isEmpty then Vector.empty
+          else
+            table(
+              Vector("LINE", "STATUS", "LAST BASE BACKUP", "RESTORABLE FROM", "TO", "LAG"),
+              status.lines.map(l =>
+                Vector(
+                  l.line,
+                  l.phase + l.failing.fold("")(f => s": $f"),
+                  l.lastBaseBackup.fold("-")(_.toString),
+                  l.firstRestorable.fold("-")(_.toString),
+                  l.lastRestorable.fold("-")(_.toString),
+                  l.archiveLagSeconds.fold("-")(s => f"$s%.0fs")
+                )
+              )
+            ).linesIterator.toVector
+        val database = status.database.toVector.map { d =>
+          s"database ${d.cluster}: ${d.readyInstances}/${d.instances} ready" +
+            d.primary.fold("")(p => s", primary $p") +
+            (if d.synchronous then ", synchronous" else "") +
+            d.writesWaitingOn.fold("")(w => s" (writes waiting: $w)")
+        }
+        (headline +: (lines ++ database)).mkString("\n")
+
+  /** One restore (feature 041): its fields, then a row per service's database. */
+  def restore(view: RestoreView, format: Format): String =
+    format match
+      case Format.Json => writeToString(view)
+      case Format.Table =>
+        val fields = Vector(
+          "name"   -> view.name,
+          "line"   -> view.line,
+          "moment" -> view.moment.toString,
+          "phase"  -> (view.phase + view.detail.fold("")(d => s": $d")),
+          "requested" -> (view.requestedAt.fold("-")(_.toString) + view.requestedBy.fold("")(b =>
+            s" by $b"
+          )),
+          "reached" -> view.reachedAt.fold("-")(_.toString)
+        )
+        val width = fields.map(_._1.length).max
+        val head  = fields.map((label, value) => s"${label.padTo(width, ' ')}  $value")
+        val rows =
+          if view.services.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector(
+                "SERVICE",
+                "PRESENT",
+                "JOURNAL",
+                "STATES",
+                "OFFSETS",
+                "TIMERS",
+                "HIGHEST SEQ",
+                "SECRETS CHANGED"
+              ),
+              view.services.map(v =>
+                Vector(
+                  v.name,
+                  if v.present then "yes" else "no",
+                  v.journalRows.toString,
+                  v.stateRows.toString,
+                  v.offsetRows.toString,
+                  v.timerRows.toString,
+                  v.highestSequence.toString,
+                  if v.changedSecrets.isEmpty then "-" else v.changedSecrets.mkString(", ")
+                )
+              )
+            ).linesIterator.toVector
+        // What the restore cannot take back: the broker, as the restore's services say it.
+        val broker =
+          if view.broker.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector("TOPIC", "GROUP", "NEWER THAN THE MOMENT", "READ BY THE GROUP", "SERVICES"),
+              view.broker.map(e =>
+                Vector(
+                  e.topic,
+                  e.group.getOrElse("-"),
+                  e.after.toString,
+                  e.read.fold("-")(_.toString),
+                  e.services.mkString(", ")
+                )
+              )
+            ).linesIterator.toVector
+        val unasked =
+          if view.notAsked.isEmpty then Vector.empty
+          else Vector("", s"not asked about the broker: ${view.notAsked.mkString(", ")}")
+        val note = view.note.toVector.flatMap(n => Vector("", n))
+        (head ++ rows ++ broker ++ unasked ++ note).mkString("\n")
+
+  def rehearsal(view: RehearsalView, format: Format): String =
+    format match
+      case Format.Json => writeToString(view)
+      case Format.Table =>
+        s"rehearsal ${view.name} of ${view.line} at ${view.moment}: ${view.outcome}" +
+          view.elapsedSeconds.fold("")(s => s", in ${s}s") + view.detail.fold("")(d => s" ($d)")
+
+  def rehearsals(views: Vector[RehearsalView], format: Format): String =
+    format match
+      case Format.Json => writeToString(views)
+      case Format.Table =>
+        table(
+          Vector("NAME", "MOMENT", "OUTCOME", "TOOK", "REQUESTED", "BY"),
+          views.map(v =>
+            Vector(
+              v.name,
+              v.moment.toString,
+              v.outcome + v.detail.fold("")(d => s": $d"),
+              v.elapsedSeconds.fold("-")(s => s"${s}s"),
+              v.requestedAt.fold("-")(_.toString),
+              v.requestedBy.getOrElse("the schedule")
+            )
+          )
+        )
+
+  def restoreHold(status: RestoreHoldStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val head =
+          if status.held then
+            s"held: the control plane's database was restored to " +
+              s"${status.targetTime.fold("an unknown moment")(_.toString)} and nothing is projected " +
+              "until a platform administrator releases it"
+          else
+            status.releasedAt.fold("not held")(at =>
+              s"not held: released at $at" + status.releasedBy.fold("")(b => s" by $b")
+            )
+        val services =
+          if status.services.isEmpty then Vector.empty
+          else
+            "" +: table(
+              Vector("PROJECT", "SERVICE", "RECORDED", "IN THE CLUSTER"),
+              status.services.map(d =>
+                Vector(
+                  d.project,
+                  d.service,
+                  d.recordedGeneration.fold("-")(g => s"$g ${d.recordedImage.getOrElse("")}"),
+                  d.clusterGeneration.fold("-")(g => s"$g ${d.clusterImage.getOrElse("")}")
+                )
+              )
+            ).linesIterator.toVector
+        val lines =
+          Option.when(status.topics.nonEmpty)(
+            s"topics differ in: ${status.topics.mkString(", ")}"
+          ) ++
+            Option.when(status.unknownProjects.nonEmpty)(
+              s"projects the database does not know: ${status.unknownProjects.mkString(", ")}"
+            ) ++ status.reconciled
+        (head +: services ++: lines.toVector).mkString("\n")
+
+  def databaseSetting(setting: DatabaseSetting, format: Format): String =
+    format match
+      case Format.Json => writeToString(setting)
+      case Format.Table =>
+        Vector(
+          "replicas"    -> setting.replicas.toString,
+          "synchronous" -> (if setting.synchronous then "yes" else "no"),
+          "retention"   -> setting.retentionDays.fold("the installation's")(d => s"$d days"),
+          "rehearsed"   -> setting.rehearse.getOrElse("never")
+        ).map((label, value) => s"${label.padTo(11, ' ')}  $value").mkString("\n")
+
+  def restores(views: Vector[RestoreView], format: Format): String =
+    format match
+      case Format.Json => writeToString(views)
+      case Format.Table =>
+        table(
+          Vector("NAME", "LINE", "MOMENT", "PHASE", "REQUESTED BY"),
+          views.map(v =>
+            Vector(v.name, v.line, v.moment.toString, v.phase, v.requestedBy.getOrElse("-"))
+          )
+        )
+
+  /**
+   * What was done to a project's database and its topics, newest first: a topic's changes as
+   * `retention 90d → 180d`, and `the platform` for what no one asked for.
+   */
+  def projectHistory(entries: Vector[ProjectHistoryView], format: Format): String =
+    format match
+      case Format.Json => writeToString(entries)
+      case Format.Table =>
+        table(
+          Vector("WHEN", "KIND", "BY", "TOPIC", "DETAIL"),
+          entries.map(e =>
+            Vector(
+              e.at.fold("-")(_.toString),
+              e.kind,
+              e.by.getOrElse("the platform"),
+              e.topic.getOrElse("-"),
+              if e.changes.nonEmpty then
+                e.changes.map(c => s"${c.setting.wire} ${c.from} → ${c.to}").mkString("; ")
+              else e.detail.getOrElse("-")
+            )
+          )
+        )
+
+  /** Where the installation's backups go (feature 041), as fields. */
+  def installation(status: InstallationStatus, format: Format): String =
+    format match
+      case Format.Json => writeToString(status)
+      case Format.Table =>
+        val fields = Vector(
+          "backups"               -> status.notBackedUp.getOrElse(status.backupTarget),
+          "retention"             -> s"at least ${status.retentionDays} days",
+          "copy outside required" -> (if status.copyRequired then "yes" else "no"),
+          "shares failure domain" -> (if status.sharesFailureDomain then "yes" else "no"),
+          "encryption"            -> status.encryption
+        ) ++ status.controlPlane.toVector.map(l =>
+          "control plane" -> (l.phase + l.lastBaseBackup.fold("")(b => s", last base backup $b"))
+        )
+        val width = fields.map(_._1.length).max
+        fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
+
   /** `ghcr.io as octocat, set 2026-09-25 by sam@example.com`, or `none`. */
   private def registry(row: ProjectSummary): String =
     row.registry.fold("none") { r =>
@@ -191,7 +503,7 @@ object Output:
               s"${row.readyInstances}/${row.desiredInstances}",
               row.generation.toString,
               row.image,
-              row.hostname.getOrElse("-")
+              hostnames(row)
             )
           }
         )
@@ -206,6 +518,37 @@ object Output:
   private def status(row: ServiceStatus): String =
     if row.confirmed then row.lifecycle.toString else s"${row.lifecycle} (unconfirmed)"
 
+  /**
+   * The listing's column: the derived hostname, then each custom one, a `!` after one that is not
+   * serving (feature 045).
+   */
+  private def hostnames(row: ServiceStatus): String =
+    val custom =
+      row.customHostnames.map(h => if h.state == "serving" then h.hostname else s"${h.hostname}!")
+    val all = row.hostname.toVector ++ custom
+    if all.isEmpty then "-" else all.mkString(", ")
+
+  /** `CNAME app.example.com → cart-checkout.example.test`. */
+  private def record(r: DnsRecord): String = s"${r.kind} ${r.name} → ${r.value}"
+
+  /** What `services hostnames add` prints: the record to create, or why there is none. */
+  def hostnameAdded(row: ServiceStatus, requested: String): String =
+    val hostname = row.customHostnames
+      .find(_.hostname == requested.trim.toLowerCase(java.util.Locale.ROOT).stripSuffix("."))
+    hostname match
+      case None => s"service '${row.name}' holds no hostname '$requested'"
+      case Some(h) =>
+        val point = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
+        (s"added '${h.hostname}' to service '${row.name}'" +: point :+
+          "keep the proof record: it is not read again, but it is how the claim was made")
+          .mkString("\n")
+
+  /** One custom hostname, as `services get` shows it: where it stands, then the record. */
+  private def customHostnameLines(h: CustomHostname): String =
+    val stands = h.reason.fold(h.state)(r => s"${h.state}: $r")
+    val point  = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
+    (s"${h.hostname}  $stands" +: point.map("  " + _)).mkString("\n")
+
   /** Always a row: a service that is private should say so, not show nothing. */
   private def hostname(row: ServiceStatus): String =
     (row.exposed, row.hostname) match
@@ -218,7 +561,26 @@ object Output:
     val as    = s.contract.fold("")(c => s" as $c")
     val lag   = s.lag.fold("")(l => s"  lag $l")
     val fail  = s.failing.fold("")(f => s"  failing: $f")
-    s"${s.component}: $where$as  group ${s.group}  v${s.version}$lag$fail"
+    s"${s.component}: $where$as  group ${s.group}  v${s.version}$lag$fail" +
+      s.gap.fold("")(g => s"\n  retained: ${retained(g)}")
+
+  /**
+   * What the broker still holds of a topic source's topic (feature 043): `compacted`, `everything`,
+   * or each partition's beginning and the time of its earliest message, and whether earlier
+   * messages are gone. It never says what was written first, which is not knowable.
+   */
+  def retained(g: RetentionGapReport): String =
+    if g.compacted then "compacted"
+    else if !g.gone && g.partitions.forall(_.beginning == 0) then "everything"
+    else
+      val partitions = g.partitions
+        .map(p =>
+          s"p${p.partition} from ${p.beginning}" + p.earliestRetained.fold(" (holds nothing)")(t =>
+            s" ($t)"
+          )
+        )
+        .mkString(", ")
+      partitions + (if g.gone then "; earlier messages gone" else "")
 
   private def topicCheckLine(c: TopicCheck): String =
     val stated = c.stated.fold("none")(identity)
@@ -251,6 +613,10 @@ object Output:
           row.topicChecks
             .filter(_.nonEmpty)
             .map("topic checks" -> _.map(topicCheckLine).mkString("\n")) ++
+          // Feature 043: what a member should know, worked out from the declarations as they are.
+          row.warnings
+            .filter(_.nonEmpty)
+            .map("warnings" -> _.map(w => s"${w.kind}: ${w.message}").mkString("\n")) ++
           // Feature 034: each only when present, so a service with no bucket reads as before.
           row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
           row.bucketAddress.map("bucket address" -> _) ++
@@ -259,6 +625,28 @@ object Output:
           row.bucketLocation.map("bucket location" -> _) ++
           row.softDeleteDays.map(days => "soft delete" -> s"$days days") ++
           row.storageMove.map("storage move" -> _) ++
+          // Feature 040: whether a grant on the service's routes can reach its instances.
+          row.grantsPhrase.map("grants" -> _) ++
+          // Feature 040: each other project's topic, the right it needs, and whether it has it.
+          row.crossProjectTopics
+            .filter(_.nonEmpty)
+            .map(topics =>
+              val width = topics.map(_.text.length).max
+              "cross-project topics" -> topics
+                .map(t => s"${t.text.padTo(width, ' ')}  ${t.right.padTo(7, ' ')}  ${t.status}")
+                .mkString("\n")
+            ) ++
+          // Feature 045: the proof record and each custom hostname, only when there is one.
+          Option
+            .when(row.customHostnames.nonEmpty)(
+              "custom hostnames" -> row.customHostnames.map(customHostnameLines).mkString("\n")
+            )
+            .toVector ++
+          Option
+            .when(row.customHostnames.nonEmpty)(row.proofRecord)
+            .flatten
+            .map(r => "proof record" -> s"${r.kind} ${r.name} \"${r.value}\"")
+            .toVector ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.
@@ -319,7 +707,8 @@ object Output:
           entries.map(e =>
             Vector(
               e.at.fold("-")(_.toString),
-              e.rolledBackTo.fold(e.kind)(n => s"${e.kind} to $n"),
+              e.rolledBackTo
+                .fold(e.kind)(n => s"${e.kind} to $n") + e.detail.fold("")(d => s" ($d)"),
               e.generation.toString,
               e.image.getOrElse("-"),
               e.digest.fold("-")(_.take(DigestShown)),
@@ -396,6 +785,40 @@ object Output:
            |  ${token.secret}
            |
            |$expiry Store it as a secret named ANKKA_TOKEN.""".stripMargin
+
+  /** A machine just registered: its client id, its secret this once, and where to use them. */
+  def machineRegistered(machine: MachineRegistered, format: Format): String =
+    format match
+      case Format.Json => writeToString(machine)
+      case Format.Table =>
+        val broker = machine.brokerBootstrap.fold("")(b => s"\n  broker         $b")
+        s"""Machine '${machine.name}' registered. This is the only time the secret is shown.
+           |
+           |  client id      ${machine.clientId}
+           |  client secret  ${machine.clientSecret}
+           |  token URL      ${machine.tokenUrl}$broker
+           |
+           |It takes a token from the token URL with these as OAuth 2.0 client credentials.""".stripMargin
+
+  def machines(machines: Vector[MachineSummary], format: Format): String =
+    format match
+      case Format.Json                      => writeToString(machines)
+      case Format.Table if machines.isEmpty => "no machines"
+      case Format.Table =>
+        table(
+          Vector("NAME", "CLIENT ID", "REGISTERED BY", "AT", "BYTE RATES"),
+          machines.map(m =>
+            Vector(
+              m.name,
+              m.clientId,
+              m.registeredBy.getOrElse("-"),
+              m.registeredAt.fold("-")(_.toString),
+              m.byteRates.fold("the installation's")(r =>
+                s"produce ${r.produceBytesPerSecond}/s, consume ${r.consumeBytesPerSecond}/s, ${r.requestPercentage}%"
+              )
+            )
+          )
+        )
 
   def deployTokens(tokens: Vector[DeployTokenSummary], format: Format): String =
     format match

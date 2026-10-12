@@ -7,7 +7,9 @@ copied onto the call, which is what makes it a child span in the console.
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -20,6 +22,7 @@ from ankka._proto.ankka.protocol.v1 import client_pb2, client_pb2_grpc, discover
 from ankka.approvals import APPROVALS_SINCE, Answered, ApprovalAwaited, AwaitingApproval, awaiting_of
 from ankka.codec import DONE_CODEC, UNIT, Codec, Done, default_codec_for
 from ankka.context import Metadata
+from ankka import views
 from ankka.effects.common import Error, ErrorCode
 
 if TYPE_CHECKING:
@@ -43,7 +46,85 @@ def _payload(codec: Codec[Any], value: Any) -> payload_pb2.Payload:
 
 
 def _error(pb: payload_pb2.Error) -> Error:
-    return Error(pb.message, ErrorCode.from_pb(pb.code))
+    return Error(pb.message, ErrorCode.from_pb(pb.code), dict(pb.details))
+
+
+# The first protocol whose runtime can wait for a workflow's end; an older one answers UNIMPLEMENTED.
+AWAIT_SINCE = "1.18"
+
+
+def _await_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:
+    """What a runtime before waiting answers a wait with, said as what it is."""
+    from ankka.service import PROTOCOL_VERSION
+
+    return CommandError(
+        Error(
+            f"the runtime beside this process does not offer waiting for a workflow's end, which needs "
+            f"protocol {AWAIT_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+            ErrorCode.UNAVAILABLE,
+        )
+    )
+
+
+def _seconds(timeout: float | timedelta) -> float:
+    seconds = timeout.total_seconds() if isinstance(timeout, timedelta) else float(timeout)
+    if seconds <= 0:
+        raise CommandError(Error(f"a wait for a workflow's end needs a timeout of more than zero, not {timeout}", ErrorCode.BAD_REQUEST))
+    return seconds
+
+
+def _state_codec(reply: Any, reply_codec: Codec[R] | None) -> Codec[R]:
+    if reply_codec is not None:
+        return reply_codec
+    if reply is None:
+        raise TypeError("a wait for a workflow's end needs the state's type: reply=... or reply_codec=...")
+    codec: Codec[R] = default_codec_for(reply)
+    return codec
+
+
+@dataclass(frozen=True)
+class Heartbeat:
+    """A wait for a workflow's end goes on."""
+
+    def to_json(self) -> str:
+        return '{"heartbeat":true}'
+
+
+@dataclass(frozen=True)
+class Ended:
+    """The workflow completed with ``state``; ``data`` is the state as the runtime holds it."""
+
+    state: Any
+    data: bytes
+
+    def to_json(self) -> str:
+        return '{"ended":' + self.data.decode("utf-8") + "}"
+
+
+@dataclass(frozen=True)
+class Failed:
+    """The workflow failed or was deleted, or the wait was refused."""
+
+    error: Error
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {"failed": {"code": self.error.code.name, "message": self.error.message, **dict(self.error.details)}},
+            separators=(",", ":"),
+        )
+
+
+@dataclass(frozen=True)
+class TimedOut:
+    """The caller's time passed first; the workflow runs on."""
+
+    message: str
+
+    def to_json(self) -> str:
+        return '{"timedOut":true}'
+
+
+AwaitPart = Heartbeat | Ended | Failed | TimedOut
 
 
 def decide_request(
@@ -163,6 +244,12 @@ class Invocation:
             raise
         return self._read(answer, out_codec)
 
+    def then_await_end(self, timeout: float | timedelta) -> AwaitingInvocation:
+        """Sends this command to the workflow and then waits for its end, as one call: answered with
+        the state it ended with, within ``timeout`` (seconds) of the command being sent. A refusal of
+        the command raises at once and no wait begins; the command's own reply is not kept."""
+        return AwaitingInvocation(self, timeout)
+
     def _request(self, input: Any, in_codec: Codec[Any]) -> client_pb2.InvokeRequest:
         return client_pb2.InvokeRequest(
             kind=self.kind,
@@ -208,6 +295,31 @@ class Invocation:
 
 
 @dataclass(frozen=True)
+class AwaitingInvocation:
+    """A command to a workflow followed by a wait for its end, with one deadline from the send."""
+
+    command: Invocation
+    timeout: float | timedelta
+
+    async def invoke(
+        self,
+        input: Any = None,
+        *,
+        reply: type[R] | None = None,
+        codec: Codec[Any] | None = None,
+        reply_codec: Codec[R] | None = None,
+    ) -> R:
+        seconds = _seconds(self.timeout)
+        state = _state_codec(reply, reply_codec)
+        deadline = time.monotonic() + seconds
+        in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
+        Invocation._read(await self.command._stub.Invoke(self.command._request(input, in_codec)), DONE_CODEC)
+        left = max(deadline - time.monotonic(), 0.001)
+        calls = Calls(self.command._stub, self.command.kind, self.command.component_id, self.command.entity_id, self.command.metadata)
+        return await calls.await_end(left, reply_codec=state)
+
+
+@dataclass(frozen=True)
 class Calls:
     _stub: client_pb2_grpc.ClientStub
     kind: Any
@@ -217,6 +329,57 @@ class Calls:
 
     def call(self, name: str) -> Invocation:
         return Invocation(self._stub, self.kind, self.component_id, self.entity_id, name, self.metadata)
+
+    def _await_request(self, timeout: float | timedelta) -> client_pb2.AwaitEndRequest:
+        return client_pb2.AwaitEndRequest(
+            component_id=self.component_id,
+            entity_id=self.entity_id,
+            timeout_millis=max(int(_seconds(timeout) * 1000), 1),
+            metadata=self.metadata.to_pb(),
+        )
+
+    async def await_end(
+        self, timeout: float | timedelta, *, reply: type[R] | None = None, reply_codec: Codec[R] | None = None
+    ) -> R:
+        """Waits for this workflow's end, for at most ``timeout`` (seconds, or a ``timedelta``), and
+        returns the state it ended with, decoded as ``reply`` — at once when it has already ended. A
+        workflow that failed or was deleted raises ``CommandError`` with ``WORKFLOW_FAILED`` (its
+        ``error.details`` hold ``step``, ``reason`` and ``deleted``); a wait not answered in time raises
+        ``TIMEOUT`` and the workflow runs on. A paused workflow has not ended. There is no default."""
+        state = _state_codec(reply, reply_codec)
+        try:
+            answer = await self._stub.AwaitEnd(self._await_request(timeout))
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise _await_unimplemented(failure) from failure
+            raise
+        if answer.HasField("error"):
+            raise CommandError(_error(answer.error))
+        decoded: R = state.decode(answer.reply.payload.data)
+        return decoded
+
+    async def await_end_parts(
+        self, timeout: float | timedelta, *, reply: Any = None, reply_codec: Codec[Any] | None = None
+    ) -> AsyncIterator[AwaitPart]:
+        """The same wait as a stream, for an ``@sse`` route that must outlast the idle timeout: a
+        ``Heartbeat`` while it goes on, then exactly one ``Ended``, ``Failed`` or ``TimedOut``. Each
+        part has ``to_json()``, which is what the route yields."""
+        state = _state_codec(reply, reply_codec)
+        try:
+            async for token in self._stub.AwaitEndStream(self._await_request(timeout)):
+                if token.HasField("heartbeat"):
+                    yield Heartbeat()
+                elif token.HasField("ended"):
+                    yield Ended(state.decode(token.ended.data), bytes(token.ended.data))
+                    return
+                elif token.HasField("failed"):
+                    error = _error(token.failed)
+                    yield TimedOut(error.message) if error.code == ErrorCode.TIMEOUT else Failed(error)
+                    return
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise _await_unimplemented(failure) from failure
+            raise
 
 
 @dataclass(frozen=True)
@@ -267,6 +430,104 @@ class Views:
         decoding = codec or default_codec_for(row)
         documents = json.loads(answer.rows.data.decode("utf-8"))
         return [decoding.decode(json.dumps(d).encode("utf-8")) for d in documents]
+
+
+    async def stream(
+        self,
+        view_id: str,
+        name: str,
+        row: Any,
+        values: Mapping[str, str] | None = None,
+        *,
+        limit: int | None = None,
+    ) -> AsyncIterator[Any]:
+        """The rows of ``all`` or one of the view's declared queries as the database yields them,
+        decoded as ``row``'s default codec: nothing collected, and no limit unless one is given. A
+        statement the database ends, or a reader that takes nothing for its timeout, raises."""
+        request = client_pb2.QueryRequest(
+            view_id=view_id, name=name, metadata=self._metadata.to_pb(), values=dict(values or {}), limit=limit
+        )
+        decoding = default_codec_for(row)
+        async for event in self._frames(self._stub.QueryStream(request), decoding):
+            if isinstance(event, views.Row):
+                yield event.row
+
+    async def watch(
+        self,
+        view_id: str,
+        name: str,
+        row: Any,
+        values: Mapping[str, str] | None = None,
+        *,
+        unread: int | None = None,
+        overflow: views.Overflow = views.Overflow.DROP_HEAD,
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        """A watch of one of the view's declared queries, declared ``watched=True``: every row it
+        matches now, then ``CaughtUp``, then each row as it is written and matches and a ``Removed``
+        for each given row that stops matching. Raises ``WatchEnded`` when it ends with a reason.
+        ``unread`` bounds the rows it holds for a handler that has not read them, and ``overflow``
+        says what it does past that bound."""
+        request = client_pb2.WatchRequest(
+            view_id=view_id,
+            metadata=self._metadata.to_pb(),
+            named=client_pb2.Named(name=name, values=dict(values or {})),
+            unread_bound=unread,
+            overflow=overflow.name,
+        )
+        async for event in self._frames(self._stub.Watch(request), default_codec_for(row)):
+            yield event
+
+    async def watch_row(
+        self,
+        view_id: str,
+        key: str,
+        row: Any,
+        *,
+        unread: int | None = None,
+        overflow: views.Overflow = views.Overflow.DROP_HEAD,
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        """A watch of one row by its key: the row now, then ``CaughtUp``, then each version written
+        and a ``Removed`` when it is deleted."""
+        request = client_pb2.WatchRequest(
+            view_id=view_id, metadata=self._metadata.to_pb(), key=key, unread_bound=unread, overflow=overflow.name
+        )
+        async for event in self._frames(self._stub.Watch(request), default_codec_for(row)):
+            yield event
+
+    @staticmethod
+    async def _frames(
+        frames: Any, decoding: Codec[Any]
+    ) -> AsyncIterator[views.Row[Any] | views.Removed | views.CaughtUp]:
+        try:
+            async for frame in frames:
+                which = frame.WhichOneof("frame")
+                if which == "row":
+                    yield views.Row(frame.row.key, decoding.decode(frame.row.payload.data))
+                elif which == "removed":
+                    yield views.Removed(frame.removed.key)
+                elif which == "caught_up":
+                    yield views.CaughtUp()
+                elif which == "ended":
+                    raise views.WatchEnded(frame.ended.reason)
+                elif which == "failed":
+                    raise CommandError(_error(frame.failed))
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise view_streams_unimplemented(failure) from failure
+            raise
+
+
+def view_streams_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:
+    """What a runtime before view streams answers a stream or a watch with, said as what it is."""
+    from ankka.service import PROTOCOL_VERSION
+
+    return CommandError(
+        Error(
+            f"the runtime beside this process does not offer view streams, which need protocol "
+            f"{views.VIEW_STREAMS_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+            ErrorCode.INTERNAL,
+        )
+    )
 
 
 @dataclass(frozen=True)

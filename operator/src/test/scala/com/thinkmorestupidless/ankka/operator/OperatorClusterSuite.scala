@@ -802,6 +802,35 @@ class OperatorClusterSuite extends munit.FunSuite:
         s"expected the API server to refuse the read: ${read.getMessage}"
       )
 
+      // A registered machine (feature 040): the operator reads it and writes its status, and may not
+      // delete it, which is the control plane's to do.
+      client
+        .load(getClass.getResourceAsStream("/ankka/crd/ankkamachine.yaml"))
+        .serverSideApply(): Unit
+      val machines = classOf[com.thinkmorestupidless.ankka.crd.AnkkaMachine]
+      // The type is served a moment after its definition is applied.
+      waitFor(30.seconds) {
+        scala.util
+          .Try(
+            client
+              .resource(
+                com.thinkmorestupidless.ankka.crd.AnkkaMachine(
+                  com.thinkmorestupidless.ankka.crd.AnkkaMachineSpec("rbac", "probe")
+                )
+              )
+              .serverSideApply()
+          )
+          .isSuccess
+      }
+      assertEquals(
+        restricted.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector,
+        Vector("rbac.probe")
+      )
+      val unmade = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted.resources(machines).withName("rbac.probe").delete(): Unit
+      }
+      assertEquals(unmade.getCode, 403, s"expected the delete refused: ${unmade.getMessage}")
+
       // The other direction, and the only test that can catch a *missing* grant: everything else
       // here runs the operator on the admin kubeconfig, so a ClusterRole with no `services` rule
       // — which is what shipped until feature 003 looked — passes every other case and fails on
@@ -949,6 +978,107 @@ class OperatorClusterSuite extends munit.FunSuite:
           .isEmpty
       )
 
+      // Feature 045: a custom hostname's listener set and certificate, under the same real identity,
+      // and the two things the operator must never be able to do about how traffic enters: write
+      // the Gateway, or make an issuer the whole installation would use.
+      val gatewayWrite = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted
+          .resource(
+            new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewayBuilder()
+              .withMetadata(
+                new ObjectMetaBuilder()
+                  .withName(Rendering.GatewayName)
+                  .withNamespace(Rendering.GatewayNamespace)
+                  .build()
+              )
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewaySpecBuilder()
+                  .withGatewayClassName("ankka")
+                  .build()
+              )
+              .build()
+          )
+          .serverSideApply(): Unit
+      }
+      assertEquals(
+        gatewayWrite.getCode,
+        403,
+        s"the Gateway was writable: ${gatewayWrite.getMessage}"
+      )
+      val issuerWrite = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted
+          .genericKubernetesResources("cert-manager.io/v1", "ClusterIssuer")
+          .resource(
+            new io.fabric8.kubernetes.api.model.GenericKubernetesResourceBuilder()
+              .withApiVersion("cert-manager.io/v1")
+              .withKind("ClusterIssuer")
+              .withMetadata(new ObjectMetaBuilder().withName("mine").build())
+              .withAdditionalProperties(
+                Map[String, AnyRef]("spec" -> Map("selfSigned" -> Map.empty.asJava).asJava).asJava
+              )
+              .build()
+          )
+          .create(): Unit
+      }
+      assertEquals(
+        issuerWrite.getCode,
+        403,
+        s"a ClusterIssuer was creatable: ${issuerWrite.getMessage}"
+      )
+
+      val hostnameSpec =
+        probeSpec.copy(exposed = true, customHostnames = List("probe.example.com"))
+      asOperator.execute(
+        Action.EnsureListenerSet(
+          HostnameRendering.listenerSet(
+            owner,
+            hostnameSpec,
+            probeNamespace,
+            Vector("probe.example.com")
+          )
+        )
+      )
+      asOperator.execute(
+        Action.EnsureCertificate(
+          HostnameRendering.certificate(
+            owner,
+            hostnameSpec,
+            probeNamespace,
+            "probe.example.com",
+            "ankka-service"
+          )
+        )
+      )
+      def probeSet = Option(
+        client
+          .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.ListenerSet])
+          .inNamespace(probeNamespace)
+          .withName("probe-hostnames")
+          .get()
+      )
+      def probeCertificate = Option(
+        client
+          .genericKubernetesResources("cert-manager.io/v1", "Certificate")
+          .inNamespace(probeNamespace)
+          .withName("probe.example.com")
+          .get()
+      )
+      assert(probeSet.isDefined, "the operator's own ServiceAccount could not apply a ListenerSet")
+      assert(probeCertificate.isDefined, "the operator could not ask for a hostname's certificate")
+      // Reading what serves a hostname, challenges included, is within the grant.
+      val _ = asOperator.observeHostnames(probeNamespace, "probe", Vector("probe.example.com"))
+      asOperator.execute(
+        Action.RemoveListenerSet(probeNamespace, "probe-hostnames", "not-the-owner")
+      )
+      assert(probeSet.isDefined, "RemoveListenerSet removed a set for an owner it does not have")
+      asOperator.execute(
+        Action.RemoveListenerSet(probeNamespace, "probe-hostnames", owner.getMetadata.getUid)
+      )
+      asOperator.execute(
+        Action.PruneHostnameCertificates(probeNamespace, owner.getMetadata.getUid, Vector.empty)
+      )
+      waitFor(30.seconds)(probeSet.isEmpty && probeCertificate.isEmpty)
+
       // Feature 034: a storage credential, under the same real identity. Its Secret is written with
       // `create` alone, a conflict is how an existing one is learned of, and no `get` is ever sent —
       // so this holds with the grant as it is and after the grant loses `get`.
@@ -989,6 +1119,100 @@ class OperatorClusterSuite extends munit.FunSuite:
           secret.getMetadata.getOwnerReferences == null || secret.getMetadata.getOwnerReferences.isEmpty
         )
       finally store.close()
+
+      // Feature 041: what backups need and no more, asked of the API server as the operator.
+      def may(verb: String, group: String, resource: String, namespace: String, name: String = "") =
+        restricted
+          .authorization()
+          .v1()
+          .selfSubjectAccessReview()
+          .create(
+            new io.fabric8.kubernetes.api.model.authorization.v1.SelfSubjectAccessReviewBuilder()
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.authorization.v1.SelfSubjectAccessReviewSpecBuilder()
+                  .withResourceAttributes(
+                    new io.fabric8.kubernetes.api.model.authorization.v1.ResourceAttributesBuilder()
+                      .withVerb(verb)
+                      .withGroup(group)
+                      .withResource(resource.takeWhile(_ != '/'))
+                      .withSubresource(resource.dropWhile(_ != '/').drop(1))
+                      .withNamespace(namespace)
+                      .withName(name)
+                      .build()
+                  )
+                  .build()
+              )
+              .build()
+          )
+          .getStatus
+          .getAllowed
+          .booleanValue
+      assert(may("create", "", "pods/exec", Namespace), "psql in a database's pod")
+      assert(
+        may("create", "barmancloud.cnpg.io", "objectstores", Namespace),
+        "the archiver's store"
+      )
+      assert(may("get", "postgresql.cnpg.io", "backups", Namespace), "a base backup's outcome")
+      assert(may("patch", "postgresql.cnpg.io", "scheduledbackups", Namespace), "the schedule")
+      assert(!may("delete", "postgresql.cnpg.io", "clusters", Namespace), "a project's database")
+      assert(
+        !may("delete", "barmancloud.cnpg.io", "objectstores", Namespace),
+        "the archive's store"
+      )
+      assert(!may("delete", "postgresql.cnpg.io", "backups", Namespace), "a base backup")
+      assert(!may("get", "", "secrets", Namespace, "ankka-db-backups"), "the backup credential")
+
+      // The one delete, bound only where a rehearsal runs: by a RoleBinding in its namespace, as the
+      // control plane writes it, to the ClusterRole the shipped manifest declares.
+      val rehearsals = s"$Namespace-rehearsal"
+      client
+        .namespaces()
+        .resource(
+          new io.fabric8.kubernetes.api.model.NamespaceBuilder()
+            .withMetadata(new ObjectMetaBuilder().withName(rehearsals).build())
+            .build()
+        )
+        .serverSideApply(): Unit
+      assert(!may("delete", "postgresql.cnpg.io", "clusters", rehearsals), "before the binding")
+      client
+        .rbac()
+        .roleBindings()
+        .inNamespace(rehearsals)
+        .resource(
+          new io.fabric8.kubernetes.api.model.rbac.RoleBindingBuilder()
+            .withMetadata(
+              new ObjectMetaBuilder()
+                .withName("ankka-operator-rehearsal")
+                .withNamespace(rehearsals)
+                .build()
+            )
+            .withRoleRef(
+              new io.fabric8.kubernetes.api.model.rbac.RoleRef(
+                "rbac.authorization.k8s.io",
+                "ClusterRole",
+                "ankka-operator-rehearsal"
+              )
+            )
+            .withSubjects(
+              new io.fabric8.kubernetes.api.model.rbac.Subject(
+                null,
+                "ServiceAccount",
+                "ankka-operator",
+                "ankka-operator"
+              )
+            )
+            .build()
+        )
+        .serverSideApply(): Unit
+      waitFor(30.seconds)(may("delete", "postgresql.cnpg.io", "clusters", rehearsals))
+      assert(
+        !may("delete", "postgresql.cnpg.io", "clusters", Namespace),
+        "only in the rehearsal namespace"
+      )
+      assert(
+        !may("delete", "postgresql.cnpg.io", "databases", rehearsals),
+        "clusters, and nothing else"
+      )
     finally restricted.close()
   }
 

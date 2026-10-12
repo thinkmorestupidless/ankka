@@ -13,10 +13,12 @@ granted access to named parts of a project, its routes and the topics it may con
 that project. The owning project grants, the default is closed, the broker enforces topic grants, a
 revocation takes effect without redeploying either side, and every grant and revocation is recorded."
 Clarified 2026-10-08: a machine outside the installation can be granted a topic in this feature, and a
-grant to another organization's principal takes effect only when that organization accepts it.
+grant to another organization's grantee takes effect only when that organization accepts it.
 Reviewed 2026-10-08: owners act, `machine` is reserved, the grants volume is mounted from the first
 deploy, gRPC methods are targets, delivery is at least once, one writer per record, and hooks for
-features 042 and 043.
+features 042 and 043. Clarified again 2026-10-08, before planning: a deleted grantee's grants lapse,
+a topic grant carries one right, a cross-project topic reference is checked by the broker alone,
+042's hooks are data only here, and the glossary's terms are settled.
 
 ## Context
 
@@ -71,11 +73,11 @@ The decisions this feature makes:
 
 - **The owning project grants, as data, and the default is closed.** A grant is held by the project
   whose route or topic it opens, beside that project's topic declarations on the `Project` entity. It
-  names one principal and exactly what it reaches: a route of one of the project's services by method
+  names one grantee and exactly what it reaches: a route of one of the project's services by method
   and path template, a gRPC method of one of its services as `service/method`, one of the project's
-  declared topics with `consume`, `produce` or both, or the right to file erasure requests for the
+  declared topics with one right, `consume` or `produce`, or the right to file erasure requests for the
   project's data subjects (feature 042). There are no wildcards: no "any service of project B", no
-  "every route of this service", no topic prefix. A principal with no grant reaches nothing a grant
+  "every route of this service", no topic prefix. A grantee with no grant reaches nothing a grant
   would open.
 - **A route is grantable only if its author says so.** The endpoint's ACL names a new matcher,
   `Callers.granted`, beside whatever else it admits. A grant on a route that does not name it opens
@@ -83,7 +85,7 @@ The decisions this feature makes:
   project ever call this route" in reviewed code and the decision "who, today" in data a member can
   change in an incident. `Callers.service(project, name)` keeps working unchanged, as a grant written
   in code.
-- **One notion of caller, two ways to prove it.** A principal is either a service,
+- **One notion of caller, two ways to prove it.** A grantee is either a service,
   `service:<project>/<name>`, proven as today by its certificate, or a machine,
   `machine:<organization>/<name>`, proven by a short-lived token. The platform turns a verified
   machine token into a new `Caller.Machine(organization, name)` before the ACL runs, exactly as it
@@ -108,15 +110,16 @@ The decisions this feature makes:
   grantee's own `KafkaUser` — `Read` and `Describe`, or `Write` and `Describe`, on the one qualified
   topic, a literal name and never a prefix. A consumer in project B reading project A's topic keeps its
   group under B's own `ankka.<B>.<service>.` prefix, which its user already holds, so its offsets are
-  B's and a grant gives A no view of them. A principal with no such entry is refused by the broker
+  B's and a grant gives A no view of them. A grantee with no such entry is refused by the broker
   whatever its code says. A machine is the same: the operator renders it a `KafkaUser`,
   `machine.<organization>.<name>`, holding the entries its grants give it and Read on its own group
   prefix, `ankka.machine.<organization>.<name>.`, and nothing else.
 - **A machine reaches the broker through the installation's gateway, by TLS passthrough.** An
-  installation that turns it on gets a second broker listener, `external`, of Strimzi's `cluster-ip`
-  type: a bootstrap service and one service per broker node, each advertised under its own one-label
-  hostname of the installation's base domain (`broker.<base>`, `broker-<n>.<base>`). The installation's
-  one `Gateway` gains a TLS listener in passthrough mode and one `TLSRoute` per hostname, so Envoy
+  installation that turns it on gets a second broker listener, `external`, of Strimzi's `tlsroute`
+  type: Strimzi itself makes a bootstrap service and one service per broker node, each advertised
+  under its own one-label hostname of the installation's base domain (`broker.<base>`,
+  `broker-<n>.<base>`), and one Gateway API `TLSRoute` per hostname attached to the installation's
+  one `Gateway`, which gains a TLS listener in passthrough mode on a port of its own, so Envoy
   routes each connection by its SNI and never sees inside it; the broker terminates TLS with a
   certificate from the installation's public issuer, the one the gateway's own certificate comes from,
   so a partner trusts it as it trusts every exposed route. A dedicated load balancer per broker node —
@@ -138,13 +141,13 @@ The decisions this feature makes:
   A token lives fifteen minutes, and the listener makes every connection re-authenticate within that
   lifetime, so a deleted machine is off the broker within fifteen minutes; a revoked grant is sooner,
   because the broker checks ACLs on every request.
-- **An outside consumer cannot starve the broker.** Every machine's `KafkaUser` carries quotas — produce
+- **An outside consumer cannot starve the broker.** Every machine's `KafkaUser` carries byte rates — produce
   and fetch bytes per second and a share of request time — from the installation's defaults, which an
   owner may lower or raise for one machine within the installation's ceiling. The external listener
-  caps connections per address. Services inside the installation have no quota from this feature.
-- **A grant to another organization's principal waits for that organization to accept it.** A grant
-  whose principal belongs to the granting project's own organization takes effect at once. One whose
-  principal belongs to another organization — a service of a project it owns, or a machine registered on
+  caps connections per address. Services inside the installation have no byte rate from this feature.
+- **A grant to another organization's grantee waits for that organization to accept it.** A grant
+  whose grantee belongs to the granting project's own organization takes effect at once. One whose
+  grantee belongs to another organization — a service of a project it owns, or a machine registered on
   it — is *pending*, opens nothing, and is shown to that organization; an owner of that organization
   accepts or declines it. The
   grantor may withdraw a pending grant and revoke an accepted one without asking, and the grantee may
@@ -158,7 +161,7 @@ The decisions this feature makes:
   `RotatingTls` re-reads certificates by modification time. That only works for a file that is
   mounted, and a volume can be added to a pod only when the pod is made; so every service pod and
   every sidecar carries a grants volume from its first deploy, empty until a grant names it. A grant
-  takes effect, and a revocation stops a principal, within two minutes on both HTTP and the broker,
+  takes effect, and a revocation stops a grantee, within two minutes on both HTTP and the broker,
   with neither side redeployed. A revoked machine's tokens stop working at the next refresh of the
   grants, not at their expiry. A revocation also closes the SSE streams and sockets the grant admitted.
   The grants are rendered to the granting service and to any platform component that admits by
@@ -168,7 +171,7 @@ The decisions this feature makes:
   declining and relinquishing are commands an owner of the grantee organization issues through an
   endpoint that checks that right and then applies them to the granting `Project`. The granting
   project's events are the one record written by a command. The grantee side's copy — on the grantee
-  `Project` for a service principal, on the `Organization` for a machine — is derived from those
+  `Project` for a service grantee, on the `Organization` for a machine — is derived from those
   events by a consumer, never written by the endpoint beside them, so no change is half-recorded.
   Each side's history then answers "who could reach what, agreed by whom, between which times"
   without the other's. No secret value is in either.
@@ -186,7 +189,7 @@ The decisions this feature makes:
   installation may expose its broker through the gateway by TLS passthrough; a machine authenticates
   to it with the same client id and secret it uses for routes (SASL `OAUTHBEARER`), the broker enforces
   its grants with the same ACL entries a service's grants give, its groups are under its own prefix,
-  and quotas bound it. A route feed or webhook remains an alternative for partners without a Kafka
+  and a byte rate bounds it. A route feed or webhook remains an alternative for partners without a Kafka
   client.
 - Q: May a project grant to a principal of another organization? → A: Yes. A principal is identified
   by its certificate or its token, not by membership, and the granting project chose to name it. The
@@ -210,7 +213,7 @@ The decisions this feature makes:
   project", and no such right exists: the control plane's `Organization` holds members with
   `Role.Owner` or `Role.Member` and nothing per project. → A: An owner of the organization grants,
   withdraws, revokes, accepts, declines, relinquishes, registers and deletes machines and sets their
-  quotas; a member lists. A deploy token does none of it.
+  byte rates; a member lists. A deploy token does none of it.
 - Q: `ankka.machine.<org>.<name>.` is a machine's group prefix, and `ankka.<project>.<service>.` a
   service's. A project called `machine` with a service named after an organization would hold read
   on every machine's groups of that organization. → A: `machine` is a reserved project id, beside
@@ -235,7 +238,7 @@ The decisions this feature makes:
   → A: As a bearer token in `Authorization`; `ankka-auth-oidc` verifies it against the control plane's
   JWKS as it verifies any issuer's, and the caller becomes `Caller.Machine` before the ACL runs.
 - Q: Is a per-listener connection cap real? → A: Kafka's per-address cap is per broker, not per
-  listener, and quotas are per client id; the requirement says what Kafka can do.
+  listener, and byte rates are per client id; the requirement says what Kafka can do.
 - Q: What does the control plane take on by issuing tokens, and what was the honest alternative? →
   A: Key custody and rotation, JWKS publication, a rate limit on the token route per client id, and
   secrets minted and digested as deploy tokens are. The alternative was a Keycloak client holding
@@ -243,13 +246,38 @@ The decisions this feature makes:
   standing right to create clients, held by the component designed to hold none.
 - Q: What does feature 042 need from a grant? → A: Two things this feature defines without designing
   042: a topic grant may carry `decrypt`, meaning the grantee may decrypt personal fields in what it
-  reads under 042's rules; and a project may grant a principal the `erasure` right, to file erasure
+  reads under 042's rules; and a project may grant a grantee the `erasure` right, to file erasure
   requests for its data subjects. Grants are rendered to platform components that admit by grant,
   the keyring first. A topic grant's listing on the grantee side shows the topic's retention
   settings (feature 043).
 - Q: Which SDK files carry the new matcher? → A: `sdks/python/src/ankka/endpoint.py`,
   `sdks/typescript/src/routes.ts`, the Rust crate's ACL types, and the matcher's wire form in
   `discovery.proto`, with the conformance suite covering `Callers.granted` on every host.
+
+### Session 2026-10-08 (clarify)
+
+- Q: What happens to a grant when its grantee — the project or the registered machine — is deleted,
+  when no owner of the granting project acted? → A: It ends in a terminal state of its own, `lapsed`,
+  as an event on the granting project carrying the attribution of the owner who deleted the grantee.
+  A machine's name may be registered again; the new machine holds nothing, since an ended grant is
+  never reopened.
+- Q: Is a topic grant one record per topic carrying a set of rights, or one record per right? → A:
+  One per right. The target is the topic and one right, `consume` or `produce`; `decrypt` qualifies a
+  `consume` grant. A grantee that may both consume and produce holds two grants, each accepted,
+  revoked and recorded on its own; no command changes a grant's rights.
+- Q: Is a descriptor that references another project's topic checked against grants at deploy time,
+  or only by the broker at runtime? → A: Only by the broker. The deploy is accepted whatever the
+  grants say, the service's status reports each cross-project topic reference as granted or not and
+  why, and the consumer retries the broker's refusal until the grant is in effect.
+- Q: How far does this feature take feature 042's hooks, the `decrypt` attribute and the `erasure`
+  right? → A: As data only. They are accepted, listed, recorded and rendered into the grants file,
+  with a scenario proving each is held and listed; nothing here enforces them, since no component
+  admits by them until 042's keyring.
+- Q: Do the twenty proposed glossary terms for cross-project access stand as written? → A: Yes,
+  settled: grant, grantor, grantee, target, consume, produce, in effect, accept, decline, withdraw,
+  relinquish, granted caller, grantable, registered machine, client id, client secret, machine
+  token, token route, byte rate and throttled, with `lapsed` added and `target` and `in effect`
+  amended by this session's answers.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -348,7 +376,7 @@ assert 403 within the bound while the token is unexpired.
 
 ### User Story 4 - Members see who may reach their project and what their project may reach (Priority: P2)
 
-A member of `spinvibe` lists the project's grants: each principal, what it reaches, who granted it
+A member of `spinvibe` lists the project's grants: each grantee, what it reaches, who granted it
 and when, and whether it is in effect — or why not: pending the grantee's acceptance, declined, a
 route not yet seen, a route whose ACL does not name granted callers, a topic not declared, the broker
 not exposed to a machine. A member of `payments` lists the grants its services hold
@@ -370,6 +398,7 @@ credential anywhere in the journal.
 - added `features/cross-project/listing.feature`: a topic grant tells its grantee the topic's retention
 - added `features/cross-project/listing.feature`: a member of neither project sees no grant between them
 - added `features/cross-project/listing.feature`: granting and revoking are recorded with the owner who did it
+- added `features/cross-project/listing.feature`: a grant that allows decryption and an erasure grant are held and listed, and nothing enforces them yet
 
 ---
 
@@ -393,8 +422,8 @@ of User Story 3 already serves the case, more slowly.
 
 **Independent Test**: In the k3s broker suite with the gateway and the external listener on, register
 a machine, grant and accept consume on one topic, and from the host — outside every network policy —
-run a stock Apache Kafka console consumer configured only with the bootstrap hostname, the gateway's
-CA, the client id and secret and the token route. Assert it reads what a service published, that its
+run a stock Apache Kafka client configured only with the bootstrap hostname, the gateway's CA, the
+client id and secret and the token route. Assert it reads what a service published, that its
 group is under its prefix, that it is refused a second topic and a produce, that revocation refuses
 its next fetch within two minutes, and that a connection with no token or another issuer's token is
 refused at authentication.
@@ -447,6 +476,7 @@ the granting project and the grantee side, and that a member who is not an owner
 - added `features/cross-project/acceptance.feature`: a member who is not an owner cannot accept, nor can a deploy token
 - added `features/cross-project/acceptance.feature`: a grant within one organization takes effect without acceptance
 - added `features/cross-project/acceptance.feature`: every change to a grant is recorded on both sides with the owner who made it
+- added `features/cross-project/acceptance.feature`: deleting a registered machine lapses every grant naming it, and a machine registered again under its name holds nothing
 
 ---
 
@@ -460,12 +490,17 @@ the granting project and the grantee side, and that a member who is not an owner
   is refused (an endpoint check, since it reads another entity). A service name is a deployment
   target, not a tenancy boundary, so a grant to a service not yet deployed is accepted.
 - **A project is deleted.** Its grants stop being rendered and the grantee's `KafkaUser` loses the
-  entries; a project id is never reused, so a grant cannot silently pass to a new owner. Grants held
-  by a deleted project's services are revoked with it.
+  entries; a project id is never reused, so a grant cannot silently pass to a new owner. Every grant
+  held by a deleted project's services lapses with it: an event on each granting project, attributed
+  to the owner who deleted the project, so both histories still name a person.
+- **A registered machine is deleted.** Every grant naming it lapses, attributed to the owner who
+  deleted it, and its `KafkaUser` keeps no topic entry. Its name may be registered again: the new
+  machine is a new grantee and holds nothing, because an ended grant is never reopened.
 - **A service is deployed as the name a grant expected, in the grantee project.** It holds the grant;
   that is what naming a service means, and the grantee's members decide what is deployed under a name.
-- **The same route is granted twice to one principal.** The second is a no-op; a grant is identified
-  by principal and target, so a listing never shows duplicates.
+- **The same route is granted twice to one grantee.** The second is a no-op; a grant is identified
+  by grantee and target, so a listing never shows duplicates. `consume` and `produce` on one topic
+  are two targets, so two grants, and a listing shows both.
 - **A machine token arrives over a service-to-service connection.** The certificate decides: a
   request carrying a service certificate is that service, and a bearer token in it is a `Principal`
   for `Acl.Authenticate`, never a caller.
@@ -476,8 +511,9 @@ the granting project and the grantee side, and that a member who is not an owner
 - **A grant is revoked while a stream it admitted is open.** The SSE stream or socket is closed
   within the bound; the client's reconnect is refused.
 - **A service was deployed before this feature and has no grants volume.** A grant naming its routes
-  is accepted and reported as not in effect, "rollout needed", until the service is deployed again
-  and gains the mount; the operator lists such services.
+  is accepted and reported as not in effect, "rollout needed", until the operator has applied a
+  Deployment carrying the mount and said so in the service's status; `services get` shows which
+  state a service is in.
 - **A client id asks for tokens too often.** The token route refuses it for a period, as a login
   route does; a partner's client that fetches a token per request, instead of per lifetime, hits it.
 - **A local run.** Every caller is `Caller.Local` and `Callers.granted` admits it, as every
@@ -488,6 +524,11 @@ the granting project and the grantee side, and that a member who is not an owner
   offline until they expire, and grants already rendered keep applying. Changes wait.
 - **A web-hosted service.** Its routes are served by its own program behind the proxy, which has no
   ankka ACL, so its routes cannot be granted and a grant naming one is reported as not grantable.
+- **A service references another project's topic before its grant is in effect.** The deploy is
+  accepted; deploy order between projects does not matter for topics any more than for routes. The
+  service's status reports the reference as not granted and why, the broker refuses the subscription
+  or the publish, and the consumer retries until the grant is in effect, then reads from its declared
+  start.
 - **A grant to consume a compacted or very old topic.** The consumer's start position is its own
   declaration (feature 024); a grant gives access, not a position. A machine's start position is its
   Kafka client's `auto.offset.reset` and its own committed offsets.
@@ -503,9 +544,9 @@ the granting project and the grantee side, and that a member who is not an owner
   within the token's lifetime; a client that cannot fetch a new token — because the machine was
   deleted or the control plane is down — is disconnected at that point. A client that can carries on
   without reconnecting.
-- **The broker is resized.** A new broker node needs its hostname and `TLSRoute`; the installation's
-  broker component renders one per node of the node pool, and a node that has none is unreachable from
-  outside, not reachable by a wrong name.
+- **The broker is resized.** A new broker node needs its hostname and `TLSRoute`; Strimzi's
+  `tlsroute` listener renders one per node of the node pool from its host template, and a node that
+  has none is unreachable from outside, not reachable by a wrong name.
 - **A machine is granted a topic on an installation that does not expose its broker.** The grant is
   accepted, renders its `KafkaUser` entries, and is reported as not in effect, "broker not exposed";
   the same machine's route grants are unaffected.
@@ -521,19 +562,19 @@ the granting project and the grantee side, and that a member who is not an owner
 
 **Grants**
 
-- **FR-001**: A project MUST hold grants, each naming one principal — `service:<project>/<name>` or
+- **FR-001**: A project MUST hold grants, each naming one grantee — `service:<project>/<name>` or
   `machine:<organization>/<name>` — and one target: a route of one of its services by service name,
   method and path template; a gRPC method of one of its services as `service/method`; one of its
-  declared topics with `consume`, `produce` or both, optionally carrying `decrypt` (feature 042); or
+  declared topics with one right, `consume` or `produce`, a `consume` grant optionally carrying `decrypt` (feature 042); or
   the `erasure` right over the project's data subjects (feature 042).
-- **FR-002**: There MUST be no form of grant that names more than one principal or more than one
-  target. A principal with no grant MUST reach nothing a grant would have opened.
+- **FR-002**: There MUST be no form of grant that names more than one grantee or more than one
+  target. A grantee with no grant MUST reach nothing a grant would have opened.
 - **FR-003**: Only an owner of the granting project's organization MUST be able to grant, withdraw or
   revoke; a member MAY list. A deploy token MUST NOT be able to grant, as it cannot manage members
   or tokens.
 - **FR-004**: A grant on an undeclared topic, or to a project id that was never created, MUST be
   refused with the reason. A grant on a route MUST be accepted whether or not the route has been seen.
-- **FR-005**: A project's own principals MUST NOT be grantable to its own routes or topics; inside a
+- **FR-005**: A project's own services MUST NOT be grantable to its own routes or topics; inside a
   project the existing forms (`Callers.service(name)`, `Callers.anyInProject`) apply.
 - **FR-006**: `machine` MUST be a reserved project id, beside `platform` and `local`, with
   `ReservedProjectIdsSuite` holding the list.
@@ -552,9 +593,9 @@ the granting project and the grantee side, and that a member who is not an owner
 - **FR-010**: Every service pod and every sidecar MUST carry a grants volume from its first deploy,
   empty until a grant names the service, re-read on change by modification time. The grants that
   name a service's routes MUST reach its running instances without a redeploy, and a change MUST take
-  effect within two minutes. A service deployed before the volume existed MUST have its grants
-  reported as not in effect, "rollout needed", until its next deploy, and the operator MUST list such
-  services.
+  effect within two minutes. A service whose running Deployment the operator has not yet rendered
+  with the mount MUST have its grants reported as not in effect, "rollout needed", until the operator
+  reports the mount on the service's status, which `services get` MUST show.
 - **FR-011**: A revoked, withdrawn, declined or relinquished grant MUST close, within the bound of
   FR-010, every SSE stream and socket it admitted.
 - **FR-012**: A granted call is delivered at least once; the platform MUST NOT claim idempotent
@@ -588,7 +629,11 @@ the granting project and the grantee side, and that a member who is not an owner
   describe; no grant MUST ever add a prefix entry or an entry for a consumer group.
 - **FR-019**: The SDK MUST let a consumer subscribe to, and a component publish to, a topic of another
   project by project and name, and the consumer's group MUST be named under its own project as
-  feature 024 names it.
+  feature 024 names it. A descriptor referencing another project's topic MUST be accepted whatever
+  the grants say; the service's status MUST report each such reference as granted or not, and why
+  (no grant, pending, ended), beside its undeclared topics; and the broker MUST be the only thing that
+  refuses the subscription or the publish until the grant is in effect, which the consumer retries
+  as it retries any refusal of the broker's.
 - **FR-020**: A revoked topic grant MUST be refused by the broker within the bound of FR-010, without
   a redeploy of either service.
 
@@ -611,17 +656,19 @@ the granting project and the grantee side, and that a member who is not an owner
   group prefix `ankka.machine.<organization>.<name>.`, and with no credential of its own. A machine
   whose grants all end, or that is deleted, MUST keep its `KafkaUser` with no topic entry, as a
   service's is never removed.
-- **FR-025**: Every machine's `KafkaUser` MUST carry produce and fetch byte-rate quotas and a request
-  percentage from the installation's defaults, applied per client id; an owner of the machine's
-  organization MAY set one machine's quotas within the installation's ceiling. The broker MUST cap
-  connections per client address, which Kafka applies per broker, not per listener.
+- **FR-025**: Every machine's `KafkaUser` MUST carry produce and fetch byte rates and a request
+  percentage from the installation's defaults, applied per machine; an owner of the machine's
+  organization MAY set one machine's byte rates within the installation's ceiling. The broker MUST cap
+  connections per client address and the rate at which the external listener accepts new
+  connections, both installation settings with shipped defaults; Kafka applies the per-address cap
+  per broker, not per listener.
 - **FR-026**: A deleted machine MUST be unable to produce or fetch once its current token's lifetime
-  has passed, and a revoked or relinquished topic grant MUST be refused within the bound of FR-010.
+  has passed; a relinquished topic grant ends as a revoked one does (FR-020).
 
 **Grants across organizations**
 
-- **FR-027**: A grant whose principal belongs to the granting project's organization MUST take effect
-  when made. A grant whose principal belongs to another organization MUST be pending and MUST open
+- **FR-027**: A grant whose grantee belongs to the granting project's organization MUST take effect
+  when made. A grant whose grantee belongs to another organization MUST be pending and MUST open
   nothing — no route admission, no broker entry — until accepted.
 - **FR-028**: A pending grant MUST be shown to the grantee organization, naming the granting project
   and organization and the target. Only an owner of the grantee organization MUST be able to accept,
@@ -635,9 +682,11 @@ the granting project and the grantee side, and that a member who is not an owner
 
 - **FR-030**: Granting, withdrawing, revoking, accepting, declining and relinquishing MUST each be an
   event on the granting project carrying the owner's attribution, and that MUST be the only record a
-  command writes. The grantee side's copy — on the grantee project for a service principal, on the
+  command writes. The grantee side's copy — on the grantee project for a service grantee, on the
   organization for a machine — MUST be derived from those events by a consumer, with the owner and
-  the granting project. No event MUST hold a credential.
+  the granting project. No event MUST hold a credential. The deletion of a grantee project or of a
+  registered machine MUST lapse every grant naming it: a terminal state of its own, `lapsed`, written
+  on the granting project with the attribution of the owner who deleted the grantee.
 - **FR-031**: A project's members MUST be able to list its grants with their state, and the reason a
   grant is not in effect; a grantee project's members MUST be able to list the grants its services
   hold and are offered, and an organization's members the grants its machines hold and are offered.
@@ -645,37 +694,41 @@ the granting project and the grantee side, and that a member who is not an owner
   (feature 043).
 - **FR-032**: Grants MUST be rendered not only to the granting service but to every platform component
   that admits by grant, so that feature 042's keyring can admit a `decrypt` or `erasure` grant by the
-  same record.
+  same record. This feature MUST accept, list, record and render `decrypt` and `erasure` grants as
+  data, and MUST NOT enforce either: no component admits by them until feature 042 adds the keyring.
 - **FR-033**: The CLI, the control plane's routes and the console MUST offer grant, withdraw, revoke,
-  accept, decline, relinquish and list, and machine registration, deletion and quotas; the reference
+  accept, decline, relinquish and list, and machine registration, deletion and byte rates; the reference
   pages MUST be regenerated; `docs/reference/limitations.md` MUST drop "no grant that lets a service of
   one project read or publish to another project's topic", and the topics guide MUST document reading
   a granted topic from outside the installation with a stock Kafka client.
 
 ### Key Entities
 
-- **Principal**: who is granted. A service, `service:<project>/<name>`, proven by its certificate;
+- **Grantee**: who a grant names. A service, `service:<project>/<name>`, proven by its certificate;
   or a machine, `machine:<organization>/<name>`, proven by a token the control plane issued.
-- **Grant**: held by the granting project. One principal, one target, who granted it and when, for
-  a topic target whether it carries `decrypt`, and its lifecycle: `pending` (another organization's principal, not yet answered) → `accepted` or
-  `declined`; `pending` → `withdrawn`; `accepted` → `revoked` or `relinquished`. A grant within one
-  organization starts `accepted`. Only an `accepted` grant opens anything. Identified while live by
-  principal and target; an ended grant is history, and granting again makes a new one.
+- **Grant**: held by the granting project. One grantee, one target, who granted it and when, for
+  a topic target whether it carries `decrypt`, and its lifecycle: `pending` (another organization's grantee, not yet answered) → `accepted` or
+  `declined`; `pending` → `withdrawn`; `accepted` → `revoked` or `relinquished`; `pending` or
+  `accepted` → `lapsed` when the grantee is deleted. A grant within one organization starts
+  `accepted`. Only an `accepted` grant opens anything. Identified while live by grantee and target;
+  an ended grant is history, and granting again makes a new one.
 - **Target**: a route (service name, method, path template), a gRPC method (service name,
-  `service/method`), a declared topic with `consume`, `produce` or both and optionally `decrypt`, or
+  `service/method`), a declared topic with one right, `consume` or `produce`, a `consume` grant optionally carrying `decrypt`, or
   the project's `erasure` right.
 - **Machine**: registered on an organization by an owner. A name, a client id, a SHA-256 digest of
-  its 256-bit secret, who registered it, and its broker quotas when they differ from the installation's defaults. Holds no
+  its 256-bit secret, who registered it, and its byte rates when they differ from the installation's defaults. Holds no
   grant itself; grants name it. On the broker it is the `KafkaUser` `machine.<organization>.<name>`,
-  which holds no credential.
+  which holds no credential. Deleting it lapses every grant naming it; its name may be registered
+  again, as a new grantee.
 - **Grant record on the grantee side**: the copy of each change to a grant kept on the grantee project
   or organization, derived by a consumer from the granting project's events — what changed, who
   changed it, the granting project, the target.
 - **External broker listener**: the installation's choice to expose its broker; the bootstrap and
   per-node hostnames, the passthrough routes, the listener's certificate, the per-address connection
-  cap and the default and ceiling machine quotas.
+  cap and the default and ceiling machine byte rates.
 - **Grant state**: in effect, or not and why — pending acceptance, route not seen, route not
-  grantable, rollout needed, broker not exposed, project deleted.
+  grantable, rollout needed, broker not exposed, or ended: declined, withdrawn, revoked,
+  relinquished or lapsed.
 
 ## Success Criteria *(mandatory)*
 
@@ -701,12 +754,12 @@ the granting project and the grantee side, and that a member who is not an owner
   the same grant record the HTTP server reads.
 - **SC-013**: After a revocation, a socket the grant admitted is closed within two minutes and its
   reconnect refused.
-- **SC-008**: A stock Apache Kafka console consumer outside the installation, configured with nothing
+- **SC-008**: A stock Apache Kafka client outside the installation, configured with nothing
   but the bootstrap hostname, the issuer's CA, a client id and secret and the token route, reads a
   topic it was granted and is refused every other topic, every other group and publishing.
 - **SC-009**: No connection reaches the external listener except through the gateway: a client in the
   cluster outside `envoy-gateway-system` is refused by network policy.
-- **SC-010**: A machine fetching as fast as it can is held to its quota while a service consuming on
+- **SC-010**: A machine fetching as fast as it can is held to its byte rate while a service consuming on
   the same broker keeps its throughput, measured in the k3s suite.
 - **SC-011**: A cross-organization grant opens nothing until accepted, and for every grant both the
   granting project's and the grantee side's history name every change and the owner who made it.
@@ -726,17 +779,21 @@ the granting project and the grantee side, and that a member who is not an owner
   `Caller.Machine`, not a `Caller.Service`, and ankka's own consumers and publishers do not yet speak
   to another installation's broker. Trusting another installation's service authority is a feature of
   its own.
-- **Research, before planning commits**: Envoy Gateway v1.9.1 (`components/envoy-gateway`) bundles
-  `TLSRoute` as an experimental Gateway API CRD and nothing in the repository references passthrough
-  yet; the planning phase confirms that a passthrough listener can sit on the installation's one
-  `Gateway` beside its HTTPS listeners on a port of its own, and from which channel the CRD comes.
-- **Research, before planning commits**: Strimzi 1.2.0's `oauth` listener authentication validates
-  tokens offline against a JWKS endpoint with `validIssuerUri` separate from `jwksEndpointUri`, so
-  an in-cluster JWKS URL works; it takes the principal from a named claim, works with `simple`
-  authorization, and a `KafkaUser` without `authentication` is legal; `maxSecondsWithoutReauthentication`
-  is the re-authentication bound. The reviewer confirmed each against the release notes; the planning
-  phase proves them on k3s. If any fails, the fallback is a listener of Strimzi's custom type with
-  the same token verifier, not client certificates.
+- **Resolved by planning**: `TLSRoute` has been in the Gateway API standard channel since v1.4 and
+  `v1` since v1.5; Envoy Gateway v1.9.1 bundles Gateway API v1.6.1 with it served, and Strimzi 1.1
+  added a listener type, `tlsroute`, that renders the routes itself and holds the RBAC for them in
+  1.2.0. The passthrough listener sits on the installation's one `Gateway` on port 9094, beside the
+  HTTPS listener on 443. Nothing in the repository referenced passthrough before this feature.
+- **Resolved by planning**: Strimzi 1.2.0's `oauth` listener authentication validates tokens
+  offline against a JWKS endpoint with `validIssuerUri` separate from `jwksEndpointUri`, so an
+  in-cluster JWKS URL works; it takes the principal from a named claim, works with `simple`
+  authorization, and a `KafkaUser` without `authentication` is legal — Strimzi then writes its ACLs
+  and byte rates for the name as a SASL principal; `maxSecondsWithoutReauthentication` sets Kafka's
+  `connections.max.reauth.ms`. The broker reads the JWKS over a port of the control plane's that
+  serves public keys with server TLS only, since the broker holds no client certificate; that port is
+  the second written exception to every port being mutual TLS. If any of this fails on k3s, the
+  fallback is a listener of Strimzi's custom type with the same token verifier, not client
+  certificates.
 - An organization's owners are the people who grant, accept and register machines for it; the
   control plane has no finer right, and this feature adds none. Sheldon's affiliates organization,
   say, has one owner who answers every grant offered to it.

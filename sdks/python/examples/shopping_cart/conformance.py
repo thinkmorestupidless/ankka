@@ -14,13 +14,14 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail
-from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
+from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail, SseEvent, sse_events
+from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, MachineCaller, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import CommandError, ComponentClient
 from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
 from ankka.consumer import Consumer
+from ankka.standing import Standing
 from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
@@ -146,6 +147,61 @@ class CheckoutRecorder(Consumer[ShoppingCartEvent, None]):
         return self.effects.done()
 
 
+# ── checkout-rows: a view of a workflow; checkout-ends: a consumer of one ──
+
+
+# docs:start workflow-view
+@dataclass(frozen=True)
+class CheckoutRow:
+    id: str
+    status: str
+    standing: str
+    step: str | None = None
+    failure: str | None = None
+
+
+class CheckoutRows(View[Checkout, CheckoutRow]):
+    """A checkout's row: its state's status, and where the workflow stood when it recorded it."""
+
+    component_id = "checkout-rows"
+    source = CheckoutWorkflow
+    event_codec = CheckoutWorkflow.state_codec
+    row_codec = json_codec(CheckoutRow, "checkout-row")
+    by_standing = declare(
+        "by-standing",
+        f"SELECT payload FROM {table_of('checkout-rows')} WHERE payload::jsonb->>'standing' = :standing",
+    )
+
+    def on_change(self, state: Checkout) -> ViewEffect:
+        # A change from a workflow carries its standing: where it stood once the effect that
+        # recorded `state` was applied.
+        standing = self.standing or Standing("Unknown")
+        return self.effects.update_row(
+            CheckoutRow(self.metadata.subject or "", state.status, standing.status, standing.step, standing.failure)
+        )
+# docs:end workflow-view
+
+
+# docs:start workflow-consumer
+class CheckoutEnds(Consumer[Checkout, None]):
+    """Records each checkout that ended, completed or failed, and nothing else."""
+
+    component_id = "checkout-ends"
+    source = CheckoutWorkflow
+    message_codec = CheckoutWorkflow.state_codec
+
+    async def on_message(self, state: Checkout) -> ConsumerEffect:  # type: ignore[override]
+        standing = self.standing
+        if standing is None or not standing.is_terminal:
+            # Running or paused: not an end, and nothing to do.
+            return self.effects.ignore()
+        end = standing.status if standing.failure is None else f"{standing.status}: {standing.failure}"
+        assert self.client is not None
+        await self.client.for_key_value_entity("profile", f"end-{self.metadata.subject or ''}").call("set").invoke(end, reply=str)
+        return self.effects.done()
+# docs:end workflow-consumer
+
+
 # ── checkout-fanout: a consumer that publishes several messages for one change ──
 
 
@@ -242,6 +298,26 @@ class ContractRelay(Consumer[Fanned, Fanned]):
     def on_message(self, message: Fanned) -> ConsumerEffect:
         return self.effects.produce(Fanned(n=message.n + 1))
 # docs:end contract-relay
+
+
+# ── partner-relay: another project's topic, read and published to (1.15) ──
+
+
+# docs:start partner-relay
+class PartnerRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other."""
+
+    component_id = "partner-relay"
+    topic = "conformance-shared"
+    project = "partner"
+    start_from = StartFrom.EARLIEST
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-shared-relayed", project="partner")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(message)
+# docs:end partner-relay
 
 
 # ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──
@@ -615,6 +691,37 @@ class ConformanceEndpoint(Endpoint):
         checkout = await self._scoped().for_workflow("checkout", id).call("status").invoke(reply=Checkout)
         return str(checkout.status)
 
+    @get("/checkout/{id}/row")
+    async def checkout_row(self, id: str) -> CheckoutRow:
+        found = await self._scoped().views.get("checkout-rows", id, CheckoutRow)
+        if found is None:
+            raise HttpProblem(404, f"no row for '{id}'")
+        return found  # type: ignore[no-any-return]
+
+    @get("/checkout-rows/{standing}")
+    async def checkout_rows(self, standing: str) -> list[str]:
+        rows = await self._scoped().views.ask("checkout-rows", "by-standing", CheckoutRow, {"standing": standing})
+        return [row.id for row in rows]
+
+    @get("/checkout/{id}/end")
+    async def checkout_end(self, id: str) -> str:
+        end = await self._scoped().for_key_value_entity("profile", f"end-{id}").call("get").invoke(reply=str)
+        if end == "none":
+            raise HttpProblem(404, f"'{id}' has not ended")
+        return str(end)
+
+    @post("/checkout-await/{id}")
+    async def start_and_await_checkout(self, id: str, mode: str) -> str:
+        """Starts a checkout and answers with how it ended, as one request; a failed one is 424."""
+        try:
+            checkout = await self._scoped().for_workflow("checkout", id).call("start").then_await_end(30.0).invoke(mode, reply=Checkout)
+        except CommandError as refused:
+            if refused.error.code == ErrorCode.WORKFLOW_FAILED:
+                details = refused.error.details
+                raise HttpProblem(424, f"{details.get('step', '')}: {details.get('reason', '')}") from refused
+            raise
+        return str(checkout.status)
+
     @post("/remind/{id}")
     async def remind(self, id: str) -> Done:
         await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)
@@ -701,11 +808,17 @@ class CallersEndpoint(Endpoint):
         c = self.request.caller
         if isinstance(c, ServiceCaller):
             return f"service:{c.project}/{c.name}"
+        if isinstance(c, MachineCaller):
+            return f"machine:{c.organization}/{c.name}"
         return "gateway" if isinstance(c, Gateway) else "local"
 
     @get("/self", acl=Acl.allow_callers(Callers.self_))
     def only_self(self) -> str:
         return "self"
+
+    @get("/granted", acl=Acl.allow_callers(Callers.granted))
+    def granted(self) -> str:
+        return "granted"
 
     @sse("/events", acl=Acl.allow_callers(Callers.self_))
     async def events(self) -> AsyncIterator[str]:
@@ -834,6 +947,9 @@ class TreeRows(View[Placed, TreeRow]):
 )
 SELECT payload FROM below ORDER BY row_key""",
     )
+    # docs:start watched-query
+    all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+    # docs:end watched-query
 
     def on_change(self, event: Placed) -> ViewEffect:
         return self.effects.update_row(TreeRow(self.metadata.subject or "", event.under))
@@ -865,6 +981,22 @@ class TreeEndpoint(Endpoint):
         views = self.client.with_metadata(self.request.metadata).views
         rows = await views.ask("tree-rows", "under", TreeRow, {"row": nodeId})
         return [row.key for row in rows]
+
+    # docs:start stream
+    @sse("/streamed")
+    async def streamed(self) -> AsyncIterator[str]:
+        views = self.client.with_metadata(self.request.metadata).views
+        async for row in views.stream("tree-rows", "all-rows", TreeRow):
+            yield row.key
+    # docs:end stream
+
+    # docs:start watch
+    @sse("/watched")
+    async def watched(self) -> AsyncIterator[str | SseEvent]:
+        views = self.client.with_metadata(self.request.metadata).views
+        async for event in sse_events(views.watch("tree-rows", "all-rows", TreeRow)):
+            yield event
+    # docs:end watch
 
 
 # ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
@@ -991,6 +1123,8 @@ def reference_service() -> ServiceBuilder:
         .register(ShoppingCartEntity)
         .register(CartRows)
         .register(CheckoutWorkflow)
+        .register(CheckoutRows)
+        .register(CheckoutEnds)
         .register(Conformance)
         .register(Profile)
         .register(CheckoutRecorder)
@@ -998,6 +1132,7 @@ def reference_service() -> ServiceBuilder:
         .register(TopicRows)
         .register(TopicRelay)
         .register(ContractRelay)
+        .register(PartnerRelay)
         .register(TreeNode)
         .register(TreeRows)
         .register(JoinedLeft)

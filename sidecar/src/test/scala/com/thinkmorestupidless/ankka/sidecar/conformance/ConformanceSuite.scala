@@ -158,6 +158,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       "GET /conformance/echo",
       "GET /private/",
       "GET /callers/whoami",
+      "GET /callers/granted",
       "POST /autonomous/tasks/{type}",
       "GET /autonomous/tasks/{id}"
     ).foreach { r =>
@@ -362,6 +363,25 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     eventually(30.seconds)(Some(checkoutStatus("w4")).filter(_ == "charged"))
   }
 
+  test("wf.start-and-await") {
+    val statusBefore = spans("checkout", "status").size
+    val answer       = post("/conformance/checkout-await/w5", "ok")
+    assertEquals(answer.status, 200, answer.body)
+    assertEquals(answer.body, "charged")
+    // One request, and nobody asked the workflow how it was getting on.
+    assertEquals(spans("checkout", "status").size, statusBefore)
+    assertEquals(checkoutStatus("w5"), "charged")
+  }
+
+  test("wf.await-failed") {
+    val answer = post("/conformance/checkout-await/w6", "doomed")
+    assertEquals(answer.status, 424, answer.body)
+    // The step, and a reason: a process says its own words, a module's trap says it trapped. The
+    // message is the body as a process answers it, and the problem's `error` as the JVM does.
+    val reason = "compensate: ([^\"]+)".r.findFirstMatchIn(answer.body).map(_.group(1).trim)
+    assert(reason.exists(_.nonEmpty), answer.body)
+  }
+
   // ── View and consumer ──────────────────────────────────────────────────────
 
   test("view.row-updated") {
@@ -419,6 +439,78 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         .filter(_.size == 2)
     )
     assertEquals(below, Vector("q-b", "q-c"))
+  }
+
+  // ── View streams (protocol 1.17, features/view-streams/languages.feature) ──
+
+  /**
+   * The lines of a stream of server-sent events, read as they come, until `enough` or a deadline.
+   */
+  private def readEvents(path: String)(enough: Vector[String] => Boolean): Vector[String] =
+    val response = http.send(
+      HttpRequest.newBuilder(URI.create(target.baseUrl + path)).GET().build(),
+      HttpResponse.BodyHandlers.ofLines()
+    )
+    assertEquals(response.statusCode(), 200)
+    val lines    = response.body().iterator().asScala
+    val deadline = System.nanoTime() + 30.seconds.toNanos
+    var read     = Vector.empty[String]
+    while !enough(read) && System.nanoTime() < deadline && lines.hasNext do read :+= lines.next()
+    response.body().close()
+    read
+
+  private def eventsOf(lines: Vector[String]): Vector[(String, String)] =
+    lines
+      .foldLeft(Vector(Vector.empty[String]))((acc, l) =>
+        if l.isEmpty then acc :+ Vector.empty else acc.init :+ (acc.last :+ l)
+      )
+      .flatMap { fields =>
+        val data = fields.find(_.startsWith("data:")).map(_.stripPrefix("data:").trim)
+        val name =
+          fields.find(_.startsWith("event:")).map(_.stripPrefix("event:").trim).getOrElse("")
+        data.filter(_.nonEmpty).map(d => name -> d)
+      }
+
+  test("view.stream-named") {
+    onlyWhereStreaming()
+    Seq("vs-a", "vs-b", "vs-c").foreach(k => assertEquals(post(s"/tree/$k").status, 200))
+    eventually()(Some(get("/tree/vs-c/below")).filter(_.status == 200))
+    val keys = eventually() {
+      val streamed = eventsOf(readEvents("/tree/streamed")(_ => false))
+        .map(_._2)
+        .flatMap(d => Json.parse(d).toOption.flatMap(_.asString))
+      Option.when(Seq("vs-a", "vs-b", "vs-c").forall(streamed.contains))(streamed)
+    }
+    assertEquals(keys, keys.sorted, "not in the statement's order")
+  }
+
+  test("view.watch-named") {
+    onlyWhereStreaming()
+    assertEquals(post("/tree/vw-a").status, 200)
+    // The view holds the row once a stream of every row gives it.
+    eventually()(
+      Some(eventsOf(readEvents("/tree/streamed")(_ => false)).map(_._2))
+        .filter(_.exists(_.contains("\"vw-a\"")))
+    )
+    // A writer, started once the watcher is caught up, places a row the watch must then give.
+    val placed = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val lines = readEvents("/tree/watched") { read =>
+      val events = eventsOf(read)
+      if events.exists(_._1 == "caught-up") && !placed.getAndSet(true) then
+        Thread.ofVirtual().start(() => post("/tree/vw-b"): Unit): Unit
+      events.exists((n, d) => n == "row" && d.contains("\"vw-b\""))
+    }
+    val events = eventsOf(lines)
+    val caught = events.indexWhere(_._1 == "caught-up")
+    assert(caught >= 0, s"no caught-up event: $events")
+    assert(
+      events.take(caught).exists(_._2.contains("\"vw-a\"")),
+      s"vw-a not among the rows now: $events"
+    )
+    assert(
+      events.drop(caught + 1).exists(_._2.contains("\"vw-b\"")),
+      s"vw-b not given after: $events"
+    )
   }
 
   test(
@@ -521,6 +613,50 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     )
     val _ = eventually()(Option.when(relayed().contains("t-4"))(()))
     assertEquals(relayed().filterNot(_ == "t-4"), Vector.empty)
+  }
+
+  // ── Another project's topic (feature 040) ──────────────────────────────────
+
+  /** The topic `partner-relay` reads and publishes to, as the runtime carries them. */
+  private val partnerShared = s"${ConformanceReference.Partner}/${ConformanceReference.Shared}"
+  private val partnerRelayed =
+    s"${ConformanceReference.Partner}/${ConformanceReference.SharedRelayed}"
+
+  private def publishFanned(topic: String, subject: String, n: Int) =
+    target.broker.publish(
+      topic,
+      s"""{"n":$n}""".getBytes("UTF-8"),
+      com.thinkmorestupidless.ankka.core.Metadata.empty
+        .withSubject(subject)
+        .set(com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.Manifest, "fanned")
+        .set(
+          com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.ContentType,
+          com.thinkmorestupidless.ankka.runtime.remote.Payload.Json
+        )
+    )
+
+  test("topics.cross-project-source: a consumer reads another project's topic by its project") {
+    val _ = publishFanned(partnerShared, "x-1", 1)
+    val _ = eventually()(
+      Option.when(
+        target.broker.publishedTo(partnerRelayed).flatMap(_.message.subject).contains("x-1")
+      )(())
+    )
+    // Under a group of the service's own, named for the component as any topic source's is: the
+    // target states no service name, so `ankka-consumer-<id>`, and nothing of the topic's project.
+    val groups = target.broker.positions(partnerShared).keySet
+    assertEquals(groups, Set("ankka-consumer-partner-relay"))
+  }
+
+  test("topics.cross-project-publication: a consumer publishes to another project's topic") {
+    val _ = publishFanned(partnerShared, "x-2", 2)
+    val _ = eventually()(
+      Option.when(
+        target.broker.publishedTo(partnerRelayed).flatMap(_.message.subject).contains("x-2")
+      )(())
+    )
+    // Never to a topic of this project's that has the same name.
+    assertEquals(target.broker.publishedTo(ConformanceReference.SharedRelayed), Seq.empty)
   }
 
   test("topic.version-names-the-group") {
@@ -964,6 +1100,41 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(get("/callers/whoami", as(Caller.Service("local", "payments"))).status, 403)
     assertEquals(get("/callers/whoami", as(Caller.Service("billing", "orders"))).status, 403)
     assertEquals(get("/callers/self", as(Caller.Service("local", "local"))).body, "self")
+  }
+
+  // Feature 040: a route whose ACL names granted callers admits exactly the callers its
+  // project granted it to, and a machine is a caller as a service is.
+  test("http.granted-admits-a-grant") {
+    val service = get("/callers/granted", as(Caller.Service("billing", "invoices")))
+    assertEquals((service.status, service.body), (200, "granted"))
+    val machine = get("/callers/granted", as(Caller.Machine("affiliates", "network")))
+    assertEquals((machine.status, machine.body), (200, "granted"))
+    assertEquals(
+      get("/callers/granted").status,
+      200,
+      "a local caller is admitted, as by every matcher"
+    )
+  }
+
+  test("http.granted-refuses-without") {
+    for caller <- Vector(
+        Caller.Service("billing", "payroll"),
+        Caller.Service("local", "orders"),
+        Caller.Machine("affiliates", "other"),
+        Caller.Gateway
+      )
+    do
+      val r = get("/callers/granted", as(caller))
+      assertEquals(r.status, 403, caller.toString)
+      assert(!r.body.contains("invoices") && !r.body.contains("grant"), r.body)
+    // A grant on one route opens no other: the caller the grant names is refused elsewhere.
+    assertEquals(get("/callers/self", as(Caller.Service("billing", "invoices"))).status, 403)
+  }
+
+  test("http.caller-machine") {
+    val r = get("/callers/whoami", as(Caller.Machine("affiliates", "network")))
+    // The endpoint admits the internet, and a machine is the internet that proved who it is.
+    assertEquals((r.status, r.body), (200, "machine:affiliates/network"))
   }
 
   test("http.caller-in-stream") {
@@ -1988,19 +2159,123 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("shopping-cart", "cart-graph", "events"),
         ("cart-graph", "topic:conformance-graph", "topic-publication"),
         ("profile", "profile-graph", "state"),
+        // A workflow read as a source (feature 046).
+        ("checkout", "checkout-rows", "workflow"),
+        ("checkout", "checkout-ends", "workflow"),
         ("profile-graph", "topic:conformance-profile-graph", "topic-publication"),
         ("topic:conformance-topic", "topic-rows", "topic-subscription"),
         ("topic:conformance-topic", "topic-relay", "topic-subscription"),
         ("topic-relay", "topic:conformance-topic-relayed", "topic-publication"),
         // A topic on a declared broker is named with it (feature 037).
         ("topic:legacy/conformance-contracts", "contract-relay", "topic-subscription"),
-        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication")
+        ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication"),
+        // Another project's topic is named with its project (feature 040).
+        ("topic:partner/conformance-shared", "partner-relay", "topic-subscription"),
+        ("partner-relay", "topic:partner/conformance-shared-relayed", "topic-publication")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap
     assertEquals(kinds.get("cart-rows"), Some("View"))
     assertEquals(kinds.get("checkout-recorder"), Some("Consumer"))
     assertEquals(kinds.get("shopping-cart"), Some("EventSourcedEntity"))
+  }
+
+  // ── Workflow sources (feature 046, features/workflow-sources/languages.feature) ──
+
+  private def checkoutRow(id: String) = get(s"/conformance/checkout/$id/row")
+
+  /** The checkout's row once its standing is `standing`. */
+  private def rowStanding(id: String, standing: String): Json =
+    eventually(30.seconds)(
+      Some(checkoutRow(id))
+        .filter(_.status == 200)
+        .map(_.json)
+        .filter(_("standing").flatMap(_.asString).contains(standing))
+    )
+
+  private def end(id: String) = get(s"/conformance/checkout/$id/end")
+
+  test("view.workflow-completed: a view reads a workflow in every language") {
+    assertEquals(post("/conformance/checkout/ws1", "ok").body, "started")
+    val row = rowStanding("ws1", "Completed")
+    assertEquals(row("status").flatMap(_.asString), Some("charged"))
+    assertEquals(row("id").flatMap(_.asString), Some("ws1"))
+  }
+
+  test("view.workflow-failure-recorded: a failed workflow's standing in every language") {
+    assertEquals(post("/conformance/checkout/ws2", "abort").body, "started")
+    val row = rowStanding("ws2", "Failed")
+    assertEquals(row("status").flatMap(_.asString), Some("aborted"))
+    assertEquals(row("failure").flatMap(_.asString), Some("payment declined"))
+  }
+
+  test("view.workflow-no-change-without-state: what records no state is no change") {
+    assertEquals(post("/conformance/checkout/ws3", "drop").body, "started")
+    // The last state recorded: reserved, and running on to `charge`, which fails.
+    eventually(30.seconds)(
+      Some(checkoutRow("ws3"))
+        .filter(_.status == 200)
+        .map(_.json)
+        .filter(_("status").flatMap(_.asString).contains("reserved"))
+    )
+    // The compensation fails the workflow and records nothing: the journal has the failure...
+    eventually(30.seconds)(
+      Some(journal("checkout|ws3")).filter(_.exists(_._3.contains("payment declined")))
+    )
+    Thread.sleep(5000)
+    // ...and the row is still that last state, running on the step that failed.
+    val row = checkoutRow("ws3").json
+    assertEquals(row("standing").flatMap(_.asString), Some("Running"))
+    assertEquals(row("status").flatMap(_.asString), Some("reserved"))
+    assertEquals(row("step").flatMap(_.asString), Some("charge"))
+  }
+
+  test("view.workflow-by-standing: a declared query lists the rows of one standing") {
+    post("/conformance/checkout/ws4", "ok")
+    post("/conformance/checkout/ws5", "abort")
+    rowStanding("ws4", "Completed")
+    rowStanding("ws5", "Failed")
+    val failed = get("/conformance/checkout-rows/Failed").json.asArray.getOrElse(fail("no array"))
+    val ids    = failed.flatMap(_.asString)
+    assert(ids.contains("ws5"), ids.toString)
+    assert(!ids.contains("ws4"), ids.toString)
+  }
+
+  test("consumer.workflow-end-once: a consumer is handed a failed workflow's standing") {
+    post("/conformance/checkout/ws6", "ok")
+    post("/conformance/checkout/ws7", "abort")
+    post("/conformance/checkout/ws8", "drop")
+    assertEquals(eventually(30.seconds)(Some(end("ws6")).filter(_.status == 200)).body, "Completed")
+    assertEquals(
+      eventually(30.seconds)(Some(end("ws7")).filter(_.status == 200)).body,
+      "Failed: payment declined"
+    )
+    // A workflow that ends recording nothing hands the consumer no end.
+    eventually(30.seconds)(
+      Some(journal("checkout|ws8")).filter(_.exists(_._3.contains("payment declined")))
+    )
+    Thread.sleep(3000)
+    assertEquals(end("ws8").status, 404)
+  }
+
+  test("discovery.workflow-source-needs-1.16: a runtime too old for a workflow source is refused") {
+    // The target's own refusal, asked once: a sidecar retries a refused discovery until answered.
+    val refused = target.refusalAt("1.15") match
+      case None          => assume(false, "a target in this process has no discovery to refuse"); ""
+      case Some(None)    => fail("a runtime stating 1.15 was answered")
+      case Some(Some(m)) => m
+    // A module refuses by panicking in its discovery export, which reaches the host as a trap
+    // with no message; a process answers with its words, which name the components and versions.
+    if !target.isModule then
+      assert(refused.contains("1.16") && refused.contains("1.15"), refused)
+      assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
+    // At 1.16 a workflow source is known. A process reference also declares a watched query, which
+    // needs 1.17, so it may still be refused, but only for that and never for its workflow source.
+    target.refusalAt("1.16") match
+      case Some(Some(m)) =>
+        assert(m.contains("watched") && m.contains("1.17"), m)
+        assert(!m.contains("checkout-rows") && !m.contains("CheckoutRows"), m)
+      case answered => assertEquals(answered, Some(None))
   }
 
   // ── Contracts, declared brokers and parallel partitions (feature 037) ──────

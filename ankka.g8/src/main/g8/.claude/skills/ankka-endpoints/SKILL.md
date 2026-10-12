@@ -49,7 +49,10 @@ an ACL. Exposing a service changes who can *reach* an endpoint, never who is *al
    a default value.
 9. **SSE frames are JSON strings.** `sse(template)` answers `GET` and `sseBody` answers `POST` as
    `text/event-stream`; each `data` field is one chunk JSON-encoded, because raw text loses a leading
-   space and splits on a newline. Only agents stream.
+   space and splits on a newline. Only agents stream — and a wait for a workflow's end, which
+   `clients.awaitEnd(id, Companion, timeout)` serves through `sseEvents` as a heartbeat then one end
+   event, so it outlasts the idle timeout. A workflow that failed answers 424 with its step and reason in
+   the problem's `details`.
 10. **In Python and TypeScript the process never binds a port.** The sidecar serves the declared routes, applies
     the ACL and forwards. In Python pass `self.request.metadata` with `with_metadata` so the handler's calls
     appear under the request's trace; in TypeScript `this.client` is already scoped to the request. `Acl.AUTHENTICATED` answers 503 for now.
@@ -124,6 +127,10 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
 
+### Run the platform
+
+- `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.
+
 ### Reference
 
-- `references/reference/error-codes.md` — The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
+- `references/reference/error-codes.md` — The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.

@@ -5,7 +5,9 @@ import com.thinkmorestupidless.ankka.sdk.{
   CallTransport,
   CommandHandle,
   ComponentClient,
-  NoArgHandle
+  NoArgHandle,
+  Workflow,
+  WorkflowLifecycle
 }
 
 import scala.concurrent.Future
@@ -58,6 +60,38 @@ final class TestTransport private (
       askTimeout
     )
 
+  /**
+   * Makes a wait for any of `companion`'s workflows answer `state`, as one that has ended would.
+   */
+  def stubEnd[W <: Workflow[S], S](companion: Workflow.Companion[W, S])(state: S): TestTransport =
+    new TestTransport(
+      stubs.updated(
+        (companion.componentId, WorkflowLifecycle.AwaitEnd),
+        _ => companion.stateSerializer.toBytes(state)
+      ),
+      askTimeout
+    )
+
+  /**
+   * Makes a wait for any of `companion`'s workflows fail as `failure` says: a failed workflow, or a
+   * deleted one.
+   */
+  def stubEndFailure[W <: Workflow[S], S](companion: Workflow.Companion[W, S])(
+      failure: WorkflowEnd.Failure
+  ): TestTransport =
+    new TestTransport(
+      stubs.updated(
+        (companion.componentId, WorkflowLifecycle.AwaitEnd),
+        _ =>
+          throw CommandError(
+            s"workflow ${companion.componentId} failed: ${failure.reason}",
+            ErrorCode.WorkflowFailed,
+            failure.details
+          )
+      ),
+      askTimeout
+    )
+
   def withAskTimeout(timeout: FiniteDuration): TestTransport =
     new TestTransport(stubs, timeout)
 
@@ -92,6 +126,19 @@ final class TestTransport private (
             ErrorCode.NotFound
           )
         )
+
+  /** A wait answered from `stubEnd` or `stubEndFailure`; a workflow not stubbed is not found. */
+  override def awaitEnd(
+      componentId: ComponentId,
+      entityId: EntityId,
+      timeout: FiniteDuration,
+      metadata: Metadata
+  ): Future[(Array[Byte], Metadata)] =
+    if timeout <= scala.concurrent.duration.Duration.Zero then
+      Future.failed(CommandError(s"a wait needs a timeout of more than zero, not $timeout"))
+    else
+      ask(componentId, entityId, WorkflowLifecycle.AwaitEnd, Array.emptyByteArray, metadata)
+        .map(bytes => (bytes, Metadata.empty))(using scala.concurrent.ExecutionContext.parasitic)
 
 object TestTransport:
   def apply(): TestTransport = new TestTransport(Map.empty, 5.seconds)

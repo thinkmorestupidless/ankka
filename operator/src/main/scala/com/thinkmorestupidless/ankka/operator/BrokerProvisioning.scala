@@ -87,7 +87,11 @@ final case class TopicState(
     /**
      * Feature 037: whether the topic's resource says it is compacted; `None` when there is none.
      */
-    compacted: Option[Boolean] = None
+    compacted: Option[Boolean] = None,
+    /** Feature 043: the copies the topic's resource asks for, when it states them. */
+    replicas: Option[Int] = None,
+    /** Feature 043: the configuration the topic's resource applies, every value as text. */
+    config: Option[Map[String, String]] = None
 )
 
 /** What the operator found on the broker for one service: its user. */

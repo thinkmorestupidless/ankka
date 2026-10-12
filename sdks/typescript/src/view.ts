@@ -16,6 +16,7 @@ import type { Metadata } from "./effects/common.ts"
 import type { ComponentClient } from "./client.ts"
 import type { ComponentRef } from "./client.ts"
 import { ViewEffects, type ViewEffect } from "./effects/stateless.ts"
+import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -29,11 +30,16 @@ type MaybePromise<T> = T | Promise<T>
 export interface DeclaredQuery {
   readonly name: string
   readonly statement: string
+  /** Whether it may be watched: its statement selects `row_key` beside `payload`, with no limit and no aggregate. */
+  readonly watched?: boolean
 }
 
-/** Declares a query for a view's `static declared`. The SDK sends the statement as written. */
-export function declaredQuery(name: string, statement: string): DeclaredQuery {
-  return Object.freeze({ name, statement })
+/**
+ * Declares a query for a view's `static declared`. The SDK sends the statement as written.
+ * `{ watched: true }` declares that it may also be watched, which the platform checks at start.
+ */
+export function declaredQuery(name: string, statement: string, options: { readonly watched?: boolean } = {}): DeclaredQuery {
+  return Object.freeze({ name, statement, watched: options.watched ?? false })
 }
 
 /** The table a view's rows are kept in, for a declared query's statement to name. */
@@ -46,6 +52,7 @@ export abstract class View<E, Row> {
 
   #row: Row | null = null
   #metadata: Metadata = {}
+  #standing: Standing | undefined = undefined
   #client: ComponentClient | undefined
   #bound = false
 
@@ -63,6 +70,11 @@ export abstract class View<E, Row> {
   /** The id of the source instance the change came from. */
   get subject(): string {
     return this.#metadata["ce-subject"] ?? ""
+  }
+
+  /** Of a change from a workflow: where it stood once the effect that recorded the state was applied. `undefined` for a change from an entity or a topic. */
+  get standing(): Standing | undefined {
+    return this.#standing
   }
 
   get client(): ComponentClient {
@@ -84,9 +96,10 @@ export abstract class View<E, Row> {
   }
 
   /** @internal */
-  _bind(row: Row | null, metadata: Metadata, client: ComponentClient): void {
+  _bind(row: Row | null, metadata: Metadata, client: ComponentClient, standing?: Standing): void {
     this.#row = row
     this.#metadata = metadata
+    this.#standing = standing
     this.#client = client
     this.#bound = true
   }
@@ -109,6 +122,11 @@ export interface ViewClass<E = unknown, Row = unknown, C extends View<E, Row> = 
   readonly contract?: Contract
   /** The declared broker the topic read is on; absent is the installation's. */
   readonly broker?: string
+  /**
+   * Another project's topic (1.15): the id of the project whose topic `topic` is. The broker serves it
+   * while that project grants this service consume on it.
+   */
+  readonly project?: string
   /** Whether the partitions an instance holds are handled at once, each in order. */
   readonly parallel?: boolean
   readonly events: Shape<E>

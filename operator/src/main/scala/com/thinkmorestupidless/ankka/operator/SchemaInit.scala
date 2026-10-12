@@ -31,7 +31,7 @@ object SchemaInit:
   val VolumeName: String = "ankka-schema"
   val MountPath: String  = "/schema"
 
-  def container(serviceName: String): Container =
+  def container(serviceName: String, databaseCluster: Option[String] = None): Container =
     new ContainerBuilder()
       .withName("ankka-schema")
       .withImage(Image)
@@ -45,8 +45,9 @@ object SchemaInit:
           .build()
       )
       .withEnv(
-        ZeroTrust.Database.Environment.map((n, v) =>
-          new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(n).withValue(v).build()
+        (ZeroTrust.Database.Environment ++ ZeroTrust.Database.switched(databaseCluster)).map(
+          (n, v) =>
+            new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(n).withValue(v).build()
         )*
       )
       .withVolumeMounts(

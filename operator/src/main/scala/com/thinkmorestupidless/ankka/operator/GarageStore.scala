@@ -54,16 +54,33 @@ final class GarageStore(
     send("POST", s"/v2/DeleteKey?id=${encode(accessKeyId)}", Some(json.createObjectNode())): Unit
 
   def allow(bucketId: String, accessKeyId: String, write: Boolean): Unit =
+    // A writing key also owns the bucket, so a lifecycle rule the service sets with its own client
+    // stays its own (feature 034); CORS is the platform's since feature 039. `AllowBucketKey` only
+    // adds, so a key allowed without write is one that was never given it.
+    allowWith(bucketId, accessKeyId, read = true, write = write, owner = write)
+
+  /**
+   * A flag sent false leaves a permission the key already has as it was (Garage's rule), so a key
+   * is only ever narrowed by being made anew; the backup keys are made for their one permission
+   * (feature 041).
+   */
+  override def allowAs(bucketId: String, accessKeyId: String, permission: BucketPermission): Unit =
+    allowWith(bucketId, accessKeyId, permission.read, permission.write, permission.owner)
+
+  private def allowWith(
+      bucketId: String,
+      accessKeyId: String,
+      read: Boolean,
+      write: Boolean,
+      owner: Boolean
+  ): Unit =
     val body = json.createObjectNode()
     body.put("bucketId", bucketId)
     body.put("accessKeyId", accessKeyId)
     val permissions = body.putObject("permissions")
-    // A writing key also owns the bucket, so a lifecycle rule the service sets with its own client
-    // stays its own (feature 034); CORS is the platform's since feature 039. `AllowBucketKey` only
-    // adds, so a key allowed without write is one that was never given it.
-    permissions.put("read", true)
+    permissions.put("read", read)
     permissions.put("write", write)
-    permissions.put("owner", write)
+    permissions.put("owner", owner)
     send("POST", "/v2/AllowBucketKey", Some(body)): Unit
 
   def setCors(bucketId: String, origins: Seq[String]): Unit =
@@ -162,7 +179,11 @@ final class GarageStore(
       try Option(response.body()).filter(_.nonEmpty).map(json.readTree).getOrElse(json.nullNode())
       catch case _: IOException => json.nullNode()
     if status >= 500 then
-      throw new ObjectStoreUnavailable(s"the object store answered $status to $method $path")
+      // Garage says why, a quorum it could not reach for one; the reason is the store's, so it is
+      // reported as it gave it, never a credential, which no answer carries.
+      val why =
+        Option(parsed.path("message").asText(null)).filter(_.nonEmpty).fold("")(m => s": $m")
+      throw new ObjectStoreUnavailable(s"the object store answered $status to $method $path$why")
     else if status == 404 && path.startsWith("/v2/GetBucketInfo") then (status, parsed)
     else if status < 200 || status >= 300 then
       val message = Option(parsed.path("message").asText(null)).getOrElse(response.body())

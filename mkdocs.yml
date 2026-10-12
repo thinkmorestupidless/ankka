@@ -194,6 +194,7 @@ nav:
       - Build an image: deploy/images.md
       - Deploy a service: deploy/deploy-a-service.md
       - Expose a service: deploy/expose.md
+      - Serve a service at your own domain: deploy/custom-hostnames.md
       - Deploy a user interface: deploy/web-hosting.md
       - Scale and roll out: deploy/scaling-and-rollouts.md
       - Deploy from GitHub Actions: deploy/ci.md
@@ -206,6 +207,7 @@ nav:
       - Logs: operate/logs.md
       - Telemetry: operate/telemetry.md
       - Pause, resume, restart and delete: operate/service-lifecycle.md
+      - Backups and recovery: operate/recovery.md
       - Troubleshooting: operate/troubleshooting.md
   - Run the platform:
       - Install a local platform: platform/install-local.md
@@ -219,6 +221,7 @@ nav:
       - Object storage: platform/object-storage.md
       - The cloud provider: platform/cloud-provider.md
       - Secrets on the platform: platform/secrets.md
+      - Cross-project access: platform/cross-project-access.md
       - Networking and TLS: platform/networking.md
   - Reference:
       - CLI: reference/cli.md

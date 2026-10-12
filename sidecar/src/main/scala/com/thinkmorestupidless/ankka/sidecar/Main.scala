@@ -195,13 +195,13 @@ object Main:
         case Some(port) => HttpServer.at("0.0.0.0", port)(endpoints.map(e => _ => e)*)
         case None       => HttpServer.of(endpoints.map(e => _ => e)*)
 
+    // The process's way back in starts first and stops last: extensions start in order, and a
+    // projection or a route that reaches the process before the callback server is bound hands it a
+    // call it cannot make. A consumer redelivered at a restart was refused on the callback port and
+    // left the process's channel backing off for a second, failing every call behind it.
     Ankka.service
       .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory)
       .withConversation(conversation)
-      .withExtension(projections)
-      .withExtension(timers)
-      .withExtension(agentRuntime)
-      .withExtension(http)
       .withExtension(
         SidecarExtension(
           settings,
@@ -212,4 +212,8 @@ object Main:
           Some(discovered.spec.protocolVersion)
         )
       )
+      .withExtension(projections)
+      .withExtension(timers)
+      .withExtension(agentRuntime)
+      .withExtension(http)
       .startWith(system)

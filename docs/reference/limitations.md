@@ -30,25 +30,42 @@ feature also says what that feature does not do.
   version before deployment. The platform does not compare it with the version the running image reports at
   `/ankka/version`. There is one compatibility rule — the same major, and a minor equal to the platform's or
   one below — and no finer matrix.
-- **One database per service, on one Postgres cluster per project.** Provisioned databases run on a
-  single-instance Postgres cluster in the project's namespace. A service that needs a different durability
-  profile, or has existing data to migrate, supplies its own database through `ANKKA_DB_*` variables, and its
-  isolation is then whatever its owner configured.
+- **One database per service, on one Postgres cluster per project.** Provisioned databases run on one
+  Postgres cluster in the project's namespace, a primary and as many as four replicas the project asks for.
+  A service that needs a different durability profile, or has existing data to migrate, supplies its own
+  database through `ANKKA_DB_*` variables, and its isolation and backups are then whatever its owner
+  configured.
+- **A restore does not take back the broker.** Messages published from events a restore lost stay on their
+  topics, and every view and consumer on the platform reads a message published again as a new one; its
+  `ce-id` is the one it carried before, which protects only a reader that deduplicates by it. A restore
+  reports the topics and groups newer than its moment, and changes nothing on the broker.
+- **Backups on Garage are not encrypted by the platform.** Garage holds no key the archiver can send, so a
+  backup is protected by its bucket's credential and by the installation's volume encryption. Without a
+  secondary store, an installation's backups share its cluster's failure domain, and its status says so.
+- **The platform removes no restore and no cluster a service left.** Each is listed, with its age or when
+  the last service left it, and removed by hand. A rehearsal's database is the one the platform removes,
+  when the rehearsal ends or its time to live passes.
 - **One broker per installation, and a project is its boundary.** Every project's topics are on the
-  installation's one Kafka, and a service reaches the topics of its own project only. There is no grant
-  that lets a service of one project read or publish to another project's topic. A project may declare
+  installation's one Kafka, and a service reaches the topics of its own project, and another project's
+  only where that project granted it the topic. A project may declare
   brokers of its own beside the installation's, each named per topic by a component, and those topics are
   the broker owner's: the platform makes nothing on them and checks no contract there. A local platform's
-  broker is a single node.
+  broker is a single node, so every topic on it has a single copy.
+- **A topic's copies cannot change, and a single-node broker is not grown in place.** A topic's copies and
+  minimum in-sync copies are fixed when it is declared, since the broker changes a topic's replication
+  only through a rebalancer the platform does not install. A broker of three nodes is a shape a new
+  installation is installed with; a running single-node broker's node is its controller quorum too, and
+  growing it is the administrator's own procedure, after which every topic made before keeps its copies.
 - **The platform removes nothing from the broker.** Deleting a service or a project leaves its topics,
   what was published to them and its user on the broker. Removing them is a manual task for whoever
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
-- **One object store for new buckets, of one node when it is Garage.** A bucket is made in the store the
-  installation names: its own Garage, a single node with one volume whose durability is that volume's, or
-  Google Cloud Storage in its cloud account. A bucket stays where it was made until a member moves it. A
-  bucket and its objects are never deleted by the platform.
+- **One object store for new buckets.** A bucket is made in the store the installation names: its own
+  Garage, or Google Cloud Storage in its cloud account. A local platform runs Garage as one node with one
+  volume, so its durability is that volume's; an installation may run it on three machines, each object on
+  all three, and copy every bucket hourly to a secondary store outside the cluster. A bucket stays where it
+  was made until a member moves it. A bucket and its objects are never deleted by the platform.
 - **Garage keeps one version of an object.** An object overwritten or deleted in Garage is gone at once;
   only Google Cloud Storage keeps noncurrent versions and a soft-delete window.
 - **A move from Garage does not move an object larger than 5 GiB**, and moves one service's bucket at a
@@ -89,15 +106,27 @@ feature also says what that feature does not do.
 
 ## Networking and security
 
+- **The gateway bounds an HTTP response at fifteen seconds.** A route the platform renders for an exposed
+  service's HTTP port names no timeout, and the gateway then ends a request that has not finished
+  within fifteen seconds, a stream of server-sent events included. A wait for a workflow's end served
+  through the gateway is bounded by it, as any long response is; the gRPC route has no such bound.
 - **No restriction on where a workload connects to.** Network policies decide who may connect to a
   workload; nothing restricts where it may connect. There is no egress policy.
 - **The object store speaks plain HTTP inside the cluster.** Every other port a workload reaches is mutual
   TLS; the store's are not. A network policy admits only ankka workloads, the gateway and the operator, and
   a request is signed, so a secret key never crosses the network, but an object's contents cross it
   unencrypted. A request from a browser is encrypted as far as the gateway.
+- **The control plane's `keys` port asks for no client certificate.** It serves only the public keys
+  machine tokens are signed with, port 7629, to the broker and the services that verify those tokens; a
+  network policy admits ankka workloads and the broker.
 - **A project is not a network boundary for HTTP.** Any ankka workload can open a connection to any
   service's HTTP port; whether the request is served is the callee's ACL's decision, from the caller's
-  certificate. Cluster ports and databases are closed to other projects.
+  certificate, and a service of another project is admitted only on a route its project granted it.
+  Cluster ports and databases are closed to other projects.
+- **A machine is a `Caller.Machine`, not a `Caller.Service`.** A registered machine outside the
+  installation is admitted by a grant as a service is, but it is a caller of its own kind, verified by a
+  token rather than a certificate. A service of another installation is not a caller ankka can name:
+  trust between installations is not built, and such a service is registered as a machine.
 - **The gateway is one caller.** Every request from outside the cluster reads as the gateway, whichever
   hostname it arrived at. Telling users apart is a bearer token the service verifies in
   `Acl.Authenticate`.
@@ -134,8 +163,13 @@ feature also says what that feature does not do.
   headless address named `<service>-grpc-peers`. If another service in the project is called that, the
   platform leaves that service's address alone and does not create the peers address, and callers then
   balance by connection rather than by call.
-- **No custom hostnames.** An exposed service's hostname is derived by the platform as
-  `<service>-<project>.<base domain>`. A domain of your own is not supported.
+- **Custom hostnames have limits.** A service can answer at names under domains you own, beside its
+  derived hostname (see [Serve a service at your own domain](../deploy/custom-hostnames.md)), up to five
+  per service. The platform writes no DNS: you create the proof record and the record that points the
+  name at the installation. It does not accept a certificate you supply; it obtains one. The control
+  plane, the console, the identity provider and the object store keep their derived names. Two services
+  cannot share one hostname by path. An apex name needs the installation to publish its gateway's
+  address.
 
 ## Observability
 
@@ -193,7 +227,8 @@ feature also says what that feature does not do.
   entity is not: an entity keeps every change it recorded, and the view reads all of them again. Raising a topic-sourced view's
   version empties it and reads its topic again, but a topic's retention is a window, not a record: what
   the broker has dropped is not read, and the rebuilt view holds only what the window still holds. While
-  it runs the view serves an empty or partial table. See
+  it runs the view serves an empty or partial table. What a rebuild reached is shown in the service's
+  status, per partition, but what was dropped cannot be known or read back. See
   [Rebuilding by version](../build/topics.md#rebuilding-by-version).
 - **Topic sources are at least once.** A view or consumer sourced from a topic must tolerate duplicates,
   and a view skips a message with no `ce-subject`. Only Kafka is supported; another broker needs its own
@@ -220,12 +255,16 @@ feature also says what that feature does not do.
   answers, so one that succeeded while the record could not be written is done and reported as
   unavailable. The record is not shown in the console, and the platform's own copying during a move to
   Secret Manager is not recorded.
-- **A topic is made only by declaring it, with its partitions and whether it is compacted.** On the
-  installation's broker a topic exists because its project declares it; publishing to one nobody
-  declared waits. A declaration says how many partitions a topic has and whether the broker keeps only
-  the last message under each key, and nothing more: no retention or other topic setting. A
-  [graph consumer](../build/graph.md#the-topic)'s topic is declared compacted on its project; on a
-  broker a descriptor or a project names, every topic is the broker owner's to create.
+- **A topic is made only by declaring it, with its partitions and its settings.** On the installation's
+  broker a topic exists because its project declares it; publishing to one nobody declared waits. A
+  declaration says a topic's partitions, its retention time and size, its cleanup policy with the
+  tombstone window and compaction lags, and its copies and minimum in-sync copies, and nothing more: no
+  other Kafka topic setting can be declared. A [graph consumer](../build/graph.md#the-topic)'s topic is
+  declared compacted on its project; on a broker a descriptor or a project names, every topic is the
+  broker owner's to create, and its settings are the owner's too.
+- **Retention is not erasure.** How long a topic keeps a message says nothing about whether a person's
+  data is forgotten: a shorter retention removes messages at the broker's next cleanup, from every copy,
+  but is not a way to honour a request to erase someone's data, which is done to the data itself.
 - **A graph consumer's rules are the author's.** That an element has one writing entity, and that an
   element is its whole state, are not checked. A graph consumer writes tombstones and no delete markers,
   so a tombstoned element's record stays in its topic; and there is no source that hands a consumer an
@@ -239,7 +278,22 @@ feature also says what that feature does not do.
   to align a timer, and give a period from there. A recurring timer whose due times passed while it could
   not run fires once and goes on, and never catches the missed ones up. The local console does not list
   timers.
-- **Only agents stream.** Entities and workflows refuse a streaming request.
+- **Agents stream their replies and views their rows; nothing else streams.** Entities and workflows
+  refuse a streaming request. A wait for a workflow's end can be served as a stream; the
+  workflow itself does not stream.
+- **A watch of a view guarantees no delivery.** It is live, not a record: it may give a watcher fewer
+  versions of a row than were written, drops unread rows past its bound as the watcher chose, gives
+  nothing written while it was not open, and ends — for a rebuild, a stopping instance or a lost
+  connection — with the reason, to be watched again. A reader that must see every change reads the
+  source with a consumer. A watched query is decided for each written row alone, so a match that depends
+  on the time or on another row changes on the row's next write.
+- **A module waits whole.** A WebAssembly module waits for a workflow's end with one call, and cannot
+  serve the wait as a stream. The instance it runs on is held for as long as the wait, so a module waits
+  from a step, a route or a tool rather than a command.
+- **A wait needs both halves at the same release.** An instance from before waiting answers a wait for a
+  workflow's end as an unknown handler, and the caller is told so; a process beside a runtime before
+  protocol 1.18 is refused when it waits. During a rolling update, a wait can fail this way until every
+  instance is at the release.
 - **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
   open: presence, fan-out and catching a reconnecting client up are a service's own entities and
@@ -260,6 +314,8 @@ feature also says what that feature does not do.
   routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
   cannot stream, and it cannot declare a socket route; a module declaring either is refused at start.
+- **A module reads a view whole.** It cannot ask a query as a stream or watch one, and a module whose view
+  declares a watchable query is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
   has loaded; its `log` calls go to the runtime's log, and its unit tests run natively.
 - **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into
@@ -330,3 +386,17 @@ feature also says what that feature does not do.
   `kind load docker-image`; it runs no registry of its own. A cluster that pulls images needs one
   elsewhere. A private one works: `ankka projects registry set` puts its credential in the cluster
   for a whole project, and the platform never reads the credential back.
+
+## Upgrading to cross-project access
+
+- **A project named `machine` is refused.** A grantee is written `machine:<organization>/<name>`, so the
+  word is reserved; rename such a project before upgrading.
+- **A kind cluster reaches an exposed broker only if it was created with the `30094 → 9094` mapping** in
+  `kustomization/kind.yaml`. kind decides port mappings when it creates a cluster, so one made before
+  must be recreated to reach the broker from the host.
+- **The control plane has a second port, `keys` (7629),** which asks for no client certificate and serves
+  only the public keys machine tokens are signed with. A network policy of the installation's own that
+  names the control plane's ports needs it too.
+- **Services read their project's grants from the project's ConfigMap they already mount**, so upgrading
+  the operator restarts nothing; a service built before the release admits no granted caller until it is
+  rebuilt, and a grant naming one of its routes is listed as `rollout needed`.

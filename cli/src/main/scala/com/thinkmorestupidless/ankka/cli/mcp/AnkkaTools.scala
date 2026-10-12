@@ -96,6 +96,31 @@ private[cli] final class AnkkaTools(
       idempotent = idempotent
     )(args => ToolResult(json(call(client, project(args), required(args, "name")))))
 
+  private val hostnameArg =
+    "hostname" -> string("The custom hostname, a name alone: no scheme, path or port.")
+
+  private def hostnameAction(
+      toolName: String,
+      title: String,
+      description: String,
+      destructive: Boolean
+  )(
+      call: (ControlPlaneClient, String, String, String) => ServiceStatus
+  ): Tool =
+    Tool(
+      toolName,
+      title,
+      description,
+      schema(Seq("name", "hostname"), serviceArg, hostnameArg, projectArg),
+      readOnly = false,
+      destructive = destructive,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(call(client, project(args), required(args, "name"), required(args, "hostname")))
+      )
+    )
+
   private val controlPlane: Vector[Tool] = Vector(
     Tool(
       "whoami",
@@ -125,6 +150,22 @@ private[cli] final class AnkkaTools(
       idempotent = true
     )(args => ToolResult(json(client.listProjects(args.string("organization"))))),
     Tool(
+      "project_status",
+      "Project backups",
+      "Whether a project is backed up: each line of history's last base backup, the earliest and latest moments it can be restored to, the archive's lag in seconds and why it is failing; and the project database's instances, primary and whether a synchronous write is waiting.",
+      schema(Nil, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args => ToolResult(json(client.projectStatus(project(args))))),
+    Tool(
+      "installation_status",
+      "Installation backups",
+      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted.",
+      schema(Nil),
+      readOnly = true,
+      idempotent = true
+    )(_ => ToolResult(json(client.installation()))),
+    Tool(
       "list_services",
       "List services",
       "Every service in a project with its lifecycle state, ready and desired instances, generation and image.",
@@ -135,7 +176,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag and what it is failing on (topicSources), each side it takes on a declared topic's contract (topicChecks), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, each topic source with its group, version, lag, what it is failing on and what its topic still holds per partition (topicSources, gap), warnings such as a view over a topic that keeps less than the installation's threshold (warnings), each side it takes on a declared topic's contract (topicChecks), whether its instances read the project's grants (grants), each other project's topic it reads or publishes to and whether that project grants it (crossProjectTopics), hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true
@@ -148,6 +189,14 @@ private[cli] final class AnkkaTools(
       readOnly = true,
       idempotent = true
     )(args => ToolResult(json(client.serviceHistory(project(args), required(args, "name"))))),
+    Tool(
+      "project_history",
+      "Project history",
+      "Who did what to a project and when, newest first: each restore, rehearsal and change to its database (with a detail), and each declaration, change or removal of one of its topics (with the topic, and each setting changed from what to what). An entry the platform made, such as filling the settings of a topic declared before topics stated them, names no one in `by`.",
+      schema(Seq.empty, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args => ToolResult(json(client.projectHistory(project(args))))),
     Tool(
       "service_logs",
       "Service logs",
@@ -224,6 +273,18 @@ private[cli] final class AnkkaTools(
       destructive = false,
       idempotent = true
     )(_.exposeService(_, _)),
+    hostnameAction(
+      "add_hostname",
+      "Add a custom hostname",
+      "Serve an exposed service at a hostname under a domain you bring, beside its platform-derived one. Refused until the proof record _ankka.<hostname> TXT \"ankka-project=<project>\" exists; the answer says the record that points the name at the installation. At most five per service.",
+      destructive = false
+    )(_.addHostname(_, _, _)),
+    hostnameAction(
+      "remove_hostname",
+      "Remove a custom hostname",
+      "Stop serving a service at one of its custom hostnames and free the name for another service. Nothing else about the service changes.",
+      destructive = true
+    )(_.removeHostname(_, _, _)),
     serviceAction(
       "unexpose_service",
       "Unexpose a service",

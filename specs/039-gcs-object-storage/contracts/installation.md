@@ -75,11 +75,14 @@ jobs:
     steps: [checkout, java, sbt -Dankka.gcs.tests=on 'controlPlane/testOnly *GcsCompatibilitySuite']
 ```
 
-The bucket is prepared once by hand in the test project: versioning on, soft delete 7 days,
-public access prevention, uniform access, a CORS rule admitting `ANKKA_GCS_ORIGIN`, and an HMAC
-key of a service account granted `roles/storage.objectUser` on it. The suite `assume`-skips without
-the variables and, under `CI` with `ankka.gcs.tests=on`, fails instead. The workflow and the
-secret names are listed in `ci.yml`'s `unchecked` filter.
+The bucket is Terraform in the private infrastructure repository, in a test project of its own
+(its `ci` root and `gcs-test-bucket` module): versioning on, soft delete 7 days, public access
+prevention, uniform access, a CORS rule admitting exactly `ANKKA_GCS_ORIGIN`, and an HMAC key of
+a service account granted `roles/storage.objectUser` on it and nothing else — the narrow role is
+what makes the `PutBucketCors` refusal hold. That root's three outputs are the three secrets,
+copied by a person. The suite `assume`-skips without the variables and, under `CI` with
+`ankka.gcs.tests=on`, fails instead. The workflow and the secret names are listed in `ci.yml`'s
+`unchecked` filter.
 
 ### `cluster.yml`, unchanged
 

@@ -2220,7 +2220,13 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     if !target.isModule then
       assert(refused.contains("1.16") && refused.contains("1.15"), refused)
       assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
-    assertEquals(target.refusalAt("1.16"), Some(None))
+    // At 1.16 a workflow source is known. A process reference also declares a watched query, which
+    // needs 1.17, so it may still be refused, but only for that and never for its workflow source.
+    target.refusalAt("1.16") match
+      case Some(Some(m)) =>
+        assert(m.contains("watched") && m.contains("1.17"), m)
+        assert(!m.contains("checkout-rows") && !m.contains("CheckoutRows"), m)
+      case answered => assertEquals(answered, Some(None))
   }
 
   // ── Contracts, declared brokers and parallel partitions (feature 037) ──────

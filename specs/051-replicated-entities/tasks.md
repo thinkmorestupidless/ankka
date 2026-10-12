@@ -152,7 +152,7 @@ drives. Nothing here is a story on its own; everything after it is.
   gain `home: Option[String]`, `replicationSet: Option[Vector[String]]`, `pendingHandover: Option[String]`,
   `conflict: Option[String]`, all `NON_ABSENT`, defaults `None`. Run T001's suites: the fixtures
   must still match; if a line differs, an annotation is missing
-- [ ] T011 Case in `RTT/JournalRecordSuite.scala` (new, `pekko.actor.provider = local` if a system
+- [X] T011 Case in `RTT/JournalRecordSuite.scala` (new, `pekko.actor.provider = local` if a system
   is needed; otherwise plain): a record with `installation = Some("leipzig")` round-trips; each of
   the five constructors reads back its kind, manifest and payload; a kind 4 record's set is read
   as a `Set[String]`; a `StateRecord` written without the four fields decodes with `None`, empty,
@@ -186,7 +186,7 @@ drives. Nothing here is a story on its own; everything after it is.
   the projection runtime and the observability endpoint through the service's existing wiring.
   `ComponentRegistry.from` (`:166`) refuses a descriptor whose `replicated` is true and whose kind is
   not an event sourced entity, naming the component (FR-002)
-- [ ] T015 Case in `RTT/ReplicationResolutionSuite.scala`: no installations → no transport and the
+- [X] T015 Case in `RTT/ReplicationResolutionSuite.scala`: no installations → no transport and the
   service starts; two installations with `db.*` for each → `DatabaseReplicationTransport` by name;
   two installations, one without `db.*`, no provider → `StartRefusal` whose message contains
   "replication transport" and both names (assert the message, not the exception type alone:
@@ -206,7 +206,7 @@ drives. Nothing here is a story on its own; everything after it is.
   back to T057's loopback routes when the name is not in this JVM; `reachable` true while the last
   pull or forward of that sibling succeeded within two polls; `advanced` is T022's feed. `name` is
   `"the runtime's own database transport"`
-- [ ] T017 Case in `RTT/DatabaseReplicationTransportSuite.scala` (two databases from the runtime
+- [X] T017 Case in `RTT/DatabaseReplicationTransportSuite.scala` (two databases from the runtime
   tests' Postgres fixture, `pekko.actor.provider = local`): records written into one database read
   from the other side in order from a position; `locate` finds a kind 3 first record and reports a
   pre-feature journal's holder as home; `records` from a position beyond the end stays open and
@@ -240,7 +240,7 @@ drives. Nothing here is a story on its own; everything after it is.
   the puller when the answer's set contains `self`" (R7). `WorkflowHost`, `KeyValueEntityHost`,
   the remote hosts and the agent hosts answer the five `unhandled`, with a reply where the command
   carries a `replyTo` (CLAUDE.md, "every host must handle unexpected commands explicitly")
-- [ ] T020 Case in `RTT/MirroringSuite.scala` (`EventSourcedBehaviorTestKit` over the host's
+- [X] T020 Case in `RTT/MirroringSuite.scala` (`EventSourcedBehaviorTestKit` over the host's
   behaviour with a `Replication` of two installations and a stub transport; `pekkoPersistenceTestkit`
   is declared in `project/Dependencies.scala:119`, so add it to `runtime`'s `% Test` dependencies
   in `build.sbt` if no runtime suite has it yet): five `Replicate`s in order are persisted and the
@@ -273,7 +273,7 @@ drives. Nothing here is a story on its own; everything after it is.
   `self` (R7: otherwise every write elsewhere would make an outside copy `locate`); whether a
   record exists locally is one `currentEventsByPersistenceId(pid, 1, 1)` on the local journal,
   cached per entity for the daemon's life. Stops the transport on shutdown, after the hosts
-- [ ] T023 Case in `RTT/PullerSuite.scala`: a scripted `records` source of ten records ends with
+- [X] T023 Case in `RTT/PullerSuite.scala`: a scripted `records` source of ten records ends with
   the follower holding ten; a source that fails after three is reopened from four (assert the
   `from` the second open was asked with); `switch` reopens against the new name from the same
   position; a `Refused` ack reopens from the copy's position, not from the refused one
@@ -311,7 +311,7 @@ drives. Nothing here is a story on its own; everything after it is.
   unstamped record is one this installation wrote, since a follower stamps what it mirrors, T019),
   `None` on an unreplicated service; `isLocal` is `installation.forall(_ == self)`. Cases in `SDKT`:
   `eventContext` outside `applyEvent` throws; inside, a kit-set context is read
-- [ ] T027 Write the fixture service in `TKT/replication/FleetComponents.scala`: `VehicleEntity`
+- [X] T027 Write the fixture service in `TKT/replication/FleetComponents.scala`: `VehicleEntity`
   (`replicated = true`; state `Vehicle(id, steps: Vector[String], inspections: Vector[String], sold: Boolean, seenAtHome: Vector[Boolean], writtenAt: Vector[Option[String]])`;
   commands `create` (input: the installations to add to the replication set, applied as one
   `replicateTo` per name on the same builder after a `Created` event, which T009 accumulates into
@@ -443,7 +443,7 @@ call is one call in the trace.
   metadata (the `ShardingTransport` path T016's `forward` takes) and sets `ankka.handled-at = self`
   on every reply it gives. `reachable(home) == false` short-circuits to the refusal without a
   call. A forwarded command is never resent (the first rule in `docs/reference/limitations.md`)
-- [ ] T037 [US2] Case in `RTT/ForwardingSuite.scala` (the behaviour test kit with a scripted
+- [X] T037 [US2] Case in `RTT/ForwardingSuite.scala` (the behaviour test kit with a scripted
   transport): a persisting command at a follower calls `forward` once with the home's name and the
   caller's metadata and answers the scripted reply; a failed forward answers `NotHome` naming the
   home; the forwarding host's recorder holds one `Client` span and zero `handled`; `reachable =
@@ -536,7 +536,7 @@ records in the journal.
   the home: T031 already does this from the mode). A copy added learns it through `Wake` (T022's
   feed sees the home's kind 4 naming `self`, and T019's `Wake` at a copy with no record asks
   `locate`) or through `locate` on its first command, and pulls from 1
-- [ ] T044 [US4] Case in `RTT/MirroringSuite.scala`: a kind 4 adding C at the home and a fresh copy
+- [X] T044 [US4] Case in `RTT/MirroringSuite.scala`: a kind 4 adding C at the home and a fresh copy
   at C pulling from 1 ends identical; a kind 4 removing B stops B's puller (the scripted transport
   sees the source cancelled) and B's next read is `NotHome`; `stopReplicatingTo(home)` is
   `BadRequest`
@@ -577,7 +577,7 @@ and told which is which.
   when the consumer `produces` or is a graph consumer and `mirroredChanges` is false; a consumer
   that produces nothing is given every change (R12). `TK/ConsumerTestKit.scala` lets a test set
   the change's `installation` and `localOrigin`
-- [ ] T048 [US5] Cases in `RTT/ChangeReaderSuite.scala` (or the existing reader suite): kinds 3–7
+- [X] T048 [US5] Cases in `RTT/ChangeReaderSuite.scala` (or the existing reader suite): kinds 3–7
   are `Skip`; a domain record's installation is on the change. In `TKT/ConsumerTestKitSuite.scala`:
   a mirrored change's context says `localOrigin = false` and names the installation
 - [X] T049 [US5] Bind `FEAT/projections.feature`: `a view at a follower shows a change written at the home`
@@ -611,7 +611,7 @@ replicated is refused at validation.
   (`RT/ServiceRegistration.scala:30`, `~/.ankka/running`) by the sibling's installation name, which
   `AnkkaService` adds to its registration record when set. Neither route is served under
   Kubernetes (`ObservabilityEndpoint.start`'s local-mode guard at `:49`)
-- [ ] T051 [US6] Case in `RTT/ObservabilityEndpointSuite.scala` (or a new `ReplicationRoutesSuite`):
+- [X] T051 [US6] Case in `RTT/ObservabilityEndpointSuite.scala` (or a new `ReplicationRoutesSuite`):
   a `ForwardedCall` posted to the route reaches a scripted `ShardingTransport` and its reply comes
   back as CBOR; a malformed body is 400; a report lands as `Reported`; the routes are absent when
   the endpoint is not local
@@ -629,7 +629,7 @@ replicated is refused at validation.
   through a descriptor built by hand for each row (a key value entity, a workflow, an agent and a
   timer: `ComponentRegistry.from` for the service side, and `API/descriptors.scala`'s `problems`
   for the control plane side, both asserted naming the component)
-- [ ] T053 [US6] Control plane validation (FR-002): where the service descriptor lists its
+- [X] T053 [US6] Control plane validation (FR-002): where the service descriptor lists its
   components with a `kind` (`API/descriptors.scala`, the component case classes near `:1086` and
   `:1397`), add `replicated: Boolean = false` (jsoniter: absent reads false) and a problem in
   `problems` for a replicated component whose kind is not the event sourced entity's, naming it;
@@ -892,7 +892,7 @@ scenario named by the spec exists and every word is in the glossary).
   route to their jobs; run `python3 .github/ci-coverage.py`
 - [X] T076 `GLOSSARY.md` and `features/`: run `just features`; every word a new step introduced in
   T028–T066 is a term or an everyday word; no `*Proposed.*` remains
-- [ ] T077 The whole run: `caffeinate -i sbt -Dankka.cluster.tests=off test` green (the hour is
+- [X] T077 The whole run: `caffeinate -i sbt -Dankka.cluster.tests=off test` green (the hour is
   acceptable; read every suite's duration for an absurd one: CLAUDE.md), then
   `sbt 'sidecar/testOnly *ConformanceSuite'`, the three SDK end-to-end commands from CLAUDE.md,
   `sbt scalafmtCheckAll scalafmtSbt`, `sbt compile` warning-free (`-Werror`), and the quickstart

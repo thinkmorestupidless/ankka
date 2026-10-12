@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.thinkmorestupidless.ankka.controlplane.api.ContractDeclaration
+import com.thinkmorestupidless.ankka.controlplane.api.{ContractDeclaration, TopicDeclarationRequest}
 import com.thinkmorestupidless.ankka.core.graph.GraphJson
 
 import java.io.BufferedReader
@@ -44,3 +44,46 @@ object TopicsCommand:
           .parse(bytes)
           .fold(why => throw ApiError(0, s"the schema at $path is not JSON: $why"), identity)
         Some(ContractDeclaration(n, schema))
+
+  private val Asked =
+    // The control plane's refusal reaches the CLI as its JSON body, where the quotes are escaped.
+    """(?s).*this declaration removes (.+?); a declaration that removes messages says so with \\?"removes\\?".*""".r
+
+  /**
+   * What the control plane's refusal of an unacknowledged removal says is removed, if it is one.
+   */
+  def removalAsked(detail: String): Option[String] = detail match
+    case Asked(removal) => Some(removal.trim)
+    case _              => None
+
+  /**
+   * Send a declaration. When the control plane refuses it as a removal nobody acknowledged, say
+   * what it removes and ask; on "y", send it again saying so. With nothing to read the answer from,
+   * it stays refused, naming `--removes`, the scripted confirmation. `input` is `Console.in`, which
+   * a test redirects.
+   */
+  def declare(
+      client: ControlPlaneClient,
+      project: String,
+      name: String,
+      request: TopicDeclarationRequest,
+      input: => BufferedReader,
+      output: java.io.PrintStream
+  ): Unit =
+    try client.declareTopic(project, name, request)
+    catch
+      case e: ApiError
+          if e.status == 400 && request.removes.isEmpty && removalAsked(e.detail).isDefined =>
+        val removal = removalAsked(e.detail).getOrElse("")
+        output.print(s"This declaration removes $removal, and they are gone. Remove them? [y/N] ")
+        output.flush()
+        Option(input.readLine()).map(_.trim.toLowerCase) match
+          case Some("y") | Some("yes") =>
+            client.declareTopic(project, name, request.copy(removes = Some(removal)))
+          case None =>
+            throw ApiError(
+              0,
+              s"this declaration removes $removal; nothing was sent. To send it without the " +
+                s"question, add --removes \"$removal\""
+            )
+          case Some(_) => throw ApiError(0, "nothing was sent")

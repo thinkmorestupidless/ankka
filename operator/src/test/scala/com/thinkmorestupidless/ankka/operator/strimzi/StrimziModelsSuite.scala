@@ -76,7 +76,7 @@ class StrimziModelsSuite extends munit.FunSuite:
       "ankka-broker",
       "shop.cart-deltas",
       Map(StrimziDefinitions.ClusterLabel -> "ankka"),
-      KafkaTopicSpec(3, Some(Map("cleanup.policy" -> "compact")))
+      KafkaTopicSpec(3, config = Some(Map("cleanup.policy" -> "compact")))
     )
     val json = serialization.asJson(topic)
     assert(json.contains("\"cleanup.policy\":\"compact\""), json)
@@ -93,6 +93,82 @@ class StrimziModelsSuite extends munit.FunSuite:
     val read    = serialization.unmarshal(written, classOf[KafkaTopicResource]).getSpec
     assert(com.thinkmorestupidless.ankka.operator.StrimziRendering.compacted(read.config))
     assertEquals(read.config.get("segment.ms").toString, "100")
+  }
+
+  test(
+    "a topic's copies and every setting round-trip, and copies are absent where unstated (feature 043)"
+  ) {
+    val topic = KafkaTopicResource(
+      "ankka-broker",
+      "money.transactions",
+      Map(StrimziDefinitions.ClusterLabel -> "ankka"),
+      KafkaTopicSpec(12, replicas = Some(3), config = Some(Map("retention.ms" -> "7776000000")))
+    )
+    val json = serialization.asJson(topic)
+    assert(json.contains("\"replicas\":3"), json)
+    val read = serialization.unmarshal(json, classOf[KafkaTopicResource]).getSpec
+    assertEquals(read.replicas, Some(3))
+    assertEquals(
+      read.config.map(_.view.mapValues(_.toString).toMap),
+      Some(Map("retention.ms" -> "7776000000"))
+    )
+  }
+
+  test(
+    "the operator renders the Kafka keys the control plane's settings say, row by row (feature 043)"
+  ) {
+    // protocol/fixtures/topics/settings.json is written by controlplane-api's TopicSettingsSuite from
+    // TopicSettings.toKafka; each row's Kafka map, carried as the resource's numbers, must render to
+    // itself here. A key spelled or written differently on either side fails one of the two.
+    val file = Iterator
+      .iterate(java.nio.file.Paths.get("").toAbsolutePath)(_.getParent)
+      .takeWhile(_ != null)
+      .map(_.resolve("protocol/fixtures/topics/settings.json"))
+      .find(java.nio.file.Files.exists(_))
+      .getOrElse(fail("protocol/fixtures/topics/settings.json is missing"))
+    val rows = com.fasterxml.jackson.databind.ObjectMapper().readTree(file.toFile)
+    import scala.jdk.CollectionConverters.*
+    assert(rows.size >= 4, s"${rows.size} rows")
+    rows.elements.asScala.foreach { row =>
+      val kafka = row.get("kafka").properties.asScala.map(e => e.getKey -> e.getValue.asText).toMap
+      def long(key: String) = kafka.get(key).map(_.toLong)
+      val entry = com.thinkmorestupidless.ankka.crd.ProjectTopicEntry(
+        "t",
+        1,
+        "",
+        retentionMs = long("retention.ms"),
+        retentionBytes = long("retention.bytes"),
+        cleanupPolicy = kafka.get("cleanup.policy"),
+        deleteRetentionMs = long("delete.retention.ms"),
+        minCompactionLagMs = long("min.compaction.lag.ms"),
+        maxCompactionLagMs = long("max.compaction.lag.ms"),
+        minInsyncReplicas = kafka.get("min.insync.replicas").map(_.toInt)
+      )
+      val rendered = com.thinkmorestupidless.ankka.operator.StrimziRendering
+        .kafkaConfig(entry)
+        .map(_.view.mapValues(_.toString).toMap)
+      assertEquals(rendered, Some(kafka), row.toString)
+    }
+  }
+
+  test("the broker nodes are the replicas of the pools that hold partitions") {
+    assertEquals(
+      KafkaNodePoolResource.brokerNodes(
+        Vector(
+          KafkaNodePoolSpec(3, Vector("controller", "broker")),
+          KafkaNodePoolSpec(2, Vector("broker")),
+          KafkaNodePoolSpec(3, Vector("controller"))
+        )
+      ),
+      5
+    )
+    val json =
+      """{"apiVersion":"kafka.strimzi.io/v1","kind":"KafkaNodePool","metadata":{"name":"dual"},""" +
+        """"spec":{"replicas":3,"roles":["controller","broker"],"storage":{"type":"jbod"}}}"""
+    assertEquals(
+      serialization.unmarshal(json, classOf[KafkaNodePoolResource]).getSpec,
+      KafkaNodePoolSpec(3, Vector("controller", "broker"))
+    )
   }
 
   test("a resource Strimzi has not reported on has no status") {

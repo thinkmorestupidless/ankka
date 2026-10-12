@@ -113,7 +113,28 @@ final case class ProjectTopicEntry(
      * schema suite checks one level.
      */
     contractName: Option[String] = None,
-    contractFingerprint: Option[String] = None
+    contractFingerprint: Option[String] = None,
+    /**
+     * Feature 043: every setting of the declaration, as the Kafka configuration of the topic says
+     * it: milliseconds and bytes, `-1` for everything and none. Absent for a topic declared before
+     * topics stated them, which is rendered as it was. `replicas` and `minInsyncReplicas` are
+     * absent too for a topic whose copies are the broker's.
+     */
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    retentionMs: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    retentionBytes: Option[Long] = None,
+    cleanupPolicy: Option[String] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    deleteRetentionMs: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    minCompactionLagMs: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
+    maxCompactionLagMs: Option[Long] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    replicas: Option[Int] = None,
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    minInsyncReplicas: Option[Int] = None
 )
 
 /**
@@ -141,13 +162,18 @@ final case class ProjectTopicStatus(
     partitions: Option[Int] = None,
     detail: Option[String] = None,
     @JsonDeserialize(contentAs = classOf[java.lang.Boolean])
-    compacted: Option[Boolean] = None
+    compacted: Option[Boolean] = None,
+    /** Feature 043: the copies the topic's resource asks for, and the configuration it applies. */
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    replicas: Option[Int] = None,
+    config: Option[Map[String, String]] = None
 )
 
 /**
- * What the operator observed of the project: its topics, and since feature 041 its backups, its
- * database, its clusters, its restores and its rehearsals. Written to the status subresource only.
- * Every time is RFC 3339.
+ * What the operator observed of the project: its topics, and how many nodes the broker they are on
+ * has (feature 043), when the operator can read its node pools; and since feature 041 its backups,
+ * its database, its clusters, its restores and its rehearsals. Written to the status subresource
+ * only. Every time is RFC 3339.
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class AnkkaProjectStatus(
@@ -156,7 +182,9 @@ final case class AnkkaProjectStatus(
     database: Option[ProjectDatabaseStatus] = None,
     clusters: List[ProjectClusterStatus] = Nil,
     restores: List[RestoreStatus] = Nil,
-    rehearsals: List[RehearsalStatus] = Nil
+    rehearsals: List[RehearsalStatus] = Nil,
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    brokerNodes: Option[Int] = None
 )
 
 /** `target` is `none` or `object-store`; one line per cluster that archives. */

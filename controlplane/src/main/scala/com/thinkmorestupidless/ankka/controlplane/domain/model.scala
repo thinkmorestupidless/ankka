@@ -315,8 +315,16 @@ final case class DeclaredTopic(
      * Feature 037: the contract every side must state; its document is in the project's schema
      * store.
      */
-    contract: Option[Contract] = None
-)
+    contract: Option[Contract] = None,
+    /**
+     * Feature 043: every setting, `None` for a topic declared before topics stated them until the
+     * control plane's sweep fills it; and which of them the installation supplied.
+     */
+    settings: Option[TopicSettings] = None,
+    defaulted: Set[Setting] = Set.empty
+):
+  /** The settings and their marks, when the topic has any. */
+  def filled: Option[FilledSettings] = settings.map(FilledSettings(_, defaulted))
 
 /**
  * A broker a project declares beside the installation's (feature 037): where it is, the shape of
@@ -366,12 +374,17 @@ final case class RehearsalOutcome(
     at: Option[Instant] = None
 )
 
-/** One thing done to the project's database, for its history (feature 041). */
+/**
+ * One thing done to the project, for its history: to its database (feature 041), or to the topic
+ * `topic` names, with each setting changed (feature 043).
+ */
 final case class ProjectHistoryEntry(
     kind: String,
     actor: Option[Actor] = None,
     at: Option[Instant] = None,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    topic: Option[String] = None,
+    changes: Vector[SettingChange] = Vector.empty
 )
 
 object Project:
@@ -503,7 +516,10 @@ final case class Project(
     bucketLocation: Option[String] = None,
     /** Every restore ever asked for, by its cluster's name (feature 041). Never removed. */
     restores: Map[String, Restore] = Map.empty,
-    /** Who did what to the project's database, newest last, the last `Project.HistoryLimit`. */
+    /**
+     * Who did what to the project's database and its topics, newest last, the last
+     * `Project.HistoryLimit`.
+     */
     history: Vector[ProjectHistoryEntry] = Vector.empty,
     /** What the project asks of its database; none is the installation's defaults. */
     database: Option[com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting] = None,
@@ -713,12 +729,53 @@ final case class Project(
       partitions: Int,
       at: Option[Instant],
       compacted: Boolean = false,
-      contract: Option[Contract] = None
+      contract: Option[Contract] = None,
+      settings: Option[TopicSettings] = None,
+      defaulted: Vector[Setting] = Vector.empty,
+      actor: Option[Actor] = None,
+      changes: Vector[SettingChange] = Vector.empty
   ): Project =
-    val declaredAt = topics.get(name).fold(at)(_.declaredAt)
-    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt, compacted, contract)))
+    val had        = topics.get(name)
+    val declaredAt = had.fold(at)(_.declaredAt)
+    // A declaration from before settings, or from a node that does not know them, keeps what the
+    // topic had: it said nothing about them.
+    val (kept, marks) = settings match
+      case Some(s) => (Some(s), defaulted.toSet)
+      case None    => (had.flatMap(_.settings), had.fold(Set.empty[Setting])(_.defaulted))
+    val topic = DeclaredTopic(partitions, declaredAt, compacted, contract, kept, marks)
+    val kind  = if had.isEmpty then "topic-declared" else "topic-changed"
+    copy(topics = topics.updated(name, topic)).rememberTopic(kind, name, actor, at, changes)
 
-  def onTopicRemoved(name: String): Project = copy(topics = topics - name)
+  def onTopicSettingsFilled(
+      name: String,
+      settings: TopicSettings,
+      defaulted: Vector[Setting],
+      at: Option[Instant]
+  ): Project =
+    topics.get(name) match
+      case None => this
+      case Some(t) =>
+        copy(topics =
+          topics.updated(name, t.copy(settings = Some(settings), defaulted = defaulted.toSet))
+        )
+          .rememberTopic("topic-filled", name, None, at)
+
+  def onTopicRemoved(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  ): Project =
+    copy(topics = topics - name).rememberTopic("topic-removed", name, actor, at)
+
+  private def rememberTopic(
+      kind: String,
+      topic: String,
+      actor: Option[Actor],
+      at: Option[Instant],
+      changes: Vector[SettingChange] = Vector.empty
+  ): Project =
+    val entry = ProjectHistoryEntry(kind, actor, at, None, Some(topic), changes)
+    copy(history = (history :+ entry).takeRight(Project.HistoryLimit))
 
   def onBrokerDeclared(name: String, broker: DeclaredBroker): Project =
     val declaredAt = brokers.get(name).fold(broker.declaredAt)(_.declaredAt)

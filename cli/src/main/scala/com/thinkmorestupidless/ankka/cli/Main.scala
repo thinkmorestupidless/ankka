@@ -468,10 +468,16 @@ object Main:
       list.orElse(get)
     }
 
+    // Feature 041's database and feature 043's topics share one history; the project is the
+    // argument, or `-p` as for the project's other commands.
     val history =
-      Opts.subcommand("history", "Who did what to a project's database, newest first.") {
-        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
-          Output.projectHistory(ctx.client.projectHistory(id), ctx.format)
+      Opts.subcommand(
+        "history",
+        "Who did what to a project's database and its topics, newest first: each setting of a " +
+          "topic changed from what to what."
+      ) {
+        (Opts.argument[String]("id").orNone, contextOpt).mapN { (id, ctx) => () =>
+          Output.projectHistory(ctx.client.projectHistory(id.getOrElse(ctx.project)), ctx.format)
         }
       }
 
@@ -623,14 +629,47 @@ object Main:
     ) {
       val set = Opts.subcommand(
         "set",
-        "Declare a topic on the project, or give it more partitions. A topic is never given fewer. " +
-          "--compacted keeps the last message under each key; --contract and --schema declare " +
-          "what the topic carries, which every side must state."
+        "Declare a topic on the project, or change it. A topic is never given fewer partitions. " +
+          "A new topic takes every setting left out from the installation's defaults; a topic " +
+          "already declared keeps what is left out. --compacted is --cleanup compact; --contract " +
+          "and --schema declare what the topic carries, which every side must state. A change " +
+          "that removes messages is an owner's, and asks before it is sent."
       ) {
+        def setting(name: String, help: String) = Opts.option[String](name, help).orNone
+        val settings = (
+          setting("retention", "How long the topic keeps a message: 90d, 36h, or everything."),
+          setting("retention-size", "How much each partition keeps: 50GiB, or none."),
+          setting("cleanup", "delete, compact, or compact,delete."),
+          setting("tombstone-window", "How long a compacted topic keeps a deletion: 1d."),
+          setting("min-compaction-lag", "The soonest a compacted topic compacts a message: 1h."),
+          setting(
+            "max-compaction-lag",
+            "The latest a compacted topic compacts a message, or none."
+          ),
+          Opts
+            .option[Int]("copies", "How many copies the broker keeps; fixed once declared.")
+            .orNone,
+          Opts
+            .option[Int](
+              "min-in-sync",
+              "How many copies must hold a message before it is acknowledged; fixed once declared."
+            )
+            .orNone
+        ).tupled
         (
           Opts.argument[String]("name"),
-          Opts.option[Int]("partitions", "How many partitions the topic has."),
-          Opts.flag("compacted", "The broker keeps the last message under each key.").orFalse,
+          Opts
+            .option[Int](
+              "partitions",
+              "How many partitions the topic has; required for a new topic."
+            )
+            .orNone,
+          Opts
+            .flag(
+              "compacted",
+              "The broker keeps the last message under each key: --cleanup compact."
+            )
+            .orFalse,
           Opts
             .option[String]("contract", "The contract's name, such as order.v1; needs --schema.")
             .orNone,
@@ -640,16 +679,40 @@ object Main:
               "The contract's schema document, a JSON file; - reads standard input."
             )
             .orNone,
+          settings,
+          Opts
+            .option[String](
+              "removes",
+              "What a change that removes messages removes, in the control plane's words: the " +
+                "confirmation a script gives instead of answering the question."
+            )
+            .orNone,
           contextOpt
-        ).mapN { (name, partitions, compacted, contractName, schemaPath, ctx) => () =>
-          val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
-          val request  = TopicDeclarationRequest(partitions, compacted, contract)
-          val problems = ProjectTopics.problems(name, request)
-          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-          ctx.client.declareTopic(ctx.project, name, request)
-          val how = (if compacted then ", compacted" else "") +
-            contract.fold("")(c => s", carrying ${c.name}")
-          s"topic '$name' in '${ctx.project}' has $partitions partitions$how"
+        ).mapN {
+          (name, partitions, compacted, contractName, schemaPath, asked, removes, ctx) => () =>
+            val (retention, size, cleanup, tombstone, minLag, maxLag, copies, minInSync) = asked
+            val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
+            val request = TopicDeclarationRequest(
+              partitions,
+              compacted,
+              contract,
+              retention,
+              size,
+              cleanup,
+              tombstone,
+              minLag,
+              maxLag,
+              copies,
+              minInSync,
+              removes
+            )
+            val problems = ProjectTopics.problems(name, request)
+            if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+            TopicsCommand.declare(ctx.client, ctx.project, name, request, Console.in, Console.out)
+            val how = partitions.fold("")(n => s" with $n partitions") +
+              (if compacted then ", compacted" else "") +
+              contract.fold("")(c => s", carrying ${c.name}")
+            s"topic '$name' in '${ctx.project}' is declared$how"
         }
       }
 

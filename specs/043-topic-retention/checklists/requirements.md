@@ -42,6 +42,9 @@
   gap report states only what `beginningOffsets` and `earliestRetained` know; the seven-day default
   documented as a laptop's with a view-declaration warning (FR-020); tombstone window and compaction
   lags per topic; an `acks` override below `all` refused (FR-022); the overlay's 3× storage stated.
-- The `after_specify` hook (`speckit.bdd.features`) has not been run: the acceptance scenarios are
-  still written in the spec as Given/When/Then and move into `features/broker/` and
-  `features/topics/` before planning.
+- The acceptance scenarios live in `features/broker/{retention,cleanup-policy,copies,changing}.feature`
+  and `features/topics/gap.feature`. What the control plane decides runs offline in
+  `TopicRetentionOfflineFeature`, `TopicCopiesOfflineFeature` and `TopicChangingOfflineFeature`; what a
+  broker shows runs on k3s in `BrokerRetentionFeatures`, `BrokerCleanupFeatures`, `BrokerCopiesFeatures`
+  (three nodes) and `BrokerChangingFeatures`; the gap runs in `RetentionGapSuite` (in memory) and
+  `KafkaSuite` (a broker); each file's `ranElsewhere` names where its other scenarios run.

@@ -1,9 +1,11 @@
 # The installation's broker, sized for the cluster it runs on. The broker component's values are a
 # laptop's: one node, a 2Gi volume and a 512MB heap. Set each value marked SET.
 #
-# More than one node also wants the Kafka's replication settings raised to match
-# (`default.replication.factor`, `min.insync.replicas` and the two internal topics' factors in
-# components/broker/kafka.yaml), which a patch of the `Kafka` beside this one sets.
+# A new installation that wants three nodes lists components/broker-three-nodes after the broker and
+# the control plane: it sets the node count and every setting that counts copies, the internal
+# topics' included, and the control plane's default copies, together. Leave replicas below at the
+# component's 3 when it is listed. It is not a way to grow a running single-node broker, whose node
+# is its controller quorum too, and topics made before keep the copies they have.
 #
 # Strimzi's images come from quay.io; a cluster that pulls only through a cache of its own needs
 # that cache to mirror quay.io/strimzi as well.

@@ -147,6 +147,17 @@ trait Executor:
       @scala.annotation.unused name: String
   ): Either[String, Unit] = Left("this executor removes nothing")
 
+  /**
+   * How many broker nodes the installation's broker has (feature 043): the replicas of its node
+   * pools whose roles include `broker`, read from the pools themselves. `None` where the type is
+   * not installed, or nothing can be read.
+   */
+  def brokerNodes(
+      @scala.annotation.unused namespace: String,
+      @scala.annotation.unused cluster: String
+  ): Option[Int] =
+    None
+
   /** The brokers a project declares (feature 037), from its `AnkkaProject`; none without one. */
   def projectBrokers(
       namespace: String,
@@ -1184,9 +1195,28 @@ final class Fabric8Executor(
       name -> TopicState(
         strimziState(found, found.flatMap(t => Option(t.getStatus))),
         spec.map(_.partitions),
-        spec.map(s => StrimziRendering.compacted(s.config))
+        spec.map(s => StrimziRendering.compacted(s.config)),
+        spec.flatMap(_.replicas),
+        spec.flatMap(_.config).map(_.map((k, v) => k -> String.valueOf(v)))
       )
     }.toMap
+
+  override def brokerNodes(namespace: String, cluster: String): Option[Int] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaNodePoolResource])
+        .inNamespace(namespace)
+        .withLabel(
+          com.thinkmorestupidless.ankka.operator.strimzi.StrimziDefinitions.ClusterLabel,
+          cluster
+        )
+        .list()
+    ).map { list =>
+      import scala.jdk.CollectionConverters.*
+      com.thinkmorestupidless.ankka.operator.strimzi.KafkaNodePoolResource.brokerNodes(
+        list.getItems.asScala.flatMap(p => Option(p.getSpec))
+      )
+    }.filter(_ > 0)
 
   override def observeObjectStorage(bucket: String): ObjectStorageObservation =
     store.fold(ObjectStorageObservation.empty) { s =>

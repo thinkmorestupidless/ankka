@@ -34,7 +34,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
     val _ =
       kit.call(ProjectEntity.createProject, ada.metadata)(CreateProject("Spinvibe", "eitheror"))
     val _ = kit.call(ProjectEntity.declareTopic, ada.metadata)(
-      DeclareTopic("affiliates.attribution", 3)
+      DeclareTopic("affiliates.attribution", Some(3))
     )
     kit
 

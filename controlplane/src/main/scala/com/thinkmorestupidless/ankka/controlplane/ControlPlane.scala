@@ -136,7 +136,10 @@ object ControlPlane:
        * directory holds them; a suite passes keys of its own to sign and verify with.
        */
       machineSettings: MachineSettings = MachineSettings.local,
-      machineKeys: Option[MachineKeys] = None
+      machineKeys: Option[MachineKeys] = None,
+      /** The installation's topic defaults, bounds and warning threshold (feature 043). */
+      topicPolicy: => com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -159,7 +162,8 @@ object ControlPlane:
           divergence,
           platform,
           rehearsals,
-          brokerExposed = machineSettings.brokerBootstrap.isDefined
+          brokerExposed = machineSettings.brokerBootstrap.isDefined,
+          policy = topicPolicy
         ),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
@@ -178,7 +182,8 @@ object ControlPlane:
               logs = logReader,
               clock = clock,
               topology = reader,
-              projects = topics
+              projects = topics,
+              topicPolicy = topicPolicy
             )
           case None =>
             ServiceEndpoint(
@@ -187,7 +192,8 @@ object ControlPlane:
               deploy,
               logs = logReader,
               clock = clock,
-              projects = topics
+              projects = topics,
+              topicPolicy = topicPolicy
             ),
       clients => WhoamiEndpoint(clients, acl, clock),
       clients =>
@@ -241,6 +247,8 @@ object ControlPlane:
     val policy  = OrganizationPolicy.from(config)
     val backups = BackupConfig.from(config)
     val cloud   = com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
+    val topicPolicy =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     // First of the extensions (feature 041): the projector must know it is held before it starts.
@@ -274,7 +282,8 @@ object ControlPlane:
             rehearsals = Some(projector),
             hold = hold,
             machineSettings = machines,
-            machineKeys = Some(keys)
+            machineKeys = Some(keys),
+            topicPolicy = topicPolicy
           )*
         )
       case _ =>
@@ -295,7 +304,8 @@ object ControlPlane:
             rehearsals = Some(projector),
             hold = hold,
             machineSettings = machines,
-            machineKeys = Some(keys)
+            machineKeys = Some(keys),
+            topicPolicy = topicPolicy
           )*
         )
     val served = Ankka.service
@@ -304,6 +314,10 @@ object ControlPlane:
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(server)
+      // Feature 043: fill the settings of topics declared before topics stated them.
+      .withExtension(
+        com.thinkmorestupidless.ankka.controlplane.application.TopicSettingsSweep(topicPolicy)
+      )
     // Keys the Secret holds are replaced every thirty days; keys in memory live with the process.
     val base =
       if machines.keysDirectory.isDefined then

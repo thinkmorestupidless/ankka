@@ -118,7 +118,17 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     expiresIn = 3.hours
   )
 
-  protected var k3s: K3sContainer     = null
+  protected var k3s: K3sContainer = null
+
+  /** How many broker nodes the installation's broker is installed with (feature 043). */
+  protected def brokerNodes: Int = 1
+
+  /** The control plane's topic defaults and bounds (feature 043). */
+  protected def topicPolicy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+    com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
+
+  /** The node the suite runs on, for a probe a subclass starts. */
+  protected def cluster: K3sContainer = k3s
   protected var k8s: KubernetesClient = null
   private var operator: Operator      = null
   private var testKit: AnkkaTestKit   = null
@@ -152,7 +162,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
             .openStream()
         )
         .serverSideApply(): Unit
-      val broker = BrokerStack.install(k3s)
+      val broker = BrokerStack.install(k3s, brokerNodes)
       waitFor(180.seconds, "CloudNativePG's controller") {
         PkiStack.jsonPath(
           k3s,
@@ -192,7 +202,8 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
           topics = Some(projector),
           schemas = Some(projector),
           machineSettings = machineSettings,
-          machineKeys = Some(machineKeys)
+          machineKeys = Some(machineKeys),
+          topicPolicy = topicPolicy
         )*
       )
       testKit = AnkkaTestKit.start(
@@ -383,13 +394,18 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
 
   private var declaringScenarios = 0
 
+  /**
+   * Whether every scenario declares on a "money" of its own. A declaration fixes what no later one
+   * can undo — more partitions, and since feature 043 a topic's copies — so a file whose scenarios
+   * each declare "transactions" from nothing needs one.
+   */
+  protected def projectPerScenario: Boolean = feature == "declaring.feature"
+
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
       scenarioName = aliasesByScenario.keys.find(context.test.name.startsWith).getOrElse("")
       aliases = aliasesByScenario.getOrElse(scenarioName, Map.empty)
-      // Each of the declaring file's scenarios declares "transactions" from nothing, and one grows
-      // it, which no later declaration of fewer partitions can undo: each has a project of its own.
-      if feature == "declaring.feature" then
+      if projectPerScenario then
         declaringScenarios += 1
         aliases += "money" -> s"money$declaringScenarios"
       made = Vector.empty
@@ -622,7 +638,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
    * entity operator, then the entity operator, whose topic and user operators make topics and
    * users. Nothing the broker already holds changes.
    */
-  private def stopStrimzi(): Unit =
+  protected def stopStrimzi(): Unit =
     strimziStopped = true
     PkiStack.kubectl(
       k3s,
@@ -661,7 +677,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       ).isEmpty
     }
 
-  private def startStrimzi(): Unit =
+  protected def startStrimzi(): Unit =
     PkiStack.kubectl(
       k3s,
       "scale",
@@ -1434,6 +1450,12 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
         assertEquals(may("create", resource), "yes", resource)
         assertEquals(may("patch", resource), "yes", resource)
         assertEquals(may("delete", resource), "no", resource)
+      // The node pools are read, to count the broker nodes, and nothing more.
+      val pools = "kafkanodepools.kafka.strimzi.io"
+      assertEquals(may("get", pools), "yes", pools)
+      assertEquals(may("list", pools), "yes", pools)
+      for verb <- Seq("create", "patch", "delete") do
+        assertEquals(may(verb, pools), "no", s"$verb $pools")
       // And a removal attempted with that token is refused by the API server itself.
       val anyTopic = jsonPath("kafkatopics", "-n", Broker, "{.items[0].metadata.name}")
       assume(anyTopic.nonEmpty, "no topic to try")

@@ -239,7 +239,7 @@ final class ControlPlaneClient(settings: Settings):
     ): Unit
 
   def declareTopic(projectId: String, name: String, partitions: Int): Unit =
-    declareTopic(projectId, name, TopicDeclarationRequest(partitions))
+    declareTopic(projectId, name, TopicDeclarationRequest(Some(partitions)))
 
   /** The schema document a topic's contract was declared with, as JSON text. */
   def topicSchema(projectId: String, name: String): String =

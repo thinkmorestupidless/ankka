@@ -173,6 +173,40 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         processPort = Some(3000),
         broker = Some("provisioned"),
         undeclaredTopics = Some(Vector("cart-checkouts")),
+        topicSources = Some(
+          Vector(
+            TopicSourceReport(
+              "view",
+              "entries",
+              "transactions",
+              "ankka.shop.cart.view-v2.entries",
+              "earliest",
+              2,
+              lag = Some(4L),
+              gap = Some(
+                RetentionGapReport(
+                  Vector(
+                    PartitionGapReport(0, 1240L, Some(at)),
+                    PartitionGapReport(1, 0L)
+                  ),
+                  compacted = false,
+                  gone = true,
+                  readAt = Some(later)
+                )
+              )
+            )
+          )
+        ),
+        warnings = Some(
+          Vector(
+            ServiceWarning(
+              "retention",
+              "entries",
+              "transactions",
+              "view 'entries' reads topic 'transactions', which keeps 7d; the installation warns below 30d"
+            )
+          )
+        ),
         objectStorage = Some("provisioned"),
         bucket = Some("shop.cart"),
         bucketAddress = Some("https://storage.example.com/shop.cart"),
@@ -274,8 +308,17 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     fixture(
       "TopicDeclarationRequest",
       TopicDeclarationRequest(
-        12,
+        Some(12),
         compacted = true,
+        retention = Some("90d"),
+        retentionSize = Some("50GiB"),
+        cleanup = Some("compact,delete"),
+        tombstoneWindow = Some("1d"),
+        minCompactionLag = Some("1h"),
+        maxCompactionLag = Some("none"),
+        copies = Some(3),
+        minInSync = Some(2),
+        removes = Some("messages older than 90d"),
         contract = Some(
           ContractDeclaration(
             "transaction.v1",
@@ -286,7 +329,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
           )
         )
       ),
-      TopicDeclarationRequest(1)
+      TopicDeclarationRequest(Some(1))
     ),
     fixture(
       "ProjectTopic",
@@ -308,7 +351,22 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
             "checked"
           ),
           TopicCheck("transactions", "ledger", "view:by-day", "reads", None, "mismatch")
-        )
+        ),
+        settings = Some(
+          TopicSettingsView(
+            "90d",
+            "none",
+            "compact",
+            "1d",
+            "0s",
+            "none",
+            Some(3),
+            Some(2),
+            Vector("retentionSize", "tombstoneWindow")
+          )
+        ),
+        copiesHeld = Some(3),
+        brokerNodes = Some(3)
       ),
       ProjectTopic("transactions", 12)
     ),
@@ -501,11 +559,14 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     fixture("SwitchRequest", SwitchRequest("ankka-db-r202610081012"), SwitchRequest("ankka-db")),
     fixture(
       "ProjectHistoryView",
+      // Every field, though no entry has both a detail and a topic: the schema reads each.
       ProjectHistoryView(
-        "restore-requested",
+        "topic-changed",
         Some("Olive Owner"),
         Some(at),
-        Some("ankka-db-r202610081012")
+        Some("ankka-db-r202610081012"),
+        Some("transactions"),
+        Vector(SettingChange(Setting.Retention, "90d", "180d"))
       ),
       ProjectHistoryView("database-set")
     ),
@@ -631,7 +692,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
             GrantChangeRecord(GrantChange.Offered, Some("Ada Owner"), Some(at)),
             GrantChangeRecord(GrantChange.Accepted, Some("Bo Owner"), Some(later))
           ),
-          Some(TopicSettings(3, compacted = true, Some("7 days"), Some(3)))
+          Some(GrantedTopicSettings(3, compacted = true, Some("7d"), Some(3)))
         ),
         ReceivedGrantDetail(
           "3f9c0a1b2c3d4e5f",

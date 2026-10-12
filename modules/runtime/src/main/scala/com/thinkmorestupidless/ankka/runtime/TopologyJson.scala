@@ -122,17 +122,7 @@ object TopologyJson:
       s""""calls":${observed.edges.mkString("[", ",", "]")},""" +
       // Feature 037: each topic source with how far behind it is, read by the control plane with
       // the rest of the document.
-      s""""topicSources":${topicSources.map(topicSource).mkString("[", ",", "]")}}"""
-
-  private def topicSource(s: TopicSourceStatus): String =
-    s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +
-      s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
-      s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
-      s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},"behind":${s.behind},""" +
-      s""""broker":${s.broker.fold("null")(Json.str)},"contract":${s.contract.fold("null")(
-          Json.str
-        )},""" +
-      s""""lag":${s.lag.fold("null")(_.toString)},"failing":${s.failing.fold("null")(Json.str)}}"""
+      s""""topicSources":${topicSources.map(TopicSources.json).mkString("[", ",", "]")}}"""
 
   private final case class Observed(nodes: Vector[Node], edges: Vector[String])
 

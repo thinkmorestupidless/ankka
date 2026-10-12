@@ -309,8 +309,12 @@ final case class GrantDetail(
     ended: Option[GrantAct] = None
 )
 
-/** A declared topic's settings, as a grantee of it is told them. */
-final case class TopicSettings(
+/**
+ * A declared topic's settings, as a grantee of it is told them: its retention in the declaration's
+ * words (feature 043), absent for a topic declared before topics stated it, and its copies when the
+ * declaration fixed them.
+ */
+final case class GrantedTopicSettings(
     partitions: Int,
     compacted: Boolean = false,
     retention: Option[String] = None,
@@ -333,7 +337,7 @@ final case class ReceivedGrantDetail(
     target: GrantTarget,
     state: GrantState,
     changes: Vector[GrantChangeRecord] = Vector.empty,
-    topic: Option[TopicSettings] = None
+    topic: Option[GrantedTopicSettings] = None
 )
 
 /** `POST /organizations/{id}/machines`. */

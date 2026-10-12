@@ -43,6 +43,8 @@ final class ProjectReconciler(
         val names = spec.topics.toVector.map(t => BrokerNames.topic(spec.projectId, t.name))
         val observed =
           settings.broker.fold(Map.empty)(b => executor.observeTopics(b.namespace, names))
+        // Feature 043: how many broker nodes there are, which only the operator can read.
+        val nodes    = settings.broker.flatMap(b => executor.brokerNodes(b.namespace, b.cluster))
         val services = executor.servicesIn(ref.namespace)
         val current  = Option(project.getStatus)
         val restores =
@@ -77,7 +79,8 @@ final class ProjectReconciler(
             clusters = restores.clusters,
             rehearsals = rehearsals.statuses
           ),
-          settings.machines
+          settings.machines,
+          brokerNodes = nodes
         )).foreach(executor.execute)
 
 object ProjectReconciler:
@@ -119,15 +122,16 @@ object ProjectReconciler:
       current: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus],
       backups: Backups = Backups.none,
       // Feature 040: where machines' tokens come from, for every service of the project.
-      machines: Option[Settings.MachineIssuer] = None
+      machines: Option[Settings.MachineIssuer] = None,
+      brokerNodes: Option[Int] = None
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
-        .topicsToRender(spec, broker, observed)
+        .topicsToRender(spec, broker, observed, brokerNodes)
         .map(t => Action.EnsureKafkaTopic(StrimziRendering.topic(spec.projectId, t, b)))
     )
     val next = TopicProvisioning
-      .status(spec, broker, observed)
+      .status(spec, broker, observed, brokerNodes)
       .copy(
         backups = backups.status,
         database = backups.database,

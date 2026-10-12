@@ -75,6 +75,20 @@ private[ankka] object ViewVersions:
     tx.query(selectVersion(componentId))(_.get("version", classOf[Integer]).intValue)
       .map(_.headOption.getOrElse(1))
 
+  /**
+   * When a view's rows were last built (feature 043): what a topic source's earliest retained time
+   * is held to, to say whether a rebuild missed messages. `None` for one never recorded.
+   */
+  def builtAt(database: Database, componentId: String)(using
+      ExecutionContext
+  ): Future[Option[java.time.Instant]] =
+    database
+      .query(
+        SqlFragment.raw("SELECT built_at FROM ankka_view_versions WHERE component_id = ") ++
+          sql"$componentId"
+      )(_.get("built_at", classOf[java.time.OffsetDateTime]))
+      .map(_.headOption.flatMap(Option(_)).map(_.toInstant))
+
   /** The version a view's rows were last built at; 1 for one never recorded. */
   def recorded(database: Database, componentId: String)(using ExecutionContext): Future[Int] =
     database

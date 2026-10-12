@@ -72,7 +72,7 @@ final class GrantsCommandSuite extends FunSuite:
                     GrantTarget.topic("casino.players", "consume"),
                     GrantState.Accepted,
                     Vector(GrantChangeRecord(GrantChange.Made, Some("Ada"))),
-                    Some(TopicSettings(3, compacted = true, Some("7 days")))
+                    Some(GrantedTopicSettings(3, compacted = true, Some("7d")))
                   )
                 )
               )
@@ -205,7 +205,7 @@ final class GrantsCommandSuite extends FunSuite:
     val (_, received, _) = run("payments", "received")
     assert(
       received.contains("spinvibe (eitheror)") && received.contains(
-        "3 partitions, compacted, kept 7 days"
+        "3 partitions, compacted, kept 7d"
       ),
       received
     )

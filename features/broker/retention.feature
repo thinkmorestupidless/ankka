@@ -40,3 +40,12 @@ Feature: How long a topic keeps
     When the installation's default retention time is changed to "14 days"
     Then the installation's broker keeps a message on "notices" for "7 days"
     And the status of "notices" shows the retention time "7 days"
+
+  Scenario: a topic declared before a declaration could say its settings is filled by the control plane when it is upgraded
+    Given the topic "notices" was declared on "money" before a declaration could say its settings
+    When the control plane starts upgraded
+    Then the declaration of "notices" records the retention time "7 days", the cleanup policy "delete", and the installation's default tombstone window, minimum compaction lag and maximum compaction lag
+    And "money" records that the platform filled them, and no member
+    And the copies of "notices" are what the installation's broker holds
+    And the installation's broker holds each setting on the topic "notices" itself
+    And the status of "notices" shows each setting, marked as the installation's default

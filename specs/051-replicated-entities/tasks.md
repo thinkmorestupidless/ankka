@@ -903,7 +903,7 @@ scenario named by the spec exists and every word is in the glossary).
   the seam's shape as merged, the protocol minor, and that the private half can start against the
   branch's `ankka-runtime` snapshot; the pin row in `ankka-brain-private/family.md` moves from
   "not yet pinned" to the snapshot version. Outside this repository: a note, not a commit here
-- [ ] T079 Open the pull request against `main` with the spec's summary, the seam named as the
+- [X] T079 Open the pull request against `main` with the spec's summary, the seam named as the
   contract `ankka-replication` builds against, the protocol minor, and the pages added; the
   cluster workflow is not needed (nothing here runs on k3s); squash-merge is the project's habit
 

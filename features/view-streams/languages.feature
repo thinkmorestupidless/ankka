@@ -28,13 +28,13 @@ Feature: View streams in every language that can read one
       | TypeScript |
 
   Scenario: a runtime from before view streams refuses a program that asks for one
-    Given a service "shop" written in "Python" whose handler asks a view for a stream
+    Given a service "shop" written in "Python" whose view "carts" declares the query "open-carts" as one that can be watched
     When "shop" is started beside a runtime at a protocol version before view streams
     Then "shop" does not start
     And the developer is told which protocol version a view stream needs
 
   Scenario: a module that would stream a view is refused when it is started
-    Given a module "shop" whose handler asks a view for a stream
+    Given a module "shop" whose view "carts" declares the query "open-carts" as one that can be watched
     When "shop" is started
     Then "shop" does not start
     And the developer is told that a module reads a view whole

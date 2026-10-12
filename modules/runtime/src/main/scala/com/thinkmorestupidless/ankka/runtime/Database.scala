@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.runtime
 import io.r2dbc.spi.{Connection, ConnectionFactory, Row, RowMetadata, Statement}
 
 import java.util.function.BiFunction
+import org.apache.pekko.NotUsed
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.persistence.r2dbc.ConnectionFactoryProvider
 import org.apache.pekko.stream.Materializer
@@ -104,6 +105,67 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
         .flatMap(_ => work(tx))
     }
 
+  /**
+   * The rows of `sql`, which holds `$1`, `$2`, … for `binds` in order, as the database yields them:
+   * nothing is collected, and the stream holds at most `fetchSize` rows the database has sent and
+   * the reader has not taken.
+   *
+   * The statement runs in a transaction held to reading on a connection of its own for as long as
+   * the stream lasts, and the connection goes back to the pool however the stream ends: completed,
+   * failed, or cancelled by a reader that went away.
+   *
+   * The database's `statement_timeout` is measured per `Execute`, and a portal fetched `fetchSize`
+   * rows at a time is one `Execute` per fetch: it bounds each fetch, not the stream, so a stream
+   * may rightly run longer than `timeout`. What it cannot bound is a reader that stops reading and
+   * holds the cursor open, so the stream bounds that itself: a stream not read for `timeout` fails.
+   */
+  def stream[A](timeout: FiniteDuration, fetchSize: Int)(sql: String, binds: Seq[Any])(
+      decode: (Row, RowMetadata) => A
+  ): Source[A, NotUsed] =
+    def run(publisher: org.reactivestreams.Publisher[?]): Future[Unit] =
+      Source.fromPublisher(publisher).runWith(Sink.ignore).map(_ => ())
+    def statement(connection: Connection, text: String): Future[Unit] =
+      Source
+        .fromPublisher(connection.createStatement(text).execute())
+        .flatMapConcat(result => Source.fromPublisher(result.getRowsUpdated))
+        .runWith(Sink.ignore)
+        .map(_ => ())
+    // Read-only, so rolling back gives up nothing, and it is the one ending right for all three.
+    def release(connection: Connection): Future[Unit] =
+      run(connection.rollbackTransaction())
+        .recover { case _ => () }
+        .flatMap(_ => run(connection.close()))
+        .recover { case _ => () }
+
+    Source
+      .lazyFutureSource { () =>
+        Source.fromPublisher(factory.create()).runWith(Sink.last).flatMap { connection =>
+          run(connection.beginTransaction())
+            .flatMap(_ => statement(connection, "SET TRANSACTION READ ONLY"))
+            .flatMap(_ =>
+              statement(connection, s"SET LOCAL statement_timeout = ${timeout.toMillis.max(1L)}")
+            )
+            .map { _ =>
+              val prepared = connection.createStatement(sql).fetchSize(fetchSize)
+              binds.zipWithIndex
+                .foreach((value, index) => prepared.bind(index, value.asInstanceOf[AnyRef]): Unit)
+              val mapper: BiFunction[Row, RowMetadata, A] = (row, metadata) => decode(row, metadata)
+              Source
+                .fromPublisher(prepared.execute())
+                .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))
+                .watchTermination()((_, ended) => ended.onComplete(_ => release(connection)))
+            }
+            .recoverWith { case failure =>
+              release(connection).flatMap(_ => Future.failed(failure))
+            }
+        }
+      }
+      .backpressureTimeout(timeout)
+      .mapError { case _: java.util.concurrent.TimeoutException =>
+        Database.NotRead(timeout)
+      }
+      .mapMaterializedValue(_ => NotUsed)
+
   /** Executes a statement, returning the number of rows affected. */
   def execute(fragment: SqlFragment): Future[Long] =
     withConnection { connection =>
@@ -152,6 +214,10 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
     query(fragment)(decode).map(_.headOption)
 
 private[ankka] object Database:
+
+  /** A stream whose reader took nothing for `timeout`, so the stream gave up its cursor. */
+  final case class NotRead(timeout: FiniteDuration)
+      extends RuntimeException(s"the stream was not read for $timeout")
 
   /** The statements of one transaction, on its connection, one after another. */
   final class Transaction private[runtime] (connection: Connection)(using Materializer):

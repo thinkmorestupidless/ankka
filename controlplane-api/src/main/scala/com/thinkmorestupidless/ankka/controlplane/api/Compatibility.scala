@@ -68,9 +68,10 @@ object Protocol:
    * publication with its contract and broker (feature 037). 1.15 added the granted-caller matcher,
    * the machine caller, and the project of another project's topic on a source and a publication
    * (feature 040). 1.16 added a workflow as the source of a view or a consumer, and its standing on
-   * their requests (feature 046).
+   * their requests (feature 046). 1.17 added a view's query answered as a stream and a watch:
+   * `QueryStream` and `Watch` on `Client`, and `DeclaredQuery.watched` in discovery (feature 047).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 16)
+  val version: ProtocolVersion = ProtocolVersion(1, 17)
 
 object Compatibility:
 

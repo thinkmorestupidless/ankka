@@ -88,3 +88,16 @@ source and a publication and refuse the same at start.
   `Route.socket` as nothing and would serve the route as a request, so a socket route is refused from
   both ends: the sidecar refuses a `Spec` declaring one under an earlier minor — the first minor it gates
   on — and an SDK refuses discovery from a runtime stating an earlier version.
+- **A server-streaming rpc on `Client` sends only as the process reads.** `InvokeStream` calls `onNext`
+  from an actor with no flow control; `QueryStream` and `Watch` (1.17) go through `ClientService.drain`,
+  which takes a frame from the stream only when the call is ready. The sidecar does not depend on `grpc`,
+  so `Streams.drain` is not reachable from it.
+
+- **The callback server is the first extension to start and the last to stop.** Extensions start in
+  the order `Main` lists them, and a projection redelivering a consumer's message at a restart reached
+  the process before `SidecarExtension` had bound port 9011: the process's call back was refused, and
+  its gRPC channel then backed off for a second, failing every call behind it (the conformance suite's
+  `kv.recover-after-restart`, and the four cases after it, on CI only). `SidecarExtension` is wired
+  before the projections, the timers, the agents and HTTP, in `Main.build` and in `ConformanceTarget`
+  alike; its timer thunk answers "not running" rather than throwing in the moment before the timers
+  start.

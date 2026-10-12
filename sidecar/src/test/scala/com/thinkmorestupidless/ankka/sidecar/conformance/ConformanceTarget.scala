@@ -434,6 +434,8 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
+        // First, as Main wires it: the callback server is up before a projection redelivers.
+        SidecarExtension(settings, conversation, timers, served),
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
@@ -441,8 +443,7 @@ object ConformanceTarget:
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
         HttpServer
           .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
-          .withGrants(ConformanceTarget.grants),
-        SidecarExtension(settings, conversation, timers, served)
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
@@ -617,6 +618,7 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
+        SidecarExtension(settings, conversation, timers, served, Some(imports)),
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
@@ -624,8 +626,7 @@ object ConformanceTarget:
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
         HttpServer
           .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
-          .withGrants(ConformanceTarget.grants),
-        SidecarExtension(settings, conversation, timers, served, Some(imports))
+          .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),

@@ -16,6 +16,18 @@ Feature: Watching a view's query
     When a handler of "shop" watches "open-carts"
     Then the handler is first given the rows "c1" and "c2" and no other
 
+  Scenario: a watcher is told it is caught up after the rows now and before any change
+    Given "carts" holds the open carts "c1" and "c2"
+    When a handler of "shop" watches "open-carts" and the cart "c3" is then opened
+    Then the handler is given the rows "c1" and "c2"
+    And the handler is then told it is caught up
+    And the handler is then given the row "c3"
+
+  Scenario: a watcher of a query that matches nothing now is told it is caught up at once
+    Given "carts" holds no open cart
+    When a handler of "shop" watches "open-carts"
+    Then the handler is told it is caught up before any row
+
   Scenario: a watcher is given a row that comes to match
     Given a handler of "shop" watching "open-carts"
     When the cart "c3" is opened and "carts" writes the row "c3"
@@ -69,6 +81,6 @@ Feature: Watching a view's query
 
   Scenario: a watched row that does not exist yet is given when it is written
     Given "carts" holds no row "c9"
-    And a handler of "shop" watching the row "c9"
+    And a handler of "shop" watching the row "c9" that was told it is caught up at once
     When "carts" writes the row "c9"
     Then the handler is given the row "c9"

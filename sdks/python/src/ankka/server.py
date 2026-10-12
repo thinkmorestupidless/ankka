@@ -59,7 +59,8 @@ from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
 from ankka.standing import WORKFLOW_SOURCE_PROTOCOL, Standing
-from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries
+from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries, declares_watched
+from ankka.views import VIEW_STREAMS_PROTOCOL
 from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
@@ -96,7 +97,8 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         first asking. One older than 1.14 would ignore a contract, a broker, parallel partitions and a
         publication's contract: a service checked against nothing, reading the wrong broker. Refused,
         naming what declares them, rather than served wrong. One older than 1.16 would not read a
-        workflow as a source, and a view or consumer that did would be handed nothing."""
+        workflow as a source, and a view or consumer that did would be handed nothing. One older than
+        1.17 would not know a watched query."""
         if start_from.older_than(sidecar_protocol, WORKFLOW_SOURCE_PROTOCOL):
             reading = [
                 cls.__name__
@@ -111,6 +113,18 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
                 return (
                     f"{', '.join(reading)} read a workflow, which the sidecar does not know: it speaks protocol "
                     f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.16 or later."
+                )
+        if start_from.older_than(sidecar_protocol, VIEW_STREAMS_PROTOCOL):
+            watching = [
+                cls.__name__
+                for cls in (*self.registry.views.values(), *self.registry.keyed_views.values())
+                if declares_watched(cls)
+            ]
+            if watching:
+                return (
+                    f"{', '.join(watching)} declare a watched query, which the sidecar does not know: it speaks "
+                    f"protocol {sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. "
+                    "Run a sidecar speaking 1.17 or later."
                 )
         if start_from.older_than(sidecar_protocol, contract.CONTRACT_PROTOCOL):
             stating = [

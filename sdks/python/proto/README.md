@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.16`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.17`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -49,6 +49,12 @@ a `Source.ComponentRef` of kind `WORKFLOW`, and `WorkflowStanding` as `ViewReque
 `ConsumerRequest.standing`, where the workflow stood once the effect that recorded the state was
 applied. The gate holds from both ends: the sidecar refuses a workflow source from a process that
 declares an earlier minor, and an SDK refuses discovery with one from a runtime that states one.
+`1.17` added a view's query answered as a stream and a watch:
+`QueryStream` on `Client`, which answers a `QueryRequest` as `RowFrame`s with no limit unless one is
+given, `Watch`, which answers a `WatchRequest` for a declared query or one row with the rows now, one
+`caught_up` frame, then rows and removals as the view writes, and `DeclaredQuery.watched`, which a
+sidecar refuses from an SDK declaring an earlier minor. A runtime before `1.17` answers both calls
+`UNIMPLEMENTED`.
 
 `MAJOR.MINOR`. Within a major:
 

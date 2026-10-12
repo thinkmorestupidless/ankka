@@ -33,7 +33,8 @@ skill holds what differs.
    `self.metadata.subject`.
 4. **Calls are awaited and addressed by id and wire name.** `await client.for_event_sourced_entity(
    "shopping-cart", "c1").call("add-item").invoke(item, reply=Done)`; `for_key_value_entity`,
-   `for_workflow`, `for_agent(...).call(name).stream(input)`, `views.get(view_id, key, Row)`,
+   `for_workflow` (with `await_end(timeout, reply=State)`, `await_end_parts(...)` for an `@sse` route, and
+   `.call(name).then_await_end(timeout).invoke(input, reply=State)`), `for_agent(...).call(name).stream(input)`, `views.get(view_id, key, Row)`,
    `views.all(view_id, Row)`, `timers.schedule(timer_id, delay, component_id, name, input)`,
    `timers.schedule_recurring(timer_id, delay, period, component_id, name, input)`, `timers.cancel`. A refusal raises `ankka.client.CommandError` with `error.code`. The client comes as a
    constructor argument in an endpoint, `self.context.client` in a step, `self.client` elsewhere.

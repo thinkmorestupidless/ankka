@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.17`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.18`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -55,6 +55,11 @@ given, `Watch`, which answers a `WatchRequest` for a declared query or one row w
 `caught_up` frame, then rows and removals as the view writes, and `DeclaredQuery.watched`, which a
 sidecar refuses from an SDK declaring an earlier minor. A runtime before `1.17` answers both calls
 `UNIMPLEMENTED`.
+`1.18` added waiting for a workflow's end: `AwaitEnd` and
+`AwaitEndStream` on `Client`, the `heartbeat` and `ended` cases of `StreamToken`, the
+`WORKFLOW_FAILED` code and `Error.details`, and the `await_end` import for a module. An earlier
+runtime answers either rpc `UNIMPLEMENTED`, which each SDK reports as the runtime being too old,
+and refuses a module importing `await_end` when it loads.
 
 `MAJOR.MINOR`. Within a major:
 

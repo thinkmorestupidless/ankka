@@ -20,7 +20,7 @@ import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
 import org.apache.pekko.http.scaladsl.marshalling.Marshal
 import org.apache.pekko.http.impl.engine.ws.AnkkaSocketUpgrade
 
-import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.math.Ordering.Implicits.seqOrdering
 import scala.util.control.NonFatal
@@ -127,7 +127,8 @@ final class HttpServer private (
         service.componentClient,
         service.viewClient,
         service.services,
-        service.secrets
+        service.secrets,
+        Heartbeat.interval(config)
       )
     serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout)
 
@@ -879,12 +880,23 @@ private final class Router(
    * else's (a gRPC status, an exception), and a tab or other control character left raw makes the
    * whole body unparseable — so the client loses the error it was being told about.
    */
+  /** `,"details":{…}` for a problem that carries some, and nothing for one that does not. */
+  private def detailsJson(details: Map[String, String]): String =
+    if details.isEmpty then ""
+    else
+      details.toVector
+        .sortBy(_._1)
+        .map((k, v) => s"${JsonText.encode(k)}:${JsonText.encode(v)}")
+        .mkString(",\"details\":{", ",", "}")
+
   private def problem(failure: HttpProblem): HttpResponse =
     HttpResponse(
       StatusCode.int2StatusCode(failure.status),
       entity = HttpEntity(
         ContentTypes.`application/json`,
-        s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}}"""
+        s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}${detailsJson(
+            failure.details
+          )}}"""
       )
     )
 
@@ -1104,18 +1116,10 @@ private[http] final class SocketUpgrades(
 private[http] object SseSettings:
 
   /**
-   * How long an event stream may be quiet before the service sends a heartbeat: the configured
-   * interval, or half pekko-http's own idle timeout when that is shorter, so a quiet stream is
-   * never ended by the idle timeout whatever the two are set to.
+   * How long an event stream may be quiet before the service sends a heartbeat:
+   * `Heartbeat.interval`.
    */
-  def heartbeat(system: ActorSystem[?]): FiniteDuration =
-    val every =
-      FiniteDuration(system.settings.config.getDuration("ankka.http.sse.heartbeat").toMillis, "ms")
-    if every <= Duration.Zero then
-      throw IllegalArgumentException(s"ankka.http.sse.heartbeat must be positive, not $every")
-    org.apache.pekko.http.scaladsl.settings.ServerSettings(system).timeouts.idleTimeout match
-      case idle: FiniteDuration if every >= idle => (idle / 2).max(FiniteDuration(1, "ms"))
-      case _                                     => every
+  def heartbeat(system: ActorSystem[?]): FiniteDuration = Heartbeat.interval(system.settings.config)
 
 private[http] object SocketUpgrades:
 

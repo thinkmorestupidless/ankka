@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.17"`;
+- its protocol version, `"1.18"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -74,6 +74,8 @@ The table is generated from the `.proto` files.
 | `Client` | `ScheduleRecurring` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `client.proto` |
 | `Client` | `QueryStream` | `QueryRequest` | `stream RowFrame` | `client.proto` |
 | `Client` | `Watch` | `WatchRequest` | `stream RowFrame` | `client.proto` |
+| `Client` | `AwaitEnd` | `AwaitEndRequest` | `InvokeReply` | `client.proto` |
+| `Client` | `AwaitEndStream` | `AwaitEndRequest` | `stream StreamToken` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -191,7 +193,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.17`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.18`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -236,6 +238,13 @@ for a declared query or one row with the rows now, one `caught_up` frame, then r
 view writes, and `DeclaredQuery.watched` in discovery. A runtime before `1.17` answers both calls
 `UNIMPLEMENTED`, which each SDK reports as the runtime being too old for view streams, and the sidecar
 refuses a `Spec` declaring a watched query under an earlier minor.
+`1.18` added waiting for a
+workflow's end: `AwaitEnd` on `Client`, answered with the state the workflow ended with, or an `Error` whose
+code is `WORKFLOW_FAILED` with the step and the reason in `details`, or `TIMEOUT`; `AwaitEndStream`, the
+same wait as a stream of `heartbeat` tokens and one `ended` or `failed` token; the `WORKFLOW_FAILED` code
+and `Error.details`; and the `await_end` import for a module. An earlier runtime answers either call
+`UNIMPLEMENTED`, which each SDK reports as the runtime being too old to wait, and refuses a module that
+imports `await_end` when it loads.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

@@ -258,7 +258,7 @@ state = await cart.call("get-cart").invoke(reply=ShoppingCart)
 |---|---|
 | Event sourced entity | `client.for_event_sourced_entity(component_id, entity_id)` |
 | Key value entity | `client.for_key_value_entity(component_id, entity_id)` |
-| Workflow | `client.for_workflow(component_id, workflow_id)` |
+| Workflow | `client.for_workflow(component_id, workflow_id)`; `.await_end(timeout, reply=State)` waits for its end, `.await_end_parts(timeout, reply=State)` as parts for an `@sse` route, and `.call(name).then_await_end(timeout).invoke(input, reply=State)` starts and waits as one call |
 | Agent | `client.for_agent(component_id, session_id)` |
 
 `.call(name)` gives an invocation: `await invocation.invoke(input, reply=Type)`, or

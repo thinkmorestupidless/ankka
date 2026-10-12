@@ -102,6 +102,10 @@ feature also says what that feature does not do.
 
 ## Networking and security
 
+- **The gateway bounds an HTTP response at fifteen seconds.** A route the platform renders for an exposed
+  service's HTTP port names no timeout, and the gateway then ends a request that has not finished
+  within fifteen seconds, a stream of server-sent events included. A wait for a workflow's end served
+  through the gateway is bounded by it, as any long response is; the gRPC route has no such bound.
 - **No restriction on where a workload connects to.** Network policies decide who may connect to a
   workload; nothing restricts where it may connect. There is no egress policy.
 - **The object store speaks plain HTTP inside the cluster.** Every other port a workload reaches is mutual
@@ -257,13 +261,21 @@ feature also says what that feature does not do.
   not run fires once and goes on, and never catches the missed ones up. The local console does not list
   timers.
 - **Agents stream their replies and views their rows; nothing else streams.** Entities and workflows
-  refuse a streaming request.
+  refuse a streaming request. A wait for a workflow's end can be served as a stream; the
+  workflow itself does not stream.
 - **A watch of a view guarantees no delivery.** It is live, not a record: it may give a watcher fewer
   versions of a row than were written, drops unread rows past its bound as the watcher chose, gives
   nothing written while it was not open, and ends — for a rebuild, a stopping instance or a lost
   connection — with the reason, to be watched again. A reader that must see every change reads the
   source with a consumer. A watched query is decided for each written row alone, so a match that depends
   on the time or on another row changes on the row's next write.
+- **A module waits whole.** A WebAssembly module waits for a workflow's end with one call, and cannot
+  serve the wait as a stream. The instance it runs on is held for as long as the wait, so a module waits
+  from a step, a route or a tool rather than a command.
+- **A wait needs both halves at the same release.** An instance from before waiting answers a wait for a
+  workflow's end as an unknown handler, and the caller is told so; a process beside a runtime before
+  protocol 1.18 is refused when it waits. During a rolling update, a wait can fail this way until every
+  instance is at the release.
 - **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
   open: presence, fan-out and catching a reconnecting client up are a service's own entities and

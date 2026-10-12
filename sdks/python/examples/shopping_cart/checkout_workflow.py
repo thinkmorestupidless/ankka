@@ -43,8 +43,9 @@ class CheckoutWorkflow(Workflow[Checkout]):
     @command("start")
     def start(self, mode: str) -> WorkflowEffect[Checkout, Done]:
         """``mode``: ``ok``, ``fail`` (the charge is declined and compensated), ``pause`` (a pause
-        before it), ``abort`` (declined; the compensation records it and fails the workflow) or
-        ``drop`` (declined; the compensation fails the workflow and records nothing)."""
+        before it), ``abort`` (declined; the compensation records it and fails the workflow),
+        ``drop`` (declined; the compensation fails the workflow and records nothing) or ``doomed``
+        (declined, and the compensation fails too)."""
         if self.state.status != "new":
             return self.effects.error(f"checkout is already {self.state.status}", ErrorCode.CONFLICT)
         return self.effects.update_state(replace(self.state, status="reserving", mode=mode)).then_transition_to("reserve").then_reply(lambda _: DONE)
@@ -66,7 +67,7 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("charge")
     async def charge(self) -> WorkflowStepEffect[Checkout]:
-        if self.state.mode in ("fail", "abort", "drop"):
+        if self.state.mode in ("fail", "abort", "drop", "doomed"):
             raise PaymentDeclined("payment declined")
         # Not idempotent — a retry after the cart was checked out is refused — which is why
         # ``charge`` is allowed one retry and then fails over, and why compensation exists.
@@ -80,6 +81,8 @@ class CheckoutWorkflow(Workflow[Checkout]):
             return self.step_effects.update_state(replace(self.state, status="aborted", reserved=0)).then_fail("payment declined")
         if self.state.mode == "drop":
             return self.step_effects.fail("payment declined")
+        if self.state.mode == "doomed":
+            raise RuntimeError("compensation failed too")
         return self.step_effects.update_state(replace(self.state, status="compensated", reserved=0)).then_end()
 
     def _cart(self) -> Calls:

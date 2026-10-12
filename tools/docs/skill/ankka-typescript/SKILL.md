@@ -50,7 +50,9 @@ skill holds what differs.
 5. **Calls are awaited, typed from the handler table.** `await this.client.of(ShoppingCartEntity,
    id).call(ShoppingCartEntity.handlers.addItem).invoke(item)` takes the wire name and shapes from the
    declaration; `forEventSourcedEntity("shopping-cart", id).call("add-item", LineItem, Done)` is the form
-   by name. `forKeyValueEntity`, `forWorkflow`, `forAgent(...).call(...).stream(input)`, `views.get(viewId,
+   by name. `forKeyValueEntity`, `forWorkflow` (and `of(Workflow, id).awaitEnd(ms)`, `.awaitEndParts(ms)`
+   with `awaitPartJson` for an `sse` route, `.call(handler).thenAwaitEnd(ms).invoke(input)`),
+   `forAgent(...).call(...).stream(input)`, `views.get(viewId,
    key, Row)`, `views.all`, `timers.schedule(id, Duration, { component: Cls, handler: Cls.actions.x },
    input)`, `timers.scheduleRecurring(id, delay, period, { component: Cls, handler: Cls.actions.x }, input)`,
    `timers.cancel`. A refusal rejects with `CommandError` carrying `code`. Inside an endpoint

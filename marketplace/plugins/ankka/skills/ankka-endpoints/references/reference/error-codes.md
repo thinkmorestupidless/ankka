@@ -1,6 +1,6 @@
 # Error codes
 
-> The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
+> The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
 
 Source: https://docs.ankka.cloud/reference/error-codes/
 A handler that refuses a request returns an error effect carrying a message and an error code. The code
@@ -20,9 +20,16 @@ knowing the rule that was broken.
 | `Timeout` | `TIMEOUT` | `504` | `DEADLINE_EXCEEDED` | The call did not complete in time. The runtime uses it for a call that exceeded its deadline. | yes |
 | `Unavailable` | `UNAVAILABLE` | `503` | `UNAVAILABLE` | The target cannot serve right now. The runtime uses it when a component is briefly unreachable, for example while a process-hosted service restarts. | yes |
 | `Internal` | `INTERNAL` | `500` | `INTERNAL` | Something is wrong that the caller cannot fix. | no |
+| `WorkflowFailed` | `WORKFLOW_FAILED` | `424` | `ABORTED` | Not a handler's to use: a wait for a workflow's end is answered with it when the workflow failed or was deleted. | no |
 
 A retryable code means a caller could reasonably send the same request again unchanged. In Scala,
 `ErrorCode.retryable` answers that.
+
+`WorkflowFailed` carries details beside its message, which a caller in any language reads without
+parsing text: `step`, the step that failed, when one did; `reason`; and `deleted`, `"true"` for a workflow
+that was deleted. In Scala they are `error.details` and `WorkflowEnd.failure(error)`; in Python
+`error.details`; in TypeScript `error.details`; in Rust `error.details`. An HTTP problem body carries them
+as `details`. Over gRPC only the message crosses, so a gRPC caller reads the step and the reason there.
 
 An agent's guardrail answers `Forbidden` when it refuses an interaction. A judged guardrail whose check
 could not be made because its judgment provider failed answers `Unavailable`, or `Timeout` when the
@@ -103,6 +110,7 @@ that keeps failing does not advance past the message.
 ## In the sidecar protocol
 
 The protocol carries a refusal as an `Error` message with a `code` from the `ErrorCode` enum in
-`payload.proto`, which has the same eight values: `INTERNAL = 0`, `BAD_REQUEST = 1`, `UNAUTHORIZED = 2`,
-`FORBIDDEN = 3`, `NOT_FOUND = 4`, `CONFLICT = 5`, `TIMEOUT = 6`, `UNAVAILABLE = 7`. A fault in the
+`payload.proto`, which has the same nine values: `INTERNAL = 0`, `BAD_REQUEST = 1`, `UNAUTHORIZED = 2`,
+`FORBIDDEN = 3`, `NOT_FOUND = 4`, `CONFLICT = 5`, `TIMEOUT = 6`, `UNAVAILABLE = 7`, `WORKFLOW_FAILED = 8`.
+An `Error` also carries `details`, a map of text, which only a wait for a workflow's end fills. A fault in the
 process is a separate `Failure` message, never a refusal. See [Sidecar protocol](sidecar-protocol.md).

@@ -10,6 +10,7 @@ import shoppingcart.api.{
   GrpcCallersEndpoint,
   OpenCartsEndpoint,
   QuestionsEndpoint,
+  SecretsEndpoint,
   ServiceCallerEndpoint,
   ShoppingCartEndpoint
 }
@@ -161,6 +162,7 @@ import shoppingcart.application.*
           clients => OpenCartsEndpoint(clients.viewClient),
           clients => CallersEndpoint(clients.services),
           clients => QuestionsEndpoint(clients.componentClient),
+          clients => SecretsEndpoint(clients.secrets),
           _ => GrpcCallersEndpoint(grpcClients)
         ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient)) ++
           Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient)) ++

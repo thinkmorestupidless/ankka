@@ -970,6 +970,11 @@ final case class ServiceStatus(
      */
     undeclaredTopics: Option[Vector[String]] = None,
     /**
+     * Where the service keeps its secrets, and what a move of them did, as an instance reports it
+     * (feature 038): `None` when none answered, and on a listing row.
+     */
+    secretStore: Option[SecretStoreReport] = None,
+    /**
      * Each side this service's components take on a declared topic with a contract (feature 037):
      * whether what the component states is the declared contract. From the running instances, as
      * `undeclaredTopics` is: `None` when none answered, and on a listing row.
@@ -1150,12 +1155,14 @@ final case class OrganizationMembership(id: String, name: String, role: Role)
 /** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
 /**
  * What the installation is (feature 044, `GET /installation`): its version, and its cloud when it
- * names a provider; and its backups (feature 041), which `ankka status` shows.
+ * names a provider; its backups (feature 041), which `ankka status` shows; and where it keeps its
+ * secrets (feature 038). `secrets` is absent from a control plane older than 038.
  */
 final case class Installation(
     platformVersion: String,
     cloud: Option[CloudInstallation] = None,
-    backups: Option[InstallationStatus] = None
+    backups: Option[InstallationStatus] = None,
+    secrets: Option[InstallationSecrets] = None
 )
 
 /**
@@ -1454,8 +1461,39 @@ final case class InstanceTopologyDocument(
     declared: Vector[DeclaredEdge],
     calls: Vector[CallEdge],
     /** Feature 037: each topic source of the instance, with how far behind it is. */
-    topicSources: Vector[TopicSourceReport] = Vector.empty
+    topicSources: Vector[TopicSourceReport] = Vector.empty,
+    /** Feature 038: where the instance keeps its secrets, and what a move of them did. */
+    secretStore: Option[SecretStoreReport] = None
 )
+
+/**
+ * Where a service's instance keeps its secrets (feature 038): the backend, whether its secret key
+ * is read, and — during a move to Secret Manager — the phase it ran, its outcome and each name's
+ * state. Names and states only; never a value.
+ */
+final case class SecretStoreReport(
+    backend: String,
+    keyRead: Boolean,
+    move: Option[SecretMoveReport] = None
+)
+
+/**
+ * What a move of a service's secrets did when the instance started: `copied`, `checked`, `removed`,
+ * `refused` (a removal held back by a difference, named in `detail`), `unreachable`, `running`, or
+ * `rolled-back` (set back to the Postgres backend, naming what only Secret Manager holds).
+ */
+final case class SecretMoveReport(
+    phase: String,
+    outcome: String,
+    names: Vector[SecretMoveName] = Vector.empty,
+    detail: Option[String] = None
+)
+
+/**
+ * One name in a move: `equal`, `different`, `missing-in-secret-manager` or
+ * `only-in-secret-manager`.
+ */
+final case class SecretMoveName(name: String, state: String)
 
 /**
  * A topic source as an instance reports it (feature 037): what reads which topic under which group,
@@ -1939,6 +1977,30 @@ object DeployTokenRules:
       case _ => Vector.empty
     labelProblems ++ lifetimeProblems
 
+/**
+ * The record of secret reads an owner asked for, newest first (`GET /projects/{id}/secret-reads`).
+ * A record names a secret and never holds its value.
+ */
+final case class SecretReadsPage(
+    records: Vector[com.thinkmorestupidless.ankka.core.secrets.ReadRecord]
+)
+
+/**
+ * Where the installation keeps its secrets (feature 038), on `GET /installation`: the backend, how
+ * long the record of secret reads is kept, and whether the cloud's own access log is on — `unknown`
+ * until the installation's cloud provider reports it.
+ */
+final case class InstallationSecrets(
+    backend: String,
+    recordRetention: String,
+    auditLog: String = InstallationSecrets.AuditLogUnknown
+)
+
+object InstallationSecrets:
+  val AuditLogOn: String      = "on"
+  val AuditLogOff: String     = "off"
+  val AuditLogUnknown: String = "unknown"
+
 object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
   given specCodec: JsonValueCodec[ServiceSpec]             = Codecs.make[ServiceSpec]
@@ -2027,6 +2089,7 @@ object Wire:
   given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
+  given secretReadsPageCodec: JsonValueCodec[SecretReadsPage]    = Codecs.make[SecretReadsPage]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
     Codecs.make[Vector[ProjectSecretSummary]]
 

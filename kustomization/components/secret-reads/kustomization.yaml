@@ -1,0 +1,14 @@
+# The record of every read, keep and removal of a secret (feature 038): a database of its own, apart
+# from the control plane's journal and from every service's database, so a service cannot remove the
+# record of its own reads and a restore of its database does not rewind it. Listed by every overlay,
+# after the control plane, whose Deployment it tells where the database is.
+#
+# No schema here: the control plane makes its one table when it opens the store, as the role that
+# then owns it, so this database needs neither postInitApplicationSQLRefs nor the grants literal the
+# control plane's own database does (see components/postgres/cluster.yaml for that trap).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - cluster.yaml
+patches:
+  - path: controlplane-env.yaml

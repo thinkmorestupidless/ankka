@@ -83,6 +83,8 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  # After the control plane, whose Deployment it tells where the record of secret reads is kept.
+  - ../../components/secret-reads
   - ../../components/console
   # Backups into the installation's store (feature 041), after the Deployments it patches. The
   # retention floor and the schedule are its defaults, 30 days and midnight; an installation sets
@@ -513,6 +515,54 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS].value
+  # The installation's secret store settings (feature 038): the operator passes them
+  # to each service's platform program, the control plane chooses its project secret writer and
+  # refuses secret-manager without a cloud provider. Unset or default renders nothing.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretBackend
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_SECRET_BACKEND].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_BACKEND].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretMove
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_MOVE].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretVersionsKept
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_SECRET_VERSIONS_KEPT].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.secretRecordRetention
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_SECRET_RECORD_RETENTION].value
   # The installation's cloud (feature 044), written once in ankka-platform and copied onto the
   # operator, the control plane and the provider's settings, so the three cannot disagree about the
   # account they work in. The control plane has no use for the two durations.

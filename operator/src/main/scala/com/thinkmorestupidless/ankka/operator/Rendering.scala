@@ -218,6 +218,9 @@ object Rendering:
       serviceAccountAnnotations: Map[String, String] = Map.empty,
       // What a move of the service's bucket does this pass (feature 039), from `moveActions`.
       moveActions: Vector[Action] = Vector.empty,
+      // Why the service's access to its secrets holds its Deployment back (feature 038), decided by
+      // the caller from the provider's answers; `None` when it is granted or never asked.
+      secretHold: Option[SecretAccess.Hold] = None,
       // The project's resource (feature 041): its database's replicas and retention, and the
       // backup credential's generation, which shape the cluster and its archiving. Read by the
       // caller for the same reason.
@@ -270,12 +273,13 @@ object Rendering:
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker, granted) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
-          // provider's to say, and an instance started without them would be started wrong.
+          // provider's to say, and an instance started without them would be started wrong. Nor
+          // while its access to its secrets is not granted: every read would be refused.
           Option
             .when(
               ObjectStorage
                 .withheld(objectStoragePlan, spec, settings, ObjectStorage.reported(resource))
-                .isEmpty
+                .isEmpty && secretHold.isEmpty
             )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
@@ -301,7 +305,8 @@ object Rendering:
                         spec,
                         ObjectStorage.inPlace(resource)
                       )
-                    )
+                    ),
+                    settings.secretStore.env
                   ),
                   deployed,
                   declaredBrokers
@@ -1292,7 +1297,9 @@ object Rendering:
       httpsPort: Int = Settings.default.httpsPort,
       otlpEndpoint: Option[String] = None,
       otlpHeaders: Boolean = false,
-      storage: Option[StorageEnv] = None
+      storage: Option[StorageEnv] = None,
+      /** The installation's secret store settings, as literals for the platform's program. */
+      secretStore: Vector[(String, String)] = Vector.empty
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -1317,7 +1324,8 @@ object Rendering:
         proxyImage,
         baseDomain,
         httpsPort,
-        telemetryEnv(spec, otlpEndpoint, otlpHeaders)
+        telemetryEnv(spec, otlpEndpoint, otlpHeaders) ++
+          secretStore.map((name, value) => literal(name, value))
       ),
       storage
     )

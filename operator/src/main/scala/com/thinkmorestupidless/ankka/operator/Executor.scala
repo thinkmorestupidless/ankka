@@ -180,6 +180,14 @@ trait Executor:
     val _ = (namespace, projectId)
     Vector.empty
 
+  /** The project's secrets by name, entry and generation (feature 038), from its `AnkkaProject`. */
+  def projectSecrets(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectSecretEntry] =
+    val _ = (namespace, projectId)
+    Vector.empty
+
   /**
    * Where a project's new buckets are made (feature 039), from its `AnkkaProject`; none without
    * one, and then the installation's location.
@@ -1316,6 +1324,18 @@ final class Fabric8Executor(
         .withName(projectId)
         .get()
     ).flatMap(p => Option(p.getSpec)).flatMap(_.bucketLocation).filter(_.nonEmpty)
+
+  override def projectSecrets(
+      namespace: String,
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.crd.ProjectSecretEntry] =
+    ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(projectId)
+        .get()
+    ).flatMap(p => Option(p.getSpec)).map(_.secrets.toVector).getOrElse(Vector.empty)
 
   override def grantsNaming(projectId: String, service: String): Vector[GrantedTopic] =
     ifTypeExists(

@@ -262,7 +262,14 @@ object ObjectStorage:
    * provider's words, as `key=value` pairs. None until the identity is answered.
    */
   def serviceAccountAnnotations(plans: CloudBucketPlans): Map[String, String] =
-    plans.identity match
+    identityAnnotations(plans.identity)
+
+  /**
+   * What the provider's answer to an identity request says to put on the ServiceAccount, whichever
+   * of a bucket or the secret store asked for it (features 039 and 038).
+   */
+  def identityAnnotations(identity: CloudPlan): Map[String, String] =
+    identity match
       case CloudPlan.Ready(outputs, _, _, _) =>
         outputs
           .get(CloudRequests.Keys.ServiceAccountAnnotations)

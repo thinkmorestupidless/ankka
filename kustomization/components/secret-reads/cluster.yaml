@@ -1,0 +1,18 @@
+# The secret read record's database. bootstrap.initdb makes CNPG generate its credential Secret,
+# ankka-secret-reads-db-app, which the control plane reads its connection from (controlplane-env.yaml).
+# A backup of it is a backup of the record in its own right, apart from the journal's.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ankka-secret-reads-db
+  namespace: ankka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: secret_reads
+      owner: secret_reads

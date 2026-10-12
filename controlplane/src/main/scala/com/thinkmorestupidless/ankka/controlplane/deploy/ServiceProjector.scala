@@ -304,6 +304,7 @@ private[deploy] final class Projection(
       projectId,
       topicsOf(projectId),
       brokersOf(projectId),
+      secretsOf(projectId),
       locationOf(projectId),
       restoresOf(projectId),
       databaseOf(projectId),
@@ -359,6 +360,15 @@ private[deploy] final class Projection(
     componentClient
       .forEventSourcedEntity(EntityId(projectId))
       .call(ProjectEntity.brokers)
+      .invoke()
+
+  /** A project's secrets by name and entry, never a value (feature 038). */
+  def secretsOf(
+      projectId: String
+  ): Vector[com.thinkmorestupidless.ankka.controlplane.api.ProjectSecretSummary] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.secrets)
       .invoke()
 
   /** Where the project's new buckets are made, when it names one (feature 039). */

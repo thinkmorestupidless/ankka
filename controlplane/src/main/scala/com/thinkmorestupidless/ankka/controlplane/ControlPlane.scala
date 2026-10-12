@@ -115,6 +115,18 @@ object ControlPlane:
       topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None,
       /** Where a contract's schema is held (feature 037); the projector, as for the others. */
       schemas: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectSchemaStore] = None,
+      /**
+       * Where the record of secret reads is kept (feature 038). `None` answers unavailable, which a
+       * service reads as a record not acknowledged.
+       */
+      secretRecords: Option[
+        com.thinkmorestupidless.ankka.controlplane.secrets.ReadRecordStore
+      ] = None,
+      /**
+       * Where the installation keeps its secrets, as `GET /installation` shows it (feature 038).
+       */
+      installationSecrets: () => Option[InstallationSecrets] = () =>
+        Some(ControlPlane.defaultInstallationSecrets),
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
       cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None,
       /** The installation's backups (feature 041); none as the default, as before the feature. */
@@ -162,6 +174,7 @@ object ControlPlane:
           topics,
           schemas,
           topology,
+          secretRecords,
           deploy.objectStore,
           backups,
           divergence,
@@ -170,6 +183,7 @@ object ControlPlane:
           brokerExposed = machineSettings.brokerBootstrap.isDefined,
           policy = topicPolicy
         ),
+      _ => SecretReadsEndpoint(secretRecords),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -215,7 +229,8 @@ object ControlPlane:
           clock,
           backups,
           platform,
-          hold
+          hold,
+          installationSecrets
         )
     ) ++ {
       val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
@@ -229,6 +244,28 @@ object ControlPlane:
       )
     } ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
+    )
+
+  /**
+   * Where the installation keeps its secrets, from its settings: `GET /installation`'s `secrets`.
+   */
+  def installationSecrets(
+      backend: secrets.SecretBackendConfig,
+      records: secrets.SecretRecordsConfig
+  ): InstallationSecrets =
+    InstallationSecrets(backend = backend.backend.word, recordRetention = records.retentionText)
+
+  /** An installation that has said nothing: Postgres, a year's records. */
+  lazy val defaultInstallationSecrets: InstallationSecrets =
+    installationSecrets(
+      secrets.SecretBackendConfig(
+        com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres,
+        None
+      ),
+      secrets.SecretRecordsConfig(
+        secrets.SecretRecordsConfig.DefaultRetention,
+        scala.concurrent.duration.FiniteDuration(1, "day")
+      )
     )
 
   /**
@@ -256,9 +293,16 @@ object ControlPlane:
     val deploy  = DeployConfig.from(config)
     val policy  = OrganizationPolicy.from(config)
     val backups = BackupConfig.from(config)
-    val cloud   = com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig.from(config)
     val topicPolicy =
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
+    // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
+    // naming what is missing, rather than accepted and found out at the first project secret.
+    val backend = secrets.SecretBackendConfig.from(config)
+    // The record of every secret read, in a database of its own, opened when the service starts.
+    val recordsConfig = secrets.SecretRecordsConfig.from(config)
+    val records       = secrets.SecretRecords.postgres(recordsConfig)
+    val installation  = ControlPlane.installationSecrets(backend, recordsConfig)
+    val cloud         = backend.cloud
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     // First of the extensions (feature 041): the projector must know it is held before it starts.
@@ -273,6 +317,11 @@ object ControlPlane:
         projector.machineKeyWriter(machines.namespace, machines.keysSecret)
       )
     )
+    // Where a project secret's entries go: the project's Secret in the cluster, or Secret Manager.
+    val projectSecrets: ProjectSecretWriter = backend.backend match
+      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres => projector
+      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.SecretManager =>
+        secrets.SecretManagerProjectSecretWriter.from(config, backend)
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
         HttpServer.at(host, bindPort)(
@@ -283,9 +332,11 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector),
+            secrets = Some(projectSecrets),
             topics = Some(projector),
             schemas = Some(projector),
+            secretRecords = Some(records),
+            installationSecrets = () => Some(installation),
             cloud = cloud,
             backups = backups,
             platform = Some(projector),
@@ -305,9 +356,11 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector),
+            secrets = Some(projectSecrets),
             topics = Some(projector),
             schemas = Some(projector),
+            secretRecords = Some(records),
+            installationSecrets = () => Some(installation),
             cloud = cloud,
             backups = backups,
             platform = Some(projector),
@@ -323,6 +376,7 @@ object ControlPlane:
       .withExtension(hold)
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
+      .withExtension(records)
       .withExtension(server)
       // Feature 043: fill the settings of topics declared before topics stated them.
       .withExtension(

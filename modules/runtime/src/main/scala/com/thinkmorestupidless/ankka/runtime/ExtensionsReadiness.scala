@@ -11,12 +11,23 @@ import scala.concurrent.Future
  * Per actor system, so a test JVM hosting several services in turn keeps them apart.
  */
 final class ExtensionsReadiness extends Extension:
-  @volatile private var checks: Vector[() => Boolean] = Vector.empty
+  @volatile private var checks: Vector[() => Boolean]                 = Vector.empty
+  @volatile private var explained: Vector[() => Either[String, Unit]] = Vector.empty
 
   private[runtime] def register(more: Vector[() => Boolean]): Unit =
     checks = checks ++ more
 
-  def allReady: Boolean = checks.forall(_())
+  /**
+   * A check that can say why it is not ready: the probe answers its reason, so a pod held back by a
+   * move of its secrets says what it is waiting for.
+   */
+  private[ankka] def registerExplained(check: () => Either[String, Unit]): Unit =
+    explained = explained :+ check
+
+  /** Why this node is not ready, from the checks that can say. */
+  def reasons: Vector[String] = explained.flatMap(_().left.toOption)
+
+  def allReady: Boolean = checks.forall(_()) && reasons.isEmpty
 
 object ExtensionsReadiness extends ExtensionId[ExtensionsReadiness]:
   def createExtension(system: ActorSystem[?]): ExtensionsReadiness = new ExtensionsReadiness

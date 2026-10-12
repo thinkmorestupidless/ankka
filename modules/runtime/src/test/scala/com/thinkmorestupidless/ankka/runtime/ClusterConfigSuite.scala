@@ -152,6 +152,27 @@ class ClusterConfigSuite extends munit.FunSuite:
     assertEquals(config.getString("ankka.cluster.seed-nodes"), "pekko://a@h:1,pekko://b@h:2")
   }
 
+  test("a deployed instance records secret reads with the control plane; a local one keeps none") {
+    val kubernetes = Map(
+      "ANKKA_CLUSTER_MODE"           -> "kubernetes",
+      "POD_IP"                       -> "10.1.2.3",
+      "ANKKA_CLUSTER_SERVICE"        -> "cart",
+      "ANKKA_CLUSTER_POD_SELECTOR"   -> "app.kubernetes.io/name=cart",
+      "ANKKA_CLUSTER_CONTACT_POINTS" -> "2"
+    )
+    assertEquals(
+      ClusterConfig.load(kubernetes).getString("ankka.secrets.records-url"),
+      "https://ankka-controlplane.ankka-controlplane.svc:9000"
+    )
+    assertEquals(
+      ClusterConfig
+        .load(kubernetes + ("ANKKA_SECRET_RECORDS_URL" -> "https://elsewhere:9000"))
+        .getString("ankka.secrets.records-url"),
+      "https://elsewhere:9000"
+    )
+    assertEquals(ClusterConfig.load(none).getString("ankka.secrets.records-url"), "")
+  }
+
   test("only the platform's variables reach the config, not the whole environment") {
     val config = ClusterConfig.load(Map("HOME" -> "/nowhere", "ANKKA_CLUSTER_PORT" -> "1"))
     assert(!config.hasPath("HOME"))

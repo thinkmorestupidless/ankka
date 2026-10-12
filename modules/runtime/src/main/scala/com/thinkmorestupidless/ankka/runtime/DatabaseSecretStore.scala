@@ -17,11 +17,13 @@ import scala.util.control.NonFatal
  * Nothing is cached. Another instance may have replaced or removed a value since it was last read,
  * and a cache would be a second place a plaintext lives. Names are logged; values never are.
  */
-private[ankka] final class DatabaseSecretStore(database: Database, key: Option[SecretKey])
-    extends SecretStore:
+private[ankka] final class DatabaseSecretStore(
+    database: Database,
+    key: Option[SecretKey],
+    timeout: FiniteDuration = 10.seconds
+) extends SecretStore:
 
-  private val log     = LoggerFactory.getLogger(classOf[DatabaseSecretStore])
-  private val timeout = 10.seconds
+  private val log = LoggerFactory.getLogger(classOf[DatabaseSecretStore])
 
   def put(name: String, value: String): Unit =
     SecretRules.check(name, value)
@@ -39,6 +41,14 @@ private[ankka] final class DatabaseSecretStore(database: Database, key: Option[S
     SecretRules.check(name)
     run(name)(database.execute(SecretStoreSql.delete(name))): Unit
     log.debug("removed the secret '{}'", name)
+
+  /** Every name the table holds: what a move copies and checks. */
+  private[ankka] def names(): Vector[String] =
+    run("*")(database.query(SecretStoreSql.names)(_.get(0, classOf[String])))
+
+  /** Removes every row: the last step of a move, once every name has been checked equal. */
+  private[ankka] def deleteAll(): Long =
+    run("*")(database.execute(SecretStoreSql.deleteAll))
 
   private def required: SecretKey =
     key.getOrElse(
@@ -81,3 +91,6 @@ private[ankka] object SecretStoreSql:
 
   def delete(name: String): SqlFragment =
     SqlFragment.raw("DELETE FROM ankka_secrets WHERE name = ") ++ sql"$name"
+
+  val names: SqlFragment     = SqlFragment.raw("SELECT name FROM ankka_secrets ORDER BY name")
+  val deleteAll: SqlFragment = SqlFragment.raw("DELETE FROM ankka_secrets")

@@ -223,6 +223,25 @@ object Output:
           )
         )
 
+  def secretReads(page: SecretReadsPage, format: Format): String =
+    format match
+      case Format.Json => writeToString(page)
+      case Format.Table =>
+        table(
+          Vector("AT", "SERVICE", "COMPONENT", "NAME", "OPERATION", "OUTCOME", "TRACE"),
+          page.records.map(r =>
+            Vector(
+              r.at.toString,
+              r.service,
+              r.component.getOrElse("-"),
+              r.name,
+              r.operation,
+              r.outcome,
+              r.traceId.getOrElse("-")
+            )
+          )
+        )
+
   def project(row: ProjectSummary, format: Format): String =
     format match
       case Format.Json  => writeToString(row)
@@ -842,7 +861,10 @@ object Output:
             )
         s"$identity\n\n$organizations"
 
-  /** `ankka installation` (feature 044): the version, and the cloud when there is one. */
+  /**
+   * `ankka installation` (feature 044): the version, the cloud when there is one, and where the
+   * installation keeps its secrets (feature 038) when the control plane says.
+   */
   def installation(installation: Installation, format: Format): String =
     format match
       case Format.Json => writeToString(installation)
@@ -852,7 +874,14 @@ object Output:
           case Some(c) =>
             Vector("provider" -> c.provider, "account" -> c.account, "location" -> c.location) ++
               c.kmsKey.map("kms key" -> _)
-        (("platform" -> installation.platformVersion) +: cloud)
+        val secrets = installation.secrets.toVector.flatMap { s =>
+          Vector(
+            "secrets"    -> s.backend,
+            "records"    -> s.recordRetention,
+            "access log" -> s.auditLog
+          )
+        }
+        (("platform" -> installation.platformVersion) +: (cloud ++ secrets))
           .map((label, value) => f"$label%-10s $value")
           .mkString("\n")
 

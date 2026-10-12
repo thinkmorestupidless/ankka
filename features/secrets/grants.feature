@@ -46,6 +46,14 @@ Feature: A service reaches only its own secrets
     Then Google Cloud refuses "wallet"
     And "wallet" is shown no name of a service secret of "payments"
 
+  Scenario: a service that creates a secret under another service's name can neither read nor write it, and the other service keeps over it
+    Given deployed services "wallet" and "payments" in the project "spinvibe"
+    When "wallet" creates in Secret Manager, as its own identity, the secret derived for the service secret "acme" of "payments"
+    Then "wallet" is admitted
+    And Google Cloud refuses "wallet" a read of it, a version added to it and its removal
+    And a handler of "payments" that keeps "sk-acme-1" as the service secret "acme" is not refused
+    And a handler of "payments" that reads the service secret "acme" is told "sk-acme-1"
+
   Scenario: a service deleted and deployed again reads the service secrets it kept in Secret Manager
     Given a deployed service "payments" that has kept "sk-acme-1" as the service secret "acme"
     And "payments" has since been deleted

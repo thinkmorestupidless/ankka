@@ -77,6 +77,12 @@ final case class Settings(
      */
     objectStore: Option[ObjectStoreSettings] = None,
     /**
+     * Where the installation keeps its secrets, and its cloud account and location (feature 038):
+     * the `ankka-platform` ConfigMap's, given to the platform's program of every service. A setting
+     * left unset, or at its default, renders nothing, so a Deployment is what it was before.
+     */
+    secretStore: Settings.SecretStore = Settings.SecretStore(),
+    /**
      * The store new buckets are made in (feature 039). `Garage` whenever `objectStore` is set and
      * nothing says otherwise; `None` when the installation has no store.
      */
@@ -141,6 +147,27 @@ final case class Settings(
     if doubled > retryMaxBackoff then retryMaxBackoff else doubled
 
 object Settings:
+
+  /** The installation's secret store settings, as the operator passes them on. */
+  final case class SecretStore(
+      backend: Option[String] = None,
+      move: Option[String] = None,
+      versionsKept: Option[String] = None,
+      cloudAccount: Option[String] = None,
+      cloudLocation: Option[String] = None
+  ):
+    /**
+     * The literals the platform's program is given: only what is set and not the runtime's own
+     * default, so an installation that says nothing renders exactly what it rendered before.
+     */
+    def env: Vector[(String, String)] =
+      Vector(
+        backend.filter(_ != "postgres").map(PlatformVariables.SecretBackend -> _),
+        move.map(PlatformVariables.SecretMove -> _),
+        versionsKept.filter(_ != "2").map(PlatformVariables.SecretVersionsKept -> _),
+        cloudAccount.map(PlatformVariables.CloudAccount -> _),
+        cloudLocation.map(PlatformVariables.CloudLocation -> _)
+      ).flatten
 
   /** The issuer of machines' tokens, and where its keys are read inside the cluster. */
   final case class MachineIssuer(issuer: String, jwksUrl: String)
@@ -247,6 +274,14 @@ object Settings:
       broker = BrokerSettings.read(raw),
       objectStore = store,
       backups = BackupSettings.read(raw, store),
+      secretStore = SecretStore(
+        backend = raw("ankka.operator.secret-backend", PlatformVariables.SecretBackend),
+        move = raw("ankka.operator.secret-move", PlatformVariables.SecretMove),
+        versionsKept =
+          raw("ankka.operator.secret-versions-kept", PlatformVariables.SecretVersionsKept),
+        cloudAccount = raw("ankka.operator.cloud-account", PlatformVariables.CloudAccount),
+        cloudLocation = raw("ankka.operator.cloud-location", PlatformVariables.CloudLocation)
+      ),
       cloud = CloudSettings.read(raw),
       hostnameIssuer = raw("ankka.operator.hostname-issuer", "ANKKA_HOSTNAME_ISSUER"),
       storageMoverImage = string(

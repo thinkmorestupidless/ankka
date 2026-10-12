@@ -68,6 +68,8 @@ final class WasmConversation(
     shapeOf: ComponentId => Shape
 ) extends Conversation:
 
+  override def hosting: String = Conversation.Module
+
   import Translate.*
 
   private given ExecutionContext = AnkkaExecutors.virtual

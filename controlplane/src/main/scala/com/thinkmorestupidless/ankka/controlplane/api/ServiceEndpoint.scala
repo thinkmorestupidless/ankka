@@ -124,7 +124,8 @@ final class ServiceEndpoint(
                   .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.grants)
                   .invoke()
             )
-          )
+          ),
+          secretStore = read.flatMap(_.secretStore).headOption
         )
 
   /**

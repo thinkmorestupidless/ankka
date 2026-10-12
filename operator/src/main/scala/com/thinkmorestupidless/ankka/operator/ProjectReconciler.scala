@@ -80,7 +80,8 @@ final class ProjectReconciler(
             rehearsals = rehearsals.statuses
           ),
           settings.machines,
-          brokerNodes = nodes
+          brokerNodes = nodes,
+          secretSyncs = ProjectSecretSync.requests(project, settings)
         )).foreach(executor.execute)
 
 object ProjectReconciler:
@@ -123,7 +124,9 @@ object ProjectReconciler:
       backups: Backups = Backups.none,
       // Feature 040: where machines' tokens come from, for every service of the project.
       machines: Option[Settings.MachineIssuer] = None,
-      brokerNodes: Option[Int] = None
+      brokerNodes: Option[Int] = None,
+      // One request per project secret kept in the cloud account (feature 038), already rendered.
+      secretSyncs: Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = Vector.empty
   ): Vector[Action] =
     val topics = broker.toVector.flatMap(b =>
       TopicProvisioning
@@ -144,6 +147,7 @@ object ProjectReconciler:
     (Action.EnsureProjectConfig(
       ProjectConfig.configMap(ref.namespace, spec, machines)
     ) +: topics) ++
+      secretSyncs.map(Action.EnsureCloudResource(_)) ++
       Option.unless(current.contains(next))(
         Action.SetProjectStatus(ref.namespace, ref.name, next)
       )

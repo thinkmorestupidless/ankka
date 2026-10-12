@@ -162,10 +162,26 @@ export default function Front() {
               <dd>{cloud.kmsKey}</dd>
             </>
           ) : null}
+          {installation.secrets ? (
+            <>
+              <dt>Secrets kept in</dt>
+              <dd>{secretBackendWords[installation.secrets.backend] ?? installation.secrets.backend}</dd>
+              <dt>Record of reads kept for</dt>
+              <dd>{installation.secrets.recordRetention}</dd>
+              <dt>Access log</dt>
+              <dd>{installation.secrets.auditLog}</dd>
+            </>
+          ) : null}
         </dl>
       </section>
     </Page>
   );
 }
+
+/** The installation's secret store (feature 038), in words; an unknown backend is shown as it is named. */
+const secretBackendWords: Record<string, string> = {
+  postgres: "Postgres: each service's own database",
+  "secret-manager": "Google Secret Manager",
+};
 
 export const ErrorBoundary = ConsoleErrorBoundary;

@@ -45,6 +45,7 @@ object ProbeEndpoint:
     else
       given ActorSystem[?]   = system
       given ExecutionContext = system.executionContext
+      explain = () => ExtensionsReadiness(system).reasons
       val checks = HealthChecks(
         system.toClassic.asInstanceOf[ExtendedActorSystem],
         HealthCheckSettings(config.getConfig("pekko.management.health-checks"))
@@ -67,9 +68,15 @@ object ProbeEndpoint:
     else
       checks.readyResult().transform {
         case Success(Right(_))  => Success(text(StatusCodes.OK, "ready"))
-        case Success(Left(why)) => Success(text(StatusCodes.ServiceUnavailable, why))
-        case Failure(e)         => Success(text(StatusCodes.ServiceUnavailable, e.getMessage))
+        case Success(Left(why)) => Success(text(StatusCodes.ServiceUnavailable, withReasons(why)))
+        case Failure(e) => Success(text(StatusCodes.ServiceUnavailable, withReasons(e.getMessage)))
       }
+
+  /** The management check's answer, and why the extensions that can say are not ready. */
+  @volatile private var explain: () => Vector[String] = () => Vector.empty
+
+  private def withReasons(why: String): String =
+    (why +: explain()).mkString("\n")
 
   private def text(status: org.apache.pekko.http.scaladsl.model.StatusCode, body: String) =
     HttpResponse(status, entity = HttpEntity(ContentTypes.`text/plain(UTF-8)`, body))

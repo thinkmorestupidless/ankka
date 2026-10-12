@@ -17,6 +17,16 @@ final case class AnkkaProjectSpec(
     /** Brokers the project declares beside the installation's (feature 037). */
     brokers: List[ProjectBrokerEntry] = Nil,
     /**
+     * The project's secrets by name and entry, never a value (feature 038): what the cloud provider
+     * keeps the project's secrets in the cluster in step with, on the Secret Manager backend.
+     */
+    secrets: List[ProjectSecretEntry] = Nil,
+    /**
+     * A fingerprint of `secrets` and when each entry was last set: the provider reports the one it
+     * has synced, and a service that takes a variable from an entry waits until the two are equal.
+     */
+    secretsFingerprint: Option[String] = None,
+    /**
      * Where the project's new buckets in Google Cloud Storage are made (feature 039), in the
      * installation's own words; `None` is the installation's default. A member sets it.
      */
@@ -95,6 +105,18 @@ final case class ProjectGrantEntry(
     right: Option[String] = None,
     decrypt: Boolean = false,
     grantedAt: String = ""
+)
+
+/** One project secret: its name and its entries' names. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ProjectSecretEntry(
+    name: String = "",
+    entries: List[String] = Nil,
+    /**
+     * When the secret was last set, in epoch milliseconds: the generation the cloud provider keeps
+     * the Secret in step with, so a value set again is synced again though no name changed.
+     */
+    entryGeneration: Long = 0L
 )
 
 /**

@@ -38,12 +38,25 @@ private[ankka] object PlatformVariables:
   val OtlpHeaders: String = "ANKKA_OTLP_HEADERS"
 
   /**
-   * A service's name when it runs on a developer's machine, which names its topic sources' consumer
-   * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
-   * refused, with a message of its own rather than as one of `PlatformOnly`: the platform does not
-   * set it, it reads it nowhere.
+   * Where the installation keeps service secrets and project secrets: `postgres` (each service's
+   * database, the default) or `secret-manager`. The installation's to say, once.
    */
-  val ServiceName: String = "ANKKA_SERVICE_NAME"
+  val SecretBackend: String = "ANKKA_SECRET_BACKEND"
+
+  /**
+   * The phase of a move to Secret Manager each service performs when it starts: copy, check,
+   * remove.
+   */
+  val SecretMove: String = "ANKKA_SECRET_MOVE"
+
+  /**
+   * Where a service writes the record of each read of a secret. A deployed service's runtime knows
+   * the control plane's address already; this is for an installation that reaches it elsewhere.
+   */
+  val SecretRecordsUrl: String = "ANKKA_SECRET_RECORDS_URL"
+
+  /** How many versions of a service secret Secret Manager keeps; the rest are destroyed. */
+  val SecretVersionsKept: String = "ANKKA_SECRET_VERSIONS_KEPT"
 
   /**
    * Which object store the installation makes new buckets in, `garage` or `gcs` (feature 039). Read
@@ -93,6 +106,25 @@ private[ankka] object PlatformVariables:
    * on the platform's side.
    */
   val CloudProviders: Set[String] = Set("gcp")
+
+  /** The installation's settings for its secret store, which reach the platform's program only. */
+  val SecretStoreSettings: Set[String] =
+    Set(
+      SecretBackend,
+      SecretMove,
+      SecretRecordsUrl,
+      SecretVersionsKept,
+      CloudAccount,
+      CloudLocation
+    )
+
+  /**
+   * A service's name when it runs on a developer's machine, which names its topic sources' consumer
+   * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
+   * refused, with a message of its own rather than as one of `PlatformOnly`: the platform does not
+   * set it, it reads it nowhere.
+   */
+  val ServiceName: String = "ANKKA_SERVICE_NAME"
 
   /**
    * Where a service finds the grants that name it: a file in the project's ConfigMap, which every
@@ -160,7 +192,7 @@ private[ankka] object PlatformVariables:
     MachineIssuer,
     MachineJwksUrl,
     MachineJwksCa
-  )
+  ) ++ SecretStoreSettings
 
   /**
    * For the platform's program and never the developer's. A descriptor may give them — a model's
@@ -186,7 +218,7 @@ private[ankka] object PlatformVariables:
       "ANKKA_VIEW_",
       "ANKKA_SSE_"
     )
-  val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
+  val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout) ++ SecretStoreSettings
 
   /** Where a web-hosted service's program listens. */
   val WebPort: String = "PORT"

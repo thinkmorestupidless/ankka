@@ -1,7 +1,8 @@
 // `npm run conformance`: serve the TypeScript reference service and run the platform's conformance
 // suite against it, exiting with sbt's status. Needs Docker (the suite starts Postgres) and sbt on PATH.
 // `ANKKA_CONFORMANCE_ONLY` narrows the run to matching behaviours; `ANKKA_BENCHMARKS` turns the
-// suite's benchmarks on.
+// suite's benchmarks on; `ANKKA_CONFORMANCE_SECRETS=secret-manager` runs the secret cases on the
+// Secret Manager backend.
 
 import { spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
@@ -19,6 +20,11 @@ export async function main(): Promise<number> {
   const args = [
     `-Dankka.conformance.target=127.0.0.1:${port}`,
     ...(process.env.ANKKA_BENCHMARKS ? ["-Dankka.benchmarks=on"] : []),
+    // The secret backend the secret cases run on: `secret-manager` runs them against the platform's
+    // Secret Manager fake rather than the database.
+    ...(process.env.ANKKA_CONFORMANCE_SECRETS
+      ? [`-Dankka.conformance.secrets=${process.env.ANKKA_CONFORMANCE_SECRETS}`]
+      : []),
     "-Dankka.cluster.tests=off",
     "-Dankka.template.tests=off",
     `sidecar/testOnly *ConformanceSuite${only ? ` -- ${only}` : ""}`,

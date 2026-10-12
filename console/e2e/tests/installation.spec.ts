@@ -48,6 +48,18 @@ test("an owner of an organization reads the installation's wrapping key", async 
   });
 });
 
+test("the front page says where the installation keeps its secrets and how long it records their reads", async ({
+  page,
+  target,
+  signIn,
+}) => {
+  test.skip(target.kind !== "fake", "the installation's secret store is the fake's");
+  await signIn(page, "outsider");
+  await expect(fact(page, "Secrets kept in")).toHaveText("Postgres: each service's own database");
+  await expect(fact(page, "Record of reads kept for")).toHaveText("365d");
+  await expect(fact(page, "Access log")).toHaveText("unknown");
+});
+
 test("an installation that names no cloud says everything is served by the installation itself", async ({ page, target, signIn }) => {
   test.skip(target.kind !== "fake", "the installation's cloud is seeded on the fake");
   await withCloud(target, null, async () => {

@@ -148,7 +148,10 @@ object CloudRequests:
       Map(Keys.ServiceAccount -> serviceAccount)
     )
 
-  /** What a cloud identity may own and read of the cloud account's secrets, each by id. */
+  /**
+   * What a cloud identity may own and read of the cloud account's secrets, each by id prefix: a
+   * service names its secrets as it runs, and a create cannot be limited by a name (feature 038).
+   */
   def secretAccess(
       cloud: CloudSettings,
       by: Requester,
@@ -164,7 +167,10 @@ object CloudRequests:
       Map(Keys.Identity -> identity, Keys.Own -> list(own), Keys.Read -> list(read))
     )
 
-  /** A Kubernetes Secret kept in step with a project's entries, each `NAME=id`. */
+  /**
+   * A Kubernetes Secret kept in step with a project's entries, each `NAME=id`: one request per
+   * project secret, `<project>.secret-sync.<secret>`, since a project may have several.
+   */
   def secretSync(
       cloud: CloudSettings,
       by: Requester,
@@ -176,7 +182,7 @@ object CloudRequests:
       cloud,
       by,
       CloudKinds.SecretSync,
-      Names.CloudRequest.SecretSyncSuffix,
+      s"${Names.CloudRequest.SecretSyncSuffix}.$secretName",
       Map(
         Keys.SecretName      -> secretName,
         Keys.Entries         -> list(entries.toVector.sorted.map((k, v) => s"$k=$v")),

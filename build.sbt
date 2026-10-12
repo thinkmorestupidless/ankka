@@ -157,6 +157,9 @@ lazy val commonSettings = Seq(
     // The guest shape a module target is run in (feature 016): `stateless` or `stateful`. Without
     // it here the second run of `sdks/rust/conformance.sh` was a second stateless one.
     "ankka.conformance.shape",
+    // The secret backend the conformance suite's secret cases run on (feature 038): `postgres`, or
+    // `secret-manager` against the test kit's Secret Manager fake.
+    "ankka.conformance.secrets",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
     "ankka.docs.update",
@@ -458,6 +461,10 @@ lazy val operator = project
     // file imports nothing outside the standard library; `PlatformDeclarationSuite` holds both.
     Compile / unmanagedSources += (core / Compile / scalaSource).value /
       "com/thinkmorestupidless/ankka/core/PlatformVariables.scala",
+    // The one derivation of a secret's id in Secret Manager (feature 038), the same way: the operator
+    // asks the cloud provider for access by the prefixes the runtime names its secrets under.
+    Compile / unmanagedSources += (core / Compile / scalaSource).value /
+      "com/thinkmorestupidless/ankka/core/secrets/DerivedIds.scala",
     // Named, not discovered: the control plane and the sidecar take this module's test classes, and
     // a logback-test.xml here would be a second one beside ankka-testkit's in both.
     Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",

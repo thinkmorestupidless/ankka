@@ -937,7 +937,9 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
   test("a project's location is written onto its resource, and absent when it names none") {
     import com.thinkmorestupidless.ankka.controlplane.deploy.ProjectProjection
     assertEquals(
-      ProjectProjection.spec("checkout", Map.empty, Map.empty, Some("europe-west6")).bucketLocation,
+      ProjectProjection
+        .spec("checkout", Map.empty, Map.empty, bucketLocation = Some("europe-west6"))
+        .bucketLocation,
       Some("europe-west6")
     )
     assertEquals(ProjectProjection.spec("checkout", Map.empty).bucketLocation, None)

@@ -43,6 +43,17 @@ data:
   objectStoreBackend: garage # SET
   objectStorePrefix: "" # SET with gcs
   objectStoreSoftDeleteDays: "7"
+  # Where service secrets and project secrets are kept: postgres (each service's own database and
+  # the cluster's Secrets) or secret-manager (Google Secret Manager; needs cloudProvider gcp and a
+  # cloudAccount). The installation's to say, once.
+  secretBackend: postgres # SET
+  # A move from postgres to secret-manager, one phase at a time: copy, check, then remove. Each
+  # service performs the phase when it next starts and reports it in its status. Empty: no move.
+  secretMove: ""
+  # On secret-manager, how many versions of a service secret are kept; older ones are destroyed.
+  secretVersionsKept: "2"
+  # How long the record of each read of a secret is kept before it is removed.
+  secretRecordRetention: 365d
   # The installation's cloud (feature 044). "none" writes no cloud request and serves everything from
   # the installation itself; a provider's name ("gcp") needs the account and location beside it and
   # a provider deployed into ankka-cloud-provider (docs/platform/cloud-provider.md). One account

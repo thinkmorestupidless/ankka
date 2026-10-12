@@ -27,6 +27,17 @@ data:
   objectStoreBackend: garage
   objectStorePrefix: ""
   objectStoreSoftDeleteDays: "7"
+  # Where service secrets and project secrets are kept: postgres (each service's own database and
+  # the cluster's Secrets) or secret-manager (Google Secret Manager; needs cloudProvider gcp and a
+  # cloudAccount). The installation's to say, once.
+  secretBackend: postgres
+  # A move from postgres to secret-manager, one phase at a time: copy, check, then remove. Each
+  # service performs the phase when it next starts and reports it in its status. Empty: no move.
+  secretMove: ""
+  # On secret-manager, how many versions of a service secret are kept; older ones are destroyed.
+  secretVersionsKept: "2"
+  # How long the record of each read of a secret is kept before it is removed.
+  secretRecordRetention: 365d
   # The installation's cloud (feature 044): which cloud provider fulfils its cloud requests, the
   # account and default location they are made in, its one wrapping key, how long a request may go
   # unanswered before a service says so, and how long a replaced credential goes on working. A

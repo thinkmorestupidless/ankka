@@ -66,10 +66,17 @@ final class ServiceReconciler(
     val movePass     = decideMove(ref, resource, spec)
     val reported     = ObjectStorage.reported(resource)
     // The move's state as this pass leaves it, or as the last pass did once it is over.
-    val moveStatus  = movePass.fold(reported.flatMap(_.move))(_.step.status)
-    val storagePlan = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
-    val withheld    = ObjectStorage.withheld(storagePlan, spec, settings, reported)
-    val refused     = ObjectStorage.refused(storagePlan, spec, settings, reported)
+    val moveStatus   = movePass.fold(reported.flatMap(_.move))(_.step.status)
+    val storagePlan  = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
+    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings, reported)
+    val refused      = ObjectStorage.refused(storagePlan, spec, settings, reported)
+    val secretAccess = decideSecretAccess(ref, resource, spec, cloudBucket)
+    val secretSyncs  = decideProjectSecrets(ref, spec)
+    // A refusal says more than a wait, whichever of the two it comes from.
+    val secretHold = (secretAccess.flatMap(_.hold).toVector ++ secretSyncs.holds).sortBy {
+      case _: SecretAccess.Hold.Refused => 0
+      case _                            => 1
+    }.headOption
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
@@ -85,16 +92,25 @@ final class ServiceReconciler(
         storagePlan,
         moveStatus
       )
-      // A Deployment held back for a cloud bucket's answer is an update in progress, saying why;
-      // one held back for a bucket the provider refused is a failure, whose reason the status's
-      // object storage carries. A failure found by rendering or a foreign Deployment says more and
-      // is kept.
-      withheld
-        .filter(_ => problems.isEmpty)
-        .fold(observed)(why =>
-          if refused.isDefined then observed.copy(lifecycle = "Failed")
-          else observed.copy(lifecycle = "UpdateInProgress", detail = Some(why))
-        )
+      // A Deployment held back for a cloud bucket's answer, or for its access to its secrets, is an
+      // update in progress, saying why; one held back for a bucket the provider refused is a
+      // failure, whose reason the status's object storage carries, and access the provider refused
+      // is a failure with its reason. A failure found by rendering or a foreign Deployment says
+      // more and is kept.
+      if problems.nonEmpty then observed
+      else
+        secretHold match
+          case Some(SecretAccess.Hold.Refused(why)) =>
+            observed.copy(lifecycle = "Failed", detail = Some(why))
+          case waiting =>
+            withheld match
+              case Some(_) if refused.isDefined => observed.copy(lifecycle = "Failed")
+              case held =>
+                held
+                  .orElse(waiting.collect { case SecretAccess.Hold.Waiting(why) => why })
+                  .fold(observed)(why =>
+                    observed.copy(lifecycle = "UpdateInProgress", detail = Some(why))
+                  )
 
     Rendering.render(
       resource,
@@ -103,8 +119,10 @@ final class ServiceReconciler(
       BrokerProvisioning.known(spec, settings.broker),
       storagePlan,
       executor.projectBrokers(ref.namespace, spec.projectId),
-      cloudBucket.map(_.requests).getOrElse(Vector.empty),
-      cloudBucket.map(c => ObjectStorage.serviceAccountAnnotations(c.plans)).getOrElse(Map.empty),
+      // One identity per service: a bucket and the secret store ask for the same request.
+      (cloudBucket.map(_.requests).getOrElse(Vector.empty) ++
+        secretAccess.map(_.requests).getOrElse(Vector.empty)).distinctBy(_.getMetadata.getName),
+      ServiceReconciler.serviceAccountAnnotations(cloudBucket, secretAccess),
       movePass.fold(Vector.empty)(m =>
         Rendering.moveActions(
           resource,
@@ -118,6 +136,7 @@ final class ServiceReconciler(
           ObjectStorage.inPlace(resource)
         )
       ),
+      secretHold,
       executor.projectSpec(ref.namespace, spec.projectId),
       // Read only where the service has a broker user to put them on.
       if settings.broker.isDefined then executor.grantsNaming(spec.projectId, spec.serviceName)
@@ -168,10 +187,9 @@ final class ServiceReconciler(
             actions.foreach(executor.execute)
             // A request nobody has acknowledged yet: look again when the bound passes, so its
             // absence is reported then, not at the next resync (feature 044, SC-004).
-            for
-              seen  <- cloudBucket.orElse(movePass.map(_.bucket)) if seen.unacknowledged
-              cloud <- settings.cloud
-            do later(ref, cloud.acknowledgementBound)
+            if cloudBucket.orElse(movePass.map(_.bucket)).exists(_.unacknowledged) ||
+              secretAccess.exists(_.unacknowledged) || secretSyncs.unacknowledged
+            then settings.cloud.foreach(cloud => later(ref, cloud.acknowledgementBound))
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
@@ -328,6 +346,75 @@ final class ServiceReconciler(
     )
 
   /**
+   * A service's access to its secrets in the installation's cloud account (feature 038): the
+   * identity request, unless a cloud bucket's pass already renders and observes it, and the access
+   * request once the identity is known. Read only for a service on that path.
+   */
+  private[operator] def decideSecretAccess(
+      ref: ServiceRef,
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      bucket: Option[ServiceReconciler.CloudBucketPass]
+  ): Option[ServiceReconciler.SecretAccessPass] =
+    for cloud <- settings.cloud if SecretAccess.takesCloudPath(spec, settings)
+    yield
+      val now = Instant.now(clock)
+      def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
+        val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
+        seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
+      val identityRequest = SecretAccess.identityRequest(resource, cloud)
+      val (identitySeen, identityPlan) = bucket match
+        case Some(pass) => (Some(true), pass.plans.identity)
+        case None =>
+          val (seen, plan) = answered(identityRequest)
+          (seen.map(_.acknowledged), plan)
+      val identity = identityPlan match
+        case CloudPlan.Ready(outputs, _, _, _) => outputs.get(CloudRequests.Keys.Identity)
+        case _                                 => None
+      val access     = identity.map(SecretAccess.accessRequest(resource, cloud, _))
+      val accessSeen = access.map(answered)
+      ServiceReconciler.SecretAccessPass(
+        requests = Vector(identityRequest) ++ access,
+        identity = identityPlan,
+        hold = SecretAccess.hold(identityPlan, accessSeen.map(_._2)),
+        unacknowledged = !identitySeen.contains(true) ||
+          accessSeen.exists((seen, _) => !seen.exists(_.acknowledged))
+      )
+
+  /**
+   * The project secrets this service takes a variable from, and whether the cloud provider has each
+   * in step (feature 038). Read only when project secrets are kept in the cloud account, and only
+   * for the secrets the descriptor names: a service that names none waits on none.
+   */
+  private[operator] def decideProjectSecrets(
+      ref: ServiceRef,
+      spec: AnkkaServiceSpec
+  ): ServiceReconciler.ProjectSecretsPass =
+    settings.cloud.filter(_ => ProjectSecretSync.takesCloudPath(settings)) match
+      case None => ServiceReconciler.ProjectSecretsPass(Vector.empty, unacknowledged = false)
+      case Some(cloud) =>
+        val now = Instant.now(clock)
+        val seen = ProjectSecretSync
+          .referenced(spec, executor.projectSecrets(ref.namespace, spec.projectId))
+          .map { secret =>
+            val observed = executor.observeCloudResource(
+              ref.namespace,
+              ProjectSecretSync.requestName(spec.projectId, secret.name)
+            )
+            val plan = CloudProvisioning.decide(
+              ProjectSecretSync.provider(cloud),
+              observed,
+              now,
+              cloud.acknowledgementBound
+            )
+            (ProjectSecretSync.hold(secret, plan), observed.exists(_.acknowledged))
+          }
+        ServiceReconciler.ProjectSecretsPass(
+          holds = seen.flatMap(_._1),
+          unacknowledged = seen.exists(!_._2)
+        )
+
+  /**
    * What the broker has for this service (feature 027), read only when the service is known to an
    * installation's broker: no Strimzi read is made for any other.
    */
@@ -429,6 +516,31 @@ final class ServiceReconciler(
     else executor.execute(Action.SetStatus(ref.namespace, ref.name, next))
 
 object ServiceReconciler:
+
+  /** What holds a service for the project secrets it takes variables from, one per secret. */
+  final case class ProjectSecretsPass(holds: Vector[SecretAccess.Hold], unacknowledged: Boolean)
+
+  /**
+   * What binds the service's ServiceAccount to its cloud identity: the provider's answer to the one
+   * identity request, which a bucket or the secret store asked for. A service on Secret Manager
+   * with no bucket needs it as much as one with a bucket: without it, every read is refused.
+   */
+  def serviceAccountAnnotations(
+      bucket: Option[CloudBucketPass],
+      secretAccess: Option[SecretAccessPass]
+  ): Map[String, String] =
+    bucket
+      .map(c => ObjectStorage.serviceAccountAnnotations(c.plans))
+      .orElse(secretAccess.map(a => ObjectStorage.identityAnnotations(a.identity)))
+      .getOrElse(Map.empty)
+
+  /** One pass's view of a service's access to its secrets: two requests, and what holds it. */
+  final case class SecretAccessPass(
+      requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
+      identity: CloudPlan,
+      hold: Option[SecretAccess.Hold],
+      unacknowledged: Boolean
+  )
 
   /** One pass's view of a cloud bucket's three requests. */
   final case class CloudBucketPass(

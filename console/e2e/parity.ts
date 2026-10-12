@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
  * Routes that are not a person's to call through the console: the discovery it reads at startup,
  * and what a registered machine signs in with (feature 040) — the token route, the key set and the
  * discovery document a broker or a grantee's service reads — with the platform administrator's
- * rotation of the keys those tokens are signed with.
+ * rotation of the keys those tokens are signed with; and the record of secret reads (feature 038).
  */
 const notThroughTheConsole = new Set([
   "GET /auth",
@@ -19,6 +19,10 @@ const notThroughTheConsole = new Set([
   "GET /.well-known/jwks.json",
   "GET /.well-known/openid-configuration",
   "POST /platform/machine-keys/rotate",
+  // A service writes the record of its own reads, by its certificate; never a person.
+  "POST /secret-reads",
+  // The record of reads is listed with the CLI; showing it in the console is an open question.
+  "GET /projects/{projectId}/secret-reads",
 ]);
 
 export default async function parity() {

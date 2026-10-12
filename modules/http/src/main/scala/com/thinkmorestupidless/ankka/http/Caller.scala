@@ -109,6 +109,13 @@ enum CallerMatcher:
   case Self
 
   /**
+   * Any service of any project, and never the internet: a platform route every workload calls as
+   * itself, whose handler then holds the caller to what it may say — the control plane's record of
+   * secret reads, which a service may write only for itself.
+   */
+  case AnyService
+
+  /**
    * A caller holding a grant, made by this service's project, on the route or method being called
    * (feature 040): a service of another project or a registered machine. The grant is data the
    * project's owners change; that a route may be granted at all is this matcher, in reviewed code.
@@ -137,7 +144,8 @@ enum CallerMatcher:
     case (Self, Caller.Service(cp, cn)) => cp == self.project && cn == self.service
     case (Granted, Caller.Service(_, _) | Caller.Machine(_, _)) =>
       target.exists(grants.admits(caller, _))
-    case _ => false
+    case (AnyService, Caller.Service(_, _)) => true
+    case _                                  => false
 
 /**
  * The spellings an endpoint uses: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`.
@@ -149,6 +157,7 @@ object Callers:
     CallerMatcher.NamedService(Some(project), name)
   val anyInProject: CallerMatcher = CallerMatcher.AnyInProject
   val self: CallerMatcher         = CallerMatcher.Self
+  val anyService: CallerMatcher   = CallerMatcher.AnyService
 
   /**
    * Whoever this service's project has granted the route or method to (feature 040). A route that

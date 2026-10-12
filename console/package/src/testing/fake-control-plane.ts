@@ -788,6 +788,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return {
       platformVersion: "0.0.0-fake",
       ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
+      // Feature 038: where secrets are kept, as an installation that has said nothing answers.
+      secrets: { backend: "postgres", recordRetention: "365d", auditLog: "unknown" },
       // Feature 041: where the backups go, as an installation with Garage and no copy says it.
       backups: {
         backupTarget: "object-store",

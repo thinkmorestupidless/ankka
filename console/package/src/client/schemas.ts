@@ -66,15 +66,24 @@ export const cloudInstallationSchema = z.object({
 });
 export type CloudInstallation = z.infer<typeof cloudInstallationSchema>;
 
+/** Where the installation keeps its secrets, and how long the record of reads is kept (feature 038). */
+export const installationSecretsSchema = z.object({
+  backend: z.string(),
+  recordRetention: z.string(),
+  auditLog: z.string().default("unknown"),
+});
+export type InstallationSecrets = z.infer<typeof installationSecretsSchema>;
+
 /**
  * `GET /installation`: the platform's version, and its cloud when it names a provider; and its
- * backups (feature 041).
+ * backups (feature 041); and where it keeps its secrets (feature 038).
  */
 export const installationSchema = z.object({
   platformVersion: z.string(),
   cloud: optional(cloudInstallationSchema),
   // Lazily: its schema is with the other backup schemas, below.
   backups: optional(z.lazy(() => installationStatusSchema)),
+  secrets: optional(installationSecretsSchema),
 });
 export type Installation = z.infer<typeof installationSchema>;
 
@@ -146,6 +155,25 @@ export const mountStatusSchema = z.object({
 });
 export type MountStatus = z.infer<typeof mountStatusSchema>;
 
+/** One name in a move of a service's secrets to Secret Manager, and how the two compare. */
+export const secretMoveNameSchema = z.object({ name: z.string(), state: z.string() });
+
+/** What a move of a service's secrets did when its instance started; names and states, never a value. */
+export const secretMoveReportSchema = z.object({
+  phase: z.string(),
+  outcome: z.string(),
+  names: z.array(secretMoveNameSchema).default([]),
+  detail: optional(z.string()),
+});
+
+/** Where a service's instance keeps its secrets, and what a move of them did. */
+export const secretStoreReportSchema = z.object({
+  backend: z.string(),
+  keyRead: z.boolean(),
+  move: optional(secretMoveReportSchema),
+});
+export type SecretStoreReport = z.infer<typeof secretStoreReportSchema>;
+
 /** A DNS record a member creates at their provider; the platform writes none. */
 export const dnsRecordSchema = z.object({
   name: z.string(),
@@ -187,6 +215,8 @@ export const serviceStatusSchema = z.object({
   broker: optional(z.string()),
   /** Topics the service's components use that its project does not declare; absent when not read. */
   undeclaredTopics: optional(z.array(z.string())),
+  /** Where the service keeps its secrets, and what a move of them did, from its instances; absent when not read. */
+  secretStore: optional(secretStoreReportSchema),
   /** Each side the service takes on a declared topic with a contract, checked against it; absent when not read. */
   topicChecks: optional(z.array(z.lazy(() => topicCheckSchema))),
   /** Each topic source of the service with how far behind it is, from its instances; absent when not read. */
@@ -610,6 +640,28 @@ export const projectSecretSummarySchema = z.object({
 });
 export type ProjectSecretSummary = z.infer<typeof projectSecretSummarySchema>;
 
+/** The record of one read, keep or removal of a service secret: never its value. */
+export const readRecordSchema = z.object({
+  at: z.string(),
+  project: z.string(),
+  service: z.string(),
+  hosting: z.string(),
+  name: z.string(),
+  operation: z.string(),
+  outcome: z.string(),
+  backend: z.string(),
+  traceId: optional(z.string()),
+  spanId: optional(z.string()),
+  component: optional(z.string()),
+  componentKind: optional(z.string()),
+  latestSkipped: z.boolean().default(false),
+});
+export type ReadRecord = z.infer<typeof readRecordSchema>;
+
+/** The record of a project's secret reads, newest first, as an owner reads it. */
+export const secretReadsPageSchema = z.object({ records: z.array(readRecordSchema).default([]) });
+export type SecretReadsPage = z.infer<typeof secretReadsPageSchema>;
+
 // ── Backups and recovery (feature 041) ──────────────────────────────────────
 
 /** One line of history's backups: `phase` is `backing up`, `failing` or `not backed up`. */
@@ -951,6 +1003,7 @@ export const schemasByType: Record<string, z.ZodType> = {
   Contract: contractSchema,
   BrokerDeclarationRequest: brokerDeclarationRequestSchema,
   ProjectBroker: projectBrokerSchema,
+  SecretReadsPage: secretReadsPageSchema,
   ProjectStatus: projectStatusSchema,
   InstallationStatus: installationStatusSchema,
   RestoreRequest: restoreRequestSchema,

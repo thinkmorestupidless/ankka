@@ -980,6 +980,77 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assert(!role.contains("delete") && !role.contains("list") && !role.contains("watch"), role)
   }
 
+  // ── The secret store (feature 038) ────────────────────────────────────────
+
+  /**
+   * The `ankka-platform` ConfigMap's `data`, parsed: a value may be empty, which no regex reads.
+   */
+  private def platformData(render: String): Map[String, String] =
+    val document = documentsOfKind(render, "ConfigMap")
+      .find(_.contains("name: ankka-platform"))
+      .getOrElse(fail("no ankka-platform ConfigMap"))
+    at(yamlOf(document), "data")
+      .asInstanceOf[java.util.Map[String, Any]]
+      .asScala
+      .map((k, v) => k -> Option(v).fold("")(_.toString))
+      .toMap
+
+  private val secretSettings = Vector(
+    ("secretBackend", "ANKKA_SECRET_BACKEND", Vector("ankka-controlplane", "ankka-operator")),
+    ("secretMove", "ANKKA_SECRET_MOVE", Vector("ankka-operator")),
+    ("secretVersionsKept", "ANKKA_SECRET_VERSIONS_KEPT", Vector("ankka-operator")),
+    ("secretRecordRetention", "ANKKA_SECRET_RECORD_RETENTION", Vector("ankka-controlplane"))
+  )
+
+  test(
+    "the secret store's settings reach the operator and the control plane once each, from the ConfigMap"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val data = platformData(render)
+      for (key, variable, deployments) <- secretSettings; deployment <- deployments do
+        val container =
+          deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+            .find(_.getName == deployment)
+            .getOrElse(fail(s"$name: $deployment has no container of its own name"))
+        val set = container.getEnv.asScala.filter(_.getName == variable).toVector
+        assertEquals(set.size, 1, s"$name: $deployment sets $variable once")
+        assertEquals(
+          Option(set.head.getValue).getOrElse(""),
+          data.getOrElse(key, fail(s"$name: ankka-platform has no $key")),
+          s"$name: $deployment's $variable is the ConfigMap's $key"
+        )
+    assertEquals(platformData(local)("secretBackend"), "postgres")
+  }
+
+  test(
+    "both overlays keep the record of secret reads in a database of its own, which the control plane is told of"
+  ) {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val cluster = documentsOfKind(render, "Cluster")
+        .find(_.contains("name: ankka-secret-reads-db"))
+        .getOrElse(fail(s"$name: no database for the record of secret reads"))
+      assert(cluster.contains("namespace: ankka-controlplane"), cluster)
+      val container =
+        deploymentNamed(
+          render,
+          "ankka-controlplane"
+        ).getSpec.getTemplate.getSpec.getContainers.asScala
+          .find(_.getName == "ankka-controlplane")
+          .getOrElse(fail(s"$name: the control plane has no container of its own name"))
+      for variable <- Vector("HOST", "PORT", "NAME", "USER", "PASSWORD") do
+        val set = container.getEnv.asScala.filter(_.getName == s"ANKKA_SECRET_RECORDS_DB_$variable")
+        assertEquals(set.size, 1, s"$name: ANKKA_SECRET_RECORDS_DB_$variable is set once")
+        assertEquals(set.head.getValueFrom.getSecretKeyRef.getName, "ankka-secret-reads-db-app")
+      assertEquals(
+        deploymentNamed(
+          render,
+          "ankka-controlplane"
+        ).getSpec.getTemplate.getSpec.getContainers.size,
+        1,
+        s"$name: the patch added a container"
+      )
+  }
+
   // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
 
   private def deployment(render: String, name: String): String =

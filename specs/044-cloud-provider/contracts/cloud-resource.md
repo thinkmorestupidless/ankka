@@ -61,7 +61,7 @@ string, comma-separated, and an entry of `secret-sync` is `NAME=id`. A boolean i
 | a service | `secret-access` | `<service>-secret-access` |
 | a service | `bucket` (`purpose: service`) | `<service>-bucket` |
 | a service | `bucket-credential` | `<service>-storage-credential` |
-| a project | `secret-sync` | `<project>.secret-sync` |
+| a project | `secret-sync` | `<project>.secret-sync.<secret>`, one per project secret |
 | a project | `bucket` (`purpose: backup`) | `<project>.backup-bucket` |
 | a project | `bucket-credential` (for the backup bucket) | `<project>.backup-credential` |
 | a project or the platform | `wrapping-key` | `<project>.wrapping-key` |
@@ -85,10 +85,15 @@ A service's name has no dot, so a project's request can never share a name with 
 | Parameter | Meaning |
 |---|---|
 | `identity` | an `identity` request's output |
-| `own` | secret ids the identity may read, write and remove, comma-separated (may be empty) |
-| `read` | secret ids the identity may read, comma-separated (may be empty) |
+| `own` | secret id prefixes under which the identity may read, write and remove, comma-separated (may be empty) |
+| `read` | secret id prefixes under which the identity may read, comma-separated (may be empty) |
 
 No outputs. Ready means the grants are in place.
+
+Prefixes, not ids: a service names its secrets while it runs, so no request can list them, and an IAM
+condition on a name cannot limit a create — the secret does not exist when the create is authorised.
+`own` is therefore create on the account and everything else under the prefix (feature 038,
+`DerivedIds`: `s_<project>_<service>_` for a service's own, `p_<project>_` for its project's).
 
 ### `secret-sync` — a Kubernetes Secret kept in step with a project's entries
 

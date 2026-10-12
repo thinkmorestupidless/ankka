@@ -36,14 +36,52 @@ final class AnkkaTestKit private (
     readyTimeout: FiniteDuration,
     private var current: AnkkaService,
     /** The secret key the running service was started with, or `None` for none. */
-    private var currentKey: Option[String]
+    private var currentKey: Option[String],
+    /** Where the service keeps its service secrets. */
+    private var backendChoice: SecretBackendChoice
 ):
+
+  /** Configuration laid over the kit's for every start from now on, by `restartOn`. */
+  private var overlay: Config = ConfigFactory.empty()
+
+  /** Where the service keeps its service secrets now. */
+  def secretBackend: SecretBackendChoice = backendChoice
+
+  /**
+   * Stops the service and starts it again on `secretBackend`, with `settings` above everything — a
+   * move's phase, say — as an installation whose settings changed would restart it. The database is
+   * the same one, so what the service kept there is still there.
+   */
+  def restartOn(
+      secretBackend: SecretBackendChoice,
+      settings: Config = ConfigFactory.empty()
+  ): Unit =
+    stopService()
+    backendChoice = secretBackend
+    overlay = settings.withFallback(SecretBackendChoice.settings(secretBackend))
+    startService()
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
 
-  /** The running service's secret store: one table in this kit's database. */
+  /**
+   * The running service's secret store: one table in this kit's database, or the Secret Manager
+   * fake the kit was started on.
+   */
   def secrets: SecretStore = current.secrets
+
+  /**
+   * The record of every read, keep and removal of a secret the running service made, oldest first:
+   * what the control plane would have been sent. A test's service has no control plane, so each is
+   * kept here (and logged) instead, unless `ankka.secrets.records-url` names one in `settings`.
+   */
+  def recordedReads: Vector[com.thinkmorestupidless.ankka.core.secrets.ReadRecord] =
+    current.readRecorder.fold(Vector.empty)(_.kept)
+
+  /** The Secret Manager fake the service keeps its secrets in, when it is on that backend. */
+  def fakeSecretManager: Option[FakeSecretManager] = secretBackend match
+    case SecretBackendChoice.SecretManager(fake, _, _) => Some(fake)
+    case SecretBackendChoice.Postgres                  => None
 
   /** The secret key the running service has, as `ANKKA_SECRET_KEY` would give it. */
   def secretKey: Option[String] = currentKey
@@ -78,7 +116,8 @@ final class AnkkaTestKit private (
   private[testkit] def databaseLog: String = SharedPostgres.logs
 
   /** The configuration the service runs with, for a suite that starts a second one beside it. */
-  private[testkit] def serviceConfig: Config = AnkkaTestKit.withSecretKey(config, currentKey)
+  private[testkit] def serviceConfig: Config =
+    AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), currentKey)
 
   /**
    * Opens a socket to `path` on the service's HTTP server, which must be one of its extensions. A
@@ -146,7 +185,7 @@ final class AnkkaTestKit private (
           "pekko.remote.artery.canonical.port"     -> "0"
         ).asJava
       )
-      .withFallback(AnkkaTestKit.withSecretKey(config, currentKey))
+      .withFallback(AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), currentKey))
       .resolve()
     AnkkaTestKit.Peer(
       AnkkaTestKit.hostService(descriptors, extensions, configure, peerConfig, readyTimeout)
@@ -201,7 +240,7 @@ final class AnkkaTestKit private (
       descriptors,
       extensions,
       configure,
-      AnkkaTestKit.withSecretKey(config, secretKey),
+      AnkkaTestKit.withSecretKey(overlay.withFallback(config).resolve(), secretKey),
       readyTimeout
     )
 
@@ -266,7 +305,13 @@ object AnkkaTestKit:
        * `ankka.telemetry.endpoint` for a test of telemetry export, say. Without it a test's service
        * names no collector, whatever the developer's own `ANKKA_OTLP_ENDPOINT` says.
        */
-      settings: Config = ConfigFactory.empty()
+      settings: Config = ConfigFactory.empty(),
+      /**
+       * Where the service keeps its service secrets: its database, as by default, or a
+       * `FakeSecretManager` the test started (`SecretBackendChoice.secretManager(fake)`). Kept
+       * across `restartService`.
+       */
+      secretBackend: SecretBackendChoice = SecretBackendChoice.postgres
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
@@ -284,6 +329,7 @@ object AnkkaTestKit:
     claimRegistryDirectory()
 
     val config = settings
+      .withFallback(SecretBackendChoice.settings(secretBackend))
       .withFallback(ConfigFactory.parseString("ankka.telemetry.endpoint = \"\""))
       .withFallback(withLocalServices(configFor(database), localServices))
       .resolve()
@@ -310,7 +356,8 @@ object AnkkaTestKit:
       database,
       readyTimeout,
       service,
-      secretKey
+      secretKey,
+      secretBackend
     )
 
   /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */

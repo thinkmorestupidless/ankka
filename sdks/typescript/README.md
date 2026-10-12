@@ -25,6 +25,7 @@ npm run typecheck                  # tsc --noEmit over src, test, examples
 npm test                           # the fast tests, no Docker
 npm run test:slow                  # the Docker-backed tests (needs the ankka-sidecar image)
 npm run conformance                # the platform's conformance suite against this SDK's reference service
+ANKKA_CONFORMANCE_SECRETS=secret-manager npm run conformance   # its secret cases on the Secret Manager backend
 npm run build                      # emit dist/, what the package ships
 ```
 

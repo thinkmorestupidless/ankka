@@ -853,6 +853,29 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
+    val secretReads = Opts.subcommand(
+      "secret-reads",
+      "The record of a project's secret reads: which service read which secret, and when. Owners only."
+    ) {
+      Opts.subcommand("list", "List the record, newest first; never a value.") {
+        (
+          Opts.option[String]("service", "Only this service's reads.").orNone,
+          Opts.option[String]("name", "Only the reads of this secret.").orNone,
+          Opts.option[String]("from", "From this instant (RFC 3339), inclusive.").orNone,
+          Opts.option[String]("to", "Up to this instant (RFC 3339), exclusive.").orNone,
+          Opts
+            .option[Int]("limit", "At most this many records, up to 1000; 200 if omitted.")
+            .orNone,
+          contextOpt
+        ).mapN { (service, name, from, to, limit, ctx) => () =>
+          Output.secretReads(
+            ctx.client.listSecretReads(ctx.project, service, name, from, to, limit),
+            ctx.format
+          )
+        }
+      }
+    }
+
     val grants = Opts.subcommand(
       "grants",
       "Grants: one service of another project, or one registered machine, given one route, gRPC " +
@@ -923,6 +946,7 @@ object Main:
       .orElse(delete)
       .orElse(registry)
       .orElse(secrets)
+      .orElse(secretReads)
       .orElse(topics)
       .orElse(brokers)
       .orElse(location)
@@ -1340,7 +1364,7 @@ object Main:
   private val installationCommand =
     Opts.subcommand(
       "installation",
-      "Show the installation: its version, and its cloud provider, account and location."
+      "Show the installation: its version, its cloud, and where it keeps its secrets."
     ) {
       Opts
         .subcommand(

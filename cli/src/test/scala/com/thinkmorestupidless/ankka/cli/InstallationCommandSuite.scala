@@ -84,6 +84,21 @@ final class InstallationCommandSuite extends FunSuite:
     assertEquals(run()._2.trim, "platform   0.7.0\nprovider   none")
   }
 
+  test("an installation that says where it keeps its secrets prints the backend and the record") {
+    answer =
+      """{"platformVersion":"0.7.0","secrets":{"backend":"postgres","recordRetention":"365d","auditLog":"unknown"}}"""
+    assertEquals(
+      run()._2.trim,
+      Vector(
+        "platform   0.7.0",
+        "provider   none",
+        "secrets    postgres",
+        "records    365d",
+        "access log unknown"
+      ).mkString("\n")
+    )
+  }
+
   test("--json prints the wire type") {
     answer = """{"platformVersion":"0.7.0"}"""
     val (code, out) = run("-o", "json")

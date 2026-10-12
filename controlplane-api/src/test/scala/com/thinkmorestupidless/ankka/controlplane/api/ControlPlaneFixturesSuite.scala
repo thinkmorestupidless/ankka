@@ -116,7 +116,9 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       "Installation",
       Installation(
         "0.12.0",
-        Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka")))
+        Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka"))),
+        secrets =
+          Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn))
       ),
       Installation("0.12.0")
     ),
@@ -173,6 +175,20 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         processPort = Some(3000),
         broker = Some("provisioned"),
         undeclaredTopics = Some(Vector("cart-checkouts")),
+        secretStore = Some(
+          SecretStoreReport(
+            "secret-manager",
+            keyRead = true,
+            Some(
+              SecretMoveReport(
+                "remove",
+                "refused",
+                Vector(SecretMoveName("acme", "equal"), SecretMoveName("stripe", "different")),
+                Some("not removed: stripe differs from Secret Manager")
+              )
+            )
+          )
+        ),
         topicSources = Some(
           Vector(
             TopicSourceReport(
@@ -231,6 +247,29 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         proofRecord = Some(DnsRecord("_ankka.<hostname>", "TXT", "ankka-project=shop"))
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
+    ),
+    fixture(
+      "SecretReadsPage",
+      SecretReadsPage(
+        Vector(
+          com.thinkmorestupidless.ankka.core.secrets.ReadRecord(
+            at,
+            "shop",
+            "cart",
+            "embedded",
+            "psp/acme/api-key",
+            "get",
+            "read",
+            "secret-manager",
+            Some("4bf92f3577b34da6a3ce929d0e0e4736"),
+            Some("00f067aa0ba902b7"),
+            Some("charge"),
+            Some("workflow"),
+            latestSkipped = true
+          )
+        )
+      ),
+      SecretReadsPage(Vector.empty)
     ),
     fixture(
       "MountStatus",

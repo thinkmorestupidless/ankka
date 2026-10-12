@@ -8,20 +8,25 @@ import java.nio.charset.StandardCharsets
  * Where a service keeps its service secrets: named text values it must never record, such as a
  * credential a person gave it.
  *
- * A secret store is in the service's own database and apart from everything its components know. It
- * is not an entity, a view or anything a projection reads, so nothing kept here reaches a journal,
- * a snapshot, a view's table or a backup of any of them in a readable form: the database holds each
- * value encrypted with the service's secret key.
+ * A secret store is kept where the installation keeps secrets — the service's own database, each
+ * value encrypted with the service's secret key, or Google Secret Manager, under the service's own
+ * identity — and apart from everything its components know. It is not an entity, a view or anything
+ * a projection reads, so nothing kept here reaches a journal, a snapshot, a view's table or a
+ * backup of any of them in a readable form. A service's code is the same on either.
+ *
+ * Every read, keep and removal is recorded — the name, never the value — before it returns, and is
+ * refused when the record cannot be written, so no value is returned unrecorded.
  *
  * It is offered to endpoints, workflow steps, consumers, timed actions and agents, and not to an
  * entity or a view. A read is a blocking database call, which an entity's single-writer path must
  * not make, and a value read in an entity's handler is one line away from an event or a state.
  *
- * Every method blocks the calling thread until the database has answered. The components that are
+ * Every method blocks the calling thread until the backend has answered. The components that are
  * given a store run on virtual threads, where a blocking call parks the thread and releases its
  * carrier. Every method throws `CommandError`: `BadRequest` for a name or a value that breaks
- * `SecretRules`, `Internal` when the service has no secret key or a stored value was encrypted with
- * another one, and `Unavailable` when the database cannot be reached.
+ * `SecretRules`; `Internal` when the service has no secret key, a stored value was encrypted with
+ * another one, or the service has not been given access to its secrets; and `Unavailable` when the
+ * backend, or the keeper of the record of reads, cannot be reached.
  */
 trait SecretStore:
 

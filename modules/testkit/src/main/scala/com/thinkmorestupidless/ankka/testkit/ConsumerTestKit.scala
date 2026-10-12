@@ -37,20 +37,31 @@ final class ConsumerTestKit[Src, Out] private (
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
-  /** Hands the consumer one change of `subject` at `sequenceNumber`. */
-  def onMessage(message: Src, subject: String = "test", sequenceNumber: Long = 1): Result[Out] =
+  /**
+   * Hands the consumer one change of `subject` at `sequenceNumber`. `standing` is a workflow's, for
+   * a consumer that reads one: where the workflow stood once the effect that recorded `message` was
+   * applied.
+   */
+  def onMessage(
+      message: Src,
+      subject: String = "test",
+      sequenceNumber: Long = 1,
+      standing: Option[WorkflowLifecycle] = None
+  ): Result[Out] =
     // Through its bytes, so a message the source's serializer cannot carry fails here.
     val decoded = descriptor.source.decoder.fromBytes(descriptor.source.decoder.toBytes(message))
-    run(subject, sequenceNumber)(consumer.onMessage(decoded))
+    run(subject, sequenceNumber, standing)(consumer.onMessage(decoded))
 
   /** Tells the consumer its source entity was deleted. */
   def onDelete(subject: String = "test", sequenceNumber: Long = 1): Result[Out] =
-    run(subject, sequenceNumber)(consumer.onDelete)
+    run(subject, sequenceNumber, None)(consumer.onDelete)
 
-  private def run(subject: String, sequenceNumber: Long)(
+  private def run(subject: String, sequenceNumber: Long, standing: Option[WorkflowLifecycle])(
       handle: => ConsumerEffect[Out]
   ): Result[Out] =
-    consumer._setContext(Some(SimpleChangeContext(subject, sequenceNumber, localOrigin = true)))
+    consumer._setContext(
+      Some(SimpleChangeContext(subject, sequenceNumber, localOrigin = true, standing))
+    )
     val effect =
       try handle
       finally consumer._setContext(None)

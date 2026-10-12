@@ -21,7 +21,9 @@ pub struct Checkout {
 pub struct CheckoutWorkflow;
 
 impl CheckoutWorkflow {
-    /// `mode`: `ok`, `fail` (the charge is declined) or `pause` (a pause before it).
+    /// `mode`: `ok`, `fail` (the charge is declined and compensated), `pause` (a pause before it),
+    /// `abort` (declined; the compensation records it and fails the workflow) or `drop` (declined;
+    /// the compensation fails the workflow and records nothing).
     fn start(checkout: &Checkout, mode: String, _: &Context) -> WorkflowEffect<Checkout, Done> {
         if checkout.status != "new" {
             let message = format!("checkout is already {}", checkout.status);
@@ -74,7 +76,7 @@ impl CheckoutWorkflow {
     }
 
     fn charge(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
-        if checkout.mode == "fail" {
+        if matches!(checkout.mode.as_str(), "fail" | "abort" | "drop") {
             panic!("payment declined");
         }
         // Not idempotent — a retry after the cart was checked out is refused — which is why
@@ -93,6 +95,19 @@ impl CheckoutWorkflow {
     }
 
     fn compensate(checkout: &Checkout, _: (), _: &Context) -> StepEffect<Checkout> {
+        let declined = || CommandError::new(ErrorCode::Internal, "payment declined");
+        match checkout.mode.as_str() {
+            "abort" => {
+                let aborted = Checkout {
+                    status: "aborted".into(),
+                    reserved: 0,
+                    ..checkout.clone()
+                };
+                return step_effects::update_state(aborted).then_fail(declined());
+            }
+            "drop" => return step_effects::fail(declined()),
+            _ => {}
+        }
         let compensated = Checkout {
             status: "compensated".into(),
             reserved: 0,

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.runtime.remote.Payload
 import com.thinkmorestupidless.ankka.core.effect.{KeyedViewEffect, RowChanges}
 import com.thinkmorestupidless.ankka.core.ComponentId
 import com.thinkmorestupidless.ankka.sdk.*
@@ -89,8 +90,18 @@ private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeou
 private[ankka] final case class SimpleKeyedChange[Row](
     subject: String,
     sequenceNumber: Long,
-    rows: ViewRows[Row]
+    rows: ViewRows[Row],
+    override val standing: Option[WorkflowLifecycle] = None
 ) extends KeyedChange[Row]
+
+/**
+ * What a keyed view does with one change of one source: its subject, sequence number, payload —
+ * absent for the source's deletion — and, for a workflow, its standing. Answers the rows to write.
+ */
+private[ankka] type KeyedHandle =
+  (String, Long, Option[Payload], Option[WorkflowLifecycle]) => Future[
+    Vector[(String, Option[String])]
+  ]
 
 /** A keyed view's own rows, read through the view client on a connection of its own. */
 private[ankka] final class KeyedViewRows[Row](queries: ViewQueries[Row]) extends ViewRows[Row]:
@@ -130,9 +141,10 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
       source: KeyedSource[V, Row],
       subject: String,
       sequenceNumber: Long,
-      bytes: Option[(Array[Byte], String)]
+      payload: Option[Payload],
+      standing: Option[WorkflowLifecycle]
   ): Future[Vector[(String, Option[String])]] =
-    val change = SimpleKeyedChange(subject, sequenceNumber, rows)
+    val change = SimpleKeyedChange(subject, sequenceNumber, rows, standing)
     core
       .bounded {
         ProjectionSupport.handling(
@@ -140,9 +152,9 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
           descriptor.componentId.toString,
           source.componentId.toString
         ) {
-          bytes match
-            case Some((payload, _)) => source.onChange(view, source.decode(payload), change)
-            case None               => source.onDelete(view, change)
+          payload match
+            case Some(p) => source.onChange(view, source.decode(p.data), change)
+            case None    => source.onDelete(view, change)
         }
       }
       .map(effect => encode(effect))
@@ -156,14 +168,13 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
  * Applies one change of an event sourced source to a keyed view, exactly once: the lock, the rows
  * and the projection's offset in one transaction.
  */
-private[ankka] final class KeyedViewEventHandler(
+private[ankka] final class KeyedViewEventHandler[A](
     core: KeyedViewCore,
     guard: EntityViewGuard,
-    handle: (String, Long, Option[(Array[Byte], String)]) => Future[
-      Vector[(String, Option[String])]
-    ]
+    handle: KeyedHandle,
+    reader: ChangeReader[A]
 )(using system: ActorSystem[?])
-    extends R2dbcHandler[EventEnvelope[JournalRecord]]:
+    extends R2dbcHandler[EventEnvelope[A]]:
 
   private given ExecutionContext = system.executionContext
 
@@ -172,15 +183,15 @@ private[ankka] final class KeyedViewEventHandler(
       .updateOne(Database.bind(session.createStatement(fragment.render), fragment))
       .map(_ => Done)
 
-  def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
+  def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
-    val record  = envelope.event
-    record.kind match
-      // A TTL being set is a storage fact, not a change a view is told of.
-      case JournalRecord.KindExpiry => Future.successful(Done)
-      case kind =>
-        val payload =
-          Option.when(kind == JournalRecord.KindDomain)((record.payload, record.manifest))
+    reader.read(envelope.event) match
+      // A TTL being set, or a workflow record that holds no state: not a change a view is told of.
+      case SourceChange.Skip => Future.successful(Done)
+      case change =>
+        val payload = change match
+          case SourceChange.Changed(p, _) => Some(p)
+          case _                          => None
         def select(fragment: SqlFragment) =
           session.selectOne(Database.bind(session.createStatement(fragment.render), fragment))(_ =>
             ()
@@ -190,7 +201,12 @@ private[ankka] final class KeyedViewEventHandler(
           _ <- core.opening.foldLeft(Future.successful[Option[Unit]](None))((f, s) =>
             f.flatMap(_ => select(s))
           )
-          changes <- handle(subject, envelope.sequenceNr, payload)
+          changes <- handle(
+            subject,
+            envelope.sequenceNr,
+            payload,
+            ProjectionSupport.standingOf(change)
+          )
           writes <- core
             .writes(changes)
             .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
@@ -207,9 +223,7 @@ private[ankka] final class KeyedViewEventHandler(
 private[ankka] final class KeyedViewStateHandler(
     core: KeyedViewCore,
     guard: EntityViewGuard,
-    handle: (String, Long, Option[(Array[Byte], String)]) => Future[
-      Vector[(String, Option[String])]
-    ]
+    handle: KeyedHandle
 )(using system: ActorSystem[?])
     extends Handler[DurableStateChange[StateRecord]]:
 
@@ -223,7 +237,16 @@ private[ankka] final class KeyedViewStateHandler(
       case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
         (None, updated.revision)
       case updated: UpdatedDurableState[StateRecord] =>
-        (Some((updated.value.payload, updated.value.manifest)), updated.revision)
+        (
+          Some(
+            Payload(
+              Payload.contentTypeFor(updated.value.manifest),
+              updated.value.manifest,
+              updated.value.payload
+            )
+          ),
+          updated.revision
+        )
       case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
     database.inTransaction { tx =>
       for
@@ -231,7 +254,7 @@ private[ankka] final class KeyedViewStateHandler(
         _ <- core.opening.foldLeft(Future.successful(Vector.empty[Unit]))((f, s) =>
           f.flatMap(_ => tx.query(s)(_ => ()))
         )
-        changes <- handle(subject, revision, payload)
+        changes <- handle(subject, revision, payload, None)
         writes <- core
           .writes(changes)
           .fold(why => Future.failed(IllegalStateException(why)), Future.successful)

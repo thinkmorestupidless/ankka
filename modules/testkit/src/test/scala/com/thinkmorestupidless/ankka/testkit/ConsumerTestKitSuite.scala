@@ -125,3 +125,30 @@ class ConsumerTestKitSuite extends munit.FunSuite:
       Vector(9L)
     )
   }
+
+  // ── A consumer of a workflow (spec 046) ───────────────────────────────────
+
+  private val completed = com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle(
+    "Completed",
+    None,
+    Map.empty,
+    None
+  )
+  private val transfer =
+    com.thinkmorestupidless.ankka.testkit.views.FlowState("t1", "end", "deposit", None)
+
+  test("a consumer of a workflow is handed the standing a test gives, and acts on it") {
+    val kit = ConsumerTestKit.of(com.thinkmorestupidless.ankka.testkit.views.Settlement)
+    val result =
+      kit.onMessage(transfer, subject = "t1", sequenceNumber = 5, standing = Some(completed))
+    assertEquals(
+      result.payloads,
+      Vector(com.thinkmorestupidless.ankka.testkit.views.Settled("t1"))
+    )
+  }
+
+  test("a consumer handed no standing is handed none, as for a change from an entity") {
+    val kit    = ConsumerTestKit.of(com.thinkmorestupidless.ankka.testkit.views.Settlement)
+    val result = kit.onMessage(transfer, subject = "t1")
+    assertEquals(result.effect, ConsumerEffect.Ignore)
+  }

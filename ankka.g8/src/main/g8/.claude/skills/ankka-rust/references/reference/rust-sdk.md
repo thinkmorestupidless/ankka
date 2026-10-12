@@ -125,7 +125,7 @@ See [Key value entities](../build/key-value-entities.md).
 | Associated items | `type Row`, `type Event`, `COMPONENT_ID`; optionally `ROW_MANIFEST` |
 | Must define | `source() -> Source` (`Source::of(ShoppingCart)`, or `Source::topic("name")` with `.start_from(..)`, `.contract(..)`, `.broker(..)`, `.parallel()`), `on_event(row, event, ctx) -> ViewEffect<Row>` |
 | May define | `on_deleted(row, ctx)`, which deletes the row by default; `queries()`, `["get", "all"]` by default; `declared()`, the view's declared queries (`query(name, statement)`); `version()` |
-| In a handler | `row` is the current row or `None`; `ctx.metadata().subject()` is the source's id |
+| In a handler | `row` is the current row or `None`; `ctx.metadata().subject()` is the source's id; `ctx.standing()` is a workflow source's `Standing`, else `None` |
 | Effects | `view::update_row(row)`, `view::delete_row()`, `view::ignore()` |
 | Querying | `ctx.client().query(CartRows, "by-id", key)`, `query(CartRows, "all", ())`, `query_by_name(view_id, name, key)`, or a declared query with `ask(view, name, values)` / `ask_by_name(view_id, name, values, limit)` |
 | Table name | `table_of(id)`, for a statement to name |
@@ -151,7 +151,7 @@ See [Views](../build/views.md).
 | Associated items | `type Message`, `COMPONENT_ID` |
 | Must define | `source() -> Source`, `on_message(message, ctx) -> ConsumerEffect` |
 | May define | `on_deleted(ctx)`, which ignores by default; `produces_to() -> Option<&str>`, a topic to publish to, or `produces() -> Option<Publication>` (`Publication::to(topic).contract(..).broker(..)`) |
-| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.client()` |
+| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.standing()`, a workflow source's `Standing`; `ctx.client()` |
 | Effects | `consumer::produce(value)`, `consumer::produce_with(value, metadata)`, `consumer::produce_all(messages)`, `consumer::done()`, `consumer::ignore()` |
 | One of several messages | `consumer::message(value)`, then `.key(key)` to publish it under a record key other than its subject and `.metadata(metadata)` for its headers; `Outgoing::of(payload)` takes a payload already encoded |
 

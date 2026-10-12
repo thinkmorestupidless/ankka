@@ -66,7 +66,9 @@ object RemoteDescriptor:
 final case class RemoteEventSourcedDescriptor(
     componentId: ComponentId,
     handlers: Map[MethodName, RemoteHandler],
-    snapshotEvery: Option[Int]
+    snapshotEvery: Option[Int],
+    /** Declared replicated by the process (feature 051, protocol 1.19). */
+    override val replicated: Boolean = false
 ) extends RemoteDescriptor:
   val kind: ComponentKind = ComponentKind.EventSourcedEntity
 
@@ -144,7 +146,9 @@ final case class RemoteConsumerDescriptor(
     producesTo: Option[String],
     startDeclarable: Boolean = true,
     version: Option[Int] = None,
-    produces: Option[Publication] = None
+    produces: Option[Publication] = None,
+    /** Given a replicated entity's mirrored changes too (feature 051, protocol 1.19). */
+    mirroredChanges: Boolean = false
 ) extends RemoteDescriptor:
   val kind: ComponentKind                      = ComponentKind.Consumer
   val handlers: Map[MethodName, RemoteHandler] = Map.empty

@@ -20,8 +20,8 @@ pub mod workflow;
 
 pub use common::{CommandError, ErrorCode, Outcome, Retention};
 pub use event_sourced::{
-    Effect, Persist, ReadOnlyEffect, delete_entity, error, no_reply, persist, persist_all, reply,
-    reply_from,
+    Effect, Persist, ReadOnlyEffect, ReplicationChange, delete_entity, error, hand_over_to,
+    no_reply, persist, persist_all, replicate_to, reply, reply_from, stop_replicating_to,
 };
 pub use http::{HttpProblem, IntoResponse, Response};
 pub use key_value::{KeyValueEffect, delete_state, materialise_key_value, update_state};

@@ -78,8 +78,11 @@ need a `Serializer` in scope; `Codecs.serializer[A]("manifest")` derives a JSON 
 | Effects | `effects.persist(e, more*)`, `persistAll(events)`, `deleteEntity()`, then `.thenReply(s => r)`, `.thenReplyState`, `.thenNoReply`, `.deleteEntity()`, `.expireAfter(d)`; `effects.reply(r)`, `effects.error(msg, code)`, `effects.noReply` |
 | Types | A command returns `Effect[R]`; a query returns `ReadOnlyEffect[R]` |
 | Snapshots | `snapshotEvery: Option[Int]`, `Some(100)` by default |
+| Replication | `override def replicated = true` on the companion; effects `effects.handOverTo(installation)`, `.replicateTo(installation)`, `.stopReplicatingTo(installation)`, alone or after `persist`; `commandContext.installation`, `commandContext.isHome`; `eventContext` (`installation`, `isLocal`, `sequence`) in `applyEvent` |
+| Calls | `forEventSourcedEntity(id).replication(Companion)`, a copy's `ReplicationStatus`; `.awaitHandover(Companion, installation, timeout)` |
 
-See [Event sourced entities](../build/event-sourced-entities.md).
+See [Event sourced entities](../build/event-sourced-entities.md) and
+[Replicated entities](../concepts/replicated-entities.md).
 
 ## Key value entity
 
@@ -119,7 +122,8 @@ fragments over the row's JSON, built with `jsonText("field") ++ sql" = \$value"`
 | Companion | `Consumer.Companion[C, Src, Out](componentId, source)` |
 | Must define | `onMessage(message: Src): Effect`, `create(ctx: ConsumerContext)` |
 | May override | `onDelete: Effect` (default: ignore), `produceTo: Option[String]` or `produces: Option[Publication]` (a topic with its contract and broker), `outputSerializer: Option[Serializer[Out]]`, `parallelism` (default 4) |
-| In a handler | `messageContext` (`subject`, `sequenceNumber`, `localOrigin`); the context's `componentClient` |
+| In a handler | `messageContext` (`subject`, `sequenceNumber`, `localOrigin`, `installation`); the context's `componentClient` |
+| Replicated sources | `mirroredChanges: Boolean`, `false` by default: a consumer that publishes is given only changes written at this installation unless it is `true` |
 | Effects | `effects.produce(out)`, `effects.produce(out, metadata)`, `effects.produceAll(messages)`, `effects.done()`, `effects.ignore()` |
 | One of several messages | `effects.message(out)`, then `.withKey(key)` to publish it under a record key other than its subject and `.withMetadata(metadata)` for its headers |
 
@@ -309,11 +313,13 @@ val service = Ankka.service
 | Kit | Drives |
 |---|---|
 | `EventSourcedTestKit.of(Companion, id)` | One event sourced entity, no runtime. `call(handler)(input)` returns the events, reply or error. |
+| `EventSourcedTestKit.of(Companion, id, mode = Mode.Follower(home), installation = name)` | A replicated entity's copy as its home (`Mode.Home`) or a follower; `replay(events*)` with a `given WrittenAt` gives a follower its history. |
 | `KeyValueEntityTestKit.of(Companion, id)` | One key value entity, no runtime. |
 | `ConsumerTestKit.of(Companion, client)` | One consumer, no runtime. `onMessage(message, subject, sequenceNumber)` and `onDelete(subject, sequenceNumber)` return the effect and the `messages` it publishes: `payload`, the record `key` a broker is given, `metadata`, `text`. |
 | `ConsumerTestKit.graph(Companion, client)` | One graph consumer, no runtime. The same two calls return the `GraphDelta`s published, read back from their bytes; `records` gives the same consumer as messages. |
 | `TestTransport` | A `ComponentClient` whose calls are stubbed, for testing a component that calls others. |
 | `AnkkaTestKit.start(descriptors…)` | The whole service against a throwaway database of its own, in one Postgres container that every kit in the test JVM shares. `restartService()` drops every entity from memory. |
+| `AnkkaTestKit.installations(names*)` | A group of installations of one service, each on its own database, replicating through the runtime's own transport; `start(name, descriptors)` starts one, and `transport` pauses, resumes and blocks what reaches it. |
 | `TestModelProvider` | A scripted model that fails when its script runs out. |
 
 See [Testing](../build/testing.md).

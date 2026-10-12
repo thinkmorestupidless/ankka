@@ -487,6 +487,287 @@ another component: it returns an effect, and the runtime does the rest. See
 An entity that has never received a command exists with its empty state, so reading it answers the empty
 state rather than failing.
 
+## Replication
+
+A replicated entity is held at several installations of the service and written at one of them, its
+home; the other installations in its replication set are followers, which hold the home's journal
+record for record and answer queries from it. A command that may persist and reaches a follower is
+forwarded to the home. [Replicated entities](../concepts/replicated-entities.md) describes the model;
+this section is the code.
+
+### Declaring an entity replicated
+
+The companion declares it, and the service names the installations it may replicate with in
+`ankka.replication.installations` (see [Configuration](../reference/configuration.md)). Nothing else
+changes: the handlers, the events and the wire names are an unreplicated entity's.
+
+**Scala**
+
+```scala
+final class VehicleKind(id: String, replicatedHere: Boolean = true)
+    extends EventSourcedEntity.Companion[VehicleEntity, Vehicle, VehicleEvent](
+      ComponentId(id),
+      FleetCodecs.vehicle,
+      FleetCodecs.event
+    ):
+  override def replicated: Boolean = replicatedHere
+
+  def create(ctx: EventSourcedEntityContext) = new VehicleEntity(ctx)
+
+  val createVehicle     = command("create")(_.create)
+  val addStep           = command("add-step")(_.addStep)
+  val recordInspection  = command("record-inspection")(_.recordInspection)
+  val recordSale        = command("record-sale")(_.recordSale)
+  val handOver          = command("hand-over")(_.handOver)
+  val replicateTo       = command("replicate-to")(_.replicateTo)
+  val stopReplicatingTo = command("stop-replicating-to")(_.stopReplicatingTo)
+  val get               = query("get")(_.get)
+  val placement         = query("placement")(_.placement)
+```
+
+**Python**
+
+```python
+class VehicleEntity(EventSourcedEntity[Vehicle, VehicleEvent]):
+    component_id = "vehicle"
+    replicated = True
+```
+
+**TypeScript**
+
+```ts
+class VehicleEntity extends EventSourcedEntity<Vehicle, VehicleEvent> {
+  static readonly componentId = "vehicle"
+  static readonly replicated = true
+  // …
+}
+```
+
+**Rust**
+
+```rust
+impl EventSourcedEntity for VehicleEntity {
+    type State = Vehicle;
+    type Event = VehicleEvent;
+    const COMPONENT_ID: &'static str = "vehicle";
+    const REPLICATED: bool = true;
+    // …
+}
+```
+
+Only an event sourced entity can be replicated. A key value entity or a workflow declared replicated is
+refused when the service starts.
+
+### Handing the home over and changing the replication set
+
+Three effects change where the entity is held, each alone or beside the events a command persists:
+`handOverTo(installation)` makes another installation in the replication set the home,
+`replicateTo(installation)` adds an installation to the set, and `stopReplicatingTo(installation)`
+removes one, which keeps the copy it has. One command asks for one handover or one change to the set; a
+change to the set may add and remove several installations.
+
+**Scala**
+
+```scala
+/** Ships the vehicle: its home is the dealership's installation from now on. */
+def handOver(installation: String): Effect[Receipt] =
+  effects.handOverTo(installation).thenReply(receipt("hand-over"))
+
+/** Allots the vehicle to a dealership, whose installation holds it from now on. */
+def replicateTo(installation: String): Effect[Receipt] =
+  effects.replicateTo(installation).thenReply(receipt("replicate-to"))
+
+/** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
+def stopReplicatingTo(installation: String): Effect[Receipt] =
+  effects.stopReplicatingTo(installation).thenReply(receipt("stop-replicating-to"))
+```
+
+**Python**
+
+```python
+@command("hand-over")
+def hand_over(self, installation: str) -> EventSourcedEffect[Vehicle, VehicleEvent, Done]:
+    return self.effects.hand_over_to(installation).then_reply(lambda _: DONE)
+
+@command("allot")
+def allot(self, dealer: str) -> EventSourcedEffect[Vehicle, VehicleEvent, Done]:
+    return self.effects.persist(Allotted(dealer)).replicate_to(dealer).then_reply(lambda _: DONE)
+```
+
+**TypeScript**
+
+```ts
+handOver: command("hand-over", s.string, Done, (v: VehicleEntity, installation) =>
+  v.effects.handOverTo(installation).thenReply(() => done)),
+allot: command("allot", s.string, Done, (v: VehicleEntity, dealer) =>
+  v.effects.persist({ type: "Allotted", dealer }).replicateTo(dealer).thenReply(() => done)),
+```
+
+**Rust**
+
+```rust
+fn hand_over(_: &Vehicle, installation: String, _: &Context) -> Effect<VehicleEvent, Done> {
+    effects::hand_over_to(installation).then_reply_value(Done)
+}
+
+fn allot(_: &Vehicle, dealer: String, _: &Context) -> Effect<VehicleEvent, Done> {
+    effects::persist(VehicleEvent::Allotted { dealer: dealer.clone() })
+        .replicate_to(dealer)
+        .then_reply_value(Done)
+}
+```
+
+What each answers:
+
+| Asked for | Refused when |
+|---|---|
+| a handover | the installation is the home already, is not one the service names, or is outside the replication set; or another handover is waiting |
+| a change to the set | an installation is not one the service names, or the home removes itself |
+| either | the entity is not replicated, or the service names no other installation |
+
+A refusal is `BadRequest` and nothing the command persisted is written. An effect that asks for a
+handover and a change to the set at once, or adds and removes the same installation, is a mistake in the
+handler and fails where it is built: an exception in Scala, Python and TypeScript, an `Internal` answer
+in Rust. The caller of a handover is
+answered once the handover is recorded at the old home; it completes once the new home holds everything.
+In Scala, `componentClient.forEventSourcedEntity(id).awaitHandover(companion, installation, timeout)`,
+asked at the old home, waits for the completion.
+
+### What a handler knows about where it runs
+
+A command handler reads the installation it runs at and whether that is the home. A query at a follower
+runs there, with `isHome` false; every command that may persist runs at the home.
+
+| | Installation | At the home |
+|---|---|---|
+| Scala | `commandContext.installation` | `commandContext.isHome` |
+| Python | `self.context.installation` | `self.context.is_home` |
+| TypeScript | `this.context.installation` | `this.context.isHome` |
+| Rust | `ctx.installation()` | `ctx.is_home()` |
+
+The event handler can read where the event it applies was written, whether that is this installation,
+and its sequence number, which is the same at every installation. It runs at the home when an event is
+persisted and at every installation when the history is replayed, so what it records from the context is
+the same everywhere.
+
+**Scala**
+
+```scala
+def applyEvent(event: VehicleEvent): Vehicle =
+  val vehicle = event match
+    case Created(id)     => currentState.copy(id = id)
+    case StepAdded(step) => currentState.copy(steps = currentState.steps :+ step)
+    case InspectionRecorded(note) =>
+      currentState.copy(inspections = currentState.inspections :+ note)
+    case Sold => currentState.copy(sold = true)
+  // Where this event was written, on replay as well as when it is persisted here.
+  vehicle.copy(
+    writtenAt = vehicle.writtenAt :+ eventContext.installation,
+    local = vehicle.local :+ eventContext.isLocal
+  )
+```
+
+**Python**
+
+```python
+def apply_event(self, state: Vehicle, event: StepAdded) -> Vehicle:
+    written = self.event_context  # installation, is_local, sequence
+    return Vehicle(state.steps + [event.step], state.written_at + [written.installation])
+```
+
+**TypeScript**
+
+```ts
+applyEvent(state: Vehicle, event: StepAdded, context?: EventContext): Vehicle {
+  // context.installation, context.isLocal, context.sequence
+  return { steps: [...state.steps, event.step], writtenAt: [...state.writtenAt, context?.installation ?? ""] }
+}
+```
+
+**Rust**
+
+```rust
+// `apply` is unchanged; `apply_at` is called instead, and calls `apply` unless overridden.
+fn apply_at(mut state: Vehicle, event: &VehicleEvent, ctx: &EventContext) -> Vehicle {
+    let VehicleEvent::StepAdded { step } = event;
+    state.steps.push(step.clone());
+    state.written_at.push(ctx.installation().unwrap_or_default().to_string());
+    state
+}
+```
+
+### Errors a replicated entity answers
+
+| Code | When |
+|---|---|
+| `NotHome` | a write reached a follower whose home cannot be reached; a query reached an installation outside the replication set; a forwarded write found that the installation it was sent to is no longer the home. The message names the home |
+| `Conflict` | a write reached an entity created at two installations, which takes no write until an operator resolves it |
+| `Timeout` | a forwarded write was not answered in time; it may or may not have happened |
+| `BadRequest` | a handover or a change to the replication set was refused |
+
+`NotHome` is HTTP `421` and gRPC `OUT_OF_RANGE`. See [Error codes](../reference/error-codes.md).
+
+### Reading how a copy stands
+
+Any installation's copy answers its status from its own journal: the home, the replication set, a
+handover waiting, a conflict, and the position its history reaches.
+
+```scala
+val status = componentClient.forEventSourcedEntity(EntityId("v1")).replication(Vehicles)
+status.home            // Some("leipzig")
+status.replicationSet  // Set("leipzig", "vienna")
+status.position        // how many records this copy holds
+```
+
+### Testing a replicated entity
+
+The entity test kit drives a copy as its home, where every command runs and a handover or a change to the
+replication set is shown on the result, or as a follower, where a command that may persist is refused
+`NotHome` and a query is answered from history the test gives it:
+
+**Scala**
+
+```scala
+val kit = EventSourcedTestKit.of(
+  Fleet.vehicles,
+  "v1",
+  mode = EventSourcedTestKit.Mode.Follower(home = "leipzig"),
+  installation = "bratislava"
+)
+given EventSourcedTestKit.WrittenAt = EventSourcedTestKit.WrittenAt(Some("leipzig"))
+kit.replay(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame"))
+```
+
+**Python**
+
+```python
+kit = EventSourcedTestKit.of(VehicleEntity, "v1", mode="follower", home="leipzig", installation="bratislava")
+kit.replay(StepAdded("frame"), written_at="leipzig")
+assert kit.call("add-step", "wheels").error.code == ErrorCode.NOT_HOME
+```
+
+**TypeScript**
+
+```ts
+const kit = EventSourcedTestKit.of(VehicleEntity, "v1", noClient(), { kind: "follower", home: "leipzig", installation: "bratislava" })
+kit.replay([{ step: "frame" }], "leipzig")
+assert.equal((await kit.call("add-step", "wheels")).error?.code, ErrorCode.NotHome)
+```
+
+**Rust**
+
+```rust
+let mut kit = EventSourcedTestKit::<VehicleEntity>::new("v1").in_mode(ReplicationMode::Follower {
+    home: "leipzig".to_string(),
+    installation: "bratislava".to_string(),
+});
+kit.replay(vec![VehicleEvent::StepAdded { step: "frame".to_string() }], Some("leipzig"));
+assert_eq!(kit.command("add-step", "wheels".to_string()).error().map(|e| e.code), Some(ErrorCode::NotHome));
+```
+
+A whole service at several installations is tested with the integration test kit; see
+[Testing](testing.md#several-installations).
+
 ## Testing
 
 Because a handler returns an effect instead of performing it, an entity can be tested with no runtime,

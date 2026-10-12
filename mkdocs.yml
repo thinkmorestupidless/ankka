@@ -158,6 +158,7 @@ nav:
       - Designing a service: concepts/designing-services.md
       - Handlers and wire names: concepts/wire-names.md
       - Consistency and delivery: concepts/consistency.md
+      - Replicated entities: concepts/replicated-entities.md
       - Agents and sessions: concepts/agents.md
       - Designing with agents: concepts/designing-agents.md
       - Autonomous agents and tasks: concepts/autonomous-agents.md

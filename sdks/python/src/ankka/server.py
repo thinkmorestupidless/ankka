@@ -47,7 +47,8 @@ from ankka.client import CommandError, ComponentClient, SidecarRows
 from ankka.effects import keyed_view as keyed_effects
 from ankka.secrets import Secrets
 from ankka.services import Services
-from ankka.context import Caller, CommandContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
+from ankka.context import Caller, CommandContext, EventContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
+from ankka.effects.event_sourced import HandOver, SetChange
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
 from ankka.effects import timed_action as timed_effects
@@ -83,6 +84,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             self.refusal(request.protocol_version)
             or socket_refusal(self.registry, request.protocol_version)
             or grants_refusal(self.registry, request.protocol_version)
+            or replication_refusal(self.registry, request.protocol_version)
         )
         if refusal is not None:
             log.error(refusal)
@@ -187,9 +189,12 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
         state: Any = None
         sequence = 0
         entity_id = ""
+        # This installation, for a replicated entity (1.19): None on a service that names none.
+        here: str | None = None
         async for message in request_iterator:
             kind = message.WhichOneof("message")
             if kind == "init":
+                here = message.init.installation or None
                 cls = self.registry.entities.get(message.init.component_id)
                 if cls is None:
                     yield event_sourced_pb2.EventSourcedOut(
@@ -207,7 +212,12 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     sequence = 0
             elif kind == "event":
                 assert entity is not None
-                state = entity.apply_event(state, type(entity).event_codec.decode(message.event.payload.data))
+                written = message.event.installation or here
+                state = entity._apply(
+                    state,
+                    type(entity).event_codec.decode(message.event.payload.data),
+                    EventContext(written, written == here, message.event.sequence),
+                )
                 sequence = message.event.sequence
             elif kind == "command":
                 assert entity is not None
@@ -225,6 +235,8 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     metadata=metadata,
                     sequence_number=sequence,
                     client=self.client.with_metadata(metadata),
+                    installation=cmd.installation or None,
+                    is_home=cmd.at_home,
                 )
                 try:
                     effect = await entity._run(spec, state, cmd.payload.data, ctx)
@@ -238,9 +250,11 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 # instance's state stays in step with what the sidecar journals.
                 new_state = state
                 if not isinstance(effect.outcome, Fail):
-                    for ev in effect.events:
-                        new_state = entity.apply_event(new_state, ev)
+                    for i, ev in enumerate(effect.events, start=1):
+                        new_state = entity._apply(new_state, ev, EventContext(here, True, sequence + i))
                 reply = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
+                if effect.replication is not None and not isinstance(effect.outcome, Fail):
+                    reply.replication.CopyFrom(replication_to_pb(effect.replication))
                 if isinstance(effect.outcome, Fail):
                     reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
                 elif isinstance(effect.outcome, NoReply):
@@ -578,6 +592,34 @@ def reads_workflow(cls: Any) -> bool:
     else:
         sources = [component.consumer.source]
     return any(s.HasField("component") and s.component.kind == discovery_pb2.WORKFLOW for s in sources)
+
+
+REPLICATION_SINCE = (1, 19)
+"""The protocol version whose runtimes replicate an entity across installations."""
+
+
+def replication_refusal(registry: Registry, sidecar_protocol: str) -> str | None:
+    """A runtime before 1.19 would host a replicated entity at one installation and say nothing:
+    refused, naming the version, rather than served as something it is not."""
+    if not start_from.older_than(sidecar_protocol, REPLICATION_SINCE):
+        return None
+    replicated = [cls.__name__ for cls in registry.entities.values() if cls.replicated]
+    if not replicated:
+        return None
+    return (
+        f"{', '.join(replicated)} declare replication, which needs protocol 1.19: the sidecar speaks protocol "
+        f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.19 or later."
+    )
+
+
+def replication_to_pb(change: Any) -> event_sourced_pb2.ReplicationChange:
+    """A handler's handover or change to the replication set, as the reply carries it."""
+    if isinstance(change, HandOver):
+        return event_sourced_pb2.ReplicationChange(hand_over_to=change.to)
+    assert isinstance(change, SetChange)
+    return event_sourced_pb2.ReplicationChange(
+        set=event_sourced_pb2.ReplicationChange.SetChange(add=sorted(change.add), remove=sorted(change.remove))
+    )
 
 
 SOCKETS_SINCE = (1, 9)

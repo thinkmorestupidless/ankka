@@ -122,11 +122,13 @@ mod tests {
                 "profile",
                 "profile-graph",
                 "reminder",
+                "replicated-vehicle",
                 "shopping-cart",
                 "topic-relay",
                 "topic-rows",
                 "tree-node",
-                "tree-rows"
+                "tree-rows",
+                "vehicle-feed"
             ]
         );
     }
@@ -137,11 +139,18 @@ mod tests {
         // suite deploys this module where there is none.
         let ids = conformance_ids();
         assert!(
-            !ids.iter()
-                .any(|id| ["cart-graph", "checkout-fanout", "profile-graph"].contains(&id.as_str())),
+            !ids.iter().any(|id| {
+                [
+                    "cart-graph",
+                    "checkout-fanout",
+                    "profile-graph",
+                    "vehicle-feed",
+                ]
+                .contains(&id.as_str())
+            }),
             "{ids:?}"
         );
-        assert_eq!(ids.len(), 16, "{ids:?}");
+        assert_eq!(ids.len(), 17, "{ids:?}");
     }
 
     use crate::conformance::{

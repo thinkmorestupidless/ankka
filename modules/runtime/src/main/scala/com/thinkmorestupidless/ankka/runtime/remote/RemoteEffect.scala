@@ -26,7 +26,8 @@ object RemoteEffect:
       newState: Option[Payload],
       retention: Option[Retention],
       reply: Either[CommandError, Option[(Payload, Metadata)]],
-      snapshot: Option[Payload]
+      snapshot: Option[Payload],
+      replication: Option[com.thinkmorestupidless.ankka.core.effect.ReplicationChange] = None
   ):
     def persisted: Boolean = events.nonEmpty || newState.nonEmpty
 
@@ -44,11 +45,18 @@ object RemoteEffect:
       )
     else if handler.readOnly && (reply.events.nonEmpty || reply.newState.nonEmpty) then
       Left(ProtocolViolation(s"read-only handler '${handler.name}' replied with a state change"))
+    else if handler.readOnly && reply.replication.nonEmpty then
+      Left(
+        ProtocolViolation(
+          s"read-only handler '${handler.name}' asked for a handover or a change to the replication set"
+        )
+      )
     else if reply.snapshot.nonEmpty && !snapshotRequested then
       Left(ProtocolViolation(s"handler '${handler.name}' sent a snapshot nobody asked for"))
     else
       reply.outcome match
-        case RemoteOutcome.Error(error) if reply.events.nonEmpty || reply.newState.nonEmpty =>
+        case RemoteOutcome.Error(error)
+            if reply.events.nonEmpty || reply.newState.nonEmpty || reply.replication.nonEmpty =>
           Left(
             ProtocolViolation(
               s"handler '${handler.name}' refused with '${error.message}' and also changed state"
@@ -58,7 +66,14 @@ object RemoteEffect:
           Right(Materialised(Vector.empty, None, None, Left(error), None))
         case RemoteOutcome.NoReply =>
           Right(
-            Materialised(reply.events, reply.newState, reply.retention, Right(None), reply.snapshot)
+            Materialised(
+              reply.events,
+              reply.newState,
+              reply.retention,
+              Right(None),
+              reply.snapshot,
+              reply.replication
+            )
           )
         case RemoteOutcome.Reply(payload, metadata) =>
           Right(
@@ -67,6 +82,7 @@ object RemoteEffect:
               reply.newState,
               reply.retention,
               Right(Some((payload, metadata))),
-              reply.snapshot
+              reply.snapshot,
+              reply.replication
             )
           )

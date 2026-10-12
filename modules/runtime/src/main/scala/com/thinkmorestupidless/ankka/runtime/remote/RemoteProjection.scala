@@ -85,6 +85,12 @@ private[ankka] object RemoteProjection:
    * What a consumer is told about a change: a view's, and what this runtime speaks, so the process
    * knows whether it may answer with several messages.
    */
+  /** The installation a replicated entity's change was written at (feature 051). */
+  val InstallationKey: String = "ankka.installation"
+
+  /** Whether a replicated entity's change was written at this installation: `true` or `false`. */
+  val LocalKey: String = "ankka.local"
+
   def consumerMetadata(subject: String, sequence: Long): Metadata =
     changeMetadata(subject, sequence).set(WireProtocol.MetadataKey, WireProtocol.Version)
 
@@ -356,17 +362,26 @@ private[ankka] final class RemoteConsumer(
       change: Option[Payload],
       parent: Option[TraceContext] = None,
       eventId: Option[String] = None,
-      standing: Option[WorkflowLifecycle] = None
+      standing: Option[WorkflowLifecycle] = None,
+      /**
+       * Of a replicated entity's change (feature 051): the installation that wrote it, and whether
+       * that was this one. Sent as `ankka.installation` and `ankka.local`.
+       */
+      origin: Option[(Option[String], Boolean)] = None
   ): Future[Done] =
     val span    = RemoteProjection.begin(observability, componentRef, handlerRef, parent)
     val context = Some(span.context)
+    val located = origin.fold(consumerMetadata(subject, sequence)) { (installation, local) =>
+      val base = consumerMetadata(subject, sequence).set(LocalKey, local.toString)
+      installation.fold(base)(base.set(InstallationKey, _))
+    }
     conversation
       .handleConsumer(
         ConsumerRequest(
           descriptor.componentId,
           change,
           CallOrigin.into(
-            Trace.into(consumerMetadata(subject, sequence), span.context),
+            Trace.into(located, span.context),
             CallOrigin(descriptor.componentId.toString, "on-message")
           ),
           standing
@@ -457,17 +472,36 @@ private[ankka] final class RemoteConsumerEventHandler[A](
     reader: ChangeReader[A]
 ) extends Handler[EventEnvelope[A]]:
 
+  /**
+   * Whether this consumer publishes and so is given a replicated entity's mirrored changes only
+   * when it declared it wants them (feature 051): otherwise each change would be published once per
+   * installation holding the entity.
+   */
+  private val localOnly =
+    consumer.descriptor.publication.nonEmpty && !consumer.descriptor.mirroredChanges
+
   def process(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val eventId = lines
       .lineOf(java.time.Instant.ofEpochMilli(envelope.timestamp))
       .map(HistoryLines.messageId(_, envelope.persistenceId, envelope.sequenceNr))
+    val local  = reader.local(envelope.event)
+    val origin = reader.installation(envelope.event).map(i => (Some(i), local))
     reader.read(envelope.event) match
+      case SourceChange.Skip        => Future.successful(Done)
+      case _ if localOnly && !local => Future.successful(Done)
       case SourceChange.Changed(payload, standing) =>
-        consumer.handle(subject, envelope.sequenceNr, Some(payload), None, eventId, standing)
+        consumer.handle(
+          subject,
+          envelope.sequenceNr,
+          Some(payload),
+          None,
+          eventId,
+          standing,
+          origin
+        )
       case SourceChange.Deleted =>
-        consumer.handle(subject, envelope.sequenceNr, None, eventId = eventId)
-      case SourceChange.Skip => Future.successful(Done)
+        consumer.handle(subject, envelope.sequenceNr, None, eventId = eventId, origin = origin)
 
 private[ankka] final class RemoteConsumerStateHandler(
     consumer: RemoteConsumer,

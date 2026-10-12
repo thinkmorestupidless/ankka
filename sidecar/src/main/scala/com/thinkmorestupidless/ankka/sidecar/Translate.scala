@@ -16,7 +16,7 @@ import ankka.protocol.v1.timed_action.{
   TimedActionRequest as PbTimedActionRequest
 }
 import ankka.protocol.v1.view.{RowChange, ViewEffect, ViewRequest as PbViewRequest}
-import ankka.protocol.v1.event_sourced.EventSourcedOut
+import ankka.protocol.v1.event_sourced.{EventSourcedOut, ReplicationChange as PbReplicationChange}
 import ankka.protocol.v1.key_value.KeyValueOut
 import ankka.protocol.v1.payload as pb
 import ankka.protocol.v1.workflow.{StepOutcome as PbStepOutcome, StepRef as PbStepRef, WorkflowOut}
@@ -104,8 +104,21 @@ private[sidecar] object Translate:
       None,
       fromRetention(r.retention),
       fromOutcome(r.outcome),
-      r.snapshot.map(fromPayload)
+      r.snapshot.map(fromPayload),
+      r.replication.flatMap(fromReplication)
     )
+
+  /** A replicated entity's handover or change to its replication set, as the process asked. */
+  def fromReplication(
+      change: PbReplicationChange
+  ): Option[com.thinkmorestupidless.ankka.core.effect.ReplicationChange] =
+    import com.thinkmorestupidless.ankka.core.effect.ReplicationChange as Change
+    change.change match
+      case PbReplicationChange.Change.HandOverTo(target) => Some(Change.HandOver(target))
+      case PbReplicationChange.Change.Set(set) =>
+        Some(Change.SetChange(set.add.toSet, set.remove.toSet))
+      case PbReplicationChange.Change.Empty => None
+
   def fromKeyValueReply(r: KeyValueOut.Reply): Reply =
     Reply(
       r.commandId,

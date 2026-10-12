@@ -210,8 +210,29 @@ command and wait as one call, and is answered when the end is recorded:
 - **Nothing about a wait is recorded.** A caller whose workflow moves to another instance asks again and
   is answered there.
 
+## Replication
+
+Akka offers two ways to hold an entity in several regions: replicated reads, where one region writes an
+entity and the others read a copy, with a primary that can move and filters saying which regions hold
+which entities; and replicated writes, where every region writes and the copies' states are merged.
+
+ankka adopts Akka's replicated reads with a moving primary and replication filters, under its own names:
+
+- **The home** is the one installation that writes the entity, Akka's primary region. A command that may
+  persist reaching another installation is forwarded to the home and answered as if handled there.
+- **Followers** hold the home's journal record for record, under the same sequence numbers, and answer
+  queries from it, so a view at any installation is built in the home's order.
+- **The replication set** is which installations hold the entity, Akka's replication filter. It is
+  changed by the entity's own handlers, `replicateTo` and `stopReplicatingTo`, and recorded in its journal.
+- **The handover** changes the home, written by the home itself into the entity's journal, so every
+  installation learns of it at the same position.
+
+Akka's replicated writes with merged state is not offered: a replicated entity has one writer at a time,
+and a handler needs no merge function. The link between installations on a network is the licensed
+`ankka-replication`, not part of the runtime. See [Replicated entities](../concepts/replicated-entities.md).
+
 ## What Akka has that ankka does not
 
-Multi-region replication, multi-table views, view rebuild on deploy, and autoscaling are among the
+Multi-table views, view rebuild on deploy, and autoscaling are among the
 capabilities ankka does not have. Autonomous agents do not yet delegate subtasks, hand tasks on, lead teams
 or moderate conversations, and have no MCP tools. See [Limitations](limitations.md).

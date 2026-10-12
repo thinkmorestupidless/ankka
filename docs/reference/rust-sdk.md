@@ -108,8 +108,11 @@ named to the client, by value: `.register(ShoppingCart)`.
 | Declarations | `Handlers::new().command(name, f)`, `.query(name, f)`; `f` takes the state, the input and the `Context` |
 | Effects | `effects::persist(e)`, `persist_all(events)`, `delete_entity()`, then `.and(e)`, `.delete_entity()`, `.expire_after(d)`, `.then_reply(\|state\| r)`, `.then_reply_value(r)`, `.then_no_reply()`; `effects::reply(r)`, `effects::error(code, message)`, `effects::no_reply()` |
 | Types | a command returns `Effect<E, R>`; a query returns `ReadOnlyEffect<R>`; `.into()` turns a `ReadOnlyEffect` refusal into an `Effect` |
+| Replication | `const REPLICATED: bool = true`; effects `effects::hand_over_to(installation)`, `replicate_to(installation)`, `stop_replicating_to(installation)`, or the same on a `Persist`; `ctx.installation()`, `ctx.is_home()`; `apply_at(state, &event, &EventContext) -> State`, which calls `apply` unless overridden, with `installation()`, `is_local()`, `sequence()`; `EventSourcedTestKit::new(id).in_mode(ReplicationMode::Follower { home, installation })` and `kit.replay(events, Some(written_at))`; `CommandOutcome::replication` |
 
-See [Event sourced entities](../build/event-sourced-entities.md).
+`apply` keeps its signature: an entity that does not read where its events were written changes nothing.
+See [Event sourced entities](../build/event-sourced-entities.md) and
+[Replicated entities](../concepts/replicated-entities.md).
 
 ## Key value entity
 
@@ -157,7 +160,8 @@ See [Views](../build/views.md).
 | Associated items | `type Message`, `COMPONENT_ID` |
 | Must define | `source() -> Source`, `on_message(message, ctx) -> ConsumerEffect` |
 | May define | `on_deleted(ctx)`, which ignores by default; `produces_to() -> Option<&str>`, a topic to publish to, or `produces() -> Option<Publication>` (`Publication::to(topic).contract(..).broker(..)`) |
-| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.standing()`, a workflow source's `Standing`; `ctx.client()` |
+| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.standing()`, a workflow source's `Standing`; `ctx.written_at()` and `ctx.local_origin()`, where a replicated entity's change was written; `ctx.client()` |
+| Replicated sources | `fn mirrored_changes() -> bool { true }`, on a `Consumer` or a `GraphConsumer`, gives one that publishes changes written at other installations too |
 | Effects | `consumer::produce(value)`, `consumer::produce_with(value, metadata)`, `consumer::produce_all(messages)`, `consumer::done()`, `consumer::ignore()` |
 | One of several messages | `consumer::message(value)`, then `.key(key)` to publish it under a record key other than its subject and `.metadata(metadata)` for its headers; `Outgoing::of(payload)` takes a payload already encoded |
 

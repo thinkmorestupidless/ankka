@@ -25,7 +25,9 @@ pub use kinds::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use services::{ScriptedRequest, ScriptedServices, with_clock, with_random};
 #[cfg(not(target_arch = "wasm32"))]
-pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit, with_config};
+pub use unit::{
+    CommandOutcome, EndpointTestKit, EventSourcedTestKit, ReplicationMode, with_config,
+};
 
 use serde::de::DeserializeOwned;
 

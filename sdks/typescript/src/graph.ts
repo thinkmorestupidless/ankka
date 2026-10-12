@@ -510,4 +510,9 @@ export interface GraphConsumerClass<M = unknown, C extends GraphConsumer<M> = Gr
   readonly message: Shape<M>
   /** The delta topic. It must be compacted to hold the graph; the pipeline that reads it creates it so. */
   readonly producesTo: string
+  /**
+   * Given a replicated entity's changes written at other installations too (1.19); otherwise each delta
+   * is published once, from the installation that wrote the change.
+   */
+  readonly mirroredChanges?: boolean
 }

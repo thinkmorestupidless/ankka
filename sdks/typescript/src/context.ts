@@ -17,10 +17,40 @@ export interface CommandContext {
   readonly metadata: Metadata
   /** The current instant; a seam a test can replace. */
   now(): Instant
+  /** The installation handling the command, for a replicated entity (1.19); `null` when none is named. */
+  readonly installation: string | null
+  /**
+   * Whether this installation is the replicated entity's home. A command that may persist runs only at
+   * the home, so this is `false` only for a query a follower answers; `true` for an entity not replicated.
+   */
+  readonly isHome: boolean
 }
 
-export function commandContext(componentId: string, entityId: string, sequenceNumber: bigint, metadata: Metadata, now: () => Instant = Instant.now): CommandContext {
-  return Object.freeze({ componentId, entityId, sequenceNumber, metadata, now })
+export function commandContext(
+  componentId: string,
+  entityId: string,
+  sequenceNumber: bigint,
+  metadata: Metadata,
+  now: () => Instant = Instant.now,
+  installation: string | null = null,
+  isHome = true,
+): CommandContext {
+  return Object.freeze({ componentId, entityId, sequenceNumber, metadata, now, installation, isHome })
+}
+
+/**
+ * Where the event `applyEvent` is applying was written (1.19): the installation (`null` when none is
+ * named; an event from before replication reads as written at the home), whether that was this
+ * installation, and its sequence number. The third argument of `applyEvent`.
+ */
+export interface EventContext {
+  readonly installation: string | null
+  readonly isLocal: boolean
+  readonly sequence: bigint
+}
+
+export function eventContext(installation: string | null, isLocal: boolean, sequence: bigint): EventContext {
+  return Object.freeze({ installation, isLocal, sequence })
 }
 
 export function metadataFromProto(proto: ProtoMetadata | undefined): Metadata {

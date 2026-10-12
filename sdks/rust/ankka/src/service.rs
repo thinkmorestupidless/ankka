@@ -442,6 +442,21 @@ pub(crate) fn cross_project_refusal(
 
 /// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.
 pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
+    if start_from::older_than_replication(host_protocol) {
+        let replicated: Vec<&str> = components
+            .iter()
+            .filter(|c| start_from::declares_replication(c))
+            .map(|c| c.id.as_str())
+            .collect();
+        if !replicated.is_empty() {
+            return Some(format!(
+                "{} declare replication (a replicated entity, or a consumer given mirrored \
+                 changes), which needs protocol 1.19: the runtime speaks {host_protocol}, and this \
+                 crate {PROTOCOL_VERSION}. Run a runtime speaking 1.19 or later.",
+                replicated.join(", ")
+            ));
+        }
+    }
     if start_from::older_than_workflow_sources(host_protocol) {
         let reading: Vec<&str> = components
             .iter()
@@ -606,7 +621,10 @@ mod tests {
         assert_eq!(
             component.detail,
             Some(proto::component::Detail::EventSourced(
-                proto::EventSourcedDetail { snapshot_every: 50 }
+                proto::EventSourcedDetail {
+                    snapshot_every: 50,
+                    replicated: false
+                }
             ))
         );
     }
@@ -675,6 +693,7 @@ mod tests {
                     payload: Some(crate::codec::encode_payload(&by).unwrap()),
                     metadata: None,
                     snapshot_requested: id == 2,
+                    ..Default::default()
                 },
             )),
         }
@@ -789,6 +808,7 @@ mod tests {
             state: None,
             event: Some(event),
             sequence: 1,
+            ..Default::default()
         });
         assert_eq!(reply.state.unwrap().data, br#"{"n":4}"#);
         assert!(reply.failure.is_none());

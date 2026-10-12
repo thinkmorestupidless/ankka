@@ -11,7 +11,7 @@ pub use crate::components::{
 };
 pub use crate::components::{Publication, Sources, TopicSource, query, table_of};
 pub use crate::config::config;
-pub use crate::context::{Context, Metadata};
+pub use crate::context::{Context, EventContext, Metadata};
 pub use crate::contract::Contract;
 pub use crate::effects::agent::AgentEffect;
 pub use crate::effects::consumer::{ConsumerEffect, Outgoing};
@@ -19,8 +19,8 @@ pub use crate::effects::keyed_view::KeyedViewEffect;
 pub use crate::effects::view::ViewEffect;
 pub use crate::effects::workflow::step as step_effects;
 pub use crate::effects::{
-    self, CommandError, Effect, ErrorCode, HttpProblem, KeyValueEffect, ReadOnlyEffect, Response,
-    StepEffect, WorkflowEffect,
+    self, CommandError, Effect, ErrorCode, HttpProblem, KeyValueEffect, ReadOnlyEffect,
+    ReplicationChange, Response, StepEffect, WorkflowEffect,
 };
 pub use crate::graph::{self, GraphConsumer, GraphEffect};
 pub use crate::service::Service;

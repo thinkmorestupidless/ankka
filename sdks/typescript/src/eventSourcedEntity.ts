@@ -10,7 +10,7 @@
 //   }
 
 import type { Shape } from "./codec.ts"
-import type { CommandContext } from "./context.ts"
+import type { CommandContext, EventContext } from "./context.ts"
 import type { HandlerTable } from "./handlers.ts"
 import type { ComponentClient } from "./client.ts"
 import { EventSourcedEffects } from "./effects/eventSourced.ts"
@@ -57,8 +57,11 @@ export abstract class EventSourcedEntity<S, E> {
   /** The state of an instance with no events yet. `this.entityId` is available here. */
   abstract emptyState(): S
 
-  /** The fold: the state after `event`, given the state before it. Must not read `this.state`. */
-  abstract applyEvent(state: S, event: E): S
+  /**
+   * The fold: the state after `event`, given the state before it. Must not read `this.state`. The third
+   * argument, which a two-argument fold may leave out, says where the event was written (1.19).
+   */
+  abstract applyEvent(state: S, event: E, context?: EventContext): S
 
   /** @internal Bound by the runtime and the testkit before `emptyState`. */
   _bindInstance(entityId: string): void {
@@ -91,4 +94,6 @@ export interface EventSourcedEntityClass<S = unknown, E = unknown, C extends Eve
   readonly handlers: HandlerTable<C>
   /** Ask for a snapshot every N events; absent or 0: never. */
   readonly snapshotEvery?: number
+  /** Held at every installation in its replication set and written only at its home (1.19). */
+  readonly replicated?: boolean
 }

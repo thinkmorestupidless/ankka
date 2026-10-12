@@ -12,7 +12,25 @@ feature also says what that feature does not do.
 
 ## Platform
 
-- **One region.** There is no multi-region deployment, replication filtering or routing by origin.
+- **Replication between installations needs `ankka-replication`.** An event sourced entity can be
+  [replicated](../concepts/replicated-entities.md): held at several installations of a service and
+  written at one, its home. What one installation offers on its own is the whole model over the
+  runtime's own replication transport, which reads the other installations' journals from their
+  databases directly: installations on one machine, and tests. The replication transport between
+  installations on a network is `ankka-replication`, licensed separately. A service naming other
+  installations with no transport for them does not start. Nothing deploys a project across
+  installations yet: each installation's service is deployed on its own.
+- **No forced takeover.** Only the home hands the home over. While a home cannot be reached, its entity's
+  writes are refused `NotHome` at every other installation and reads go on from each copy; a partition
+  leaves the entity unwritable rather than written in two places.
+- **No coordinated creation.** An entity is created where it is first written. Two installations that
+  create the same id before either has heard of the other put the entity in conflict at both, refusing
+  writes, and ankka offers no command that resolves a conflict: choose replicated ids that one
+  installation issues.
+- **No concurrent writers.** A replicated entity is written at its home alone. There is no mode in which
+  several installations write one entity and their states are merged.
+- **Only event sourced entities replicate.** A key value entity or a workflow declared replicated is
+  refused when the service starts.
 - **No autoscaling.** `minInstances` is a fixed instance count. `maxInstances` and `targetCpuPercent` are
   validated and stored, and nothing acts on them. Scaling is a change to the descriptor.
 - **A command in flight while its entity moves can time out.** During a rollout, a scale-in or a failure,

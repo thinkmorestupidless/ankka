@@ -111,8 +111,10 @@ at compile time; `validate` reports every remaining problem at once.
 | In a handler | `this.state`, `this.entityId`, `this.context`, `this.effects`, `this.client` |
 | Effects | `persist(e, ...more)`, `persistAll(events)`, `deleteEntity()`, `expireAfter(d)`, then `.thenReply(s => r)`, `.thenReplyState()`, `.thenNoReply()`, `.deleteEntity()`, `.expireAfter(Duration)`; `reply(r)`, `error(msg, code)`, `noReply()` |
 | Types | a command returns `EventSourcedEffect<S, E, R>`; a query returns `ReadOnlyEffect<S, E, R>` |
+| Replication | `static readonly replicated = true`; effects `handOverTo(installation)`, `replicateTo(installation)`, `stopReplicatingTo(installation)`, alone or after `persist`; `this.context.installation`, `this.context.isHome`; `applyEvent(state, event, context?)`, whose `EventContext` has `installation`, `isLocal`, `sequence`; `EventSourcedTestKit.of(cls, id, client, { kind: "follower", home, installation })` and `kit.replay(events, writtenAt)` |
 
-See [Event sourced entities](../build/event-sourced-entities.md).
+See [Event sourced entities](../build/event-sourced-entities.md) and
+[Replicated entities](../concepts/replicated-entities.md).
 
 ## Key value entity
 
@@ -159,7 +161,8 @@ See [Views](../build/views.md).
 | Statics | `componentId`, `source` or `topic`, `message`; for a topic, `startFrom`, `contract`, `broker`, `parallel`; to publish, `producesTo` (a topic, or a `Publication` with its contract and broker) and `out` |
 | Must define | `onMessage(message): ConsumerEffect<Out>` |
 | May override | `onDelete()`, which ignores by default |
-| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.standing` (a workflow source's `Standing`, else `undefined`), `this.client`, `this.effects` |
+| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.standing` (a workflow source's `Standing`, else `undefined`), `this.installation`, `this.localOrigin`, `this.client`, `this.effects` |
+| Replicated sources | `static readonly mirroredChanges = true` gives a consumer that publishes changes written at other installations too |
 | Effects | `produce(out, metadata?)`, `produceAll(messages)`, `done()`, `ignore()` |
 | One of several messages | `{ payload, key?, metadata? }`; `key` is a record key other than the message's subject |
 

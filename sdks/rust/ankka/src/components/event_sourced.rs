@@ -30,7 +30,7 @@ use serde::de::DeserializeOwned;
 
 use super::{ComponentOf, HeldState, Registered, Shape, kinds};
 use crate::codec::{Auto, Codec, EncodingError, decode_payload, encode_payload};
-use crate::context::{Context, Metadata};
+use crate::context::{Context, EventContext, Metadata};
 use crate::effects::{
     Answer, CommandError, Effect, ErrorCode, ReadOnlyEffect, materialise_event_sourced,
 };
@@ -58,6 +58,10 @@ pub trait EventSourcedEntity: Sized + 'static {
     /// The manifest its events are stored under; the event type's simple name unless set.
     const EVENT_MANIFEST: Option<&'static str> = None;
 
+    /// Whether it is held at several installations and written only at its home (protocol 1.19).
+    /// A replicated entity's handlers may hand the home over and change the replication set.
+    const REPLICATED: bool = false;
+
     /// The state of instance `entity_id` with no events: fresh, deleted or expired. The id is
     /// there for a state that carries it, as a cart that knows its own id does.
     fn empty_state(entity_id: &str) -> Self::State;
@@ -65,6 +69,13 @@ pub trait EventSourcedEntity: Sized + 'static {
     /// The state after one more event. Called on replay as well as after a command, so it decides
     /// nothing: every decision was the handler's.
     fn apply(state: Self::State, event: &Self::Event) -> Self::State;
+
+    /// The state after one more event, told where the event was written. [`apply`](Self::apply)
+    /// unless overridden: a replicated entity that keeps what was written where overrides this.
+    fn apply_at(state: Self::State, event: &Self::Event, ctx: &EventContext) -> Self::State {
+        let _ = ctx;
+        Self::apply(state, event)
+    }
 
     /// The handlers, by wire name.
     fn handlers() -> Handlers<Self>;
@@ -260,6 +271,7 @@ impl<C: EventSourcedEntity> Registered for Registration<C> {
             detail: Some(proto::component::Detail::EventSourced(
                 proto::EventSourcedDetail {
                     snapshot_every: C::snapshot_every() as i32,
+                    replicated: C::REPLICATED,
                 },
             )),
         }
@@ -312,7 +324,11 @@ impl<C: EventSourcedEntity> Registration<C> {
         };
         let metadata = Metadata::from_proto(command.metadata.as_ref());
         let sequence = metadata.sequence_number().unwrap_or(0);
-        let ctx = Context::new(C::COMPONENT_ID, entity_id.clone(), sequence, metadata);
+        let here = (!command.installation.is_empty()).then(|| command.installation.clone());
+        // A runtime before 1.19 sends no installation, and every command it sends is at the home.
+        let at_home = command.at_home || here.is_none();
+        let ctx = Context::new(C::COMPONENT_ID, entity_id.clone(), sequence, metadata)
+            .at_installation(here.clone(), at_home);
         let Some(entry) = self.handlers.find(&command.name) else {
             let refusal = CommandError::new(
                 ErrorCode::NotFound,
@@ -332,7 +348,27 @@ impl<C: EventSourcedEntity> Registration<C> {
             Ok(effect) => effect,
             Err(message) => return fault(request.state, command.id, ErrorCode::Internal, message),
         };
-        let m = materialise_event_sourced(state, C::apply, effect);
+        if !C::REPLICATED && effect.replication().is_some() {
+            let message = format!(
+                "'{}' is not replicated, so it cannot hand its home over or change its \
+                 replication set; declare REPLICATED",
+                C::COMPONENT_ID
+            );
+            return fault(request.state, command.id, ErrorCode::Internal, message);
+        }
+        let mut applied = sequence;
+        let m = materialise_event_sourced(
+            state,
+            |state, event| {
+                applied += 1;
+                C::apply_at(
+                    state,
+                    event,
+                    &EventContext::new(here.clone(), true, applied),
+                )
+            },
+            effect,
+        );
         let event_codec = C::event_codec();
         let events: Result<Vec<Payload>, EncodingError> =
             m.events.iter().map(|e| event_codec.payload(e)).collect();
@@ -385,6 +421,7 @@ impl<C: EventSourcedEntity> Registration<C> {
                 outcome: Some(outcome),
             }),
             snapshot,
+            replication: m.replication.as_ref().map(|r| r.to_proto()),
         };
         reply_with::<C>(self.shape, reply, m.new_state, &entity_id, held)
     }
@@ -411,7 +448,9 @@ impl<C: EventSourcedEntity> Registration<C> {
                 Ok(event) => event,
                 Err(e) => return failed(request.state, format!("the event does not decode: {e}")),
             };
-        let new_state = C::apply(state, &event);
+        let written = (!request.installation.is_empty()).then(|| request.installation.clone());
+        let at = EventContext::new(written, !request.mirrored, request.sequence);
+        let new_state = C::apply_at(state, &event, &at);
         match C::state_codec().to_payload(&new_state) {
             Ok(payload) => {
                 if self.shape == Shape::Stateful {

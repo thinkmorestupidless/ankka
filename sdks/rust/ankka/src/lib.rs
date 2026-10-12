@@ -40,7 +40,7 @@ pub use codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use codec::{Bytes, Done};
 pub use components::Publication;
 pub use config::config;
-pub use context::{Context, Metadata};
+pub use context::{Context, EventContext, Metadata};
 pub use contract::Contract;
 pub use secrets::Secrets;
 pub use service::{Problem, Service};

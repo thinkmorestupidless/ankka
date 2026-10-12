@@ -112,6 +112,45 @@ pub struct Context {
     services: bool,
     rows_of: Option<String>,
     standing: Option<crate::standing::Standing>,
+    installation: Option<String>,
+    at_home: bool,
+}
+
+/// Where the event `apply_at` is applying was written (protocol 1.19): the installation, if one is
+/// named, whether that is this installation, and the event's sequence number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventContext {
+    installation: Option<String>,
+    local: bool,
+    sequence: i64,
+}
+
+impl EventContext {
+    /// An event written at `installation`, local or not, at `sequence`. The runtime's replays build
+    /// one; so do the testkits.
+    pub fn new(installation: Option<String>, local: bool, sequence: i64) -> EventContext {
+        EventContext {
+            installation,
+            local,
+            sequence,
+        }
+    }
+
+    /// The installation that wrote the event; `None` on a service that names no installations.
+    pub fn installation(&self) -> Option<&str> {
+        self.installation.as_deref()
+    }
+
+    /// Whether the event was written here: `false` only for a replicated entity's event mirrored
+    /// from another installation.
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
+
+    /// The event's sequence number in the entity's journal, the same at every installation.
+    pub fn sequence(&self) -> i64 {
+        self.sequence
+    }
 }
 
 impl Context {
@@ -132,7 +171,41 @@ impl Context {
             services: false,
             rows_of: None,
             standing: None,
+            installation: None,
+            at_home: true,
         }
+    }
+
+    /// This context at `installation`, which is or is not the replicated entity's home: what the
+    /// runtime builds for a replicated entity's command (protocol 1.19), and a test builds for one.
+    pub fn at_installation(mut self, installation: Option<String>, home: bool) -> Context {
+        self.installation = installation;
+        self.at_home = home;
+        self
+    }
+
+    /// The installation handling the command, for a replicated entity; `None` when none is named.
+    pub fn installation(&self) -> Option<&str> {
+        self.installation.as_deref()
+    }
+
+    /// Whether this installation is the replicated entity's home. A command that may persist runs
+    /// only at the home, so this is `false` only in a query answered from a follower's copy. `true`
+    /// for an entity that is not replicated.
+    pub fn is_home(&self) -> bool {
+        self.at_home
+    }
+
+    /// Of a replicated entity's change, in a view or a consumer: the installation that wrote it.
+    /// `None` otherwise.
+    pub fn written_at(&self) -> Option<&str> {
+        self.metadata.get("ankka.installation")
+    }
+
+    /// Of a change, in a view or a consumer: whether it was written at this installation. `false`
+    /// only for a replicated entity's change mirrored from another installation.
+    pub fn local_origin(&self) -> bool {
+        self.metadata.get("ankka.local") != Some("false")
     }
 
     /// This context with a workflow's standing: what the runtime builds for a change from a

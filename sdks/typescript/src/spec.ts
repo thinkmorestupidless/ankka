@@ -115,7 +115,7 @@ function componentInit(c: RegisteredComponent): ComponentInit {
     case "autonomous-agent":
       return autonomousInit(c)
     case "event-sourced":
-      return { ...base, handlers: handlerInits(c.handlers), detail: { case: "eventSourced", value: { snapshotEvery: c.snapshotEvery } } }
+      return { ...base, handlers: handlerInits(c.handlers), detail: { case: "eventSourced", value: { snapshotEvery: c.snapshotEvery, replicated: c.replicated } } }
     case "key-value":
       return { ...base, handlers: handlerInits(c.handlers), detail: { case: "keyValue", value: {} } }
     case "workflow":
@@ -164,6 +164,7 @@ function componentInit(c: RegisteredComponent): ComponentInit {
             source: sourceInit(c.source),
             ...(c.producesTo !== undefined ? { producesTo: c.producesTo } : {}),
             ...(c.version !== undefined ? { version: c.version } : {}),
+            mirroredChanges: c.mirroredChanges,
             // 1.14: the publication with its contract and broker; `producesTo` stays for an older sidecar.
             ...(c.produces !== undefined
               ? {

@@ -36,6 +36,7 @@ const CODE_TO_PROTO: Readonly<Record<ErrorCode, ProtoErrorCode>> = Object.freeze
   TIMEOUT: ProtoErrorCode.TIMEOUT,
   UNAVAILABLE: ProtoErrorCode.UNAVAILABLE,
   WORKFLOW_FAILED: ProtoErrorCode.WORKFLOW_FAILED,
+  NOT_HOME: ProtoErrorCode.NOT_HOME,
 })
 
 export function errorCodeToProto(code: ErrorCode): ProtoErrorCode {

@@ -73,6 +73,13 @@ skill holds what differs.
 11. **The process holds no durable state.** It may crash or restart freely; the sidecar re-opens entities
     when it returns and callers retry a brief `Unavailable`. Do not cache state in the process across
     commands.
+12. **A replicated entity** is `replicated = True` on the class; its effects are
+    `self.effects.hand_over_to(name)`, `replicate_to(name)` and `stop_replicating_to(name)`, alone or after
+    `persist`. A handler reads `self.context.installation` and `self.context.is_home`; `apply_event` reads
+    `self.event_context` (`installation`, `is_local`, `sequence`). A consumer reads `self.installation` and
+    `self.local_origin`, and `mirrored_changes = True` makes one that publishes do so at every
+    installation. Test a follower with `EventSourcedTestKit.of(Cls, id, mode="follower", home=…,
+    installation=…)` and `kit.replay(*events, written_at=…)`. It needs a runtime speaking protocol 1.19.
 
 ## Development loop
 

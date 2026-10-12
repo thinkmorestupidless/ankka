@@ -386,7 +386,8 @@ final class ServiceBuilder private[ankka] (
             remote.RemoteEventSourcedHost.behavior(
               descriptor,
               EntityId(ctx.entityId),
-              conversation.get
+              conversation.get,
+              replicating
             )
           }
         )

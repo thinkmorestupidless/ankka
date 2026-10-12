@@ -837,6 +837,13 @@ pub trait GraphConsumer: Sized + 'static {
         None
     }
 
+    /// Whether it is given a replicated entity's changes written at other installations too
+    /// (protocol 1.19). Without it, only changes written here, so each delta is published once
+    /// across installations.
+    fn mirrored_changes() -> bool {
+        false
+    }
+
     /// The elements one change leaves, each in its whole state. The source entity's id is
     /// `ctx.entity_id()`, and the change's sequence number, which is every element's version
     /// unless it states one, is `ctx.sequence()`. A topic's messages have no sequence number: an
@@ -902,6 +909,7 @@ impl<G: GraphConsumer> Registered for Registration<G> {
                     broker: None,
                     project: None,
                 }),
+                mirrored_changes: G::mirrored_changes(),
             })),
         }
     }

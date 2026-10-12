@@ -37,6 +37,8 @@ export interface RegisteredEventSourced {
   readonly eventCodec: Codec<any>
   readonly handlers: ReadonlyMap<string, HandlerRef<any, any, any, any>>
   readonly snapshotEvery: number
+  /** Declared replicated (1.19). */
+  readonly replicated: boolean
 }
 
 export interface RegisteredKeyValue {
@@ -117,6 +119,8 @@ export interface RegisteredConsumer {
   /** A graph consumer: its handlers return elements, each published as a delta under its element key. */
   readonly graph: boolean
   readonly version: number | undefined
+  /** Given a replicated entity's mirrored changes too (1.19). */
+  readonly mirroredChanges: boolean
 }
 
 export interface RegisteredTimedAction {
@@ -362,7 +366,17 @@ function registerEventSourced(cls: EventSourcedEntityClass<any, any, any>, probl
   if (!Number.isInteger(snapshotEvery) || snapshotEvery < 0) fail(`snapshotEvery must be a non-negative integer, not ${String(cls.snapshotEvery)}`)
   const handlers = collectHandlers(cls.handlers, "handlers", ["command", "query"], fail)
   if (!ok()) return undefined
-  return Object.freeze({ kind: "event-sourced", id: cls.componentId, cls, stateCodec: codecFor(cls.state), eventCodec: codecFor(cls.events), handlers, snapshotEvery })
+  if (cls.replicated !== undefined && typeof cls.replicated !== "boolean") fail(`replicated must be true or false, not ${String(cls.replicated)}`)
+  return Object.freeze({
+    kind: "event-sourced",
+    id: cls.componentId,
+    cls,
+    stateCodec: codecFor(cls.state),
+    eventCodec: codecFor(cls.events),
+    handlers,
+    snapshotEvery,
+    replicated: cls.replicated === true,
+  })
 }
 
 function registerKeyValue(cls: KeyValueEntityClass<any, any>, problems: string[]): RegisteredKeyValue | undefined {
@@ -577,6 +591,7 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
     produces,
     graph: false,
     version: cls.version,
+    mirroredChanges: cls.mirroredChanges === true,
   })
 }
 
@@ -627,6 +642,7 @@ function registerGraphConsumer(cls: GraphConsumerClass<any, any>, problems: stri
     produces: undefined,
     graph: true,
     version: cls.version,
+    mirroredChanges: cls.mirroredChanges === true,
   })
 }
 

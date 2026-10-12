@@ -41,6 +41,7 @@ The table is generated from the runtime's configuration files.
 | Variable | Configuration key | Default | Applies in |
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
+| `ANKKA_INSTALLATION` | `ankka.replication.installation` | `""` | every service |
 | `ANKKA_VIEW_WATCH_BOUND` | `ankka.view.watch-bound` | `1000` | every service |
 | `ANKKA_VIEW_UNREAD_BOUND` | `ankka.view.unread-bound` | `256` | every service |
 | `ANKKA_VIEW_FETCH_SIZE` | `ankka.view.fetch-size` | `256` | every service |
@@ -95,6 +96,9 @@ Settings with no environment variable, overridable in the service's own `applica
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
 | `ankka.query-resend-after` | `2s` | every service |
+| `ankka.replication.poll` | `1s` | every service |
+| `ankka.replication.handover.hold-writes` | `off` | every service |
+| `ankka.replication.handover.timeout` | `30s` | every service |
 | `ankka.view.listener-backoff.min` | `1s` | every service |
 | `ankka.view.listener-backoff.max` | `30s` | every service |
 | `ankka.secrets.timeout` | `10s` | every service |
@@ -265,6 +269,34 @@ service, so two services sharing a database delete each other's timers and overw
   Google Cloud project the secrets are kept in, and the region they are kept in, automatic when empty.
 
 See [Secrets on the platform](../platform/secrets.md#choosing-a-backend).
+
+### Replication
+
+These configure [replicated entities](../concepts/replicated-entities.md). A service that names no
+installations replicates nothing, and its replicated entities behave as any event sourced entity.
+
+- `ANKKA_INSTALLATION` (`ankka.replication.installation`) names the installation this service runs at, a
+  DNS label of at most 63 characters. It is the platform's to name, so a descriptor that sets it is
+  refused; locally, set it in the environment of each process.
+- `ankka.replication.installations` lists the other installations the service may replicate with, by
+  name. For the runtime's own replication transport each names its journal's database as
+  `db { host, port, name, user, password }`, which reads that installation's records directly. The
+  variables `ANKKA_INSTALLATION_<NAME>_DB_HOST`, `_DB_PORT`, `_DB_NAME`, `_DB_USER` and `_DB_PASSWORD` add
+  an installation and its database from the environment, the name lower-cased with `_` read as `-`.
+  They reach the runtime alone, never a process beside it. A replication transport supplied on the
+  classpath, such as `ankka-replication`, needs only the names.
+- `ankka.replication.poll`, `1s`, is how often the runtime's own transport looks for records a follower
+  has not yet copied. A read at a follower may be this far behind its home.
+- `ankka.replication.handover.hold-writes`, `off` by default, decides what the old home does while a
+  handover waits for the new home to hold everything. Off, it goes on handling writes and completes the
+  handover at the first moment the new home has caught up. On, it holds writes while it waits, and
+  abandons the handover after `ankka.replication.handover.timeout`, `30s`.
+
+```bash
+ANKKA_INSTALLATION=leipzig \
+ANKKA_INSTALLATION_VIENNA_DB_HOST=localhost ANKKA_INSTALLATION_VIENNA_DB_NAME=vienna \
+ANKKA_INSTALLATION_VIENNA_DB_USER=ankka ANKKA_INSTALLATION_VIENNA_DB_PASSWORD=ankka sbt run
+```
 
 ### Local clusters
 

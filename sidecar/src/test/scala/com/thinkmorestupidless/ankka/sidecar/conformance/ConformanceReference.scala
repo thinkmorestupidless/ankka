@@ -310,6 +310,71 @@ object ConformanceReference:
     def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
   // docs:end workflow-consumer
 
+  // ── replicated-vehicle, vehicle-feed: a replicated entity and a consumer of its changes ──
+
+  /**
+   * A replicated entity's state: each step, where its event was written ("" when no installation is
+   * named) and whether that was here. The conformance service runs at installation `a` alone.
+   */
+  final case class VehicleRecord(steps: List[String], writtenAt: List[String], local: List[Boolean])
+
+  /** Where a command ran: the installation ("" when none is named) and whether it is the home. */
+  final case class VehiclePlacement(installation: String, home: Boolean)
+
+  final case class StepAdded(step: String)
+
+  final class ReplicatedVehicle extends EventSourcedEntity[VehicleRecord, StepAdded]:
+    def emptyState: VehicleRecord = VehicleRecord(Nil, Nil, Nil)
+    def applyEvent(event: StepAdded): VehicleRecord =
+      val s = currentState
+      VehicleRecord(
+        s.steps :+ event.step,
+        s.writtenAt :+ eventContext.installation.getOrElse(""),
+        s.local :+ eventContext.isLocal
+      )
+    def addStep(step: String): Effect[VehiclePlacement] =
+      val placement =
+        VehiclePlacement(commandContext.installation.getOrElse(""), commandContext.isHome)
+      effects.persist(StepAdded(step)).thenReply(_ => placement)
+    def handOver(target: String): Effect[String] =
+      effects.handOverTo(target).thenReply(_ => target)
+    def replicateTo(target: String): Effect[String] =
+      effects.replicateTo(target).thenReply(_ => target)
+    def stopReplicatingTo(target: String): Effect[String] =
+      effects.stopReplicatingTo(target).thenReply(_ => target)
+    def get(): ReadOnlyEffect[VehicleRecord] = effects.reply(currentState)
+
+  object ReplicatedVehicle
+      extends EventSourcedEntity.Companion[ReplicatedVehicle, VehicleRecord, StepAdded](
+        componentId = ComponentId("replicated-vehicle"),
+        stateSerializer = Codecs.serializer[VehicleRecord]("vehicle-record"),
+        eventSerializer = Codecs.serializer[StepAdded]("step-added")
+      ):
+    given Serializer[VehiclePlacement] = Codecs.serializer[VehiclePlacement]("vehicle-placement")
+    given Serializer[VehicleRecord]    = Codecs.serializer[VehicleRecord]("vehicle-record")
+    override def replicated: Boolean   = true
+    def create(context: EventSourcedEntityContext) = new ReplicatedVehicle
+    val addStep                                    = command("add-step")(_.addStep)
+    val handOver                                   = command("hand-over")(_.handOver)
+    val replicateTo                                = command("replicate-to")(_.replicateTo)
+    val stopReplicatingTo = command("stop-replicating-to")(_.stopReplicatingTo)
+    val get               = query("get")(_.get())
+
+  /** Publishes nothing; declared to show a consumer given mirrored changes discovers so. */
+  final class VehicleFeed extends Consumer[StepAdded, StepAdded]:
+    def onMessage(message: StepAdded): Effect = effects.ignore()
+
+  object VehicleFeed
+      extends Consumer.Companion[VehicleFeed, StepAdded, StepAdded](
+        componentId = ComponentId("vehicle-feed"),
+        source = ChangeSource.eventsOf(ReplicatedVehicle)
+      ):
+    def create(ctx: ConsumerContext) = new VehicleFeed
+    override val outputSerializer: Option[Serializer[StepAdded]] =
+      Some(Codecs.serializer[StepAdded]("step-added"))
+    override val produceTo: Option[String] = Some("conformance-vehicle-steps")
+    override def mirroredChanges: Boolean  = true
+
   // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
 
   enum TreeEvent:
@@ -855,9 +920,11 @@ object ConformanceReference:
         .getOrElse(throw HttpProblem.notFound(s"no row for '$cartId'"))
     }
 
-  given JsonValueCodec[TreeRow]     = Codecs.make[TreeRow]
-  given JsonValueCodec[CheckoutRow] = Codecs.make[CheckoutRow]
-  given JsonValueCodec[JoinedRow]   = Codecs.make[JoinedRow]
+  given JsonValueCodec[VehicleRecord]    = Codecs.make[VehicleRecord]
+  given JsonValueCodec[VehiclePlacement] = Codecs.make[VehiclePlacement]
+  given JsonValueCodec[TreeRow]          = Codecs.make[TreeRow]
+  given JsonValueCodec[CheckoutRow]      = Codecs.make[CheckoutRow]
+  given JsonValueCodec[JoinedRow]        = Codecs.make[JoinedRow]
 
   /** Records on either side of the keyed view, and reads its rows. */
   final class JoinedEndpoint(clients: EndpointClients) extends HttpEndpoint("/joined"):
@@ -875,6 +942,27 @@ object ConformanceReference:
         .forView(JoinedRows)
         .get(key)
         .getOrElse(throw HttpProblem.notFound(s"no row '$key'"))
+    }
+
+  /** Drives the replicated vehicle: a step, a read, and the three replication changes. */
+  final class VehiclesEndpoint(clients: EndpointClients) extends HttpEndpoint("/vehicles"):
+    val acl: Acl = Acl.AllowAll
+    private def vehicle(id: String) =
+      clients.componentClient.forEventSourcedEntity(EntityId(id))
+    postBody("/{vehicleId}/steps") { (vehicleId: String, step: String) =>
+      vehicle(vehicleId).call(ReplicatedVehicle.addStep).invoke(step)
+    }
+    get("/{vehicleId}")((vehicleId: String) =>
+      vehicle(vehicleId).call(ReplicatedVehicle.get).invoke()
+    )
+    post("/{vehicleId}/hand-over/{target}") { (vehicleId: String, target: String) =>
+      vehicle(vehicleId).call(ReplicatedVehicle.handOver).invoke(target)
+    }
+    post("/{vehicleId}/replicate-to/{target}") { (vehicleId: String, target: String) =>
+      vehicle(vehicleId).call(ReplicatedVehicle.replicateTo).invoke(target)
+    }
+    post("/{vehicleId}/stop-replicating-to/{target}") { (vehicleId: String, target: String) =>
+      vehicle(vehicleId).call(ReplicatedVehicle.stopReplicatingTo).invoke(target)
     }
 
   /** Places nodes of a tree and asks what is under one. */
@@ -1285,6 +1373,8 @@ object ConformanceReference:
     "partner-relay",
     "tree-node",
     "tree-rows",
+    "replicated-vehicle",
+    "vehicle-feed",
     "joined-left",
     "joined-right",
     "joined-rows",
@@ -1312,6 +1402,8 @@ object ConformanceReference:
     PartnerRelay.descriptor,
     TreeNode.descriptor,
     TreeRows.descriptor,
+    ReplicatedVehicle.descriptor,
+    VehicleFeed.descriptor,
     JoinedLeft.descriptor,
     JoinedRight.descriptor,
     JoinedRows.descriptor,
@@ -1329,6 +1421,7 @@ object ConformanceReference:
   ): Seq[EndpointClients => HttpEndpoint] = Seq(
     clients => CartsEndpoint(clients),
     clients => TreeEndpoint(clients),
+    clients => VehiclesEndpoint(clients),
     clients => JoinedEndpoint(clients),
     clients => ConformanceEndpoint(clients, timers, problems),
     _ => PrivateEndpoint(),

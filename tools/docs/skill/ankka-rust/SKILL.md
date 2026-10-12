@@ -85,6 +85,16 @@ Every component guide in the other ankka skills applies; this skill holds what d
 12. **Deploy as a wasm-hosted service.** The descriptor sets `"hosting": "wasm"` and `"protocol"`; the
     image holds only the module and a command copying it to `/ankka/module/service.wasm`; the platform
     runs it as an init container and its own runtime as the one container. `"http": false` is refused.
+13. **A replicated entity** sets `const REPLICATED: bool = true`; its effects are
+    `effects::hand_over_to(name)`, `replicate_to(name)` and `stop_replicating_to(name)`, or the same on a
+    `Persist` after `persist`. A handler reads `ctx.installation()` and `ctx.is_home()`. `apply` is
+    unchanged: an entity that wants to know where an event was written overrides the provided
+    `apply_at(state, &event, &EventContext)` (`installation()`, `is_local()`, `sequence()`), which calls
+    `apply` by default, so no existing module changes. A consumer reads `ctx.written_at()` and
+    `ctx.local_origin()`, and `fn mirrored_changes() -> bool { true }` on a `Consumer` or `GraphConsumer`
+    makes one that publishes do so at every installation. Test with
+    `EventSourcedTestKit::<C>::new(id).in_mode(ReplicationMode::Follower { home, installation })`,
+    `kit.replay(events, Some(written_at))` and `outcome.replication`. It needs a runtime speaking 1.19.
 
 ## Development loop
 

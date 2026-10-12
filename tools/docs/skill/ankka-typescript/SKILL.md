@@ -94,6 +94,14 @@ skill holds what differs.
     `GraphError`. Test with `GraphConsumerTestKit.of(Cls)`.
 12. **The process holds no durable state.** It may restart freely; the sidecar re-opens entities when it
     returns. Do not cache state across commands.
+13. **A replicated entity** is `static readonly replicated = true`; its effects are
+    `this.effects.handOverTo(name)`, `replicateTo(name)` and `stopReplicatingTo(name)`, alone or after
+    `persist`. A handler reads `this.context.installation` and `this.context.isHome`; `applyEvent` takes an
+    optional third argument, an `EventContext` (`installation`, `isLocal`, `sequence`), so a two-argument
+    `applyEvent` still compiles. A consumer reads `this.installation` and `this.localOrigin`, and
+    `static readonly mirroredChanges = true` makes one that publishes do so at every installation. Test a
+    follower with `EventSourcedTestKit.of(Cls, id, client, { kind: "follower", home, installation })` and
+    `kit.replay(events, writtenAt)`. It needs a runtime speaking protocol 1.19.
 
 ## Development loop
 

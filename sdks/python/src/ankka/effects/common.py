@@ -29,6 +29,9 @@ class ErrorCode(Enum):
     # A workflow a caller waited for failed or was deleted (protocol 1.18): the call was answered,
     # and the step and the reason are in the error's details.
     WORKFLOW_FAILED = payload_pb2.WORKFLOW_FAILED
+    # A replicated entity's copy here cannot answer (protocol 1.19): a write whose home cannot be
+    # reached, or a read outside the replication set. The message names the home.
+    NOT_HOME = payload_pb2.NOT_HOME
 
     @staticmethod
     def from_pb(value: int) -> ErrorCode:
@@ -50,6 +53,7 @@ class ErrorCode(Enum):
             ErrorCode.UNAVAILABLE: 503,
             ErrorCode.INTERNAL: 500,
             ErrorCode.WORKFLOW_FAILED: 424,
+            ErrorCode.NOT_HOME: 421,
         }[self]
 
 

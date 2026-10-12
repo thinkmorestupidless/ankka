@@ -653,14 +653,14 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
 
 ### The sidecar (`sidecar`, `runtime/remote`)
 
-- [ ] T054 [US7] In `SC/Discovery.scala` add `ReplicationSince = 19` beside `GrantsSince` and
+- [X] T054 [US7] In `SC/Discovery.scala` add `ReplicationSince = 19` beside `GrantsSince` and
   `WorkflowSourcesSince` and refuse `replicated = true` from a spec below it with
   `s"entity '$id' is replicated, which needs protocol 1.$ReplicationSince; the SDK speaks ${spec.protocolVersion}"`
   (`:354` is the pattern); `SC/Translate.scala` reads `EventSourcedDetail.replicated` into the
   remote entity descriptor and `ConsumerDetail.mirrored_changes` into `ConsumerDescriptor`.
   Case in `SCT/ProtocolSuite.scala`: a 1.18 spec with `replicated` is refused naming 1.19; a 1.19
   one is accepted
-- [ ] T055 [US7] In `RT/remote/RemoteEventSourcedHost.scala`: `fromJournal` (`:463`) reads kinds
+- [X] T055 [US7] In `RT/remote/RemoteEventSourcedHost.scala`: `fromJournal` (`:463`) reads kinds
   3–7 into the same `Journaled` cases the in-process host has (share them: move the platform cases
   and `Mode` into `REPL/Mode.scala`, T018), `onEvent` (`:372`) folds them into `RemoteStored`, the
   snapshot carries the four fields (`:490`), the mode gate and the forward are the in-process host's
@@ -672,7 +672,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   signature gains `installation: Option[String]`; a `command` gains the two). `RT/remote/RemoteProjection.scala`
   (`:79`, beside `SequenceKey`) adds `ankka.installation` and `ankka.local` to a consumer request's
   metadata
-- [ ] T056 [US7] Conformance in `SCT/conformance/ConformanceSuite.scala` and the Scala reference
+- [X] T056 [US7] Conformance in `SCT/conformance/ConformanceSuite.scala` and the Scala reference
   `SCT/conformance/ConformanceReference.scala`: `es.replicated-declares` (discovery carries the
   flag; the target run as 1.18 by `-Dankka.conformance.shape`'s mechanism is refused naming 1.19),
   `es.replicated-context` (the reference entity `replicated-vehicle` records `at_home` and the
@@ -687,7 +687,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
 
 ### Python (`sdks/python`)
 
-- [ ] T057 [P] [US7] In `PY/src/ankka/event_sourced_entity.py` the class attribute `replicated: bool = False`;
+- [X] T057 [P] [US7] In `PY/src/ankka/event_sourced_entity.py` the class attribute `replicated: bool = False`;
   `PY/src/ankka/context.py` gains `EventContext(installation: str | None, is_local: bool, sequence: int)`
   and `CommandContext.installation`, `.is_home`; `self.event_context` set around `apply_event`;
   `PY/src/ankka/effects/event_sourced.py` gains `hand_over_to`, `replicate_to`, `stop_replicating_to`
@@ -699,7 +699,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   as the reply's `ReplicationChange` field contracts/protocol.md "Replication effects from a process"
   names, which `RemoteEventSourcedHost` (T055) reduces as the in-process host reduces
   `Materialised.replication`
-- [ ] T058 [P] [US7] Tests `PY/tests/test_replicated.py`: the declaration in discovery; the unit
+- [X] T058 [P] [US7] Tests `PY/tests/test_replicated.py`: the declaration in discovery; the unit
   kit's follower refusing a write `NOT_HOME` and answering a read; the context inside
   `apply_event`; the integration kit against `ANKKA_SIDECAR_IMAGE` with `installation = "a"`
   proving `at_home` and the event's installation (the Python row of the languages outline); the
@@ -707,7 +707,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
 
 ### TypeScript (`sdks/typescript`)
 
-- [ ] T059 [P] [US7] In `TS/src/eventSourcedEntity.ts` `replicated?: boolean` on the definition;
+- [X] T059 [P] [US7] In `TS/src/eventSourcedEntity.ts` `replicated?: boolean` on the definition;
   `applyEvent(state, event, ctx?)` gains the optional third `EventContext { installation?: string; isLocal: boolean; sequence: number }`
   in `TS/src/context.ts`, with `CommandContext.installation`, `.isHome`; `TS/src/effects/eventSourced.ts`
   gains `handOverTo`, `replicateTo`, `stopReplicatingTo`; `TS/src/consumer.ts` gains
@@ -715,33 +715,34 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   both flags and refuses a runtime below 1.19 naming it; `TS/src/server/eventSourced.ts` sets the
   context from the message's fields and writes the effect's `ReplicationChange` as T057's;
   `TS/src/testkit/unit.ts` drives home or follower
-- [ ] T060 [P] [US7] Tests `TS/test/replicated.test.ts` (unit: discovery flag, follower refusal,
+- [X] T060 [P] [US7] Tests `TS/test/replicated.test.ts` (unit: discovery flag, follower refusal,
   the context) and the slow integration case under `npm run test:slow` against `ANKKA_SIDECAR_IMAGE`
   (the TypeScript row); the old-runtime refusal. `npm run typecheck` clean; a two-argument
   `applyEvent` still compiles (a case that does not pass `ctx`)
 
 ### Rust (`sdks/rust`)
 
-- [ ] T061 [P] [US7] In `RS/ankka/src/components/event_sourced.rs` `const REPLICATED: bool = false`
-  on the trait with a default; `apply_event(&self, state, event, ctx: &EventContext)` with
-  `EventContext { installation(), is_local(), sequence() }` and `CommandContext::installation()`,
-  `is_home()` in `RS/ankka/src/context.rs`; `RS/ankka/src/effects/event_sourced.rs` gains
-  `hand_over_to`, `replicate_to`, `stop_replicating_to`, materialised into the reply's `ReplicationChange`
-  (`RS/ankka/src/effects/materialise.rs`); `RS/ankka/src/components/consumer.rs` gains
-  `const MIRRORED_CHANGES: bool = false` and the change context fields; the module descriptor in
-  `RS/ankka/src/abi/exports.rs` carries both flags and the host-to-module event and command records
-  carry `installation` and `at_home` (`.claude/rules/wasm.md` for the ABI's shape; a flag is a byte
-  at the end of the record so an older host's record still reads); `RS/ankka/src/service.rs`
-  refuses a runtime below 1.19 naming it. The sidecar's WASM host (`sidecar/.../WasmHost`) passes
-  the two fields and reads the flags. Every `impl EventSourcedEntity` in the crate's tests and the
-  shopping cart sample gains the `ctx` parameter
-- [ ] T062 [P] [US7] Tests in `RS/ankka/tests/replicated.rs` (the descriptor flag, the unit kit's
+- [X] T061 [P] [US7] In `RS/ankka/src/components/event_sourced.rs` `const REPLICATED: bool = false`
+  on the trait with a default, and a provided `apply_at(state, &event, &EventContext)` that
+  defaults to `apply`, so no existing module changes (`apply`'s signature is kept: a breaking change
+  to every module bought nothing a provided method does not); `EventContext { installation(),
+  is_local(), sequence() }` and `Context::installation()`, `is_home()`, `written_at()`,
+  `local_origin()` in `RS/ankka/src/context.rs`; `RS/ankka/src/effects/event_sourced.rs` gains
+  `ReplicationChange` and `hand_over_to`, `replicate_to`, `stop_replicating_to` (two changes, or one
+  installation both added and removed, answer an `Internal` fault and persist nothing),
+  materialised into the reply's `ReplicationChange` (`RS/ankka/src/effects/materialise.rs`);
+  `Consumer` and `GraphConsumer` gain `fn mirrored_changes() -> bool`; the module ABI is the
+  protocol's own messages, so the command carries `installation` and `at_home` and `FoldRequest`
+  carries `installation` and a new `mirrored = 7` (a module does not know where it runs; false, the
+  default, reads as local from an older host); `RS/ankka/src/service.rs` refuses a runtime below
+  1.19 naming it; `WasmConversation` fills `mirrored`. `ErrorCode::NotHome` (421)
+- [X] T062 [P] [US7] Tests in `RS/ankka/tests/replicated.rs` (the descriptor flag, the unit kit's
   follower refusal, the context) and `RS/conformance.sh` passing the four new cases (the Rust
   row); `cargo test --workspace` and `./conformance.sh` green
 
 ### Binding
 
-- [ ] T063 [US7] Bind `FEAT/languages.feature` in `ReplicationSteps`: the Scala row (`written in "Scala"`:
+- [X] T063 [US7] Bind `FEAT/languages.feature` in `ReplicationSteps`: the Scala row (`written in "Scala"`:
   the group of two with T027's entity; `was told it is at the home` reads the `context` query's
   answer kept by the `add-step` handler into the state; `the event handler … was told the event was written at {string}`
   reads `writtenAt` at both) and the old-runtime scenario (`written in "Python" whose entity declares replication`
@@ -805,7 +806,7 @@ installations and drives an entity as home or follower.
   `NotHome` naming `leipzig` and answers `get`). Scaladoc on `AnkkaTestKit.installations`,
   `Installations`, `TestReplicationTransport` and `EventSourcedTestKit.Mode` says what each proves
   and what it cannot (two kits in one JVM are not two installations on a network)
-- [ ] T067 [P] [US9] `DOCS/build/testing.md`: a section "Several installations" with the group
+- [X] T067 [P] [US9] `DOCS/build/testing.md`: a section "Several installations" with the group
   handle, pause and resume, `unreachable`, and the pure kit's `Mode`, each sample included from
   `TKT/replication/` regions (`// docs:start …`) so `just docs` checks they compile (R15,
   `.claude/rules/docs.md`)
@@ -824,7 +825,7 @@ glossary's words.
 **Independent Test**: `sbt 'testkit/testOnly *ReplicatedEntitiesDocumentationSuite'` (3
 scenarios) and `just docs`.
 
-- [ ] T068 [US10] Write `TKT/ReplicatedEntitiesDocumentationSuite.scala` as
+- [X] T068 [US10] Write `TKT/ReplicatedEntitiesDocumentationSuite.scala` as
   `TKT/AwaitingWorkflowsDocumentationSuite.scala:10` is written, running
   `features/documentation/replicated-entities.feature`: `describes the home, followers, the replication set and the handover`
   (each of the four words heads a section of `DOCS/concepts/replicated-entities.md` and appears in
@@ -833,19 +834,19 @@ scenarios) and `just docs`.
   coordinated creation" and no longer contains "One region"), `says which of Akka's replication modes ankka adopted`
   (`DOCS/reference/akka-divergences.md` has a "Replication" section naming replicated reads as
   adopted and replicated writes as not offered). Red before the pages exist
-- [ ] T069 [P] [US10] `DOCS/concepts/replicated-entities.md` (new): what a replicated entity is,
+- [X] T069 [P] [US10] `DOCS/concepts/replicated-entities.md` (new): what a replicated entity is,
   the home, followers, the replication set, the handover (chase by default, hold as an option),
   what a read at a follower may be behind by (one poll on the runtime's own transport), conflict
   and what an operator sees, the transport seam and that the link between installations is
   `ankka-replication`; the Pekko evaluation in one paragraph without history ("tells no history":
   what is, not what was tried). Added to the docs navigation where `concepts/consistency.md` is
-- [ ] T070 [P] [US10] `DOCS/build/event-sourced-entities.md`: a "Replication" section with
+- [X] T070 [P] [US10] `DOCS/build/event-sourced-entities.md`: a "Replication" section with
   `replicated`, the three effects, `commandContext.installation`/`isHome`, `eventContext`, the
   reserved status query and `awaitHandover`, the errors, each sample included from
   `TKT/replication/FleetComponents.scala` regions; `DOCS/build/consumers.md`: `mirroredChanges`
   and `ChangeContext.installation`; `DOCS/build/views.md`: one paragraph that a follower's view is
   the home's order
-- [ ] T071 [P] [US10] `DOCS/reference/limitations.md`: replace the "One region" bullet (`:15`) and
+- [X] T071 [P] [US10] `DOCS/reference/limitations.md`: replace the "One region" bullet (`:15`) and
   the sentence at `:215` with what one installation offers, that the cross-installation transport
   is the licensed `ankka-replication`, no forced takeover during a partition (writes stay
   unavailable), no coordinated creation, no concurrent-writers mode. `DOCS/reference/akka-divergences.md`:
@@ -854,14 +855,14 @@ scenarios) and `just docs`.
   replication filters is the model adopted, under the names home, follower and replication set,
   and that its replicated writes with merged state is not offered. The family's
   `akka-divergences` list rule (principles 2) is the reason both halves are named
-- [ ] T072 [P] [US10] `DOCS/reference/configuration.md`: the `ankka.replication.*` keys and the
+- [X] T072 [P] [US10] `DOCS/reference/configuration.md`: the `ankka.replication.*` keys and the
   two variables, with the platform-only and runtime-only marks the table uses;
   `DOCS/reference/error-codes.md`: `NotHome` with its HTTP and gRPC mappings (T003) and the
   `Conflict` and `Unavailable` meanings replication adds; `DOCS/reference/sidecar-protocol.md`:
   the 1.19 fields and the consumer's two metadata entries; `DOCS/reference/scala-sdk.md`, `python-sdk.md`,
   `typescript-sdk.md`, `rust-sdk.md`: the declaration, the effects and the contexts in each
   language's idiom
-- [ ] T073 [P] [US10] Skills: `SKILL/ankka-entities/SKILL.md` (declaring, the effects, the
+- [X] T073 [P] [US10] Skills: `SKILL/ankka-entities/SKILL.md` (declaring, the effects, the
   contexts, the errors, in the glossary's words), `SKILL/ankka-design/SKILL.md` (when to replicate,
   where to put the home, what to keep in the set), `SKILL/ankka-views-consumers/SKILL.md`
   (`mirroredChanges` and publish-once), `SKILL/ankka-python`, `ankka-typescript`, `ankka-rust`
@@ -885,7 +886,7 @@ scenario named by the spec exists and every word is in the glossary).
   group handle, that two kits in one JVM share `LocalInstallations` so installation names must be
   unique per JVM, and the `inProcessForward = false` switch for the loopback routes.
   `.claude/rules/sidecar.md`: `ReplicationSince`, and that platform records never reach a process
-- [ ] T075 [P] `.github/ci-coverage.py`: confirm `modules/runtime/src/main/scala/…/replication/`
+- [X] T075 [P] `.github/ci-coverage.py`: confirm `modules/runtime/src/main/scala/…/replication/`
   and `modules/testkit/src/test/resources/journal/journal-record.txt` are claimed by `build`'s
   filter (they are under existing patterns; the script fails CI if not) and that `sdks/*` changes
   route to their jobs; run `python3 .github/ci-coverage.py`

@@ -18,7 +18,7 @@ from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail, SseEve
 from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, MachineCaller, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
-from ankka.client import CommandError, ComponentClient
+from ankka.client import Calls, CommandError, ComponentClient
 from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
 from ankka.consumer import Consumer
 from ankka.standing import Standing
@@ -899,6 +899,116 @@ class AutonomousEndpoint(Endpoint):
         return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task, "awaiting": awaiting})
 
 
+# ── replicated-vehicle and vehicle-feed: a replicated entity and a consumer of its changes ──
+
+
+@dataclass(frozen=True)
+class VehicleRecord:
+    """Each step, where its event was written ("" when no installation is named) and whether that
+    was here. The conformance service runs at installation ``a``."""
+
+    steps: list[str] = field(default_factory=list)
+    writtenAt: list[str] = field(default_factory=list)
+    local: list[bool] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class VehiclePlacement:
+    """Where a command ran: the installation ("" when none is named) and whether it is the home."""
+
+    installation: str
+    home: bool
+
+
+@dataclass(frozen=True)
+class StepAdded:
+    step: str
+
+
+class ReplicatedVehicle(EventSourcedEntity[VehicleRecord, StepAdded]):
+    component_id = "replicated-vehicle"
+    replicated = True
+    state_codec = json_codec(VehicleRecord, "vehicle-record")
+    event_codec = json_codec(StepAdded, "step-added")
+
+    def empty_state(self) -> VehicleRecord:
+        return VehicleRecord()
+
+    def apply_event(self, state: VehicleRecord, event: StepAdded) -> VehicleRecord:
+        at = self.event_context
+        return VehicleRecord(
+            [*state.steps, event.step], [*state.writtenAt, at.installation or ""], [*state.local, at.is_local]
+        )
+
+    @command("add-step")
+    def add_step(self, step: str) -> EventSourcedEffect[VehicleRecord, StepAdded, VehiclePlacement]:
+        placement = VehiclePlacement(self.context.installation or "", self.context.is_home)
+        return self.effects.persist(StepAdded(step)).then_reply(lambda _: placement)
+
+    @command("hand-over")
+    def hand_over(self, target: str) -> EventSourcedEffect[VehicleRecord, StepAdded, str]:
+        return self.effects.hand_over_to(target).then_reply(lambda _: target)
+
+    @command("replicate-to")
+    def replicate_to(self, target: str) -> EventSourcedEffect[VehicleRecord, StepAdded, str]:
+        return self.effects.replicate_to(target).then_reply(lambda _: target)
+
+    @command("stop-replicating-to")
+    def stop_replicating_to(self, target: str) -> EventSourcedEffect[VehicleRecord, StepAdded, str]:
+        return self.effects.stop_replicating_to(target).then_reply(lambda _: target)
+
+    @query("get")
+    def get(self) -> ReadOnlyEffect[VehicleRecord, StepAdded, VehicleRecord]:
+        return self.effects.reply(self.state)
+
+
+class VehicleFeed(Consumer[StepAdded, StepAdded]):
+    """Publishes nothing; declared to show a consumer given mirrored changes discovers so."""
+
+    component_id = "vehicle-feed"
+    source = ReplicatedVehicle
+    message_codec = ReplicatedVehicle.event_codec
+    produces_to = "conformance-vehicle-steps"
+    out_codec = json_codec(StepAdded, "step-added")
+    mirrored_changes = True
+
+    def on_message(self, event: StepAdded) -> ConsumerEffect:
+        return self.effects.ignore()
+
+
+class VehiclesEndpoint(Endpoint):
+    """Drives the replicated vehicle: a step, a read, and the three replication changes."""
+
+    prefix = "/vehicles"
+    acl = Acl.ALLOW_ALL
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    def _vehicle(self, vehicle_id: str) -> Calls:
+        return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("replicated-vehicle", vehicle_id)
+
+    @post("/{vehicleId}/steps")
+    async def steps(self, vehicleId: str, step: str) -> VehiclePlacement:
+        return await self._vehicle(vehicleId).call("add-step").invoke(step, reply=VehiclePlacement)
+
+    @get("/{vehicleId}")
+    async def read(self, vehicleId: str) -> VehicleRecord:
+        return await self._vehicle(vehicleId).call("get").invoke(reply=VehicleRecord)
+
+    @post("/{vehicleId}/hand-over/{target}")
+    async def hand_over(self, vehicleId: str, target: str) -> str:
+        return await self._vehicle(vehicleId).call("hand-over").invoke(target, reply=str)
+
+    @post("/{vehicleId}/replicate-to/{target}")
+    async def replicate_to(self, vehicleId: str, target: str) -> str:
+        return await self._vehicle(vehicleId).call("replicate-to").invoke(target, reply=str)
+
+    @post("/{vehicleId}/stop-replicating-to/{target}")
+    async def stop_replicating_to(self, vehicleId: str, target: str) -> str:
+        return await self._vehicle(vehicleId).call("stop-replicating-to").invoke(target, reply=str)
+
+
 # ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
 
@@ -1135,6 +1245,8 @@ def reference_service() -> ServiceBuilder:
         .register(PartnerRelay)
         .register(TreeNode)
         .register(TreeRows)
+        .register(ReplicatedVehicle)
+        .register(VehicleFeed)
         .register(JoinedLeft)
         .register(JoinedRight)
         .register(JoinedRows)
@@ -1147,6 +1259,7 @@ def reference_service() -> ServiceBuilder:
         .register(ShoppingCartEndpoint)
         .register(ConformanceEndpoint)
         .register(TreeEndpoint)
+        .register(VehiclesEndpoint)
         .register(JoinedEndpoint)
         .register(PrivateEndpoint)
         .register(CallersEndpoint)

@@ -66,6 +66,16 @@ export abstract class Consumer<M, Out = never> {
     return sequenceNumberOf(this.#metadata)
   }
 
+  /** Of a replicated entity's change (1.19): the installation that wrote it. `undefined` otherwise. */
+  get installation(): string | undefined {
+    return this.#metadata["ankka.installation"]
+  }
+
+  /** Whether the change was written at this installation: `false` only for a replicated entity's mirrored change. */
+  get localOrigin(): boolean {
+    return this.#metadata["ankka.local"] !== "false"
+  }
+
   get client(): ComponentClient {
     if (!this.#client) throw new Error("client is only available inside onMessage or onDelete")
     return this.#client
@@ -140,4 +150,9 @@ export interface ConsumerClass<M = unknown, Out = unknown, C extends Consumer<M,
   readonly out?: Shape<Out>
   /** The topic produced to: its name, or a `Publication` with the contract stated for it and its broker. */
   readonly producesTo?: string | Publication
+  /**
+   * A consumer that publishes is given a replicated entity's changes written at other installations
+   * too only when this says so (1.19); otherwise each is published once, where it was written.
+   */
+  readonly mirroredChanges?: boolean
 }

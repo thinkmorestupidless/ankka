@@ -23,20 +23,24 @@ final class HeldState(
     initialSequence: Long
 ):
 
-  private var current: Option[pb.Payload]          = initial
-  private var seq: Long                            = initialSequence
-  private var unfolded: Vector[(Long, pb.Payload)] = Vector.empty
+  private var current: Option[pb.Payload]                          = initial
+  private var seq: Long                                            = initialSequence
+  private var unfolded: Vector[(Long, pb.Payload, Option[String])] = Vector.empty
 
   def state: Option[pb.Payload] = synchronized(current)
   def sequence: Long            = synchronized(seq)
 
   /** A replayed event, folded before the next call is made. */
-  def replayed(sequence: Long, event: pb.Payload): Unit = synchronized {
-    unfolded :+= (sequence -> event)
-  }
+  def replayed(sequence: Long, event: pb.Payload, installation: Option[String] = None): Unit =
+    synchronized {
+      unfolded :+= ((sequence, event, installation))
+    }
 
-  /** The replayed events not yet folded, which the caller is now folding: taken, not peeked. */
-  def takeUnfolded(): Vector[(Long, pb.Payload)] = synchronized {
+  /**
+   * The replayed events not yet folded, which the caller is now folding: taken, not peeked. Each
+   * with the installation that wrote it, for a replicated entity (feature 051).
+   */
+  def takeUnfolded(): Vector[(Long, pb.Payload, Option[String])] = synchronized {
     val taken = unfolded
     unfolded = Vector.empty
     taken

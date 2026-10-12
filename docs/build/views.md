@@ -1030,6 +1030,12 @@ change twice. See [Consistency and delivery](../concepts/consistency.md).
 In a test, poll for the expected row until a deadline instead of reading once. That is not a workaround for
 a race; it is the consistency model the view actually has.
 
+A view of a [replicated entity](../concepts/replicated-entities.md) runs at every installation that holds
+the entity, over the local journal, which is the same at each of them record for record. A follower's view
+therefore holds the rows the home's view holds, built from the changes in the home's order, and is behind
+it by what the follower's copy is behind. A view handler reads where a change was written as a consumer
+does, and is given local and mirrored changes alike.
+
 ## Limits
 
 - A view writes one table, its own, and a query reads that table alone: there is no query across two

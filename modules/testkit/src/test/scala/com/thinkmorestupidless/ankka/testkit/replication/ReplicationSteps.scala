@@ -1164,6 +1164,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   }
 
   Given("a test driving the entity {string} in the entity test kit as a follower") { (_: String) =>
+    // docs:start follower-kit
     val kit = EventSourcedTestKit.of(
       Fleet.vehicles,
       "v1",
@@ -1172,6 +1173,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
     )
     given EventSourcedTestKit.WrittenAt = EventSourcedTestKit.WrittenAt(Some("leipzig"))
     kit.replay(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame"))
+    // docs:end follower-kit
     pureKit = Some(kit)
   }
 
@@ -1201,7 +1203,9 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   ) { (_: String, language: String, _: String, a: String, b: String) =>
     assume(
       language == "Scala",
-      s"the $language row is run by the $language SDK's tests (sdks/${language.toLowerCase})"
+      s"the $language row is held by the conformance suite's es.replicated-context case against " +
+        s"the $language reference (${LanguagesFeatures.commands.getOrElse(language, "?")}), and " +
+        s"the $language SDK's own tests of an event mirrored from another installation"
     )
     names = Vector(a, b)
   }
@@ -1242,6 +1246,14 @@ final class TransportFeatures
     extends ReplicationSteps("../../features/replication/transport.feature")
 final class HistoryFeatures extends ReplicationSteps("../../features/replication/history.feature")
 final class TestkitFeatures extends ReplicationSteps("../../features/replication/testkit.feature")
+object LanguagesFeatures:
+  /** The command that runs the conformance suite against each language's reference. */
+  val commands: Map[String, String] = Map(
+    "Python"     -> "cd sdks/python && uv run conformance",
+    "TypeScript" -> "cd sdks/typescript && npm run conformance",
+    "Rust"       -> "cd sdks/rust && ./conformance.sh"
+  )
+
 final class LanguagesFeatures
     extends ReplicationSteps("../../features/replication/languages.feature"):
   override protected def ranElsewhere: Map[String, String] = Map(

@@ -58,7 +58,9 @@ final case class Init(
     kind: ComponentKind,
     componentId: ComponentId,
     entityId: EntityId,
-    snapshot: Option[Snapshot]
+    snapshot: Option[Snapshot],
+    /** This installation, for a replicated entity (feature 051). */
+    installation: Option[String] = None
 )
 
 final case class Command(
@@ -66,7 +68,11 @@ final case class Command(
     name: MethodName,
     payload: Payload,
     metadata: Metadata,
-    snapshotRequested: Boolean
+    snapshotRequested: Boolean,
+    /** The installation handling the command, for a replicated entity (feature 051). */
+    installation: Option[String] = None,
+    /** Whether that installation is the entity's home; true for an entity not replicated. */
+    atHome: Boolean = true
 )
 
 /** The three cases of `core.effect.Outcome`, with the reply already encoded. */
@@ -87,7 +93,9 @@ final case class Reply(
     transition: Option[StepOutcome.TransitionTo],
     retention: Option[Retention],
     outcome: RemoteOutcome,
-    snapshot: Option[Payload]
+    snapshot: Option[Payload],
+    /** A replicated entity's handover or change to its replication set (feature 051). */
+    replication: Option[com.thinkmorestupidless.ankka.core.effect.ReplicationChange] = None
 )
 
 /** What a process answers `runStep` with. */
@@ -103,6 +111,14 @@ final class ProtocolViolation(message: String) extends RuntimeException(message)
 trait InstanceSession:
   /** Replays one journaled event to the process, before the first command. */
   def event(sequence: Long, payload: Payload): Unit
+
+  /**
+   * Replays one journaled event, naming the installation that wrote it (feature 051). A
+   * conversation that carries no installation sends the event alone.
+   */
+  def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
+    val _ = installation
+    event(sequence, payload)
 
   /** Exactly one in flight per session; the host enforces that, the transport relies on it. */
   def command(cmd: Command): Future[Either[ProcessFailure, Reply]]

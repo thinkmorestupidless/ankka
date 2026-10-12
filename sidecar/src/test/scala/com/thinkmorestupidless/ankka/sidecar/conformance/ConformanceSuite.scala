@@ -174,7 +174,8 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       ("shopping-cart", "get-cart"),
       ("conformance", "count"),
       ("profile", "get"),
-      ("checkout", "status")
+      ("checkout", "status"),
+      ("replicated-vehicle", "get")
     )
     assert(expected.subsetOf(target.readOnlyHandlers), target.readOnlyHandlers.toString)
     assert(!target.readOnlyHandlers.contains(("conformance", "record")))
@@ -2171,7 +2172,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ("contract-relay", "topic:legacy/conformance-contracted", "topic-publication"),
         // Another project's topic is named with its project (feature 040).
         ("topic:partner/conformance-shared", "partner-relay", "topic-subscription"),
-        ("partner-relay", "topic:partner/conformance-shared-relayed", "topic-publication")
+        ("partner-relay", "topic:partner/conformance-shared-relayed", "topic-publication"),
+        // A consumer of a replicated entity (feature 051).
+        ("replicated-vehicle", "vehicle-feed", "events"),
+        ("vehicle-feed", "topic:conformance-vehicle-steps", "topic-publication")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap
@@ -2271,11 +2275,92 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       assert(refused.contains("checkout-rows") || refused.contains("CheckoutRows"), refused)
     // At 1.16 a workflow source is known. A process reference also declares a watched query, which
     // needs 1.17, so it may still be refused, but only for that and never for its workflow source.
+    // Every reference also declares a replicated entity, which needs 1.19 (feature 051).
     target.refusalAt("1.16") match
       case Some(Some(m)) =>
-        assert(m.contains("watched") && m.contains("1.17"), m)
         assert(!m.contains("checkout-rows") && !m.contains("CheckoutRows"), m)
+        if !target.isModule then
+          assert((m.contains("watched") && m.contains("1.17")) || m.contains("1.19"), m)
       case answered => assertEquals(answered, Some(None))
+  }
+
+  // ── Replicated entities (feature 051) ───────────────────────────────────────
+
+  /** The kind of each platform record in an entity's journal, in order; domain records are 0. */
+  private def journalKinds(persistenceId: String): Vector[Int] =
+    given ActorSystem[?] = target.system
+    val cbor             = com.fasterxml.jackson.dataformat.cbor.databind.CBORMapper()
+    Await.result(
+      Database().query(
+        SqlFragment.raw(
+          s"SELECT event_payload FROM event_journal WHERE persistence_id = '$persistenceId' ORDER BY seq_nr"
+        )
+      )(r => cbor.readTree(r.get("event_payload", classOf[Array[Byte]])).path("kind").asInt(0)),
+      10.seconds
+    )
+
+  test("es.replicated-declares: an entity declared replicated says so, and needs 1.19") {
+    // Every SDK sends `replicated` on the entity's detail and `mirrored_changes` on a consumer's,
+    // and refuses a runtime from before replication rather than be read as unreplicated.
+    assert(target.componentIds.contains("replicated-vehicle"), target.componentIds.toString)
+    target.refusalAt("1.18") match
+      case None          => () // in this process: the descriptor is the Scala SDK's own
+      case Some(None)    => fail("a runtime stating 1.18 was answered")
+      case Some(Some(m)) =>
+        // A module refuses by trapping, which carries no message.
+        if !target.isModule then assert(m.contains("1.19"), m)
+    target.refusalAt("1.19") match
+      case Some(Some(m)) => fail(s"a runtime stating 1.19 was refused: $m")
+      case _             => ()
+  }
+
+  test("consumer.mirrored-declares: a consumer given mirrored changes says so") {
+    assert(target.componentIds.contains("vehicle-feed"), target.componentIds.toString)
+    assertEquals(target.mirroredChanges("vehicle-feed"), Some(true))
+    assertEquals(target.mirroredChanges("checkout-fanout"), Some(false))
+  }
+
+  test(
+    "es.replicated-context: a command is told its installation and home, an event where written"
+  ) {
+    // The SDK reads `installation` and `at_home` off the command, and the event's `installation`
+    // off each event it folds, and hands them to the handler and the event handler.
+    val placed = post("/vehicles/rc1/steps", "frame")
+    assertEquals(placed.status, 200, placed.body)
+    assertEquals(placed.json, Json.parse("""{"installation":"a","home":true}""").toOption.get)
+    post("/vehicles/rc1/steps", "wheels")
+    // After a restart the state is rebuilt from the journal: the events' installations come back.
+    target.restart()
+    val read = get("/vehicles/rc1")
+    assertEquals(read.status, 200, read.body)
+    assertEquals(
+      read.json,
+      Json
+        .parse(
+          """{"steps":["frame","wheels"],"writtenAt":["a","a"],"local":[true,true]}"""
+        )
+        .toOption
+        .get
+    )
+  }
+
+  test("es.replicated-effects: a handover and a change to the replication set reach the journal") {
+    // The SDK writes the effect's `ReplicationChange` on the reply; the runtime writes it as the
+    // platform's own record after the events: a set change is kind 4, a handover kind 5.
+    post("/vehicles/re1/steps", "frame")
+    assertEquals(post("/vehicles/re1/replicate-to/b").status, 200)
+    assertEquals(post("/vehicles/re1/stop-replicating-to/b").status, 200)
+    val kinds = journalKinds("replicated-vehicle|re1")
+    // The first command made `a` the home (kind 3) and its set (kind 4), then the step.
+    assertEquals(kinds.filter(_ == 0).size, 1, kinds.toString)
+    assertEquals(kinds.takeRight(2), Vector(4, 4), kinds.toString)
+    post("/vehicles/re2/steps", "frame")
+    // The home is handed only to an installation in the replication set.
+    assertEquals(post("/vehicles/re2/hand-over/b").status, 400)
+    assertEquals(post("/vehicles/re2/replicate-to/b").status, 200)
+    val handed = post("/vehicles/re2/hand-over/b")
+    assertEquals(handed.status, 200, handed.body)
+    assertEquals(journalKinds("replicated-vehicle|re2").last, 5)
   }
 
   // ── Contracts, declared brokers and parallel partitions (feature 037) ──────

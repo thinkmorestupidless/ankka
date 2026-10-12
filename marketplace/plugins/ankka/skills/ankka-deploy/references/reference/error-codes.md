@@ -21,6 +21,7 @@ knowing the rule that was broken.
 | `Unavailable` | `UNAVAILABLE` | `503` | `UNAVAILABLE` | The target cannot serve right now. The runtime uses it when a component is briefly unreachable, for example while a process-hosted service restarts. | yes |
 | `Internal` | `INTERNAL` | `500` | `INTERNAL` | Something is wrong that the caller cannot fix. | no |
 | `WorkflowFailed` | `WORKFLOW_FAILED` | `424` | `ABORTED` | Not a handler's to use: a wait for a workflow's end is answered with it when the workflow failed or was deleted. | no |
+| `NotHome` | `NOT_HOME` | `421` | `OUT_OF_RANGE` | Not a handler's to use: a replicated entity's copy at this installation cannot answer, and the message names the entity's home. | no |
 
 A retryable code means a caller could reasonably send the same request again unchanged. In Scala,
 `ErrorCode.retryable` answers that.
@@ -30,6 +31,16 @@ parsing text: `step`, the step that failed, when one did; `reason`; and `deleted
 that was deleted. In Scala they are `error.details` and `WorkflowEnd.failure(error)`; in Python
 `error.details`; in TypeScript `error.details`; in Rust `error.details`. An HTTP problem body carries them
 as `details`. Over gRPC only the message crosses, so a gRPC caller reads the step and the reason there.
+
+A [replicated entity](../concepts/replicated-entities.md) answers `NotHome` when a write reaches a
+follower whose home cannot be reached, when a query reaches an installation outside its replication set,
+and when a forwarded write finds that the installation it was sent to is no longer the home; the message
+names the home, and a caller may send the request there or try again later. The code is `NotHome` in
+TypeScript and Rust too, `421 Misdirected Request` over HTTP and `OUT_OF_RANGE` over gRPC, which no other
+code uses. The same entity answers `Conflict` to a write while it is in conflict, created at two
+installations, and a wait for a handover answers `Unavailable` when the handover was abandoned or never
+asked for, and `Timeout` when it had not completed in time. A forwarded write that the home did not answer
+in time is `Timeout`, and may or may not have happened.
 
 An agent's guardrail answers `Forbidden` when it refuses an interaction. A judged guardrail whose check
 could not be made because its judgment provider failed answers `Unavailable`, or `Timeout` when the

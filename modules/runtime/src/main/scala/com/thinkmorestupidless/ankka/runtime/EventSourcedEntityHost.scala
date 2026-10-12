@@ -3,17 +3,20 @@ package com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.effect.*
 import com.thinkmorestupidless.ankka.runtime.replication.{
-  ForwardedCall,
-  ForwardedReply,
+  CopyState,
+  HostReplication,
   Mode,
-  Replication
+  Platform,
+  Replication,
+  Where
 }
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
-import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior, PostStop}
+import org.apache.pekko.actor.typed.scaladsl.{Behaviors, TimerScheduler}
+import org.apache.pekko.actor.typed.{Behavior, PostStop}
 import org.apache.pekko.persistence.typed.scaladsl.{
   Effect as PekkoEffect,
+  EffectBuilder,
   EventSourcedBehavior,
   ReplyEffect,
   RetentionCriteria
@@ -25,13 +28,6 @@ import org.apache.pekko.persistence.typed.{
   RecoveryCompleted,
   SnapshotAdapter
 }
-import org.apache.pekko.stream.scaladsl.{Keep, RestartSource, Sink}
-import org.apache.pekko.stream.{KillSwitches, Materializer, RestartSettings, UniqueKillSwitch}
-import org.apache.pekko.util.Timeout
-
-import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
 
 /**
  * Hosts one event sourced entity kind on cluster sharding, translating ankka's Effects into
@@ -45,8 +41,9 @@ import scala.util.{Failure, Success}
  * installation that holds it. Its home handles its writes; every other copy in its replication set
  * mirrors the home's journal record for record and answers reads; a write that reaches a copy that
  * is not the home is forwarded there. Where a copy stands is folded from records in its own journal
- * and derived on every command (`Mode`), never kept beside it. A service that replicates nothing,
- * and an entity that is not replicated, take none of these paths.
+ * and derived on every command, never kept beside it; the rules are `HostReplication`'s, which a
+ * process's remote host applies too. A service that replicates nothing, and an entity that is not
+ * replicated, take none of these paths.
  */
 private[ankka] object EventSourcedEntityHost:
 
@@ -63,7 +60,7 @@ private[ankka] object EventSourcedEntityHost:
       replicationSet: Set[String] = Set.empty,
       pendingHandover: Option[String] = None,
       conflict: Option[String] = None
-  ):
+  ) extends CopyState:
     def expired(nowMillis: Long): Boolean = expiryMillis > 0 && nowMillis >= expiryMillis
 
   /** In-memory event type: domain events plus the runtime's own lifecycle markers. */
@@ -72,22 +69,15 @@ private[ankka] object EventSourcedEntityHost:
     case Domain(event: E, installation: Option[String] = None)
     case Deleted
     case Expiry(atEpochMillis: Long)
-    case Home(installation: String)
-    case ReplicationSet(installations: Set[String])
-    case Handover(target: String)
-    case HandoverAbandoned(target: String)
 
-    /** `installation` is who found the conflict: only there is it folded. */
-    case Conflict(other: String, installation: Option[String] = None)
+    /** A replicated entity's home, replication set, handover or conflict. */
+    case Replication(record: Platform)
 
     /** A record pulled from the home, persisted as it came. */
     case Mirrored(record: JournalRecord)
 
   /** A copy's reply metadata names the installation whose handler ran. */
-  val HandledAt: String = "ankka.handled-at"
-
-  /** A forwarded call names the installation that forwarded it, and is never forwarded again. */
-  val ForwardedFrom: String = "ankka.forwarded-from"
+  val HandledAt: String = HostReplication.HandledAt
 
   def behavior[C <: EventSourcedEntity[S, E], S, E](
       descriptor: EventSourcedEntityDescriptor[C, S, E],
@@ -107,17 +97,9 @@ private[ankka] object EventSourcedEntityHost:
         val observability = Observability(ctx.system)
         val componentRef  = observability.names.intern(descriptor.componentId.toString)
         val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
-        val copy          = rep.map(r => Copy(r, descriptor.componentId, entityId, ctx))
-        val host = Host(
-          descriptor,
-          entity,
-          entityId,
-          observability,
-          componentRef,
-          copy,
-          timers,
-          ctx
-        )
+        val copy          = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
+        val host =
+          Host(descriptor, entity, entityId, observability, componentRef, copy, timers)
 
         val base = EventSourcedBehavior
           .withEnforcedReplies[
@@ -153,165 +135,6 @@ private[ankka] object EventSourcedEntityHost:
       }
     }
 
-  // ── One copy of a replicated entity ───────────────────────────────────────
-
-  /** What locate found for a copy that holds no record saying where the entity lives. */
-  private enum Where:
-    /** Another installation holds it, as `located` says. */
-    case At(located: replication.Located)
-
-    /**
-     * No installation that could be reached holds it. `writer` is who wrote the copy's own first
-     * record when that was another installation: a copy part way through mirroring a home it cannot
-     * now reach.
-     */
-    case Nobody(writer: Option[String])
-
-  /**
-   * What one running copy of a replicated entity keeps in memory beside its journal: its puller,
-   * where locate said the entity lives, and which installations' histories it has compared with its
-   * own. Touched only on the actor's thread, but for `position`, which its puller reads.
-   */
-  private final class Copy(
-      val rep: Replication,
-      componentId: ComponentId,
-      entityId: EntityId,
-      ctx: ActorContext[EntityProtocol.Command]
-  ):
-    val me: String = rep.self
-
-    /** The last sequence number this copy holds, read by the puller when it opens again. */
-    @volatile var position: Long = 0L
-
-    private var puller: Option[(String, UniqueKillSwitch)] = None
-    var where: Option[Where]                               = None
-    var locating: Boolean                                  = false
-    var checked: Set[String]                               = Set.empty
-
-    private val system: ActorSystem[?] = ctx.system
-    private val self                   = ctx.self
-
-    /**
-     * The entity as locate found it, while this copy is catching up to a history that includes it:
-     * a copy added to the replication set mirrors from the first record, through sets and homes of
-     * the past that may not name it, and follows the home locate named until its own journal says
-     * the same.
-     */
-    private def joining: Option[replication.Located] =
-      where.collect { case Where.At(l) if l.home != me && l.replicationSet.contains(me) => l }
-
-    /** Where the copy stands by its own journal alone. */
-    private def journalMode[S](state: Stored[S]): Mode =
-      // A home with no set known is a first pull cut short: where the entity lives is asked again.
-      if state.home.nonEmpty && state.replicationSet.isEmpty then Mode.Unknown
-      else Mode.of(me, state.home, state.replicationSet)
-
-    private def caughtUp[S](state: Stored[S], located: replication.Located): Boolean =
-      journalMode(state) == Mode.Follower && state.home.contains(located.home)
-
-    def mode[S](state: Stored[S]): Mode =
-      joining match
-        case Some(l) if !caughtUp(state, l) => Mode.Follower
-        case _                              => journalMode(state)
-
-    /** The home, as the journal says it, or as locate said it while the copy catches up. */
-    def home[S](state: Stored[S]): Option[String] =
-      joining match
-        case Some(l) if !caughtUp(state, l) => Some(l.home)
-        case _                              => state.home
-
-    /** The installation this copy should be mirroring, if any. */
-    private def source[S](state: Stored[S]): Option[String] =
-      if state.conflict.nonEmpty then None
-      else if mode(state) == Mode.Follower then home(state)
-      else None
-
-    /** Starts, switches or stops the puller to match what the journal now says. */
-    def reconcile[S](state: Stored[S], lastSequenceNr: Long): Unit =
-      position = lastSequenceNr
-      // Caught up: from here the copy's own journal says where it stands.
-      if joining.exists(caughtUp(state, _)) then where = None
-      val wanted = source(state)
-      if puller.map(_._1) != wanted then
-        puller.foreach(_._2.shutdown())
-        puller = wanted.map(home => home -> pull(home))
-
-    def recovered[S](state: Stored[S], lastSequenceNr: Long): Unit =
-      reconcile(state, lastSequenceNr)
-      reportIfTarget(state, lastSequenceNr)
-
-    def stopped(): Unit =
-      puller.foreach(_._2.shutdown())
-      puller = None
-
-    /** The target of a pending handover tells the home how much it holds. */
-    def reportIfTarget[S](state: Stored[S], lastSequenceNr: Long): Unit =
-      if state.pendingHandover.contains(me) then
-        state.home.foreach(home =>
-          rep.transport.report(home, componentId, entityId, lastSequenceNr): Unit
-        )
-
-    /**
-     * The home's records from the one after the last this copy holds, each handed to the copy to
-     * persist as its next and acknowledged before the next is asked for. Opened again from the
-     * copy's own position after any end: a refused record, a transport that failed, a source that
-     * completed.
-     */
-    private def pull(home: String): UniqueKillSwitch =
-      given Materializer                           = Materializer(system)
-      given Timeout                                = Timeout(30.seconds)
-      given org.apache.pekko.actor.typed.Scheduler = system.scheduler
-      import org.apache.pekko.actor.typed.scaladsl.AskPattern.*
-      RestartSource
-        .withBackoff(RestartSettings(250.millis, 5.seconds, 0.2)) { () =>
-          rep.transport
-            .records(home, componentId, entityId, position + 1)
-            .mapAsync(1) { replicated =>
-              self.ask[EntityProtocol.ReplicateAck](ack =>
-                EntityProtocol.Replicate(replicated.sequenceNr, replicated.record, home, ack)
-              )
-            }
-            .map {
-              case EntityProtocol.ReplicateAck.Persisted(_) => ()
-              case EntityProtocol.ReplicateAck.Refused(reason) =>
-                throw IllegalStateException(s"a record from '$home' was refused: $reason")
-            }
-        }
-        .viaMat(KillSwitches.single)(Keep.right)
-        .to(Sink.ignore)
-        .run()
-
-    /** Who wrote this copy's first record, when it was not this installation. */
-    def firstWriter(): Future[Option[String]] =
-      given ExecutionContext = system.executionContext
-      firstRecord().map(_.flatMap(_.installation).filter(_ != me))
-
-    /** This copy's first record, read from its own journal. */
-    def firstRecord(): Future[Option[JournalRecord]] =
-      val pid = PersistenceId(componentId, entityId).id.replace("'", "''")
-      val serialization =
-        org.apache.pekko.serialization.SerializationExtension(system.classicSystem)
-      Database()(using system)
-        .queryOne(
-          SqlFragment.raw(
-            "SELECT event_ser_id, event_ser_manifest, event_payload FROM event_journal " +
-              s"WHERE persistence_id = '$pid' AND seq_nr = 1"
-          )
-        ) { row =>
-          serialization
-            .deserialize(
-              row.get("event_payload", classOf[Array[Byte]]),
-              row.get("event_ser_id", classOf[java.lang.Integer]).intValue,
-              row.get("event_ser_manifest", classOf[String])
-            )
-            .get
-            .asInstanceOf[JournalRecord]
-        }
-
-  /** One history's first record, as two installations holding the same history both hold it. */
-  private def fingerprint(record: JournalRecord, holder: String): (Int, String, Seq[Byte], String) =
-    (record.kind, record.manifest, record.payload.toSeq, record.installation.getOrElse(holder))
-
   /** One entity's host: everything a command needs, so the handlers below read as the rules. */
   private final class Host[C <: EventSourcedEntity[S, E], S, E](
       descriptor: EventSourcedEntityDescriptor[C, S, E],
@@ -319,9 +142,8 @@ private[ankka] object EventSourcedEntityHost:
       entityId: EntityId,
       observability: Observability,
       componentRef: Int,
-      copy: Option[Copy],
-      timers: TimerScheduler[EntityProtocol.Command],
-      ctx: ActorContext[EntityProtocol.Command]
+      copy: Option[HostReplication],
+      timers: TimerScheduler[EntityProtocol.Command]
   ):
     private type Effect = ReplyEffect[Journaled[E], Stored[S]]
 
@@ -332,9 +154,7 @@ private[ankka] object EventSourcedEntityHost:
      * own. `thenUnstashAll` is typed as a plain `Effect`, which a handler with enforced replies
      * cannot return; every effect Pekko builds is a `ReplyEffect` too, which the type test checks.
      */
-    extension (
-        builder: org.apache.pekko.persistence.typed.scaladsl.EffectBuilder[Journaled[E], Stored[S]]
-    )
+    extension (builder: EffectBuilder[Journaled[E], Stored[S]])
       private def unstashingNoReply: Effect = builder.thenUnstashAll() match
         case reply: ReplyEffect[?, ?] => reply.asInstanceOf[Effect]
         case other =>
@@ -376,17 +196,28 @@ private[ankka] object EventSourcedEntityHost:
           )
 
         case forwarded: EntityProtocol.Forwarded =>
-          onForwarded(forwarded)
+          copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]])(c =>
+            PekkoEffect.reply(forwarded.replyTo)(c.forwarded(forwarded))
+          )
 
         case located: EntityProtocol.Located =>
-          copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]])(
-            onLocated(_, state, located, lastSeq)
-          )
+          copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]]) { c =>
+            c.located(located)
+            c.reconcile(state, lastSeq)
+            PekkoEffect.none[Journaled[E], Stored[S]].unstashingNoReply
+          }
 
         case checked: EntityProtocol.ConflictChecked =>
-          copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]])(
-            onConflictChecked(_, state, checked, lastSeq)
-          )
+          copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]]) { c =>
+            if c.conflictFound(checked, state) then
+              PekkoEffect
+                .persist[Journaled[E], Stored[S]](
+                  Journaled.Replication(Platform.Conflict(checked.other))
+                )
+                .thenRun((stored: Stored[S]) => c.reconcile(stored, lastSeq + 1))
+                .thenNoReply()
+            else PekkoEffect.noReply
+          }
 
         case timedOut: EntityProtocol.HandoverTimedOut =>
           copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]])(
@@ -407,10 +238,10 @@ private[ankka] object EventSourcedEntityHost:
       case Unreplicated
 
       /** The home, or a copy creating the entity as its home. */
-      case AtHome(c: Copy, creating: Boolean)
+      case AtHome(c: HostReplication, creating: Boolean)
 
       /** A follower answering a read from its own copy. */
-      case AtFollower(c: Copy)
+      case AtFollower(c: HostReplication)
 
     private def onInvoke(
         state: Stored[S],
@@ -522,7 +353,7 @@ private[ankka] object EventSourcedEntityHost:
 
       // What a replicated entity writes beside the handler's events: the records that create it,
       // and the handover or change to its replication set the handler asked for.
-      val records: Either[CommandError, (Vector[Journaled[E]], Vector[Journaled[E]])] =
+      val records: Either[CommandError, (Vector[Platform], Vector[Platform])] =
         local match
           case Local.Unreplicated =>
             effect.replication match
@@ -535,9 +366,8 @@ private[ankka] object EventSourcedEntityHost:
                     ErrorCode.BadRequest
                   )
                 )
-          case Local.AtFollower(_) => Right((Vector.empty, Vector.empty))
-          case Local.AtHome(c, creating) =>
-            replicationRecords(c, state, effect, creating)
+          case Local.AtFollower(_)       => Right((Vector.empty, Vector.empty))
+          case Local.AtHome(c, creating) => c.records(state, effect.replication, creating)
 
       // The span outcome is returned rather than inferred by the caller, because the caller cannot
       // see it: `effects.error(...)` produces a *value*, not an exception, so a refusal reaches the
@@ -558,7 +388,9 @@ private[ankka] object EventSourcedEntityHost:
           val writes =
             if handlerRecords.isEmpty && after.isEmpty && effect.replication.isEmpty then
               Vector.empty
-            else before ++ handlerRecords ++ after
+            else
+              before.map(Journaled.Replication(_)) ++ handlerRecords ++
+                after.map(Journaled.Replication(_))
           val handledAt = local match
             case Local.AtHome(c, _)  => Vector(MetaEntry(HandledAt, c.me))
             case Local.AtFollower(c) => Vector(MetaEntry(HandledAt, c.me))
@@ -585,123 +417,45 @@ private[ankka] object EventSourcedEntityHost:
       end match
     end interpret
 
-    /**
-     * The records a home writes beside a handler's events: for a creation, that this installation
-     * is the home and the replication set it starts with (itself, and whoever the handler added);
-     * for a handover, that it is pending; for a change to the set, the whole set after it.
-     */
-    private def replicationRecords(
-        c: Copy,
-        state: Stored[S],
-        effect: EventSourcedEffect[S, E, Any],
-        creating: Boolean
-    ): Either[CommandError, (Vector[Journaled[E]], Vector[Journaled[E]])] =
-      val known = c.rep.settings.installations + c.me
-      def unknown(names: Set[String]) =
-        (names -- known).toVector.sorted.headOption.map { name =>
-          CommandError(
-            s"'$name' is not an installation this service names; it names ${known.toVector.sorted.mkString(", ")}",
-            ErrorCode.BadRequest
-          )
-        }
-      val current = if creating then Set(c.me) else state.replicationSet
-      effect.replication match
-        case None =>
-          Right(
-            (
-              if creating then Vector(Journaled.Home(c.me), Journaled.ReplicationSet(current))
-              else Vector.empty,
-              Vector.empty
-            )
-          )
-        case Some(ReplicationChange.SetChange(add, remove)) =>
-          unknown(add ++ remove) match
-            case Some(error) => Left(error)
-            case None if remove.contains(c.me) =>
-              Left(
-                CommandError(
-                  s"'${c.me}' is the home of '$entityId' and cannot leave its replication set; " +
-                    "hand the home over first",
-                  ErrorCode.BadRequest
-                )
-              )
-            case None =>
-              val next = current ++ add -- remove
-              if creating then
-                Right((Vector(Journaled.Home(c.me), Journaled.ReplicationSet(next)), Vector.empty))
-              else Right((Vector.empty, Vector(Journaled.ReplicationSet(next))))
-        case Some(ReplicationChange.HandOver(target)) =>
-          val refusal =
-            if target == c.me then Some(s"'$target' is already the home of '$entityId'")
-            else if !known.contains(target) then
-              Some(s"'$target' is not an installation this service names")
-            else if !current.contains(target) then
-              Some(
-                s"'$target' is outside the replication set of '$entityId' " +
-                  s"(${current.toVector.sorted.mkString(", ")}); add it before handing the home to it"
-              )
-            else
-              state.pendingHandover.map(pending =>
-                s"a handover of '$entityId' to '$pending' is already waiting"
-              )
-          refusal match
-            case Some(message) => Left(CommandError(message, ErrorCode.BadRequest))
-            case None =>
-              Right(
-                (
-                  if creating then Vector(Journaled.Home(c.me), Journaled.ReplicationSet(current))
-                  else Vector.empty,
-                  Vector(Journaled.Handover(target))
-                )
-              )
-
     /** What a home does once it has persisted what a command wrote. */
     private def afterPersist(stored: Stored[S], writes: Vector[Journaled[E]], before: Long): Unit =
       copy.foreach { c =>
         c.reconcile(stored, before + writes.size)
-        writes.collectFirst { case Journaled.Handover(target) => target }.foreach { target =>
-          if c.rep.settings.holdWrites then
-            timers.startSingleTimer(
-              HandoverTimer,
-              EntityProtocol.HandoverTimedOut(target),
-              c.rep.settings.handoverTimeout
-            )
-        }
+        writes
+          .collectFirst { case Journaled.Replication(Platform.Handover(target)) => target }
+          .foreach { target =>
+            if c.rep.settings.holdWrites then
+              timers.startSingleTimer(
+                HostReplication.HandoverTimer,
+                EntityProtocol.HandoverTimedOut(target),
+                c.rep.settings.handoverTimeout
+              )
+          }
       }
 
-    private val HandoverTimer = "ankka-handover"
-
-    private def persist(
-        events: Vector[Journaled[E]]
-    ): org.apache.pekko.persistence.typed.scaladsl.EffectBuilder[Journaled[E], Stored[S]] =
+    private def persist(events: Vector[Journaled[E]]): EffectBuilder[Journaled[E], Stored[S]] =
       if events.isEmpty then PekkoEffect.none else PekkoEffect.persist(events.toList)
 
     // ── A replicated entity's commands ────────────────────────────────────
 
     private def onReplicatedInvoke(
-        c: Copy,
+        c: HostReplication,
         state: Stored[S],
         invoke: EntityProtocol.Invoke,
         lastSeq: Long
     ): Effect =
       val method = MethodName(invoke.method)
-      if method == ReplicationStatus.Method then status(c, state, invoke, lastSeq)
-      else if method == ReplicationStatus.HandoverMethod then handoverStatus(state, invoke)
+      if method == ReplicationStatus.Method then
+        PekkoEffect.reply(invoke.replyTo)(c.status(state, lastSeq))
+      else if method == ReplicationStatus.HandoverMethod then
+        PekkoEffect.reply(invoke.replyTo)(c.handoverStatus(state, invoke.payload))
       else
         descriptor.handler(method) match
           // No such handler: answered as any entity answers it.
           case None => onInvoke(state, invoke, lastSeq, Local.Unreplicated)
           case Some(binding) =>
             val reads = binding.readOnly
-            if state.conflict.nonEmpty && !reads then
-              refuse(
-                invoke,
-                CommandError(
-                  s"'$entityId' is in conflict with '${state.conflict.get}': it was created at two " +
-                    "installations, and takes no write until an operator resolves it",
-                  ErrorCode.Conflict
-                )
-              )
+            if state.conflict.nonEmpty && !reads then refuse(invoke, c.inConflict(state))
             else
               c.mode(state) match
                 case Mode.Home =>
@@ -714,174 +468,36 @@ private[ankka] object EventSourcedEntityHost:
                   if reads then onInvoke(state, invoke, lastSeq, Local.AtFollower(c))
                   else forward(c, invoke, c.home(state).get)
                 case Mode.Outside =>
-                  if reads then refuse(invoke, notHome(c.home(state).get, outside = true))
+                  if reads then refuse(invoke, c.notHome(c.home(state).get, outside = true))
                   else forward(c, invoke, c.home(state).get)
                 case Mode.Unknown =>
                   c.where match
                     case None =>
-                      if !c.locating then locate(c, lastSeq)
+                      if !c.locating then c.locate(lastSeq)
                       PekkoEffect.stash()
                     case Some(Where.At(located)) if located.home != c.me =>
                       if reads then
                         if located.replicationSet.contains(c.me) then
                           onInvoke(state, invoke, lastSeq, Local.AtFollower(c))
-                        else refuse(invoke, notHome(located.home, outside = true))
+                        else refuse(invoke, c.notHome(located.home, outside = true))
                       else forward(c, invoke, located.home)
                     case Some(Where.Nobody(Some(writer))) =>
                       // Part way through mirroring a home that cannot now be reached.
                       if reads then onInvoke(state, invoke, lastSeq, Local.AtFollower(c))
-                      else refuse(invoke, notHome(writer, outside = false))
+                      else refuse(invoke, c.notHome(writer, outside = false))
                     case Some(_) =>
                       // Nobody else holds it, or it is this installation's own history from
                       // before replication: the first write here creates it, with this
                       // installation as its home.
-                      if reads then
-                        onInvoke(state, invoke, lastSeq, Local.AtHome(c, creating = false))
-                      else onInvoke(state, invoke, lastSeq, Local.AtHome(c, creating = true))
+                      onInvoke(state, invoke, lastSeq, Local.AtHome(c, creating = !reads))
 
     private def refuse(invoke: EntityProtocol.Invoke, error: CommandError): Effect =
       PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
 
-    private def notHome(home: String, outside: Boolean): CommandError =
-      if outside then
-        CommandError(
-          s"this installation is outside the replication set of '$entityId'; its home is '$home'",
-          ErrorCode.NotHome
-        )
-      else
-        CommandError(
-          s"the home of '$entityId' is '$home', which cannot be reached",
-          ErrorCode.NotHome
-        )
-
-    private def status(
-        c: Copy,
-        state: Stored[S],
-        invoke: EntityProtocol.Invoke,
-        lastSeq: Long
-    ): Effect =
-      val answer = ReplicationStatus(
-        state.home,
-        state.replicationSet,
-        state.pendingHandover,
-        state.conflict,
-        lastSeq
-      )
-      PekkoEffect.reply(invoke.replyTo)(
-        EntityProtocol.Succeeded(
-          ReplicationStatus.serializer.toBytes(answer),
-          Vector(MetaEntry(HandledAt, c.me))
-        )
-      )
-
-    private def handoverStatus(state: Stored[S], invoke: EntityProtocol.Invoke): Effect =
-      val target = String(invoke.payload, java.nio.charset.StandardCharsets.UTF_8)
-      val reply =
-        if state.pendingHandover.contains(target) then
-          EntityProtocol.Succeeded(ReplicationStatus.Pending.getBytes("UTF-8"), Vector.empty)
-        else if state.home.contains(target) then
-          EntityProtocol.Succeeded(ReplicationStatus.Completed.getBytes("UTF-8"), Vector.empty)
-        else
-          EntityProtocol.Rejected(
-            CommandError(
-              s"the handover of '$entityId' to '$target' did not happen",
-              ErrorCode.Unavailable
-            )
-          )
-      PekkoEffect.reply(invoke.replyTo)(reply)
-
-    // ── Forwarding ─────────────────────────────────────────────────────────
-
-    /**
-     * Hands a command that may persist to the home and answers the caller with the home's reply.
-     * One call in the trace: a client span here, under the caller's, which the home's handler span
-     * is a child of. Counted where it is handled, at the home; here only when it went unanswered. A
-     * forwarded call is never forwarded again, and never sent twice.
-     */
-    private def forward(c: Copy, invoke: EntityProtocol.Invoke, home: String): Effect =
-      val metadata = MetaEntry.toMetadata(invoke.metadata)
-      if metadata.get(ForwardedFrom).nonEmpty then
-        refuse(
-          invoke,
-          CommandError(
-            s"'${c.me}' is not the home of '$entityId' either; a write forwarded once is not " +
-              "forwarded again",
-            ErrorCode.NotHome
-          )
-        )
-      else if !c.rep.transport.reachable(home) then refuse(invoke, notHome(home, outside = false))
-      else
-        val inbound = Trace.inbound(metadata)
-        val span = observability.recorder.reserve(
-          inbound.traceIdHigh,
-          inbound.traceId,
-          componentRef,
-          observability.names.intern(invoke.method)
-        )
-        val carried = Trace.into(metadata, span.context).set(ForwardedFrom, c.me)
-        val call    = ForwardedCall(MethodName(invoke.method), invoke.payload, carried)
-        val origin  = CallOrigin.from(metadata)
-        val method  = invoke.method
-        ctx.pipeToSelf(c.rep.transport.forward(home, componentId, entityId, call)) { result =>
-          val outcome = result match
-            case Success(ForwardedReply.Succeeded(_, _))           => SpanOutcome.Ok
-            case Success(ForwardedReply.Rejected(e))               => Observability.outcomeOf(e)
-            case Failure(_: java.util.concurrent.TimeoutException) => SpanOutcome.TimedOut
-            case Failure(_)                                        => SpanOutcome.Failed
-          observability.recorder.record(span, inbound.parentSpanId, SpanKind.Client, outcome)
-          result match
-            case Failure(_: java.util.concurrent.TimeoutException) =>
-              observability.unanswered(origin, componentId.toString, method, Unanswered.TimedOut)
-            case Failure(_) =>
-              observability.unanswered(origin, componentId.toString, method, Unanswered.Undelivered)
-            case Success(_) => ()
-          EntityProtocol.Forwarded(invoke.replyTo, result, home)
-        }
-        PekkoEffect.noReply
-
-    private def onForwarded(forwarded: EntityProtocol.Forwarded): Effect =
-      val reply = forwarded.result match
-        case Success(ForwardedReply.Succeeded(bytes, metadata)) =>
-          EntityProtocol.Succeeded(bytes, MetaEntry.from(metadata))
-        case Success(ForwardedReply.Rejected(error)) => EntityProtocol.Rejected(error)
-        case Failure(_: java.util.concurrent.TimeoutException) =>
-          EntityProtocol.Rejected(
-            CommandError(
-              s"the home of '$entityId', '${forwarded.home}', did not answer in time; the write " +
-                "may or may not have happened",
-              ErrorCode.Timeout
-            )
-          )
-        case Failure(_) => EntityProtocol.Rejected(notHome(forwarded.home, outside = false))
-      PekkoEffect.reply(forwarded.replyTo)(reply)
-
-    // ── Where an entity lives ─────────────────────────────────────────────
-
-    private def locate(c: Copy, lastSeq: Long): Unit =
-      c.locating = true
-      given ExecutionContext = ExecutionContext.parasitic
-      val writer =
-        if lastSeq == 0 then Future.successful(None)
-        else c.firstWriter().recover { case _ => None }
-      val asked = c.rep.transport.locate(componentId, entityId)
-      ctx.pipeToSelf(writer.zip(asked.transform(scala.util.Success(_)))) {
-        case Success((first, located)) => EntityProtocol.Located(located, first)
-        case Failure(e)                => EntityProtocol.Located(Failure(e), None)
-      }
-
-    private def onLocated(
-        c: Copy,
-        state: Stored[S],
-        located: EntityProtocol.Located,
-        lastSeq: Long
-    ): Effect =
-      c.locating = false
-      c.where = Some(located.result match
-        case Success(Some(l)) if l.home != c.me => Where.At(l)
-        case Success(Some(_))                   => Where.Nobody(None)
-        case _                                  => Where.Nobody(located.firstWriter))
-      c.reconcile(state, lastSeq)
-      PekkoEffect.none[Journaled[E], Stored[S]].unstashingNoReply
+    private def forward(c: HostReplication, invoke: EntityProtocol.Invoke, home: String): Effect =
+      c.forward(invoke, home, observability, componentRef) match
+        case Left(error) => refuse(invoke, error)
+        case Right(())   => PekkoEffect.noReply
 
     // ── Mirroring ──────────────────────────────────────────────────────────
 
@@ -891,103 +507,42 @@ private[ankka] object EventSourcedEntityHost:
      * pulled it from. Refuses one that is not the next, or that the entity's home did not write.
      */
     private def onReplicate(
-        c: Copy,
+        c: HostReplication,
         state: Stored[S],
         replicate: EntityProtocol.Replicate,
         lastSeq: Long
     ): Effect =
-      val writer   = replicate.record.installation.getOrElse(replicate.source)
-      val expected = state.home.getOrElse(replicate.source)
-      def refused(reason: String): Effect =
-        ctx.log.warn(
-          "refused a record of {} '{}' at {}: {}",
-          componentId,
-          entityId,
-          replicate.sequenceNr,
-          reason
-        )
-        replicate.ack ! EntityProtocol.ReplicateAck.Refused(reason)
-        PekkoEffect.noReply
       if replicate.sequenceNr <= lastSeq then
         replicate.ack ! EntityProtocol.ReplicateAck.Persisted(replicate.sequenceNr)
         PekkoEffect.noReply
-      else if c.mode(state) == Mode.Home then refused("this installation is the home")
-      else if state.conflict.nonEmpty then refused("this copy is in conflict")
-      else if replicate.sequenceNr != lastSeq + 1 then
-        refused(s"not the next record: this copy holds $lastSeq")
-      else if writer != expected then refused(s"written by '$writer', and the home is '$expected'")
       else
-        val record =
-          if replicate.record.installation.isEmpty then replicate.record.at(Some(replicate.source))
-          else replicate.record
-        PekkoEffect
-          .persist[Journaled[E], Stored[S]](Journaled.Mirrored(record))
-          .thenRun { (stored: Stored[S]) =>
-            c.reconcile(stored, replicate.sequenceNr)
-            c.reportIfTarget(stored, replicate.sequenceNr)
-            replicate.ack ! EntityProtocol.ReplicateAck.Persisted(replicate.sequenceNr)
-          }
-          .unstashingNoReply
+        c.mirror(state, replicate, lastSeq) match
+          case Left(reason) =>
+            c.refuseMirror(replicate, reason)
+            PekkoEffect.noReply
+          case Right(record) =>
+            PekkoEffect
+              .persist[Journaled[E], Stored[S]](Journaled.Mirrored(record))
+              .thenRun { (stored: Stored[S]) =>
+                c.reconcile(stored, replicate.sequenceNr)
+                c.reportIfTarget(stored, replicate.sequenceNr)
+                replicate.ack ! EntityProtocol.ReplicateAck.Persisted(replicate.sequenceNr)
+              }
+              .unstashingNoReply
 
     private def onWake(
-        c: Copy,
+        c: HostReplication,
         state: Stored[S],
         wake: EntityProtocol.Wake,
         lastSeq: Long
     ): Effect =
       c.mode(state) match
-        case Mode.Unknown =>
-          if wake.joined && !c.locating then
-            c.where = None
-            locate(c, lastSeq)
-          else c.reconcile(state, lastSeq)
-        case Mode.Home if wake.installation != c.me && !c.checked(wake.installation) =>
-          // Another installation wrote an entity this one is the home of. Either it was the home
-          // before this one, and its history is this one's, or it created the entity too.
-          c.checked += wake.installation
-          checkConflict(c, wake.installation)
-        case _ => c.reconcile(state, lastSeq)
+        case Mode.Unknown if wake.joined && !c.locating =>
+          c.where = None
+          c.locate(lastSeq)
+        case _ if c.shouldCompare(state, wake.installation) => c.compare(wake.installation)
+        case _                                              => c.reconcile(state, lastSeq)
       PekkoEffect.noReply
-
-    /** Compares the first record of `other`'s history with this copy's. */
-    private def checkConflict(c: Copy, other: String): Unit =
-      given Materializer     = Materializer(ctx.system)
-      given ExecutionContext = ctx.system.executionContext
-      val theirs = c.rep.transport
-        .records(other, componentId, entityId, 1L)
-        .take(1)
-        .completionTimeout(10.seconds)
-        .runWith(Sink.headOption)
-      val differs = c.firstRecord().zip(theirs).map {
-        case (Some(mine), Some(first)) =>
-          fingerprint(mine, c.me) != fingerprint(first.record, other)
-        case _ => false
-      }
-      ctx.pipeToSelf(differs)(EntityProtocol.ConflictChecked(other, _))
-
-    private def onConflictChecked(
-        c: Copy,
-        state: Stored[S],
-        checked: EntityProtocol.ConflictChecked,
-        lastSeq: Long
-    ): Effect =
-      checked.differs match
-        case Success(true) if state.conflict.isEmpty =>
-          ctx.log.warn(
-            "{} '{}' was created at '{}' too: marked in conflict",
-            componentId,
-            entityId,
-            checked.other
-          )
-          PekkoEffect
-            .persist[Journaled[E], Stored[S]](Journaled.Conflict(checked.other))
-            .thenRun((stored: Stored[S]) => c.reconcile(stored, lastSeq + 1))
-            .thenNoReply()
-        case Success(_) => PekkoEffect.noReply
-        case Failure(_) =>
-          // Not known either way: compared again at the next wake from it.
-          c.checked -= checked.other
-          PekkoEffect.noReply
 
     // ── The handover ───────────────────────────────────────────────────────
 
@@ -996,7 +551,7 @@ private[ankka] object EventSourcedEntityHost:
      * has written, the handover is recorded and the target is the home from the record on.
      */
     private def onReported(
-        c: Copy,
+        c: HostReplication,
         state: Stored[S],
         reported: EntityProtocol.Reported,
         lastSeq: Long
@@ -1004,30 +559,28 @@ private[ankka] object EventSourcedEntityHost:
       if c.mode(state) == Mode.Home && state.pendingHandover.contains(reported.installation) &&
         reported.position >= lastSeq
       then
-        timers.cancel(HandoverTimer)
+        timers.cancel(HostReplication.HandoverTimer)
         PekkoEffect
-          .persist[Journaled[E], Stored[S]](Journaled.Home(reported.installation))
+          .persist[Journaled[E], Stored[S]](
+            Journaled.Replication(Platform.Home(reported.installation))
+          )
           .thenRun((stored: Stored[S]) => c.reconcile(stored, lastSeq + 1))
           .unstashingNoReply
       else PekkoEffect.noReply
 
     /** A handover that holds writes waited as long as it may: it did not happen. */
     private def onHandoverTimedOut(
-        c: Copy,
+        c: HostReplication,
         state: Stored[S],
         timedOut: EntityProtocol.HandoverTimedOut,
         lastSeq: Long
     ): Effect =
       if c.mode(state) == Mode.Home && state.pendingHandover.contains(timedOut.target) then
-        ctx.log.warn(
-          "the handover of {} '{}' to '{}' was abandoned after {}",
-          componentId,
-          entityId,
-          timedOut.target,
-          c.rep.settings.handoverTimeout
-        )
+        c.logAbandoned(timedOut.target)
         PekkoEffect
-          .persist[Journaled[E], Stored[S]](Journaled.HandoverAbandoned(timedOut.target))
+          .persist[Journaled[E], Stored[S]](
+            Journaled.Replication(Platform.HandoverAbandoned(timedOut.target))
+          )
           .thenRun((stored: Stored[S]) => c.reconcile(stored, lastSeq + 1))
           .unstashingNoReply
       else PekkoEffect.noReply
@@ -1086,22 +639,21 @@ private[ankka] object EventSourcedEntityHost:
       case Journaled.Expiry(atEpochMillis) =>
         state.copy(expiryMillis = atEpochMillis)
 
-      case Journaled.Home(installation) =>
-        state.copy(home = Some(installation), pendingHandover = None)
-
-      case Journaled.ReplicationSet(installations) =>
-        state.copy(replicationSet = installations)
-
-      case Journaled.Handover(target) =>
-        state.copy(pendingHandover = Some(target))
-
-      case Journaled.HandoverAbandoned(_) =>
-        state.copy(pendingHandover = None)
-
-      case Journaled.Conflict(other, written) =>
-        // Folded only where it was found: a copy that mirrors a home in conflict holds the record
-        // at its sequence number, so its positions stay the home's, and is not in conflict itself.
-        if written.orElse(self) == self then state.copy(conflict = Some(other)) else state
+      case Journaled.Replication(record) =>
+        record match
+          case Platform.Home(installation) =>
+            state.copy(home = Some(installation), pendingHandover = None)
+          case Platform.ReplicationSet(installations) =>
+            state.copy(replicationSet = installations)
+          case Platform.Handover(target) =>
+            state.copy(pendingHandover = Some(target))
+          case Platform.HandoverAbandoned(_) =>
+            state.copy(pendingHandover = None)
+          case Platform.Conflict(other, written) =>
+            // Folded only where it was found: a copy that mirrors a home in conflict holds the
+            // record at its sequence number, so its positions stay the home's, and is not in
+            // conflict itself.
+            if written.orElse(self) == self then state.copy(conflict = Some(other)) else state
 
       case Journaled.Mirrored(record) =>
         onEvent(descriptor, entity, state, decode(descriptor, record), self, sequenceNumber)
@@ -1116,25 +668,24 @@ private[ankka] object EventSourcedEntityHost:
     record.kind match
       case JournalRecord.KindDomain =>
         Journaled.Domain(descriptor.eventSerializer.fromBytes(record.payload), record.installation)
-      case JournalRecord.KindDeleted           => Journaled.Deleted
-      case JournalRecord.KindExpiry            => Journaled.Expiry(record.expiryMillis)
-      case JournalRecord.KindHome              => Journaled.Home(record.named)
-      case JournalRecord.KindReplicationSet    => Journaled.ReplicationSet(record.names)
-      case JournalRecord.KindHandover          => Journaled.Handover(record.named)
-      case JournalRecord.KindHandoverAbandoned => Journaled.HandoverAbandoned(record.named)
-      case JournalRecord.KindConflict => Journaled.Conflict(record.named, record.installation)
+      case JournalRecord.KindDeleted => Journaled.Deleted
+      case JournalRecord.KindExpiry  => Journaled.Expiry(record.expiryMillis)
       case other =>
-        throw IllegalStateException(
-          s"unknown journal record kind $other for '${descriptor.componentId}' " +
-            s"(manifest '${record.manifest}'); the journal was written by a newer runtime"
-        )
+        Platform
+          .of(record)
+          .map(Journaled.Replication(_))
+          .getOrElse(
+            throw IllegalStateException(
+              s"unknown journal record kind $other for '${descriptor.componentId}' " +
+                s"(manifest '${record.manifest}'); the journal was written by a newer runtime"
+            )
+          )
 
   /** The adapter manifest a record of each kind is stored under, mirrored or written here. */
-  private def manifestOf(kind: Int, recordManifest: String): String = kind match
-    case JournalRecord.KindDomain  => recordManifest
+  private def manifestOf(record: JournalRecord): String = record.kind match
     case JournalRecord.KindDeleted => "ankka.deleted"
     case JournalRecord.KindExpiry  => "ankka.expiry"
-    case _                         => recordManifest
+    case _                         => record.manifest
 
   /**
    * Encodes events with the entity's own serializer before they reach Pekko, so the journal holds
@@ -1153,19 +704,14 @@ private[ankka] object EventSourcedEntityHost:
           JournalRecord
             .domain(descriptor.eventSerializer.manifest, descriptor.eventSerializer.toBytes(e))
             .at(self)
-        case Journaled.Deleted                   => JournalRecord.deleted.at(self)
-        case Journaled.Expiry(atMillis)          => JournalRecord.expiry(atMillis).at(self)
-        case Journaled.Home(installation)        => JournalRecord.home(installation).at(self)
-        case Journaled.ReplicationSet(set)       => JournalRecord.replicationSet(set).at(self)
-        case Journaled.Handover(target)          => JournalRecord.handover(target).at(self)
-        case Journaled.HandoverAbandoned(target) => JournalRecord.handoverAbandoned(target).at(self)
-        case Journaled.Conflict(other, _)        => JournalRecord.conflict(other).at(self)
-        case Journaled.Mirrored(record)          => record
+        case Journaled.Deleted          => JournalRecord.deleted.at(self)
+        case Journaled.Expiry(atMillis) => JournalRecord.expiry(atMillis).at(self)
+        case Journaled.Replication(p)   => p.record.at(self)
+        case Journaled.Mirrored(record) => record
 
       def manifest(event: Journaled[E]): String = event match
         case Journaled.Domain(_, _) => descriptor.eventSerializer.manifest
-        case Journaled.Mirrored(r)  => manifestOf(r.kind, r.manifest)
-        case other                  => manifestOf(toJournal(other).kind, toJournal(other).manifest)
+        case other                  => manifestOf(toJournal(other))
 
       def fromJournal(record: JournalRecord, manifest: String): EventSeq[Journaled[E]] =
         EventSeq.single(decode(descriptor, record))

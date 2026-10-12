@@ -16,7 +16,7 @@ from typing import Any, ClassVar, Generic, TypeVar, get_args, get_origin, get_ty
 
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import UNIT, Codec, default_codec_for
-from ankka.context import CommandContext
+from ankka.context import CommandContext, EventContext
 from ankka.effects.event_sourced import EventSourcedEffect, EventSourcedEffects, ReadOnlyEffect
 
 S = TypeVar("S")
@@ -135,6 +135,8 @@ class EventSourcedEntity(Generic[S, E]):
     state_codec: ClassVar[Codec[Any]]
     event_codec: ClassVar[Codec[Any]]
     snapshot_every: ClassVar[int] = 0
+    # Held at every installation in its replication set and written only at its home (1.19).
+    replicated: ClassVar[bool] = False
 
     _handlers: ClassVar[dict[str, HandlerSpec]]
 
@@ -149,6 +151,7 @@ class EventSourcedEntity(Generic[S, E]):
         self.effects: EventSourcedEffects[S, E] = EventSourcedEffects()
         self._state: S | None = None
         self._context: CommandContext | None = None
+        self._event_context: EventContext | None = None
         self._entity_id: str = ""
 
     @property
@@ -181,6 +184,21 @@ class EventSourcedEntity(Generic[S, E]):
             raise RuntimeError("context is only available inside a handler")
         return self._context
 
+    @property
+    def event_context(self) -> EventContext:
+        """Where the event being applied was written. Only inside ``apply_event``."""
+        if self._event_context is None:
+            raise RuntimeError("event_context is only available inside apply_event")
+        return self._event_context
+
+    def _apply(self, state: S, event: E, context: EventContext) -> S:
+        """Applies ``event`` with ``context`` readable as ``event_context``, and unreadable after."""
+        self._event_context = context
+        try:
+            return self.apply_event(state, event)
+        finally:
+            self._event_context = None
+
     # ── Discovery ──────────────────────────────────────────────────────────
 
     @classmethod
@@ -193,7 +211,7 @@ class EventSourcedEntity(Generic[S, E]):
             kind=discovery_pb2.EVENT_SOURCED_ENTITY,
             id=cls.component_id,
             handlers=[h.to_pb() for h in sorted(cls._handlers.values(), key=lambda h: h.name)],
-            event_sourced=discovery_pb2.EventSourcedDetail(snapshot_every=cls.snapshot_every),
+            event_sourced=discovery_pb2.EventSourcedDetail(snapshot_every=cls.snapshot_every, replicated=cls.replicated),
         )
 
     # ── Running a handler (used by the server and the unit testkit) ───────

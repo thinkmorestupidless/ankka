@@ -175,17 +175,24 @@ final class GrpcConversation(
                 init.entityId,
                 init.snapshot.map(s =>
                   EventSourcedIn.Snapshot(s.sequence, Some(toPayload(s.payload)))
-                )
+                ),
+                init.installation.getOrElse("")
               )
             )
           )
         )
         new InstanceSession:
           def event(sequence: Long, payload: Payload): Unit =
+            event(sequence, payload, None)
+          override def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
             out.onNext(
               EventSourcedIn(
                 EventSourcedIn.Message.Event(
-                  EventSourcedIn.Event(sequence, Some(toPayload(payload)))
+                  EventSourcedIn.Event(
+                    sequence,
+                    Some(toPayload(payload)),
+                    installation.getOrElse("")
+                  )
                 )
               )
             )
@@ -212,7 +219,9 @@ final class GrpcConversation(
                         cmd.name,
                         Some(toPayload(cmd.payload)),
                         Some(toMetadata(cmd.metadata)),
-                        cmd.snapshotRequested
+                        cmd.snapshotRequested,
+                        cmd.installation.getOrElse(""),
+                        cmd.atHome
                       )
                     )
                   )

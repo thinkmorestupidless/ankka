@@ -11,6 +11,7 @@ class ReplicationSmokeSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 2.minutes
 
   test("a follower mirrors its home and answers a read; a write there is forwarded") {
+    // docs:start several-installations
     val fleet = AnkkaTestKit.installations("smoke-a", "smoke-b")
     try
       val a       = fleet.start("smoke-a", Seq(Fleet.vehicles.descriptor))
@@ -32,4 +33,5 @@ class ReplicationSmokeSuite extends munit.FunSuite with LogCapturing:
       assertEquals(status.home, Some("smoke-a"))
       assertEquals(status.replicationSet, Set("smoke-a", "smoke-b"))
     finally fleet.stopAll()
+    // docs:end several-installations
   }

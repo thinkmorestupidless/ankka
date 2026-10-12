@@ -14,6 +14,7 @@ message EventSourcedIn {
     string component_id = 1;
     string entity_id = 2;
     optional Snapshot snapshot = 3;             // absent: fresh, or deleted, or expired
+    string installation = 4;                    // 1.19: this installation; empty when none is named
   }
   message Snapshot { int64 sequence = 1; Payload payload = 2; }
   message Event    {

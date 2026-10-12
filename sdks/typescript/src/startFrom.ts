@@ -36,7 +36,7 @@ export function isStartFrom(value: unknown): value is StartFrom {
 /** The first protocol in which a process can declare a view's queries. */
 export const DECLARED_QUERY_PROTOCOL: readonly [number, number] = [1, 13]
 
-function olderThan(protocolVersion: string, [wantMajor, wantMinor]: readonly [number, number]): boolean {
+export function olderThan(protocolVersion: string, [wantMajor, wantMinor]: readonly [number, number]): boolean {
   const [major, minor] = protocolVersion.split(".").map((part) => Number.parseInt(part, 10))
   if (!Number.isFinite(major) || !Number.isFinite(minor)) return false
   return major < wantMajor || (major === wantMajor && minor < wantMinor)

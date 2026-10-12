@@ -2,6 +2,7 @@
 name: ankka-design
 description: Design or review the architecture of an ankka application before writing components — decompose a domain into event sourced and key value entities, views, consumers, workflows, timers, agents and endpoints; decide where each rule lives, what may be eventually consistent, where service boundaries go, and how events, wire names and manifests evolve. Use when a task asks how to structure, model, architect or plan an ankka service, which component to use for something, or whether a design is sound.
 pages:
+  - concepts/replicated-entities.md
   - concepts/designing-services.md
   - concepts/designing-agents.md
   - concepts/components.md
@@ -111,6 +112,29 @@ service never disagree.
 - A timed-out call may still have happened. A retried command must be safe to receive twice.
 - Wire names, component ids, manifests and JSON field names are protocol. Add fields and event cases;
   never rename or remove what a journal already holds. During a rolling update two versions run at once.
+
+## Replicating an entity across installations
+
+Replicate an event sourced entity when readers at several installations need it locally, and one
+installation at a time is the right writer (`references/concepts/replicated-entities.md`).
+
+- **Put the home where the writes are.** Every write goes to the home; one reaching a follower is
+  forwarded, so a home far from its writers makes every write a round trip. Hand the home over when the
+  thing the entity models moves: a vehicle built at a factory and sold at a dealership.
+- **Keep the replication set to the installations that read it.** Each installation in it copies the whole history.
+  Add an installation with `replicateTo` when it starts needing the entity; remove it with
+  `stopReplicatingTo` when it stops, and it keeps what it has.
+- **A read at a follower is behind the home** by up to one poll. A decision that must see the latest
+  state is a command, which runs at the home.
+- **Ids must be issued by one installation.** Creation is local, so one id created at two installations
+  is a conflict that refuses writes. A vehicle's identification number, issued by its factory, is the
+  model.
+- **While the home cannot be reached, nothing writes the entity.** There is no forced takeover. If an
+  installation must keep writing through a partition, it needs an entity of its own.
+- **Publish once.** A consumer that publishes is given only local changes by default, so each change is
+  published by the installation that wrote it; `mirroredChanges` publishes at every installation.
+- Key value entities and workflows do not replicate, and the transport between installations on a
+  network is the licensed `ankka-replication`.
 
 ## Reviewing a design
 

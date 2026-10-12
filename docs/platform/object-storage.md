@@ -226,10 +226,27 @@ moves it, and `ankka services get` says which store a service's bucket is in, it
 answered for the bucket: Google Cloud Storage's XML API, the region `auto`, and the bucket's name. The
 storage credential is in `<service>-cloud-storage`, written once by the provider; it is an HMAC key of the
 service's own cloud identity, granted on its bucket and on nothing else. Configure the client as for
-Garage:
+Garage, with one addition: Google's listing of an object's versions names each one by `<Generation>`
+where S3 says `<VersionId>`, so without the interceptor below an S3 client reads no version id at all
+and a read or delete of "that version" lands on the current one. Google accepts the number as
+`versionId` on a read or a delete; only the listing's element needs renaming.
 
 <!-- include: controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GcsCompatibilitySuite.scala#gcs-client -->
 ```scala
+/** Google lists an object's versions as `<Generation>`; S3 clients read `<VersionId>`. */
+private object GenerationAsVersionId extends ExecutionInterceptor:
+  override def modifyHttpResponseContent(
+      context: Context.ModifyHttpResponse,
+      attributes: ExecutionAttributes
+  ): Optional[InputStream] =
+    val listsVersions = context.httpRequest().rawQueryParameters().containsKey("versions")
+    if !listsVersions || !context.responseBody().isPresent then context.responseBody()
+    else
+      val xml = new String(context.responseBody().get.readAllBytes(), UTF_8)
+        .replace("<Generation>", "<VersionId>")
+        .replace("</Generation>", "</VersionId>")
+      Optional.of(new ByteArrayInputStream(xml.getBytes(UTF_8)))
+
 private lazy val s3: S3Client =
   S3Client
     .builder()
@@ -238,6 +255,9 @@ private lazy val s3: S3Client =
     .forcePathStyle(true)
     .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
     .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
+    .overrideConfiguration(
+      ClientOverrideConfiguration.builder().addExecutionInterceptor(GenerationAsVersionId).build()
+    )
     .credentialsProvider(credentials) // ANKKA_S3_ACCESS_KEY, ANKKA_S3_SECRET_KEY
     .build()
 ```

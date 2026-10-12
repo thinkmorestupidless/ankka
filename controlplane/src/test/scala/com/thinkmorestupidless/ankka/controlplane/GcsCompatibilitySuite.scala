@@ -5,6 +5,8 @@ import software.amazon.awssdk.core.checksums.{
   RequestChecksumCalculation,
   ResponseChecksumValidation
 }
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
+import software.amazon.awssdk.core.interceptor.{Context, ExecutionAttributes, ExecutionInterceptor}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
@@ -21,10 +23,12 @@ import software.amazon.awssdk.services.s3.model.{
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
 
+import java.io.{ByteArrayInputStream, InputStream}
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.nio.charset.StandardCharsets.UTF_8
 import java.time.Duration
-import java.util.UUID
+import java.util.{Optional, UUID}
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -37,10 +41,11 @@ import scala.jdk.CollectionConverters.*
  * for it, when it fails: a workflow that asked for it must not report green having run nothing. It
  * never reads `ankka.cluster.tests`, so the k3s matrix never lists it.
  *
- * The bucket is prepared once by hand (contracts/installation.md): versioning on, soft delete,
- * public access prevention, uniform access, a CORS rule admitting `ANKKA_GCS_ORIGIN`, and an HMAC
- * key of a service account granted on it alone. Tests named for a scenario prove that scenario for
- * `ObjectStorageGcsClusterFeatures`, which cannot reach Google.
+ * The bucket is Terraform in the private infrastructure repository (contracts/installation.md):
+ * versioning on, soft delete, public access prevention, uniform access, a CORS rule admitting
+ * `ANKKA_GCS_ORIGIN`, and an HMAC key of a service account granted objectUser on it alone. Tests
+ * named for a scenario prove that scenario for `ObjectStorageGcsClusterFeatures`, which cannot
+ * reach Google.
  */
 class GcsCompatibilitySuite extends munit.FunSuite:
 
@@ -70,6 +75,20 @@ class GcsCompatibilitySuite extends munit.FunSuite:
     StaticCredentialsProvider.create(AwsBasicCredentials.create(access.get, secret.get))
 
   // docs:start gcs-client
+  /** Google lists an object's versions as `<Generation>`; S3 clients read `<VersionId>`. */
+  private object GenerationAsVersionId extends ExecutionInterceptor:
+    override def modifyHttpResponseContent(
+        context: Context.ModifyHttpResponse,
+        attributes: ExecutionAttributes
+    ): Optional[InputStream] =
+      val listsVersions = context.httpRequest().rawQueryParameters().containsKey("versions")
+      if !listsVersions || !context.responseBody().isPresent then context.responseBody()
+      else
+        val xml = new String(context.responseBody().get.readAllBytes(), UTF_8)
+          .replace("<Generation>", "<VersionId>")
+          .replace("</Generation>", "</VersionId>")
+        Optional.of(new ByteArrayInputStream(xml.getBytes(UTF_8)))
+
   private lazy val s3: S3Client =
     S3Client
       .builder()
@@ -78,6 +97,9 @@ class GcsCompatibilitySuite extends munit.FunSuite:
       .forcePathStyle(true)
       .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
       .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
+      .overrideConfiguration(
+        ClientOverrideConfiguration.builder().addExecutionInterceptor(GenerationAsVersionId).build()
+      )
       .credentialsProvider(credentials) // ANKKA_S3_ACCESS_KEY, ANKKA_S3_SECRET_KEY
       .build()
   // docs:end gcs-client

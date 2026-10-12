@@ -8,9 +8,10 @@
 # request from a fork must not be handed. `-Dankka.gcs.tests=on` makes the suite fail rather than skip
 # when the secrets are missing, so a run cannot report green having run nothing.
 #
-# The bucket is prepared once by hand in the test project (contracts/installation.md of feature 039):
-# versioning on, soft delete 7 days, public access prevention, uniform access, a CORS rule admitting
-# ANKKA_GCS_ORIGIN, and an HMAC key of a service account granted on that bucket alone.
+# The bucket is Terraform in the private infrastructure repository (its `ci` root): versioning on,
+# soft delete 7 days, public access prevention, uniform access, a CORS rule admitting exactly
+# ANKKA_GCS_ORIGIN, and an HMAC key of a service account granted objectUser on that bucket alone.
+# That root's outputs are the three secrets below; change the origin there and here together.
 name: gcs
 on:
   schedule:

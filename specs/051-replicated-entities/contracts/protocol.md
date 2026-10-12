@@ -49,19 +49,24 @@ are never sent to the process as events; the sidecar's remote host folds them it
 ## Replication effects from a process
 
 A process's handler hands over, adds to or removes from the replication set the way it does
-everything else: by describing it in its reply. `EventSourcedOut.Persist` (the reply that carries
-the events) gains two metadata entries, read by the sidecar's remote host and reduced exactly as
-the in-process host reduces `Materialised.replication`:
+everything else: by describing it in its reply. `EventSourcedOut.Reply` gains
+`optional ReplicationChange replication = 6`, read by the sidecar's remote host and reduced exactly
+as the in-process host reduces `Materialised.replication`:
 
-| Entry | Value |
-|---|---|
-| `ankka.replication` | `hand-over`, `replicate-to` or `stop-replicating-to`; absent when the handler asks for none |
-| `ankka.replication.installations` | the installation names, comma separated: one for a handover, one or more for a set change |
+```proto
+message ReplicationChange {
+  oneof change {
+    string hand_over_to = 1;                    // hand the home to this installation
+    SetChange set = 2;                          // add to and remove from the replication set
+  }
+  message SetChange { repeated string add = 1; repeated string remove = 2; }
+}
+```
 
-The entries are metadata, not fields, so a runtime at an older minor ignores them; it has already
-refused the process at discovery for declaring `replicated`, so none reach it. A reply carrying
-`ankka.replication` from a process whose entity is not declared replicated is refused
-`BadRequest`. Every SDK writes exactly these two entries; the conformance case
+The reply has no metadata of its own (its `Outcome` does, and that is the caller's reply), so the
+change is a field. A runtime at an older minor would ignore it; it has already refused the process
+at discovery for declaring `replicated`, so none reaches one. A reply carrying a change from a
+process whose entity is not declared replicated is refused `BadRequest`. The conformance case
 `es.replicated-effects` sends each of the three and asserts the record the runtime wrote.
 
 ## consumer.proto

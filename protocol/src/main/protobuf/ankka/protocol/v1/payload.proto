@@ -27,6 +27,7 @@ enum ErrorCode {
   TIMEOUT = 6;
   UNAVAILABLE = 7;
   WORKFLOW_FAILED = 8;   // 1.18: a workflow a caller waited for failed or was deleted
+  NOT_HOME = 9;          // 1.19: a replicated entity's copy here cannot answer; the message names its home
 }
 
 message Error {

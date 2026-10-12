@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.18`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.19`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -60,6 +60,12 @@ sidecar refuses from an SDK declaring an earlier minor. A runtime before `1.17` 
 `WORKFLOW_FAILED` code and `Error.details`, and the `await_end` import for a module. An earlier
 runtime answers either rpc `UNIMPLEMENTED`, which each SDK reports as the runtime being too old,
 and refuses a module importing `await_end` when it loads.
+`1.19` added replicated entities: `EventSourcedDetail.replicated` and
+`ConsumerDetail.mirrored_changes` in discovery, `installation` on an event, `installation` and
+`at_home` on a command, a reply's `ReplicationChange` (a handover or a change to the replication
+set), the `NOT_HOME` code, and `ankka.installation` and `ankka.local` on a consumer's request. A
+sidecar refuses a replicated entity from an SDK declaring an earlier minor, and an SDK declaring one
+refuses discovery from a runtime that states an earlier one.
 
 `MAJOR.MINOR`. Within a major:
 

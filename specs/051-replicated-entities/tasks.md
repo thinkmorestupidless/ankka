@@ -56,7 +56,7 @@ not a feature step.
 **Purpose**: the one error code, the declaration flag, the variables, the settings and the wire
 fields every later task spells the same way; and the record bytes pinned *before* a field is added.
 
-- [ ] T001 Pin the bytes before anything changes: in `TKT/JournalRecordCompatibilitySuite.scala`
+- [X] T001 Pin the bytes before anything changes: in `TKT/JournalRecordCompatibilitySuite.scala`
   (new, modelled on `TKT/StateRecordCompatibilitySuite.scala` and `TKT/WorkflowRecordCompatibilitySuite.scala`)
   write a domain, a deleted and an expiry `JournalRecord` through the host's CBOR codec and compare
   each, in hex, with one line of `modules/testkit/src/test/resources/journal/journal-record.txt`,
@@ -64,42 +64,42 @@ fields every later task spells the same way; and the record bytes pinned *before
   `StateRecordCompatibilitySuite` with the assertion that a `StateRecord` and a `RemoteStateRecord`
   from today still match their lines after T010 adds fields. Run both: green on the branch as it is;
   that is the baseline SC-005 measures against
-- [ ] T002 Add `NotHome` as a case of `enum ErrorCode` in `CORE/CommandError.scala` (`Conflict`
+- [X] T002 Add `NotHome` as a case of `enum ErrorCode` in `CORE/CommandError.scala` (`Conflict`
   exists at `:45`; `retryable` is unchanged); a scaladoc line saying a `NotHome` names the home in
   its message. Run `sbt core/compile`: every exhaustive `match` over `ErrorCode` that fails is the
   list for T003
-- [ ] T003 Give each exhaustive match its case, as 048's T002 did: `HttpProblem.from` in
+- [X] T003 Give each exhaustive match its case, as 048's T002 did: `HttpProblem.from` in
   `modules/http/src/main/scala/…/http/HttpEndpoint.scala` maps `NotHome` to 421 (misdirected
   request) with the home in the body; `GrpcStatus` in `modules/grpc/src/main/scala/…/grpc/GrpcStatus.scala`
-  maps it to `FAILED_PRECONDITION`; `Translate.toCode` in `SC/Translate.scala` maps it to
+  maps it to `OUT_OF_RANGE` (`FAILED_PRECONDITION` is `Conflict`'s and the map is one to one); `Translate.toCode` in `SC/Translate.scala` maps it to
   `pb.ErrorCode.NOT_HOME` (compiles after T006); `Observability.outcomeOf` in `RT/Observability.scala`
   reads `NotHome` and `Conflict` as `Refused` (plan's gate "a refusal is not a failure"). Cases in
   the suites that hold each mapping (`GrpcStatusSuite`'s `codes == ErrorCode.values` goes red before
   and green after)
-- [ ] T004 [P] Add `def replicated: Boolean = false` to `trait ComponentDescriptor` in
+- [X] T004 [P] Add `def replicated: Boolean = false` to `trait ComponentDescriptor` in
   `CORE/ComponentDescriptor.scala`; `EventSourcedEntityDescriptor` in `SDK/EventSourcedEntity.scala:188`
   gains `replicated: Boolean` as a field and overrides it; `Companion` (`:107` region, beside
   `snapshotEvery`) gains `def replicated: Boolean = false` and `descriptor` (`:168`) passes it. Case
   in `SDKT`: a companion overriding `replicated = true` has a descriptor saying so; every other
   descriptor says `false`
-- [ ] T005 [P] In `CORE/PlatformVariables.scala` add `ANKKA_INSTALLATION` to `PlatformOnly` (`:128`)
+- [X] T005 [P] In `CORE/PlatformVariables.scala` add `ANKKA_INSTALLATION` to `PlatformOnly` (`:128`)
   and `ANKKA_INSTALLATION_` to `RuntimeOnlyPrefixes` (`:173`), each with the one-line comment the
   others have (R9). `PlatformDeclarationSuite` and the operator's compile of the same file stay
   green; a case in `CORET` that `platformOnly("ANKKA_INSTALLATION")` and
   `runtimeOnly("ANKKA_INSTALLATION_B_DB_PASSWORD")` hold. In `API/descriptors.scala`
   `ServiceSpec.problems` (`:18`) refuses both as it refuses every platform-only variable; a case in
   `controlplane-api`'s `DescriptorSuite`
-- [ ] T006 [P] Protocol: in `PROTO/discovery.proto` add `bool replicated = 2;` to
+- [X] T006 [P] Protocol: in `PROTO/discovery.proto` add `bool replicated = 2;` to
   `EventSourcedDetail` (`:54`) and `bool mirrored_changes = 5;` to `ConsumerDetail` (`:125`); in
   `PROTO/event_sourced.proto` add `string installation = 3;` to `EventSourcedIn.Event` and
   `string installation` and `bool at_home` at the next free numbers of `EventSourcedIn.Command`;
   add `NOT_HOME` to `ErrorCode` in `PROTO/payload.proto`; each with the `// 1.19:` comment
   contracts/protocol.md gives. Document the two `ConsumerRequest.metadata` entries in
-  `PROTO/consumer.proto`'s comment and the two `EventSourcedOut.Persist` metadata entries
-  `ankka.replication` and `ankka.replication.installations` (contracts/protocol.md "Replication
-  effects from a process") in `PROTO/event_sourced.proto`'s comment. Copy to the three SDKs with `PY/scripts/proto.py`,
+  `PROTO/consumer.proto`'s comment, and add `optional ReplicationChange replication = 6` to
+  `EventSourcedOut.Reply` with the `ReplicationChange` message (contracts/protocol.md "Replication
+  effects from a process"). Copy to the three SDKs with `PY/scripts/proto.py`,
   `npm run proto` in `TS`, `RS/scripts/proto.sh`; `diff -r` all three against `PROTO`
-- [ ] T007 [P] Bump the version to 1.19: `WireProtocol.Version` in `RT/remote/Conversation.scala:183`;
+- [X] T007 [P] Bump the version to 1.19: `WireProtocol.Version` in `RT/remote/Conversation.scala:183`;
   `ProtocolVersion(1, 19)` and a scaladoc line in `API/Compatibility.scala:77`;
   `PROTOCOL_VERSION` in `PY/src/ankka/service.py:28`, `TS/src/spec.ts:28`,
   `RS/ankka/src/service.rs:22`; `## Version` in `protocol/README.md:16` and its SDK copies. Move the
@@ -107,7 +107,7 @@ fields every later task spells the same way; and the record bytes pinned *before
   `CompatibilitySuite.scala:58` (1.19 supported, 1.20 not), `TS/test/contracts.test.ts:124`,
   `RS/ankka/tests/contracts_discovery.rs:119`. `AWAIT_SINCE` in `PY/tests/test_await_old_runtime.py:96`
   stays 1.18: it names when awaiting arrived, not the current version
-- [ ] T008 [P] Settings: in `modules/runtime/src/main/resources/reference.conf` add under `ankka`
+- [X] T008 [P] Settings: in `modules/runtime/src/main/resources/reference.conf` add under `ankka`
   a `replication` block: `installation = ""` with `${?ANKKA_INSTALLATION}`, `installations {}`
   (a map of name to `db { host, port, name, user, password }`, documented as rendered from
   `ANKKA_INSTALLATION_<NAME>_DB_*` by the `ClusterConfig` overlay that renders the other `ANKKA_*_DB_*`
@@ -118,7 +118,7 @@ fields every later task spells the same way; and the record bytes pinned *before
   `|` or `/` or longer than 63 characters with a message naming the setting, and a `self` that is
   `None` when `installation` is empty. Case in `RTT/ReplicationSettingsSuite.scala`: the defaults,
   a two-sibling map, an empty `installation`, a refused name
-- [ ] T009 [P] Effects as values: in `CORE/effect/EventSourcedEffect.scala` add
+- [X] T009 [P] Effects as values: in `CORE/effect/EventSourcedEffect.scala` add
   `enum ReplicationChange { case HandOver(to: String); case SetChange(add: Set[String], remove: Set[String]) }`;
   `Persisting` (`:30`) gains `replication: Option[ReplicationChange] = None`; `PersistBuilder`
   (`:116`) gains `handOverTo(installation: String)`, `replicateTo(installation: String)`,
@@ -679,7 +679,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   event's `installation` into its state; the sidecar is started with `installation = "a"` and no
   siblings in the test, so `at_home` is true and `installation` is `a`), `es.replicated-effects`
   (the reference entity's `hand-over`, `replicate-to` and `stop-replicating-to` commands each
-  answer with the two metadata entries of contracts/protocol.md "Replication effects from a
+  answer with the reply's `ReplicationChange` of contracts/protocol.md "Replication effects from a
   process", and the sidecar's host writes kind 5 or kind 4; a reply carrying `ankka.replication`
   from an entity not declared replicated is `BadRequest`), `consumer.mirrored-declares` (a consumer
   declared `mirrored_changes` discovers so). Each case names the SDK rule it holds in its
@@ -696,7 +696,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   `PY/src/ankka/server.py` sends `replicated` and `mirrored_changes` in discovery and refuses a
   runtime below 1.19 at discovery when any entity is replicated, naming it; `PY/src/ankka/testkit/unit.py`
   drives an entity as home or follower (`mode="follower", home="a"`). The effects reach the runtime
-  as the two reply metadata entries contracts/protocol.md "Replication effects from a process"
+  as the reply's `ReplicationChange` field contracts/protocol.md "Replication effects from a process"
   names, which `RemoteEventSourcedHost` (T055) reduces as the in-process host reduces
   `Materialised.replication`
 - [ ] T058 [P] [US7] Tests `PY/tests/test_replicated.py`: the declaration in discovery; the unit
@@ -713,7 +713,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   gains `handOverTo`, `replicateTo`, `stopReplicatingTo`; `TS/src/consumer.ts` gains
   `mirroredChanges?: boolean` and the change context fields; `TS/src/server/discovery.ts` sends
   both flags and refuses a runtime below 1.19 naming it; `TS/src/server/eventSourced.ts` sets the
-  context from the message's fields and writes the effect's metadata entries as T057's;
+  context from the message's fields and writes the effect's `ReplicationChange` as T057's;
   `TS/src/testkit/unit.ts` drives home or follower
 - [ ] T060 [P] [US7] Tests `TS/test/replicated.test.ts` (unit: discovery flag, follower refusal,
   the context) and the slow integration case under `npm run test:slow` against `ANKKA_SIDECAR_IMAGE`
@@ -726,7 +726,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   on the trait with a default; `apply_event(&self, state, event, ctx: &EventContext)` with
   `EventContext { installation(), is_local(), sequence() }` and `CommandContext::installation()`,
   `is_home()` in `RS/ankka/src/context.rs`; `RS/ankka/src/effects/event_sourced.rs` gains
-  `hand_over_to`, `replicate_to`, `stop_replicating_to`, materialised into the metadata entries
+  `hand_over_to`, `replicate_to`, `stop_replicating_to`, materialised into the reply's `ReplicationChange`
   (`RS/ankka/src/effects/materialise.rs`); `RS/ankka/src/components/consumer.rs` gains
   `const MIRRORED_CHANGES: bool = false` and the change context fields; the module descriptor in
   `RS/ankka/src/abi/exports.rs` carries both flags and the host-to-module event and command records
@@ -858,7 +858,7 @@ scenarios) and `just docs`.
   two variables, with the platform-only and runtime-only marks the table uses;
   `DOCS/reference/error-codes.md`: `NotHome` with its HTTP and gRPC mappings (T003) and the
   `Conflict` and `Unavailable` meanings replication adds; `DOCS/reference/sidecar-protocol.md`:
-  the 1.19 fields and the two metadata entries; `DOCS/reference/scala-sdk.md`, `python-sdk.md`,
+  the 1.19 fields and the consumer's two metadata entries; `DOCS/reference/scala-sdk.md`, `python-sdk.md`,
   `typescript-sdk.md`, `rust-sdk.md`: the declaration, the effects and the contexts in each
   language's idiom
 - [ ] T073 [P] [US10] Skills: `SKILL/ankka-entities/SKILL.md` (declaring, the effects, the

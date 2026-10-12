@@ -40,6 +40,8 @@ object HttpProblem:
       // Failed Dependency: the call was answered, and what it waited on failed. Told apart from
       // every refusal (400–409) and from the call itself breaking (500, 503, 504).
       case ErrorCode.WorkflowFailed => 424
+      // Misdirected Request: this installation's copy cannot answer; the message names the home.
+      case ErrorCode.NotHome => 421
     HttpProblem(status, error.message, error.details)
 
 /**

@@ -106,6 +106,13 @@ object EventSourcedEntity:
     /** How often to snapshot. `None` disables snapshotting for this entity. */
     def snapshotEvery: Option[Int] = Some(100)
 
+    /**
+     * Whether this entity is replicated: its history held at every installation in its replication
+     * set, written only at its home, read at any of them. Off by default; an entity that never says
+     * so writes the journal it always wrote.
+     */
+    def replicated: Boolean = false
+
     /** Registers a handler that takes one argument and may persist events. */
     protected final def command[I, O](name: String)(
         f: C => I => EventSourcedEffect[S, E, O]
@@ -181,7 +188,8 @@ object EventSourcedEntity:
         create,
         snapshotEvery,
         bindings.map(b => b.name -> b).toMap,
-        platform
+        platform,
+        replicated
       )
 
 /** The registered form of an event sourced entity. */
@@ -192,7 +200,8 @@ final case class EventSourcedEntityDescriptor[C <: EventSourcedEntity[S, E], S, 
     create: EventSourcedEntityContext => C,
     snapshotEvery: Option[Int],
     handlers: Map[MethodName, HandlerBinding[C]],
-    override val platform: Boolean = false
+    override val platform: Boolean = false,
+    override val replicated: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.EventSourcedEntity
 

@@ -44,6 +44,7 @@ private[sidecar] object Translate:
     case ErrorCode.Unavailable    => pb.ErrorCode.UNAVAILABLE
     case ErrorCode.Internal       => pb.ErrorCode.INTERNAL
     case ErrorCode.WorkflowFailed => pb.ErrorCode.WORKFLOW_FAILED
+    case ErrorCode.NotHome        => pb.ErrorCode.NOT_HOME
   def toPayload(p: Payload): pb.Payload =
     pb.Payload(p.contentType, p.manifest, ByteString.copyFrom(p.data))
   def fromPayload(p: pb.Payload): Payload = Payload(p.contentType, p.manifest, p.data.toByteArray)
@@ -60,6 +61,7 @@ private[sidecar] object Translate:
     case pb.ErrorCode.TIMEOUT         => ErrorCode.Timeout
     case pb.ErrorCode.UNAVAILABLE     => ErrorCode.Unavailable
     case pb.ErrorCode.WORKFLOW_FAILED => ErrorCode.WorkflowFailed
+    case pb.ErrorCode.NOT_HOME        => ErrorCode.NotHome
     case _                            => ErrorCode.Internal
   def fromError(e: pb.Error): CommandError = CommandError(e.message, fromCode(e.code), e.details)
   def fromFailure(f: pb.Failure): ProcessFailure =

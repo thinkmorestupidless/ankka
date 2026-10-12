@@ -16,6 +16,19 @@ sealed trait EventSourcedEffect[S, E, +R]:
   private[ankka] def events: Vector[E]
   private[ankka] def retention: Option[Retention]
   private[ankka] def outcome: Outcome[S, R]
+  private[ankka] def replication: Option[ReplicationChange] = None
+
+/**
+ * What a replicated entity's handler asks of its home beside the events it persists (feature 051):
+ * a handover to another installation, or a change to the replication set. Written by the home after
+ * the events, as a record in the entity's own journal.
+ */
+enum ReplicationChange:
+  /** Hand the home to `to`, once it holds everything before the handover. */
+  case HandOver(to: String)
+
+  /** Add `add` to the replication set and take `remove` out of it, as one record. */
+  case SetChange(add: Set[String], remove: Set[String])
 
 /**
  * An effect that provably persists nothing, so the runtime may serve it from a replica without
@@ -30,7 +43,8 @@ object EventSourcedEffect:
   private[ankka] final case class Persisting[S, E, R](
       events: Vector[E],
       retention: Option[Retention],
-      outcome: Outcome[S, R]
+      outcome: Outcome[S, R],
+      override val replication: Option[ReplicationChange] = None
   ) extends EventSourcedEffect[S, E, R]
 
   private[ankka] final case class ReadOnly[S, E, R](
@@ -45,7 +59,8 @@ object EventSourcedEffect:
       events: Vector[E],
       newState: S,
       retention: Option[Retention],
-      reply: Either[CommandError, Option[R]]
+      reply: Either[CommandError, Option[R]],
+      replication: Option[ReplicationChange] = None
   ):
     def persisted: Boolean      = events.nonEmpty
     def replyOrThrow: Option[R] = reply.fold(throw _, identity)
@@ -68,10 +83,16 @@ object EventSourcedEffect:
         Materialised(Vector.empty, current, None, Left(error))
       case Outcome.NoReply =>
         val next = effect.events.foldLeft(current)(applyEvent)
-        Materialised(effect.events, next, effect.retention, Right(None))
+        Materialised(effect.events, next, effect.retention, Right(None), effect.replication)
       case Outcome.Reply(compute, _) =>
         val next = effect.events.foldLeft(current)(applyEvent)
-        Materialised(effect.events, next, effect.retention, Right(Some(compute(next))))
+        Materialised(
+          effect.events,
+          next,
+          effect.retention,
+          Right(Some(compute(next))),
+          effect.replication
+        )
 
 /**
  * The `effects` surface available inside an event sourced entity's command handlers.
@@ -112,31 +133,92 @@ final class EventSourcedEffects[S, E] private[ankka] ():
   def noReply[R]: ReadOnlyEffect[S, E, R] =
     ReadOnly(Outcome.NoReply)
 
+  /**
+   * Hand a replicated entity's home to `installation`, with no event of its own. The handover is
+   * recorded once the new home holds everything before it; until then this home goes on as home.
+   */
+  def handOverTo(installation: String): PersistBuilder[S, E] =
+    new PersistBuilder[S, E](Vector.empty, None).handOverTo(installation)
+
+  /** Add `installation` to a replicated entity's replication set, with no event of its own. */
+  def replicateTo(installation: String): PersistBuilder[S, E] =
+    new PersistBuilder[S, E](Vector.empty, None).replicateTo(installation)
+
+  /** Take `installation` out of a replicated entity's replication set; it keeps its copy. */
+  def stopReplicatingTo(installation: String): PersistBuilder[S, E] =
+    new PersistBuilder[S, E](Vector.empty, None).stopReplicatingTo(installation)
+
 /** Accumulates events and retention before the reply is chosen. */
 final class PersistBuilder[S, E] private[ankka] (
     private val events: Vector[E],
-    private val retention: Option[Retention]
+    private val retention: Option[Retention],
+    private val replication: Option[ReplicationChange] = None
 ):
   import EventSourcedEffect.*
 
   /** Persist these events, then delete the entity. */
   def deleteEntity(): PersistBuilder[S, E] =
-    new PersistBuilder(events, Some(Retention.DeleteNow))
+    new PersistBuilder(events, Some(Retention.DeleteNow), replication)
 
   /** Delete automatically after `duration` with no further update. */
   def expireAfter(duration: FiniteDuration): PersistBuilder[S, E] =
-    new PersistBuilder(events, Some(Retention.ExpireAfter(duration)))
+    new PersistBuilder(events, Some(Retention.ExpireAfter(duration)), replication)
+
+  /**
+   * Persist these events, then hand a replicated entity's home to `installation`, which must be in
+   * its replication set. The handover is recorded once the new home holds everything before it.
+   * Cannot be combined with a change to the replication set on one command.
+   */
+  def handOverTo(installation: String): PersistBuilder[S, E] =
+    replication match
+      case None =>
+        new PersistBuilder(events, retention, Some(ReplicationChange.HandOver(installation)))
+      case Some(other) => throw PersistBuilder.twoChanges(other)
+
+  /**
+   * Persist these events, then add `installation` to a replicated entity's replication set. Several
+   * on one command are recorded together.
+   */
+  def replicateTo(installation: String): PersistBuilder[S, E] =
+    setChange(add = Set(installation), remove = Set.empty)
+
+  /**
+   * Persist these events, then take `installation` out of a replicated entity's replication set. It
+   * stops mirroring and keeps its copy, which no query reads again.
+   */
+  def stopReplicatingTo(installation: String): PersistBuilder[S, E] =
+    setChange(add = Set.empty, remove = Set(installation))
+
+  private def setChange(add: Set[String], remove: Set[String]): PersistBuilder[S, E] =
+    val change = replication match
+      case None => ReplicationChange.SetChange(add, remove)
+      case Some(ReplicationChange.SetChange(a, r)) =>
+        val both = (a ++ add).intersect(r ++ remove)
+        if both.nonEmpty then
+          throw IllegalArgumentException(
+            s"a command both adds and removes ${both.mkString(", ")} in the replication set"
+          )
+        ReplicationChange.SetChange(a ++ add, r ++ remove)
+      case Some(other) => throw PersistBuilder.twoChanges(other)
+    new PersistBuilder(events, retention, Some(change))
 
   /** Reply with a value derived from the state *after* the events are applied. */
   def thenReply[R](compute: S => R): EventSourcedEffect[S, E, R] =
-    Persisting(events, retention, Outcome.Reply(compute, Metadata.empty))
+    Persisting(events, retention, Outcome.Reply(compute, Metadata.empty), replication)
 
   def thenReply[R](compute: S => R, metadata: Metadata): EventSourcedEffect[S, E, R] =
-    Persisting(events, retention, Outcome.Reply(compute, metadata))
+    Persisting(events, retention, Outcome.Reply(compute, metadata), replication)
 
   /** Reply with the post-event state itself. */
   def thenReplyState: EventSourcedEffect[S, E, S] =
-    Persisting(events, retention, Outcome.Reply(identity, Metadata.empty))
+    Persisting(events, retention, Outcome.Reply(identity, Metadata.empty), replication)
 
   def thenNoReply[R]: EventSourcedEffect[S, E, R] =
-    Persisting(events, retention, Outcome.NoReply)
+    Persisting(events, retention, Outcome.NoReply, replication)
+
+private object PersistBuilder:
+  def twoChanges(already: ReplicationChange): IllegalArgumentException =
+    IllegalArgumentException(
+      "a command asks for one handover or one change to the replication set; it already asked " +
+        s"for $already"
+    )

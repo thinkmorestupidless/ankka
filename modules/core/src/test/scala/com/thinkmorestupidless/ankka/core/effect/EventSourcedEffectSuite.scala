@@ -121,3 +121,45 @@ class EventSourcedEffectSuite extends munit.FunSuite:
     assertEquals(run(effect).reply, Right(Some("computed")))
     assert(evaluated)
   }
+
+  test("a handover is carried beside the events it follows, and the reply is kept") {
+    val result = run(effects.persist(Increased(1)).handOverTo("vienna").thenReply(_.value))
+    assertEquals(result.events, Vector(Increased(1)))
+    assertEquals(result.replication, Some(ReplicationChange.HandOver("vienna")))
+    assertEquals(result.reply, Right(Some(1)))
+  }
+
+  test("a change to the replication set needs no event of its own") {
+    val result = run(effects.replicateTo("vienna").thenNoReply)
+    assert(result.events.isEmpty)
+    assertEquals(
+      result.replication,
+      Some(ReplicationChange.SetChange(Set("vienna"), Set.empty))
+    )
+  }
+
+  test("several additions and removals on one command are one change to the set") {
+    val result = run(
+      effects
+        .persist(Increased(1))
+        .replicateTo("vienna")
+        .replicateTo("bratislava")
+        .stopReplicatingTo("leipzig")
+        .thenNoReply
+    )
+    assertEquals(
+      result.replication,
+      Some(ReplicationChange.SetChange(Set("vienna", "bratislava"), Set("leipzig")))
+    )
+  }
+
+  test("a handover beside a change to the set, or one name both added and removed, is refused") {
+    intercept[IllegalArgumentException](effects.handOverTo("a").replicateTo("b"))
+    intercept[IllegalArgumentException](effects.replicateTo("b").handOverTo("a"))
+    intercept[IllegalArgumentException](effects.replicateTo("b").stopReplicatingTo("b"))
+  }
+
+  test("a refusal carries no replication change, and nothing else asks for one") {
+    assertEquals(run(effects.error[Int]("no")).replication, None)
+    assertEquals(run(effects.persist(Increased(1)).thenNoReply).replication, None)
+  }

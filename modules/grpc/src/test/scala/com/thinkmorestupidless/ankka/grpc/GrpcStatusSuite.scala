@@ -14,7 +14,8 @@ class GrpcStatusSuite extends munit.FunSuite:
     ErrorCode.Timeout        -> Status.Code.DEADLINE_EXCEEDED,
     ErrorCode.Unavailable    -> Status.Code.UNAVAILABLE,
     ErrorCode.Internal       -> Status.Code.INTERNAL,
-    ErrorCode.WorkflowFailed -> Status.Code.ABORTED
+    ErrorCode.WorkflowFailed -> Status.Code.ABORTED,
+    ErrorCode.NotHome        -> Status.Code.OUT_OF_RANGE
   )
 
   test("every code maps to its status, with the message, and back to itself") {

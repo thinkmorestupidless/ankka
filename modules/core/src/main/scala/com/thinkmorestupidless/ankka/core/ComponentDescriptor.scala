@@ -47,6 +47,13 @@ trait ComponentDescriptor:
    */
   def platform: Boolean = false
 
+  /**
+   * Whether this component's history is held at several installations, written only at its home
+   * (feature 051). Only an event sourced entity may say so: the registry and the control plane's
+   * descriptor rules refuse any other kind that does.
+   */
+  def replicated: Boolean = false
+
   override def toString: String = s"$kind($componentId)"
 
 /** What a declared handler is for. It says how the handler is reported, never how it is run. */

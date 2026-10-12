@@ -16,13 +16,23 @@ message EventSourcedIn {
     optional Snapshot snapshot = 3;             // absent: fresh, or deleted, or expired
   }
   message Snapshot { int64 sequence = 1; Payload payload = 2; }
-  message Event    { int64 sequence = 1; Payload payload = 2; }
+  message Event    {
+    int64 sequence = 1;
+    Payload payload = 2;
+    // 1.19: the installation that wrote the event; empty on a service that names no installations.
+    // A record from before replication reads as written at the entity's home.
+    string installation = 3;
+  }
   message Command  {
     int64 id = 1;                               // per stream, from 1, monotonic
     string name = 2;                            // the handler's wire name
     Payload payload = 3;
     Metadata metadata = 4;
     bool snapshot_requested = 5;                // include `snapshot` in the reply
+    string installation = 6;                    // 1.19: this installation; empty when none is named
+    // 1.19: whether this installation is the entity's home (true when none is named). A persisting
+    // command reaches a process only at the home; a read-only one may arrive at a follower.
+    bool at_home = 7;
   }
 }
 
@@ -34,5 +44,17 @@ message EventSourcedOut {
     optional Retention retention = 3;
     Outcome outcome = 4;
     optional Payload snapshot = 5;              // the state after `events`, when requested
+    // 1.19: a handover or a change to the replication set, written after `events`. Only from an
+    // entity discovered as replicated; the runtime refuses it from any other.
+    optional ReplicationChange replication = 6;
   }
+}
+
+// 1.19: what a replicated entity's handler asks of its home, beside the events it persists.
+message ReplicationChange {
+  oneof change {
+    string hand_over_to = 1;                    // hand the home to this installation
+    SetChange set = 2;                          // add to and remove from the replication set
+  }
+  message SetChange { repeated string add = 1; repeated string remove = 2; }
 }

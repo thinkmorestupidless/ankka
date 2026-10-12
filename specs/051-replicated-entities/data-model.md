@@ -119,14 +119,16 @@ Sent only inside one installation, never on the wire between installations.
 | `ankka.replication.handover.hold-writes` | none | `off` | hold persisting commands while a handover waits (clarification Q4) |
 | `ankka.replication.handover.timeout` | none | `30s` | abandon a held handover after this |
 
-`ANKKA_INSTALLATION` and the `ANKKA_INSTALLATION_` prefix are platform-only and runtime-only
-respectively in `PlatformVariables`; a descriptor that sets either is refused.
+`ANKKA_INSTALLATION` is platform-only in `PlatformVariables`: a descriptor that sets it is refused.
+The `ANKKA_INSTALLATION_` prefix is runtime-only: a descriptor may give a sibling's database, and it
+reaches the platform's program and never a process. A name read from the environment is lower-cased
+with `_` read as `-`.
 
 ## Errors (R10, R11)
 
 | Code | New | When |
 |---|---|---|
-| `ErrorCode.NotHome` | yes | a persisting command at a copy whose home cannot be reached, or a read at a copy outside the replication set; the message names the home. HTTP 421 (misdirected request), gRPC `FAILED_PRECONDITION`, protocol `NOT_HOME` |
+| `ErrorCode.NotHome` | yes | a persisting command at a copy whose home cannot be reached, or a read at a copy outside the replication set; the message names the home. HTTP 421 (misdirected request), gRPC `OUT_OF_RANGE` (`FAILED_PRECONDITION` is `Conflict`'s, and the reverse map is one to one), protocol `NOT_HOME` |
 | `ErrorCode.Conflict` | reuse if present, else new | a persisting command at a copy in conflict; the message names the other home |
 | `ErrorCode.Unavailable` | no | a held handover abandoned at its timeout, answered to a caller of `ankka:handover-status`; the message names the target |
 | `ErrorCode.BadRequest` | no | a handover or a replication-set change naming an installation the service does not name, or a handover to one outside the set |

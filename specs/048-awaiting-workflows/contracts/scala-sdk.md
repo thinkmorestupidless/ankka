@@ -68,8 +68,8 @@ def awaitEnd[W <: Workflow[S], S](workflowId: EntityId, companion: Workflow.Comp
 sseEvents("/reports/{id}") { id => clients.awaitEnd(EntityId(id), ReportWorkflow, 10.minutes) }
 ```
 
-- Emits `SseEvent.heartbeat` every heartbeat interval (a third of the server's idle timeout, 20s
-  when infinite), then exactly one of `SseEvent.ended(stateJson)`, `SseEvent.failed(error)` or
+- Emits `SseEvent.heartbeat` every heartbeat interval (`ankka.http.sse.heartbeat`, or half the
+  server's idle timeout when sooner), then exactly one of `SseEvent.ended(stateJson)`, `SseEvent.failed(error)` or
   `SseEvent.timedOut(timeout)`, and completes.
 - `SseEvent` gains `heartbeat: SseEvent`, `ended(json: String)`, `failed(error: CommandError)`,
   `timedOut(timeout: FiniteDuration)`, each a named event with JSON data (`runtime.md`: SSE payloads

@@ -83,7 +83,9 @@ the `thenRun` after the persist (`ended`, `answerWaiters`), and `PostStop` answe
 `Client` span (`reserve`/`record`) counted once. Nothing about a wait is journalled. A failure records its
 step (`Event.Failed(_, step)`, `WorkflowRecord.step`, `WorkflowSnapshot.failedStep`) and answers
 `WorkflowFailed` with `details`; a completed state carries its manifest and content type as reply metadata
-for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Heartbeat.interval`.
+for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Heartbeat.interval`: the one
+reader of `ankka.http.sse.heartbeat` (047's), which every SSE route's keep-alive and the sidecar's wait
+stream also take, so the interval cannot differ between them.
 
 ## Traps
 
@@ -194,7 +196,7 @@ for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Hear
   `AwaitTransportSuite` holds the two together. Rewording that message without the matcher makes a wait
   across a rolling update hang for its whole timeout.
 - **pekko writes `infinite` for an idle timeout Scala's `Duration` cannot parse.** `Heartbeat.interval`
-  reads the setting as pekko does; `Duration(config.getString(...))` threw `NumberFormatException` on it.
+  reads the idle timeout as pekko does; `Duration(config.getString(...))` threw `NumberFormatException` on it.
 - **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
   enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
   `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.

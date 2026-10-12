@@ -55,8 +55,8 @@ unloaded service; FR-005, answered where the end is journalled, no polling inter
 
 **Constraints**: a command is sent once and a query is resent within one ask; the await is neither
 and has its own loop in `ShardingTransport` (R2). The hold per ask is half `ankka.ask-timeout`,
-so no attempt times out at the transport while the wait is healthy. The heartbeat is a third of
-`pekko.http.server.idle-timeout`, never set by the caller. No new configuration key (the spec:
+so no attempt times out at the transport while the wait is healthy. The heartbeat is the server's
+SSE heartbeat (047's `ankka.http.sse.heartbeat`, or half the idle timeout), never set by the caller. No new configuration key (the spec:
 "no interval is configured"). A behaviour an older runtime must refuse is a new rpc, not a new
 field (`sidecar.md`); the protocol's new `Error.details` only enriches what the new rpcs return.
 Every exhaustive `match` over `ErrorCode` gains a case (R3 lists them). No test binds a fixed port.

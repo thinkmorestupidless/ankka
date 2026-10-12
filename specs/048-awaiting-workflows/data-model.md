@@ -111,7 +111,8 @@ message StreamToken { oneof token { string text = 1; Empty completed = 2; Error 
 | `failed` | `{"code":"WorkflowFailed","message":…,"step":…,"reason":…,"deleted":…}` | failed or deleted; the stream completes |
 | `timed-out` | `{"timeout":"PT30S"}` | the caller's timeout passed; the stream completes |
 
-The heartbeat interval is a third of `pekko.http.server.idle-timeout`, 20 seconds when infinite.
+The heartbeat interval is `ankka.http.sse.heartbeat` (15s), or half `pekko.http.server.idle-timeout`
+when that is sooner (R7, as built).
 
 ## Validation rules (from the requirements)
 

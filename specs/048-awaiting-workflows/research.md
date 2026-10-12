@@ -196,6 +196,10 @@ the sidecar's stream rpc take their interval from that setting instead of a thir
 timeout, and the named `heartbeat` event stays, since `serving.feature` asserts the browser receives
 one. Either way the caller never sets it.
 
+**As built**: 047 merged first, so `Heartbeat.interval` reads `ankka.http.sse.heartbeat`, halved to
+half the idle timeout when that is sooner — 047's rule, with `SseSettings.heartbeat` now delegating to it
+so the setting has one reader. `serving.feature`'s three-second idle timeout gives a 1.5-second heartbeat.
+
 ## R8. The protocol: two rpcs, one field, version 1.15
 
 **Decision**: `client.proto` gains

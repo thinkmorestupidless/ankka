@@ -20,7 +20,7 @@ import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
 import org.apache.pekko.http.scaladsl.marshalling.Marshal
 import org.apache.pekko.http.impl.engine.ws.AnkkaSocketUpgrade
 
-import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.math.Ordering.Implicits.seqOrdering
 import scala.util.control.NonFatal
@@ -1116,18 +1116,10 @@ private[http] final class SocketUpgrades(
 private[http] object SseSettings:
 
   /**
-   * How long an event stream may be quiet before the service sends a heartbeat: the configured
-   * interval, or half pekko-http's own idle timeout when that is shorter, so a quiet stream is
-   * never ended by the idle timeout whatever the two are set to.
+   * How long an event stream may be quiet before the service sends a heartbeat:
+   * `Heartbeat.interval`.
    */
-  def heartbeat(system: ActorSystem[?]): FiniteDuration =
-    val every =
-      FiniteDuration(system.settings.config.getDuration("ankka.http.sse.heartbeat").toMillis, "ms")
-    if every <= Duration.Zero then
-      throw IllegalArgumentException(s"ankka.http.sse.heartbeat must be positive, not $every")
-    org.apache.pekko.http.scaladsl.settings.ServerSettings(system).timeouts.idleTimeout match
-      case idle: FiniteDuration if every >= idle => (idle / 2).max(FiniteDuration(1, "ms"))
-      case _                                     => every
+  def heartbeat(system: ActorSystem[?]): FiniteDuration = Heartbeat.interval(system.settings.config)
 
 private[http] object SocketUpgrades:
 

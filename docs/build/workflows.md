@@ -650,8 +650,10 @@ def verifyStep: StepEffect =
 Serve a wait as server-sent events when it may outlast a connection's idle timeout. The service ends an
 HTTP connection that is quiet for `pekko.http.server.idle-timeout`, sixty seconds unless it is set, so a
 wait answered as one whole response is cut if the workflow takes longer. The stream form sends a
-`heartbeat` event while the wait goes on, a third of the idle timeout apart, then one event with the end
-— `ended` with the state, `failed`, or `timed-out` — and closes.
+`heartbeat` event while the wait goes on, then one event with the end — `ended` with the state, `failed`,
+or `timed-out` — and closes. The heartbeat is every event stream's, `ankka.http.sse.heartbeat` (15 seconds),
+or half the idle timeout when that is sooner, and the caller does not set it; see
+[configuration](../reference/configuration.md).
 
 /// tab | Scala
 

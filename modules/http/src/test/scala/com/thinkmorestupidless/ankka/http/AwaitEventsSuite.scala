@@ -104,11 +104,19 @@ class AwaitEventsSuite extends munit.FunSuite:
     )
   }
 
-  test("the heartbeat is a third of the idle timeout, and twenty seconds when there is none") {
-    def interval(setting: String) =
-      Heartbeat.interval(ConfigFactory.parseString(s"pekko.http.server.idle-timeout = $setting"))
-    assertEquals(interval("60s"), 20.seconds)
-    assertEquals(interval("3s"), 1.second)
-    assertEquals(interval("infinite"), 20.seconds)
-    assertEquals(Heartbeat.interval(ConfigFactory.empty()), 20.seconds)
+  test(
+    "the heartbeat is the service's SSE heartbeat, or half the idle timeout when that is sooner"
+  ) {
+    def interval(heartbeat: String, idle: String) =
+      Heartbeat.interval(
+        ConfigFactory.parseString(
+          s"ankka.http.sse.heartbeat = $heartbeat\npekko.http.server.idle-timeout = $idle"
+        )
+      )
+    assertEquals(interval("15s", "60s"), 15.seconds)
+    assertEquals(interval("15s", "3s"), 1500.millis)
+    assertEquals(interval("15s", "15s"), 7500.millis)
+    assertEquals(interval("40s", "infinite"), 40.seconds)
+    assertEquals(Heartbeat.interval(ConfigFactory.empty()), Heartbeat.Default)
+    intercept[IllegalArgumentException](interval("0s", "60s"))
   }

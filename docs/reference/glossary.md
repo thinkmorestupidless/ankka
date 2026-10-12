@@ -227,8 +227,8 @@ text; output guardrails run on what the model produced.
 ### Heartbeat
 
 A part of a stream that carries nothing but that the connection is alive. A wait for a workflow's end
-served as server-sent events sends one a third of the service's idle timeout apart, so the connection is
-never quiet long enough to be ended.
+served as server-sent events sends one every `ankka.http.sse.heartbeat`, or half the service's idle timeout
+when that is sooner, so the connection is never quiet long enough to be ended.
 
 ### Handler
 

@@ -39,7 +39,7 @@ final class EndpointClients private[ankka] (
     /**
      * How often a wait served as a stream says it goes on: `Heartbeat.interval` of the server's.
      */
-    heartbeat: FiniteDuration = Heartbeat.WhenIdleIsInfinite
+    heartbeat: FiniteDuration = Heartbeat.Default
 ):
 
   /**

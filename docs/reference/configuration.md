@@ -160,6 +160,8 @@ Settings with no environment variable, overridable in the service's own `applica
   a heartbeat, an event with no data that a browser does not dispatch, `15s` by default. When it is not
   shorter than `pekko.http.server.idle-timeout`, the heartbeat is sent at half the idle timeout instead,
   so a quiet stream — a watch of a view that writes nothing for a minute, say — is never ended by it.
+  A wait for a workflow's end served as a stream sends its `heartbeat` events at the same interval, from
+  the service and from the sidecar beside a process alike.
 
 ### gRPC
 

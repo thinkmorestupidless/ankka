@@ -63,8 +63,8 @@ message Error {
 - `AwaitEnd` answers `InvokeReply.error`: `WORKFLOW_FAILED` with `details`; `TIMEOUT` when the
   caller's time passed (the workflow runs on); `BAD_REQUEST` for a non-positive timeout or an
   unknown component; `UNAVAILABLE` when every instance that could answer is from before 1.15.
-- `AwaitEndStream` emits `heartbeat` every heartbeat interval (a third of the runtime's HTTP idle
-  timeout), then exactly one `ended` or `failed` (`failed` carries `TIMEOUT` at the deadline), and
+- `AwaitEndStream` emits `heartbeat` every heartbeat interval (the runtime's `ankka.http.sse.heartbeat`,
+  or half its HTTP idle timeout when sooner), then exactly one `ended` or `failed` (`failed` carries `TIMEOUT` at the deadline), and
   completes. A client that cancels the stream ends the wait; the workflow runs on.
 - The runtime's hold-and-re-ask loop is the runtime's; a process never sees `NotYet`.
 - A runtime at 1.14 or earlier answers both rpcs with gRPC `UNIMPLEMENTED`. Each SDK maps that to

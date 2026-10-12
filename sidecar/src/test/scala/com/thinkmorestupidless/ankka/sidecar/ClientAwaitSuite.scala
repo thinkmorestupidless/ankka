@@ -66,8 +66,10 @@ class ClientAwaitSuite extends munit.FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     testKit = AnkkaTestKit.start(
       Seq(BrewWorkflow.descriptor),
-      // A heartbeat every half second: a third of this.
-      settings = ConfigFactory.parseString("pekko.http.server.idle-timeout = 1500ms")
+      // A heartbeat every half second, the service's SSE heartbeat, under the idle timeout.
+      settings = ConfigFactory.parseString(
+        "ankka.http.sse.heartbeat = 500ms\npekko.http.server.idle-timeout = 1500ms"
+      )
     )
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()

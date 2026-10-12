@@ -44,9 +44,20 @@ Feature: Requests to a web-hosted service
     When a person on the internet sends a request to the hostname of "web"
     Then the process is told the hostname of "web" as the address the request was sent to
 
-  Scenario: a request cannot say that it was sent to another address
-    When a person on the internet sends a request to the hostname of "web" that says it was sent to "bank.example"
-    Then the process is told the hostname of "web" as the address the request was sent to
+  Scenario Outline: a request cannot say that it was sent to another address
+    Given "web" holds the custom hostname "app.example.com"
+    When a person on the internet sends a request to <hostname> that says it was sent to "bank.example"
+    Then the process is told <hostname> as the address the request was sent to
+
+    Examples:
+      | hostname                   |
+      | the hostname of "web"      |
+      | "app.example.com"          |
+
+  Scenario: the process is told the custom hostname a request was sent to
+    Given "web" holds the custom hostname "app.example.com"
+    When a person on the internet sends a request to "app.example.com"
+    Then the process is told "app.example.com" as the address the request was sent to
 
   Scenario: an answer reaches the browser as the process makes it
     Given the process answers a request with a stream of 3 parts, one each second

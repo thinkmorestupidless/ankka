@@ -186,6 +186,48 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
       )
   }
 
+  // ── custom hostnames (feature 045) ─────────────────────────────────────────────────────────
+
+  test("each custom hostname's report is carried verbatim, in order, and the detail is untouched") {
+    val observation = StatusIngest.observe(
+      service(),
+      ClusterView.Reported(
+        AnkkaServiceStatus(
+          generation = 4L,
+          lifecycle = "Ready",
+          readyInstances = 1,
+          desiredInstances = 1,
+          hostnames = List(
+            com.thinkmorestupidless.ankka.crd.HostnameStatus("b.example.com", "serving"),
+            com.thinkmorestupidless.ankka.crd.HostnameStatus("a.example.com", "pending", Some("x"))
+          )
+        )
+      )
+    )
+    assertEquals(
+      observation.hostnames,
+      Vector(
+        com.thinkmorestupidless.ankka.controlplane.domain
+          .HostnameReport("b.example.com", "serving"),
+        com.thinkmorestupidless.ankka.controlplane.domain
+          .HostnameReport("a.example.com", "pending", Some("x"))
+      )
+    )
+    assertEquals(observation.detail, None)
+  }
+
+  test("an unreachable cluster restates the hostnames last reported") {
+    val reported = service().copy(hostnameReports =
+      Vector(
+        com.thinkmorestupidless.ankka.controlplane.domain.HostnameReport("a.example.com", "serving")
+      )
+    )
+    assertEquals(
+      StatusIngest.observe(reported, ClusterView.Unreachable("refused")).hostnames,
+      reported.hostnameReports
+    )
+  }
+
   // Feature 039: what the operator reported of a bucket beyond its phase.
 
   test("the store, the bucket as reported, its location, window and a move are carried") {

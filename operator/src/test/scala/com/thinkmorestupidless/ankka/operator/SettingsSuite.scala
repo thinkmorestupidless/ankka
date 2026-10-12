@@ -133,6 +133,18 @@ class SettingsSuite extends munit.FunSuite:
       }
   }
 
+  test(
+    "the issuer for custom hostnames is read from ankka.operator.hostname-issuer, and is absent by default"
+  ) {
+    assertEquals(Settings.fromEnvironment().hostnameIssuer, None)
+    withProperties("ankka.operator.hostname-issuer" -> "letsencrypt-hostnames") {
+      assertEquals(Settings.fromEnvironment().hostnameIssuer, Some("letsencrypt-hostnames"))
+    }
+    withProperties("ankka.operator.hostname-issuer" -> "  ") {
+      assertEquals(Settings.fromEnvironment().hostnameIssuer, None)
+    }
+  }
+
   // Feature 039: the store new buckets are made in.
 
   private val gcs = Vector(

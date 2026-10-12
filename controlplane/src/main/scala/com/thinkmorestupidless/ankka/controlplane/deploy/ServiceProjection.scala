@@ -217,6 +217,9 @@ object ServiceProjection:
               objectStorageOrigins = descriptor.service.objectStorageOrigins.toList,
               objectStorageCredential = descriptor.service.objectStorageCredential,
               objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays,
-              databaseCluster = service.databaseCluster
+              databaseCluster = service.databaseCluster,
+              // Whole, whether or not exposed: the operator renders them only while it is, so an
+              // unexposed service keeps its names and exposing it again brings them back.
+              customHostnames = service.customHostnames.toList
             )
           )

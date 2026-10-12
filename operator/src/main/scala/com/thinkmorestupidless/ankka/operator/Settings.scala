@@ -108,7 +108,14 @@ final case class Settings(
      */
     machines: Option[Settings.MachineIssuer] = None,
     /** What a machine may move through the broker unless its organization says (feature 040). */
-    machineDefaults: MachineDefaults = MachineDefaults()
+    machineDefaults: MachineDefaults = MachineDefaults(),
+    /**
+     * The ClusterIssuer every custom hostname's certificate is asked of (feature 045,
+     * `ANKKA_HOSTNAME_ISSUER`). `None` renders nothing for a custom hostname and reports each as
+     * rejected, naming the setting. Must match the control plane's, which refuses to add one
+     * without it.
+     */
+    hostnameIssuer: Option[String] = None
 ):
   /**
    * The store new buckets are made in (research R1a D1): the backend the installation names, else
@@ -241,6 +248,7 @@ object Settings:
       objectStore = store,
       backups = BackupSettings.read(raw, store),
       cloud = CloudSettings.read(raw),
+      hostnameIssuer = raw("ankka.operator.hostname-issuer", "ANKKA_HOSTNAME_ISSUER"),
       storageMoverImage = string(
         "ankka.operator.storage-mover-image",
         "ANKKA_STORAGE_MOVER_IMAGE",

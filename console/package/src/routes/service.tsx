@@ -7,6 +7,8 @@ import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionAr
 import { act, applyPrimary, guard, pageData, projectShell, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { ConsoleForm, Field, Submit, useConsole } from "../ui/console.tsx";
+import { Select } from "../ui/primitives/select.tsx";
+import type { CustomHostname, DnsRecord, ServiceStatus } from "../client/schemas.ts";
 import { Page, SectionTitle, ServiceSections } from "../ui/shell.tsx";
 import { Shape } from "../ui/shape.tsx";
 import { runsAs } from "../ui/hosting.ts";
@@ -15,7 +17,6 @@ import { Lifecycle } from "../ui/status.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
 import type { Operation } from "../extensions/types.ts";
-import type { ServiceStatus } from "../client/schemas.ts";
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [{ title: `${loaderData?.service.name ?? "Service"} · ankka` }];
 
@@ -64,6 +65,14 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
     if (intent === "storage-move") {
       await ctx.client.moveStorage(projectId, name, text(form, "writePauseBound") || undefined);
+      return redirect(self);
+    }
+    if (intent === "hostname-add") {
+      await ctx.client.addHostname(projectId, name, text(form, "hostname").trim());
+      return redirect(self);
+    }
+    if (intent === "hostname-remove") {
+      await ctx.client.removeHostname(projectId, name, text(form, "hostname"));
       return redirect(self);
     }
     if (!(serviceOperations as readonly string[]).includes(intent)) throw new Response(`unknown operation '${intent}'`, { status: 400 });
@@ -147,6 +156,94 @@ function Operation({ intent, label, operation, danger, entity }: { intent: strin
   );
 }
 
+function record(r: DnsRecord): string {
+  return `${r.kind} ${r.name} → ${r.value}`;
+}
+
+function hostnameStands(h: CustomHostname): string {
+  return h.reason ? `${h.state}: ${h.reason}` : h.state;
+}
+
+/**
+ * The names a service answers at: the one the platform derives, then each custom hostname with where it
+ * stands and the record its owner creates, and the proof record the project's names need. Adding and
+ * removing are forms; the control plane's refusal is shown as it says it.
+ */
+function Hostnames({ service: s }: { service: ServiceStatus }) {
+  return (
+    <section className="ac-card" aria-labelledby="hostnames" data-hostnames>
+      <h2 id="hostnames">Hostnames</h2>
+      <dl className="ac-facts">
+        <dt>Address</dt>
+        <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
+        {s.customHostnames.map((h) => (
+          <div key={h.hostname} data-custom-hostname={h.hostname} data-state={h.state}>
+            <dt>{h.hostname}</dt>
+            <dd>
+              <span>{hostnameStands(h)}</span>
+              {h.record ? (
+                <span className="ac-hint" data-record>
+                  {" "}
+                  Create {record(h.record)}
+                </span>
+              ) : null}
+              {h.note ? <span className="ac-hint"> {h.note}</span> : null}
+            </dd>
+          </div>
+        ))}
+        {s.proofRecord ? (
+          <>
+            <dt>Proof record</dt>
+            <dd>
+              <code data-proof-record>
+                {s.proofRecord.kind} {s.proofRecord.name} "{s.proofRecord.value}"
+              </code>
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+/** Adding and removing a custom hostname, in the inspector with the service's other operations. */
+function HostnameOperations({ service: s }: { service: ServiceStatus }) {
+  const { shows } = useConsole();
+  const addRefusal = useRefusal("hostname-add");
+  if (!shows("service-hostname.add") && !shows("service-hostname.remove")) return null;
+  return (
+    <section className="ac-form" aria-labelledby="hostname-operations" data-hostname-operations>
+      <SectionTitle>
+        <span id="hostname-operations">Custom hostnames</span>
+      </SectionTitle>
+      {shows("service-hostname.add") ? (
+        <ConsoleForm intent="hostname-add" className="ac-inline">
+          <Field label="Add a custom hostname" name="hostname" required autoComplete="off" placeholder="app.example.com" defaultValue={addRefusal?.values.hostname} />
+          <Submit intent="hostname-add" primary>
+            Add
+          </Submit>
+        </ConsoleForm>
+      ) : null}
+      <Refused intent="hostname-add" />
+      {shows("service-hostname.remove") && s.customHostnames.length > 0 ? (
+        <ConsoleForm intent="hostname-remove" className="ac-inline">
+          <Select label="Remove a custom hostname" id="hostname-remove" name="hostname">
+            {s.customHostnames.map((h) => (
+              <option key={h.hostname} value={h.hostname}>
+                {h.hostname}
+              </option>
+            ))}
+          </Select>
+          <Submit intent="hostname-remove" danger>
+            Remove
+          </Submit>
+        </ConsoleForm>
+      ) : null}
+      <Refused intent="hostname-remove" />
+    </section>
+  );
+}
+
 export default function Service() {
   const data = useLoaderData<typeof loader>();
   const { project: p, panels } = data;
@@ -162,6 +259,7 @@ export default function Service() {
         <Operation intent="restart" label="Restart" operation="service.restart" entity={s} />
         {s.exposed ? <Operation intent="unexpose" label="Unexpose" operation="service.unexpose" entity={s} /> : <Operation intent="expose" label="Expose" operation="service.expose" entity={s} />}
       </section>
+      <HostnameOperations service={s} />
       {serviceOperations.map((op) => (
         <Refused key={op} intent={op} />
       ))}
@@ -192,6 +290,8 @@ export default function Service() {
 
       <Shape service={s} />
 
+      <Hostnames service={s} />
+
       <section className="ac-card" aria-labelledby="reported">
         <h2 id="reported">Reported by the cluster</h2>
         <dl className="ac-facts">
@@ -203,8 +303,6 @@ export default function Service() {
           <dd>{s.image}</dd>
           <dt>Generation</dt>
           <dd>{s.generation}</dd>
-          <dt>Address</dt>
-          <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
           <dt>Database</dt>
           <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
           <dt>Object storage</dt>

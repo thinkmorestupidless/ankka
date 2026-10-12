@@ -194,6 +194,7 @@ nav:
       - Build an image: deploy/images.md
       - Deploy a service: deploy/deploy-a-service.md
       - Expose a service: deploy/expose.md
+      - Serve a service at your own domain: deploy/custom-hostnames.md
       - Deploy a user interface: deploy/web-hosting.md
       - Scale and roll out: deploy/scaling-and-rollouts.md
       - Deploy from GitHub Actions: deploy/ci.md

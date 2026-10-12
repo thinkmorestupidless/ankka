@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   ServiceTopology
 }
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
+import com.thinkmorestupidless.ankka.controlplane.api.ProofLookup
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
@@ -57,7 +58,28 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
    */
   private lazy val tokens = new DeployTokenIndex(identity.clock)
 
-  private val deployConfig = DeployConfig.default.copy(baseDomain = Some("example.test"))
+  private val deployConfig = DeployConfig.default.copy(
+    baseDomain = Some("example.test"),
+    hostnameIssuer = Some("pebble"),
+    gatewayAddress = Some("203.0.113.7")
+  )
+
+  /**
+   * The proof records DNS holds, by record name (feature 045), and every name asked: a scripted
+   * lookup, since this suite reads no DNS. Absent is `NoRecord`.
+   */
+  private val proofRecords =
+    scala.collection.concurrent.TrieMap.empty[String, Either[ProofLookup.Failure, Vector[String]]]
+  private val proofsAsked = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+  private val proofs: ProofLookup = name =>
+    proofsAsked.add(name): Unit
+    proofRecords.getOrElse(name, Left(ProofLookup.Failure.NoRecord))
+
+  private def proving(hostname: String, projectId: String): Unit =
+    proofRecords.put(
+      ProofLookup.recordName(hostname),
+      Right(Vector(ProofLookup.recordValue(projectId)))
+    ): Unit
 
   /**
    * An in-memory cluster, so a registry credential can be followed all the way to where it lands
@@ -92,7 +114,8 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
         tokens = Some(tokens),
         registry = Some(registryWriter),
         topology = Some(topologies),
-        secrets = Some(secretWriter)
+        secrets = Some(secretWriter),
+        proofs = Some(proofs)
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
@@ -513,7 +536,7 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     assert(body.contains("\"image\":\"cart:3.0\""), body)
     assertEquals(send("POST", "/services/checkout/cart/unexpose")._1, 200)
     val (_, got) = send("GET", "/services/checkout/cart")
-    assert(!got.contains("hostname"), got)
+    assert(!got.contains("\"hostname\":"), got)
   }
 
   test("exposing an unknown service is a 404") {
@@ -1466,4 +1489,199 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
       )
     assertEquals((entries.head.kind, entries.head.generation), ("rolled-back", 3L))
     assert(entries.head.actor.exists(_.subject.startsWith("token:")), entries.head.toString)
+  }
+
+  // --- Custom hostnames (feature 045): contracts/control-plane.md
+
+  private lazy val hostnamesOrganization: String =
+    assertEquals(send("POST", "/organizations/hostco", Some("""{"name":"Host Co"}"""))._1, 204)
+    "hostco"
+
+  private def hostnamesProject(id: String): Unit =
+    val (created, body) =
+      send(
+        "POST",
+        s"/projects/$id",
+        Some(s"""{"name":"$id","organizationId":"$hostnamesOrganization"}""")
+      )
+    assertEquals(created, 204, body)
+
+  private def exposedService(project: String, name: String): Unit =
+    assertEquals(send("PUT", s"/services/$project/$name", Some(descriptor(name, "x:1")))._1, 200)
+    assertEquals(send("POST", s"/services/$project/$name/expose")._1, 200)
+
+  private def addHostname(project: String, name: String, hostname: String) =
+    send("PUT", s"/services/$project/$name/hostnames/$hostname")
+
+  test(
+    "custom hostnames: a name without the project's proof record is refused, naming the record"
+  ) {
+    hostnamesProject("hosts")
+    exposedService("hosts", "web")
+    val (status, body) = addHostname("hosts", "web", "app.hosts.test")
+    assertEquals(status, 409, body)
+    assert(
+      body.contains(
+        "'app.hosts.test' does not carry the proof record of project 'hosts': create TXT " +
+          "_ankka.app.hosts.test with the value \\\"ankka-project=hosts\\\""
+      ),
+      body
+    )
+    val (_, got) = send("GET", "/services/hosts/web")
+    assert(!got.contains("customHostnames"), got)
+  }
+
+  test("custom hostnames: a proof for another project is no proof") {
+    proving("app.hosts.test", "elsewhere")
+    assertEquals(addHostname("hosts", "web", "app.hosts.test")._1, 409)
+  }
+
+  test(
+    "custom hostnames: a resolver that cannot be asked is said, not taken for a missing record"
+  ) {
+    proofRecords.put("_ankka.down.hosts.test", Left(ProofLookup.Failure.Unreachable("timed out")))
+    val (status, body) = addHostname("hosts", "web", "down.hosts.test")
+    assertEquals(status, 409, body)
+    assert(body.contains("could not look up _ankka.down.hosts.test: timed out"), body)
+    assert(!body.contains("does not carry"), body)
+  }
+
+  test(
+    "custom hostnames: a proved name is recorded, with the record to create and the proof record"
+  ) {
+    proving("app.hosts.test", "hosts")
+    // Normalised: the name a member types is lowercased and loses the root's dot.
+    val (status, body) = addHostname("hosts", "web", "App.Hosts.Test.")
+    assertEquals(status, 200, body)
+    assert(
+      body.contains(
+        """{"hostname":"app.hosts.test","record":{"name":"app.hosts.test","kind":"CNAME","value":"web-hosts.example.test"}}"""
+      ),
+      body
+    )
+    val (_, got) = send("GET", "/services/hosts/web")
+    assert(
+      got.contains(
+        """"proofRecord":{"name":"_ankka.<hostname>","kind":"TXT","value":"ankka-project=hosts"}"""
+      ),
+      got
+    )
+    // Held already: answered unchanged, recorded once.
+    assertEquals(addHostname("hosts", "web", "app.hosts.test")._1, 200)
+    val (_, history) = send("GET", "/services/hosts/web/history")
+    assertEquals("hostname added".r.findAllIn(history).size, 1, history)
+  }
+
+  test("custom hostnames: an apex is told an address record to the gateway") {
+    proving("hosts.test", "hosts")
+    val (status, body) = addHostname("hosts", "web", "hosts.test")
+    assertEquals(status, 200, body)
+    assert(
+      body.contains(
+        """{"hostname":"hosts.test","record":{"name":"hosts.test","kind":"A","value":"203.0.113.7"}}"""
+      ),
+      body
+    )
+  }
+
+  test("custom hostnames: the name refusals, each in its words, before any DNS is read") {
+    proofsAsked.clear()
+    val cases = Vector(
+      "https:%2F%2Fapp.hosts.test" -> "a custom hostname is a name alone",
+      "app.hosts.test:8443"        -> "a custom hostname is a name alone",
+      "*.hosts.test"               -> "a custom hostname cannot be a wildcard",
+      "a_b.hosts.test"             -> "must be letters, digits and '-'",
+      "localhost"                  -> "at least two labels",
+      "shop.example.test"          -> "a custom hostname cannot be under the base domain",
+      "web-hosts.example.test"     -> "a custom hostname cannot be under the base domain",
+      "example.test"               -> "a custom hostname cannot be under the base domain"
+    )
+    for (hostname, words) <- cases do
+      val (status, body) = addHostname("hosts", "web", hostname)
+      assertEquals(status, 409, s"$hostname: $body")
+      assert(body.contains(words), s"$hostname: $body")
+    assertEquals(proofsAsked.size, 0, proofsAsked.toString)
+  }
+
+  test("custom hostnames: a service that is not exposed cannot be given one") {
+    assertEquals(send("PUT", "/services/hosts/private", Some(descriptor("private", "x:1")))._1, 200)
+    proving("private.hosts.test", "hosts")
+    val (status, body) = addHostname("hosts", "private", "private.hosts.test")
+    assertEquals(status, 409, body)
+    assert(body.contains("service 'private' is not exposed"), body)
+  }
+
+  test(
+    "custom hostnames: a name another service holds is refused, naming the holder, before the proof"
+  ) {
+    hostnamesProject("hosts2")
+    exposedService("hosts2", "portal")
+    val _ = eventually("the holder's row lists the hostname") {
+      val (_, list) = send("GET", "/services/hosts")
+      Option.when(list.contains("app.hosts.test"))(list)
+    }
+    proofsAsked.clear()
+    proving("app.hosts.test", "hosts2")
+    val (status, body) = addHostname("hosts2", "portal", "app.hosts.test")
+    assertEquals(status, 409, body)
+    assert(body.contains("'app.hosts.test' is held by service 'web' in project 'hosts'"), body)
+    assertEquals(proofsAsked.size, 0, proofsAsked.toString)
+  }
+
+  test("custom hostnames: a sixth is refused, naming the cap") {
+    for i <- 1 to 3 do
+      proving(s"h$i.hosts.test", "hosts")
+      assertEquals(addHostname("hosts", "web", s"h$i.hosts.test")._1, 200)
+    proving("h4.hosts.test", "hosts")
+    val (status, body) = addHostname("hosts", "web", "h4.hosts.test")
+    assertEquals(status, 409, body)
+    assert(
+      body.contains("service 'web' holds 5 custom hostnames, the most a service can hold"),
+      body
+    )
+  }
+
+  test("custom hostnames: unexposing keeps each, pending; a member's removal is a removal") {
+    val (_, unexposed) = send("POST", "/services/hosts/web/unexpose")
+    assert(
+      unexposed.contains("""{"hostname":"app.hosts.test","reason":"the service is not exposed""""),
+      unexposed
+    )
+    assertEquals(send("POST", "/services/hosts/web/expose")._1, 200)
+    val (status, body) = send("DELETE", "/services/hosts/web/hostnames/h3.hosts.test")
+    assertEquals(status, 200, body)
+    assert(!body.contains("h3.hosts.test"), body)
+    val (_, history) = send("GET", "/services/hosts/web/history")
+    assert(history.contains("hostname removed"), history)
+    // One not held is answered unchanged.
+    assertEquals(send("DELETE", "/services/hosts/web/hostnames/h3.hosts.test")._1, 200)
+  }
+
+  test(
+    "custom hostnames: a platform administrator takes one away, and another service may claim it"
+  ) {
+    val admin = identity.token("root", roles = Set("platform-admin"))
+    val (status, body) =
+      send("DELETE", "/services/hosts/web/hostnames/app.hosts.test", token = Some(admin))
+    assertEquals(status, 200, body)
+    val (_, history) = send("GET", "/services/hosts/web/history")
+    assert(history.contains("hostname taken away"), history)
+    assert(history.contains("\"subject\":\"root\""), history)
+    assert(history.contains("\"administrative\":true"), history)
+    val _ = eventually("the listing no longer lists the hostname") {
+      val (_, list) = send("GET", "/services/hosts")
+      Option.when(!list.contains("app.hosts.test"))(list)
+    }
+    val (claimed, claimedBody) = addHostname("hosts2", "portal", "app.hosts.test")
+    assertEquals(claimed, 200, claimedBody)
+  }
+
+  test("custom hostnames: a deleted service leaves its names free for another") {
+    assertEquals(send("DELETE", "/services/hosts2/portal")._1, 204)
+    val _ = eventually("the deleted service's row is gone") {
+      val (_, list) = send("GET", "/services/hosts2")
+      Option.when(list == "[]")(list)
+    }
+    proving("app.hosts.test", "hosts")
+    assertEquals(addHostname("hosts", "web", "app.hosts.test")._1, 200)
   }

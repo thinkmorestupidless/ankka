@@ -898,7 +898,15 @@ final case class Service(
      */
     databaseCluster: Option[String] = None,
     /** The operator's last report on whether the service reads its grants (feature 040). */
-    grants: Option[String] = None
+    grants: Option[String] = None,
+    /**
+     * Desired state: the custom hostnames the service holds, in the order added (feature 045). Kept
+     * while the service is unexposed, so exposing it again brings each back; cleared by a delete,
+     * as exposure is.
+     */
+    customHostnames: Vector[String] = Vector.empty,
+    /** The operator's last word on each of them. */
+    hostnameReports: Vector[HostnameReport] = Vector.empty
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -921,7 +929,8 @@ final case class Service(
       at: Option[Instant],
       recorded: Option[ServiceDescriptor] = None,
       rolledBackTo: Option[Long] = None,
-      detail: Option[String] = None
+      detail: Option[String] = None,
+      hostname: Option[String] = None
   ): Service =
     val entry = HistoryEntry(
       kind,
@@ -931,7 +940,8 @@ final case class Service(
       image = recorded.map(_.service.image),
       digest = recorded.map(_.digest),
       rolledBackTo = rolledBackTo,
-      detail = detail
+      detail = detail,
+      hostname = hostname
     )
     copy(history = (entry +: history).take(Service.HistoryLimit))
 
@@ -1109,11 +1119,36 @@ final case class Service(
         broker = event.broker,
         objectStorage = event.objectStorage,
         storage = event.storage,
-        grants = event.grants
+        grants = event.grants,
+        hostnameReports = event.hostnames
       )
 
   def onExposed: Service   = copy(exposed = true)
   def onUnexposed: Service = copy(exposed = false)
+
+  def holds(hostname: String): Boolean = customHostnames.contains(hostname)
+
+  def onHostnameAdded(hostname: String): Service =
+    if holds(hostname) then this else copy(customHostnames = customHostnames :+ hostname)
+
+  def onHostnameRemoved(hostname: String): Service =
+    copy(
+      customHostnames = customHostnames.filterNot(_ == hostname),
+      hostnameReports = hostnameReports.filterNot(_.hostname == hostname)
+    )
+
+  /**
+   * Each custom hostname with the operator's word on it. One not yet reported is pending with no
+   * reason; while the service is unexposed every one is pending, since none is served.
+   */
+  def hostnameStatuses: Vector[CustomHostname] =
+    customHostnames.map { hostname =>
+      if !exposed then CustomHostname(hostname, "pending", Some(Service.NotExposedReason))
+      else
+        hostnameReports.find(_.hostname == hostname) match
+          case Some(report) => CustomHostname(hostname, report.state, report.reason)
+          case None         => CustomHostname(hostname)
+    }
 
   /** A paused service keeps saying `Paused`: its members' choice is the more specific fact. */
   def onSuspended: Service =
@@ -1143,6 +1178,9 @@ final case class Service(
       suspended = false,
       // A re-applied name starts private again: the route died with the service.
       exposed = false,
+      // And holds no hostname: the names are free for any service to claim (feature 045).
+      customHostnames = Vector.empty,
+      hostnameReports = Vector.empty,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0
@@ -1196,7 +1234,9 @@ final case class Service(
       softDeleteDays = storage.flatMap(_.softDeleteDays),
       storageMove = Service.moveStatus(storageMove, storage),
       databaseCluster = databaseCluster,
-      grants = grants
+      grants = grants,
+      // The records to create are the endpoint's to add: they need the installation's settings.
+      customHostnames = hostnameStatuses
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -1265,6 +1305,9 @@ object Service:
    */
   val HistoryLimit = 50
 
+  /** Why every custom hostname of an unexposed service is pending (feature 045). */
+  val NotExposedReason: String = "the service is not exposed"
+
   /**
    * How many applied descriptors a service keeps to roll back to: as many as its history shows, so
    * every history entry that recorded a descriptor can still be rolled back to.
@@ -1285,10 +1328,17 @@ object Service:
           .remember(kind, actor, at, Some(descriptor), rolledBackTo)
       case ServiceRestarted(generation, actor, at) =>
         current.onRestarted(generation).remember("restarted", actor, at)
-      case ServicePaused(actor, at)     => current.onPaused.remember("paused", actor, at)
-      case ServiceResumed(actor, at)    => current.onResumed.remember("resumed", actor, at)
-      case ServiceExposed(actor, at)    => current.onExposed.remember("exposed", actor, at)
-      case ServiceUnexposed(actor, at)  => current.onUnexposed.remember("unexposed", actor, at)
+      case ServicePaused(actor, at)    => current.onPaused.remember("paused", actor, at)
+      case ServiceResumed(actor, at)   => current.onResumed.remember("resumed", actor, at)
+      case ServiceExposed(actor, at)   => current.onExposed.remember("exposed", actor, at)
+      case ServiceUnexposed(actor, at) => current.onUnexposed.remember("unexposed", actor, at)
+      case CustomHostnameAdded(hostname, actor, at) =>
+        current
+          .onHostnameAdded(hostname)
+          .remember("hostname added", actor, at, hostname = Some(hostname))
+      case CustomHostnameRemoved(hostname, actor, at, byAdministrator) =>
+        val kind = if byAdministrator then "hostname taken away" else "hostname removed"
+        current.onHostnameRemoved(hostname).remember(kind, actor, at, hostname = Some(hostname))
       case observed: ServiceObserved    => current.onObserved(observed)
       case ServiceDeleted(actor, at)    => current.onDeleted.remember("deleted", actor, at)
       case ServiceSuspended(actor, at)  => current.onSuspended.remember("suspended", actor, at)

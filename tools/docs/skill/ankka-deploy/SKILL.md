@@ -13,6 +13,7 @@ pages:
   - deploy/deploy-a-service.md
   - operate/console.md
   - deploy/expose.md
+  - deploy/custom-hostnames.md
   - deploy/web-hosting.md
   - deploy/graph-sink.md
   - reference/web-hosting.md

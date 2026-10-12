@@ -6,7 +6,7 @@ class ProjectSecretsSuite extends munit.FunSuite:
   private val ok = Map("STRIPE_KEY" -> "sk_live_1")
 
   test("a lowercase name of letters, digits, '-' and '.' is accepted") {
-    for name <- Vector("checkout", "stripe.live", "a", "payments-2") do
+    for name <- Vector("checkout", "stripe-live", "a", "payments-2") do
       assertEquals(ProjectSecrets.problems(name, ok), Vector.empty, name)
   }
 
@@ -51,4 +51,11 @@ class ProjectSecretsSuite extends munit.FunSuite:
   test("every problem of a request is reported together") {
     val problems = ProjectSecrets.problems("payments-db", Map("BAD KEY" -> ""))
     assertEquals(problems.size, 3, problems.toString)
+  }
+
+  test("a name with a dot is refused: it is the form of a custom hostname's certificate") {
+    val problems = ProjectSecrets.nameProblems("app.example.com")
+    assert(problems.exists(_.contains("custom hostname's certificate")), problems.toString)
+    assert(ServiceSpec.isPlatformSecret("app.example.com"))
+    assert(!ServiceSpec.isPlatformSecret("stripe-live"))
   }

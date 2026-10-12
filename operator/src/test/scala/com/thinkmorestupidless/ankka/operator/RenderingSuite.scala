@@ -273,7 +273,10 @@ class RenderingSuite extends munit.FunSuite:
           _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute |
           _: Action.EnsureCertificate | _: Action.EnsureNetworkPolicy |
           _: Action.RemoveNetworkPolicy | _: Action.EnsureBackendTlsPolicy |
-          _: Action.RemoveBackendTlsPolicy | _: Action.EnsureSecretKey =>
+          _: Action.RemoveBackendTlsPolicy | _: Action.EnsureSecretKey |
+          // A custom hostname's set and certificates (feature 045): their removal is rendered for
+          // every service, so one dropped in the same apply that unexposed it leaves nothing behind.
+          _: Action.RemoveListenerSet | _: Action.PruneHostnameCertificates =>
         true
       case _ => false
     }

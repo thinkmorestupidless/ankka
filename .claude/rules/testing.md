@@ -57,6 +57,14 @@ appenders.
   worktree's, say — then fails the suite with `Address already in use`. A suite that needs no cluster
   builds its system with `pekko.actor.provider = local`.
 
+- **Several installations in one JVM share `LocalInstallations`.** `AnkkaTestKit.installations` reaches
+  a sibling's sharding directly, by name, so two groups in one JVM must not reuse a name. To test the
+  loopback routes a separate process would use, `TestReplicationTransport.loopbackOnly(true)` (the
+  transport's `inJvm = false`). Two kits in one JVM are not two installations on a network: the
+  partition cases block and pause through the test transport, not a network.
+- **A takeover of another kit's database must update the group's journals map**, or siblings keep
+  reading the old installation's database for its name (`Installations.start(…, database = …)`).
+
 - **An image tag every session builds is shared by every session on the machine.** `ankka-sidecar:latest`
   and `sample-shopping-cart:latest` are rebuilt by any worktree's `docker:publishLocal`. The Python and
   TypeScript test kits start `ankka-sidecar:latest` for an unreleased SDK, so point `ANKKA_SIDECAR_IMAGE`

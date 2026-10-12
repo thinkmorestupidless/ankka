@@ -440,8 +440,14 @@ pub(crate) fn cross_project_refusal(
     ))
 }
 
-/// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.
+/// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot: the
+/// oldest thing it lacks first, so replication, the newest, is named only when nothing older is.
 pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
+    older_refusal(components, host_protocol)
+        .or_else(|| replication_refusal(components, host_protocol))
+}
+
+fn replication_refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
     if start_from::older_than_replication(host_protocol) {
         let replicated: Vec<&str> = components
             .iter()
@@ -457,6 +463,10 @@ pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> O
             ));
         }
     }
+    None
+}
+
+fn older_refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
     if start_from::older_than_workflow_sources(host_protocol) {
         let reading: Vec<&str> = components
             .iter()

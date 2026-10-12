@@ -878,7 +878,7 @@ scenario named by the spec exists and every word is in the glossary).
 
 **Purpose**: what every later session needs to know, and the proof the branch is whole.
 
-- [ ] T074 [P] `.claude/rules/runtime.md`: a "Replication" section with the traps this feature
+- [X] T074 [P] `.claude/rules/runtime.md`: a "Replication" section with the traps this feature
   found (the inclusion annotation and the pinned fixtures; `Mirrored` persisted unchanged, never
   re-encoded; `pipeToSelf` for every transport answer; the mode read from `Stored`, never from
   actor memory; `installations.isEmpty` is the only switch an unreplicated service pays for; the
@@ -890,7 +890,7 @@ scenario named by the spec exists and every word is in the glossary).
   and `modules/testkit/src/test/resources/journal/journal-record.txt` are claimed by `build`'s
   filter (they are under existing patterns; the script fails CI if not) and that `sdks/*` changes
   route to their jobs; run `python3 .github/ci-coverage.py`
-- [ ] T076 `GLOSSARY.md` and `features/`: run `just features`; every word a new step introduced in
+- [X] T076 `GLOSSARY.md` and `features/`: run `just features`; every word a new step introduced in
   T028–T066 is a term or an everyday word; no `*Proposed.*` remains
 - [ ] T077 The whole run: `caffeinate -i sbt -Dankka.cluster.tests=off test` green (the hour is
   acceptable; read every suite's duration for an absurd one: CLAUDE.md), then
@@ -899,7 +899,7 @@ scenario named by the spec exists and every word is in the glossary).
   "Two installations on one machine" walk-through by hand once with `ANKKA_INSTALLATION=a` and
   `=b` against two `createdb`s. SC-005: compare the suite durations of `sbt testkit/test` on
   `main` and on the branch; a slower existing suite is a short-circuit missed
-- [ ] T078 [P] `ankka-brain/repos/ankka.md` and the private brain's `repos/ankka-replication.md`:
+- [X] T078 [P] `ankka-brain/repos/ankka.md` and the private brain's `repos/ankka-replication.md`:
   the seam's shape as merged, the protocol minor, and that the private half can start against the
   branch's `ankka-runtime` snapshot; the pin row in `ankka-brain-private/family.md` moves from
   "not yet pinned" to the snapshot version. Outside this repository: a note, not a commit here

@@ -16,6 +16,16 @@ SDK speaking an earlier minor (`Discovery.beforeGrants`), naming the version, ra
 runtime read the matcher as nobody or the topic as the project's own. The three SDKs carry `project` on a
 source and a publication and refuse the same at start.
 
+## Protocol 1.19 gates replication
+
+Feature 051. `Discovery` refuses a replicated entity from a spec below `ReplicationSince` (19), naming
+it, and each SDK refuses a runtime below 1.19 when it declares a replicated entity or a consumer given
+mirrored changes, after every older reason so an older runtime is still told the oldest thing it
+lacks. A process is told its installation on `Init`, each event's installation on `Event`, and
+`installation`/`at_home` on a command; it answers a `ReplicationChange` beside its events. Platform
+records (kinds 3–7) never reach a process as events. A module is told the event's installation and
+`mirrored` on `FoldRequest`, since it does not know where it runs.
+
 ## Traps
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the

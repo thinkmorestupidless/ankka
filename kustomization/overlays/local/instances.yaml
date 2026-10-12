@@ -1,0 +1,28 @@
+# A laptop's instance counts. The components' counts are for a cluster of several nodes, where a
+# spare instance survives losing one; on one node the spares only take memory.
+#
+# One control plane instance forms its cluster from one contact point, as the operator renders for a
+# service of one instance (`requiredContactPoints`); left at two, the lone pod waits for a peer that
+# never comes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_CLUSTER_CONTACT_POINTS
+              value: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-console
+  namespace: ankka-console
+spec:
+  replicas: 1

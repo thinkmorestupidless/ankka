@@ -66,16 +66,24 @@ This feature makes these decisions.
   refused when the descriptor is validated, at the service and at the control plane alike.
 - **One home, and the home alone writes.** A persisting command is handled only by the home; a
   read-only command is answered by any copy in the replication set from its own journal, and may be
-  behind the home by the replication lag. The type system already says which is which.
+  behind the home by the replication lag. Anywhere else a read is refused, naming the home. The type
+  system already says which is which.
 - **Forwarding is the client's job, invisible to the caller.** A persisting command that reaches a
   follower, or an installation outside the replication set, is forwarded to the home through the
   transport and its reply returned as if handled here. The forwarded call is one call in the trace.
 - **The home is handed over in the entity's own history.** A handover is a record the home writes
   naming the new home; the old home refuses writes from then on and forwards them. The new home is
   effective only once its journal ends with that record, and the old home writes it only after the
-  new home has confirmed it holds everything before it, so the gap at a handover is one record.
-- **The replication set is in the history too.** Adding an installation starts it mirroring from the
-  beginning; removing one stops it mirroring and leaves its copy as it was.
+  new home has confirmed it holds everything before it, so the gap at a handover is one record. While
+  it waits the old home goes on handling writes by default and asks again; a service may instead have
+  it hold writes and abandon the handover after a configurable timeout.
+- **The replication set is in the history too.** A new entity is held by its home alone. Adding an
+  installation starts it mirroring from the beginning; removing one stops it mirroring and leaves its
+  copy as it was, which no query reads again.
+- **An entity is created where it is first written.** Each installation that has never seen an entity
+  creates it as its home on first write. Two creations of one id that meet are a conflict, marked at
+  both, with writes refused until an operator resolves it. Ids a service replicates are chosen so this
+  cannot happen, as a vehicle's is.
 - **Every copy's journal is identical.** Same persistence id, same sequence numbers, same records,
   platform records included. Views and consumers at every installation read their own journal and see
   the home's order. A record carries the installation that wrote it, and a change tells its handler
@@ -95,6 +103,29 @@ What this feature is not: the link between installations, its dial direction or 
 directory fed from other installations; a project spanning installations in the control plane, the
 operator or the console; entitlement; a concurrent-writers mode with merge rules; a forced takeover
 while a home is unreachable; or replication of key value entities, workflows, agents or timers.
+
+## Clarifications
+
+### Session 2026-10-12
+
+- Q: Two installations each receive the first write for one entity id before either has heard of the
+  other. What happens? → A: Local creation, conflict marked. Each creates the entity as its home at
+  once; when the histories meet, the entity is marked in conflict at both, writes are refused with an
+  error saying so, reads go on, and an operator resolves it. Coordinated creation is not in this feature.
+- Q: Which installations hold a newly created replicated entity before a handler changes its
+  replication set? → A: Its home alone.
+- Q: How is a read-only command answered at an installation outside the replication set, or at one
+  removed from it that still holds an old copy? → A: Refused, with an error naming the home. Only the
+  home and its followers answer a read from their own copy; a removed installation's copy is never read
+  for a query.
+- Q: What does the old home do with writes while a handover waits for the new home to confirm, and if
+  it never confirms? → A: By default it goes on handling writes and confirms again until the new home
+  holds everything, so a handover under steady load may take time. A service may configure a handover
+  to hold writes while it waits and to be abandoned after a configurable timeout, leaving the old home as
+  home and telling the handler's caller.
+- Q: Settle the eight proposed glossary terms as written? → A: Yes: replicated entity, home, follower,
+  replication set, handover, local change, mirrored change and replication transport are settled, with
+  leader, read replica, replay, copy over, migration and failover refused.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -118,6 +149,9 @@ holds the same records at the same sequence numbers; assert no call crossed to t
 - added `features/replication/home.feature`: a follower holds the same history in the same order as the home
 - added `features/replication/home.feature`: a read at a follower is answered from its own copy
 - added `features/replication/home.feature`: a replicated entity on one installation behaves as it did before
+- added `features/replication/creation.feature`: an entity is created as the home of the installation that first writes it
+- added `features/replication/creation.feature`: two creations of one id at two installations are marked in conflict when they meet
+- added `features/replication/creation.feature`: an entity in conflict answers reads and refuses writes
 
 ---
 
@@ -141,6 +175,7 @@ same command is refused naming the home while a query is still answered.
 - added `features/replication/forwarding.feature`: a persisting command at an installation outside the replication set is forwarded to the home
 - added `features/replication/forwarding.feature`: a write at a follower whose home cannot be reached is refused naming the home
 - added `features/replication/forwarding.feature`: a read at a follower whose home cannot be reached is still answered
+- added `features/replication/forwarding.feature`: a read at an installation outside the replication set is refused naming the home
 - added `features/replication/forwarding.feature`: a forwarded command is one call in the trace
 
 ---
@@ -166,6 +201,8 @@ is answered by the new home.
 - added `features/replication/handover.feature`: the old home forwards a write it is sent after the handover
 - added `features/replication/handover.feature`: a copy that lagged through a handover holds every change in the home's order
 - added `features/replication/handover.feature`: a handover waits until the new home holds everything before it
+- added `features/replication/handover.feature`: the old home goes on handling writes while a handover waits
+- added `features/replication/handover.feature`: a handover configured to hold writes is abandoned when the new home does not confirm in time
 - added `features/replication/handover.feature`: a handover to an installation outside the replication set is refused
 - added `features/replication/handover.feature`: a handover is recorded in the entity's own history
 
@@ -186,9 +223,11 @@ assert both changes are records in the journal at every copy.
 
 **Acceptance Scenarios**:
 
+- added `features/replication/replication-set.feature`: a newly created entity is held by its home alone
 - added `features/replication/replication-set.feature`: an installation added to the replication set mirrors the whole history
 - added `features/replication/replication-set.feature`: an installation added late holds the same history as the home
 - added `features/replication/replication-set.feature`: an installation removed from the replication set stops mirroring and keeps its copy
+- added `features/replication/replication-set.feature`: a read at an installation removed from the replication set is refused naming the home
 - added `features/replication/replication-set.feature`: a change to the replication set is recorded in the entity's own history
 
 ---
@@ -308,15 +347,19 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 
 ### Edge Cases
 
-- **The same id created at two installations.** Each installation that has never seen an entity
-  creates it as its home on the first write, so two creations of one id at two installations before
+- **The same id created at two installations.** Two creations of one id at two installations before
   either has heard of the other are two homes. When the histories meet, the entity is marked in
-  conflict at both: writes are refused with an error saying so, reads go on, and the documentation says
-  a replicated entity's id must be chosen so that this cannot happen, as a vehicle's is, or the
-  creation coordinated by the service. Coordinated creation is the private half's to offer.
+  conflict at both: writes are refused with an error saying so, reads go on from each copy, and an
+  operator resolves it. The documentation says a replicated entity's id must be chosen so that this
+  cannot happen, as a vehicle's is. Coordinated creation is the private half's to offer.
 - **A handover while a command is in flight.** A command the old home has accepted before writing the
   handover record is handled there; one that arrives after is forwarded. The reply reaches the caller
-  either way.
+  either way. A handover configured to hold writes holds them from the handover command until the record
+  is written or the handover abandoned, and then handles or forwards them.
+- **A handover that never completes.** By default the old home asks the new home again each time it
+  has written more, so under steady load the handover completes at the first quiet moment and the
+  entity is never without a home. Configured to hold writes, the handover is abandoned at its timeout,
+  the old home stays home, and the handler's caller is told the handover did not happen.
 - **The old home's instance stops after writing the handover.** The record is in its journal; the new
   home reads it from the durable journal when the transport can, and becomes effective then. Until it
   does, nobody is the home and writes are refused honestly.
@@ -358,7 +401,12 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 
 - **FR-004**: A replicated entity MUST have exactly one home at a time; only the home MAY handle a
   persisting command. A read-only command MUST be answered by any copy in the replication set from its
-  own journal.
+  own journal, and MUST be refused with an error naming the home at an installation outside the
+  replication set, including one removed from it.
+- **FR-004a**: An installation that has never seen an entity MUST create it as its home on the first
+  persisting command. When two histories for one id meet, the entity MUST be marked in conflict at both,
+  persisting commands MUST be refused with an error that says so, read-only commands MUST go on being
+  answered, and the conflict MUST be visible to an operator.
 - **FR-005**: A follower MUST pull the home's journal from its own last sequence number upwards, in
   order, from one source at a time, and persist each record unchanged under the same persistence id and
   sequence number; a record that is not the next MUST be refused.
@@ -380,10 +428,15 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
   then on and forward them.
 - **FR-010**: The new home MUST become effective only once its own journal ends with the handover
   record; the old home MUST write it only after the new home has confirmed it holds every record before
-  it. A handover to an installation outside the replication set MUST be refused.
-- **FR-011**: A persisting handler MUST be able to add an installation to the replication set or remove
-  one, composed with what it persists; both MUST be records in the journal. An added installation MUST
-  mirror from the first record; a removed one MUST stop mirroring and keep its copy.
+  it. By default the old home MUST go on handling persisting commands while it waits and ask the new
+  home to confirm again, until it does. A service MAY configure a handover to hold persisting commands
+  while it waits and to be abandoned after a configurable timeout, after which the old home MUST stay
+  home, handle what it held, and tell the handler's caller the handover did not happen. A handover to an
+  installation outside the replication set MUST be refused.
+- **FR-011**: A newly created entity's replication set MUST be its home alone. A persisting handler
+  MUST be able to add an installation to the replication set or remove one, composed with what it
+  persists; both MUST be records in the journal. An added installation MUST mirror from the first
+  record; a removed one MUST stop mirroring and keep its copy, which no query reads again.
 - **FR-012**: A copy MUST switch its source to the new home at the handover record's sequence number and
   nowhere else, so that no copy ever holds a record of a newer home before every record of an older one.
 
@@ -444,6 +497,8 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
   its home; it mirrors the home's journal and answers reads.
 - **Replication set**: the installations that hold a replicated entity: its home and its followers.
 - **Handover**: the home passing from one installation to another, recorded in the entity's history.
+- **Conflict**: the state of an entity created at two installations before either had heard of the
+  other, marked at both when the histories meet; writes refused, reads answered, resolved by an operator.
 - **Local change** and **mirrored change**: a change written at this installation, and one written at
   another and mirrored here.
 - **Replication transport**: what carries records and forwarded commands between installations, behind
@@ -474,11 +529,10 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 - The runtime's own transport reads another installation's journal through a query plugin configured per
   installation from platform variables, and forwards a command by calling that service directly; it is
   what the test kit, the local overlay and the spike use.
-- Each installation that has never seen an entity creates it as its home on first write; coordinated
-  creation is the private half's.
-- The replication set of a newly created entity is its home alone; a handler widens it.
-- A read at an installation outside the replication set is forwarded to the home; a removed
-  installation's copy is kept for what was built from it and is not read for new queries.
+- The handover's hold-writes timeout, where a service configures it, is a platform setting with a
+  default the plan chooses; the default handover holds nothing and has no timeout.
+- Coordinated creation, and a directory that could refuse a duplicate before two histories meet, are
+  the private half's.
 - The protocol gains the fields on the next free minor version after features 046 to 048 settle.
 - A snapshot's stored form is unchanged; the follower's sequence number is the journal's.
 

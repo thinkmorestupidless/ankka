@@ -11,6 +11,10 @@ Feature: A replicated entity's replication set
     And the vehicle "v1" was created at "leipzig"
     And a caller at "leipzig" sent twelve commands to "v1"
 
+  Scenario: a newly created entity is held by its home alone
+    Then the replication set of "v1" is "leipzig" alone
+    And neither "vienna" nor "bratislava" holds a record of "v1"
+
   Scenario: an installation added to the replication set mirrors the whole history
     When a handler of "v1" adds "vienna" to its replication set
     Then "vienna" holds every record of "v1" from the first
@@ -33,3 +37,8 @@ Feature: A replicated entity's replication set
     When a handler of "v1" removes "vienna" from its replication set
     Then the journal of "v1" holds a record naming "vienna" as removed from the replication set
     And the record is at "leipzig" and at "vienna" at the same sequence number, the last record "vienna" holds
+
+  Scenario: a read at an installation removed from the replication set is refused naming the home
+    Given "vienna" was removed from the replication set of "v1"
+    When a caller at "vienna" sends the query "get" to "v1"
+    Then the caller is refused with an error naming "leipzig" as the home of "v1"

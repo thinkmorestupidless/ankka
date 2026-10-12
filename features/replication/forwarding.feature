@@ -33,3 +33,7 @@ Feature: A write that reaches a follower is handled by the home
     Given a caller at "bratislava" sent the command "record-inspection" to "v1" and was answered
     When a developer reads the trace of the call
     Then the trace shows one call from the caller to "vehicle", forwarded from "bratislava" to "leipzig"
+
+  Scenario: a read at an installation outside the replication set is refused naming the home
+    When a caller at "vienna" sends the query "get" to "v1"
+    Then the caller is refused with an error naming "leipzig" as the home of "v1"

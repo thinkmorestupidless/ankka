@@ -47,3 +47,19 @@ Feature: Handing over a replicated entity's home
     When a handler of "v1" hands its home to "vienna"
     Then the journal of "v1" holds a handover record naming "vienna" after every record "leipzig" wrote
     And the history of "v1" at every installation in its replication set holds the handover at the same sequence number
+
+  Scenario: the old home goes on handling writes while a handover waits
+    Given the replication transport to "vienna" is paused
+    And a handler of "v1" handed its home to "vienna"
+    When a caller at "leipzig" sends the command "add-step" to "v1"
+    Then the command is handled at "leipzig"
+    And the handover is recorded after that command once the replication transport to "vienna" is resumed
+
+  Scenario: a handover configured to hold writes is abandoned when the new home does not confirm in time
+    Given "fleet" configures a handover to hold writes and to be abandoned after "5 seconds"
+    And the replication transport to "vienna" is paused
+    When a handler of "v1" hands its home to "vienna"
+    And a caller at "leipzig" sends the command "add-step" to "v1"
+    Then the handler's caller is told the handover did not happen after "5 seconds"
+    And "leipzig" is still the home of "v1"
+    And the command "add-step" is handled at "leipzig" after the handover is abandoned

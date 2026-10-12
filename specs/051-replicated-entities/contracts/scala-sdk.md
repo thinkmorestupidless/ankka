@@ -46,13 +46,18 @@ Semantics the runtime gives them (research R8, R10):
 
 | Effect | Records written at the home, after the events | Refused when |
 |---|---|---|
-| `handOverTo(x)` | kind 5 naming `x`; later kind 3 or kind 6 | `x` is this installation, not in the service's installations, or not in the replication set; a handover is already pending; the copy is not the home |
-| `replicateTo(x)` | kind 4 with the set plus `x` | `x` is not in the service's installations; the copy is not the home |
-| `stopReplicatingTo(x)` | kind 4 with the set minus `x` | `x` is the home; the copy is not the home |
+| `handOverTo(x)` | kind 5 naming `x`; later kind 3 or kind 6 | `x` is this installation, not in the service's installations, or not in the replication set; a handover is already pending |
+| `replicateTo(x)` | kind 4 with the set plus `x` | `x` is not in the service's installations |
+| `stopReplicatingTo(x)` | kind 4 with the set minus `x` | `x` is the home |
 
-A refusal is `effects.error`'s shape: the caller sees a `CommandError` with `ErrorCode.BadRequest`
-or `ErrorCode.NotHome` and nothing is persisted. `EventSourcedEffect.materialise` reduces the new
-fields so the pure test kit and the runtime agree: `Materialised` gains `replication: Option[ReplicationChange]`.
+The effect is always reduced at the home, since a persisting command anywhere else is forwarded
+there first. Several `replicateTo` or `stopReplicatingTo` on one builder accumulate into one kind 4
+record; a `handOverTo` cannot be combined with a set change on one command. A refusal is
+`effects.error`'s shape: the caller sees a `CommandError` with `ErrorCode.BadRequest` and nothing is
+persisted. The handover command's caller is answered as the effect says once the handover is
+pending; `awaitHandover` (below) is how a caller learns whether it happened.
+`EventSourcedEffect.materialise` reduces the new fields so the pure test kit and the runtime agree:
+`Materialised` gains `replication: Option[ReplicationChange]`.
 
 ## Contexts
 
@@ -97,6 +102,14 @@ final case class ReplicationStatus(home: Option[String], replicationSet: Set[Str
 ```
 
 It is the reserved query `ankka:replication`, read-only, served by any copy from its own journal.
+
+```scala
+componentClient.forEventSourced(VehicleEntity, "v1").awaitHandover(30.seconds)   // Future[Done]
+```
+
+The reserved read-only method `ankka:handover-status`, looped on `NotYet` as `awaitEnd` is: completes
+once the handover is recorded; fails `CommandError(Unavailable)` naming the target once it was
+abandoned; fails `Timeout` at the deadline, with the handover still pending.
 
 ## Errors
 

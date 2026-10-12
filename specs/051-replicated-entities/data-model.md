@@ -28,6 +28,10 @@ Rules:
 
 - A record written at a copy with no installations named carries no `installation` and is byte for
   byte what the release before wrote (pinned by `journal/journal-record.txt`).
+- An unstamped record in a replicated journal was written at the installation holding that journal,
+  before this feature. A follower that mirrors one persists it with `installation = Some(source)`,
+  the installation it pulled from, and nothing else changed (R5); so only the home's own journal
+  holds unstamped records, and every reader takes an unstamped record as written here.
 - The first record of a replicated entity created under this feature is kind 3, then kind 4 with
   `[self]`, then the handler's events.
 - Kind 3 is written only by the current home (the first writer, or the home ending a kind 5).
@@ -82,8 +86,9 @@ Sent only inside one installation, never on the wire between installations.
 
 | Command | Fields | Sent by | Handled by |
 |---|---|---|---|
-| `Replicate` | `sequenceNr: Long`, `record: JournalRecord`, `ack: ActorRef[ReplicateAck]` | the copy's puller | a follower: persists `Mirrored(record)` if `sequenceNr == last + 1` and the writer is in the set or is the pending home; else `ReplicateAck.Refused(reason)` and the puller restarts from the copy's position |
-| `Wake` | none | the transport's `advanced` feed | any copy: starts, which starts the puller if a follower |
+| `Replicate` | `sequenceNr: Long`, `record: JournalRecord`, `ack: ActorRef[ReplicateAck]` | the copy's puller | a follower: persists `Mirrored(record)` if `sequenceNr == last + 1` and the writer is in the set or is the pending home, stamping an unstamped record with the puller's source; else `ReplicateAck.Refused(reason)` and the puller restarts from the copy's position |
+| `Wake` | none | the transport's `advanced` feed | any copy: starts, which starts the puller if a follower; a copy with no record asks `locate` and starts the puller if the answer's set holds this installation |
+| `Locate` | `result: Try[Option[Located]]` | `pipeToSelf` after `transport.locate` | a copy with no record: `Some` makes it `Outside` (or a follower after `Wake`), `None` lets a persisting command create here |
 | `Reported` | `installation: String`, `position: Long` | the transport, on `report` | the home with a pending handover: persists kind 3 when `position == last`, else waits |
 | `Forwarded` | `replyTo`, `result: Try[ForwardedReply]` | `pipeToSelf` | a follower: answers the caller's `Invoke` |
 
@@ -92,7 +97,7 @@ Sent only inside one installation, never on the wire between installations.
 | Name | Read-only | Answers |
 |---|---|---|
 | `ankka:replication` | yes | `ReplicationStatus(home, replicationSet, pendingHandover, conflict, position)` as JSON; refused to user handlers by `Companion.descriptor` under the `ankka:` prefix |
-| `ankka:handover-status` | yes | `NotYet` while a handover is pending, `Succeeded` when kind 3 was written, `Rejected(Unavailable)` when kind 6 was; the client loops as `awaitEnd` does |
+| `ankka:handover-status` | yes | `NotYet` while a handover is pending, `Succeeded` when kind 3 was written, `Rejected(Unavailable)` when kind 6 was; the client loops as `awaitEnd` does, as `awaitHandover(timeout)`. The handover command itself is answered when kind 5 is persisted, in both modes |
 
 ## Transport values (R6; the contract is `contracts/transport-seam.md`)
 
@@ -121,9 +126,9 @@ respectively in `PlatformVariables`; a descriptor that sets either is refused.
 
 | Code | New | When |
 |---|---|---|
-| `ErrorCode.NotHome` | yes | a persisting command at a copy whose home cannot be reached, or a read at a copy outside the replication set; the message names the home |
+| `ErrorCode.NotHome` | yes | a persisting command at a copy whose home cannot be reached, or a read at a copy outside the replication set; the message names the home. HTTP 421 (misdirected request), gRPC `FAILED_PRECONDITION`, protocol `NOT_HOME` |
 | `ErrorCode.Conflict` | reuse if present, else new | a persisting command at a copy in conflict; the message names the other home |
-| `ErrorCode.Unavailable` | no | a held handover abandoned at its timeout; the message names the target |
+| `ErrorCode.Unavailable` | no | a held handover abandoned at its timeout, answered to a caller of `ankka:handover-status`; the message names the target |
 | `ErrorCode.BadRequest` | no | a handover or a replication-set change naming an installation the service does not name, or a handover to one outside the set |
 
 ## Consumer declaration (R12)

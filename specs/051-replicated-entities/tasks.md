@@ -95,7 +95,9 @@ fields every later task spells the same way; and the record bytes pinned *before
   `string installation` and `bool at_home` at the next free numbers of `EventSourcedIn.Command`;
   add `NOT_HOME` to `ErrorCode` in `PROTO/payload.proto`; each with the `// 1.19:` comment
   contracts/protocol.md gives. Document the two `ConsumerRequest.metadata` entries in
-  `PROTO/consumer.proto`'s comment. Copy to the three SDKs with `PY/scripts/proto.py`,
+  `PROTO/consumer.proto`'s comment and the two `EventSourcedOut.Persist` metadata entries
+  `ankka.replication` and `ankka.replication.installations` (contracts/protocol.md "Replication
+  effects from a process") in `PROTO/event_sourced.proto`'s comment. Copy to the three SDKs with `PY/scripts/proto.py`,
   `npm run proto` in `TS`, `RS/scripts/proto.sh`; `diff -r` all three against `PROTO`
 - [ ] T007 [P] Bump the version to 1.19: `WireProtocol.Version` in `RT/remote/Conversation.scala:183`;
   `ProtocolVersion(1, 19)` and a scaladoc line in `API/Compatibility.scala:77`;
@@ -117,15 +119,17 @@ fields every later task spells the same way; and the record bytes pinned *before
   `None` when `installation` is empty. Case in `RTT/ReplicationSettingsSuite.scala`: the defaults,
   a two-sibling map, an empty `installation`, a refused name
 - [ ] T009 [P] Effects as values: in `CORE/effect/EventSourcedEffect.scala` add
-  `enum ReplicationChange { case HandOver(to: String); case ReplicateTo(installation: String); case StopReplicatingTo(installation: String) }`;
+  `enum ReplicationChange { case HandOver(to: String); case SetChange(add: Set[String], remove: Set[String]) }`;
   `Persisting` (`:30`) gains `replication: Option[ReplicationChange] = None`; `PersistBuilder`
   (`:116`) gains `handOverTo(installation: String)`, `replicateTo(installation: String)`,
-  `stopReplicatingTo(installation: String)`, each returning a `PersistBuilder` carrying the change
-  (a second change on one builder throws `IllegalArgumentException` at build: one change per
-  command); `Effects` (where `persist` is offered to a handler) gains the three without events, each
-  a `PersistBuilder` over `Vector.empty`; `Materialised` (`:44`) gains `replication: Option[ReplicationChange]`
-  and `materialise` (`:61`) carries it through. Cases in `CORET`: each builder materialises its
-  change beside its events; two changes refused; `thenReply` after `handOverTo` keeps both
+  `stopReplicatingTo(installation: String)`, each returning a `PersistBuilder` carrying the change:
+  several `replicateTo`/`stopReplicatingTo` on one builder accumulate into one `SetChange` (the
+  same name in both sets throws `IllegalArgumentException`), and a `handOverTo` beside a set change
+  throws too (contracts/scala-sdk.md "Effects"); `Effects` (where `persist` is offered to a handler)
+  gains the three without events, each a `PersistBuilder` over `Vector.empty`; `Materialised` (`:44`)
+  gains `replication: Option[ReplicationChange]` and `materialise` (`:61`) carries it through. Cases
+  in `CORET`: each builder materialises its change beside its events; two `replicateTo` accumulate;
+  a handover beside a set change is refused; `thenReply` after `handOverTo` keeps both
 
 ---
 
@@ -222,21 +226,29 @@ drives. Nothing here is a story on its own; everything after it is.
   `enum Mode { Unreplicated, Unknown, Home, Follower, Outside }` and `def modeOf(stored, replication)`
   as data-model derives it, in `REPL/Mode.scala` so the remote host (T063) uses the same function.
   `toJournal`/`fromJournal` of the snapshot (`:327`, `:335`) carry the four fields
-- [ ] T019 Module commands: in `RT/wire.scala` add `Replicate(sequenceNr, record, ack: ActorRef[ReplicateAck])`,
+- [ ] T019 Module commands: in `RT/wire.scala` add `Replicate(sequenceNr, record, source: String, ack: ActorRef[ReplicateAck])`,
   `enum ReplicateAck { case Persisted(sequenceNr); case Refused(reason) }`, `Wake`,
-  `Reported(installation, position)`, `Forwarded(replyTo, result: Try[ForwardedReply])`, all
-  `EntityProtocol.ModuleCommand` and `AnkkaSerializable` (contracts/runtime-wire.md "Sharded
-  messages"). In the host's `onCommand` (`:86`): `Replicate` at a follower persists
-  `Mirrored(record)` when `sequenceNr == lastSequenceNumber + 1` and the record's `installation` is
-  in the set or is the pending home, acking `Persisted`; otherwise `Refused` with the reason;
-  `Wake` is handled as "start, and start the puller if a follower". `WorkflowHost`,
-  `KeyValueEntityHost`, the remote hosts and the agent hosts answer the four `unhandled`, with a
-  reply where the command carries a `replyTo` (CLAUDE.md, "every host must handle unexpected
-  commands explicitly")
+  `Reported(installation, position)`, `Forwarded(replyTo, result: Try[ForwardedReply])`,
+  `Locate(result: Try[Option[Located]])`, all `EntityProtocol.ModuleCommand` and
+  `AnkkaSerializable` (contracts/runtime-wire.md "Sharded messages"). In the host's `onCommand`
+  (`:86`): `Replicate` at a follower persists `Mirrored(record)` when `sequenceNr == lastSequenceNumber + 1`
+  and the record's `installation` is in the set or is the pending home, acking `Persisted`; a
+  record with no `installation` is persisted with `installation = Some(source)` and nothing else
+  changed (R5: a legacy record, stamped once it leaves the home's own journal); otherwise `Refused`
+  with the reason, logged. `Wake` is handled as "start, and start the puller if a follower; at a
+  copy with no record (`home = None`) ask `transport.locate` once, piped back as `Locate`, and start
+  the puller when the answer's set contains `self`" (R7). `WorkflowHost`, `KeyValueEntityHost`,
+  the remote hosts and the agent hosts answer the five `unhandled`, with a reply where the command
+  carries a `replyTo` (CLAUDE.md, "every host must handle unexpected commands explicitly")
 - [ ] T020 Case in `RTT/MirroringSuite.scala` (`EventSourcedBehaviorTestKit` over the host's
-  behaviour with a `Replication` of two installations and a stub transport): five `Replicate`s in
-  order are persisted and the journal holds the records byte for byte; the sixth with a gap is
-  `Refused` and nothing is persisted; a record from an installation outside the set is `Refused`;
+  behaviour with a `Replication` of two installations and a stub transport; `pekkoPersistenceTestkit`
+  is declared in `project/Dependencies.scala:119`, so add it to `runtime`'s `% Test` dependencies
+  in `build.sbt` if no runtime suite has it yet): five `Replicate`s in order are persisted and the
+  journal holds the records byte for byte; an unstamped record arrives stamped with the source and
+  its kind, manifest and payload untouched; the sixth with a gap is `Refused` and nothing is
+  persisted; a record from an installation outside the set is `Refused`; a `Wake` at a copy with
+  no record calls `locate` once and starts pulling when the set names `self`, and does nothing when
+  it does not;
   a `Replicate` at the home is `Refused`; a persisting command at a follower is not handled
   locally (it is T036's forward; here assert nothing is persisted); the mode after a kind 3 naming
   self is `Home`, after a kind 4 without self `Outside`
@@ -256,8 +268,11 @@ drives. Nothing here is a story on its own; everything after it is.
   `advanced` is one `ShardedDaemonProcess` per sibling over `eventsBySlices` on that sibling's query
   plugin for every replicated component (as `RT/ProjectionRuntime.scala:1243` runs one), filtered
   to records whose `installation` is that sibling, offsets in the local projection offset store
-  under the projection id `replication-wake-<sibling>-<component>`. Stops the transport on
-  shutdown, after the hosts
+  under the projection id `replication-wake-<sibling>-<component>`. A `Wake` for an entity this
+  installation holds no record of is sent only when the record that advanced is a kind 4 naming
+  `self` (R7: otherwise every write elsewhere would make an outside copy `locate`); whether a
+  record exists locally is one `currentEventsByPersistenceId(pid, 1, 1)` on the local journal,
+  cached per entity for the daemon's life. Stops the transport on shutdown, after the hosts
 - [ ] T023 Case in `RTT/PullerSuite.scala`: a scripted `records` source of ten records ends with
   the follower holding ten; a source that fails after three is reopened from four (assert the
   `from` the second open was asked with); `switch` reopens against the new name from the same
@@ -267,7 +282,9 @@ drives. Nothing here is a story on its own; everything after it is.
 
 - [ ] T024 In `TK/AnkkaTestKit.scala` add `object AnkkaTestKit.installations(names: String*): Installations`
   which acquires one database per name from `SharedPostgres` up front, and `final class Installations`
-  with `start(name, descriptors, extensions = Nil, configure = identity): AnkkaTestKit` (the service
+  with `start(name, descriptors, extensions = Nil, configure = identity, database: Option[Database] = None): AnkkaTestKit`
+  (`database` lets a name take over a database an earlier, unreplicated kit wrote, for the history
+  feature; the service
   configured with `ankka.replication.installation = name` and every other name's `db.*` from its
   database, through `configure` as `start`'s `settings` are set at `:274`, and
   `withReplicationTransport(transport)`), `apply(name): AnkkaTestKit`, `transport: TestReplicationTransport`
@@ -290,13 +307,15 @@ drives. Nothing here is a story on its own; everything after it is.
   beside `commandContext` (`:49`), throwing outside `applyEvent` with the same wording, and
   `private[ankka] def _setEventContext`; `_applyEvent` (`:60`) is unchanged in signature. The host
   (T018) sets it around every apply and replay from the record: `installation` is the record's, or
-  `stored.home` when the record carries none (FR-013: a record from before reads as written at the
-  home); `isLocal` is `installation.forall(_ == self)`. Cases in `SDKT`: `eventContext` outside
-  `applyEvent` throws; inside, a kit-set context is read
+  `Some(self)` when the record carries none and the service names installations (FR-013: an
+  unstamped record is one this installation wrote, since a follower stamps what it mirrors, T019),
+  `None` on an unreplicated service; `isLocal` is `installation.forall(_ == self)`. Cases in `SDKT`:
+  `eventContext` outside `applyEvent` throws; inside, a kit-set context is read
 - [ ] T027 Write the fixture service in `TKT/replication/FleetComponents.scala`: `VehicleEntity`
   (`replicated = true`; state `Vehicle(id, steps: Vector[String], inspections: Vector[String], sold: Boolean, seenAtHome: Vector[Boolean], writtenAt: Vector[Option[String]])`;
-  commands `create` (input: the replication set to add, applied through `replicateTo` one per
-  installation after a `Created` event; the first handler run creates the entity as home), `add-step`,
+  commands `create` (input: the installations to add to the replication set, applied as one
+  `replicateTo` per name on the same builder after a `Created` event, which T009 accumulates into
+  one kind 4; the first handler run creates the entity as home), `add-step`,
   `record-inspection`, `record-sale` (persists `Sold`), `hand-over` (input: the target;
   `handOverTo`), `replicate-to`, `stop-replicating-to`, query `get`, query `context` answering
   `(commandContext.installation, commandContext.isHome)`; `applyEvent` appends
@@ -305,7 +324,9 @@ drives. Nothing here is a story on its own; everything after it is.
   default `mirroredChanges`), `MirroredBuildsConsumer` (`mirroredChanges = true`, records each
   change's `installation` and `localOrigin` into a shared `ConcurrentLinkedQueue`), and
   `FleetEndpoint` with a `post("/vehicles/{id}/steps")` route calling `add-step` through the
-  component client, marked `// docs:start …` for the pages (R15)
+  component client, marked `// docs:start …` for the pages (R15); and `object FleetMain` starting
+  the service from the environment (`ANKKA_INSTALLATION`, the `_DB_*` variables, `ANKKA_HTTP_PORT`)
+  for quickstart's "Two installations on one machine"
 - [ ] T028 Write `TKT/replication/ReplicationSteps.scala`:
   `abstract class ReplicationSteps(features: String) extends GherkinSuite(features) with LogCapturing`
   that reads the Background's installation names from the step
@@ -318,7 +339,9 @@ drives. Nothing here is a story on its own; everything after it is.
   `the command is handled at {string}`, `the caller is answered as the handler of {string} at {string} replied`,
   `the journal of {string} at {string} holds the same records at the same sequence numbers as at {string}`
   (reads both databases' `event_journal` rows for the persistence id through each kit's `Database`
-  and compares `(sequence_number, event_payload bytes)` lists: bytes, not counts), the transport
+  and compares, per sequence number, the whole `event_payload` bytes from the first kind 3 record
+  onward and the decoded kind, manifest and payload before it, where a follower's copy of a legacy
+  record carries a stamp the home's does not (R5): bytes, not counts), the transport
   steps `the replication transport to {string} is paused`/`resumed`, `{string} cannot be reached`,
   and the trace step `no call crossed from {string} to {string}` reading the topology as
   `TKT/awaiting/AwaitSteps.scala:467` does. Every `Then` reads the value its `When` produced; a
@@ -358,11 +381,13 @@ installation that first writes it; two creations meet as a conflict.
   as today, stamping records with `self`. `Follower` answers a read-only `Invoke` from its state and
   passes a persisting one to T036 (until then, `Rejected(NotHome)` naming the home). `Outside`
   refuses a read-only `Invoke` `Rejected(NotHome)` naming the home. `Unknown` asks
-  `transport.locate` once, piped back as a `Located`-carrying module command (add
-  `Locate(replyTo, result)` to T019's list): `Some(located)` folds nothing and answers as `Outside`
-  would (a read refused naming the home; a write forwarded, T036); `None` and a persisting command
-  creates: persist `Home(self)`, `ReplicationSet(Set(self))`, then the handler's events (R10,
-  clarification Q2); `None` and a read answers the empty state as today
+  `transport.locate` once, piped back as T019's `Locate`, the `Invoke` stashed meanwhile:
+  `Some(located)` folds nothing and answers as `Outside` would (a read refused naming the home; a
+  write forwarded, T036), or starts the puller when the set names `self`; `None` and a persisting
+  command creates: persist `Home(self)`, `ReplicationSet(Set(self))`, then the handler's events
+  (R10, clarification Q2); `None` and a read answers the empty state as today. A follower observing
+  a mirrored deletion or expiry shows the empty state and persists nothing of its own (spec, Edge
+  Cases "Deletion and expiry"); assert it in T020's suite
 - [ ] T032 [US1] The reserved query: `private[ankka] val Replication: MethodName = MethodName("ankka:replication")`
   in `SDK/EventSourcedEntity.scala`'s companion object beside the descriptor's refusal of the
   `ankka:` prefix (a case in `SDKT` that a user handler named so is refused, as `ankka:lifecycle`
@@ -449,7 +474,8 @@ among them).
   `Materialised.replication = Some(HandOver(x))` at the home checks `x != self`, `x` in
   `settings.installations`, `x` in `replicationSet`, no `pendingHandover`, else `Rejected(BadRequest)`
   naming `x` and why, before anything is persisted; otherwise persists the handler's events then
-  `Handover(x)` (kind 5) and answers the caller as the effect says. On `Reported(x, position)`
+  `Handover(x)` (kind 5) and answers the caller as the effect says, in both modes (contracts/scala-sdk.md
+  "Effects": a plain `Invoke` cannot be held open with `NotYet`). On `Reported(x, position)`
   while `pendingHandover == Some(x)`: `position == lastSequenceNumber` → persist `Home(x)` (kind 3),
   clear, stop handling writes (the mode is now `Follower` or `Outside`), start the puller against
   `x`; else keep waiting. The follower that is the pending target calls `transport.report(home, …, lastSequenceNumber)`
@@ -457,10 +483,9 @@ among them).
   `Reported` arrives at the home through T016's `report` (in-JVM) or T057's route. Hold mode
   (`settings.holdWrites`): from kind 5 the home stashes persisting `Invoke`s; kind 3 unstashes
   them (they are then forwarded); a timer at `settings.handoverTimeout` persists
-  `HandoverAbandoned(x)` (kind 6), unstashes and handles them, and answers the handover's caller
-  `Rejected(Unavailable)` "handover to x did not happen"; the caller of the handover command is
-  answered when kind 3 or 6 is persisted, with `NotYet` every half ask timeout meanwhile. The default
-  (chase) answers the caller when kind 5 is persisted
+  `HandoverAbandoned(x)` (kind 6), unstashes and handles them. A caller learns the outcome through
+  T040's `ankka:handover-status`, which answers `Rejected(Unavailable)` "handover to x did not
+  happen" once kind 6 is the last platform record
 - [ ] T040 [US3] `ankka:handover-status`: `private[ankka] val HandoverStatus = MethodName("ankka:handover-status")`
   beside T032's; the host answers `NotYet` while `pendingHandover` is set, `Succeeded` once the
   last platform record is a kind 3 naming the former target, `Rejected(Unavailable)` once it is a
@@ -484,8 +509,9 @@ among them).
   `holds a handover record naming {string} after every record {string} wrote`, `at the same sequence number`,
   `"fleet" configures a handover to hold writes and to be abandoned after {string}` (the group
   started with `hold-writes = on, timeout = 5s` through `configure`), and the abandonment's
-  `Then`s (error code `Unavailable` naming `vienna`; the old home handled the held command; a kind
-  6 in the journal). The lagged-copy scenario asserts the three journals byte-identical and the
+  `Then`s (`a caller waiting for the handover is told it did not happen after {string}`: the step's
+  `awaitHandover` fails `Unavailable` naming `vienna` within the duration; `leipzig` is still the
+  home; the held `add-step` was handled at `leipzig` after kind 6 was written). The lagged-copy scenario asserts the three journals byte-identical and the
   order; run it ten times in a row once (`sbt 'testkit/testOnly *HandoverFeatures -- "*lagged*"'`
   in a loop) for SC-001's "on every run"
 
@@ -502,14 +528,14 @@ records in the journal.
 
 **Independent Test**: `sbt 'testkit/testOnly *ReplicationSetFeatures'` (6 scenarios).
 
-- [ ] T043 [US4] Reduce `ReplicateTo(x)` and `StopReplicatingTo(x)` at the home in `REPL/Handover.scala`'s
-  sibling `REPL/SetChange.scala` and the host: `x` in `settings.installations` (and for the
-  removal `x != home`) else `Rejected(BadRequest)`; persist the handler's events then
-  `ReplicationSet(set + x)` or `ReplicationSet(set - x)` (kind 4, the whole set). A copy that
-  persists a `Mirrored` kind 4 without `self` stops its puller, keeps its journal, and is `Outside`
-  (reads refused naming the home: T031 already does this from the mode). A copy added learns it
-  through `Wake` (T022's feed sees the home's kind 4 stamped by the home) or through `locate` on
-  its first command, and pulls from 1
+- [ ] T043 [US4] Reduce `SetChange(add, remove)` at the home in `REPL/Handover.scala`'s sibling
+  `REPL/SetChange.scala` and the host: every name in `settings.installations`, none of `remove` the
+  home, else `Rejected(BadRequest)` naming the first offender; persist the handler's events then
+  `ReplicationSet(set ++ add -- remove)` (kind 4, the whole set). A copy that persists a `Mirrored`
+  kind 4 without `self` stops its puller, keeps its journal, and is `Outside` (reads refused naming
+  the home: T031 already does this from the mode). A copy added learns it through `Wake` (T022's
+  feed sees the home's kind 4 naming `self`, and T019's `Wake` at a copy with no record asks
+  `locate`) or through `locate` on its first command, and pulls from 1
 - [ ] T044 [US4] Case in `RTT/MirroringSuite.scala`: a kind 4 adding C at the home and a fresh copy
   at C pulling from 1 ends identical; a kind 4 removing B stops B's puller (the scripted transport
   sees the source cancelled) and B's next read is `NotHome`; `stopReplicatingTo(home)` is
@@ -591,8 +617,10 @@ replicated is refused at validation.
   the endpoint is not local
 - [ ] T052 [US6] Bind `FEAT/transport.feature`: `started twice on one machine as the installations {string} and {string}, each with its own database`
   (a group of two with `transport.inProcessForward = false`, so the forward and the report go
-  through the loopback routes found in a `-Dankka.config`-isolated `~/.ankka/running`: see
-  `.claude/rules/control-plane.md` for the isolation), `creates the vehicle {string} with {string} in its replication set and sends it a command`,
+  through the loopback routes found in a registration directory the suite isolates by setting the
+  system property `ankka.running.dir` (`RT/ServiceRegistration.scala:32`) to a temporary directory
+  in the test JVM before the group starts, since a forked test does not inherit sbt's `-D`s),
+  `creates the vehicle {string} with {string} in its replication set and sends it a command`,
   `holds the same records as at {string} within {string}`; `that names the installations {string} and {string}`
   plus `no replication transport can reach {string}` (a `ServiceBuilder` with the two names and no
   `db.*` for `b`, no provider), `When "fleet" starts` (captures the `StartRefusal`),
@@ -649,9 +677,13 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   flag; the target run as 1.18 by `-Dankka.conformance.shape`'s mechanism is refused naming 1.19),
   `es.replicated-context` (the reference entity `replicated-vehicle` records `at_home` and the
   event's `installation` into its state; the sidecar is started with `installation = "a"` and no
-  siblings in the test, so `at_home` is true and `installation` is `a`), `consumer.mirrored-declares`
-  (a consumer declared `mirrored_changes` discovers so). Each case names the SDK rule it holds in
-  its description, as the others do
+  siblings in the test, so `at_home` is true and `installation` is `a`), `es.replicated-effects`
+  (the reference entity's `hand-over`, `replicate-to` and `stop-replicating-to` commands each
+  answer with the two metadata entries of contracts/protocol.md "Replication effects from a
+  process", and the sidecar's host writes kind 5 or kind 4; a reply carrying `ankka.replication`
+  from an entity not declared replicated is `BadRequest`), `consumer.mirrored-declares` (a consumer
+  declared `mirrored_changes` discovers so). Each case names the SDK rule it holds in its
+  description, as the others do
 
 ### Python (`sdks/python`)
 
@@ -664,10 +696,9 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   `PY/src/ankka/server.py` sends `replicated` and `mirrored_changes` in discovery and refuses a
   runtime below 1.19 at discovery when any entity is replicated, naming it; `PY/src/ankka/testkit/unit.py`
   drives an entity as home or follower (`mode="follower", home="a"`). The effects reach the runtime
-  as the reply's metadata entries `ankka.replication = hand-over|replicate-to|stop-replicating-to`
-  and `ankka.replication.installation = <name>`, which `RemoteEventSourcedHost` (T055) reduces as
-  the in-process host reduces `Materialised.replication`; document both entries in
-  `PROTO/event_sourced.proto`'s comments (T006)
+  as the two reply metadata entries contracts/protocol.md "Replication effects from a process"
+  names, which `RemoteEventSourcedHost` (T055) reduces as the in-process host reduces
+  `Materialised.replication`
 - [ ] T058 [P] [US7] Tests `PY/tests/test_replicated.py`: the declaration in discovery; the unit
   kit's follower refusing a write `NOT_HOME` and answering a read; the context inside
   `apply_event`; the integration kit against `ANKKA_SIDECAR_IMAGE` with `installation = "a"`
@@ -705,7 +736,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   the two fields and reads the flags. Every `impl EventSourcedEntity` in the crate's tests and the
   shopping cart sample gains the `ctx` parameter
 - [ ] T062 [P] [US7] Tests in `RS/ankka/tests/replicated.rs` (the descriptor flag, the unit kit's
-  follower refusal, the context) and `RS/conformance.sh` passing the three new cases (the Rust
+  follower refusal, the context) and `RS/conformance.sh` passing the four new cases (the Rust
   row); `cargo test --workspace` and `./conformance.sh` green
 
 ### Binding
@@ -721,7 +752,7 @@ old-runtime scenario), `sbt 'sidecar/testOnly *ConformanceSuite'`, and the three
   runs each (quickstart's table)
 
 **Checkpoint**: every language green; protocol 1.19 pinned everywhere; the conformance suite has
-three more cases and each SDK runs them.
+four more cases and each SDK runs them.
 
 ---
 
@@ -738,19 +769,23 @@ installation reads as written at the home.
   persists `Home(self)` and `ReplicationSet(Set(self))` at `lastSequenceNumber + 1` and `+ 2`,
   *before* the handler's events, never at sequence 1 (quickstart's red condition for `history`);
   a read answers the state without writing anything. At another installation, `locate` (T016)
-  names the holder as home with set `{holder}`. `eventContext.installation` for a record with
-  none is `stored.home` once known, `None` before (T026). Case in `RTT/MirroringSuite.scala`: a
-  journal of ten domain records without `installation`, then one command, holds kinds 3 and 4 at
-  11 and 12 and the domain record at 13; every replay of the ten reads `installation = Some(self)`
-  once `home` is folded
+  names the holder as home with set `{holder}`, and the puller stamps each unstamped record it
+  mirrors with the holder's name (T019), so at the holder `eventContext.installation` reads
+  `Some(self)` for an unstamped record (T026) and at a follower the record carries the holder's
+  name: both read as written at the home with no lookahead and no snapshot. Case in
+  `RTT/MirroringSuite.scala`: a journal of ten domain records without `installation`, then one
+  command, holds kinds 3 and 4 at 11 and 12 and the domain record at 13; a replay at the holder
+  reads `installation = Some(self)` for all ten; the ten mirrored at a follower carry the holder's
+  name and their kind, manifest and payload bytes are unchanged
 - [ ] T065 [US8] Bind `FEAT/history.feature`: `an existing entity made replicated keeps its history and its installation as its home`
   (a kit started with no installations writes ten records to `v1`; stop it; start a group of two
-  on the *same* database for `leipzig` (an `Installations.start(name, …, database = existing)`
-  overload in T024 for exactly this) and a fresh one for `vienna`; `replicate-to vienna`;
-  `eventually` the bytes at `vienna` equal `leipzig`'s from sequence 1, and `ankka:replication` says
-  `home = leipzig`), `a record written before this feature is read as written at the home` (the
-  entity's `writtenAt` for the first ten reads `leipzig` at both, and the ten rows' `event_payload`
-  bytes are unchanged from before the group started)
+  on the *same* database for `leipzig` (T024's `database` parameter) and a fresh one for `vienna`;
+  `replicate-to vienna`; `eventually` the records at `vienna` equal `leipzig`'s from sequence 1
+  under T028's comparison (whole bytes from the kind 3 on, kind, manifest and payload before it),
+  and `ankka:replication` says `home = leipzig`), `a record written before this feature is read as written at the home`
+  (the entity's `writtenAt` for the first ten reads `leipzig` at both, `leipzig`'s ten rows'
+  `event_payload` bytes are unchanged from before the group started, and `BuildsConsumer` at
+  `vienna` published nothing for them: the publish-once rule holds for a migrated history)
 
 **Checkpoint**: `history.feature` green; SC-006 holds.
 
@@ -954,7 +989,7 @@ Task: "T024–T025 AnkkaTestKit.installations and TestReplicationTransport"
 3. US4 and US5 finish the factory story: the set changes; views and consumers at every
    installation, publishing once.
 4. US6 proves the seam from both sides: the loopback transport, the refusal, the validation.
-5. US7 carries it to the three SDKs under protocol 1.19 with three conformance cases.
+5. US7 carries it to the three SDKs under protocol 1.19 with four conformance cases.
 6. US8 proves the year-old journal; US9 and US10 write it down for authors.
 7. Phase 13 records the traps and runs everything.
 

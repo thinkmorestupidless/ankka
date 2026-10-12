@@ -87,7 +87,9 @@ final case class ReplicationSettings(installation: Option[String], installations
 
 - Records for one entity from one installation arrive in sequence order with no gaps between the
   first emitted and the last.
-- A record's `installation` is what the writer stamped; the transport never rewrites a record.
+- A record's `installation` is what the writer stamped; the transport never rewrites a record. (A
+  follower stamps an unstamped record it mirrors, research R5; that is the host's act, not the
+  transport's.)
 - `forward` delivers the call once or fails; it does not retry a command (a command is sent once,
   `docs/reference/limitations.md`).
 - `locate` answers from facts held at an installation, not from a cache it cannot invalidate, or says

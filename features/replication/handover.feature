@@ -60,6 +60,6 @@ Feature: Handing over a replicated entity's home
     And the replication transport to "vienna" is paused
     When a handler of "v1" hands its home to "vienna"
     And a caller at "leipzig" sends the command "add-step" to "v1"
-    Then the handler's caller is told the handover did not happen after "5 seconds"
+    Then a caller waiting for the handover is told it did not happen after "5 seconds"
     And "leipzig" is still the home of "v1"
     And the command "add-step" is handled at "leipzig" after the handover is abandoned

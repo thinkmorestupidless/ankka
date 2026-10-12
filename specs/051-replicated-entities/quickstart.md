@@ -66,11 +66,15 @@ missing on a new field (`.claude/rules/messaging.md`, the Jackson `null` trap).
 
 ## Two installations on one machine
 
+The fixture service the features drive has a main for this, `FleetMain` in `testkit`'s tests:
+
 ```bash
 docker compose up -d
 createdb -h localhost -U ankka fleet_a && createdb -h localhost -U ankka fleet_b   # the DDL from kustomization/components/postgres/ddl/
-ANKKA_INSTALLATION=a ANKKA_DB_NAME=fleet_a ANKKA_INSTALLATION_B_DB_NAME=fleet_b ANKKA_HTTP_PORT=9000 sbt fleet/run
-ANKKA_INSTALLATION=b ANKKA_DB_NAME=fleet_b ANKKA_INSTALLATION_A_DB_NAME=fleet_a ANKKA_HTTP_PORT=9001 sbt fleet/run
+ANKKA_INSTALLATION=a ANKKA_DB_NAME=fleet_a ANKKA_INSTALLATION_B_DB_NAME=fleet_b ANKKA_HTTP_PORT=9000 \
+  sbt 'testkit/Test/runMain com.thinkmorestupidless.ankka.testkit.replication.FleetMain'
+ANKKA_INSTALLATION=b ANKKA_DB_NAME=fleet_b ANKKA_INSTALLATION_A_DB_NAME=fleet_a ANKKA_HTTP_PORT=9001 \
+  sbt 'testkit/Test/runMain com.thinkmorestupidless.ankka.testkit.replication.FleetMain'
 ```
 
 Create a vehicle at `:9000` with `b` in its replication set, read it at `:9001`, write to it at
@@ -86,7 +90,8 @@ cd sdks/typescript && npm run conformance                                       
 cd sdks/rust && ./conformance.sh                                                 # the module
 ```
 
-Each must pass `es.replicated-declares`, `es.replicated-context` and `consumer.mirrored-declares`.
+Each must pass `es.replicated-declares`, `es.replicated-context`, `es.replicated-effects` and
+`consumer.mirrored-declares`.
 
 ## What a passing run does not prove
 

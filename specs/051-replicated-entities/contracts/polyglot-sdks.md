@@ -77,6 +77,7 @@ the two declaration flags in the module's descriptor. `apply_event` gains the co
 
 `sidecar/.../ConformanceSuite` gains `es.replicated-declares` (discovery carries the flag; a target
 below the minor is refused naming it), `es.replicated-context` (the command handler at the home sees
-`at_home = true`, the event handler sees `installation`) and `consumer.mirrored-declares`. The Scala
-reference, the Python and TypeScript processes and the Rust module all run them, as every conformance
-case does.
+`at_home = true`, the event handler sees `installation`), `es.replicated-effects` (each of the three
+effects reaches the runtime as the two metadata entries of contracts/protocol.md and the runtime
+writes the record) and `consumer.mirrored-declares`. The Scala reference, the Python and TypeScript
+processes and the Rust module all run them, as every conformance case does.

@@ -23,7 +23,7 @@ follower's journal keeping the arrival order. Views and consumers read the local
 producing or graph consumer acts on local changes only unless it declares otherwise. The protocol
 gains a declaration flag and two context fields at the next free minor; the Python, TypeScript and
 Rust SDKs follow. `features/replication/` runs whole against the Scala test kit's new
-`installations` group, the languages rows through the SDK kits, and three conformance cases pin every
+`installations` group, the languages rows through the SDK kits, and four conformance cases pin every
 reference.
 
 ## Technical Context
@@ -80,7 +80,7 @@ unchanged.
 **Scale/Scope**: five record kinds, four stored fields, four module commands, two reserved methods,
 one trait and one provider, one runtime transport with two loopback routes, three SDK effects, two
 context members, one consumer declaration, one new error code (two if `Conflict` is absent), four
-protocol fields and two flags, three conformance cases, ten feature files already written, about
+protocol fields and two flags, four conformance cases, ten feature files already written, about
 eight documentation pages and three skills.
 
 ## Constitution Check
@@ -152,10 +152,16 @@ modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/
 │                                      # Replicate, Wake, Reported, Forwarded module commands
 ├── EventSourcedEntityHost.scala       # Stored fields; Journaled cases; mode; forwarding; puller; handover; conflict
 ├── replication/
-│   ├── ReplicationTransport.scala     # the seam, its values, ReplicationTransportProvider, ReplicationSettings
-│   ├── ReplicationRuntime.scala       # resolves the transport at start; the wake daemon over `advanced`; StartRefusal
+│   ├── ReplicationTransport.scala     # the seam, its values, ReplicationTransportProvider
+│   ├── ReplicationSettings.scala      # ankka.replication.* read and checked
+│   ├── Replication.scala              # settings + transport + self, handed to the hosts
+│   ├── Mode.scala                     # Unreplicated | Unknown | Home | Follower | Outside, derived from Stored; shared by both hosts
+│   ├── HostReplication.scala          # the mode gate and the forward, over a HostView both hosts implement
+│   ├── LocalInstallations.scala       # JVM-wide registry of started installations, for the in-JVM forward
+│   ├── ReplicationRuntime.scala       # the wake daemon over `advanced`; stops the transport
 │   ├── Puller.scala                   # one follower's stream: records → Replicate, restart with backoff, switch on kind 3
 │   ├── Handover.scala                 # the chase and the hold: Reported → kind 3; timeout → kind 6
+│   ├── SetChange.scala                # replicateTo / stopReplicatingTo reduced at the home → kind 4
 │   └── DatabaseReplicationTransport.scala  # the runtime's own: per-sibling query plugins, locate, in-JVM and loopback forward
 ├── ChangeReader.scala                 # kinds 3–7 are Skip; Changed carries installation
 ├── ProjectionSupport.scala            # localOrigin from the record and self

@@ -28,8 +28,8 @@ move, and a late joiner still interleaves two past writers' streams).
 ## R2. Where a copy's mode lives: in the stored state, derived from the journal
 
 **Decision**: `EventSourcedEntityHost.Stored[S]` (`:31`) gains `home: Option[String]`,
-`replicationSet: Set[String]`, `pendingHandover: Option[String]` and `conflict: Boolean`, each
-folded from platform records in the journal (R3). The host knows its own installation from
+`replicationSet: Set[String]`, `pendingHandover: Option[String]` and `conflict: Option[String]` (the
+other home's name, R11), each folded from platform records in the journal (R3). The host knows its own installation from
 `ankka.replication.installation` (`ANKKA_INSTALLATION`, R9) and derives the mode on every command:
 `home.contains(self)` is the home; `replicationSet.contains(self)` and not home is a follower;
 anything else is outside the set. `home = None` is an entity that has no replication record yet:
@@ -80,8 +80,8 @@ the snapshot alone (a follower with no snapshot would not know).
 ## R4. The snapshot carries the mode
 
 **Decision**: `StateRecord` (`wire.scala:170`) gains `home: Option[String]`, `replicationSet:
-Option[Vector[String]]`, `pendingHandover: Option[String]` and `conflict: Option[Boolean]`, all
-`NON_ABSENT`, read back as `None`, empty, `None`, `false`. `RemoteStateRecord` gains the same, since
+Option[Vector[String]]`, `pendingHandover: Option[String]` and `conflict: Option[String]`, all
+`NON_ABSENT`, read back as `None`, empty, `None`, `None`. `RemoteStateRecord` gains the same, since
 the remote host writes it and the in-process host reads it (`:338`). Two fixtures are pinned before
 the fields exist, `modules/testkit/src/test/resources/journal/journal-record.txt` and
 `state-record.txt`, and a `JournalRecordCompatibilitySuite` reads today's bytes with the new case
@@ -101,6 +101,15 @@ exactly as `fromJournal` would and folding the result. A follower actor receives
 `EntityProtocol.ModuleCommand`, `Replicate(sequenceNr, record, ack)`, from its puller (R6), refuses
 it unless `sequenceNr == lastSequenceNumber + 1` and the record's `installation` is in the
 replication set or is the pending home, and otherwise persists `Mirrored(record)` and acks.
+
+One exception to "unchanged": a record with no `installation` is one written before this feature at
+the legacy home (R10, FR-014). A follower persists it with `installation = Some(source)`, where
+`source` is the installation its puller opened `records` against, and nothing else touched. Without
+this a follower would hold unstamped records, which every reader (R12, the event context) takes as
+written here, and a producing consumer at a newly added installation would republish a year of
+history. The rule for readers is then simple: an unstamped record was written at this installation,
+because only the home's own journal ever holds one. The bytes comparison in the features compares
+whole records from the first kind 3 onward and kind, manifest and payload before it.
 
 **Rationale**: a mirrored journal must be identical byte for byte (SC-001), and re-encoding a decoded
 event through the entity's serializer is not: a payload a Python process wrote and a Scala serializer
@@ -171,7 +180,11 @@ against the new home from the same position. A follower that is the target of a 
 so the home learns the position without asking. A follower is woken by `advanced` (R6) through an
 internal `Wake` module command to the sharded entity, which starts it and so its puller; a follower
 nobody has woken is behind until someone reads it, which is the staleness a read may see (spec, Edge
-Cases). Pekko's passivation (120s) bounds the running pullers.
+Cases). A `Wake` at a copy with no record (`home = None`) asks `locate` once and starts the puller
+when the answer's set contains this installation; otherwise it does nothing. The wake feed sends a
+`Wake` for an entity this installation holds no record of only when the record that advanced is a
+kind 4 naming this installation, so a copy outside the set is not asked to `locate` on every write
+elsewhere. Pekko's passivation (120s) bounds the running pullers.
 
 **Rationale**: one source at a time, switched only at the handover record, is the ordering argument
 of the spec's Context, and a puller owned by the actor is stopped when the actor passivates. The
@@ -186,13 +199,15 @@ every `report` from the target the home compares the reported position with `las
 and, when equal, persists kind 3 naming the target and thereafter forwards. In hold mode (`on`) the
 home stashes persisting commands from the kind 5 record on; when the target reports the position
 the home persists kind 3 and forwards the stash; when `ankka.replication.handover.timeout`
-(default 30s) passes first it persists kind 6, handles the stash itself, and answers the handover
-command's caller `ErrorCode.Unavailable` "handover to X did not happen". The handover command's
-caller is answered when kind 3 or kind 6 is persisted; while the home waits it answers `NotYet`
-every half ask timeout and the client asks again, the loop `ShardingTransport.awaitEnd` already has
-(`ShardingTransport.scala:112`), reused for the reserved method `ankka:handover-status`. A
-handover to an installation outside the replication set is refused by the handler's effect
-reduction before anything is persisted.
+(default 30s) passes first it persists kind 6 and handles the stash itself. In both modes the
+handover command's caller is answered as the handler's effect says once kind 5 is persisted: a
+command is sent once, and a plain `Invoke` cannot be held open with `NotYet` without resending it.
+A caller that wants the outcome asks the reserved read-only method `ankka:handover-status`, which
+answers `NotYet` while kind 5 is the last platform record, `Succeeded` once kind 3 names the former
+target, and `Rejected(Unavailable)` "handover to X did not happen" once kind 6 is written; the
+client loops on `NotYet` as `ShardingTransport.awaitEnd` does (`ShardingTransport.scala:112`),
+exposed as `awaitHandover(timeout)` on the entity's calls. A handover to an installation outside
+the replication set is refused by the handler's effect reduction before anything is persisted.
 
 **Rationale**: clarification Q4. The kind 5 record makes the pending handover survive a home
 restart and tells the target to start reporting; the kind 6 record ends it visibly. The chase has
@@ -255,7 +270,9 @@ live.
 `SimpleChangeContext.localOrigin` becomes `installation.forall(_ == self)`, with `self` from the
 settings, at the five sites (`ProjectionSupport.scala:107`, `ProjectionRuntime.scala:1496,1563,1613`,
 `TopicHandlers.scala:54,103`, which stay `true` for topics and key value sources); `ChangeContext`
-gains `installation: Option[String]`. `Consumer.Companion` gains `def mirroredChanges: Boolean = false`;
+gains `installation: Option[String]`. An unstamped record reads as local, which is right at every
+copy because a follower stamps what it mirrors (R5) and only the home's own journal holds unstamped
+records. `Consumer.Companion` gains `def mirroredChanges: Boolean = false`;
 `ConsumerDescriptor` carries it; `ProjectionRuntime` skips a non-local change for a consumer whose
 `produces` is set or that is a graph consumer unless it declares `mirroredChanges`; a consumer that
 produces nothing is given every change, since it publishes nothing twice. Views are unchanged: a

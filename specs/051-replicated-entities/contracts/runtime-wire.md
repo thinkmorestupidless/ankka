@@ -8,7 +8,9 @@ may rely on.
 
 - A record's `installation` is set by the host that persisted a handler's events or a platform
   record, from `ankka.replication.installation`; it is absent when the setting is unset. A
-  `Mirrored` record is persisted with the `installation` it arrived with.
+  `Mirrored` record is persisted with the `installation` it arrived with, except an unstamped one,
+  which the follower stamps with the installation it pulled from (research R5); the kind, manifest,
+  payload and expiry are never touched.
 - Kinds 3 to 6 are mirrored; kind 7 never is. `ChangeReader.journal` reads all five as `Skip`.
 - An older runtime that reads a kind it does not know fails recovery with "written by a newer
   runtime", as it does today; a service that has used replication is not downgraded.
@@ -21,8 +23,9 @@ installation holding the journal makes it the home (research R2).
 
 ## Sharded messages
 
-`Replicate`, `Wake`, `Reported` and `Forwarded` are `EntityProtocol.ModuleCommand`s, serialised
-under the `AnkkaSerializable` binding, sent only within one cluster. The workflow engine, the key
+`Replicate`, `Wake`, `Reported`, `Forwarded` and `Locate` are `EntityProtocol.ModuleCommand`s,
+serialised under the `AnkkaSerializable` binding, sent only within one cluster (`Locate` and
+`Forwarded` only from the actor to itself through `pipeToSelf`). The workflow engine, the key
 value host and the remote hosts answer them `unhandled` as they answer any module command they do
 not know (`.claude/rules/runtime.md`, "every host must handle unexpected commands explicitly").
 
@@ -43,6 +46,11 @@ through `Observability.calling`, counted `handled` once by the home's host and `
 the forwarding host if the transport fails; the forwarding host never counts the call `handled`.
 The receiving installation handles a forwarded call as an `Invoke` from a local caller whose
 metadata is the forwarded metadata.
+
+Every reply a replicated entity's host gives carries the metadata entry `ankka.handled-at` naming
+the installation whose handler ran, so a caller at a follower can tell a forwarded reply from a local
+one; it travels with the reply's other metadata (`ankka-manifest`, `content-type`) wherever that
+goes, including to a process and an HTTP caller's reply headers, and is never a secret.
 
 ## Settings and refusals at start
 

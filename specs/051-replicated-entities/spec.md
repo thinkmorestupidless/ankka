@@ -122,7 +122,8 @@ while a home is unreachable; or replication of key value entities, workflows, ag
   it never confirms? → A: By default it goes on handling writes and confirms again until the new home
   holds everything, so a handover under steady load may take time. A service may configure a handover
   to hold writes while it waits and to be abandoned after a configurable timeout, leaving the old home as
-  home and telling the handler's caller.
+  home and telling a caller waiting for the handover. The handover command itself is answered once
+  the handover is pending, in either mode.
 - Q: Settle the eight proposed glossary terms as written? → A: Yes: replicated entity, home, follower,
   replication set, handover, local change, mirrored change and replication transport are settled, with
   leader, read replica, replay, copy over, migration and failover refused.
@@ -359,19 +360,22 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 - **A handover that never completes.** By default the old home asks the new home again each time it
   has written more, so under steady load the handover completes at the first quiet moment and the
   entity is never without a home. Configured to hold writes, the handover is abandoned at its timeout,
-  the old home stays home, and the handler's caller is told the handover did not happen.
+  the old home stays home, and a caller waiting for the handover is told it did not happen.
 - **The old home's instance stops after writing the handover.** The record is in its journal; the new
   home reads it from the durable journal when the transport can, and becomes effective then. Until it
   does, nobody is the home and writes are refused honestly.
 - **A follower restarts mid-mirror.** It resumes from its own last sequence number; nothing is skipped
   and nothing is written twice, since a record whose sequence number is not the next is refused.
 - **Deletion and expiry.** They are platform records like any other and mirror like any other; a
-  deleted entity is deleted everywhere, in the home's order. An expiry is scheduled and fires at the
-  home only.
+  deleted entity is deleted everywhere, in the home's order. An expiry is written at the home and
+  observed from the mirrored record at every copy; observing it persists nothing, so a follower never
+  writes a record of its own.
 - **Snapshots.** Each copy snapshots its own journal on its own cadence; a snapshot is never
   replicated, since the journal is.
 - **A follower nobody reads.** A copy is woken to mirror when the transport reports the home moved
-  on; a passivated follower is behind until then, which is the staleness a read may see.
+  on; a passivated follower is behind until then, which is the staleness a read may see. An
+  installation newly added to a replication set holds no copy yet; it is woken by the record that
+  added it and asks where the entity lives before it starts mirroring.
 - **What a mirrored change's handlers see.** A consumer at a follower sees the change with the writer's
   installation and `mirrored`; its message id is the same at every installation, since the persistence
   id and sequence number are. A graph delta's version is the sequence number, the same everywhere.
@@ -428,11 +432,12 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
   then on and forward them.
 - **FR-010**: The new home MUST become effective only once its own journal ends with the handover
   record; the old home MUST write it only after the new home has confirmed it holds every record before
-  it. By default the old home MUST go on handling persisting commands while it waits and ask the new
-  home to confirm again, until it does. A service MAY configure a handover to hold persisting commands
-  while it waits and to be abandoned after a configurable timeout, after which the old home MUST stay
-  home, handle what it held, and tell the handler's caller the handover did not happen. A handover to an
-  installation outside the replication set MUST be refused.
+  it. The handler's caller is answered once the handover is pending, in either mode; a caller that
+  wants the outcome waits for it. By default the old home MUST go on handling persisting commands while it
+  waits and ask the new home to confirm again, until it does. A service MAY configure a handover to hold
+  persisting commands while it waits and to be abandoned after a configurable timeout, after which the
+  old home MUST stay home, handle what it held, and tell a caller waiting for the handover that it did
+  not happen. A handover to an installation outside the replication set MUST be refused.
 - **FR-011**: A newly created entity's replication set MUST be its home alone. A persisting handler
   MUST be able to add an installation to the replication set or remove one, composed with what it
   persists; both MUST be records in the journal. An added installation MUST mirror from the first
@@ -444,8 +449,11 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 
 - **FR-013**: The journal record MUST carry the installation that wrote it, and MUST gain record kinds
   for a handover, a change to the replication set, and the entity's creation as replicated; a record
-  written before this feature MUST read as written at the entity's home, and a record carrying no
-  replication information MUST be byte for byte what it was, pinned by a fixture.
+  written before this feature MUST read as written at the entity's home: it stays unstamped in the
+  home's own journal, where an unstamped record is one this installation wrote, and a follower that
+  mirrors it MUST stamp it with the installation it pulled it from, so that no follower holds an
+  unstamped record. A record carrying no replication information MUST be byte for byte what it was,
+  pinned by a fixture.
 - **FR-014**: An existing entity made replicated MUST keep its persistence id and history, with the
   installation it lives on as its home and nothing to migrate.
 

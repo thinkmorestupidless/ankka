@@ -40,28 +40,32 @@ final class ConsumerTestKit[Src, Out] private (
   /**
    * Hands the consumer one change of `subject` at `sequenceNumber`. `standing` is a workflow's, for
    * a consumer that reads one: where the workflow stood once the effect that recorded `message` was
-   * applied.
+   * applied. `installation` and `localOrigin` are a replicated entity's (feature 051): the
+   * installation that wrote the change, and whether that is this one — `false` for a change
+   * mirrored from another installation, which a consumer is handed only when it declares
+   * `mirroredChanges`.
    */
   def onMessage(
       message: Src,
       subject: String = "test",
       sequenceNumber: Long = 1,
-      standing: Option[WorkflowLifecycle] = None
+      standing: Option[WorkflowLifecycle] = None,
+      installation: Option[String] = None,
+      localOrigin: Boolean = true
   ): Result[Out] =
     // Through its bytes, so a message the source's serializer cannot carry fails here.
     val decoded = descriptor.source.decoder.fromBytes(descriptor.source.decoder.toBytes(message))
-    run(subject, sequenceNumber, standing)(consumer.onMessage(decoded))
+    run(SimpleChangeContext(subject, sequenceNumber, localOrigin, standing, installation))(
+      consumer.onMessage(decoded)
+    )
 
   /** Tells the consumer its source entity was deleted. */
   def onDelete(subject: String = "test", sequenceNumber: Long = 1): Result[Out] =
-    run(subject, sequenceNumber, None)(consumer.onDelete)
+    run(SimpleChangeContext(subject, sequenceNumber, localOrigin = true))(consumer.onDelete)
 
-  private def run(subject: String, sequenceNumber: Long, standing: Option[WorkflowLifecycle])(
-      handle: => ConsumerEffect[Out]
-  ): Result[Out] =
-    consumer._setContext(
-      Some(SimpleChangeContext(subject, sequenceNumber, localOrigin = true, standing))
-    )
+  private def run(context: SimpleChangeContext)(handle: => ConsumerEffect[Out]): Result[Out] =
+    val subject = context.subject
+    consumer._setContext(Some(context))
     val effect =
       try handle
       finally consumer._setContext(None)

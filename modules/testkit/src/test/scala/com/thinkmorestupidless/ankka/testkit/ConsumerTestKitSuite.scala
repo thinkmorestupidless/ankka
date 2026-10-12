@@ -152,3 +152,35 @@ class ConsumerTestKitSuite extends munit.FunSuite:
     val result = kit.onMessage(transfer, subject = "t1")
     assertEquals(result.effect, ConsumerEffect.Ignore)
   }
+
+  // Feature 051: a replicated entity's change names the installation that wrote it.
+  private def builds(log: replication.ChangesGiven) =
+    replication.BuildsKit("vienna", log, replication.VehicleKind("vehicle"), mirrored = true)
+
+  test("a mirrored change's context names the installation that wrote it and is not local") {
+    val log = replication.ChangesGiven()
+    val result = ConsumerTestKit
+      .of(builds(log))
+      .onMessage(
+        replication.VehicleEvent.StepAdded("frame"),
+        subject = "v1",
+        installation = Some("leipzig"),
+        localOrigin = false
+      )
+    assertEquals(
+      log.at("vienna").map(h => (h.installation, h.local)),
+      Vector((Some("leipzig"), false))
+    )
+    assertEquals(
+      result.payloads,
+      Vector(replication.Build("v1", "frame", Some("leipzig"), local = false))
+    )
+  }
+
+  test("a change handed with no installation is local and names none, as before replication") {
+    val log = replication.ChangesGiven()
+    ConsumerTestKit
+      .of(builds(log))
+      .onMessage(replication.VehicleEvent.StepAdded("frame"), "v1"): Unit
+    assertEquals(log.at("vienna").map(h => (h.installation, h.local)), Vector((None, true)))
+  }

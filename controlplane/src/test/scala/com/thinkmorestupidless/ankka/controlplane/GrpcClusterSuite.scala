@@ -568,16 +568,16 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     // The cart as it is: the row the view writes for it, which on a loaded node is written seconds
     // after the item was added.
     waitFor(90.seconds, streamState)(!arrivals.isEmpty)
+    // Each part arrives before the next item is added: the gateway hands a part on as the service
+    // sends it, not once the stream ends. Waiting for each is also what counts the parts: a watch
+    // coalesces rows written faster than they are read, so three items added at once can arrive as
+    // two parts, and a count of arrivals proves nothing.
     (1 to 3).foreach { i =>
-      Thread.sleep(1000)
       addItemFromOutside(Cart, "s1", s"p$i")
+      waitFor(30.seconds, streamState)(
+        arrivals.asScala.exists(_._2.items.exists(_.productId == s"p$i"))
+      )
     }
-    waitFor(30.seconds, streamState)(arrivals.size >= 4)
-    val changes = arrivals.asScala.toVector.drop(1).map(_._1)
-    assert(
-      changes.last - changes.head >= 1500.millis.toNanos,
-      s"the parts arrived together: ${changes.map(t => (t - changes.head) / 1000000)}"
-    )
     // And a stream goes on past the gateway's ordinary request timeout: a part sent at 25 seconds
     // still arrives.
     Thread.sleep(21000)

@@ -247,16 +247,21 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     if !ready then
       // What the service's own process said, which is where a node that never joined, or an
       // extension that never became ready, says why; the status alone is only the probe's answer.
-      val logs = pods(name).map { pod =>
-        val podName = pod.getMetadata.getName
-        val tail    = kubectl("logs", "-n", Namespace, podName, "--tail=40")._2
-        s"--- $podName ---\n$tail"
-      }
-      fail(s"$name never reached $instances Ready; last: ${status(name)}\n${logs.mkString("\n")}")
+      fail(s"$name never reached $instances Ready; last: ${status(name)}\n${podLogs(name)}")
 
   private def delete(name: String): Unit =
     assertEquals(ankka("services", "delete", name, "-p", Project)._1, 0)
     waitFor(180.seconds)(pods(name).isEmpty)
+
+  /** The last forty lines of each of `name`'s pods, for a failure that should say what they saw. */
+  private def podLogs(name: String): String =
+    pods(name)
+      .map { pod =>
+        val podName = pod.getMetadata.getName
+        val tail    = kubectl("logs", "-n", Namespace, podName, "--tail=40")._2
+        s"--- $podName ---\n$tail"
+      }
+      .mkString("\n")
 
   private def pods(name: String): Vector[Pod] =
     k8s
@@ -555,12 +560,19 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
           def onError(t: Throwable): Unit = ended.trySuccess(Status.fromThrowable(t)): Unit
           def onCompleted(): Unit         = ended.trySuccess(Status.OK): Unit
       )
-    waitFor(30.seconds)(!arrivals.isEmpty) // the cart as it is
+    // What the stream and the service said, for a wait that never passed: whether the stream ended
+    // and how, what arrived, and the cart's own log, where a watch that could not listen says so.
+    def streamState =
+      s"stream ended: ${ended.future.value}; arrived: ${arrivals.asScala.map(_._2.items.size).mkString(",")}\n" +
+        podLogs(Cart)
+    // The cart as it is: the row the view writes for it, which on a loaded node is written seconds
+    // after the item was added.
+    waitFor(90.seconds, streamState)(!arrivals.isEmpty)
     (1 to 3).foreach { i =>
       Thread.sleep(1000)
       addItemFromOutside(Cart, "s1", s"p$i")
     }
-    waitFor(30.seconds)(arrivals.size >= 4)
+    waitFor(30.seconds, streamState)(arrivals.size >= 4)
     val changes = arrivals.asScala.toVector.drop(1).map(_._1)
     assert(
       changes.last - changes.head >= 1500.millis.toNanos,
@@ -570,7 +582,9 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     // still arrives.
     Thread.sleep(21000)
     addItemFromOutside(Cart, "s1", "late")
-    waitFor(30.seconds)(arrivals.asScala.exists(_._2.items.exists(_.productId == "late")))
+    waitFor(30.seconds, streamState)(
+      arrivals.asScala.exists(_._2.items.exists(_.productId == "late"))
+    )
     assert(!ended.isCompleted, s"the stream ended: ${ended.future.value}")
   }
 

@@ -100,7 +100,8 @@ An endpoint that serves HTTP: it turns each request to one of its routes into ca
 components. Until gRPC endpoints, the only kind of endpoint.
 
 ### installation
-One platform in one cluster, with every project and service deployed to it.
+One platform: its control plane, its home cluster, and any remote clusters tethered to it, with every
+project placed on one of those clusters and every service deployed there.
 
 ### workload
 Something running in a cluster: an instance of a service of the installation, or a
@@ -1116,7 +1117,8 @@ and its instances are left as they were.
 
 ### renew
 Of a certificate: replace it with a new one before it expires. The platform renews every
-certificate it issued, every few hours, and nothing restarts for it.
+certificate it issued, every few hours, and nothing restarts for it. Of a cluster token: replace it
+with a new one shown once, so that the old one admits nothing from then on.
 
 Avoid: rotate
 
@@ -2642,6 +2644,90 @@ A part of a stream that carries nothing but that the connection is alive, sent w
 wait goes on.
 
 Avoid: keep-alive, ping
+
+## Images
+
+### architecture
+*Proposed.* The kind of processor a node has: "amd64" or "arm64". The platform runs on both. An
+image is built for one or for both; nothing in the platform names an architecture but the build
+that makes an image, and a report that names the one an image lacks.
+
+Avoid: platform (in this sense), arch
+
+### tag
+*Proposed.* The version an image is published under at a release. One tag names one release's image
+for both architectures; a cluster pulls it and is served the architecture of its node.
+
+### runner
+*Proposed.* A machine of one architecture on which the platform's own checks build and run.
+
+### cluster suite
+*Proposed.* One of the platform's checks that installs the platform on a cluster of its own and
+deploys a service to it. Every cluster suite runs on a runner of each architecture.
+
+### storage class
+*Proposed.* What a cluster provides for a database to keep its data on. The platform asks the
+cluster for its default and names none.
+
+### DNS-01 solver
+*Proposed.* What writes the records a certificate authority looks for before it issues a wildcard
+certificate. It needs no connection from the internet to the cluster.
+
+### wildcard certificate
+*Proposed.* The one certificate every exposed service of a cluster is served under, for every
+hostname under that cluster's domain.
+
+## Remote clusters
+
+### home cluster
+*Proposed.* The cluster the control plane runs in. Its domain is the base domain; it admits every
+organization; it has no cluster token and no tether; it cannot be deleted. Every project created
+before the installation had clusters is placed on it, and so is every project created with no
+cluster named.
+
+### remote cluster
+*Proposed.* A cluster the control plane does not run in, created by a platform administrator with a
+name and a domain, that runs the operator and what the operator stands on and reaches the control
+plane by a tether. It admits every organization, or the organizations it names. The control plane
+holds no address and no credential for it.
+
+Avoid: edge cluster, satellite, worker cluster
+
+### tether
+*Proposed.* The one connection a remote cluster's operator keeps open to the control plane, opened
+by the operator with the cluster token and never by the control plane. Down it goes what the
+control plane recorded for the projects placed on that cluster; up it come the reports, and the
+answers to a request for logs or a topology. As a verb, tether: the operator tethers; the cluster
+is tethered while the tether is open and untethered when it is not.
+
+Avoid: link, uplink, channel, agent connection
+
+### untethered
+*Proposed.* Of a remote cluster: its tether is not open. Its services keep serving and its operator
+keeps them as recorded; after the tether bound the control plane reads every service placed on it
+as unconfirmed, and refuses to record a credential for a project placed on it.
+
+### cluster token
+*Proposed.* The credential a remote cluster's operator presents to tether, shown to a platform
+administrator once when the cluster is created or the token renewed, and kept by the platform as
+a digest. It admits one cluster's tether and nothing else: no route a member or a deploy token
+may call accepts it.
+
+### placed
+*Proposed.* Of a project: on the cluster it was created on, where its databases, topics, buckets
+and services are, for as long as it exists. A project is placed once and never placed again.
+
+### domain
+*Proposed.* Of a cluster: what every hostname of its exposed services is made under. The home
+cluster's domain is the base domain; a remote cluster's is given when it is created, and its
+operator must declare the same one to tether.
+
+### last seen
+*Proposed.* Of a remote cluster: when the control plane last heard from it over its tether.
+
+### tether bound
+*Proposed.* How long a tether may be down before every service placed on its cluster reads
+unconfirmed: "30 seconds" as shipped, and the installation's to set.
 
 ## Everyday words
 

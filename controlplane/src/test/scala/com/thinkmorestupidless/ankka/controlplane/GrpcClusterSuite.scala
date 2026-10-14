@@ -543,6 +543,9 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
   test("a stream reaches a developer outside the cluster a part at a time") {
     val arrivals = ConcurrentLinkedQueue[(Long, Cart)]()
     val ended    = Promise[Status]()
+    // The stream is a watch of the cart's view row (feature 047), which sends nothing for a cart no
+    // row holds yet: the cart as it is must be a cart that is.
+    addItemFromOutside(Cart, "s1", "p0")
     CartStreamsGrpc
       .stub(fromOutside(Cart))
       .watchCart(

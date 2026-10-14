@@ -140,20 +140,10 @@ class CrossProjectMachineTopicsFeatures
          |""".stripMargin,
       "edge"
     )
-    // The public issuer the component names: a ClusterIssuer over the local root, whose key a
-    // ClusterIssuer reads from cert-manager's own namespace.
-    val root = k8s.secrets().inNamespace("ankka-gateway").withName("ankka-root-ca").get()
+    // The public issuer the component names: a ClusterIssuer over the local root, which has lived
+    // in cert-manager's namespace since feature 045, where a ClusterIssuer reads its secret.
     apply(
-      s"""apiVersion: v1
-         |kind: Secret
-         |metadata: { name: ankka-root-ca, namespace: cert-manager }
-         |type: kubernetes.io/tls
-         |data:
-         |  tls.crt: ${root.getData.get("tls.crt")}
-         |  tls.key: ${root.getData.get("tls.key")}
-         |  ca.crt: ${root.getData.get("ca.crt")}
-         |---
-         |apiVersion: cert-manager.io/v1
+      s"""apiVersion: cert-manager.io/v1
          |kind: ClusterIssuer
          |metadata: { name: ankka-public }
          |spec:

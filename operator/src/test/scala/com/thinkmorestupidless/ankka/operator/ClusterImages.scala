@@ -78,6 +78,12 @@ object ClusterImages:
         "k8s.io",
         "images",
         "import",
+        // Without this, `ctr` imports only the manifests for the node's own platform and silently
+        // drops a tar whose only manifest is for another: the image "imports", is absent, and the
+        // pod reports ErrImagePull. A locally built image is single-platform, so for every ordinary
+        // image this changes nothing; for OperatorClusterSuite's other-architecture image (feature
+        // 049) it is what lets the node hold an image it cannot run.
+        "--all-platforms",
         inContainer
       )
       if result.getExitCode != 0 then

@@ -264,6 +264,31 @@ ConfigMap for nothing.
 
 ## Traps
 
+- **An image with no build for the node's architecture is refused at pull, and only sometimes at
+  start.** A single-platform image for the other architecture — a developer's amd64-only image on
+  an arm64 node — is `ImagePullBackOff` with containerd's `no match for platform in manifest: not
+  found`, because the manifest list has nothing for the node; it never reaches the kernel. Only an
+  image whose manifest claims the node's platform and holds another's binary gets as far as
+  `RunContainerError`/`CrashLoopBackOff` with `exec format error`. `PodProblem.wrongArchitecture` is
+  either phrase, `PodProblem.image` is the container's (the process's, or the sidecar's or proxy's
+  beside it), and `Executor.nodeArchitecture` reads the pod's node by name for `kubernetes.io/arch`
+  — the operator's only cluster-scoped read, `get` on `nodes` (feature 049).
+  `LifecycleRules.wrongArchitectureDetail` renders "image X has no build for this node's
+  architecture (arm64)". `OperatorClusterSuite` 10b builds the image for the other architecture
+  from a `FROM --platform=` Dockerfile with no `RUN`, so nothing is emulated to make it — and
+  `ClusterImages.importInto` passes `ctr images import --all-platforms`, because without it `ctr`
+  silently drops a tar whose only manifest is another platform's and the pod reports a plain
+  `ErrImagePull` for an image that "imported" fine.
+
+- **A controller that judges "already done" from an event's copy does it twice.** The informer
+  delivers the resource as it was when the event fired, and fires again on the operator's next
+  server-side apply of the same spec and on every resync; a copy queued behind the controller's
+  own status write still shows no `observedGeneration`. The scripted cloud provider offered one
+  request's credential twice that way, about one `CloudProviderClusterFeatures` run in ten
+  ("deleted and applied again" has two `Issued`, a second apart). `ScriptedCloudProvider.answer`
+  re-reads the resource from the server before deciding; a real provider must do the same, and the
+  cloud provider page says so.
+
 - **Kafka knows a TLS client by its certificate's subject and nothing else.** The default principal builder
   reads the distinguished name; a subject alternative name is invisible to it. A service certificate with
   only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service

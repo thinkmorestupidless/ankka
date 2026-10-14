@@ -75,7 +75,29 @@ final class ScriptedCloudProvider(client: KubernetesClient, val fulfilment: Scri
   private def submit(seen: CloudResource): Unit =
     val _ = worker.submit((() => answer(seen)): Runnable)
 
+  /**
+   * Answers from the request as the server holds it now, never from the copy the event carried.
+   *
+   * The informer delivers a copy of the resource as it was when the event fired, and it fires more
+   * than once per request: on the operator's next server-side apply of the same spec, and on every
+   * resync. A copy queued behind this provider's own answer still shows no `observedGeneration`, so
+   * judged from the copy the request looks unanswered and is fulfilled twice — a credential offered
+   * twice for one request, which the bucket feature's "deleted and applied again" scenario caught
+   * about one run in ten. One worker thread answers in order, so once a fresh read says it is
+   * answered, it is.
+   */
   private def answer(seen: CloudResource): Unit =
+    val meta = seen.getMetadata
+    val current = Option(
+      client
+        .resources(classOf[CloudResource])
+        .inNamespace(meta.getNamespace)
+        .withName(meta.getName)
+        .get()
+    )
+    current.foreach(answerCurrent)
+
+  private def answerCurrent(seen: CloudResource): Unit =
     val meta       = seen.getMetadata
     val generation = Option(meta.getGeneration).map(_.longValue).getOrElse(0L)
     val previous   = Option(seen.getStatus)

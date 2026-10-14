@@ -80,10 +80,44 @@ lazy val sidecarImageForClusterTests =
     "Builds the sidecar image SidecarClusterSuite deploys, unless cluster tests are off"
   )
 
+/*
+ * The platforms an image is published for. `ANKKA_IMAGE_PLATFORMS=linux/amd64,linux/arm64` is set by
+ * the release workflow's `images` job and by nothing else: with it set, sbt-native-packager's
+ * `Docker/publish` runs the ordinary single-platform `publishLocal` first (the host's architecture,
+ * with `docker build`) and then `docker buildx build --platform=<list> --push` with every alias, so
+ * the version tag and `latest` both become one manifest list for both platforms (DockerPlugin.scala
+ * in 1.11.7, `publishTask`). `publishLocal` never reads the setting, so `sbt docker:publishLocal`,
+ * `kind load` and every suite's image build are untouched by it — a multi-platform image cannot be
+ * loaded into a local daemon anyway. The same variable is read by the template's build, so a
+ * developer's deploy workflow says the same thing (docs/deploy/images.md).
+ */
+lazy val imagePlatforms: Seq[String] =
+  sys.env
+    .get("ANKKA_IMAGE_PLATFORMS")
+    .toSeq
+    .flatMap(_.split(',').toSeq)
+    .map(_.trim)
+    .filter(_.nonEmpty)
+
+/*
+ * A multi-platform build can only push, and with no registry it would push to nowhere — which is
+ * exactly a developer's laptop, where the variable has no business being set. Refused up front,
+ * naming both variables, rather than failing inside buildx with "insufficient_scope". A `val`
+ * because a top-level `require` is not an sbt DSL entry (.claude/rules/build-and-release.md).
+ */
+lazy val imagePlatformsNeedARegistry: Unit =
+  if (imagePlatforms.nonEmpty && sys.env.get("DOCKER_REPOSITORY").forall(_.isEmpty))
+    sys.error(
+      s"ANKKA_IMAGE_PLATFORMS is set (${imagePlatforms.mkString(",")}) but DOCKER_REPOSITORY is not: " +
+        "a multi-platform image is built by buildx and pushed, never loaded; unset the platforms for a " +
+        "local build, or name the registry to publish to"
+    )
+
 lazy val dockerSettings = Seq(
-  dockerBaseImage    := "eclipse-temurin:21-jre",
-  dockerUpdateLatest := true,
-  dockerRepository   := sys.env.get("DOCKER_REPOSITORY"),
+  dockerBaseImage       := "eclipse-temurin:21-jre",
+  dockerUpdateLatest    := true,
+  dockerRepository      := sys.env.get("DOCKER_REPOSITORY"),
+  dockerBuildxPlatforms := { imagePlatformsNeedARegistry; imagePlatforms },
   // GitHub Container Registry links a package to the repository its image names as its source, and
   // only a linked package can be published by that repository's workflow token.
   // The title and description replace the base image's, which ghcr.io would otherwise show as this

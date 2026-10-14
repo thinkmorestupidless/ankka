@@ -115,12 +115,20 @@ jobs:
             "https://central.sonatype.com/api/v1/publisher/status?id=$deployment" || true
           cat status.out; echo
   images:
-    # The six images — the operator, the control plane, the sidecar, the proxy, the console and the shopping cart sample —
-    # published to GitHub Container Registry, public, tagged with the release version and `latest`.
-    # Public because a Python or TypeScript developer runs the sidecar on their own machine, and a
-    # pull there should need no account anywhere. The workflow's own token pushes them: each image
-    # carries org.opencontainers.image.source naming this repository (build.sbt), which links the
-    # package to it.
+    # The seven images — the operator, the control plane, the sidecar, the proxy, the storage mover,
+    # the console and the shopping cart sample — published to GitHub Container Registry, public,
+    # tagged with the release version and `latest`, each tag one manifest list for linux/amd64 and
+    # linux/arm64. Public because a Python or TypeScript developer runs the sidecar on their own
+    # machine, and a pull there should need no account anywhere. The workflow's own token pushes
+    # them: each image carries org.opencontainers.image.source naming this repository (build.sbt),
+    # which links the package to it.
+    #
+    # Both platforms from one amd64 runner: ANKKA_IMAGE_PLATFORMS makes sbt-native-packager's
+    # `Docker/publish` follow its ordinary host build with `docker buildx build --platform … --push`
+    # (build.sbt, `imagePlatforms`), and the console is built the same way by hand. QEMU is what
+    # lets buildx produce the arm64 layers here; a JVM image copies jars and a Node image copies a
+    # built package, so nothing is compiled under emulation. A cluster of arm64 nodes — a Raspberry
+    # Pi, a Graviton instance — pulls the same tag and is served its architecture.
     #
     # The clusters do not pull from ghcr.io. They pull through a remote repository in the ankka-ops
     # project that caches it (ankka-deployments, modules/artifact-registry) — in-region, and still
@@ -137,8 +145,10 @@ jobs:
       id-token: write   # the OIDC token the cache pull's credential is exchanged from
     env:
       DOCKER_REPOSITORY: ghcr.io/thinkmorestupidless
+      ANKKA_IMAGE_PLATFORMS: linux/amd64,linux/arm64
       GHCR_CACHE: europe-west2-docker.pkg.dev/ankka-ops/ghcr
       IMAGES: ankka-operator ankka-controlplane ankka-sidecar ankka-proxy ankka-storage-mover sample-shopping-cart ankka-console
+      PLATFORMS: linux/amd64 linux/arm64
     steps:
       - uses: actions/checkout@v7
         with:
@@ -160,20 +170,32 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The arm64 half of every image is built here, on an amd64 runner: QEMU registers the
+      # emulator and buildx gets a docker-container builder, since the default `docker` driver
+      # cannot push a multi-platform image.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish proxy/Docker/publish storageMover/Docker/publish
-      # The console (feature 017) is a Node image built by Docker from console/, tagged exactly as
-      # the sbt images are: the release version and `latest`.
+      # The console (feature 017) is a Node image built by buildx from console/, for the same two
+      # platforms and tagged exactly as the sbt images are: the release version and `latest`.
       - name: Publish the console image
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          docker build -t "$DOCKER_REPOSITORY/ankka-console:$version" -t "$DOCKER_REPOSITORY/ankka-console:latest" console
-          docker push --all-tags "$DOCKER_REPOSITORY/ankka-console"
+          docker buildx build --platform "$ANKKA_IMAGE_PLATFORMS" --push \
+            -t "$DOCKER_REPOSITORY/ankka-console:$version" -t "$DOCKER_REPOSITORY/ankka-console:latest" console
       # A package ghcr.io has never seen is created private, whatever its source repository is, and
       # a private package is invisible both to a developer and to the cache (which pulls
       # anonymously). Asked of ghcr.io with no credential at all, so the answer is what a stranger
       # gets; the fix is one click per package, once, and the error names the page.
-      - name: Every image is publicly pullable
+      #
+      # Then the manifest list, read back from the registry rather than the build log: a tag must
+      # hold both platforms, or a node of the missing one would pull nothing. An image for one
+      # platform under a release's tag is a failed release, not a partial one — the jobs that
+      # publish anything naming this version wait on this job, so nothing downstream goes out.
+      # The list also carries attestation entries as `unknown/unknown`; the check looks for the two
+      # it wants and ignores the rest.
+      - name: Every image is publicly pullable, for both platforms
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
@@ -189,6 +211,13 @@ jobs:
               exit 1
             fi
             echo "public: ghcr.io/thinkmorestupidless/$image:$version"
+            platforms="$(docker buildx imagetools inspect "ghcr.io/thinkmorestupidless/$image:$version" --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}')"
+            for want in $PLATFORMS; do
+              case " $platforms " in
+                *" $want "*) echo "  $want" ;;
+                *) echo "::error::ghcr.io/thinkmorestupidless/$image:$version has no $want build (has: $platforms). Every image is one manifest list for $PLATFORMS; see build.sbt, imagePlatforms."; exit 1 ;;
+              esac
+            done
           done
       - uses: google-github-actions/auth@v3
         id: auth
@@ -203,8 +232,12 @@ jobs:
           echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin europe-west2-docker.pkg.dev
           for image in $IMAGES; do
             # A full pull, not a manifest read: the cache stores the layers it has served, and the
-            # layers are what a node needs when ghcr.io is down.
-            docker pull -q "$GHCR_CACHE/thinkmorestupidless/$image:$version"
+            # layers are what a node needs when ghcr.io is down. Once per platform, because a pull
+            # fetches the puller's architecture alone and an arm64 node's first pull during an
+            # outage would otherwise find the index and none of its layers.
+            for platform in $PLATFORMS; do
+              docker pull -q --platform "$platform" "$GHCR_CACHE/thinkmorestupidless/$image:$version"
+            done
             published="$(docker buildx imagetools inspect "ghcr.io/thinkmorestupidless/$image:$version" --format '{{json .Manifest.Digest}}')"
             cached="$(docker buildx imagetools inspect "$GHCR_CACHE/thinkmorestupidless/$image:$version" --format '{{json .Manifest.Digest}}')"
             if [ "$published" != "$cached" ]; then

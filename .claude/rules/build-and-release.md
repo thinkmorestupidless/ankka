@@ -189,6 +189,28 @@ once something pulls it, so the job ends by pulling every image through the cach
 identity and comparing the digests. One registry is published to, so the two cannot drift. The
 standard `ankka-ops/ankka` repository holds releases up to 0.6.4 and is written to no longer.
 
+**Every image is published for both architectures under one tag** (feature 049): `linux/amd64` and
+`linux/arm64`, one manifest list per tag. `ANKKA_IMAGE_PLATFORMS=linux/amd64,linux/arm64` is set by
+the release workflow's `images` job and by nothing else, and `build.sbt`'s `imagePlatforms` feeds it
+to sbt-native-packager's `dockerBuildxPlatforms`. In 1.11.7 `Docker/publish` runs the ordinary
+single-platform `publishLocal` first and then `docker buildx build --platform … --push` with every
+alias, and `publishLocal` never reads the setting — so `sbt docker:publishLocal`, `kind load` and the
+suites' image builds are untouched, and a multi-platform image cannot be loaded into a daemon anyway.
+A build with the variable set and no `DOCKER_REPOSITORY` refuses at load, naming both. The console is
+built with the same buildx command, its build stage on `$BUILDPLATFORM` so `npm ci` runs natively
+once. The job then reads each tag's manifest list back from ghcr.io and fails naming the platform an
+image lacks (attestation entries show as `unknown/unknown` and are ignored), and warms the clusters'
+cache once per platform, because a pull fetches the puller's architecture alone. The template's build
+reads the same variable and its deploy workflow sets it. `WorkflowShapeSuite` pins all of this and the
+cluster workflow's two legs. Traps: buildx's default `docker` driver cannot push a multi-platform
+image (`docker/setup-buildx-action` makes a `docker-container` one; locally `docker buildx create
+--use`); and `imagetools inspect --format` over `.Manifest.Manifests` is the read that sees platforms,
+`docker manifest inspect` needs the image pulled first.
+
+**The k3s suites run on both architectures** (`cluster.yml`): `.github/cluster-suites.py` lists each
+suite once per architecture with its runner (`ubuntu-24.04`, `ubuntu-24.04-arm`), each leg builds its
+own images natively, and a job is named `<Suite> (<arch>)`. `-f arch=arm64` narrows a run to one leg.
+
 **The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
 job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the
 formula and the plugin, and read by hatchling as the package version (`dynamic = ["version"]`) so there

@@ -1,10 +1,15 @@
 # The installation's console: the host built against the package, run by Node with no build tools.
 #
 #   docker build -t ankka-console:latest console
+#   docker buildx build --platform linux/amd64,linux/arm64 --push -t <registry>/ankka-console:<tag> console   # the release
 #
 # The build context is console/, the workspace; the browser suite is not in the image.
 
-FROM node:24-bookworm-slim AS build
+# The build stage runs on the platform doing the building, whatever platforms the image is for: the
+# package and the host are pure JavaScript once built, so `npm ci` and both builds run once, natively,
+# and only the final stage below is produced per target platform. Nothing in the runtime
+# `node_modules` carries a per-platform binary (the bundler's does, and `npm prune` drops it).
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY package/package.json package/

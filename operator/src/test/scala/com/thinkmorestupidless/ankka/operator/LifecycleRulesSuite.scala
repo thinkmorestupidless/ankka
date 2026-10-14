@@ -164,6 +164,109 @@ class LifecycleRulesSuite extends munit.FunSuite:
     assertEquals(observe(c = Some(stuck)).detail, Some("ImagePullBackOff: manifest unknown"))
   }
 
+  test("an image with no build for the node's architecture is named, with the architecture") {
+    val wrong = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "CrashLoopBackOff",
+          "failed to create containerd task: exec /opt/docker/bin/cart: exec format error",
+          image = Some("cart:2"),
+          architecture = Some("arm64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(wrong)).detail,
+      Some("image cart:2 has no build for this node's architecture (arm64)")
+    )
+  }
+
+  test(
+    "an image with no build for the node's architecture is named without one when the node could not be read"
+  ) {
+    val wrong = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem("cart-abc", "RunContainerError", "exec /opt/docker/bin/cart: exec format error")
+      )
+    )
+    // No container image on the problem either: the descriptor's is the next best name.
+    assertEquals(
+      observe(c = Some(wrong)).detail,
+      Some("image cart:1.0 has no build for this node's architecture")
+    )
+  }
+
+  test("the image is named as the descriptor wrote it, not as the kubelet normalised it") {
+    val wrong = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "CrashLoopBackOff",
+          "exec /__cacert_entrypoint.sh: exec format error",
+          image = Some("docker.io/library/cart:1.0"),
+          architecture = Some("amd64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(wrong)).detail,
+      Some("image cart:1.0 has no build for this node's architecture (amd64)")
+    )
+    // A platform container beside the process keeps its own name: it is not the descriptor's image.
+    val sidecar = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "CrashLoopBackOff",
+          "exec /opt/docker/bin/ankka-sidecar: exec format error",
+          image = Some("ghcr.io/thinkmorestupidless/ankka-sidecar:0.12.0"),
+          architecture = Some("arm64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(sidecar)).detail,
+      Some(
+        "image ghcr.io/thinkmorestupidless/ankka-sidecar:0.12.0 has no build for this node's architecture (arm64)"
+      )
+    )
+  }
+
+  test("an image published for another platform alone is named the same way") {
+    val wrong = snapshot(
+      readyReplicas = 0,
+      problems = Vector(
+        PodProblem(
+          "cart-abc",
+          "ImagePullBackOff",
+          "Back-off pulling image \"cart:2\": ErrImagePull: no match for platform in manifest: not found",
+          image = Some("cart:2"),
+          architecture = Some("arm64")
+        )
+      )
+    )
+    assertEquals(
+      observe(c = Some(wrong)).detail,
+      Some("image cart:2 has no build for this node's architecture (arm64)")
+    )
+  }
+
+  test("a container that keeps exiting for any other reason is reported in the cluster's words") {
+    val crashing = snapshot(
+      readyReplicas = 0,
+      problems = Vector(PodProblem("cart-abc", "CrashLoopBackOff", "refusing to start: no key"))
+    )
+    assertEquals(
+      observe(c = Some(crashing)).detail,
+      Some("CrashLoopBackOff: refusing to start: no key")
+    )
+  }
+
   test("a failure with no pod problem still says something") {
     val stuck = snapshot(
       readyReplicas = 0,

@@ -62,21 +62,41 @@ object LifecycleRules:
       else if snapshot.progressDeadlineExceeded then
         ("Failed", snapshot.readyReplicas, snapshot.specReplicas, failureDetail(spec, snapshot))
       else if snapshot.rolloutPending then
-        ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
+        (
+          "UpdateInProgress",
+          snapshot.readyReplicas,
+          snapshot.specReplicas,
+          problemDetail(spec, snapshot)
+        )
       else if snapshot.updatedReplicas < snapshot.specReplicas then
-        ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
+        (
+          "UpdateInProgress",
+          snapshot.readyReplicas,
+          snapshot.specReplicas,
+          problemDetail(spec, snapshot)
+        )
       else if snapshot.totalReplicas > snapshot.updatedReplicas then
         // Pods of the old template are still around. readyReplicas counts them, so without this
         // a rollout reports Ready while the pod being counted ready is an old one — seen live in
         // feature 003, and hidden rather than fixed by Recreate; RollingUpdate brought it back.
-        ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
+        (
+          "UpdateInProgress",
+          snapshot.readyReplicas,
+          snapshot.specReplicas,
+          problemDetail(spec, snapshot)
+        )
       else if snapshot.specReplicas > 0 && snapshot.readyReplicas == snapshot.specReplicas then
         ("Ready", snapshot.readyReplicas, snapshot.specReplicas, None)
       else if snapshot.readyReplicas > 0 && snapshot.readyReplicas < snapshot.specReplicas then
         // Written in feature 001 as "unreachable at one replica"; reachable since feature 004.
-        ("PartiallyReady", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
+        (
+          "PartiallyReady",
+          snapshot.readyReplicas,
+          snapshot.specReplicas,
+          problemDetail(spec, snapshot)
+        )
       else if snapshot.specReplicas > 0 then
-        ("Unavailable", 0, snapshot.specReplicas, problemDetail(snapshot))
+        ("Unavailable", 0, snapshot.specReplicas, problemDetail(spec, snapshot))
       else ("NotDeployed", 0, 0, None)
 
     AnkkaServiceStatus(
@@ -106,7 +126,7 @@ object LifecycleRules:
    */
   private def failureDetail(spec: AnkkaServiceSpec, snapshot: ClusterSnapshot): Option[String] =
     processNotListening(spec, snapshot)
-      .orElse(problemDetail(snapshot))
+      .orElse(problemDetail(spec, snapshot))
       .orElse(snapshot.progressing.map(_.message).filter(_.nonEmpty))
       .orElse(Some("the rollout did not complete within its progress deadline"))
 
@@ -137,8 +157,27 @@ object LifecycleRules:
    * operator wrote — this reads a pod's container status, never a secret's contents, so what verbs
    * the operator holds on `secrets` is beside the point for this particular value.
    */
-  private def problemDetail(snapshot: ClusterSnapshot): Option[String] =
-    snapshot.firstProblem.map(_.describe)
+  private def problemDetail(spec: AnkkaServiceSpec, snapshot: ClusterSnapshot): Option[String] =
+    snapshot.firstProblem.map { problem =>
+      if problem.wrongArchitecture then wrongArchitectureDetail(spec, problem)
+      else problem.describe
+    }
+
+  /**
+   * An image with no build for the node it was scheduled on (feature 049). The kubelet's own words
+   * are three — `exec format error` — and name neither the image nor the architecture; this does
+   * both, the image from the container that failed (the process's, or the platform's sidecar or
+   * proxy beside it) and the architecture from the node when the reconciler could read it.
+   */
+  private def wrongArchitectureDetail(spec: AnkkaServiceSpec, problem: PodProblem): String =
+    // The kubelet names an image as it normalises it (`docker.io/library/cart:2` for `cart:2`); the
+    // developer wrote the descriptor's form, so that is the one named when they are the same image.
+    val image = problem.image match
+      case Some(c) if c == spec.image || c.endsWith("/" + spec.image) => spec.image
+      case Some(c)                                                    => c
+      case None                                                       => spec.image
+    val where = problem.architecture.fold("")(a => s" ($a)")
+    s"image $image has no build for this node's architecture$where"
 
   /**
    * `BrokerPlan` becomes the status an operator reads (feature 027), in the database's shape: the

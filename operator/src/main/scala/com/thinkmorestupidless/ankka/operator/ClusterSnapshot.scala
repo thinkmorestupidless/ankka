@@ -11,18 +11,54 @@ final case class ConditionState(status: Boolean, reason: String, message: String
 /**
  * Why a pod is not running, in the words the cluster used.
  *
- * Carries a container's *waiting* reason, which is where the four failures an operator can actually
- * act on show up: a wrong image tag, a missing registry credential, a missing secret, and an image
- * that starts and exits.
+ * Carries a container's *waiting* reason, which is where the five failures an operator can actually
+ * act on show up: a wrong image tag, a missing registry credential, a missing secret, an image that
+ * starts and exits, and an image with no build for the node's architecture. The last carries the
+ * container's image and, when the reconciler could read the node, its architecture
+ * (`kubernetes.io/arch`), so the report can say which build is missing (feature 049).
  */
-final case class PodProblem(pod: String, reason: String, message: String):
+final case class PodProblem(
+    pod: String,
+    reason: String,
+    message: String,
+    image: Option[String] = None,
+    architecture: Option[String] = None
+):
   def describe: String = if message.isEmpty then reason else s"$reason: $message"
+
+  /**
+   * An image with no build for the node's architecture, in either of the two ways containerd says
+   * so. An image published for one platform is refused at pull — `no match for platform in
+   * manifest: not found`, an `ImagePullBackOff` — because its manifest list has nothing for the
+   * node; that is the common case, and what a developer's amd64-only image does on an arm64 node.
+   * An image whose manifest claims the node's platform but holds another's binary gets as far as
+   * the kernel: `exec /opt/docker/bin/…: exec format error`, a `CrashLoopBackOff`. Nothing else
+   * says either.
+   */
+  def wrongArchitecture: Boolean =
+    message.contains(PodProblem.NoMatchForPlatform) || message.contains(PodProblem.ExecFormatError)
 
 object PodProblem:
 
-  /** Reasons worth reporting. Anything else is transient and resolves on its own. */
+  /** What containerd says of an image whose manifest list has no entry for the node's platform. */
+  val NoMatchForPlatform: String = "no match for platform in manifest"
+
+  /** What the kernel says of a binary built for another architecture. */
+  val ExecFormatError: String = "exec format error"
+
+  /**
+   * Reasons worth reporting. Anything else is transient and resolves on its own.
+   * `RunContainerError` is the first the kubelet gives a container the runtime could not start at
+   * all — an image for the wrong architecture — before it settles into `CrashLoopBackOff`.
+   */
   val Actionable: Set[String] =
-    Set("ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "CrashLoopBackOff")
+    Set(
+      "ImagePullBackOff",
+      "ErrImagePull",
+      "CreateContainerConfigError",
+      "CrashLoopBackOff",
+      "RunContainerError"
+    )
 
   /**
    * Event reasons that explain a pod no container state does: a failed readiness probe — which is
@@ -80,7 +116,8 @@ object PodProblem:
             PodProblem(
               pod,
               Option(w.getReason).getOrElse(""),
-              lastWords.getOrElse(Option(w.getMessage).getOrElse(""))
+              lastWords.getOrElse(Option(w.getMessage).getOrElse("")),
+              image = Option(cs.getImage).filter(_.nonEmpty)
             )
           }
       }
@@ -111,7 +148,8 @@ object PodProblem:
             PodProblem(
               pod,
               Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"),
-              said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}")
+              said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}"),
+              image = Option(cs.getImage).filter(_.nonEmpty)
             )
           }
       }
@@ -139,7 +177,12 @@ object PodProblem:
               .map(_.trim)
               .filter(_.nonEmpty)
               .map(said =>
-                PodProblem(pod, Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"), said)
+                PodProblem(
+                  pod,
+                  Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"),
+                  said,
+                  image = Option(cs.getImage).filter(_.nonEmpty)
+                )
               )
           )
       }

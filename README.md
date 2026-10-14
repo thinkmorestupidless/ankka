@@ -10,6 +10,8 @@
 [![node 22.22+](https://img.shields.io/badge/node-22.22%2B-5FA04E?logo=nodedotjs&logoColor=white)](docs/get-started/install.md) [![npm](https://img.shields.io/npm/v/ankka?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/ankka)<br>
 [![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-000000?logo=rust&logoColor=white)](docs/get-started/install.md) [![crates.io](https://img.shields.io/crates/v/ankka?label=crates.io&logo=rust&logoColor=white)](https://crates.io/crates/ankka)
 
+**Documentation: [docs.ankka.cloud](https://docs.ankka.cloud/)**
+
 ankka is a serverless platform for stateful services and agentic AI. You write components — entities,
 workflows, views, agents, endpoints — and the platform runs them: distributed, durable, secured and
 observed, on Kubernetes, with a database it provisions for you. Services are written in Scala, Python,

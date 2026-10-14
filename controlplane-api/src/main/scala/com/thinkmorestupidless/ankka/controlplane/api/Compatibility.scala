@@ -72,9 +72,12 @@ object Protocol:
    * `QueryStream` and `Watch` on `Client`, and `DeclaredQuery.watched` in discovery (feature 047).
    * 1.18 added waiting for a workflow's end: `AwaitEnd` and `AwaitEndStream` on `Client`, the
    * heartbeat and ended stream tokens, `WORKFLOW_FAILED` and `Error.details`, and the `await_end`
-   * module import (feature 048).
+   * module import (feature 048). 1.19 added replicated entities: `replicated` on an event sourced
+   * entity and `mirrored_changes` on a consumer in discovery, the installation on an event and the
+   * installation and `at_home` on a command, a reply's `ReplicationChange`, `NOT_HOME`, and
+   * `ankka.installation` and `ankka.local` on a consumer's request (feature 051).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 18)
+  val version: ProtocolVersion = ProtocolVersion(1, 19)
 
 object Compatibility:
 

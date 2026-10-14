@@ -70,6 +70,15 @@ object Consumer:
     def parallelism: Int = 4
 
     /**
+     * Whether this consumer is given a replicated entity's changes written at other installations
+     * too (feature 051). Off by default, and only a consumer that publishes, to a topic or as graph
+     * deltas, is held to it: each change is then published once, from the installation that wrote
+     * it, however many installations hold the entity. A consumer that publishes nothing is given
+     * every change whatever this says.
+     */
+    def mirroredChanges: Boolean = false
+
+    /**
      * Raise it to have this consumer read its topic again from its start position, under a consumer
      * group of its own. `None` is version 1. Only for a topic source: a version on one that reads
      * an entity is refused when the service starts.
@@ -98,7 +107,8 @@ object Consumer:
           create,
           parallelism,
           version = version,
-          produces = publication
+          produces = publication,
+          mirroredChanges = mirroredChanges
         )
 
 /** The registered form of a consumer. */
@@ -111,7 +121,8 @@ final case class ConsumerDescriptor[C <: Consumer[Src, Out], Src, Out](
     parallelism: Int,
     override val platform: Boolean = false,
     version: Option[Int] = None,
-    produces: Option[Publication] = None
+    produces: Option[Publication] = None,
+    mirroredChanges: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Consumer
 

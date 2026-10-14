@@ -20,9 +20,10 @@ from ankka.agent import Agent
 from ankka.approvals import ApprovalRequest, approval_of
 from ankka.autonomous import AutonomousAgent, Malformed, TaskType
 from ankka.client import ComponentClient
-from ankka.context import Caller, CommandContext, LocalCaller, Metadata, Principal, RequestContext
+from ankka.context import Caller, CommandContext, EventContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
 from ankka.effects.common import Error, ErrorCode, Fail, NoReply, Reply, Retention
+from ankka.effects.event_sourced import ReplicationChange
 from ankka.endpoint import Endpoint, HttpProblem, RouteSpec, Socket, SocketClosed
 from ankka.event_sourced_entity import EventSourcedEntity, HandlerSpec
 from ankka.mcp import TOOL_PREFIX
@@ -40,6 +41,8 @@ class Materialised(Generic[S, E]):
     retention: Retention | None
     reply: Any
     error: Error | None
+    # The handover or change to the replication set the handler asked for, if any.
+    replication: ReplicationChange | None = None
 
     @property
     def persisted(self) -> bool:
@@ -89,11 +92,29 @@ class _NoClient(ComponentClient):
 
 
 class EventSourcedTestKit(Generic[S, E]):
-    """Drives one event sourced entity instance through its handlers, folding events as it goes."""
+    """Drives one event sourced entity instance through its handlers, folding events as it goes.
 
-    def __init__(self, entity_cls: type[EventSourcedEntity[S, E]], entity_id: str) -> None:
+    A replicated entity's copy is driven as its home (``mode="home"``), where every command runs,
+    or as a follower of ``home`` (``mode="follower"``), where a command that may persist is refused
+    ``NOT_HOME`` and a query is answered from what ``replay`` gave it."""
+
+    def __init__(
+        self,
+        entity_cls: type[EventSourcedEntity[S, E]],
+        entity_id: str,
+        mode: str | None = None,
+        home: str | None = None,
+        installation: str = "test",
+    ) -> None:
+        if mode not in (None, "home", "follower"):
+            raise ValueError(f"mode is 'home', 'follower' or None, not {mode!r}")
+        if mode == "follower" and home is None:
+            raise ValueError("a follower names its home")
         self.entity_cls = entity_cls
         self.entity_id = entity_id
+        self.mode = mode
+        self.home = home
+        self.here: str | None = installation if mode is not None else None
         self.entity = entity_cls()
         self.entity._bind(entity_id)
         self.state: S = self.entity.empty_state()
@@ -102,24 +123,68 @@ class EventSourcedTestKit(Generic[S, E]):
         self.all_events: list[E] = []
 
     @classmethod
-    def of(cls, entity_cls: type[EventSourcedEntity[S, E]], entity_id: str = "test") -> EventSourcedTestKit[S, E]:
-        return cls(entity_cls, entity_id)
+    def of(
+        cls,
+        entity_cls: type[EventSourcedEntity[S, E]],
+        entity_id: str = "test",
+        mode: str | None = None,
+        home: str | None = None,
+        installation: str = "test",
+    ) -> EventSourcedTestKit[S, E]:
+        return cls(entity_cls, entity_id, mode, home, installation)
+
+    def replay(self, *events: E, written_at: str | None = None) -> None:
+        """Applies ``events`` as history the copy already holds, written at ``written_at`` (this
+        installation by default): for a follower, what it has mirrored from its home."""
+        written = written_at or self.here
+        for ev in events:
+            self.sequence += 1
+            self.state = self.entity._apply(self.state, ev, EventContext(written, written == self.here, self.sequence))
 
     def call(self, name: str, input: Any = None, metadata: Metadata | None = None) -> Materialised[S, E]:
         spec: HandlerSpec | None = self.entity_cls.handlers().get(name)
         if spec is None:
             raise AssertionError(f"{self.entity_cls.__name__} has no handler {name!r}; declared: {sorted(self.entity_cls.handlers())}")
+        if self.mode == "follower" and not spec.read_only:
+            # The runtime forwards such a command to the home; here there is none to forward to.
+            return Materialised(
+                (),
+                self.state,
+                None,
+                None,
+                Error(f"the home of '{self.entity_id}' is '{self.home}'; a follower handles no command that may persist", ErrorCode.NOT_HOME),
+            )
         # Round-trip the input through the handler's codec, as the wire would.
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
-        ctx = CommandContext(self.entity_id, self.entity_cls.component_id, metadata or Metadata(), self.sequence, _NoClient())
+        ctx = CommandContext(
+            self.entity_id,
+            self.entity_cls.component_id,
+            metadata or Metadata(),
+            self.sequence,
+            _NoClient(),
+            installation=self.here,
+            is_home=self.mode != "follower",
+        )
         effect = _run(self.entity._run(spec, self.state, input_bytes, ctx))
         if isinstance(effect.outcome, Fail):
             return Materialised((), self.state, None, None, effect.outcome.error)
+        if effect.replication is not None and self.mode is None:
+            return Materialised(
+                (),
+                self.state,
+                None,
+                None,
+                Error(
+                    f"{self.entity_cls.__name__} is not replicated in this test kit; drive it with mode='home' "
+                    "to see the handover or the change to the replication set it asks for",
+                    ErrorCode.BAD_REQUEST,
+                ),
+            )
         codec = self.entity_cls.event_codec
         events = tuple(codec.decode(codec.encode(ev)) for ev in effect.events)  # the wire's round trip
         new_state = self.state
-        for ev in events:
-            new_state = self.entity.apply_event(new_state, ev)
+        for i, ev in enumerate(events, start=1):
+            new_state = self.entity._apply(new_state, ev, EventContext(self.here, True, self.sequence + i))
         reply: Any = None
         if isinstance(effect.outcome, Reply):
             value = effect.outcome.compute(new_state)
@@ -132,7 +197,7 @@ class EventSourcedTestKit(Generic[S, E]):
         self.state = new_state
         self.sequence += len(events)
         self.all_events.extend(events)
-        return Materialised(events, new_state, effect.retention, reply, None)
+        return Materialised(events, new_state, effect.retention, reply, None, effect.replication)
 
 
 _PLACEHOLDER = re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}")

@@ -141,6 +141,68 @@ final class EventSourcedEntityCalls private[ankka] (
   def call[C <: EventSourcedEntity[?, ?], O](handle: NoArgHandle[C, O]): NoArgInvocation[O] =
     NoArgInvocation(transport, entityId, handle)
 
+  /**
+   * How the copy of a replicated entity at this installation stands: its home, its replication set,
+   * a pending handover, a conflict, and how much of its history it holds (feature 051).
+   */
+  def replicationAsync(
+      companion: EventSourcedEntity.Companion[?, ?, ?]
+  ): Future[ReplicationStatus] =
+    transport
+      .askQuery(
+        companion.componentId,
+        entityId,
+        ReplicationStatus.Method,
+        Array.emptyByteArray,
+        Metadata.empty
+      )
+      .map(ReplicationStatus.serializer.fromBytes)(using ExecutionContext.parasitic)
+
+  /** `replicationAsync`, waited for. */
+  def replication(
+      companion: EventSourcedEntity.Companion[?, ?, ?],
+      timeout: FiniteDuration = 10.seconds
+  ): ReplicationStatus =
+    ComponentClient.await(replicationAsync(companion), timeout)
+
+  /**
+   * Waits until a handover of this replicated entity's home to `installation` has completed, as the
+   * copy at this installation records it, for at most `timeout`. Throws `CommandError` with
+   * `Unavailable` when the handover was abandoned or was never asked for, and with `Timeout` when
+   * it is still waiting when `timeout` passes.
+   */
+  def awaitHandover(
+      companion: EventSourcedEntity.Companion[?, ?, ?],
+      installation: String,
+      timeout: FiniteDuration
+  ): Unit =
+    val deadline = timeout.fromNow
+    val payload  = installation.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    def status(): String =
+      val left = deadline.timeLeft.max(1.milli)
+      String(
+        ComponentClient.await(
+          transport.askQuery(
+            companion.componentId,
+            entityId,
+            ReplicationStatus.HandoverMethod,
+            payload,
+            Metadata.empty
+          ),
+          left.min(10.seconds)
+        ),
+        java.nio.charset.StandardCharsets.UTF_8
+      )
+    var current = status()
+    while current != ReplicationStatus.Completed && deadline.hasTimeLeft() do
+      Thread.sleep(100)
+      current = status()
+    if current != ReplicationStatus.Completed then
+      throw CommandError(
+        s"the handover of '$entityId' to '$installation' had not completed within $timeout",
+        ErrorCode.Timeout
+      )
+
 /** Entry point for calls to key value entities. */
 final class KeyValueEntityCalls private[ankka] (transport: CallTransport, entityId: EntityId):
   def call[C <: KeyValueEntity[?], I, O](handle: CommandHandle[C, I, O]): Invocation[I, O] =

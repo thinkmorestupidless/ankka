@@ -115,6 +115,13 @@ in a service with the projection runtime registered.
   command, so the entity decides whether the change is allowed.
 - **Where does the client come from?** In Scala the context passed to the companion's `create`; in
   Python `self.client`, in TypeScript `this.client`. Consumers run on virtual threads, so a blocking `invoke` in `onMessage` is fine.
+- **Is the source a replicated entity?** The consumer runs at every installation that holds it. One
+  that publishes (a graph consumer too) is given only local changes, so each change is published once,
+  by the installation that wrote it; declare `mirroredChanges` (`mirrored_changes`) only to publish at
+  every installation. One that publishes nothing is given local and mirrored changes alike: read
+  `localOrigin` (`local_origin`, `ctx.local_origin()`) and the installation that wrote it
+  (`installation`, `ctx.written_at()`) when it should act once. A view of a replicated entity at a
+  follower holds the home's rows in the home's order, behind by what the copy is behind.
 
 ## Before writing a graph consumer
 

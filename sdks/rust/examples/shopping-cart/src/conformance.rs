@@ -313,6 +313,194 @@ impl Consumer for CheckoutFanout {
 }
 // docs:end fanout
 
+// ── replicated-vehicle, vehicle-feed: a replicated entity and a consumer of its changes ──
+
+/// A replicated entity's state: each step, where its event was written ("" when no installation
+/// is named) and whether that was here.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleRecord {
+    pub steps: Vec<String>,
+    pub written_at: Vec<String>,
+    pub local: Vec<bool>,
+}
+
+/// Where a command ran: the installation ("" when none is named) and whether it is the home.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VehiclePlacement {
+    pub installation: String,
+    pub home: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepAdded {
+    pub step: String,
+}
+
+pub struct ReplicatedVehicle;
+
+impl ReplicatedVehicle {
+    fn add_step(
+        _: &VehicleRecord,
+        step: String,
+        ctx: &Context,
+    ) -> Effect<StepAdded, VehiclePlacement> {
+        let placement = VehiclePlacement {
+            installation: ctx.installation().unwrap_or_default().to_string(),
+            home: ctx.is_home(),
+        };
+        effects::persist(StepAdded { step }).then_reply_value(placement)
+    }
+
+    fn hand_over(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+        effects::hand_over_to(target.clone()).then_reply_value(target)
+    }
+
+    fn replicate_to(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+        effects::replicate_to(target.clone()).then_reply_value(target)
+    }
+
+    fn stop_replicating_to(
+        _: &VehicleRecord,
+        target: String,
+        _: &Context,
+    ) -> Effect<StepAdded, String> {
+        effects::stop_replicating_to(target.clone()).then_reply_value(target)
+    }
+
+    fn get(vehicle: &VehicleRecord, (): (), _: &Context) -> ReadOnlyEffect<VehicleRecord> {
+        effects::reply(vehicle.clone())
+    }
+}
+
+impl EventSourcedEntity for ReplicatedVehicle {
+    type State = VehicleRecord;
+    type Event = StepAdded;
+    const COMPONENT_ID: &'static str = "replicated-vehicle";
+    const STATE_MANIFEST: Option<&'static str> = Some("vehicle-record");
+    const EVENT_MANIFEST: Option<&'static str> = Some("step-added");
+    const REPLICATED: bool = true;
+
+    fn empty_state(_: &str) -> VehicleRecord {
+        VehicleRecord::default()
+    }
+
+    fn apply(state: VehicleRecord, event: &StepAdded) -> VehicleRecord {
+        Self::apply_at(state, event, &EventContext::new(None, true, 0))
+    }
+
+    fn apply_at(mut state: VehicleRecord, event: &StepAdded, ctx: &EventContext) -> VehicleRecord {
+        state.steps.push(event.step.clone());
+        state
+            .written_at
+            .push(ctx.installation().unwrap_or_default().to_string());
+        state.local.push(ctx.is_local());
+        state
+    }
+
+    fn handlers() -> Handlers<ReplicatedVehicle> {
+        Handlers::new()
+            .command("add-step", ReplicatedVehicle::add_step)
+            .command("hand-over", ReplicatedVehicle::hand_over)
+            .command("replicate-to", ReplicatedVehicle::replicate_to)
+            .command(
+                "stop-replicating-to",
+                ReplicatedVehicle::stop_replicating_to,
+            )
+            .query("get", ReplicatedVehicle::get)
+    }
+}
+
+/// Publishes nothing; declared to show a consumer given mirrored changes discovers so.
+pub struct VehicleFeed;
+
+impl Consumer for VehicleFeed {
+    type Message = StepAdded;
+    const COMPONENT_ID: &'static str = "vehicle-feed";
+
+    fn source() -> Source {
+        Source::of(ReplicatedVehicle)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("conformance-vehicle-steps")
+    }
+
+    fn mirrored_changes() -> bool {
+        true
+    }
+
+    fn on_message(_: StepAdded, _: &Context) -> ConsumerEffect {
+        consumer::ignore()
+    }
+}
+
+/// Drives the replicated vehicle: a step, a read, and the three replication changes.
+pub struct VehiclesEndpoint;
+
+impl VehiclesEndpoint {
+    fn step(request: &Request, step: String) -> Result<VehiclePlacement, HttpProblem> {
+        let vehicle = request.path("vehicleId");
+        Ok(request
+            .client()
+            .invoke(ReplicatedVehicle, vehicle, "add-step", step)?)
+    }
+
+    fn get(request: &Request) -> Result<VehicleRecord, HttpProblem> {
+        let vehicle = request.path("vehicleId");
+        Ok(request
+            .client()
+            .invoke(ReplicatedVehicle, vehicle, "get", ())?)
+    }
+
+    fn change(request: &Request, handler: &str) -> Result<String, HttpProblem> {
+        let vehicle = request.path("vehicleId");
+        let target = request.path("target").to_string();
+        Ok(request
+            .client()
+            .invoke(ReplicatedVehicle, vehicle, handler, target)?)
+    }
+
+    fn hand_over(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        VehiclesEndpoint::change(request, "hand-over")
+    }
+
+    fn replicate_to(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        VehiclesEndpoint::change(request, "replicate-to")
+    }
+
+    fn stop_replicating_to(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        VehiclesEndpoint::change(request, "stop-replicating-to")
+    }
+}
+
+impl Endpoint for VehiclesEndpoint {
+    const ENDPOINT_ID: &'static str = "VehiclesEndpoint";
+    const PREFIX: &'static str = "/vehicles";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<VehiclesEndpoint> {
+        Routes::new()
+            .post("/{vehicleId}/steps", VehiclesEndpoint::step)
+            .get("/{vehicleId}", VehiclesEndpoint::get)
+            .post(
+                "/{vehicleId}/hand-over/{target}",
+                VehiclesEndpoint::hand_over,
+            )
+            .post(
+                "/{vehicleId}/replicate-to/{target}",
+                VehiclesEndpoint::replicate_to,
+            )
+            .post(
+                "/{vehicleId}/stop-replicating-to/{target}",
+                VehiclesEndpoint::stop_replicating_to,
+            )
+    }
+}
+
 // ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1586,13 +1774,14 @@ pub fn build() -> Service {
         .register_as(Profile, shape)
         .register_as(TreeNode, shape)
         .register(TreeRows)
+        .register_as(ReplicatedVehicle, shape)
         .register_as(JoinedLeft, shape)
         .register_as(JoinedRight, shape)
         .register(JoinedRows)
         .register(CheckoutRecorder)
         .register(CheckoutRows)
         .register(CheckoutEnds);
-    // The three that publish need a broker, and a runtime with none refuses a module that has
+    // Those that publish need a broker, and a runtime with none refuses a module that has
     // them. So they are registered where one is named, as the example's own are: the conformance
     // suite names one, and a cluster this module is deployed to without one does not.
     let service = match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
@@ -1602,6 +1791,7 @@ pub fn build() -> Service {
             .register(TopicRelay)
             .register(ContractRelay)
             .register(PartnerRelay)
+            .register(VehicleFeed)
             .register(ConformanceCartGraph)
             .register(ProfileGraph),
         None => service,
@@ -1612,6 +1802,7 @@ pub fn build() -> Service {
         .register(ConformanceAnswerer)
         .endpoint(CartApi)
         .endpoint(TreeEndpoint)
+        .endpoint(VehiclesEndpoint)
         .endpoint(JoinedEndpoint)
         .endpoint(ConformanceEndpoint)
         .endpoint(PrivateEndpoint)

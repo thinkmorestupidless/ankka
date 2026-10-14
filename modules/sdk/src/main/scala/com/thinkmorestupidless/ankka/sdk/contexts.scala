@@ -64,6 +64,42 @@ trait CommandContext:
   /** Sequence number of the last persisted event; 0 before anything is persisted. */
   def sequenceNumber: Long
 
+  /**
+   * The installation handling the command, for a replicated entity (feature 051); `None` on a
+   * service that names no installations.
+   */
+  def installation: Option[String] = None
+
+  /**
+   * Whether this installation is the replicated entity's home. A command that may persist runs only
+   * at the home, so this is `false` only for a query answered by a follower; always `true` for an
+   * entity that is not replicated.
+   */
+  def isHome: Boolean = true
+
+/**
+ * Available inside `applyEvent`, for the event being applied (feature 051): where it was written,
+ * on replay as well as when it is persisted.
+ */
+trait EventContext:
+  /**
+   * The installation that wrote the event; `None` for an entity on a service that names no
+   * installations. An event written before the entity was replicated reads as written at its home.
+   */
+  def installation: Option[String]
+
+  /** Whether the event was written at this installation rather than mirrored from another. */
+  def isLocal: Boolean
+
+  /** The event's sequence number in the entity's journal, the same at every installation. */
+  def sequenceNumber: Long
+
+private[ankka] final case class SimpleEventContext(
+    installation: Option[String],
+    isLocal: Boolean,
+    sequenceNumber: Long
+) extends EventContext
+
 private[ankka] final case class SimpleEntityContext(
     entityId: EntityId,
     componentId: ComponentId,
@@ -95,5 +131,7 @@ private[ankka] final case class SimpleCommandContext(
     entityId: EntityId,
     componentId: ComponentId,
     metadata: Metadata,
-    sequenceNumber: Long
+    sequenceNumber: Long,
+    override val installation: Option[String] = None,
+    override val isHome: Boolean = true
 ) extends CommandContext

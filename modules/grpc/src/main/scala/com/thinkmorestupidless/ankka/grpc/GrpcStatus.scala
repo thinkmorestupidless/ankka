@@ -24,7 +24,10 @@ object GrpcStatus:
     ErrorCode.Unavailable  -> Status.Code.UNAVAILABLE,
     ErrorCode.Internal     -> Status.Code.INTERNAL,
     // No other code uses ABORTED, so the reverse map stays one to one.
-    ErrorCode.WorkflowFailed -> Status.Code.ABORTED
+    ErrorCode.WorkflowFailed -> Status.Code.ABORTED,
+    // A precondition of where the call landed, not of the entity's state, which is `Conflict`'s:
+    // OUT_OF_RANGE keeps the reverse map one to one, and says "not here, ask elsewhere".
+    ErrorCode.NotHome -> Status.Code.OUT_OF_RANGE
   )
 
   private val toCode   = table.toMap

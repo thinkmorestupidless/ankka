@@ -87,6 +87,23 @@ for the sidecar. `EndpointClients.awaitEnd` is the SSE form, its heartbeat `Hear
 reader of `ankka.http.sse.heartbeat` (047's), which every SSE route's keep-alive and the sidecar's wait
 stream also take, so the interval cannot differ between them.
 
+## A replicated entity has one home, and its followers mirror the home's journal
+
+Feature 051. An event sourced entity declared `replicated` is held at several installations and
+written only at its **home**; every other installation in its **replication set** is a **follower**
+whose journal is the home's, record for record: the same persistence id, the same sequence numbers,
+the same bytes (`Mirrored(record)` is persisted unchanged; only a record from before replication, with
+no `installation`, is stamped with its source). The platform's facts are journal records of their own
+(`JournalRecord` kinds 3 home, 4 replication set, 5 handover, 6 handover abandoned, 7 conflict), so
+the mode is always read from the copy's state (`CopyState`), never from actor memory, and a restart
+loses nothing. `replication/HostReplication.scala` holds the mode, the gate, the forward, locate and
+the conflict check for both hosts, in process and remote, so the two cannot disagree. Every answer
+from the transport comes back to the actor through `pipeToSelf`; the follower's sequence check
+(`Replicate(seq, …)` must be the next) is the whole ordering argument. `ReplicationTransport` is the
+seam the private `ankka-replication` fills; the runtime's own, `DatabaseReplicationTransport`, reads
+sibling journals from their databases. A service names `ankka.replication.installation` and at least
+one other installation, or it does not replicate at all: an unreplicated service pays for nothing.
+
 ## Traps
 
 - **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers
@@ -103,6 +120,25 @@ stream also take, so the interval cannot differ between them.
   timers the new due query fails with SQLSTATE `42703`; the sweeper and the scheduler fall back to the
   previous release's statements (`TimerStore.legacy*`), so timers that fire once keep working and only a
   recurring timer is refused. Found by a run by hand: as first built, every timer stopped there.
+
+- **A journal record's new field changes every record's bytes unless it is `@JsonInclude(NON_ABSENT)`.**
+  `JournalRecord.installation` and `StateRecord`'s four replication fields carry it, and
+  `JournalRecordCompatibilitySuite` reads `journal-record.txt` and `remote-state-record.txt`, pinned
+  before the fields existed. Never regenerate those fixtures to make a change pass.
+- **An installation alone is not replicating.** `ReplicationSettings.enabled` needs this installation
+  and another; a command at a lone installation is told no installation. The conformance targets run
+  at `a` beside a `b` no transport reaches for this reason.
+- **A follower can mirror the home record (kind 3) before the set (kind 4).** Read on its own, that
+  copy is `Outside` and stops pulling. A home with no set known reads as `Unknown` (locate again),
+  and a copy that locate placed in the set follows the located home until its own journal says the
+  same ("joining"), or a late joiner stops at the first old set that does not name it.
+- **A command that only changes the set writes something.** Creation with `replicateTo` and no event
+  wrote nothing until the "writes" test included `effect.replication`; the home and set records are
+  written with the first record whatever it is.
+- **The home is handed only to an installation in its replication set.** `handOverTo` elsewhere is
+  `BadRequest`, before anything is written.
+- **A view at a follower is behind the home's by one poll at least.** The home's own view took about
+  2.3s in the suite, so a bound on a follower's view is stated relative to the home's, never absolute.
 
 - **The JDK's HTTP client sends a `GET` or a `HEAD` twice when its connection closes before any answer.**
   It reads the closed connection as an expired pooled one and retries an idempotent-by-name method once;

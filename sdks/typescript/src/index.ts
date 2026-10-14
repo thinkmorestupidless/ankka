@@ -17,7 +17,7 @@ export { EncodingError, DecodingError, renderDouble } from "./json.ts"
 export { Instant, Duration, LocalDate, LocalDateTime } from "./time.ts"
 export { ErrorCode, CommandError, Outcome, Retention, httpStatusOf, type ErrorDetail, type Metadata, type EffectLike, type ReadOnlyLike } from "./effects/common.ts"
 export { command, query, stream, step, action, tool, guardrail, type HandlerRef, type ToolRef, type GuardrailRef, type GuardrailStage, type HandlerTable } from "./handlers.ts"
-export { PersistBuilder, EventSourcedEffects, type PersistEffect, type ReadOnlyEffect, type EventSourcedEffect } from "./effects/eventSourced.ts"
+export { PersistBuilder, EventSourcedEffects, type PersistEffect, type ReadOnlyEffect, type EventSourcedEffect, type ReplicationChange } from "./effects/eventSourced.ts"
 export { EventSourcedEntity, type EventSourcedEntityClass } from "./eventSourcedEntity.ts"
 export { UpdateBuilder, KeyValueEffects, type UpdateEffect, type KeyValueReadOnlyEffect, type KeyValueEffect } from "./effects/keyValue.ts"
 export { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
@@ -67,7 +67,7 @@ export {
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
 export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
-export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
+export { type CommandContext, type EventContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, AwaitingInvocation, AWAIT_SINCE, awaitPartJson, Views, Timers, Secrets, InMemorySecrets, noSecrets, WatchEnded, VIEW_STREAMS_SINCE, type AwaitPart, type WatchEvent, type WatchOptions, type Overflow, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
 export {
   Services, ServiceClient, ScriptedServices, noServices,

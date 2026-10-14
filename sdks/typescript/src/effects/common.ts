@@ -15,6 +15,8 @@ export const ErrorCode = Object.freeze({
   Unavailable: "UNAVAILABLE",
   /** A workflow a caller waited for failed or was deleted (protocol 1.18); the step and the reason are in `details`. */
   WorkflowFailed: "WORKFLOW_FAILED",
+  /** A replicated entity's copy here cannot answer (1.19): its home is unreachable, or the read is outside the replication set. */
+  NotHome: "NOT_HOME",
 } as const)
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
 
@@ -28,6 +30,7 @@ const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = Object.freeze({
   TIMEOUT: 504,
   UNAVAILABLE: 503,
   WORKFLOW_FAILED: 424,
+  NOT_HOME: 421,
 })
 
 export function httpStatusOf(code: ErrorCode): number {

@@ -53,6 +53,8 @@ message FoldRequest {
   optional Payload state = 3;
   Payload event = 4;
   int64 sequence = 5;
+  string installation = 6;                      // 1.19: where the event was written; empty when none is named
+  bool mirrored = 7;                            // 1.19: written at another installation than this one
 }
 
 message FoldReply {

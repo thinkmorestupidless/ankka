@@ -149,13 +149,15 @@ final class WasmConversation(
       val events = held.takeUnfolded()
       events.zipWithIndex.foldLeft[Either[GuestFault, Boolean]](Right(resident)) {
         case (Left(fault), _) => Left(fault)
-        case (Right(holds), ((sequence, event), i)) =>
+        case (Right(holds), ((sequence, event, installation), i)) =>
           val request = FoldRequest(
             init.componentId,
             init.entityId,
             held.toSend(holds),
             Some(event),
-            sequence
+            sequence,
+            installation.getOrElse(""),
+            WasmConversation.mirrored(installation, init.installation)
           )
           ask(instance, fn("fold"), request, purposeOf(None, Metadata.empty))(
             FoldReply.parseFrom
@@ -164,7 +166,7 @@ final class WasmConversation(
               held.update(reply.state, sequence)
               Right(true)
             case other =>
-              events.drop(i).foreach((s, e) => held.replayed(s, e))
+              events.drop(i).foreach((s, e, at) => held.replayed(s, e, at))
               other match
                 case Right(reply) =>
                   Left(GuestFault("ankka1_fold", reply.getFailure.getError.message))
@@ -172,7 +174,10 @@ final class WasmConversation(
       }
 
     /** Replay: folded, in order, before the next call, on the thread that makes it. */
-    def event(sequence: Long, payload: Payload): Unit = held.replayed(sequence, toPayload(payload))
+    def event(sequence: Long, payload: Payload): Unit = event(sequence, payload, None)
+
+    override def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
+      held.replayed(sequence, toPayload(payload), installation)
 
     def command(cmd: Command): Future[Either[ProcessFailure, Reply]] = Future {
       val sent     = stamped(cmd.metadata).set(WasmConversation.Sequence, held.sequence.toString)
@@ -185,7 +190,9 @@ final class WasmConversation(
               cmd.name,
               Some(toPayload(cmd.payload)),
               metadata,
-              cmd.snapshotRequested
+              cmd.snapshotRequested,
+              cmd.installation.getOrElse(""),
+              cmd.atHome
             )
           )
         case Kind.KEY_VALUE_ENTITY =>
@@ -433,6 +440,15 @@ final class WasmConversation(
   def reachable(): Boolean = true
 
 object WasmConversation:
+  /**
+   * Whether an event was written at another installation than this one (feature 051): a module is
+   * told where an event was written, and this, since it does not know where it runs.
+   */
+  private[wasm] def mirrored(written: Option[String], here: Option[String]): Boolean =
+    (written, here) match
+      case (Some(w), Some(h)) => w != h
+      case _                  => false
+
   /** The metadata entry carrying the runtime's clock, as epoch milliseconds. */
   val Now: String = "ankka.now"
 

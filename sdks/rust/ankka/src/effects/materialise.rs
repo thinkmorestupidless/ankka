@@ -3,7 +3,7 @@
 //! answers, so the two cannot disagree about what a handler did.
 
 use super::common::{CommandError, Outcome, Retention};
-use super::event_sourced::Effect;
+use super::event_sourced::{Effect, ReplicationChange};
 use crate::context::Metadata;
 
 /// What an effect came to, applied to a state.
@@ -15,6 +15,8 @@ pub struct Materialised<S, E, R> {
     pub new_state: S,
     /// What happens to the entity afterwards; nothing after a refusal.
     pub retention: Option<Retention>,
+    /// The handover or change to the replication set asked for; nothing after a refusal.
+    pub replication: Option<ReplicationChange>,
     /// The answer.
     pub outcome: Answer<R>,
 }
@@ -35,7 +37,7 @@ pub enum Answer<R> {
 /// them.
 pub fn materialise_event_sourced<S: 'static, E, R>(
     state: S,
-    fold: impl Fn(S, &E) -> S,
+    mut fold: impl FnMut(S, &E) -> S,
     effect: Effect<E, R>,
 ) -> Materialised<S, E, R> {
     match effect.outcome {
@@ -43,10 +45,11 @@ pub fn materialise_event_sourced<S: 'static, E, R>(
             events: Vec::new(),
             new_state: state,
             retention: None,
+            replication: None,
             outcome: Answer::Error(error),
         },
         outcome => {
-            let new_state = effect.events.iter().fold(state, &fold);
+            let new_state = effect.events.iter().fold(state, &mut fold);
             let answer = match outcome {
                 Outcome::Reply(reply, metadata) => Answer::Reply(reply(&new_state), metadata),
                 Outcome::NoReply => Answer::NoReply,
@@ -56,6 +59,7 @@ pub fn materialise_event_sourced<S: 'static, E, R>(
                 events: effect.events,
                 new_state,
                 retention: effect.retention,
+                replication: effect.replication,
                 outcome: answer,
             }
         }
@@ -91,6 +95,42 @@ mod tests {
         assert_eq!(
             m.outcome,
             Answer::Error(CommandError::new(ErrorCode::Conflict, "no"))
+        );
+    }
+
+    #[test]
+    fn a_replication_change_is_carried_beside_the_events() {
+        let effect = effects::persist(1)
+            .replicate_to("vienna")
+            .stop_replicating_to("factory")
+            .then_no_reply::<()>();
+        let m = materialise_event_sourced(0, fold, effect);
+        assert_eq!(m.events, vec![1]);
+        assert_eq!(
+            m.replication,
+            Some(ReplicationChange::Set {
+                add: vec!["vienna".to_string()],
+                remove: vec!["factory".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn two_changes_on_one_command_are_a_fault_and_persist_nothing() {
+        let effect = effects::persist(1)
+            .hand_over_to("a")
+            .replicate_to("b")
+            .then_no_reply::<()>();
+        let m = materialise_event_sourced(0, fold, effect);
+        assert!(m.events.is_empty());
+        assert_eq!(m.replication, None);
+        assert!(matches!(m.outcome, Answer::Error(ref e) if e.code == ErrorCode::Internal));
+        let both = effects::replicate_to::<i32>("b")
+            .stop_replicating_to("b")
+            .then_no_reply::<()>();
+        let m = materialise_event_sourced(0, fold, both);
+        assert!(
+            matches!(m.outcome, Answer::Error(ref e) if e.message.contains("adds and removes b"))
         );
     }
 

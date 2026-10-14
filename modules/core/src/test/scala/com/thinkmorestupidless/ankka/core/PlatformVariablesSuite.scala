@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the twenty-eight it renders") {
+  test("the variables the platform alone sets are exactly these twenty-nine") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -47,7 +47,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_PROJECT_GRANTS",
         "ANKKA_MACHINE_ISSUER",
         "ANKKA_MACHINE_JWKS_URL",
-        "ANKKA_MACHINE_JWKS_CA"
+        "ANKKA_MACHINE_JWKS_CA",
+        "ANKKA_INSTALLATION"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -84,7 +85,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
   test(
     "the variables for the platform's program alone: a model's, a database's, the issuers', " +
       "a socket's limits, an MCP server's, a declared broker's, a watch's limits, the SSE " +
-      "heartbeat, the secret key"
+      "heartbeat, another installation's journal, the secret key"
   ) {
     assertEquals(
       RuntimeOnlyPrefixes,
@@ -97,7 +98,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_MCP_",
         "ANKKA_TOPIC_BROKER_",
         "ANKKA_VIEW_",
-        "ANKKA_SSE_"
+        "ANKKA_SSE_",
+        "ANKKA_INSTALLATION_"
       )
     )
     // The secret store's settings reach the platform's program alone, which holds the store; the
@@ -116,6 +118,16 @@ class PlatformVariablesSuite extends munit.FunSuite:
       )
     )
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")
+  }
+
+  test("which installation this is, is the platform's to name; a sibling's journal its program's") {
+    assertEquals(Installation, "ANKKA_INSTALLATION")
+    assert(platformOnly(Installation))
+    // The name is not under its own prefix: the platform names it, a descriptor may not.
+    assert(!runtimeOnly(Installation))
+    assert(runtimeOnly("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
+    assert(!platformOnly("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
+    assert(withheldFromModule("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
   }
 
   test("how long a call to another service waits is the platform's program's to know") {

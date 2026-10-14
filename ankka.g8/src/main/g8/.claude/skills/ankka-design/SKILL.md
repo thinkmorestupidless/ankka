@@ -98,6 +98,29 @@ service never disagree.
 - Wire names, component ids, manifests and JSON field names are protocol. Add fields and event cases;
   never rename or remove what a journal already holds. During a rolling update two versions run at once.
 
+## Replicating an entity across installations
+
+Replicate an event sourced entity when readers at several installations need it locally, and one
+installation at a time is the right writer (`references/concepts/replicated-entities.md`).
+
+- **Put the home where the writes are.** Every write goes to the home; one reaching a follower is
+  forwarded, so a home far from its writers makes every write a round trip. Hand the home over when the
+  thing the entity models moves: a vehicle built at a factory and sold at a dealership.
+- **Keep the replication set to the installations that read it.** Each installation in it copies the whole history.
+  Add an installation with `replicateTo` when it starts needing the entity; remove it with
+  `stopReplicatingTo` when it stops, and it keeps what it has.
+- **A read at a follower is behind the home** by up to one poll. A decision that must see the latest
+  state is a command, which runs at the home.
+- **Ids must be issued by one installation.** Creation is local, so one id created at two installations
+  is a conflict that refuses writes. A vehicle's identification number, issued by its factory, is the
+  model.
+- **While the home cannot be reached, nothing writes the entity.** There is no forced takeover. If an
+  installation must keep writing through a partition, it needs an entity of its own.
+- **Publish once.** A consumer that publishes is given only local changes by default, so each change is
+  published by the installation that wrote it; `mirroredChanges` publishes at every installation.
+- Key value entities and workflows do not replicate, and the transport between installations on a
+  network is the licensed `ankka-replication`.
+
 ## Reviewing a design
 
 Refuse a design that has any of these, and say which rule it breaks:
@@ -127,6 +150,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/concepts/designing-services.md` — The concepts that shape an ankka system — consistency boundaries, events, read models, reactions, processes, time, agents, the edge and service boundaries — with a worked example mapping a checkout onto components.
 - `references/concepts/wire-names.md` — How ankka names components, handlers and stored types independently of your code's names, why those names are a versioning boundary, and which renames are safe in a running system.
 - `references/concepts/consistency.md` — The guarantees ankka gives — strong consistency per entity, eventually consistent views, exactly-once and at-least-once delivery, ordering, timeouts and timers — and what each means for the code you write.
+- `references/concepts/replicated-entities.md` — An event sourced entity held at several installations and written at one, its home — followers, the replication set, the handover, forwarded writes, stale reads, conflicts, and the replication transport.
 - `references/concepts/designing-agents.md` — Decide when an agent is the right component, design its tools, sessions, guardrails and model choice, plan for failure and cost, put a person in the loop, and combine agents with workflows and entities.
 - `references/concepts/clustering.md` — How a service's instances form one cluster, how entities are spread across it, how nodes find each other locally and in Kubernetes, and what that means for rollouts, failures and instance counts.
 - `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, a service's topology of declared connections and observed calls, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.

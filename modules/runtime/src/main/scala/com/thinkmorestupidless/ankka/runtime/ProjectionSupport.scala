@@ -100,11 +100,15 @@ private[ankka] object ProjectionSupport:
       sequenceNr: Long,
       row: Option[Any],
       change: SourceChange,
-      observability: Observability
+      observability: Observability,
+      installation: Option[String] = None,
+      local: Boolean = true
   ): ViewEffect[Any] =
     view._setRow(row)
     view._setContext(
-      Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true, standingOf(change)))
+      Some(
+        SimpleChangeContext(subject, sequenceNr, local, standingOf(change), installation)
+      )
     )
     // A projection has no inbound request, so this span is a trace root — correctly so. A view
     // catching up is its own piece of work, not part of whatever wrote the event minutes ago,

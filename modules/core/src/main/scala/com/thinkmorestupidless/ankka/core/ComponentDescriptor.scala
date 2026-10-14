@@ -47,6 +47,13 @@ trait ComponentDescriptor:
    */
   def platform: Boolean = false
 
+  /**
+   * Whether this component's history is held at several installations, written only at its home
+   * (feature 051). Only an event sourced entity may say so: the registry and the control plane's
+   * descriptor rules refuse any other kind that does.
+   */
+  def replicated: Boolean = false
+
   override def toString: String = s"$kind($componentId)"
 
 /** What a declared handler is for. It says how the handler is reported, never how it is run. */
@@ -144,7 +151,16 @@ object ComponentRegistry:
       .toVector
       .sorted
 
-    val problems = duplicates ++ shardedClashes
+    // Feature 051: only an event sourced entity's history can be held at several installations.
+    val notReplicable = components
+      .filter(d => d.replicated && d.kind != ComponentKind.EventSourcedEntity)
+      .map(d =>
+        s"${d.kind} '${d.componentId}' is declared replicated; only an event sourced entity may be"
+      )
+      .toVector
+      .sorted
+
+    val problems = duplicates ++ shardedClashes ++ notReplicable
     if problems.nonEmpty then Left(problems)
     else Right(new ComponentRegistry(components.toVector))
 

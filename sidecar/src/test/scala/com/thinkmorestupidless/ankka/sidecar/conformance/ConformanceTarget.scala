@@ -2,6 +2,12 @@ package com.thinkmorestupidless.ankka.sidecar.conformance
 
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestMcpServer, TestModelProvider}
 import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig, TestIssuer}
+import com.thinkmorestupidless.ankka.runtime.replication.{
+  Advanced,
+  ForwardedCall,
+  ReplicationTransport,
+  Replicated
+}
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
 import ankka.protocol.v1.discovery.{Component, Spec}
@@ -163,6 +169,9 @@ trait ConformanceTarget:
    */
   def refusalAt(protocolVersion: String): Option[Option[String]]
 
+  /** Whether consumer `id` declared it is given mirrored changes; `None` for no such consumer. */
+  def mirroredChanges(id: String): Option[Boolean]
+
   /** The statement of a view's declared query, as the target declared it. */
   def declaredStatement(view: String, query: String): Option[String]
 
@@ -225,7 +234,7 @@ object ConformanceTarget:
    * every language under its own name. Every other name goes to the real client.
    */
   private def withImpostor(builder: ServiceBuilder): ServiceBuilder =
-    builder.withServices { real =>
+    builder.withReplicationTransport((_, _, _) => Unreachable).withServices { real =>
       new ServiceClients:
         def apply(name: String): ServiceClient = apply("local", name)
         def apply(project: String, name: String): ServiceClient =
@@ -253,6 +262,51 @@ object ConformanceTarget:
    * expects. A process or a module is verified by the sidecar's rule, the in-process reference by
    * the same rule, so every target answers a token the same way.
    */
+  /**
+   * Every target runs at installation `a`, beside an installation `b` that cannot be reached
+   * (feature 051): a replicated entity's commands are then at its home, every event it writes is
+   * written here, and a handover or a set naming `b` is written and goes no further.
+   */
+  val installation: com.typesafe.config.Config =
+    com.typesafe.config.ConfigFactory.parseString(
+      "ankka.replication { installation = a, installations.b {} }"
+    )
+
+  /** A replication transport that reaches no other installation. */
+  private object Unreachable extends ReplicationTransport:
+    import com.thinkmorestupidless.ankka.core.{ComponentId as Cid, EntityId as Eid}
+    import org.apache.pekko.{Done, NotUsed}
+    import org.apache.pekko.stream.scaladsl.Source as PekkoSource
+    import scala.concurrent.Future
+    def name: String = "unreachable"
+    def records(
+        installation: String,
+        componentId: Cid,
+        entityId: Eid,
+        from: Long
+    ): PekkoSource[Replicated, NotUsed] = PekkoSource.never[Replicated]
+    def forward(
+        installation: String,
+        componentId: Cid,
+        entityId: Eid,
+        call: ForwardedCall
+    ): Future[com.thinkmorestupidless.ankka.runtime.replication.ForwardedReply] =
+      Future.failed(IllegalStateException(s"'$installation' cannot be reached"))
+    def report(
+        installation: String,
+        componentId: Cid,
+        entityId: Eid,
+        position: Long
+    ): Future[Done] =
+      Future.successful(Done)
+    def locate(
+        componentId: Cid,
+        entityId: Eid
+    ): Future[Option[com.thinkmorestupidless.ankka.runtime.replication.Located]] =
+      Future.successful(None)
+    def advanced: PekkoSource[Advanced, NotUsed] = PekkoSource.never[Advanced]
+    def reachable(installation: String): Boolean = false
+
   lazy val issuer: TestIssuer =
     TestIssuer("https://auth.conformance.test/realms/test", "test", "conformance")
 
@@ -303,6 +357,12 @@ object ConformanceTarget:
       case d: ViewDescriptor[?, ?, ?] if d.componentId.toString == view =>
         d.queries.find(_.name == query).map(_.statement)
     }.flatten
+
+  /** Whether a consumer a process or a module declared is given mirrored changes. */
+  private def mirroredIn(spec: Spec, id: String): Option[Boolean] =
+    spec.components.collectFirst {
+      case c if c.id == id && c.detail.isConsumer => c.detail.consumer.exists(_.mirroredChanges)
+    }
 
   /** A declared query's statement as a process or a module sent it in discovery. */
   private def declaredIn(spec: Spec, view: String, query: String): Option[String] =
@@ -357,7 +417,8 @@ object ConformanceTarget:
       60.seconds,
       ConformanceTarget.withImpostor,
       localServices = ConformanceTarget.localServices(scripted),
-      secretBackend = ConformanceTarget.secretBackend
+      secretBackend = ConformanceTarget.secretBackend,
+      settings = ConformanceTarget.installation
     )
     def name: String           = "in-process"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -375,12 +436,19 @@ object ConformanceTarget:
         ("shopping-cart", "get-cart"),
         ("conformance", "count"),
         ("profile", "get"),
-        ("checkout", "status")
+        ("checkout", "status"),
+        ("replicated-vehicle", "get")
       )
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
     def refusalAt(protocolVersion: String): Option[Option[String]]                  = None
+    def mirroredChanges(id: String): Option[Boolean] =
+      reference.descriptors.collectFirst {
+        case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?]
+            if c.componentId.toString == id =>
+          c.mirroredChanges
+      }
     def declaredStatement(view: String, query: String): Option[String] =
       ConformanceTarget.declaredIn(reference.descriptors, view, query)
     def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
@@ -485,7 +553,8 @@ object ConformanceTarget:
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted),
-      secretBackend = ConformanceTarget.secretBackend
+      secretBackend = ConformanceTarget.secretBackend,
+      settings = ConformanceTarget.installation
     )
     def name: String           = s"sidecar → $address"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -506,6 +575,8 @@ object ConformanceTarget:
         .map(_.flatMap(_.asString))
         .getOrElse(Vector.empty)
     def componentIds: Set[String] = discovered.spec.components.map(_.id).toSet
+    def mirroredChanges(id: String): Option[Boolean] =
+      ConformanceTarget.mirroredIn(discovered.spec, id)
     def readOnlyHandlers: Set[(String, String)] =
       discovered.spec.components
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))
@@ -670,17 +741,20 @@ object ConformanceTarget:
       60.seconds,
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted),
-      secretBackend = ConformanceTarget.secretBackend
+      secretBackend = ConformanceTarget.secretBackend,
+      settings = ConformanceTarget.installation
     )
-    def name: String           = s"module $path ($shape)"
-    def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
-    def system: ActorSystem[?] = kit.service.system
+    def name: String               = s"module $path ($shape)"
+    def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?]     = kit.service.system
+    def restart(): Unit            = kit.restartService()
+    def isProcess: Boolean         = true
+    override def isModule: Boolean = true
+    def problems: Vector[String]   = lastProblems
+    def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet
+    def mirroredChanges(id: String): Option[Boolean] =
+      ConformanceTarget.mirroredIn(discovered.spec, id)
     def recordedReads: Vector[ReadRecord] = kit.recordedReads
-    def restart(): Unit                   = kit.restartService()
-    def isProcess: Boolean                = true
-    override def isModule: Boolean        = true
-    def problems: Vector[String]          = lastProblems
-    def componentIds: Set[String]         = discovered.spec.components.map(_.id).toSet
     def readOnlyHandlers: Set[(String, String)] =
       discovered.spec.components
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))

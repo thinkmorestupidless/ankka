@@ -67,8 +67,10 @@ field names, `productId` rather than `product_id`, when a Scala service shares t
 | In a handler | `self.state`, `self.entity_id`, `self.context` (a `CommandContext`), `self.effects` |
 | Effects | `persist(e, *more)`, `persist_all(events)`, `delete_entity()`, then `.then_reply(lambda s: r)`, `.then_reply_state()`, `.then_no_reply()`, `.delete_entity()`, `.expire_after(timedelta)`; `reply(r)`, `error(msg, code)`, `no_reply()` |
 | Types | A command returns `EventSourcedEffect[S, E, R]`; a query returns `ReadOnlyEffect[S, E, R]` |
+| Replication | `replicated = True`; effects `hand_over_to(installation)`, `replicate_to(installation)`, `stop_replicating_to(installation)`, alone or after `persist`; `self.context.installation`, `self.context.is_home`; `self.event_context` (`installation`, `is_local`, `sequence`) in `apply_event`; `EventSourcedTestKit.of(cls, id, mode="follower", home=name, installation=name)` and `kit.replay(*events, written_at=name)` |
 
-See [Event sourced entities](../build/event-sourced-entities.md).
+See [Event sourced entities](../build/event-sourced-entities.md) and
+[Replicated entities](../concepts/replicated-entities.md).
 
 ## Key value entity
 
@@ -117,7 +119,8 @@ See [Views](../build/views.md).
 | Class attributes | `component_id`, `source` or `topic`, `message_codec`; for a topic, `start_from`, `contract`, `broker`, `parallel`; to publish, `produces_to` (a topic, or a `Publication` with its contract and broker) and `out_codec` |
 | Must define | `async on_message(self, message) -> ConsumerEffect` |
 | May override | `on_delete(self)`, which ignores by default |
-| In a handler | `self.metadata` (`subject`, `sequence_number`), `self.standing` (a workflow source's `Standing`, else `None`), `self.client`, `self.effects` |
+| In a handler | `self.metadata` (`subject`, `sequence_number`), `self.standing` (a workflow source's `Standing`, else `None`), `self.installation`, `self.local_origin`, `self.client`, `self.effects` |
+| Replicated sources | `mirrored_changes = True` gives a consumer that publishes changes written at other installations too |
 | Effects | `produce(out, metadata=None)`, `produce_all(messages)`, `done()`, `ignore()` |
 | One of several messages | `self.effects.message(out, key=None, metadata=None)`; `key` is a record key other than the message's subject |
 

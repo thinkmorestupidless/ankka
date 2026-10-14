@@ -26,19 +26,44 @@ private[ankka] enum SourceChange:
 private[ankka] trait ChangeReader[A]:
   def read(record: A): SourceChange
 
+  /**
+   * The installation that wrote `record`, for a replicated entity's journal (feature 051); `None`
+   * for every other journal.
+   */
+  def installation(record: A): Option[String] = None
+
+  /** Whether `record` was written at this installation rather than mirrored from another. */
+  def local(record: A): Boolean = true
+
 private[ankka] object ChangeReader:
 
   /** An event sourced entity's journal: an event, a deletion, or a time-to-live set. */
-  val journal: ChangeReader[JournalRecord] = record =>
-    record.kind match
-      case JournalRecord.KindDomain =>
-        SourceChange.Changed(
-          Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload),
-          None
-        )
-      case JournalRecord.KindDeleted => SourceChange.Deleted
-      // A TTL being set is a storage fact, not a domain change: nothing to tell a reader.
-      case _ => SourceChange.Skip
+  val journal: ChangeReader[JournalRecord] = journalAt(None)
+
+  /**
+   * An event sourced entity's journal at the installation `self`, when the entity is replicated:
+   * each change names the installation that wrote it, and a record that names none was written
+   * here, before replication, since a follower stamps every record it mirrors.
+   */
+  def journalAt(self: Option[String]): ChangeReader[JournalRecord] =
+    new ChangeReader[JournalRecord]:
+      def read(record: JournalRecord): SourceChange =
+        record.kind match
+          case JournalRecord.KindDomain =>
+            SourceChange.Changed(
+              Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload),
+              None
+            )
+          case JournalRecord.KindDeleted => SourceChange.Deleted
+          // A TTL being set is a storage fact, not a domain change: nothing to tell a reader. Nor
+          // is a replicated entity's home, replication set, handover or conflict.
+          case _ => SourceChange.Skip
+
+      override def installation(record: JournalRecord): Option[String] =
+        record.installation.orElse(self)
+
+      override def local(record: JournalRecord): Boolean =
+        self.forall(here => installation(record).contains(here))
 
   /** A Scala workflow's journal: its state is the bytes its own serializer wrote. */
   def workflow(stateManifest: String): ChangeReader[WorkflowRecord] = record =>

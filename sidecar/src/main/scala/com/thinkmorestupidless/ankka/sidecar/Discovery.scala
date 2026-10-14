@@ -160,6 +160,9 @@ object Discovery:
    */
   private val WorkflowSourcesSince = 16
 
+  /** The first minor that declares a replicated entity (feature 051). */
+  private[sidecar] val ReplicationSince = 19
+
   /** The minor that introduced a watched query. */
   private val WatchedSince = 17
 
@@ -227,10 +230,16 @@ object Discovery:
           val handlerMap = handlers.toMap
           (c.kind, c.detail) match
             case (Kind.EVENT_SOURCED_ENTITY, Component.Detail.EventSourced(d)) =>
+              // A replicated entity needs 1.19 from both ends: a runtime before it would host the
+              // entity on one installation, saying nothing.
+              if d.replicated && minorOf(spec.protocolVersion).exists(_ < ReplicationSince) then
+                problems += s"entity '${c.id}' is replicated, which needs protocol " +
+                  s"1.$ReplicationSince; the SDK speaks ${spec.protocolVersion}"
               descriptors += RemoteEventSourcedDescriptor(
                 id,
                 handlerMap,
-                Option(d.snapshotEvery).filter(_ > 0)
+                Option(d.snapshotEvery).filter(_ > 0),
+                d.replicated
               )
             case (Kind.KEY_VALUE_ENTITY, Component.Detail.KeyValue(_)) =>
               descriptors += RemoteKeyValueDescriptor(id, handlerMap)
@@ -291,7 +300,8 @@ object Discovery:
                   produces.map(_.address).orElse(d.producesTo),
                   startDeclarable = declaresStartPositions(spec.protocolVersion),
                   version = d.version,
-                  produces = produces
+                  produces = produces,
+                  mirroredChanges = d.mirroredChanges
                 )
               }
             case (Kind.TIMED_ACTION, Component.Detail.TimedAction(_)) =>

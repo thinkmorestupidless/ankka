@@ -23,11 +23,11 @@ use serde::de::DeserializeOwned;
 use super::TestResponse;
 use crate::abi::imports::{Import, NativeHost, with_native_host};
 use crate::codec::time::Duration;
-use crate::codec::{decode_payload, encode_payload};
+use crate::codec::{Codec, decode_payload, encode_payload};
 use crate::components::endpoint::{EndpointRegistration, RegisteredEndpoint};
 use crate::components::{ComponentOf, Endpoint, EventSourcedEntity, HeldState, Registered, kinds};
 use crate::context::Metadata;
-use crate::effects::{CommandError, ErrorCode, Retention};
+use crate::effects::{CommandError, ErrorCode, ReplicationChange, Retention};
 use crate::proto::{self, Kind, Payload};
 use crate::service::Service;
 
@@ -42,6 +42,8 @@ pub struct CommandOutcome<C: EventSourcedEntity> {
     pub new_state: C::State,
     /// What happens to the entity afterwards, if the handler said.
     pub retention: Option<Retention>,
+    /// The handover or change to the replication set the handler asked for, if any.
+    pub replication: Option<ReplicationChange>,
     /// The metadata the handler set on its reply.
     pub metadata: Metadata,
     reply: Option<Payload>,
@@ -71,6 +73,26 @@ impl<C: EventSourcedEntity> CommandOutcome<C> {
     }
 }
 
+/// How a replicated entity's copy stands in the test kit (protocol 1.19).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplicationMode {
+    /// Not replicated: every command runs, and a replication change is refused.
+    Unreplicated,
+    /// The home, at `installation`: every command runs.
+    Home {
+        /// This copy's installation.
+        installation: String,
+    },
+    /// A follower at `installation`: a command that may persist is refused `NotHome`, naming
+    /// `home`, and a query is answered from what [`replay`](EventSourcedTestKit::replay) gave it.
+    Follower {
+        /// The entity's home.
+        home: String,
+        /// This copy's installation.
+        installation: String,
+    },
+}
+
 /// Drives one instance of an event sourced entity through its handlers, carrying the state from
 /// one command to the next as the runtime would.
 pub struct EventSourcedTestKit<C: EventSourcedEntity> {
@@ -82,6 +104,7 @@ pub struct EventSourcedTestKit<C: EventSourcedEntity> {
     sequence: i64,
     commands: i64,
     events: Vec<C::Event>,
+    mode: ReplicationMode,
 }
 
 impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
@@ -96,6 +119,64 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
             sequence: 0,
             commands: 0,
             events: Vec::new(),
+            mode: ReplicationMode::Unreplicated,
+        }
+    }
+
+    /// Drives the copy as `mode` says: the home, or a follower of another installation. Not
+    /// replicated unless said.
+    pub fn in_mode(mut self, mode: ReplicationMode) -> EventSourcedTestKit<C> {
+        self.mode = mode;
+        self
+    }
+
+    fn here(&self) -> Option<String> {
+        match &self.mode {
+            ReplicationMode::Unreplicated => None,
+            ReplicationMode::Home { installation }
+            | ReplicationMode::Follower { installation, .. } => Some(installation.clone()),
+        }
+    }
+
+    /// Applies `events` as history the copy already holds, written at `written_at` (this
+    /// installation when `None`): for a follower, what it has mirrored from its home. Each crosses
+    /// the event codec and the entity's `apply_at`, as a replay in the runtime does.
+    pub fn replay(&mut self, events: Vec<C::Event>, written_at: Option<&str>) {
+        let here = self.here();
+        let written = written_at.map(str::to_string).or_else(|| here.clone());
+        let mirrored = matches!((&written, &here), (Some(w), Some(h)) if w != h);
+        for event in events {
+            let payload = C::event_codec().payload(&event).unwrap_or_else(|e| {
+                panic!("an event of '{}' does not encode: {e}", C::COMPONENT_ID)
+            });
+            self.sequence += 1;
+            let reply = self.registration.fold(
+                proto::FoldRequest {
+                    component_id: C::COMPONENT_ID.to_string(),
+                    entity_id: self.entity_id.clone(),
+                    state: self.stored.clone(),
+                    event: Some(payload),
+                    sequence: self.sequence,
+                    installation: written.clone().unwrap_or_default(),
+                    mirrored,
+                },
+                &mut self.held,
+            );
+            if let Some(failure) = reply.failure {
+                let error = failure.error.map(|e| CommandError::from_proto(&e));
+                panic!("replaying into '{}' faulted: {error:?}", C::COMPONENT_ID);
+            }
+            self.state = C::state_codec()
+                .decode_value(
+                    &reply
+                        .state
+                        .as_ref()
+                        .map(|p| p.data.clone())
+                        .unwrap_or_default(),
+                )
+                .unwrap_or_else(|e| panic!("the replayed state does not decode: {e}"));
+            self.stored = reply.state;
+            self.events.push(event);
         }
     }
 
@@ -123,6 +204,17 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
         input: In,
         metadata: Metadata,
     ) -> CommandOutcome<C> {
+        if let ReplicationMode::Follower { home, .. } = &self.mode {
+            let read_only = C::handlers().find(name).is_some_and(|h| h.read_only);
+            if !read_only {
+                // The runtime forwards such a command to the home; here there is no home to forward to.
+                let message = format!(
+                    "the home of '{}' is '{home}'; a follower handles no command that may persist",
+                    self.entity_id
+                );
+                return self.refused(CommandError::new(ErrorCode::NotHome, message));
+            }
+        }
         self.commands += 1;
         let payload = encode_payload(&input)
             .unwrap_or_else(|e| panic!("the input to '{name}' does not encode: {e}"));
@@ -139,6 +231,8 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     payload: Some(payload),
                     metadata: Some(metadata.to_proto()),
                     snapshot_requested: false,
+                    installation: self.here().unwrap_or_default(),
+                    at_home: !matches!(self.mode, ReplicationMode::Follower { .. }),
                 },
             )),
         };
@@ -185,6 +279,17 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
             _ => (None, Metadata::default(), None),
         };
         let retention = out.retention.and_then(retention_of);
+        let replication = out.replication.and_then(replication_of);
+        if replication.is_some() && self.mode == ReplicationMode::Unreplicated {
+            return self.refused(CommandError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "'{}' is not replicated in this test kit; drive it with `in_mode(ReplicationMode::Home {{ .. }})` \
+                     to see the handover or the change to the replication set it asks for",
+                    C::COMPONENT_ID
+                ),
+            ));
+        }
         self.sequence += events.len() as i64;
         if retention == Some(Retention::DeleteNow) {
             // Deleted: the next command finds the instance fresh.
@@ -203,9 +308,31 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
             events,
             new_state,
             retention,
+            replication,
             metadata: reply_metadata,
             reply: reply_payload,
             error,
+        }
+    }
+
+    /// A refusal the kit answers itself, as the runtime would: nothing persisted, nothing changed.
+    fn refused(&mut self, error: CommandError) -> CommandOutcome<C> {
+        // A stateful entity may have kept what the refused call computed; the stored state stands.
+        self.held = HeldState::default();
+        let new_state = match &self.stored {
+            Some(p) => C::state_codec()
+                .decode_value(&p.data)
+                .expect("the stored state decodes"),
+            None => C::empty_state(&self.entity_id),
+        };
+        CommandOutcome {
+            events: Vec::new(),
+            new_state,
+            retention: None,
+            replication: None,
+            metadata: Metadata::default(),
+            reply: None,
+            error: Some(error),
         }
     }
 
@@ -217,6 +344,18 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
     /// Every event persisted so far, in order.
     pub fn events(&self) -> &[C::Event] {
         &self.events
+    }
+}
+
+fn replication_of(change: proto::ReplicationChange) -> Option<ReplicationChange> {
+    match change.change? {
+        proto::replication_change::Change::HandOverTo(to) => {
+            Some(ReplicationChange::HandOver { to })
+        }
+        proto::replication_change::Change::Set(set) => Some(ReplicationChange::Set {
+            add: set.add,
+            remove: set.remove,
+        }),
     }
 }
 
@@ -270,6 +409,7 @@ impl InMemory {
                     payload: request.payload,
                     metadata: request.metadata,
                     snapshot_requested: false,
+                    ..Default::default()
                 },
             )),
         });

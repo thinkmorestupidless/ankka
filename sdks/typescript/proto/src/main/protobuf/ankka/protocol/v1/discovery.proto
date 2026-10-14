@@ -51,7 +51,12 @@ message Component {
 
 message Handler { string name = 1; bool read_only = 2; bool streaming = 3; }
 
-message EventSourcedDetail { int32 snapshot_every = 1; }          // 0: never
+message EventSourcedDetail {
+  int32 snapshot_every = 1;                    // 0: never
+  // 1.19: held at several installations, written only at its home. A runtime below 1.19 cannot
+  // have meant it, and refuses the process.
+  bool replicated = 2;
+}
 message KeyValueDetail {}
 message WorkflowDetail {
   repeated string steps = 1;
@@ -129,6 +134,9 @@ message ConsumerDetail {
   // 1.14: the publication with its contract and broker; `produces_to` stays for a process that
   // states only the topic. Both present must name one topic.
   optional Publication produces = 4;
+  // 1.19: a producing or graph consumer is given changes written at other installations too;
+  // without it, only changes written here, so each is published once across installations.
+  bool mirrored_changes = 5;
 }
 message TimedActionDetail {}
 

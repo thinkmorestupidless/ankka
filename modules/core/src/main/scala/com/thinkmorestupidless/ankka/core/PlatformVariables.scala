@@ -153,6 +153,15 @@ private[ankka] object PlatformVariables:
   val MachineTokenRate: String         = "ANKKA_MACHINE_TOKEN_RATE"
   val BrokerExternalBootstrap: String  = "ANKKA_BROKER_EXTERNAL_BOOTSTRAP"
 
+  /** Which installation this service runs at, for a replicated entity's home (feature 051). */
+  val Installation: String = "ANKKA_INSTALLATION"
+
+  /**
+   * Another installation's journal, for the runtime's own replication transport:
+   * `ANKKA_INSTALLATION_<NAME>_DB_HOST` and the rest of a database's settings.
+   */
+  val InstallationPrefix: String = "ANKKA_INSTALLATION_"
+
   /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
@@ -191,7 +200,9 @@ private[ankka] object PlatformVariables:
     ProjectGrants,
     MachineIssuer,
     MachineJwksUrl,
-    MachineJwksCa
+    MachineJwksCa,
+    // Which installation this is: the platform names it, so two services cannot both claim one.
+    Installation
   ) ++ SecretStoreSettings
 
   /**
@@ -216,7 +227,10 @@ private[ankka] object PlatformVariables:
       // A view's watch and stream limits, and the SSE heartbeat: the platform's program holds the
       // watches and serves the streams.
       "ANKKA_VIEW_",
-      "ANKKA_SSE_"
+      "ANKKA_SSE_",
+      // Another installation's journal (feature 051): the platform's program replicates; the
+      // process never sees a sibling's database credential.
+      InstallationPrefix
     )
   val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout) ++ SecretStoreSettings
 

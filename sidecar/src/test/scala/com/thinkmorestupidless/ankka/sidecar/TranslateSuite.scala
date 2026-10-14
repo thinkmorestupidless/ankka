@@ -170,6 +170,7 @@ class TranslateSuite extends munit.FunSuite:
       Translate.fromError(pb.Error.parseFrom(wire.toByteArray)),
       CommandError("it failed", ErrorCode.WorkflowFailed, Map("step" -> "boil", "reason" -> "dry"))
     )
+    assertEquals(Translate.toCode(ErrorCode.NotHome), pb.ErrorCode.NOT_HOME)
     // Every code there is crosses and comes back as itself.
     ErrorCode.values.foreach(code => assertEquals(Translate.fromCode(Translate.toCode(code)), code))
   }

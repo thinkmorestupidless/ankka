@@ -572,6 +572,79 @@ fails, so that no test runs, prints what its setup logged, and so does a test wh
 - **To see everything**, as when a test passes and you want to know why, set `ANKKA_TEST_LOGS=all`, or
   `-Dankka.test.logs=all` on the test JVM.
 
+## Several installations
+
+A [replicated entity](../concepts/replicated-entities.md) is tested at several installations of one
+service in one test. `AnkkaTestKit.installations(names*)` takes a database for each installation in the
+shared Postgres and returns a group; `start(name, descriptors)` starts one installation of the service,
+which knows every other installation's journal from its first start and replicates through the
+runtime's own replication transport. `stopAll()` stops every installation and gives back the databases.
+
+```scala
+val fleet = AnkkaTestKit.installations("smoke-a", "smoke-b")
+try
+  val a       = fleet.start("smoke-a", Seq(Fleet.vehicles.descriptor))
+  val b       = fleet.start("smoke-b", Seq(Fleet.vehicles.descriptor))
+  val atA     = a.componentClient.forEventSourcedEntity(EntityId("v1"))
+  val atB     = b.componentClient.forEventSourcedEntity(EntityId("v1"))
+  val created = atA.call(Fleet.vehicles.createVehicle).invoke(CreateVehicle(Vector("smoke-b")))
+  assertEquals(created.installation, Some("smoke-a"))
+  (1 to 3).foreach(n => atA.call(Fleet.vehicles.addStep).invoke(s"step-$n"))
+  val mirrored = AnkkaTestKit.eventually("smoke-b holds the three steps", 20.seconds) {
+    val v = atB.call(Fleet.vehicles.get).invoke()
+    Option.when(v.steps.size == 3)(v)
+  }
+  assertEquals(mirrored.writtenAt.distinct, Vector(Some("smoke-a")))
+  assertEquals(mirrored.local.distinct, Vector(false))
+  val forwarded = atB.call(Fleet.vehicles.recordInspection).invoke("brakes")
+  assertEquals(forwarded.installation, Some("smoke-a"))
+  val status = atB.replication(Fleet.vehicles)
+  assertEquals(status.home, Some("smoke-a"))
+  assertEquals(status.replicationSet, Set("smoke-a", "smoke-b"))
+finally fleet.stopAll()
+```
+
+A follower reads its home's records a poll at a time, so a test reads a follower with
+`AnkkaTestKit.eventually` until it holds what the test wrote, never once.
+
+The group's `transport` is what carries records between its installations, and a test makes it
+misbehave:
+
+| Call | What it does |
+|---|---|
+| `transport.pause(name)` | Stalls every record on its way to `name`, which falls behind; nothing is lost |
+| `transport.resume(name)` | Lets what was stalled through, in order |
+| `transport.block(from, to)` | Makes `to` unreachable from `from`: a write forwarded there fails at once, and records stop arriving |
+| `transport.unblock(from, to)` | Makes it reachable again |
+
+`restart(name, descriptors, settings = …)` stops one installation and starts it again on its own
+database with other settings, as a deploy would; `start(name, descriptors, database = Some(kit))` starts
+an installation on a database an unreplicated service wrote, which is how a test shows an existing
+entity becoming replicated.
+
+Several kits in one test JVM are installations sharing one machine, not installations on a network:
+what they prove is the runtime's replication over its own transport. Give each installation a name no
+other test in the same JVM uses at the same time.
+
+A single copy is tested without a runtime in the entity test kit, as the home or as a follower. A
+follower refuses a command that may persist `NotHome`, naming its home, and answers queries from history
+the test replays into it:
+
+```scala
+val kit = EventSourcedTestKit.of(
+  Fleet.vehicles,
+  "v1",
+  mode = EventSourcedTestKit.Mode.Follower(home = "leipzig"),
+  installation = "bratislava"
+)
+given EventSourcedTestKit.WrittenAt = EventSourcedTestKit.WrittenAt(Some("leipzig"))
+kit.replay(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame"))
+```
+
+As the home, `mode = EventSourcedTestKit.Mode.Home`, every command runs and the handover or change to
+the replication set a command asks for is on its result. Python, TypeScript and Rust have the same two
+modes; see [Event sourced entities](event-sourced-entities.md#testing-a-replicated-entity).
+
 ## A test must be able to fail
 
 A test is worth what it would catch. Before relying on one, ask of it: **could this pass while the

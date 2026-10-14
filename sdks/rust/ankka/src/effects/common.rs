@@ -31,6 +31,8 @@ pub enum ErrorCode {
     /// A workflow a caller waited for failed or was deleted (protocol 1.18). The call was answered;
     /// the step and the reason are in the error's `details`.
     WorkflowFailed,
+    /// A replicated entity's copy here cannot answer: the message names its home (protocol 1.19).
+    NotHome,
 }
 
 impl ErrorCode {
@@ -46,6 +48,7 @@ impl ErrorCode {
             ErrorCode::Unavailable => 503,
             ErrorCode::Internal => 500,
             ErrorCode::WorkflowFailed => 424,
+            ErrorCode::NotHome => 421,
         }
     }
 
@@ -61,6 +64,7 @@ impl ErrorCode {
             ErrorCode::Timeout => proto::ErrorCode::Timeout,
             ErrorCode::Unavailable => proto::ErrorCode::Unavailable,
             ErrorCode::WorkflowFailed => proto::ErrorCode::WorkflowFailed,
+            ErrorCode::NotHome => proto::ErrorCode::NotHome,
         };
         code as i32
     }
@@ -76,6 +80,7 @@ impl ErrorCode {
             Ok(proto::ErrorCode::Timeout) => ErrorCode::Timeout,
             Ok(proto::ErrorCode::Unavailable) => ErrorCode::Unavailable,
             Ok(proto::ErrorCode::WorkflowFailed) => ErrorCode::WorkflowFailed,
+            Ok(proto::ErrorCode::NotHome) => ErrorCode::NotHome,
             _ => ErrorCode::Internal,
         }
     }

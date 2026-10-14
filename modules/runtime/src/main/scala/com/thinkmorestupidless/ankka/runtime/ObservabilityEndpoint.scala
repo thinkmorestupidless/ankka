@@ -78,11 +78,19 @@ object ObservabilityEndpoint:
         "/observability/query",
         exchange => Trace.asOrigin(CallOrigin.Console)(handler.query(exchange))
       )
+      // Feature 051: a sibling installation running beside this one on the machine hands it a
+      // forwarded write and a handover's report here. Only a replicating service serves them.
+      service.replication.foreach { _ =>
+        val loopback = com.thinkmorestupidless.ankka.runtime.replication.LoopbackRoutes(service)
+        server.createContext("/replication/forward", exchange => loopback.forward(exchange))
+        server.createContext("/replication/report", exchange => loopback.report(exchange))
+      }
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
-      val address      = s"http://127.0.0.1:${server.getAddress.getPort}"
-      val registration = ServiceRegistration.announce(serviceName, address)
+      val address = s"http://127.0.0.1:${server.getAddress.getPort}"
+      val registration =
+        ServiceRegistration.announce(serviceName, address, service.replication.map(_.self))
       service.system.log.info("ankka local console endpoint on {}", address)
       Some(new ObservabilityEndpoint(server, registration))
     catch

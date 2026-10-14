@@ -56,6 +56,13 @@ enum ErrorCode:
    */
   case WorkflowFailed
 
+  /**
+   * A replicated entity's copy here cannot answer: a write reached a copy whose home cannot be
+   * reached, or a read reached an installation outside the entity's replication set (feature 051).
+   * The message names the home. A refusal, not a fault.
+   */
+  case NotHome
+
 object ErrorCode:
   extension (code: ErrorCode)
     /** Whether a caller could reasonably retry the same command unchanged. */

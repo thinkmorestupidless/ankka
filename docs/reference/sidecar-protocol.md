@@ -39,13 +39,14 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.18"`;
+- its protocol version, `"1.19"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
-  read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
+  read-only or streaming, plus the kind's details — snapshot frequency, and whether it is replicated, for
+  an event sourced entity; steps
   and settings for a workflow; the source (or, for a keyed view, the sources), row manifest, queries and
   declared queries for a view; the source and topic for a
-  consumer; the tools, with descriptions and JSON Schemas, and guardrails for an agent; and for an
+  consumer, and whether a consumer that publishes is given mirrored changes; the tools, with descriptions and JSON Schemas, and guardrails for an agent; and for an
   autonomous agent its whole definition — description, instructions, tools, guardrails, model, task types
   with their result schemas and rule names, and the types it accepts with their iteration budgets;
 - every HTTP endpoint: its prefix, ACL and routes, where a route may carry an ACL of its own that replaces
@@ -117,6 +118,21 @@ instance, or one that was deleted or expired; start from the empty state.
 When a command asks for a snapshot, the reply carries the state after its events. The sidecar stores it
 beside the journal; the stored snapshot may sit at the sequence of the last event the reply persisted or at
 the next one, and both are correct.
+
+For a [replicated entity](../concepts/replicated-entities.md) the conversation says where it runs. `Init`
+carries `installation`, this installation's name; each `Event` carries `installation`, the installation
+that wrote it, so an event whose installation is not this one is a mirrored change; and each `Command`
+carries `installation` and `at_home`, whether this installation is the entity's home. A command that may
+persist reaches the process only at the home: the runtime forwards it there from any other installation,
+so `at_home` is false only for a read-only command. A `Reply` may carry `replication`, a
+`ReplicationChange` that is either `hand_over_to`, an installation, or `set`, installations to `add` and
+`remove`; the runtime refuses it from an entity not discovered as replicated. The records the runtime keeps
+for the home, the replication set and the handover never reach the process. All of these fields are empty
+on a service that names no installations.
+
+A consumer's request carries `ankka.installation`, the installation that wrote a replicated entity's
+change, and `ankka.local`, `"true"` or `"false"`, in its metadata. A consumer with a publication is sent
+only local changes unless it declared `mirrored_changes`.
 
 ### Autonomous agents
 
@@ -201,7 +217,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.18`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.19`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -253,6 +269,13 @@ same wait as a stream of `heartbeat` tokens and one `ended` or `failed` token; t
 and `Error.details`; and the `await_end` import for a module. An earlier runtime answers either call
 `UNIMPLEMENTED`, which each SDK reports as the runtime being too old to wait, and refuses a module that
 imports `await_end` when it loads.
+`1.19` added replicated entities: `EventSourcedDetail.replicated` and `ConsumerDetail.mirrored_changes` in
+discovery; `installation` on `Init` and `Event`, `installation` and `at_home` on `Command`, and
+`replication` on `Reply` in the event sourced conversation; the consumer's `ankka.installation` and
+`ankka.local` metadata; `installation` and `mirrored` on a module's `FoldRequest`; and the `NOT_HOME`
+code. A replicated entity is refused from both ends across that line: the sidecar refuses a `Spec`
+declaring one under an earlier minor, naming the entity and both versions, and an SDK refuses to answer
+discovery with one to a runtime that states an earlier version.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

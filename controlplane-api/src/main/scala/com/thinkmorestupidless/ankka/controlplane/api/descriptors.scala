@@ -1404,8 +1404,18 @@ final case class TopologyNode(
     kind: String,
     layer: Int,
     platform: Boolean,
-    handlers: Vector[TopologyHandler]
-)
+    handlers: Vector[TopologyHandler],
+    /**
+     * Feature 051: an event sourced entity held at several installations and written only at its
+     * home. Absent for every other node, and from a runtime before replication.
+     */
+    replicated: Option[Boolean] = None
+):
+  /** Why this node cannot be what it says (FR-002): only an event sourced entity is replicated. */
+  def problems: Vector[String] =
+    if replicated.contains(true) && kind != "EventSourcedEntity" then
+      Vector(s"$kind '$id' is declared replicated; only an event sourced entity may be")
+    else Vector.empty
 
 /** A connection the service declares: a subscription or a publication. */
 final case class DeclaredEdge(

@@ -55,6 +55,13 @@ pub trait Consumer: Sized + 'static {
         Self::produces_to().map(Publication::to)
     }
 
+    /// Whether a consumer that publishes is given a replicated entity's changes written at other
+    /// installations too (protocol 1.19). Without it, only changes written here, so each change is
+    /// published once across installations.
+    fn mirrored_changes() -> bool {
+        false
+    }
+
     /// One message. The source entity's id is `ctx.metadata().subject()`.
     fn on_message(message: Self::Message, ctx: &Context) -> ConsumerEffect;
 
@@ -162,6 +169,7 @@ impl<C: Consumer> Registered for Registration<C> {
                 produces_to: C::produces().map(|p| p.topic),
                 version: C::version(),
                 produces: C::produces().map(|p| p.to_proto()),
+                mirrored_changes: C::mirrored_changes(),
             })),
         }
     }

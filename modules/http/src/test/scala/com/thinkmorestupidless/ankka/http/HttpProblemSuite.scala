@@ -80,6 +80,16 @@ class HttpProblemSuite extends munit.FunSuite:
     )
   }
 
+  test("a copy that is not the home and cannot answer is 421, naming the home") {
+    val problem =
+      HttpProblem.from(CommandError("home 'leipzig' cannot be reached", ErrorCode.NotHome))
+    assertEquals(problem.status, 421)
+    assert(problem.message.contains("leipzig"))
+    ErrorCode.values.filterNot(_ == ErrorCode.NotHome).foreach { code =>
+      assertNotEquals(HttpProblem.from(CommandError("x", code)).status, 421, code.toString)
+    }
+  }
+
   test("the body of a refusal is as it always was") {
     val response = fetch("q1")
     assertEquals(response.statusCode(), 409)

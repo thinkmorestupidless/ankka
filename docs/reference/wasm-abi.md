@@ -206,7 +206,7 @@ log; there is no `ReportError` call into a module.
 |---|---|
 | `WasmSpec` | the process's `Spec`, the ids of the components declared stateful, and `abi_version` (`"1"`) |
 | `HandleRequest` / `HandleReply` | an entity or workflow command with the state the runtime holds, one `oneof` case per kind; the reply's `state` is the state after the command, and `failure` a fault |
-| `FoldRequest` / `FoldReply` | one event applied to an event sourced entity's state, on replay and after a command's events persist |
+| `FoldRequest` / `FoldReply` | one event applied to an event sourced entity's state, on replay and after a command's events persist; since protocol 1.19 it carries `installation`, where the event was written, and `mirrored`, true when that was another installation, since a module does not know where it runs |
 | `StepRequest` / `StepReply` | a workflow step, with the state, answered with the step's effect and the state after it |
 | `Passivate` | `ankka1_close`: the instance a stateful guest may drop |
 | `ConfigRequest` / `ConfigReply` | the `config` import |

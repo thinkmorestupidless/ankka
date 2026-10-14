@@ -2728,9 +2728,52 @@ operator must declare the same one to tether.
 ### tether bound
 *Proposed.* How long a tether may be down before every service placed on its cluster reads
 unconfirmed: "30 seconds" as shipped, and the installation's to set.
+## Replicated entities
+
+### replicated entity
+An event sourced entity whose history is held at more than one installation: one is
+its home, the others in its replication set are followers.
+
+### home
+The one installation that handles a replicated entity's writes. A persisting command
+that reaches any other installation is forwarded to it. Avoid: leader.
+
+### follower
+A copy of a replicated entity at an installation in its replication set that is not
+its home: it pulls each record of the home's journal from its own last sequence number upwards,
+in order, from one source at a time, keeps it unchanged under the same sequence number, and
+answers reads from its own copy. Avoid: read replica.
+
+### replication set
+The installations that hold a replicated entity: its home and its followers. A newly
+created entity's is its home alone; a persisting handler adds an installation or removes one.
+
+### handover
+The home of a replicated entity passing from one installation to another: a record the
+old home writes after everything it wrote, naming the new home, which becomes effective once its
+own journal ends with that record. Avoid: migration, failover.
+
+### conflict
+The state of a replicated entity created at two installations before either had heard of the other,
+found when the two histories meet: marked at both, its writes are refused with an error that says so,
+its reads go on, and an operator resolves it. Avoid: split brain, divergence.
+
+### local change
+A change of a replicated entity written at this installation, by its home here.
+
+### mirrored change
+A change of a replicated entity written at another installation and mirrored here. A
+consumer that publishes to a topic acts on it only if it declares that it reacts to mirrored
+changes.
+
+### replication transport
+What carries a replicated entity's records and forwarded commands between
+installations, behind the seam the runtime defines; the runtime ships one of its own for tests and
+for services on one machine, and `ankka-replication` supplies the one between installations.
 
 ## Everyday words
 
+vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,
 focuses, focusing, what, else, make, makes, made, through, time, times, attributed, counted, count,

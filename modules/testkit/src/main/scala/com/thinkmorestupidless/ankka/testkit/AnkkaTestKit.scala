@@ -32,7 +32,7 @@ final class AnkkaTestKit private (
     private var extensions: Seq[RuntimeExtension],
     configure: ServiceBuilder => ServiceBuilder,
     config: Config,
-    database: TestDatabase,
+    private[testkit] val database: TestDatabase,
     readyTimeout: FiniteDuration,
     private var current: AnkkaService,
     /** The secret key the running service was started with, or `None` for none. */
@@ -313,12 +313,37 @@ object AnkkaTestKit:
        */
       secretBackend: SecretBackendChoice = SecretBackendChoice.postgres
   ): AnkkaTestKit =
+    startOn(
+      SharedPostgres.acquire(),
+      descriptors,
+      extensions,
+      readyTimeout,
+      configure,
+      secretKey,
+      serviceIdentity,
+      localServices,
+      settings,
+      secretBackend
+    )
+
+  /** `start`, on a database the caller acquired; the kit releases it when it stops. */
+  private[testkit] def startOn(
+      database: TestDatabase,
+      descriptors: Seq[ComponentDescriptor],
+      extensions: Seq[RuntimeExtension],
+      readyTimeout: FiniteDuration,
+      configure: ServiceBuilder => ServiceBuilder,
+      secretKey: Option[String],
+      serviceIdentity: ServiceIdentity,
+      localServices: Map[String, String],
+      settings: Config,
+      secretBackend: SecretBackendChoice
+  ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
     // identity that could not be read, which only ankka's own tests have reason to.
     val configured: ServiceBuilder => ServiceBuilder =
       builder => configure(builder.withIdentity(Right(serviceIdentity)))
-    val database = SharedPostgres.acquire()
 
     // Keep the service registry out of the developer's home directory. A service announces itself
     // into `~/.ankka/running` for `ankka local console` to find; a *test* doing that leaves an
@@ -377,6 +402,138 @@ object AnkkaTestKit:
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)
+
+  /**
+   * Several installations of one service (feature 051), each a service of its own on a database of
+   * its own in the shared Postgres, replicating through the runtime's own transport. Each database
+   * is taken now, so every installation knows every other's journal from its first start; each is
+   * started with `start(name, …)`.
+   *
+   * {{{
+   * val fleet = AnkkaTestKit.installations("leipzig", "vienna")
+   * val leipzig = fleet.start("leipzig", Seq(VehicleEntity.descriptor))
+   * val vienna  = fleet.start("vienna", Seq(VehicleEntity.descriptor))
+   * fleet.transport.pause("vienna")
+   * }}}
+   *
+   * What it proves is the runtime's replication over its own transport, in one JVM. Several kits in
+   * one JVM are not installations on a network: a transport between installations is tested where
+   * it is written.
+   */
+  def installations(names: String*): Installations =
+    require(names.nonEmpty, "name at least one installation")
+    require(
+      names.distinct.size == names.size,
+      s"installation names repeat: ${names.mkString(", ")}"
+    )
+    Installations(names.toVector, names.map(_ -> SharedPostgres.acquire()).toMap)
+
+  /** A group of installations of one service; see `AnkkaTestKit.installations`. */
+  final class Installations private[AnkkaTestKit] (
+      val names: Vector[String],
+      databases: Map[String, TestDatabase]
+  ):
+    /** What carries records between the group's installations, which a test pauses and blocks. */
+    val transport: TestReplicationTransport = TestReplicationTransport(names)
+
+    private val started = scala.collection.concurrent.TrieMap.empty[String, AnkkaTestKit]
+
+    /**
+     * Where each installation's journal is now: the database taken for it, or the one an earlier
+     * kit wrote that it took over. An installation started after a takeover is told the new one.
+     */
+    private val journals = scala.collection.concurrent.TrieMap.from(databases)
+
+    /**
+     * Starts the installation `name`. `settings` is configuration above everything else, as for
+     * `start`: `ankka.replication.handover.hold-writes`, say. `database`, given a database an
+     * earlier kit wrote, starts the installation on that one instead, as a service that has run on
+     * one installation and is then named as one of several.
+     */
+    def start(
+        name: String,
+        descriptors: Seq[ComponentDescriptor],
+        extensions: Seq[RuntimeExtension] = Nil,
+        configure: ServiceBuilder => ServiceBuilder = identity,
+        settings: Config = ConfigFactory.empty(),
+        database: Option[AnkkaTestKit] = None,
+        readyTimeout: FiniteDuration = 60.seconds
+    ): AnkkaTestKit =
+      require(names.contains(name), s"'$name' is not one of ${names.mkString(", ")}")
+      require(!started.contains(name), s"installation '$name' is already started")
+      val own = database match
+        case Some(earlier) =>
+          // This installation reads and writes the database the earlier kit wrote, and the one
+          // taken for the name is not used.
+          earlier.stopService()
+          earlier.database
+        case None => journals(name)
+      journals.put(name, own): Unit
+      val replication = ConfigFactory
+        .parseMap(
+          (Map("ankka.replication.installation" -> name) ++
+            names.filterNot(_ == name).flatMap { other =>
+              val db     = journals(other)
+              val prefix = s"""ankka.replication.installations."$other".db"""
+              Vector(
+                s"$prefix.host"     -> db.host,
+                s"$prefix.port"     -> db.port.toString,
+                s"$prefix.name"     -> db.name,
+                s"$prefix.user"     -> "ankka",
+                s"$prefix.password" -> "ankka"
+              )
+            }).asJava
+        )
+      val kit = AnkkaTestKit.startOn(
+        own,
+        descriptors,
+        extensions,
+        readyTimeout,
+        builder => configure(builder.withReplicationTransport(transport.factory(name))),
+        Some(generateSecretKey()),
+        ServiceIdentity.unnamed,
+        Map.empty,
+        settings.withFallback(replication),
+        SecretBackendChoice.postgres
+      )
+      started.put(name, kit): Unit
+      kit
+
+    /**
+     * Stops the installation `name` and starts it again on the same database, with `settings` and
+     * the components given: an installation reconfigured, as a deploy would.
+     */
+    def restart(
+        name: String,
+        descriptors: Seq[ComponentDescriptor],
+        extensions: Seq[RuntimeExtension] = Nil,
+        configure: ServiceBuilder => ServiceBuilder = identity,
+        settings: Config = ConfigFactory.empty()
+    ): AnkkaTestKit =
+      val earlier = apply(name)
+      started.remove(name): Unit
+      start(name, descriptors, extensions, configure, settings, Some(earlier))
+
+    /** The started installation `name`. */
+    def apply(name: String): AnkkaTestKit =
+      started.getOrElse(name, throw IllegalStateException(s"installation '$name' is not started"))
+
+    /** Whether `name` has been started. */
+    def isStarted(name: String): Boolean = started.contains(name)
+
+    /** The database `name`'s journal is in, for a test that reads it directly. */
+    def jdbcUrl(name: String): String = journals(name).jdbcUrl
+
+    /**
+     * Stops every installation started, and gives back every database taken. A kit gives back the
+     * database it ran on when it stops; one taken for a name and never run on is given back here.
+     */
+    def stopAll(): Unit =
+      started.values.foreach(_.stop())
+      databases.foreach { (name, db) =>
+        if !started.contains(name) || journals(name) != db then SharedPostgres.release(db)
+      }
+      started.clear()
 
   private val RegistryProperty = "ankka.running.dir"
 

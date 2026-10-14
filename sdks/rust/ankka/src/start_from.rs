@@ -74,6 +74,20 @@ pub(crate) fn older_than_workflow_sources(protocol_version: &str) -> bool {
     older_than(protocol_version, (1, 16))
 }
 
+/// Whether a runtime speaking `protocol_version` predates replicated entities (1.19).
+pub(crate) fn older_than_replication(protocol_version: &str) -> bool {
+    older_than(protocol_version, (1, 19))
+}
+
+/// Whether a discovered component is a replicated entity or a consumer given mirrored changes.
+pub(crate) fn declares_replication(component: &proto::Component) -> bool {
+    match &component.detail {
+        Some(proto::component::Detail::EventSourced(d)) => d.replicated,
+        Some(proto::component::Detail::Consumer(d)) => d.mirrored_changes,
+        _ => false,
+    }
+}
+
 /// Whether a view, keyed view or consumer declares a workflow as a source.
 pub(crate) fn reads_workflow(component: &proto::Component) -> bool {
     let sources: Vec<&proto::Source> = match &component.detail {

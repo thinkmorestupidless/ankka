@@ -54,6 +54,25 @@ object ServiceRegistration:
   def grpcAddressOf(name: String): Option[String] =
     inventoryOf(name).flatMap(field("grpc"))
 
+  /**
+   * Where the installation `installation` of a replicating service on this machine answers its
+   * local console endpoint, as it announced (feature 051): how the runtime's own replication
+   * transport reaches a sibling running beside it rather than in its JVM.
+   */
+  def observabilityAddressOfInstallation(installation: String): Option[String] =
+    val InstallationField = "\"installation\":\"([^\"]*)\"".r
+    val AddressField      = "\"observabilityAddress\":\"([^\"]*)\"".r
+    val entries =
+      try
+        Option(directory.toFile.listFiles()).toVector.flatten
+          .filter(_.getName.endsWith(".json"))
+          .flatMap(f => scala.util.Try(Files.readString(f.toPath)).toOption)
+      catch case _: Throwable => Vector.empty
+    entries.iterator
+      .filter(json => InstallationField.findFirstMatchIn(json).exists(_.group(1) == installation))
+      .flatMap(json => AddressField.findFirstMatchIn(json).map(_.group(1)))
+      .nextOption()
+
   /** Whether a service announced as `name` is running on this machine and answers. */
   def isAnnounced(name: String): Boolean = inventoryOf(name).isDefined
 
@@ -96,14 +115,20 @@ object ServiceRegistration:
    * service that runs perfectly well and cannot be browsed, and taking the whole process down for
    * that would be the wrong trade.
    */
-  def announce(name: String, observabilityAddress: String): Option[Path] =
-    val pid  = ProcessHandle.current().pid()
-    val file = fileFor(pid)
+  def announce(
+      name: String,
+      observabilityAddress: String,
+      installation: Option[String] = None
+  ): Option[Path] =
+    val pid = ProcessHandle.current().pid()
+    // One file per process, and per installation where a test runs several in one JVM.
+    val file = installation.fold(fileFor(pid))(i => directory.resolve(s"$pid-$i.json"))
     try
       Files.createDirectories(directory)
       val json =
         s"""{"name":${quote(name)},"instanceId":${quote(pid.toString)},"pid":$pid,""" +
           s""""observabilityAddress":${quote(observabilityAddress)},""" +
+          installation.fold("")(i => s""""installation":${quote(i)},""") +
           s""""startedAt":${quote(java.time.Instant.now().toString)}}"""
       Files.writeString(
         file,

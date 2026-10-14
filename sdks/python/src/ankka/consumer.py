@@ -48,6 +48,10 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
     project: ClassVar[str | None] = None
     message_codec: ClassVar[Codec[Any]]
     out_codec: ClassVar[Codec[Any] | None] = None
+    # A consumer that publishes is given a replicated entity's changes written at other
+    # installations too only when this says so (1.19); otherwise each is published once, where it
+    # was written. A consumer that publishes nothing is given every change.
+    mirrored_changes: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -73,6 +77,17 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
         return self._metadata
 
     @property
+    def installation(self) -> str | None:
+        """Of a replicated entity's change: the installation that wrote it. None otherwise."""
+        return self._metadata.get("ankka.installation")
+
+    @property
+    def local_origin(self) -> bool:
+        """Whether the change was written at this installation: False only for a replicated
+        entity's change mirrored from another."""
+        return self._metadata.get("ankka.local") != "false"
+
+    @property
     def standing(self) -> Standing | None:
         """Of a change from a workflow: where it stood once the effect that recorded the state was
         applied. None for a change from an entity or a topic."""
@@ -87,7 +102,9 @@ class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
 
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
-        detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), version=cls.version)
+        detail = discovery_pb2.ConsumerDetail(
+            source=_source_pb(cls), version=cls.version, mirrored_changes=cls.mirrored_changes
+        )
         publication = contract.publication_of(cls)
         if publication is not None:
             # The topic alone for a sidecar before 1.14; the publication for one that reads it.

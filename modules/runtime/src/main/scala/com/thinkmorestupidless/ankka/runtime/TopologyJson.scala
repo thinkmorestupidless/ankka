@@ -300,20 +300,23 @@ object TopologyJson:
   private def component(id: String, descriptor: ComponentDescriptor): Node =
     val layer    = layerOf(descriptor.kind)
     val handlers = descriptor.declaredHandlers.map(handler).mkString("[", ",", "]")
-    node(id, descriptor.kind.toString, layer, descriptor.platform, handlers)
+    node(id, descriptor.kind.toString, layer, descriptor.platform, handlers, descriptor.replicated)
 
   private def node(
       id: String,
       kind: String,
       layer: Int,
       platform: Boolean,
-      handlers: String
+      handlers: String,
+      replicated: Boolean = false
   ): Node =
+    // `replicated` only where it is true (feature 051), so every other node's bytes are unchanged.
     Node(
       id,
       layer,
       s"""{"id":${Json.str(id)},"kind":${Json.str(kind)},"layer":$layer,""" +
-        s""""platform":$platform,"handlers":$handlers}"""
+        s""""platform":$platform,"handlers":$handlers""" +
+        (if replicated then ""","replicated":true}""" else "}")
     )
 
   private def handler(declared: DeclaredHandler): String =

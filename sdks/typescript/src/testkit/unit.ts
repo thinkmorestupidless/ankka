@@ -8,9 +8,9 @@ import { create } from "@bufbuild/protobuf"
 import { HttpRequestSchema, SocketInSchema, type SocketIn } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
 import { ComponentClient, noClient } from "../client.ts"
 import { binaryCodecs, codecFor, type Codec, type Shape } from "../codec.ts"
-import { commandContext, type Principal } from "../context.ts"
-import type { ErrorDetail, Metadata, Retention } from "../effects/common.ts"
-import type { EventSourcedEffect } from "../effects/eventSourced.ts"
+import { commandContext, eventContext, type Principal } from "../context.ts"
+import { ErrorCode, type ErrorDetail, type Metadata, type Retention } from "../effects/common.ts"
+import type { EventSourcedEffect, ReplicationChange } from "../effects/eventSourced.ts"
 import type { Endpoint, EndpointClass } from "../endpoint.ts"
 import { EventSourcedEntity, type EventSourcedEntityClass } from "../eventSourcedEntity.ts"
 import type { HandlerRef } from "../handlers.ts"
@@ -33,11 +33,21 @@ function findHandler(handlers: ReadonlyMap<string, HandlerRef<any, any, any, any
 }
 
 /** Drives one event sourced entity instance through its handlers, folding events as it goes. */
+/** How a replicated entity's copy stands in the test kit (1.19); `installation` is the copy's own. */
+export type ReplicationMode =
+  | { readonly kind: "unreplicated" }
+  | { readonly kind: "home"; readonly installation?: string }
+  | { readonly kind: "follower"; readonly home: string; readonly installation?: string }
+
 export class EventSourcedTestKit<S, E, C extends EventSourcedEntity<S, E>> {
   readonly #registered: RegisteredEventSourced
   readonly #entity: C
   readonly #client: ComponentClient
+  readonly #mode: ReplicationMode
+  readonly #here: string | null
   readonly entityId: string
+  /** The handover or change to the replication set the last call asked for, if any. */
+  lastReplication: ReplicationChange | undefined = undefined
   /** The state now, after every call so far. */
   state: S
   /** The sequence number of the last event, `0n` before any. */
@@ -45,7 +55,9 @@ export class EventSourcedTestKit<S, E, C extends EventSourcedEntity<S, E>> {
   /** Every event persisted so far, in order. */
   readonly allEvents: E[] = []
 
-  private constructor(cls: EventSourcedEntityClass<S, E, C>, entityId: string, client: ComponentClient) {
+  private constructor(cls: EventSourcedEntityClass<S, E, C>, entityId: string, client: ComponentClient, mode: ReplicationMode = { kind: "unreplicated" }) {
+    this.#mode = mode
+    this.#here = mode.kind === "unreplicated" ? null : (mode.installation ?? "test")
     const registry = Ankka.service({ client, log: () => {} })
       .register(cls)
       .validate()
@@ -58,16 +70,42 @@ export class EventSourcedTestKit<S, E, C extends EventSourcedEntity<S, E>> {
   }
 
   /** A kit for `cls` as instance `entityId`. Calls to other components reach `client`, which by default refuses them. */
-  static of<S, E, C extends EventSourcedEntity<S, E>>(cls: EventSourcedEntityClass<S, E, C>, entityId = "test", client: ComponentClient = noClient()): EventSourcedTestKit<S, E, C> {
-    return new EventSourcedTestKit(cls, entityId, client)
+  static of<S, E, C extends EventSourcedEntity<S, E>>(
+    cls: EventSourcedEntityClass<S, E, C>,
+    entityId = "test",
+    client: ComponentClient = noClient(),
+    /**
+     * How a replicated entity's copy stands (1.19): `{ kind: "home" }`, where every command runs, or
+     * `{ kind: "follower", home }`, where a command that may persist is refused `NOT_HOME` and a query is
+     * answered from what `replay` gave it. Not replicated by default.
+     */
+    mode: ReplicationMode = { kind: "unreplicated" },
+  ): EventSourcedTestKit<S, E, C> {
+    return new EventSourcedTestKit(cls, entityId, client, mode)
+  }
+
+  /**
+   * Applies `events` as history the copy already holds, written at `writtenAt` (this installation by
+   * default): for a follower, what it has mirrored from its home.
+   */
+  replay(events: readonly E[], writtenAt: string | null = this.#here): void {
+    for (const event of events) {
+      this.sequence += 1n
+      this.state = this.#entity.applyEvent(this.state, event, eventContext(writtenAt, writtenAt === this.#here, this.sequence))
+    }
   }
 
   /** Sends a command or query and returns what its effect amounts to. */
   async call<I, R>(handler: HandlerRef<C, I, R, any> | string, input?: I, metadata: Metadata = {}): Promise<Materialised<S, E, R>> {
     const ref = findHandler(this.#registered.handlers, handler, this.#registered.cls.name)
+    if (this.#mode.kind === "follower" && !ref.readOnly) {
+      // The runtime forwards such a command to the home; here there is no home to forward to.
+      const error = { message: `the home of '${this.entityId}' is '${this.#mode.home}'; a follower handles no command that may persist`, code: ErrorCode.NotHome }
+      return Object.freeze({ events: [], newState: this.state, retention: null, reply: undefined, error, noReply: false })
+    }
     const inputCodec = ref.input ? codecFor(ref.input as Shape<I>) : undefined
     const wireInput = inputCodec ? roundTrip(inputCodec, input as I) : undefined
-    const context = commandContext(this.#registered.id, this.entityId, this.sequence, metadata)
+    const context = commandContext(this.#registered.id, this.entityId, this.sequence, metadata, undefined, this.#here, this.#mode.kind !== "follower")
     this.#entity._bindCommand(this.state, context, this.#client.withMetadata(metadata))
     let effect: EventSourcedEffect<S, E, R>
     try {
@@ -77,7 +115,20 @@ export class EventSourcedTestKit<S, E, C extends EventSourcedEntity<S, E>> {
     }
     if (ref.readOnly && effect.kind !== "read-only") throw new Error(`${this.#registered.id}/${ref.name} is a query and returned a persisting effect`)
 
-    const m = materialiseEventSourced(effect, this.state, (s, e) => this.#entity.applyEvent(s, e))
+    let applied = this.sequence
+    const m = materialiseEventSourced(effect, this.state, (s, e) => {
+      applied += 1n
+      return this.#entity.applyEvent(s, e, eventContext(this.#here, true, applied))
+    })
+    const replication = effect.kind === "persist" ? effect.replication : undefined
+    if (!m.error && replication && this.#mode.kind === "unreplicated") {
+      const error = {
+        message: `${this.#registered.id} is not replicated in this test kit; drive it with { kind: "home" } to see the handover or the change to the replication set it asks for`,
+        code: ErrorCode.BadRequest,
+      }
+      return Object.freeze({ events: [], newState: this.state, retention: null, reply: undefined, error, noReply: false })
+    }
+    this.lastReplication = m.error ? undefined : replication
     const eventCodec = this.#registered.eventCodec as Codec<E>
     const stateCodec = this.#registered.stateCodec as Codec<S>
     const events = m.events.map((e) => roundTrip(eventCodec, e))

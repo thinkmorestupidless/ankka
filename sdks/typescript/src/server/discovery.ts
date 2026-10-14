@@ -8,7 +8,7 @@ import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.t
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
 import { Kind } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
-import { olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanViewStreams, olderThanWorkflowSources } from "../startFrom.ts"
+import { olderThan, olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanViewStreams, olderThanWorkflowSources } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -21,7 +21,30 @@ export function refusal(spec: Spec, sidecarProtocol: string): string | undefined
     startPositionRefusal(spec, sidecarProtocol) ??
     declaredQueryRefusal(spec, sidecarProtocol) ??
     contractRefusal(spec, sidecarProtocol) ??
-    watchedQueryRefusal(spec, sidecarProtocol)
+    watchedQueryRefusal(spec, sidecarProtocol) ??
+    // Last: a reason an older sidecar has too is named first, by the version it needs.
+    replicationRefusal(spec, sidecarProtocol)
+  )
+}
+
+/**
+ * A sidecar older than 1.19 would host a replicated entity at one installation and say nothing, and
+ * would hand a consumer given mirrored changes only the changes written here. Refused at discovery,
+ * naming the components and the version.
+ */
+function replicationRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThan(sidecarProtocol, [1, 19])) return undefined
+  const replicated = spec.components
+    .filter(
+      (c) =>
+        (c.detail.case === "eventSourced" && c.detail.value.replicated) ||
+        (c.detail.case === "consumer" && c.detail.value.mirroredChanges),
+    )
+    .map((c) => c.id)
+  if (replicated.length === 0) return undefined
+  return (
+    `${replicated.join(", ")} declare replication, which needs protocol 1.19: ` +
+    `the sidecar speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.19 or later.`
   )
 }
 

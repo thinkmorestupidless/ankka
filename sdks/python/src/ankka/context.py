@@ -69,13 +69,29 @@ EMPTY = Metadata()
 @dataclass(frozen=True)
 class CommandContext:
     """What an entity or workflow handler sees: which instance, which component, the call's
-    metadata, the sequence number, and the client for calling other components."""
+    metadata, the sequence number, and the client for calling other components. For a replicated
+    entity, also the installation handling the command and whether it is the entity's home: a
+    command that may persist runs only at the home, so ``is_home`` is False only for a query a
+    follower answers."""
 
     entity_id: str
     component_id: str
     metadata: Metadata
     sequence_number: int
     client: ComponentClient
+    installation: str | None = None
+    is_home: bool = True
+
+
+@dataclass(frozen=True)
+class EventContext:
+    """What ``apply_event`` may read about the event it is applying: the installation that wrote it
+    (None on a service that names no installations; an event from before replication reads as
+    written at the home), whether that was this installation, and its sequence number."""
+
+    installation: str | None
+    is_local: bool
+    sequence: int
 
 
 @dataclass(frozen=True)

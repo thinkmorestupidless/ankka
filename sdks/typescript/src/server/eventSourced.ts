@@ -12,15 +12,16 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf"
 import {
   EventSourced,
   EventSourcedOutSchema,
+  type ReplicationChangeSchema,
   type EventSourcedIn,
   type EventSourcedIn_Command,
   type EventSourcedOut,
 } from "../_proto/ankka/protocol/v1/event_sourced_pb.ts"
 import type { RetentionSchema, OutcomeSchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { codecFor } from "../codec.ts"
-import { commandContext, metadataFromProto } from "../context.ts"
+import { commandContext, eventContext, metadataFromProto } from "../context.ts"
 import { ErrorCode, type ErrorDetail, type Retention } from "../effects/common.ts"
-import type { EventSourcedEffect } from "../effects/eventSourced.ts"
+import type { EventSourcedEffect, ReplicationChange } from "../effects/eventSourced.ts"
 import type { EventSourcedEntity } from "../eventSourcedEntity.ts"
 import { binaryCodecs } from "../codec.ts"
 import { errorCodeToProto } from "../kinds.ts"
@@ -31,6 +32,14 @@ import type { ServerContext } from "./server.ts"
 
 type RetentionInit = MessageInitShape<typeof RetentionSchema>
 type OutcomeInit = MessageInitShape<typeof OutcomeSchema>
+
+/** A replicated entity's handover or change to its replication set, as the reply carries it (1.19). */
+export function replicationToProto(change: ReplicationChange | undefined): MessageInitShape<typeof ReplicationChangeSchema> | undefined {
+  if (!change) return undefined
+  return change.kind === "hand-over"
+    ? { change: { case: "handOverTo", value: change.to } }
+    : { change: { case: "set", value: { add: [...change.add], remove: [...change.remove] } } }
+}
 
 /** Retention as the protocol carries it; `undefined` when the effect asked for none. */
 export function retentionToProto(retention: Retention | null): RetentionInit | undefined {
@@ -63,11 +72,14 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
   let entityId = ""
   let state: unknown
   let sequence = 0n
+  // This installation, for a replicated entity (1.19): null on a service that names none.
+  let here: string | null = null
 
   for await (const m of requests) {
     switch (m.message.case) {
       case "init": {
         const init = m.message.value
+        here = init.installation || null
         const found = ctx.registry.component(init.componentId)
         if (!found || found.kind !== "event-sourced") {
           yield failure(0n, { message: `no event sourced entity ${JSON.stringify(init.componentId)} is registered`, code: ErrorCode.NotFound })
@@ -99,7 +111,8 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
         }
         const ev = m.message.value
         try {
-          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload))
+          const written = ev.installation || here
+          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload), eventContext(written, written === here, ev.sequence))
           sequence = ev.sequence
         } catch (e) {
           ctx.log(`ankka: ${registered.id}/${entityId}: replay of event ${ev.sequence} failed: ${messageOf(e)}`)
@@ -113,7 +126,7 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
           yield failure(m.message.value.id, { message: "a command arrived before Init", code: ErrorCode.Internal })
           return
         }
-        const result = await runCommand(registered, entity, entityId, state, sequence, m.message.value, ctx)
+        const result = await runCommand(registered, entity, entityId, state, sequence, m.message.value, ctx, here)
         yield result.out
         if (result.newState !== undefined) {
           state = result.newState.state
@@ -141,6 +154,7 @@ async function runCommand(
   sequence: bigint,
   cmd: EventSourcedIn_Command,
   ctx: ServerContext,
+  here: string | null = null,
 ): Promise<CommandResult> {
   const handler = registered.handlers.get(cmd.name)
   if (!handler) return { out: failure(cmd.id, { message: `no handler ${JSON.stringify(cmd.name)} on ${registered.id}`, code: ErrorCode.NotFound }) }
@@ -153,7 +167,7 @@ async function runCommand(
   }
 
   const metadata = metadataFromProto(cmd.metadata)
-  const context = commandContext(registered.id, entityId, sequence, metadata)
+  const context = commandContext(registered.id, entityId, sequence, metadata, undefined, cmd.installation || null, cmd.atHome)
   let effect: EventSourcedEffect<unknown, unknown, unknown>
   entity._bindCommand(state, context, ctx.client.withMetadata(metadata))
   try {
@@ -170,7 +184,12 @@ async function runCommand(
   }
 
   try {
-    const m = materialiseEventSourced(effect, state, (s, e) => entity.applyEvent(s, e))
+    let applied = sequence
+    const m = materialiseEventSourced(effect, state, (s, e) => {
+      applied += 1n
+      return entity.applyEvent(s, e, eventContext(here, true, applied))
+    })
+    const replication = !m.error && effect.kind === "persist" ? replicationToProto(effect.replication) : undefined
     const events = m.events.map((e) => encodePayload(registered.eventCodec, e))
     const replyCodec = handler.reply ? codecFor(handler.reply) : binaryCodecs.done
     const outcome: OutcomeInit = m.error
@@ -187,6 +206,7 @@ async function runCommand(
           retention: retentionToProto(m.retention),
           outcome,
           snapshot: cmd.snapshotRequested ? encodePayload(registered.stateCodec, m.newState) : undefined,
+          replication,
         },
       },
     })

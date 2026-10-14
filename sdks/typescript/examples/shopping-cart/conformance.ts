@@ -2,6 +2,7 @@
 // and route here is named in `specs/009-polyglot-runtimes/contracts/conformance.md`; the Scala reference
 // (`sidecar/src/test/.../ConformanceReference.scala`) and the Python one have the same.
 import {
+  type EventContext,
   socket,
   Contract,
   type Socket,
@@ -297,6 +298,83 @@ export class PartnerRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fa
   }
 }
 // docs:end partner-relay
+
+// ── replicated-vehicle and vehicle-feed: a replicated entity and a consumer of its changes ──
+
+/**
+ * A replicated entity's state: each step, where its event was written ("" when no installation is
+ * named) and whether that was here. The conformance service runs at installation `a`.
+ */
+export const VehicleRecord = s.record("VehicleRecord", { steps: s.list(s.string), writtenAt: s.list(s.string), local: s.list(s.boolean) })
+/** Where a command ran: the installation ("" when none is named) and whether it is the home. */
+export const VehiclePlacement = s.record("VehiclePlacement", { installation: s.string, home: s.boolean })
+export const StepAdded = s.record("StepAdded", { step: s.string })
+type VehicleRecord = Infer<typeof VehicleRecord>
+type StepAdded = Infer<typeof StepAdded>
+
+export class ReplicatedVehicle extends EventSourcedEntity<VehicleRecord, StepAdded> {
+  static readonly componentId = "replicated-vehicle"
+  static readonly replicated = true
+  static readonly state = jsonCodec(VehicleRecord, "vehicle-record")
+  static readonly events = jsonCodec(StepAdded, "step-added")
+  static readonly handlers = {
+    addStep: command("add-step", s.string, jsonCodec(VehiclePlacement, "vehicle-placement"), (v: ReplicatedVehicle, step) => {
+      // Read while the handler runs: the reply is computed once it has returned.
+      const placement = { installation: v.context.installation ?? "", home: v.context.isHome }
+      return v.effects.persist({ step }).thenReply(() => placement)
+    }),
+    handOver: command("hand-over", s.string, s.string, (v: ReplicatedVehicle, target) => v.effects.handOverTo(target).thenReply(() => target)),
+    replicateTo: command("replicate-to", s.string, s.string, (v: ReplicatedVehicle, target) => v.effects.replicateTo(target).thenReply(() => target)),
+    stopReplicatingTo: command("stop-replicating-to", s.string, s.string, (v: ReplicatedVehicle, target) =>
+      v.effects.stopReplicatingTo(target).thenReply(() => target)),
+    get: query("get", VehicleRecord, (v: ReplicatedVehicle) => v.effects.reply(v.state)),
+  }
+
+  emptyState(): VehicleRecord {
+    return { steps: [], writtenAt: [], local: [] }
+  }
+
+  applyEvent(state: VehicleRecord, event: StepAdded, context?: EventContext): VehicleRecord {
+    return {
+      steps: [...state.steps, event.step],
+      writtenAt: [...state.writtenAt, context?.installation ?? ""],
+      local: [...state.local, context?.isLocal ?? true],
+    }
+  }
+}
+
+/** Publishes nothing; declared to show a consumer given mirrored changes discovers so. */
+export class VehicleFeed extends Consumer<StepAdded, StepAdded> {
+  static readonly componentId = "vehicle-feed"
+  static readonly source = ReplicatedVehicle
+  static readonly message = ReplicatedVehicle.events
+  static readonly out = jsonCodec(StepAdded, "step-added")
+  static readonly producesTo = "conformance-vehicle-steps"
+  static readonly mirroredChanges = true
+
+  onMessage(_event: StepAdded) {
+    return this.effects.ignore()
+  }
+}
+
+/** Drives the replicated vehicle: a step, a read, and the three replication changes. */
+export class VehiclesEndpoint extends Endpoint {
+  static readonly prefix = "/vehicles"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    step: post("/{vehicleId}/steps", s.string, VehiclePlacement, (ep: VehiclesEndpoint, req, step) =>
+      ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.addStep).invoke(step)),
+    read: get("/{vehicleId}", VehicleRecord, (ep: VehiclesEndpoint, req) =>
+      ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.get).invoke()),
+    handOver: post("/{vehicleId}/hand-over/{target}", s.string, (ep: VehiclesEndpoint, req) =>
+      ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.handOver).invoke(req.params.target)),
+    replicateTo: post("/{vehicleId}/replicate-to/{target}", s.string, (ep: VehiclesEndpoint, req) =>
+      ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.replicateTo).invoke(req.params.target)),
+    stopReplicatingTo: post("/{vehicleId}/stop-replicating-to/{target}", s.string, (ep: VehiclesEndpoint, req) =>
+      ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.stopReplicatingTo).invoke(req.params.target)),
+  }
+}
 
 // ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
@@ -955,6 +1033,8 @@ export function referenceService() {
     .register(PartnerRelay)
     .register(TreeNode)
     .register(TreeRows)
+    .register(ReplicatedVehicle)
+    .register(VehicleFeed)
     .register(JoinedLeft)
     .register(JoinedRight)
     .register(JoinedRows)
@@ -966,6 +1046,7 @@ export function referenceService() {
     .register(Approver)
     .register(ShoppingCartEndpoint)
     .register(TreeEndpoint)
+    .register(VehiclesEndpoint)
     .register(JoinedEndpoint)
     .register(ConformanceEndpoint)
     .register(PrivateEndpoint)

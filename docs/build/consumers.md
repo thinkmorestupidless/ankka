@@ -4,7 +4,7 @@ description: React to every change from an entity or a topic, call other compone
 kind: guide
 languages: [scala, python, typescript, rust]
 components: [consumer]
-related: [build/topics.md, build/graph.md, build/views.md, concepts/consistency.md, build/component-client.md]
+related: [build/topics.md, build/graph.md, build/views.md, concepts/consistency.md, build/component-client.md, concepts/replicated-entities.md]
 ---
 
 # Consumers
@@ -46,6 +46,11 @@ key value entity's revision. A topic's message has no sequence number, and reads
 |---|---|---|---|---|
 | The source entity's id | `messageContext.subject` | `self.metadata.subject` | `this.subject` | `ctx.entity_id()` |
 | The sequence number | `messageContext.sequenceNumber` | `self.metadata.sequence_number` | `this.sequenceNumber` | `ctx.sequence()` |
+| The installation that wrote it | `messageContext.installation` | `self.installation` | `this.installation` | `ctx.written_at()` |
+| Whether it was written here | `messageContext.localOrigin` | `self.local_origin` | `this.localOrigin` | `ctx.local_origin()` |
+
+The last two say something only for a change from a [replicated entity](../concepts/replicated-entities.md);
+for every other change the installation is absent and the change is written here.
 
 ## Effects
 
@@ -611,6 +616,44 @@ timing out: a consumer that must act on a failure needs the failing workflow to 
 failover step that records the failure and then fails the workflow. A workflow's deletion runs the
 consumer's deletion handler. Delivery is at least once, as from any source, so the handler must tolerate
 seeing a state twice.
+
+## Changes from a replicated entity
+
+A replicated entity is held at several installations, and a consumer of it runs at each of them over the
+local journal. A change is a local change at the installation that wrote it, its home at the time, and a
+mirrored change everywhere else.
+
+A consumer that publishes to a topic, a graph consumer among them, is given only local changes, so each
+change is published once across installations, by the installation that wrote it. A consumer that
+publishes nothing is given every change, local and mirrored, at every installation, since what it does
+may be each installation's own: one that calls components at every installation reads `localOrigin` and
+decides.
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/replication/FleetComponents.scala#mirrored-change -->
+```scala
+def onMessage(message: VehicleEvent): Effect =
+  val change = messageContext
+  log.record(
+    Handed(at, change.subject, message.toString, change.installation, change.localOrigin)
+  )
+  message match
+    case VehicleEvent.StepAdded(step) =>
+      effects.produce(Build(change.subject, step, change.installation, change.localOrigin))
+    case _ => effects.ignore()
+```
+
+A consumer that publishes and should be given mirrored changes too declares it, and then publishes every
+change at every installation that holds the entity:
+
+| | Declaration |
+|---|---|
+| Scala | `override def mirroredChanges: Boolean = true` on the companion |
+| Python | `mirrored_changes = True` on the class |
+| TypeScript | `static readonly mirroredChanges = true` |
+| Rust | `fn mirrored_changes() -> bool { true }` on the `Consumer` or `GraphConsumer` |
+
+A service declaring it, or a replicated entity, needs a runtime speaking protocol `1.19`; an older one is
+refused when the service starts.
 
 ## When the source is deleted
 

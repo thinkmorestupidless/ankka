@@ -626,3 +626,41 @@ class DescriptorSuite extends munit.FunSuite:
       Some("none")
     )
   }
+
+  // ── Feature 051: the topology says which entity is replicated ───────────────
+
+  private def topologyWith(nodes: TopologyNode*) = InstanceTopologyDocument(
+    TopologyService("fleet", "0.12.0", "1", "2026-10-12T00:00:00Z"),
+    TopologyWindow(600L, "2026-10-12T00:00:00Z", 0L),
+    nodes.toVector,
+    Vector.empty,
+    Vector.empty
+  )
+
+  test("a topology node from a runtime before replication reads as not replicated") {
+    val old =
+      """{"service":{"name":"fleet","runtime":"0.11.0","instance":"1","startedAt":"s"},""" +
+        """"window":{"seconds":600,"since":"s","calls":0},""" +
+        """"nodes":[{"id":"vehicle","kind":"EventSourcedEntity","layer":1,"platform":false,"handlers":[]}],""" +
+        """"declared":[],"calls":[]}"""
+    val node = readFromString[InstanceTopologyDocument](old).nodes.head
+    assertEquals(node.replicated, None)
+    assertEquals(node.problems, Vector.empty)
+  }
+
+  test("a replicated entity round-trips, and a node that is not one writes no replicated field") {
+    val vehicle = TopologyNode("vehicle", "EventSourcedEntity", 1, false, Vector.empty, Some(true))
+    val view    = TopologyNode("floor", "View", 2, false, Vector.empty)
+    val written = writeToString(topologyWith(vehicle, view))
+    assertEquals(readFromString[InstanceTopologyDocument](written).nodes, Vector(vehicle, view))
+    assertEquals("\"replicated\"".r.findAllIn(written).size, 1, written)
+    assertEquals(vehicle.problems, Vector.empty)
+  }
+
+  test("only an event sourced entity may be replicated, and the refusal names the component") {
+    for kind <- Vector("KeyValueEntity", "Workflow", "View", "Consumer") do
+      assertEquals(
+        TopologyNode("orders", kind, 1, false, Vector.empty, Some(true)).problems,
+        Vector(s"$kind 'orders' is declared replicated; only an event sourced entity may be")
+      )
+  }

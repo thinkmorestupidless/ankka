@@ -100,7 +100,8 @@ final class ServiceBuilder private[ankka] (
     private val extensions: Vector[RuntimeExtension] = Vector.empty,
     private val conversation: Option[remote.Conversation] = None,
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
-    private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity
+    private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
+    private val transportFactory: Option[replication.ReplicationTransportFactory] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
@@ -109,11 +110,19 @@ final class ServiceBuilder private[ankka] (
       extensions,
       conversation,
       identityOverride,
-      wrapServices
+      wrapServices,
+      transportFactory
     )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
-    ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride, wrapServices)
+    ServiceBuilder(
+      descriptors ++ more,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory
+    )
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
@@ -122,7 +131,8 @@ final class ServiceBuilder private[ankka] (
       extensions :+ extension,
       conversation,
       identityOverride,
-      wrapServices
+      wrapServices,
+      transportFactory
     )
 
   /**
@@ -130,7 +140,14 @@ final class ServiceBuilder private[ankka] (
    * plays a deployed service, or a local one with a name, without a certificate or a variable.
    */
   private[ankka] def withIdentity(identity: Either[String, ServiceIdentity]): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, conversation, Some(identity), wrapServices)
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      Some(identity),
+      wrapServices,
+      transportFactory
+    )
 
   /**
    * How remote descriptors (feature 009) reach the developer's process. Supplied by the sidecar; an
@@ -138,7 +155,14 @@ final class ServiceBuilder private[ankka] (
    * validation error, not a hang at first command.
    */
   def withConversation(conversation: remote.Conversation): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, Some(conversation), identityOverride, wrapServices)
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      Some(conversation),
+      identityOverride,
+      wrapServices,
+      transportFactory
+    )
 
   /**
    * Wraps the service's client for other services before anything receives it. For a test that
@@ -151,7 +175,25 @@ final class ServiceBuilder private[ankka] (
       extensions,
       conversation,
       identityOverride,
-      wrapServices.andThen(wrap)
+      wrapServices.andThen(wrap),
+      transportFactory
+    )
+
+  /**
+   * The replication transport this service's replicated entities use, made once the actor system
+   * exists, in place of any a provider on the classpath supplies or the runtime's own (feature
+   * 051). For the test kit, which wires a group of installations through one it controls.
+   */
+  private[ankka] def withReplicationTransport(
+      factory: replication.ReplicationTransportFactory
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      Some(factory)
     )
 
   /** Validates the definition without starting anything. */
@@ -196,7 +238,7 @@ final class ServiceBuilder private[ankka] (
     // Any a module on its classpath provides, then the service's own: started first and stopped
     // last. Stopped first, the telemetry exporter's final flush held every server open behind it
     // while the pod's other containers were already stopping, and a rolling restart refused requests.
-    val extensions =
+    val declaredExtensions =
       RuntimeExtensionProvider.provided(system.settings.config) ++ this.extensions
     // Before anything runs a handler: every line a handler writes names its trace from here on.
     TraceLogging.install()
@@ -216,6 +258,18 @@ final class ServiceBuilder private[ankka] (
           needing.mkString("this service declares no database:\n  - ", "\n  - ", ""),
           IllegalArgumentException(_)
         )
+    // Feature 051: a service that names other installations replicates its replicated entities
+    // through a transport, or refuses to start naming the one it lacks. Its part beside the entities
+    // starts first and stops last, so a copy can be reached for as long as the service runs.
+    val replicating = replication.ReplicationRuntime.resolve(
+      system,
+      system.settings.config,
+      registry.components,
+      transportFactory,
+      replication.LoopbackReplication.local(system)
+    )
+    val extensions =
+      replicating.map(replication.ReplicationRuntime(_)).toVector ++ declaredExtensions
     val sharding = ClusterSharding(system)
 
     // What the service declared, before anything can call anything: a name in a call's metadata is
@@ -305,7 +359,7 @@ final class ServiceBuilder private[ankka] (
 
     registry.components.foreach {
       case descriptor: EventSourcedEntityDescriptor[?, ?, ?] =>
-        initEventSourced(sharding, descriptor, componentClient)
+        initEventSourced(sharding, descriptor, componentClient, replicating)
       case descriptor: KeyValueEntityDescriptor[?, ?] =>
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
@@ -332,7 +386,8 @@ final class ServiceBuilder private[ankka] (
             remote.RemoteEventSourcedHost.behavior(
               descriptor,
               EntityId(ctx.entityId),
-              conversation.get
+              conversation.get,
+              replicating
             )
           }
         )
@@ -361,7 +416,8 @@ final class ServiceBuilder private[ankka] (
       serviceIdentity,
       services,
       Some(builtSecrets),
-      Some(readRecorder)
+      Some(readRecorder),
+      replicating
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -401,7 +457,8 @@ final class ServiceBuilder private[ankka] (
   private def initEventSourced(
       sharding: ClusterSharding,
       descriptor: EventSourcedEntityDescriptor[?, ?, ?],
-      componentClient: ComponentClient
+      componentClient: ComponentClient,
+      replicating: Option[replication.Replication]
   ): Unit =
     // Generics are erased by the time a behaviour runs, and every value flowing through
     // it came from this same descriptor, so widening to `Any` here loses no safety that
@@ -413,7 +470,8 @@ final class ServiceBuilder private[ankka] (
         EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
           typed,
           EntityId(ctx.entityId),
-          componentClient
+          componentClient,
+          replicating
         )
       }
     )
@@ -524,7 +582,12 @@ final class AnkkaService private[ankka] (
      */
     private[ankka] val secretStores: Option[SecretStores.Built] = None,
     /** Where each read of a secret is recorded; a local recorder keeps them for the test kit. */
-    private[ankka] val readRecorder: Option[ReadRecorder] = None
+    private[ankka] val readRecorder: Option[ReadRecorder] = None,
+    /**
+     * How this service replicates its replicated entities (feature 051), when it names other
+     * installations; `None` for a service that names none.
+     */
+    val replication: Option[com.thinkmorestupidless.ankka.runtime.replication.Replication] = None
 ):
 
   /**

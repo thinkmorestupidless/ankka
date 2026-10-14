@@ -126,6 +126,61 @@ object EntityProtocol:
 
   trait ModuleCommand extends Command
 
+  /**
+   * A record a replicated entity's follower pulled from `source`, to persist as its next (feature
+   * 051). Answered `Persisted` once it holds `sequenceNr`, whether it persisted it now or already
+   * held it, and `Refused` when the record is not the next or not written by the entity's home.
+   */
+  private[ankka] final case class Replicate(
+      sequenceNr: Long,
+      record: JournalRecord,
+      source: String,
+      ack: ActorRef[ReplicateAck]
+  ) extends ModuleCommand
+
+  private[ankka] sealed trait ReplicateAck
+  private[ankka] object ReplicateAck:
+    final case class Persisted(sequenceNr: Long) extends ReplicateAck
+    final case class Refused(reason: String)     extends ReplicateAck
+
+  /**
+   * Another installation advanced a replicated entity: wakes this copy, which starts mirroring if
+   * it is a follower. `installation` wrote up to `position`; `joined` when what it wrote put this
+   * installation in the replication set.
+   */
+  private[ankka] final case class Wake(installation: String, position: Long, joined: Boolean)
+      extends ModuleCommand
+      with AnkkaSerializable
+
+  /** The target of a pending handover holds the entity up to `position`. */
+  private[ankka] final case class Reported(installation: String, position: Long)
+      extends ModuleCommand
+      with AnkkaSerializable
+
+  /** The home's answer to a call this copy forwarded, back on the copy's own thread. */
+  private[ankka] final case class Forwarded(
+      replyTo: ActorRef[Reply],
+      result: scala.util.Try[replication.ForwardedReply],
+      home: String
+  ) extends ModuleCommand
+
+  /**
+   * Where an entity this copy holds no replication record of lives, back on the copy's own thread;
+   * and, for a copy that holds records, who wrote its first: itself (`None`), as a journal from
+   * before replication was, or the installation it was mirroring before it could tell.
+   */
+  private[ankka] final case class Located(
+      result: scala.util.Try[Option[replication.Located]],
+      firstWriter: Option[String]
+  ) extends ModuleCommand
+
+  /** Whether another installation's history of this entity is another history altogether. */
+  private[ankka] final case class ConflictChecked(other: String, differs: scala.util.Try[Boolean])
+      extends ModuleCommand
+
+  /** A held handover waited as long as it may. */
+  private[ankka] final case class HandoverTimedOut(target: String) extends ModuleCommand
+
   sealed trait Reply extends AnkkaSerializable
 
   final case class Succeeded(payload: Array[Byte], metadata: Vector[MetaEntry]) extends Reply
@@ -177,18 +232,52 @@ object EntityProtocol:
  *   - `kind = 0` — a domain event, `payload` encoded by the entity's event serializer
  *   - `kind = 1` — the entity was deleted
  *   - `kind = 2` — a time-to-live was set, `expiryMillis` from the epoch
+ *
+ * A replicated entity's journal (feature 051) also holds the facts every installation holding it
+ * must agree on, each written by its home and mirrored with the rest:
+ *
+ *   - `kind = 3` — the home is the installation `payload` names, from this record on
+ *   - `kind = 4` — the replication set is the installations `payload` lists, as a JSON array
+ *   - `kind = 5` — a handover to the installation `payload` names is pending
+ *   - `kind = 6` — the pending handover to the installation `payload` names did not happen
+ *   - `kind = 7` — this copy found another history for its id, written by the installation
+ *     `payload` names; written where it was found, and never mirrored
+ *
+ * `installation` names the installation whose home wrote the record. It is absent on every record
+ * written before replication and on every record of an entity that is not replicated, which is then
+ * byte for byte what the release before wrote.
  */
 final case class JournalRecord(
     kind: Int,
     manifest: String,
     payload: Array[Byte],
-    expiryMillis: Long
-) extends AnkkaSerializable
+    expiryMillis: Long,
+    // Left out when absent, so a record that names no installation is the release before's form.
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    installation: Option[String] = None
+) extends AnkkaSerializable:
+
+  /** The same record, written at `at`. */
+  def at(installation: Option[String]): JournalRecord = copy(installation = installation)
+
+  /** The installation the payload of a kind 3, 5, 6 or 7 record names. */
+  def named: String = String(payload, java.nio.charset.StandardCharsets.UTF_8)
+
+  /** The installations the payload of a kind 4 record lists. */
+  def names: Set[String] = JournalRecord.readNames(payload)
 
 object JournalRecord:
-  val KindDomain  = 0
-  val KindDeleted = 1
-  val KindExpiry  = 2
+  val KindDomain            = 0
+  val KindDeleted           = 1
+  val KindExpiry            = 2
+  val KindHome              = 3
+  val KindReplicationSet    = 4
+  val KindHandover          = 5
+  val KindHandoverAbandoned = 6
+  val KindConflict          = 7
+
+  /** The kinds a follower mirrors: every kind but a conflict, which is the finder's alone. */
+  def mirrored(kind: Int): Boolean = kind != KindConflict
 
   def domain(manifest: String, payload: Array[Byte]): JournalRecord =
     JournalRecord(KindDomain, manifest, payload, 0L)
@@ -198,12 +287,58 @@ object JournalRecord:
   def expiry(atEpochMillis: Long): JournalRecord =
     JournalRecord(KindExpiry, "", Array.emptyByteArray, atEpochMillis)
 
-/** A snapshot, or the whole stored value of a key value entity. */
+  private def text(value: String): Array[Byte] =
+    value.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+
+  def home(installation: String): JournalRecord =
+    JournalRecord(KindHome, "ankka.home", text(installation), 0L)
+
+  def replicationSet(installations: Set[String]): JournalRecord =
+    JournalRecord(KindReplicationSet, "ankka.replication-set", writeNames(installations), 0L)
+
+  def handover(target: String): JournalRecord =
+    JournalRecord(KindHandover, "ankka.handover", text(target), 0L)
+
+  def handoverAbandoned(target: String): JournalRecord =
+    JournalRecord(KindHandoverAbandoned, "ankka.handover-abandoned", text(target), 0L)
+
+  def conflict(other: String): JournalRecord =
+    JournalRecord(KindConflict, "ankka.conflict", text(other), 0L)
+
+  /** A JSON array of names, sorted so one set is always written as the same bytes. */
+  private def writeNames(names: Set[String]): Array[Byte] =
+    text(names.toVector.sorted.map(n => "\"" + n + "\"").mkString("[", ",", "]"))
+
+  /** Reads what `writeNames` wrote. Installation names are DNS labels: no quote or comma. */
+  private[runtime] def readNames(payload: Array[Byte]): Set[String] =
+    String(payload, java.nio.charset.StandardCharsets.UTF_8).trim
+      .stripPrefix("[")
+      .stripSuffix("]")
+      .split(',')
+      .map(_.trim.stripPrefix("\"").stripSuffix("\""))
+      .filter(_.nonEmpty)
+      .toSet
+
+/**
+ * A snapshot, or the whole stored value of a key value entity.
+ *
+ * The four replication fields (feature 051) are a replicated entity's mode at the snapshot's
+ * sequence number, each left out when absent so every other snapshot and every key value row is the
+ * release before's form.
+ */
 final case class StateRecord(
     manifest: String,
     payload: Array[Byte],
     deleted: Boolean,
-    expiryMillis: Long
+    expiryMillis: Long,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    home: Option[String] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    replicationSet: Option[Vector[String]] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    pendingHandover: Option[String] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    conflict: Option[String] = None
 ) extends AnkkaSerializable
 
 /**
@@ -221,7 +356,15 @@ final case class RemoteStateRecord(
     deleted: Boolean,
     expiryMillis: Long,
     snapshotSeq: Long,
-    deletionSeq: Long
+    deletionSeq: Long,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    home: Option[String] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    replicationSet: Option[Vector[String]] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    pendingHandover: Option[String] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    conflict: Option[String] = None
 ) extends AnkkaSerializable
 
 /**

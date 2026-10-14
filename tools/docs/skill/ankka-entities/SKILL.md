@@ -10,6 +10,7 @@ pages:
   - concepts/effects.md
   - concepts/wire-names.md
   - concepts/consistency.md
+  - concepts/replicated-entities.md
 ---
 
 # ankka entities
@@ -79,6 +80,34 @@ keeps its history as events and folds them into state; a key value entity keeps 
 - Snapshots change performance, never behaviour: every 100 events by default in Scala
   (`override def snapshotEvery`), never by default in Python (`snapshot_every`) or TypeScript (`static snapshotEvery`).
 
+## Replicated entities
+
+An event sourced entity can be held at several installations of a service and written at one, its
+home (`references/concepts/replicated-entities.md`). Use these words and no others: **installation**,
+**home**, **follower**, **replication set**, **handover**, **local change**, **mirrored change**.
+
+- **Declare it on the companion**: `override def replicated = true` (Python `replicated = True`,
+  TypeScript `static readonly replicated = true`, Rust `const REPLICATED: bool = true`), and name the
+  installations in `ankka.replication.installations`. Only event sourced entities replicate.
+- **Three effects, alone or beside the events**: `handOverTo(installation)`, `replicateTo(installation)`,
+  `stopReplicatingTo(installation)` (`hand_over_to`, `replicate_to`, `stop_replicating_to` in Python and
+  Rust). One handover or one change to the replication set per command. A handover target must already be
+  in the set; the home cannot remove itself.
+- **Handlers stay as they are.** A command that may persist runs only at the home; one reaching a follower
+  is forwarded there and answered as if handled locally. A query runs at whichever installation it reaches,
+  from that copy, which may be up to one poll behind the home: read at the home when a caller must see its
+  own write.
+- **Where it runs**: `commandContext.installation` and `isHome` (`self.context.is_home`,
+  `this.context.isHome`, `ctx.is_home()`). Where an event was written: `eventContext` in `applyEvent`
+  (Python `self.event_context`, TypeScript the third `applyEvent` argument, Rust the provided `apply_at`,
+  which calls `apply` unless overridden: `apply` itself is unchanged).
+- **Choose ids one installation issues.** Creation is local; the same id created at two installations is
+  a conflict that refuses writes (`Conflict`) and nothing resolves for you.
+- **Errors**: `NotHome` (HTTP 421) when the home cannot be reached or the installation is outside the set;
+  `Timeout` on a forwarded write may or may not have happened.
+- **Test** a copy with `EventSourcedTestKit.of(…, mode = Mode.Follower(home))` and `replay`, and a whole
+  service at several installations with `AnkkaTestKit.installations(…)`.
+
 ## Calling an entity
 
 From an endpoint, workflow step, consumer, timed action or agent tool, through the component client:
@@ -120,3 +149,5 @@ requirement, never from the handler's output.
   through events (or `updateState` on a key value entity).
 - Retrying a timed-out command that is not idempotent.
 - A test that asserts a view reflects a write immediately: read your own write from the entity.
+- A replicated entity whose ids two installations can both create, or a read at a follower that expects
+  the write the caller just made.

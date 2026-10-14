@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.18")
+    assertEquals(Discovery.ProtocolVersion, "1.19")
   }
 
   test(
@@ -1151,6 +1151,45 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         case Some(SocketOutput.Failed(_)) => ()
         case other                        => fail(s"expected a failure, got $other")
     }
+  }
+
+  test(
+    "discovery 1.19: a replicated entity is declared under 1.19, and refused under an earlier minor"
+  ) {
+    import ankka.protocol.v1.discovery.{
+      Component as PbComponent,
+      EventSourcedDetail as PbEventSourcedDetail,
+      Handler as PbHandler,
+      Kind as PbKind
+    }
+    def spec(version: String) = Spec(
+      version,
+      None,
+      Vector(
+        PbComponent(
+          PbKind.EVENT_SOURCED_ENTITY,
+          "vehicle",
+          Vector(PbHandler("add-step")),
+          PbComponent.Detail.EventSourced(PbEventSourcedDetail(replicated = true))
+        )
+      )
+    )
+    val accepted = validateSpec(spec("1.19"))
+    assert(accepted.isRight, accepted.toString)
+    val vehicle =
+      accepted.toOption.get.descriptors.collectFirst { case d: RemoteEventSourcedDescriptor => d }
+    assertEquals(vehicle.map(_.replicated), Some(true))
+    assertEquals(
+      validateSpec(spec("1.18")).left.toOption.getOrElse(Vector.empty),
+      Vector("entity 'vehicle' is replicated, which needs protocol 1.19; the SDK speaks 1.18")
+    )
+    // An entity that is not replicated is what an earlier minor could always declare.
+    val plain = spec("1.18").copy(components =
+      spec("1.18").components.map(
+        _.copy(detail = PbComponent.Detail.EventSourced(PbEventSourcedDetail()))
+      )
+    )
+    assert(validateSpec(plain).isRight, validateSpec(plain).toString)
   }
 
   test("discovery: a socket route is declared under 1.9, and refused under an earlier minor") {

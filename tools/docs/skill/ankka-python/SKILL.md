@@ -57,9 +57,10 @@ skill holds what differs.
 6. **Steps and agents run in the sidecar's engines.** A step may be `async`; the sidecar journals its
    transition. Workflow settings the engine enforces (timeouts, `Recovery(max_retries, failover_to)`)
    are declared on the class so discovery can carry them. An agent's `tools` and `guardrails` are class
-   attributes named in the effect; `memory(False)` for one-shot; `with_model("anthropic" | "scripted")`;
-   the model is configured on the sidecar through `ANTHROPIC_API_KEY`, `ANKKA_MODEL_NAME` or
-   `ANKKA_MODEL_SCRIPT` in the descriptor's `env`, and the process never sees the key.
+   attributes named in the effect; `memory(False)` for one-shot; `with_model(name)` names a provider the
+   sidecar has; providers are configured on the sidecar in the descriptor's `env` (`ANTHROPIC_API_KEY`,
+   `OPENAI_API_KEY`, `ANKKA_MODEL_<NAME>_*` for any other, `ANKKA_MODEL_DEFAULT`, `ANKKA_MODEL_SCRIPT`),
+   and the process never sees a key.
 7. **Views in Python answer `get` and `all` only.** SQL conditions over rows are a Scala service's.
    `ViewTestKit`, `ConsumerTestKit`, `WorkflowTestKit`, `TimedActionTestKit`, `EventSourcedTestKit` and
    `KeyValueTestKit` run one component with no sidecar; the integration testkit runs the real sidecar
@@ -70,7 +71,7 @@ skill holds what differs.
    9011, both loopback.
 9. **Deploy as a process-hosted service.** The descriptor sets `hosting: "process"` and the protocol
    version the SDK speaks; the image holds only your process; the platform adds the sidecar at the
-   platform's version. Environment is split by name: `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to
+   platform's version. Environment is split by name: `ANTHROPIC_*`, `OPENAI_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to
    the sidecar, everything else to the process. A topic-sourced view or producing consumer needs
    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` or the sidecar refuses to start, naming the component.
 10. **Several messages are one effect, and a graph is published by a graph consumer.** A consumer returns

@@ -159,7 +159,7 @@ class PlannerSuite extends munit.FunSuite with LogCapturing:
     val summaryRequest = model.lastRequest
     val visible = summaryRequest.messages
       .collect {
-        case ChatMessage.Assistant(text, _) => text
+        case ChatMessage.Assistant(text, _, _) => text
         case ChatMessage.User(content) =>
           content.collect { case MessageContent.Text(t) => t }.mkString
       }

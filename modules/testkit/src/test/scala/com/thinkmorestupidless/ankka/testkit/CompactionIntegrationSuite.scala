@@ -124,7 +124,7 @@ class CompactionIntegrationSuite extends munit.FunSuite with LogCapturing:
       .collect {
         case ChatMessage.User(content) =>
           content.collect { case MessageContent.Text(text) => text }.mkString
-        case ChatMessage.Assistant(text, _) => text
+        case ChatMessage.Assistant(text, _, _) => text
       }
       .mkString("\n")
 

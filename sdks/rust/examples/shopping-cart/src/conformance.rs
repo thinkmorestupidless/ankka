@@ -1008,6 +1008,14 @@ pub struct LookupArguments {
 pub struct ConformanceAssistant;
 
 impl ConformanceAssistant {
+    /// Answered by the model the runtime has under the name `second`, not its default.
+    fn ask_second(question: String, _: &Context) -> AgentEffect {
+        agent::system_message("You are helpful.")
+            .user_message(question)
+            .model("second")
+            .then_reply()
+    }
+
     fn ask(question: String, _: &Context) -> AgentEffect {
         agent::system_message("You are helpful.")
             .user_message(question)
@@ -1048,7 +1056,9 @@ impl Agent for ConformanceAssistant {
     const COMPONENT_ID: &'static str = "assistant";
 
     fn handlers() -> AgentHandlers<ConformanceAssistant> {
-        AgentHandlers::new().command("ask", ConformanceAssistant::ask)
+        AgentHandlers::new()
+            .command("ask", ConformanceAssistant::ask)
+            .command("ask-second", ConformanceAssistant::ask_second)
     }
 
     fn tools() -> Tools<ConformanceAssistant> {
@@ -1465,6 +1475,15 @@ impl ConformanceEndpoint {
         )?)
     }
 
+    fn ask_second(request: &Request, question: String) -> Result<String, HttpProblem> {
+        Ok(request.client().invoke(
+            ConformanceAssistant,
+            request.path("session"),
+            "ask-second",
+            question,
+        )?)
+    }
+
     fn count(request: &Request) -> Result<i32, HttpProblem> {
         Ok(request
             .client()
@@ -1537,6 +1556,7 @@ impl Endpoint for ConformanceEndpoint {
             .post("/recur/{id}/cancel", ConformanceEndpoint::recur_cancel)
             .post("/recur-refused/{id}", ConformanceEndpoint::recur_refused)
             .post("/ask/{session}", ConformanceEndpoint::ask)
+            .post("/ask-second/{session}", ConformanceEndpoint::ask_second)
             .get("/config/{name}", ConformanceEndpoint::config)
             .get("/{id}/count", ConformanceEndpoint::count)
             .post("/{id}/no-reply", ConformanceEndpoint::no_reply)

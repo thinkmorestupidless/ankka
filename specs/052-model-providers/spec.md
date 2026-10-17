@@ -48,11 +48,13 @@ naming: Ollama, llama.cpp's server, LM Studio, Docker Model Runner and vLLM. Ant
 shape is served, beside it, by Ollama, llama.cpp, LM Studio, Docker Model Runner and DeepSeek, and
 by Claude on Bedrock, Vertex and Foundry through backends the Anthropic SDK already ships. None of
 Mistral, Groq, DeepSeek, xAI or Cohere ships an official Java SDK; an adapter per vendor would be the
-generic one with a URL baked in. OpenAI itself has moved its primary API to Responses: from GPT-5.4,
-Chat Completions does not support tool calling unless reasoning is off, and the newest models require
-Responses for tools at all. Responses returns reasoning as separate items which, when the caller
-keeps its own state, must be replayed between a tool call and its result within a turn. xAI serves
-Responses only. Ollama and LM Studio serve Responses too, non-stateful.
+generic one with a URL baked in. OpenAI itself has moved its primary API to Responses: GPT-6 Astra,
+GPT-6.1 Sol and the codex models call tools only through it, while GPT-5.x still calls tools with
+reasoning on Chat Completions (corrected by research R2; first written as "from GPT-5.4"). Responses
+returns reasoning as separate items which, when the caller keeps its own state, must be replayed
+between a tool call and its result within a turn. xAI recommends Responses and calls Chat Completions
+deprecated. Ollama, LM Studio, llama.cpp, vLLM, Groq, OpenRouter and Hugging Face serve Responses too,
+non-stateful; Gemini's compatibility endpoint does not.
 
 So the seam exists and the documentation promises it ("Any other model is one class implementing
 `ModelProvider`"), but ankka ships one vendor, a provider's name is a constant rather than something

@@ -334,7 +334,9 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   ) {
     val reserved = Vector(
       "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
       "ANKKA_MODEL_NAME",
+      "ANKKA_MODEL_EU_KEY",
       "ANKKA_DB_PASSWORD",
       "ANKKA_DB_USER",
       "ANKKA_CLUSTER_MODE",

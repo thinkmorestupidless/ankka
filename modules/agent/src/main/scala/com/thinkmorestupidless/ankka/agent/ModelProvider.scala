@@ -39,6 +39,17 @@ trait ModelProvider:
           Vector(ModelChunk.Completed(response))
       }
 
+/**
+ * A value a provider attaches to what its model answered, for the next call of the same turn.
+ *
+ * Opaque to everything but the provider whose `name` it carries, and never recorded: the loop keeps
+ * it on the assistant message it hands back within the turn and drops it when the turn's messages
+ * are written to the session. It is what lets a model that reasons be given its own reasoning back
+ * with a tool's result, where the vendor keeps no state of its own. A provider ignores a state
+ * another provider made.
+ */
+final case class ProviderState(provider: String, value: String)
+
 /** A model call that failed at the transport or provider level. */
 final case class ModelCallFailed(provider: String, message: String, cause: Option[Throwable] = None)
     extends RuntimeException(s"$provider: $message", cause.orNull)

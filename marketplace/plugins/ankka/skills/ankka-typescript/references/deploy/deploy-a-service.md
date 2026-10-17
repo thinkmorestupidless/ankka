@@ -180,8 +180,8 @@ What changes about the pod:
 
 - **Two containers.** The sidecar carries the ports, the readiness probe and the database credential.
   Your container has no ports and no probe, and small fixed resources.
-- **The environment is split.** Variables beginning `ANTHROPIC_`, `ANKKA_MODEL_` and `ANKKA_DB_` go to
-  the sidecar, which runs the agent loop and owns the journal. Every other variable goes to your process.
+- **The environment is split.** Variables beginning `ANTHROPIC_`, `OPENAI_`, `ANKKA_MODEL_` and
+  `ANKKA_DB_` go to the sidecar, which runs the agent loop and owns the journal. Every other variable goes to your process.
   A model key is therefore supplied in `env` exactly as for a Scala service, and your process never sees
   it or the database.
 - **Everything else is the same.** Scale, restart, expose, pause and observe a Python service exactly as
@@ -200,7 +200,7 @@ A Rust service is a WebAssembly module rather than a process, and says `"hosting
 The pod then has **one container**, the platform's runtime with the module loaded, which the service's own
 image copies into a shared volume as an init container before the runtime starts. Every variable in `env`
 is in that one container's environment, and the module reads them through the runtime, which withholds the
-platform's own and the `ANTHROPIC_`, `ANKKA_MODEL_` and `ANKKA_DB_` names. A wasm service always serves
+platform's own and the `ANTHROPIC_`, `OPENAI_`, `ANKKA_MODEL_` and `ANKKA_DB_` names. A wasm service always serves
 HTTP. See [Build an image](images.md#a-rust-service) for the module image.
 
 ## Change a deployed service

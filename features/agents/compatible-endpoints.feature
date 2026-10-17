@@ -127,7 +127,7 @@ Feature: A model provider at any address
     And the detail of "support" names the model provider "anthropic" and both models
 
   Scenario Outline: every preset the platform names is configured from its name
-    Given a service "support" written in "Python" whose descriptor configures the model provider "p" with the preset "<preset>" and a key where the preset needs one
+    Given a service "support" written in "Python" whose descriptor configures the model provider "p" with the preset "<preset>", a key where the preset needs one and a model where it names none
     When "support" starts
     Then the model provider "p" is configured in the model protocol and at the address the preset "<preset>" names
 

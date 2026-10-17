@@ -216,6 +216,8 @@ private[ankka] object PlatformVariables:
   val RuntimeOnlyPrefixes: Vector[String] =
     Vector(
       "ANTHROPIC_",
+      // OpenAI's key and the SDK's own settings (feature 052): the sidecar talks to the model.
+      "OPENAI_",
       "ANKKA_MODEL_",
       "ANKKA_DB_",
       "ANKKA_AUTH_",

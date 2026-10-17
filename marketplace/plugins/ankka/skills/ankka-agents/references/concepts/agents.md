@@ -98,9 +98,13 @@ reply that does not decode as a failure rather than as prose.
 ## Model providers
 
 Everything above sits on a `ModelProvider`, which completes a request and optionally streams one; a
-provider that cannot stream falls back to one completion. Adding a model vendor means writing one
-adapter, not re-implementing agent behaviour. `AnthropicProvider` ships with ankka and uses the
-official Anthropic Java SDK for transport. `TestModelProvider` answers from a script and fails loudly
+provider that cannot stream falls back to one completion. ankka speaks two wire protocols, Anthropic's
+and OpenAI's, and every provider is one of them pointed at an address: `AnthropicProvider` and
+`OpenAiProvider` ship with ankka and use each vendor's official Java SDK for transport only, and the
+same two speak to any server that serves either protocol — Mistral, Groq, Gemini, a router, or a model
+on the developer's own machine — under a name the service chooses. A preset names an endpoint ankka has
+tested. A session is ankka's, so an agent on one provider continues what an agent on another began; see
+[Model providers](../reference/model-providers.md). `TestModelProvider` answers from a script and fails loudly
 when the script runs out, so a test whose model quietly returned a default cannot pass by accident.
 
 Every model call reports the tokens it used: input, output, and cache reads and writes where the

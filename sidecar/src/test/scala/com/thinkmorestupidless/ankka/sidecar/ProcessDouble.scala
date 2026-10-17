@@ -286,7 +286,9 @@ object ProcessDouble:
       guardrails: Map[String, (GuardrailRequest.Stage, String) => Option[String]] = Map.empty,
       rules: Map[String, String => Either[String, Unit]] = Map.empty,
       instructions: Option[String] = None,
-      malformed: String => Option[String] = _ => None
+      malformed: String => Option[String] = _ => None,
+      // The model the definition names, from the sidecar's; none is the sidecar's default.
+      model: Option[String] = None
   ):
     def toComponent: Component =
       Component(
@@ -297,6 +299,7 @@ object ProcessDouble:
           AutonomousAgentDetail(
             description = description,
             instructions = instructions,
+            model = model,
             tools = tools.keys.toVector.sorted.map(n =>
               Tool(n, s"the $n tool", toolSchemas.getOrElse(n, """{"type":"object"}"""))
             ),
@@ -307,16 +310,17 @@ object ProcessDouble:
         )
       )
 
-  /** A plan naming the sidecar's default model. */
+  /** A plan naming `model`, or the sidecar's default model when it names none. */
   def plan(
       system: String,
       user: String,
       tools: Vector[String] = Vector.empty,
       guardrails: Vector[String] = Vector.empty,
-      memory: Boolean = true
+      memory: Boolean = true,
+      model: Option[String] = None
   ): AgentPlan =
     AgentPlan(
-      model = None,
+      model = model,
       system = Some(system),
       user = Some(user),
       context = Vector.empty,

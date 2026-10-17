@@ -383,7 +383,7 @@ lazy val agent = project
   .settings(commonSettings)
   .settings(
     name := "ankka-agent",
-    libraryDependencies ++= Seq(anthropicJava, pekkoHttp, pekkoStreamTyped)
+    libraryDependencies ++= Seq(anthropicJava, openaiJava, pekkoHttp, pekkoStreamTyped)
   )
 
 /**

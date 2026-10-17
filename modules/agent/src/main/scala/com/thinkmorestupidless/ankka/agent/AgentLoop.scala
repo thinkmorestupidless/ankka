@@ -114,7 +114,7 @@ private[agent] final class AgentLoop(
       prompt = buildPrompt(effect, history, userText)
 
       ended   <- runToolLoop(provider, effect, Progress.start(prompt), checksFor(spent))
-      outcome <- finish(effect, userText, ended, spent, origin, resumed = false)
+      outcome <- finish(effect, userText, ended, spent, origin, resumed = false, provider)
     yield outcome
     // A refused or failed interaction writes no message, but what its guardrails spent was spent.
     result.left.foreach(_ => recordJudgmentUsage(spent.usage))
@@ -147,7 +147,7 @@ private[agent] final class AgentLoop(
         if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
       progress <- settle(effect, turn, buildPrompt(effect, history, userText), checksFor(spent))
       ended    <- runToolLoop(provider, effect, progress, checksFor(spent))
-      outcome  <- finish(effect, userText, ended, spent, origin, resumed = true)
+      outcome  <- finish(effect, userText, ended, spent, origin, resumed = true, provider)
     yield outcome
     result.left.foreach { _ =>
       endTurn()
@@ -197,7 +197,7 @@ private[agent] final class AgentLoop(
       // Output guardrails run after the fact when streaming: tokens have already been
       // delivered, so a rejection here stops memory being written but cannot un-send
       // what the reader saw. Use input guardrails for anything that must never be shown.
-      outcome <- finish(effect, userText, ended, spent, origin, resumed = false)
+      outcome <- finish(effect, userText, ended, spent, origin, resumed = false, provider)
     yield outcome match
       case AgentOutcome.Answered(_)                => None
       case AgentOutcome.AwaitingApproval(requests) => Some(requests)
@@ -217,11 +217,12 @@ private[agent] final class AgentLoop(
       ended: LoopEnd,
       spent: Guardrails.Spent,
       origin: TurnOrigin,
-      resumed: Boolean
+      resumed: Boolean,
+      provider: ModelProvider
   ): Either[CommandError, AgentOutcome[R]] =
     ended match
       case LoopEnd.Wait(progress, requests) =>
-        suspend(userText, progress, requests, spent, origin).map(_ =>
+        suspend(userText, progress, requests, spent, origin, provider).map(_ =>
           AgentOutcome.AwaitingApproval(requests)
         )
 
@@ -239,7 +240,7 @@ private[agent] final class AgentLoop(
             .map(CommandError(_, ErrorCode.Internal))
         yield
           if effect.memoryProvider.write then
-            writeHistory(effect, userText, outcome, spent.usage, endsTurn = resumed)
+            writeHistory(effect, userText, outcome, spent.usage, endsTurn = resumed, provider)
           else
             if resumed then endTurn()
             recordJudgmentUsage(spent.usage)
@@ -250,7 +251,8 @@ private[agent] final class AgentLoop(
       progress: Progress,
       requests: Vector[ApprovalRequest],
       spent: Guardrails.Spent,
-      origin: TurnOrigin
+      origin: TurnOrigin,
+      provider: ModelProvider
   ): Either[CommandError, Unit] =
     val now = System.currentTimeMillis()
     val user =
@@ -261,7 +263,7 @@ private[agent] final class AgentLoop(
       handler = origin.handler,
       streaming = origin.streaming,
       payload = SuspendedTurn.encodePayload(origin.payload),
-      messages = user ++ recorded(progress.produced, progress.decisions, now),
+      messages = user ++ recorded(progress.produced, progress.decisions, now, provider),
       usage = progress.usage,
       steps = progress.steps,
       requests = requests,
@@ -379,7 +381,7 @@ private[agent] final class AgentLoop(
         m.callId -> m.decision.get
     }.toMap
     val replayed  = replay(rest)
-    val callOrder = replayed.collect { case ChatMessage.Assistant(_, calls) => calls }.lastOption
+    val callOrder = replayed.collect { case ChatMessage.Assistant(_, calls, _) => calls }.lastOption
     val order     = callOrder.getOrElse(Vector.empty).map(_.id).zipWithIndex.toMap
     def ordered(results: Vector[ToolResult]) =
       results.sortBy(r => order.getOrElse(r.callId, Int.MaxValue))
@@ -610,8 +612,11 @@ private[agent] final class AgentLoop(
         response.toolCalls.filter(call => tools.get(call.name).exists(_.approval.isDefined))
       val results =
         response.toolCalls.filterNot(waiting.contains).map(call => runTool(tools, call, checks))
-      val assistant = ChatMessage.Assistant(response.text, response.toolCalls)
-      val steps     = progress.steps + 1
+      // The provider's state rides on the answer for the rest of this turn only: the next call
+      // hands it back, and `recorded` drops it when the turn is written to the session.
+      val assistant =
+        ChatMessage.Assistant(response.text, response.toolCalls, response.providerState)
+      val steps = progress.steps + 1
 
       if waiting.isEmpty then
         val newTurns = Vector(assistant, ChatMessage.ToolResults(results))
@@ -687,20 +692,28 @@ private[agent] final class AgentLoop(
       case None        => filtered
 
   /** A turn's provider-shaped messages in their recorded form. */
+  /**
+   * The turn's messages as the session keeps them. A provider's state is dropped here on purpose:
+   * it is for the next call of the same turn, and a session is ankka's, never a vendor's. Every
+   * answer names the provider that gave it and its model, so usage can be told apart per provider.
+   */
   private def recorded(
       produced: Vector[ChatMessage],
       decisions: Map[String, Decision],
-      now: Long
+      now: Long,
+      provider: ModelProvider
   ): Vector[SessionMessage] =
     val role = descriptor.role
     produced.flatMap {
-      case ChatMessage.Assistant(text, calls) =>
+      case ChatMessage.Assistant(text, calls, _) =>
         Vector(
           SessionMessage.AiMessage(
             now,
             text,
             role,
-            calls.map(call => RecordedToolCall(call.id, call.name, call.arguments.render))
+            calls.map(call => RecordedToolCall(call.id, call.name, call.arguments.render)),
+            provider = Some(provider.name),
+            model = Some(provider.modelName)
           )
         )
 
@@ -725,13 +738,14 @@ private[agent] final class AgentLoop(
       userText: String,
       outcome: Outcome,
       judgmentUsage: TokenUsage,
-      endsTurn: Boolean
+      endsTurn: Boolean,
+      provider: ModelProvider
   ): Unit =
     val now = System.currentTimeMillis()
     val user =
       if userText.isEmpty then Vector.empty
       else Vector(SessionMessage.UserMessage(now, userText, descriptor.role))
-    val all = user ++ recorded(outcome.produced, outcome.decisions, now)
+    val all = user ++ recorded(outcome.produced, outcome.decisions, now, provider)
 
     val messages = effect.memoryProvider.interceptor match
       case Some(interceptor) => all.map(interceptor.beforeWrite(sessionId, _))

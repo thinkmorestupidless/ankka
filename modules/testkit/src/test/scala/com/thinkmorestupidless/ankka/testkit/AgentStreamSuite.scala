@@ -106,7 +106,7 @@ class AgentStreamSuite extends munit.FunSuite with LogCapturing:
     val replayed = model.requests(1).messages.collect {
       case ChatMessage.User(content) =>
         content.collect { case MessageContent.Text(t) => t }.mkString
-      case ChatMessage.Assistant(text, _) => text
+      case ChatMessage.Assistant(text, _, _) => text
     }
     assert(replayed.exists(_.contains("First question")), replayed.toString)
     assert(replayed.exists(_.contains("First answer")), replayed.toString)

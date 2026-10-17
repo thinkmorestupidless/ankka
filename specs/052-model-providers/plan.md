@@ -286,6 +286,20 @@ level that produces the detail: `Models.fromEnv` throwing the message the detail
 `ANKKA_MODEL_SCRIPT` refusals are today. The k3s suites do not grow. The mapping is in
 quickstart.md.
 
+## Implementation notes
+
+- **Templates unchanged.** `ankka.g8`'s `Main.scala` registers no agent and the CLI's templates
+  configure no model, so there is nowhere a commented second provider would read naturally; the
+  agents guide and the model providers page carry the example instead (T084).
+- **Responses are read back as JSON.** The OpenAI provider hands its request to the SDK as ankka's
+  JSON and reads the answer through the SDK's mapper; a streamed Responses answer is taken from its
+  completing event rather than the SDK's accumulator, which compatible servers feed less faithfully.
+- **Two defects found on the way, both fixed:** `AnthropicProvider` read a tool call's arguments with
+  `JsonValue.toString` (a Java map's rendering), so every Claude tool call reached ankka with empty
+  arguments; and a turn with a tool round counted its usage once per answer in the session.
+- **The shopping cart keeps its key guard** (T030): without a key the sample registers no assistant on
+  purpose.
+
 ## Complexity Tracking
 
 No constitution violations to justify.

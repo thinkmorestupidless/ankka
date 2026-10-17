@@ -70,11 +70,7 @@ final class RemoteAgent(
                   s"the plan names model '$named', which the sidecar has not configured",
                   ErrorCode.Unavailable
                 )
-              case (None, None) =>
-                effects.error(
-                  "the sidecar has no model: set ANTHROPIC_API_KEY, or ANKKA_MODEL_SCRIPT for a test",
-                  ErrorCode.Unavailable
-                )
+              case (None, None) => effects.error(models.withoutDefault, ErrorCode.Unavailable)
               case (Some(model), _) =>
                 val unknownTools  = plan.tools.filterNot(spec.tools.contains)
                 val unknownGuards = plan.guardrails.filterNot(spec.guardrails.contains)

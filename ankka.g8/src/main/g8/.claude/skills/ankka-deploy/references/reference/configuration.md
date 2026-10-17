@@ -339,17 +339,22 @@ port at 7627, and every one of them but readiness is mutual TLS with certificate
 
 - `ANTHROPIC_API_KEY` is the key for Anthropic's API. A Scala service reads it when it constructs its
   model provider. In a process-hosted service it belongs to the sidecar, which runs the agent loop; the
-  platform routes it there.
-- `ANKKA_MODEL_NAME` names the Anthropic model a process-hosted service's agents use when they name none.
-  It is read by the sidecar.
+  platform routes it there, and the sidecar configures the provider `anthropic` from it.
+- `OPENAI_API_KEY` is the key for OpenAI's API, read the same way; the sidecar configures `openai` from
+  it.
+- `ANKKA_MODEL_NAME` names the Anthropic model `anthropic` uses. It is read by the sidecar.
+- `ANKKA_MODEL_<NAME>_PROTOCOL`, `_URL`, `_MODEL`, `_KEY`, `_SHAPE` and `_PRESET` configure a model
+  provider named `<name>` on the sidecar: either protocol at any address, by hand or from a preset.
+- `ANKKA_MODEL_DEFAULT` names the provider that answers an agent naming none, when the sidecar has more
+  than one. [Model providers](model-providers.md) lists every setting, preset and refusal.
 - `ANKKA_MODEL_SCRIPT` gives the sidecar a scripted model instead of a real one, for tests: a JSON array
   of turns, or the path of a file holding one. Each turn is `{"text": "..."}`, a tool call
   `{"tool": "name", "arguments": {...}}`, several tool calls `{"tools": [...]}`, or `{"refusal": "..."}`,
   consumed in order; `{"when": "<part of the user's message>", "text": "..."}` is a standing rule used once
   the turns run out. With both a key and a script set, the key wins.
 
-Every variable beginning `ANTHROPIC_` or `ANKKA_MODEL_` in a process-hosted service's descriptor goes to the
-sidecar, never to the process.
+Every variable beginning `ANTHROPIC_`, `OPENAI_` or `ANKKA_MODEL_` in a process-hosted service's
+descriptor goes to the sidecar, never to the process.
 
 - `ANKKA_MCP_CONNECT_TIMEOUT` (`ankka.agent.mcp.connect-timeout`) is how long the runtime waits for each MCP
   server an agent lists to answer when the service starts, `10s` unless set; a server that does not answer in

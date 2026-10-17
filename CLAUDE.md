@@ -119,8 +119,13 @@ ANKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
 ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt shoppingCart/run
 ```
 
-`AnthropicProviderSuite` skips unless `ANTHROPIC_API_KEY` is set, and `JevProviderLiveSuite` unless
-`TYPESAFE_API_KEY` is. Everything else is deterministic and offline.
+`AnthropicProviderSuite` skips unless `ANTHROPIC_API_KEY` is set, `OpenAiProviderLiveSuite` unless
+`OPENAI_API_KEY` is, each preset's live suite (`GroqLiveSuite`, `MistralLiveSuite`, …) unless
+`ANKKA_MODEL_<PRESET>_KEY` is, `LocalModelServerSuite` unless `ANKKA_LOCAL_MODEL_URL` names a model server
+on the machine (`ANKKA_LOCAL_MODEL_NAME`, `ANKKA_LOCAL_MODEL_PROTOCOL` beside it), and
+`JevProviderLiveSuite` unless `TYPESAFE_API_KEY` is. These read the environment, not `-D`, so nothing
+needs forwarding to the forked test JVM. Everything else is deterministic and offline: a provider's wire
+is proven against `ModelStandIn` on loopback (`sbt 'agent/testOnly *OpenAiProviderSuite *PresetsSuite'`).
 
 **A full `sbt test` is an hour of wall-clock, and a laptop sleeps.** A sleeping Mac pauses Docker
 while the test JVM's deadlines keep counting. Run long suites under `caffeinate -i sbt test`, and read

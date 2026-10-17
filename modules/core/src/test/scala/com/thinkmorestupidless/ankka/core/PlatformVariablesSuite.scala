@@ -91,6 +91,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
       RuntimeOnlyPrefixes,
       Vector(
         "ANTHROPIC_",
+        "OPENAI_",
         "ANKKA_MODEL_",
         "ANKKA_DB_",
         "ANKKA_AUTH_",
@@ -164,6 +165,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
   test("runtime-only matches a prefix or an exact name") {
     assert(runtimeOnly("ANKKA_DB_HOST"))
     assert(runtimeOnly("ANTHROPIC_API_KEY"))
+    assert(runtimeOnly("OPENAI_API_KEY"), "the sidecar holds OpenAI's key")
+    assert(runtimeOnly("ANKKA_MODEL_EU_KEY"), "a named model provider's key is the sidecar's")
     assert(runtimeOnly("ANKKA_SECRET_KEY"))
     assert(runtimeOnly("ANKKA_AUTH_ISSUERS"))
     assert(runtimeOnly("ANKKA_SOCKET_KEEP_ALIVE"), "the platform's program holds the socket")

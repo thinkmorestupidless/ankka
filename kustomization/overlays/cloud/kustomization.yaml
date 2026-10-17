@@ -83,6 +83,11 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  # The installation's model server (feature 053), after the operator and the control plane, whose
+  # Deployments it tells where the server is. Placed and sized by models-size.yaml below; the
+  # declared models are its `models-declaration` ConfigMap, replaced here with a configMapGenerator
+  # of that name and `behavior: replace`. An installation that serves no models leaves it out.
+  - ../../components/models
   # After the control plane, whose Deployment it tells where the record of secret reads is kept.
   - ../../components/secret-reads
   - ../../components/console
@@ -124,8 +129,13 @@ images:
   - name: ankka-console
     newName: ghcr.io/thinkmorestupidless/ankka-console
     newTag: "0.0.0" # SET
+  - name: ankka-model-keeper
+    newName: ghcr.io/thinkmorestupidless/ankka-model-keeper
+    newTag: "0.0.0" # SET
 
 patches:
+  # The model server placed on an accelerator and sized for it (feature 053).
+  - path: models-size.yaml
   # The sidecar image the operator injects, from the registry at this release's tag.
   - path: sidecar-image.yaml
     target:
@@ -442,6 +452,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value
+      - select:
+          kind: StatefulSet
+          name: models
+        fieldPaths:
+          - spec.template.spec.containers.[name=keeper].env.[name=ANKKA_OTLP_ENDPOINT].value
   # Custom hostnames (feature 045): the ClusterIssuer that obtains each one's certificate, for both
   # Deployments, and the address an apex hostname's record points at, for the control plane.
   - source:

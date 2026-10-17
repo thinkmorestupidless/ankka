@@ -35,6 +35,10 @@ cluster-status:
 deploy:
     ./kustomization/deploy-local.sh
 
+# The same, with the installation's model server: Ollama and its keeper, serving qwen3:0.6b.
+deploy-models:
+    ANKKA_LOCAL_MODELS=on ./kustomization/deploy-local.sh
+
 # Create the cluster if it is not there, then deploy. The whole thing, from nothing.
 up:
     @kind get clusters 2>/dev/null | grep -qx {{cluster}} || just cluster-create

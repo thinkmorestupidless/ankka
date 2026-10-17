@@ -97,6 +97,26 @@ The script takes several minutes on its first run. In order, it:
 
 It ends by printing the control plane's address and the commands to use it.
 
+## Add the model server
+
+The local installation runs no model server unless asked. To add one, deploy with the flag set:
+
+```bash
+ANKKA_LOCAL_MODELS=on ./kustomization/deploy-local.sh
+just deploy-models               # the same
+```
+
+The script then applies the `local-models` overlay, which is the local overlay with the `models`
+component added, loads the keeper's image into the node, and waits for the model server to be ready. The
+first run fetches every declared model, so it is as slow as the download. The component declares one
+small model that runs on a laptop's processor; see
+[Models served by the installation](installation-models.md) for changing the declaration and naming a
+model from a service. Adding the model server restarts every running service once, because each is given
+the server's address.
+
+Deploying again without the flag applies the local overlay, which has no model server. The model server's
+namespace and the models it fetched stay until the cluster is deleted.
+
 ## Point the CLI at it
 
 ```bash
@@ -170,6 +190,7 @@ Deleting the cluster deletes every service and every database in it.
 |---|---|
 | `just up` | create the cluster if it does not exist, then deploy |
 | `just deploy` | run `deploy-local.sh` |
+| `just deploy-models` | run `deploy-local.sh` with the model server added |
 | `just cluster-create` | create the cluster from `kustomization/kind.yaml` |
 | `just cluster-status` | whether the cluster exists and what platform pods are running |
 | `just down` | delete the cluster and stop the local compose services |

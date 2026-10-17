@@ -89,6 +89,15 @@ feature also says what that feature does not do.
   task.
 - **No storage client in the SDKs.** A service keeps and reads objects with its own language's S3 client. A
   service run on a developer's own machine is given no bucket.
+- **Agents do not call installation models yet.** The [model server](../platform/installation-models.md)
+  serves its declared models to the services of the installation, and the platform holds a service back
+  until every model it names is served; no SDK resolves the preset `installation` to a model provider
+  yet, so an agent cannot be pointed at one.
+- **One model server per cluster, serving the models its administrator declared.** It runs one replica.
+  No service can fetch, upload, remove or make a model, and the server serves nobody outside the
+  installation. It serves chat completions only: no embeddings, and an agent's judgments are not made on
+  it. Its models are fetched from Ollama's registry, so an installation that cannot reach it supplies its
+  models some other way. A remote cluster has no model server of its own.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.

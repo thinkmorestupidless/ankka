@@ -1,0 +1,18 @@
+# Tells the control plane where the model server is, so `ankka installation status` can read its
+# document through the door with the control plane's own certificate. Absent, the status says
+# `model server: none`.
+#
+# The container's name must be the control plane's own, `ankka-controlplane`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-controlplane
+          env:
+            - name: ANKKA_MODELS_ADDRESS
+              value: "https://models.models-system.svc:8443"

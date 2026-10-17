@@ -34,7 +34,8 @@ reads one (`Caller.fromCertificate`):
 | anything else the authority issued | 403, the same |
 
 Admitted paths, forwarded to Ollama with the request's headers except `Authorization`, the body
-streamed in, the answer streamed out (server-sent events included), the status code passed through:
+read whole before it is forwarded (a chat request is small), the answer streamed out (server-sent events
+included), the status code passed through:
 
 | Method and path | Why a service needs it |
 |---|---|

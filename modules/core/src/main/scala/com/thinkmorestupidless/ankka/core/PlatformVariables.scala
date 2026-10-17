@@ -163,6 +163,16 @@ private[ankka] object PlatformVariables:
   val InstallationPrefix: String = "ANKKA_INSTALLATION_"
 
   /**
+   * Where the installation's model server is (feature 053): its door's address, which the
+   * platform's program calls with the service's own certificate. The operator renders it on every
+   * platform container when the installation has a model server; a descriptor never gives it.
+   *
+   * Deliberately outside `ANKKA_MODEL_`: that family is `ANKKA_MODEL_<NAME>_<FIELD>`, a model
+   * provider's settings, and any name under it would be read as a provider's.
+   */
+  val ModelsAddress: String = "ANKKA_MODELS_ADDRESS"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -202,7 +212,9 @@ private[ankka] object PlatformVariables:
     MachineJwksUrl,
     MachineJwksCa,
     // Which installation this is: the platform names it, so two services cannot both claim one.
-    Installation
+    Installation,
+    // Where the installation's model server is (feature 053).
+    ModelsAddress
   ) ++ SecretStoreSettings
 
   /**

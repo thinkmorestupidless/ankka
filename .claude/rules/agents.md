@@ -75,6 +75,14 @@ turns the declarations into the Scala agent's, the process answers `CheckGuardra
 `Decide` on `Client` (protocol 1.9) carries a decision; the process is never asked to run an MCP tool nor
 a call that awaits a decision. `TestMcpServer` (agent module, main scope) is the scripted server.
 
+An agent's model can be an **installation model** (feature 053): a provider whose preset is `installation`
+names only a model (`ANKKA_MODEL_<X>_PRESET=installation`, `ANKKA_MODEL_<X>_MODEL`) and takes its address
+from `ANKKA_MODELS_ADDRESS`, which the operator renders on the platform's container, and its client
+certificate from the service's own. No address and no key: the operator fails a descriptor that gives
+either, and holds the service until the model is served. Resolving the preset in the agent and the sidecar,
+and the capability check that tells an agent at its first call that its model cannot call tools or think,
+wait on feature 052's providers.
+
 ## Traps
 
 - **One `TestModelProvider` cannot serve both an agent and an async consumer.** The

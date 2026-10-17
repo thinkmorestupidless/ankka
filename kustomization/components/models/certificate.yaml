@@ -1,0 +1,33 @@
+# The model server's own certificate: the platform's identity, from the installation's service
+# authority, so every service already trusts it with the ca.crt it mounts and the keeper trusts every
+# service's. The keeper refuses to start on a certificate that does not name ankka://platform/models.
+#
+# A day, as every workload's certificate: the keeper re-reads the files when they change, so a
+# renewal restarts nothing.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-models
+  namespace: models-system
+spec:
+  secretName: ankka-models-tls
+  uris:
+    - ankka://platform/models
+  dnsNames:
+    - models
+    - models.models-system
+    - models.models-system.svc
+    - models.models-system.svc.cluster.local
+  usages:
+    - server auth
+  duration: 24h
+  renewBefore: 16h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: ankka-service
+    kind: ClusterIssuer
+    group: cert-manager.io

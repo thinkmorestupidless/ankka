@@ -351,6 +351,33 @@ port at 7627, and every one of them but readiness is mutual TLS with certificate
 Every variable beginning `ANTHROPIC_` or `ANKKA_MODEL_` in a process-hosted service's descriptor goes to the
 sidecar, never to the process.
 
+- `ANKKA_MODELS_ADDRESS` is where the installation's model server answers its services, set by the platform
+  on the platform's container of every instance when the installation has a model server, and on nothing
+  when it has none. A descriptor that sets it is refused. The operator and the control plane read the same
+  variable from the model server's component, and the operator also reads `ANKKA_MODELS_STATUS_URL`, the
+  model server's status document, and `ANKKA_MODELS_NAMESPACE`, where it runs. The three are set together
+  or not at all: the operator refuses to start with some and not others. See
+  [Models served by the installation](../platform/installation-models.md).
+
+### The model server's keeper
+
+The keeper beside Ollama in the `models` component reads its own variables, set by the component:
+
+- `ANKKA_KEEPER_ADDRESS` is the address services call, required; it is what the status document reports.
+- `ANKKA_KEEPER_OLLAMA` is where Ollama answers, `http://127.0.0.1:11434` unless set. Ollama is bound to
+  the pod's loopback, so the keeper is the only way in.
+- `ANKKA_KEEPER_DECLARATION` is the declaration file, `/etc/ankka/models/models.json` unless set: the
+  `models-declaration` ConfigMap's `models.json`, mounted.
+- `ANKKA_KEEPER_PORT` is the mutual TLS port services call, 8443 unless set; `ANKKA_KEEPER_STATUS_PORT`
+  serves the status document without TLS to the operator, 8080 unless set; and `ANKKA_KEEPER_PROBE_PORT`
+  answers the readiness probe, 7627 unless set.
+- `ANKKA_KEEPER_PASS_INTERVAL` is how often the keeper compares what is declared with what is held, `30s`
+  unless set. An edit to the declaration is also noticed when the mounted file changes.
+- `ANKKA_KEEPER_PARALLEL` is how many calls Ollama answers at once, 1 unless set, which the keeper reports; set it to the
+  same number as Ollama's own `OLLAMA_NUM_PARALLEL`.
+- `ANKKA_OTLP_ENDPOINT`, `ANKKA_OTLP_HEADERS` and `ANKKA_INSTALLATION` export the keeper's traces and metrics
+  as a service's are; with no endpoint nothing is exported.
+
 - `ANKKA_MCP_CONNECT_TIMEOUT` (`ankka.agent.mcp.connect-timeout`) is how long the runtime waits for each MCP
   server an agent lists to answer when the service starts, `10s` unless set; a server that does not answer in
   time fails the start, naming it.

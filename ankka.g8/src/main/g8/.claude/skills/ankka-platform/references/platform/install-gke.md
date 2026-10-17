@@ -96,6 +96,23 @@ longer than the bound to copy what changed and check every object, and gives the
 pause reaches its bound, gives the service its writes back in Garage and may be asked for again. The
 bucket in Garage is kept as it was.
 
+## The model server on an accelerator
+
+The [model server](installation-models.md) runs on a processor unless its overlay places it. On GKE an
+accelerator is a node pool with GPUs attached and Google's driver installed, made with the cluster rather
+than by the platform. The cloud overlay's `models-size.yaml` then places the model server on that pool and
+asks for one accelerator:
+
+```yaml
+nodeSelector:
+  cloud.google.com/gke-accelerator: nvidia-l4
+tolerations:
+  - { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }
+```
+
+The `nvidia.com/gpu` limit goes on the `ollama` container, which does the work; the keeper beside it
+needs no accelerator. Size the volume, `premium-rwo` in the example, for every declared model together.
+
 ## Locations
 
 A bucket is made in the installation's `cloudLocation`, or in its project's when the project names one:

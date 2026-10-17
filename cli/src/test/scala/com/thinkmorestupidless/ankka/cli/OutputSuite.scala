@@ -693,3 +693,67 @@ class OutputSuite extends munit.FunSuite:
     assert(json.contains(digest) && json.contains("\"rolledBackTo\":1"), json)
     assert(json.contains("\"kind\":\"rolled-back\""), json)
   }
+
+  // features/installation-models/serving.feature: "the status of the installation lists the
+  // models its model server serves".
+  test("the installation lists its model server's models, or says it has none (feature 053)") {
+    val withModels = Installation(
+      "0.12.0",
+      models = Some(
+        InstallationModels(
+          Vector(
+            ClusterModels(
+              "home",
+              "https://models.models-system.svc:8443",
+              ready = true,
+              Vector(
+                ModelLine("qwen3:0.6b", "served", Some("7d4f3a1c9b2e8f60aa11")),
+                ModelLine("llama3.2:1b", "fetching"),
+                ModelLine(
+                  "no-such-model:1b",
+                  "failed",
+                  detail = Some("pull model manifest: file does not exist")
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    val lines = Output.installation(withModels, Format.Table).linesIterator.toVector
+    val at    = lines.indexWhere(_.startsWith("model server (home): "))
+    assert(at > 0, lines.mkString("\n"))
+    assertEquals(
+      lines.drop(at),
+      Vector(
+        "model server (home): https://models.models-system.svc:8443, ready",
+        "  qwen3:0.6b       served    7d4f3a1c",
+        "  llama3.2:1b      fetching",
+        "  no-such-model:1b failed    pull model manifest: file does not exist"
+      )
+    )
+    assertEquals(
+      Output.installation(Installation("0.12.0"), Format.Table).linesIterator.toVector.last,
+      "model server: none"
+    )
+    val unread = Installation(
+      "0.12.0",
+      models = Some(
+        InstallationModels(
+          Vector(
+            ClusterModels(
+              "home",
+              "https://m:8443",
+              ready = false,
+              detail = Some("the model server is not answering")
+            )
+          )
+        )
+      )
+    )
+    assertEquals(
+      Output.installation(unread, Format.Table).linesIterator.toVector.last,
+      "model server (home): https://m:8443, not ready: the model server is not answering"
+    )
+    assert(Output.installation(withModels, Format.Json).contains("\"clusters\""))
+  }

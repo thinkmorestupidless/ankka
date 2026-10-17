@@ -1,0 +1,7 @@
+# Not labelled app.kubernetes.io/managed-by: ankka. That label is what admits a namespace's routes
+# to the Gateway and a trust bundle to its pods; the model server needs neither, since it is reached
+# only from inside the cluster and mounts its own certificate's ca.crt.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: models-system

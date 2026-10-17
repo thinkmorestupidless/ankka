@@ -299,9 +299,13 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   }
 
   test("no local-only address survives into the remote render") {
-    // 8443 is also the identity provider's own TLS port inside the cluster, which every overlay
-    // shares; what must not survive is kind's host port anywhere else.
-    val rendered = remote.replace("ankka-keycloak-service.ankka-auth.svc:8443", "")
+    // 8443 is also the identity provider's and the model server's own TLS port inside the cluster,
+    // which every overlay shares; what must not survive is kind's host port anywhere else. The model server's Ollama is
+    // bound to its own pod's loopback in every overlay, which is the pod's address, not the host's.
+    val rendered = remote
+      .replace("ankka-keycloak-service.ankka-auth.svc:8443", "")
+      .replace("models.models-system.svc:8443", "")
+      .replace("127.0.0.1:11434", "")
     for leaked <- Vector("sslip.io", "127.0.0.1", ":8443", "\"8443\"") do
       assert(!rendered.contains(leaked), s"'$leaked' leaked into the remote overlay")
   }
@@ -1347,4 +1351,174 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       assertEquals(byCnpgLabel.size, 2, s"$name: a project's databases and the control plane's")
       // Each is held to a namespace: a pod anywhere that labels itself cnpg.io/cluster is not admitted.
       assert(byCnpgLabel.forall(_.getNamespaceSelector != null), name)
+  }
+
+  // ── the installation's model server (feature 053, features/installation-models/) ──
+
+  private lazy val localModels = render("local-models")
+
+  private def namespaced(render: String, namespace: String): Vector[String] =
+    render
+      .split("(?m)^---$")
+      .toVector
+      .filter(d => d.linesIterator.exists(_ == s"  namespace: $namespace"))
+
+  private def modelServer(render: String): java.util.Map[String, Any] =
+    documentsOfKind(render, "StatefulSet")
+      .map(yamlOf)
+      .find(s => at(s, "metadata", "name") == "models")
+      .getOrElse(fail("no model server rendered"))
+
+  private def containersOf(statefulSet: java.util.Map[String, Any]) =
+    at(statefulSet, "spec", "template", "spec", "containers")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .asScala
+      .toVector
+
+  private def containerNamed(statefulSet: java.util.Map[String, Any], name: String) =
+    containersOf(statefulSet).find(_.get("name") == name).getOrElse(fail(s"no container $name"))
+
+  private def envOf(container: java.util.Map[String, Any]): Map[String, String] =
+    Option(container.get("env"))
+      .map(_.asInstanceOf[java.util.List[java.util.Map[String, Any]]].asScala.toVector)
+      .getOrElse(Vector.empty)
+      .flatMap(e => Option(e.get("value")).map(v => e.get("name").toString -> v.toString))
+      .toMap
+
+  test("a local platform not asked for the model server has none") {
+    assertEquals(namespaced(local, "models-system"), Vector.empty)
+    assert(!local.contains("ANKKA_MODELS_"), "a local render names a model server variable")
+    assert(
+      documentsOfKind(local, "StatefulSet")
+        .map(yamlOf)
+        .forall(at(_, "metadata", "name") != "models")
+    )
+  }
+
+  test("a local platform asked for the model server has it, loopback-bound, behind its keeper") {
+    val server = modelServer(localModels)
+    assertEquals(containersOf(server).map(_.get("name")), Vector("ollama", "keeper"))
+    val ollama = envOf(containerNamed(server, "ollama"))
+    val keeper = envOf(containerNamed(server, "keeper"))
+    assertEquals(ollama.get("OLLAMA_HOST"), Some("127.0.0.1:11434"))
+    assertEquals(ollama.get("OLLAMA_KEEP_ALIVE"), Some("-1"))
+    assertEquals(keeper.get("ANKKA_KEEPER_PARALLEL"), ollama.get("OLLAMA_NUM_PARALLEL"))
+    assertEquals(keeper.get("ANKKA_KEEPER_OLLAMA"), Some("http://127.0.0.1:11434"))
+    assertEquals(
+      keeper.get("ANKKA_OTLP_ENDPOINT"),
+      Some(platformValue(localModels, "otlpEndpoint")),
+      "the keeper does not export where the installation does"
+    )
+    // Ollama declares no port, so nothing can route to it.
+    assertEquals(Option(containerNamed(server, "ollama").get("ports")), None)
+    assertEquals(at(server, "spec", "template", "spec", "automountServiceAccountToken"), false)
+    val service = documentsOfKind(localModels, "Service")
+      .map(yamlOf)
+      .find(s =>
+        at(s, "metadata", "name") == "models" && at(s, "metadata", "namespace") == "models-system"
+      )
+      .getOrElse(fail("no model server Service"))
+    assertEquals(at(service, "spec", "publishNotReadyAddresses"), true)
+    val ports =
+      at(service, "spec", "ports").asInstanceOf[java.util.List[java.util.Map[String, Any]]].asScala
+    assertEquals(ports.map(_.get("port")).toSet, Set[Any](8443, 8080))
+    // Each patch adds a variable to the container of the Deployment's own name, never a container.
+    assertEquals(variablesNamed(localModels, "ankka-operator", "ANKKA_MODELS_ADDRESS").size, 1)
+    assertEquals(variablesNamed(localModels, "ankka-operator", "ANKKA_MODELS_STATUS_URL").size, 1)
+    assertEquals(variablesNamed(localModels, "ankka-operator", "ANKKA_MODELS_NAMESPACE").size, 1)
+    assertEquals(variablesNamed(localModels, "ankka-controlplane", "ANKKA_MODELS_ADDRESS").size, 1)
+    for name <- Vector("ankka-operator", "ankka-controlplane") do
+      assertEquals(
+        deploymentNamed(localModels, name).getSpec.getTemplate.getSpec.getContainers.asScala
+          .map(_.getName)
+          .toVector,
+        deploymentNamed(local, name).getSpec.getTemplate.getSpec.getContainers.asScala
+          .map(_.getName)
+          .toVector,
+        s"$name gained a container"
+      )
+    // Nothing else differs: every other object renders exactly as the local overlay's.
+    val others = localModels
+      .split("(?m)^---$")
+      .toVector
+      .filterNot(d =>
+        d.linesIterator.exists(_ == "  namespace: models-system") ||
+          d.linesIterator.exists(_ == "  name: models-system") ||
+          d.linesIterator
+            .exists(l => l == "  name: ankka-operator" || l == "  name: ankka-controlplane")
+      )
+    val before = local
+      .split("(?m)^---$")
+      .toVector
+      .filterNot(d =>
+        d.linesIterator
+          .exists(l => l == "  name: ankka-operator" || l == "  name: ankka-controlplane")
+      )
+    assertEquals(others.size, before.size)
+  }
+
+  test("the model server's certificate is the platform's, PKCS8, from an issuer that exists") {
+    for (render, name) <- Seq(remote -> "cloud", localModels -> "local-models") do
+      val certificate = documentsOfKind(render, "Certificate")
+        .map(yamlOf)
+        .find(c => at(c, "metadata", "name") == "ankka-models")
+        .getOrElse(fail(s"$name: no model server certificate"))
+      assertEquals(at(certificate, "spec", "uris"), java.util.List.of("ankka://platform/models"))
+      assertEquals(at(certificate, "spec", "privateKey", "encoding"), "PKCS8")
+      val issuer = at(certificate, "spec", "issuerRef", "name")
+      assert(
+        documentsOfKind(render, "ClusterIssuer")
+          .map(yamlOf)
+          .exists(i => at(i, "metadata", "name") == issuer),
+        s"$name: the model server's certificate names '$issuer', which is not rendered"
+      )
+  }
+
+  test("the model server is placed and sized by the installation's own settings") {
+    val server = modelServer(remote)
+    val pod    = at(server, "spec", "template", "spec")
+    assert(
+      at(pod, "nodeSelector")
+        .asInstanceOf[java.util.Map[String, Any]]
+        .containsKey("cloud.google.com/gke-accelerator")
+    )
+    assert(
+      at(pod, "tolerations").toString.contains("nvidia.com/gpu"),
+      at(pod, "tolerations").toString
+    )
+    val ollama = containerNamed(server, "ollama")
+    assert(
+      at(ollama, "resources", "limits")
+        .asInstanceOf[java.util.Map[String, Any]]
+        .containsKey("nvidia.com/gpu")
+    )
+    val keeper = containerNamed(server, "keeper")
+    assert(
+      !at(keeper, "resources", "limits")
+        .asInstanceOf[java.util.Map[String, Any]]
+        .containsKey("nvidia.com/gpu"),
+      "the keeper was given the accelerator"
+    )
+    assertEquals(
+      envOf(keeper).get("ANKKA_KEEPER_PARALLEL"),
+      envOf(ollama).get("OLLAMA_NUM_PARALLEL")
+    )
+    assertNotEquals(
+      envOf(ollama).get("OLLAMA_NUM_PARALLEL"),
+      Some("1"),
+      "the size patch did not apply"
+    )
+    // The size patch restates the claim whole, so the access mode must survive it.
+    val claim = at(server, "spec", "volumeClaimTemplates")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .asScala
+      .head
+    assert(at(claim, "spec", "storageClassName") != null)
+    assertEquals(at(claim, "spec", "accessModes"), java.util.List.of("ReadWriteOnce"))
+    assert(
+      keeper.get("image").toString.startsWith("ghcr.io/thinkmorestupidless/ankka-model-keeper:"),
+      keeper.get("image").toString
+    )
+    assertEquals(variablesNamed(remote, "ankka-operator", "ANKKA_MODELS_ADDRESS").size, 1)
+    assertEquals(variablesNamed(remote, "ankka-controlplane", "ANKKA_MODELS_ADDRESS").size, 1)
   }

@@ -74,7 +74,7 @@ description that the served models are listed.
 
 | Where | When | Text |
 |---|---|---|
-| `ankka services apply` | the descriptor gives `ANKKA_MODELS_ADDRESS` | `ANKKA_MODELS_ADDRESS is set by the platform and cannot be given by a descriptor` |
+| `ankka services apply` | the descriptor gives `ANKKA_MODELS_ADDRESS` | `env var 'ANKKA_MODELS_ADDRESS' is set by the platform and cannot be declared` |
 | `services get` detail | names an unserved model | `installation model "mistral:7b" is not served; served: qwen3:0.6b` |
 | `services get` detail | no server on this cluster | `this cluster has no model server` |
 | `services get` detail | address or key beside the preset | `an installation model takes no address (ANKKA_MODEL_LOCAL_URL)` |

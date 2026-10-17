@@ -349,3 +349,27 @@ in `ranElsewhere` as waiting on 050. The spec's Dependencies say so.
 | S2 | the OpenAI SDK's client cannot present a `RotatingTls` certificate, or the door cannot read it | `sidecar/src/test/…/ModelDoorSpike` |
 | S3 | `qwen3:0.6b` does not call a tool through Chat Completions on a CPU within two minutes | `OllamaSpike` |
 | S4 | the probe on 7627 is refused under the component's policy | `ModelServerStack` on k3s, first run |
+
+### What the spikes found (2026-10-17, `ollama/ollama:0.40.6`, arm64, OrbStack on a 10-core Mac)
+
+- **S1, keep-alive: confirmed.** `POST /api/generate` with no prompt and `keep_alive: -1` loads
+  `qwen3:0.6b` in 6.6 s and answers `done_reason: "load"`; `/api/ps` reports `expires_at` in the year
+  2319, and the model is still listed after six minutes idle, past Ollama's five-minute default. A
+  negative number is read as forever, so the keeper's load needs no duration string. Fetching the model
+  took about ten seconds on a home connection.
+- **S1, queue full: not measured.** Six concurrent long completions with `OLLAMA_MAX_QUEUE=2` and one
+  parallel call ran past the ten-minute client timeout before any answer arrived, so what Ollama answers
+  for a full queue is still unknown. The keeper does not depend on it: a refusal reaches the caller with
+  its status passed through, and the waiting gauge counts calls the keeper itself holds. To settle on a
+  faster machine or with a short prompt.
+- **S3, a tool call on a CPU: the call is right, the time is not.** Through Chat Completions with
+  `max_tokens: 200`, no answer came within two minutes in the spike, nor within five in a second probe:
+  qwen3 thinks by default, and the thinking is generated before the answer. Through Ollama's own
+  `/api/chat` with `think: false` the model answered with the correct call,
+  `lookup_order({"order": 42})`, in 120 s: 11 s loading, 7 s reading the prompt and 102 s for 21 tokens,
+  with the machine also running a build. So a 0.6b model does call tools, and its speed on a CPU in a
+  container is the machine's: the documentation states no latency, says the CPU model proves the path,
+  and sends real use to an accelerator. What the preset sends to turn thinking down (`reasoning_effort`,
+  or `think` where the protocol carries it) is feature 052's provider, and is checked there.
+- **S2: not run.** It needs 052's OpenAI client. `DoorSuite` proves the door's half with the JDK's
+  client and `TestPki` certificates: a service certificate admitted and streamed, every other refused.

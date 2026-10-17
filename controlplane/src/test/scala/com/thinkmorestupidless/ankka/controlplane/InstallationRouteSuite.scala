@@ -1,9 +1,19 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.thinkmorestupidless.ankka.controlplane.api.{CloudInstallation, Installation}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  CloudInstallation,
+  ClusterModels,
+  Installation,
+  InstallationModels,
+  ModelLine
+}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
-import com.thinkmorestupidless.ankka.controlplane.deploy.{CloudConfig, DeployConfig}
+import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  CloudConfig,
+  DeployConfig,
+  InstallationModelsReader
+}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
@@ -32,24 +42,45 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
   private var testKit: AnkkaTestKit = null
   private var withCloud: String     = ""
   private var withoutCloud: String  = ""
+  private var withModels: String    = ""
+  private var failingModels: String = ""
+
+  private val served = InstallationModels(
+    Vector(
+      ClusterModels(
+        "home",
+        "https://models.models-system.svc:8443",
+        ready = true,
+        Vector(ModelLine("qwen3:0.6b", "served", Some("7d4f3a1c")))
+      )
+    )
+  )
 
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   override def beforeAll(): Unit =
-    def server(c: Option[CloudConfig]) =
+    def server(
+        c: Option[CloudConfig],
+        models: InstallationModelsReader = InstallationModelsReader.none
+    ) =
       HttpServer.at("127.0.0.1", 0)(
         ControlPlane.endpoints(
           identity.acl(),
           DeployConfig.default,
           auth = Some(identity.config()),
-          cloud = c
+          cloud = c,
+          installationModels = models
         )*
       )
     val a = server(Some(cloud))
     val b = server(None)
-    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), a, b))
+    val m = server(None, () => Some(served))
+    val f = server(None, () => throw IllegalStateException("the reader broke"))
+    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), a, b, m, f))
     withCloud = s"http://127.0.0.1:${a.boundPort.getOrElse(fail("no port"))}"
     withoutCloud = s"http://127.0.0.1:${b.boundPort.getOrElse(fail("no port"))}"
+    withModels = s"http://127.0.0.1:${m.boundPort.getOrElse(fail("no port"))}"
+    failingModels = s"http://127.0.0.1:${f.boundPort.getOrElse(fail("no port"))}"
     // An organization the owner owns; the stranger is a member of nothing.
     val created = send(withCloud, "POST", "/organizations/acme", Some(owner), """{"name":"Acme"}""")
     assert(created.statusCode / 100 == 2, created.body)
@@ -90,6 +121,20 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
     val seen = installation(withoutCloud, stranger)
     assert(seen.platformVersion.nonEmpty)
     assertEquals(seen.cloud, None)
+  }
+
+  test("the status of the installation lists the models its model server serves") {
+    assertEquals(installation(withModels, stranger).models, Some(served))
+  }
+
+  test("an installation without the model server says nothing of one") {
+    assertEquals(installation(withoutCloud, stranger).models, None)
+  }
+
+  test("a model server that cannot be read leaves the rest of the installation's status standing") {
+    val seen = installation(failingModels, stranger)
+    assert(seen.platformVersion.nonEmpty)
+    assertEquals(seen.models, None)
   }
 
   test("a member who owns no organization sees the provider, account and location, and no key") {

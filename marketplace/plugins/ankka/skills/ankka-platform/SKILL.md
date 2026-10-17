@@ -65,6 +65,14 @@ shared by every installation and one overlay per cluster carrying only what diff
 10. **Platform administrators are a realm role, not a member.** They may operate any organization; the
     CLI's tenancy administration (create, invite, disable, delete) stays on the command line and is
     absent from `ankka mcp` on purpose.
+11. **The installation's model server serves what its administrator declared, to its services only.**
+    It is the `models` component: Ollama bound to its pod's loopback and a keeper beside it that is
+    the only way in, over mutual TLS admitting service certificates alone. The declaration is the
+    `models-declaration` ConfigMap's `models.json`; the keeper fetches what is added, one at a time,
+    and removes what is dropped. A service names a model through a provider whose preset is
+    `installation` and gives no address or key; it starts only once every model it names is served,
+    and `services get` says why it waits or failed. Adding the component rolls every service once,
+    since every platform container is given the door's address.
 
 ## Operating checklist
 
@@ -111,6 +119,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
 - `references/platform/broker.md` — The Kafka an installation provides for every project — what the component installs, how a service is known by its certificate, why a project's topics are its own, what is kept, sizing it, and running without it.
 - `references/platform/object-storage.md` — How the platform gives a service a bucket of its own, the variables any S3 client needs to reach it, why buckets are never deleted, how a bucket is made reachable for signed URLs, and how to bring your own store.
+- `references/platform/installation-models.md` — The model server an installation can run for its services — what it is and is not, declaring the models it serves, how a service names one, who may call it, what a member is told when a model is not served, and its status.
 - `references/platform/cloud-provider.md` — How an installation names its one cloud account, the provider process that makes buckets, identities and keys there so the operator never holds that power, the six cloud requests, and how a credential is written once.
 - `references/platform/secrets.md` — Where an installation keeps secrets (each service's database or Google Secret Manager), the secret key, project secrets a descriptor takes by secretKeyRef, the record of every read, and moving to Secret Manager.
 - `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.

@@ -1,8 +1,8 @@
-Feature: Two model providers in one service
+Feature: More than one model provider in one service
   A service talks to models of more than one model provider. A Scala service hands the platform
   the model providers it built and names one as its default model; a service written in another
-  language is given each model provider's key, and the platform's own program holds the keys and
-  talks to the models. An agent, an autonomous agent's definition and a blueprint's worker each
+  language is given each model provider's settings, and the platform's own program holds the keys
+  and talks to the models. An agent, an autonomous agent's definition and a blueprint's worker each
   name a model provider, or none and are answered by the default model. A session is the
   platform's, not a model provider's: an agent on one continues what an agent on another began,
   and the session's model usage is both added together.
@@ -21,6 +21,15 @@ Feature: Two model providers in one service
     When a caller sends a message to "triage"
     Then the message is answered by the model provider "openai"
     And the model provider "anthropic" is not asked
+
+  Scenario: a service with the key of one model provider alone refuses only the agent that names the other
+    Given a service "support" written in "Scala" with the key of the model provider "anthropic" and no key for "openai"
+    And an agent "triage" of "support" that names the model provider "openai"
+    And an agent "drafting" of "support" that names the model provider "anthropic"
+    When a caller sends one message to "triage" and one to "drafting"
+    Then the message to "drafting" is answered
+    And the caller of "triage" is told the model provider "openai" is unavailable
+    And "support" is ready
 
   Scenario: an OpenAI model's refusal is the caller's refusal, not an answer
     Given an agent "triage" that names the model provider "openai"
@@ -85,6 +94,7 @@ Feature: Two model providers in one service
     And a turn of an agent on the model provider "openai" in the session "s-1"
     When a reader reads the model usage of the session "s-1"
     Then the model usage is the two turns' model usage added together
+    And the model usage of each turn is recorded under the name of its model provider and the name of the model that answered it
 
   Scenario: a blueprint runs one worker on each model provider
     Given a service with the model providers "anthropic" and "openai", and "anthropic" its default model
@@ -98,3 +108,17 @@ Feature: Two model providers in one service
     And an autonomous agent "operator" whose definition names the model provider "openai"
     When a caller assigns a task to "operator"
     Then every iteration of the task is a call to the model provider "openai"
+
+  Scenario: a tool call made while the model reasons is sent back with the provider state the model asked to keep
+    Given an agent "triage" that names the model provider "openai" with a tool "lookup"
+    And a model that answers a message with a tool call of "lookup" and provider state it asks to be given back
+    When a caller sends a message to "triage"
+    Then the tool "lookup" runs
+    And the model is sent the result of "lookup" together with the provider state it asked to keep
+    And the caller is answered
+
+  Scenario: provider state is never recorded in the session
+    Given a turn of an agent on the model provider "openai" in the session "s-1" in which the model asked to keep provider state
+    When a reader reads the session "s-1"
+    Then the session holds the turn's messages, tool calls and results, and no provider state
+    And the first call of the next turn in "s-1" carries no provider state

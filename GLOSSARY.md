@@ -790,8 +790,8 @@ Of a request: answered that a verified token is needed and none was accepted, so
 handler was not run.
 
 ### unavailable
-Of a request: answered that the service cannot verify tokens at present and the request
-should be sent again later.
+Of a request: answered that the service cannot reach what it needs at present, the verifier of
+its tokens or a model provider, and the request should be sent again later.
 
 ### tolerance
 How long a service goes on verifying with the keys it already holds when an issuer's
@@ -1360,12 +1360,36 @@ A check on what goes into an agent's model or comes out of it, declared by the
 developer, which refuses an interaction it does not allow. A refusal by a guardrail is a refusal.
 
 ### model provider
-*Proposed.* Whose models a service talks to, behind one seam of the platform's: Anthropic's or
-OpenAI's, or the scripted model a test gives. A Scala service builds each it uses; a service
-written in another language is given each one's key, and the platform's own program talks to it.
-It is not a judgment provider.
+*Proposed.* A model a service talks to, under a name the service chose, behind one seam of the
+platform's: a vendor's own, or any server speaking one of the two model protocols the platform
+knows, or the scripted model a test gives. A Scala service builds each it uses; a service written in
+another language is given each one's settings, and the platform's own program talks to it. It is not
+a judgment provider.
 
 Avoid: vendor, LLM provider
+
+### model protocol
+*Proposed.* One of the two shapes the platform speaks to a model in: Anthropic's or OpenAI's. Every
+model provider is one of the two pointed at an address. It is not the protocol a process speaks to
+the platform's own program.
+
+Avoid: wire protocol, API shape
+
+### preset
+*Proposed.* A named configuration of a model provider the platform has tested: the model protocol,
+the address, whether a key is needed, a default model, and what the address does not accept. A
+service names a preset and gives what the preset leaves open.
+
+### provider state
+*Proposed.* An opaque value a model provider attaches to what the model answered within a turn, which
+the platform hands back on the next call of that turn and never records in the session; what lets a
+model that reasons be given back its reasoning with a tool's result.
+
+Avoid: reasoning items, encrypted reasoning
+
+### effort
+*Proposed.* How hard a model may think before it answers, from low to the most it offers; a model
+provider sends it as what its model accepts and withholds it from a model that offers none.
 
 ### default model
 *Proposed.* The model provider an agent, a worker or a definition that names none is answered by:
@@ -2860,4 +2884,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens

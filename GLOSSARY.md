@@ -665,8 +665,8 @@ a descriptor states, and brings back nothing the service's database held.
 Avoid: revert, rewind, undo
 
 ### digest
-Of a descriptor, or of a service secret's value: a short value that two share exactly when they
-are the same.
+Of a descriptor, of a service secret's value, or of a served model as fetched: a short value that two
+share exactly when they are the same.
 
 Avoid: hash, checksum
 
@@ -2771,6 +2771,61 @@ What carries a replicated entity's records and forwarded commands between
 installations, behind the seam the runtime defines; the runtime ships one of its own for tests and
 for services on one machine, and `ankka-replication` supplies the one between installations.
 
+## Installation models
+
+### model provider
+*Proposed.* A model a service talks to, under a name the service chose, behind one seam of the
+platform's: a vendor's own, or any server speaking one of the two protocols the platform knows, or
+the scripted model a test gives. A Scala service builds each it uses; a service written in another
+language is given each one's settings, and the platform's own program talks to it. It is not a
+judgment provider.
+
+Avoid: vendor, LLM provider
+
+### preset
+*Proposed.* A named configuration of a model provider the platform has tested: the protocol, the
+address, whether a key is needed, a default model, and what the endpoint does not accept. A service
+names a preset and gives what the preset leaves open.
+
+### model server
+The one server of a cluster that serves installation models: a platform component the
+installation runs, declared by a platform administrator, answering only a holder of a service
+certificate of the installation. An installation may have none; one with remote clusters may have
+one per cluster.
+
+Avoid: inference server, Ollama, local model server, in-cluster model
+
+### installation model
+A model a cluster's model server serves, declared by name by a platform administrator,
+which a service names as a model provider through the preset "installation" with the model's name
+and nothing else: no address and no key.
+
+Avoid: local model, self-hosted model, in-cluster model, private model
+
+### keeper
+*Proposed.* The platform's own program beside the model server in its pod: the door only a holder
+of a service certificate can open, the loop that fetches, loads and removes models as the
+declaration says, the status it answers, and the metrics it sends. The model server itself listens
+to the keeper alone.
+
+Avoid: model proxy, model sidecar
+
+### served model
+*Proposed.* A declared model the model server has fetched and holds ready to answer; the only state
+of a model in which a service naming it starts. A declared model is still being fetched, a served
+model, or failed with a reason.
+
+Avoid: loaded model, pulled model, available model
+
+### effort
+*Proposed.* How hard a model may think before it answers, from low to the most it offers; a model
+provider sends it as what its model accepts and withholds it from a model that offers none.
+
+### capability
+*Proposed.* Of a model: something it can do that an agent may need, such as "tool calling" or
+"thinking". A model server says what each of its models can do, and an agent that needs a
+capability its model lacks is told so at its first call.
+
 ## Everyday words
 
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
@@ -2847,4 +2902,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight

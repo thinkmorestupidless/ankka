@@ -98,6 +98,32 @@ owned by the service, at `storage.<base>` with the bucket in the path, naming th
 plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
 limitations. `docs/platform/object-storage.md` is the contract with a service.
 
+## The installation's model server is a component, and a keeper is its only door
+
+Feature 053. The `models` component (`kustomization/components/models`) is one StatefulSet in
+`models-system`, outside the `ankka-<name>` pattern: Ollama bound to the pod's loopback, with no ports
+declared, and the keeper (`model-keeper`, its own image `ankka-model-keeper`) beside it. The keeper's
+door, 8443, is mutual TLS from the certificate `ankka-models` (`ankka://platform/models`, issued by
+`ankka-service`) and admits any service's certificate and the control plane's; it forwards five Ollama
+paths and nothing else, drops `Authorization`, and refuses the gateway and mount paths. Its status document,
+`/ankka/models` (`ModelServerDocument` in `core`, standard library only, compiled again by the operator
+through `unmanagedSources` as `PlatformVariables` is), is on the door and on plain 8080, which the network
+policy opens to the operator alone. The declaration is the `models-declaration` ConfigMap's `models.json`;
+the keeper's loop compares it with `/api/tags` on a content fingerprint, fetches one model at a time with
+backoff, removes what is dropped, and loads each with `keep_alive: -1`.
+
+The component patches the operator with `ANKKA_MODELS_ADDRESS`, `ANKKA_MODELS_STATUS_URL` and
+`ANKKA_MODELS_NAMESPACE` (all or none, `ModelServerSettings`), and the control plane with the address.
+With them, `Rendering` puts `ANKKA_MODELS_ADDRESS` on every platform container (embedded, wasm, a process's
+sidecar; never web or the process), so **adding the component rolls every service once**.
+`InstallationModels.decide` reads the descriptor's `ANKKA_MODEL_<X>_PRESET = installation` providers and
+the status document (`ModelServerDocumentReader`, two seconds) and holds the Deployment until each named
+model is served, failing on an address or key given, no server, or a failed model, and requeueing a wait at
+30s; `status.installationModels` carries the block. The control plane reads the door with its own
+certificate (`InstallationModelsReader`) into `GET /installation`'s `models`. `ANKKA_LOCAL_MODELS=on`
+(`just deploy-models`) deploys the `local-models` overlay; the cloud overlay sizes it with
+`models-size.yaml`, accelerator limits on the `ollama` container.
+
 ## A cloud request is rendered like a `KafkaTopic` and answered by a provider
 
 What needs power over a cloud account (a bucket, a cloud identity, a key) is never the operator's to
@@ -647,6 +673,23 @@ ConfigMap for nothing.
   control plane's default copies; `BrokerShapeSuite` asserts each value from the parsed render, and that
   the local overlay still says one everywhere. `BrokerStack.install(k3s, nodes = 3)` makes the same
   shape on k3s and fails if a line it rewrites is missing from `kafka.yaml`.
+- **Ollama reads a negative `keep_alive` as forever, and says so as a date in 2319.** `/api/ps` reports
+  `expires_at` around 2319 for a model loaded with `keep_alive: -1`; that is the model held, not a clock
+  bug. A zero or a duration unloads it on its own, so the keeper loads with -1 and a test of "stays
+  served" must look past Ollama's default five minutes (`OllamaSpike`'s S1 idles six).
+- **Ollama's image is about 7 GB uncompressed.** The first local deploy with the model server and every
+  fresh k3s node pull it before anything can be fetched; a rollout wait shorter than 900s fails on the
+  pull, not on the platform. It is pinned by tag in the component, never `latest`.
+- **A client with no certificate is refused after the handshake under TLS 1.3.** The server's refusal
+  arrives after the client thinks it is connected, so the client sees a closed connection on its first
+  read, not a handshake exception. A door test counts any `IOException` with no HTTP answer as refused, as
+  the proxy suites do.
+- **An accelerator limit goes on the container that does the work.** The model server's sizing patch
+  names `ollama` for GPUs, CPU and memory; the keeper's 256Mi is unchanged. A limit on the keeper schedules
+  the pod on an accelerator node and leaves Ollama on the processor.
+- **The keeper's OTLP endpoint is filled by the overlay, as a service's is not.** The keeper is not an
+  `AnkkaService`, so the operator renders nothing for it; the component sets `ANKKA_OTLP_ENDPOINT` to `""`
+  and each overlay replaces it from `ankka-platform.otlpEndpoint`.
 
 ## Backups and recovery (feature 041)
 

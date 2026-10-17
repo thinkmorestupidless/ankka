@@ -48,11 +48,22 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_MACHINE_ISSUER",
         "ANKKA_MACHINE_JWKS_URL",
         "ANKKA_MACHINE_JWKS_CA",
-        "ANKKA_INSTALLATION"
+        "ANKKA_INSTALLATION",
+        // Where the installation's model server is (feature 053).
+        "ANKKA_MODELS_ADDRESS"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
     assert(PlatformOnly.contains(GrpcPort))
+  }
+
+  test("the model server's address is the platform's alone, and no model provider's setting") {
+    assert(platformOnly(ModelsAddress))
+    assert(!runtimeOnly(ModelsAddress))
+    assert(!SharedPrefixes.exists(ModelsAddress.startsWith))
+    // Feature 053's research R4: a model provider's settings are `ANKKA_MODEL_<NAME>_<FIELD>`, so a
+    // name under that prefix would be read as a provider called `S…`. One letter keeps it out.
+    assert(!ModelsAddress.startsWith("ANKKA_MODEL_"))
   }
 
   test("the installation's cloud is the platform's to name, and no program's to read for itself") {

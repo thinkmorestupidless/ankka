@@ -394,6 +394,24 @@ final case class BrokerStatus(
 )
 
 /**
+ * Whether the installation models a service names are served (feature 053). Absent when the service
+ * names none, so no status written before the feature changes.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class InstallationModelsStatus(
+    /** "Ready", "Waiting" or "Failed". */
+    phase: String = "",
+    /** Each model the service names and the digest served, once Ready. */
+    models: List[ServedModel] = Nil,
+    /** Why the service is waiting or failed. Never a secret. */
+    detail: Option[String] = None
+)
+
+/** One installation model a service names, and the digest the model server serves it at. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ServedModel(name: String = "", digest: String = "")
+
+/**
  * What the operator observed.
  *
  * Written to the status subresource, and only by the operator — its RBAC grants
@@ -445,7 +463,12 @@ final case class AnkkaServiceStatus(
      * One entry per custom hostname on the spec, in its order, while the service is exposed
      * (feature 045). Empty otherwise.
      */
-    hostnames: List[HostnameStatus] = Nil
+    hostnames: List[HostnameStatus] = Nil,
+    /**
+     * Whether the installation models the service names are served (feature 053). Absent when it
+     * names none.
+     */
+    installationModels: Option[InstallationModelsStatus] = None
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: AnkkaServiceStatus): Boolean =

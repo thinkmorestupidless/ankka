@@ -881,8 +881,38 @@ object Output:
             "access log" -> s.auditLog
           )
         }
-        (("platform" -> installation.platformVersion) +: (cloud ++ secrets))
+        val fields = (("platform" -> installation.platformVersion) +: (cloud ++ secrets))
           .map((label, value) => f"$label%-10s $value")
+          .mkString("\n")
+        fields + "\n" + models(installation.models)
+
+  /**
+   * The model server of each cluster and what it serves (feature 053), or `model server: none`:
+   *
+   * {{{
+   * model server (home): https://models.models-system.svc:8443, ready
+   *   qwen3:0.6b       served   7d4f3a1c
+   *   no-such-model:1b failed   pull model manifest: file does not exist
+   * }}}
+   */
+  def models(models: Option[InstallationModels]): String =
+    models.filter(_.clusters.nonEmpty) match
+      case None => "model server: none"
+      case Some(m) =>
+        m.clusters
+          .map { c =>
+            val state = if c.ready then "ready" else s"not ready${c.detail.fold("")(d => s": $d")}"
+            val head  = s"model server (${c.cluster}): ${c.server}, $state"
+            val nameWidth  = c.models.map(_.name.length).maxOption.getOrElse(0)
+            val stateWidth = c.models.map(_.state.length).maxOption.getOrElse(0)
+            val lines = c.models.map { line =>
+              val tail = line.state match
+                case "served" => line.digest.map(_.stripPrefix("sha256:").take(8)).getOrElse("")
+                case _        => line.detail.getOrElse("")
+              s"  ${line.name.padTo(nameWidth, ' ')} ${line.state.padTo(stateWidth, ' ')}  $tail".stripTrailing
+            }
+            (head +: lines).mkString("\n")
+          }
           .mkString("\n")
 
   private val settingsCodec: JsonValueCodec[Settings] =

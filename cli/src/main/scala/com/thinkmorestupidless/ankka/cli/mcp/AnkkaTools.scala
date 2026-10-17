@@ -160,7 +160,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "installation_status",
       "Installation backups",
-      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted.",
+      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted; and its model server, with each model it serves and its state.",
       schema(Nil),
       readOnly = true,
       idempotent = true

@@ -227,7 +227,10 @@ object Rendering:
       project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] = None,
       // Other projects' topics granted to this service (feature 040), read by the caller from
       // every `AnkkaProject`: entries on its broker user, and nothing else.
-      granted: Vector[GrantedTopic] = Vector.empty
+      granted: Vector[GrantedTopic] = Vector.empty,
+      // Why the service's installation models hold its Deployment back (feature 053), decided by
+      // the caller from the model server's status; `None` when they are served or none is named.
+      modelsHold: Option[String] = None
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -279,7 +282,7 @@ object Rendering:
             .when(
               ObjectStorage
                 .withheld(objectStoragePlan, spec, settings, ObjectStorage.reported(resource))
-                .isEmpty && secretHold.isEmpty
+                .isEmpty && secretHold.isEmpty && modelsHold.isEmpty
             )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
@@ -306,7 +309,11 @@ object Rendering:
                         ObjectStorage.inPlace(resource)
                       )
                     ),
-                    settings.secretStore.env
+                    settings.secretStore.env ++
+                      // The model server's door (feature 053), on every platform container while
+                      // the installation has one, so a service can name a model with no second
+                      // rollout for the variable.
+                      settings.models.map(m => PlatformVariables.ModelsAddress -> m.address)
                   ),
                   deployed,
                   declaredBrokers

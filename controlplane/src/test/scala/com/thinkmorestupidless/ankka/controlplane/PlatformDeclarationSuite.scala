@@ -97,6 +97,26 @@ final class PlatformDeclarationSuite extends munit.FunSuite:
     )
   }
 
+  test("there is one model server document, and the operator compiles it") {
+    val copies =
+      scalaFiles(repoRoot).filter(_.getFileName.toString == "ModelServerDocument.scala")
+    assertEquals(
+      copies.map(repoRoot.relativize(_).toString),
+      Vector(
+        "modules/core/src/main/scala/com/thinkmorestupidless/ankka/core/ModelServerDocument.scala"
+      )
+    )
+    assert(
+      Files
+        .readString(repoRoot.resolve("build.sbt"))
+        .contains("com/thinkmorestupidless/ankka/core/ModelServerDocument.scala"),
+      "the operator's unmanagedSources must name the model server document"
+    )
+    // The operator compiles it, so it may import nothing outside the standard library.
+    val source = Files.readString(copies.head)
+    assertEquals(source.linesIterator.filter(_.startsWith("import ")).toVector, Vector.empty)
+  }
+
   test("the detector finds a list and passes a set of pairs") {
     assertEquals(
       lists("""val L = Vector("ANTHROPIC_", "ANKKA_MODEL_") // the model's"""),

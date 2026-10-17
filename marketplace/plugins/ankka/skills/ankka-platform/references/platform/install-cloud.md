@@ -44,6 +44,7 @@ The overlay lists the same components as the local one, and patches or replaces 
 | Identity provider admin | a development secret, `admin`/`admin` | the secret deleted; you create one out of band |
 | Images | unqualified names loaded into the node | your registry, at a pinned release tag |
 | The broker's size | one node, 2Gi, a 512MB heap | the values you set in `broker-size.yaml`, and three nodes with every topic copied three times when you list the `broker-three-nodes` component |
+| The model server | not listed, unless deployed with `ANKKA_LOCAL_MODELS=on` | listed when the overlay names the `models` component, at the size, placement and storage you set in `models-size.yaml` |
 | Topic defaults and bounds | seven days, one copy, any retention allowed | the `ANKKA_TOPIC_*` variables you set on the control plane before the first topic is declared |
 
 Both overlays install the same two authorities the platform issues workload certificates from — one for
@@ -185,8 +186,24 @@ registry and tag. Unset, a web-hosted service fails with `operator has no proxy 
 reads `ANKKA_HTTPS_PORT`, the port the gateway is reached on, which the overlays set from the same value as
 the control plane's.
 
+The model server's keeper is `ankka-model-keeper`, named by the `models` component's manifests, so an
+overlay that lists the component renames it in the same `images:` block. The component's other image,
+Ollama's, is already pinned to a version and pulled from Docker Hub.
+
 Pin a release tag rather than `latest`. A cluster should run a version that was built, tested and
 published as one.
+
+### The model server
+
+The installation's model server is the `models` component: Ollama and a keeper that serves the models
+its administrator declares, to the installation's services only (see
+[Models served by the installation](installation-models.md)). An overlay that wants one lists the
+component after the control plane and patches it with `models-size.yaml`, where the node it runs on,
+its toleration, its memory, CPU and accelerator, the number of calls it answers at once and its storage
+class and size are marked `SET`. The component's own values suit a laptop: one small model on a
+processor. Size the storage for every declared model together, since each is kept on the volume. An
+installation that wants no model server leaves the component out, and its services name a model
+provider with an address of its own.
 
 ### The broker
 
@@ -224,6 +241,10 @@ overlay; see [The cloud provider](cloud-provider.md).
 
 An installation whose buckets are in Google Cloud Storage names its object store there too
 (`objectStoreBackend`, `objectStorePrefix`, `objectStoreSoftDeleteDays`); see [Install on GKE](install-gke.md).
+
+An overlay that lists the `models` component needs nothing applied before it: the component brings no
+custom resource definitions, and its certificate is issued by an authority the overlay already carries.
+Every service already running restarts once when it is added.
 
 The controllers go first because each brings custom resource definitions that the overlay's resources
 are instances of, and a single `kubectl apply -k` gives no ordering guarantee between a definition and a

@@ -162,7 +162,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
     val texts = second.messages.collect {
       case ChatMessage.User(content) =>
         content.collect { case MessageContent.Text(t) => t }.mkString
-      case ChatMessage.Assistant(text, _) => text
+      case ChatMessage.Assistant(text, _, _) => text
     }
     assert(texts.exists(_.contains("Hi there")), texts.toString)
     assert(texts.exists(_.contains("I can help with the weather")), texts.toString)

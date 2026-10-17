@@ -50,7 +50,7 @@
   <text class="small muted" x="100" y="118" text-anchor="middle">browsers, other services</text>
   <rect class="box" x="24" y="258" width="152" height="60" rx="8"/>
   <text class="title ink" x="100" y="283" text-anchor="middle">Model provider</text>
-  <text class="small muted" x="100" y="302" text-anchor="middle">Anthropic, or yours</text>
+  <text class="small muted" x="100" y="302" text-anchor="middle">Anthropic, OpenAI, local</text>
   <rect class="cluster" x="226" y="40" width="680" height="652" rx="14"/>
   <text class="label muted" x="244" y="62" text-anchor="start">ONE SERVICE · ITS INSTANCES FORM ONE CLUSTER</text>
   <rect class="box" x="252" y="76" width="592" height="56" rx="8"/>

@@ -10,13 +10,18 @@ import com.thinkmorestupidless.ankka.sdk.*
  * `usage` is what the text model cost; `judgmentUsage` what judgments asked in the session cost —
  * the handler's own and its guardrails'. They are kept apart because the two models are priced a
  * hundred times apart, and one figure summing both would mean nothing.
+ *
+ * `usageByProvider` is `usage` again, kept per model provider by the name its messages carry, so a
+ * session continued across providers says what each cost. A message recorded before providers were
+ * named counts in `usage` alone.
  */
 final case class SessionHistory(
     messages: Vector[SessionMessage],
     usage: TokenUsage,
     sizeInBytes: Int,
     judgmentUsage: TokenUsage = TokenUsage.zero,
-    suspended: Option[SuspendedTurn] = None
+    suspended: Option[SuspendedTurn] = None,
+    usageByProvider: Map[String, TokenUsage] = Map.empty
 ):
   def isEmpty: Boolean = messages.isEmpty && suspended.isEmpty
 
@@ -107,7 +112,14 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
 
     case SessionMemoryEvent.AiMessageAdded(message, usage) =>
       val next = appended(message)
-      next.copy(usage = next.usage + usage)
+      val byProvider = message.provider match
+        case Some(provider) =>
+          next.usageByProvider.updated(
+            provider,
+            next.usageByProvider.getOrElse(provider, TokenUsage.zero) + usage
+          )
+        case None => next.usageByProvider
+      next.copy(usage = next.usage + usage, usageByProvider = byProvider)
 
     case SessionMemoryEvent.ToolResultAdded(message) =>
       appended(message)
@@ -154,13 +166,19 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
    * results. Persisting them together means a reader never sees a turn half-written.
    */
   def append(batch: SessionMemoryEntity.Append): Effect[Done] =
-    val events = batch.messages.map {
-      case message: SessionMessage.UserMessage => SessionMemoryEvent.UserMessageAdded(message)
-      case message: SessionMessage.AiMessage =>
-        SessionMemoryEvent.AiMessageAdded(message, batch.usage)
-      case message: SessionMessage.ToolResultMessage =>
+    // A batch's usage is the whole turn's, and a turn with a tool round holds several answers: it is
+    // recorded once, with the last of them, or the session would count the turn once per answer.
+    val lastAnswer = batch.messages.lastIndexWhere(_.isInstanceOf[SessionMessage.AiMessage])
+    val events = batch.messages.zipWithIndex.map {
+      case (message: SessionMessage.UserMessage, _) => SessionMemoryEvent.UserMessageAdded(message)
+      case (message: SessionMessage.AiMessage, index) =>
+        SessionMemoryEvent.AiMessageAdded(
+          message,
+          if index == lastAnswer then batch.usage else TokenUsage.zero
+        )
+      case (message: SessionMessage.ToolResultMessage, _) =>
         SessionMemoryEvent.ToolResultAdded(message)
-      case message: SessionMessage.SummaryMessage =>
+      case (message: SessionMessage.SummaryMessage, _) =>
         SessionMemoryEvent.HistoryCompacted(message, 0)
     }
     val judged =

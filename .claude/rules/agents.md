@@ -75,6 +75,21 @@ turns the declarations into the Scala agent's, the process answers `CheckGuardra
 `Decide` on `Client` (protocol 1.9) carries a decision; the process is never asked to run an MCP tool nor
 a call that awaits a decision. `TestMcpServer` (agent module, main scope) is the scripted server.
 
+## Model providers
+
+Feature 052. Two wire protocols, not a vendor each: `AnthropicProvider` (Messages) and
+`OpenAiProvider` (`agent/openai`, Responses for OpenAI's own API, Chat Completions for every other
+server), each over the vendor's SDK as transport only. `agent/providers` holds the rest: `ProviderConfig`
+(the one set of rules and refusal wording for the sidecar and a Scala service alike), `Presets` (the one
+table; the docs' preset table is generated from it by `ModelPresetsReferenceSuite`), `ModelProviders`
+(the factory and the name rule) and `ToolCallIds`. The OpenAI provider builds each request as ankka's
+`Json`, hands it to the SDK through `putAdditionalBodyProperty` (and a cast `JsonField` for Chat
+Completions' required `messages`), and reads the answer back as JSON through the SDK's own mapper, so
+the translation does not move with the SDK's model classes, which change every working day. The
+sidecar's `Models.fromEnv` turns `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `ANKKA_MODEL_<NAME>_*` into
+configs. `ModelStandIn` (agent main scope, beside `TestMcpServer`) is a loopback server speaking all three
+shapes from one script of `ModelResponse`s.
+
 ## Traps
 
 - **One `TestModelProvider` cannot serve both an agent and an async consumer.** The
@@ -125,3 +140,29 @@ a call that awaits a decision. `TestMcpServer` (agent module, main scope) is the
   recorded payload with the handler's own serializer; a streaming handler's input is the stream handle's.
   A handler renamed between the suspension and the decision is answered `Internal` and the turn ended,
   never run as another handler.
+- **Both vendors' SDKs refuse to build a client with no credential.** OpenAI's `build()` throws, and
+  `.apiKey("")` builds but throws at the first request. An address that needs no key is sent the
+  placeholder bearer `none` (`ModelProviders.NoKey`), which local servers ignore.
+- **An SDK's `JsonValue.toString` is a Java map's rendering, not JSON.** `AnthropicProvider` read a tool
+  call's arguments with `block._input().toString`, so `{city=Berlin}` failed to parse and every Claude tool
+  call reached ankka with empty arguments; only the key-gated live suite could see it. Write SDK values
+  through the SDK's own `ObjectMappers.jsonMapper()`.
+- **A batch's usage is the whole turn's.** `SessionMemoryEntity.append` gave it to every AI message in the
+  batch, so a turn with a tool round counted its tokens once per answer. It goes with the last answer
+  only; journals written before keep what they recorded.
+- **Provider state is dropped at `AgentLoop.recorded` on purpose**, and an autonomous worker keeps only the
+  last response's (`IterationLoop.lastState`), attached to the replayed answer whose call ids match. Never
+  put it on `SessionMessage`: a session is ankka's, not a vendor's.
+- **A scripted model is known by its type, never its name.** `IterationLoop` fails a task fast when a
+  `TestModelProvider` runs out; it checked `model.name == "test"`, which a scripted provider named `openai`
+  for a multi-provider test would have turned into an outage retried for ever.
+- **A provider's failure says its name, never the SDK's.** `ModelCallFailed` is built from the name, the
+  status and a body summary; the SDK's exception text names the vendor (`OpenAIIoException`) and a provider
+  the service called `local` must not report itself as `openai`.
+- **`ANKKA_MODEL_NAME` and `ANKKA_MODEL_ANTHROPIC_MODEL` are one setting**, and an `ANKKA_MODEL_` variable
+  that is no setting is refused at start: a misspelt `_URLS` must not become a provider refused for the
+  wrong reason. Build those names from the prefix, never as a literal list, or `PlatformDeclarationSuite`
+  fails the build.
+- **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only
+  (calls since the last user message), as OpenAI does; an earlier turn's call goes back without its
+  reasoning, which was never kept.

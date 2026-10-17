@@ -62,7 +62,7 @@ pausing and restarting are commands, not descriptor fields.
 - Does the descriptor declare `runtime`, and for Python or TypeScript `hosting: "process"` with `protocol`,
   for Rust `hosting: "wasm"` with `protocol` (and no `"http": false`)?
 - Do model keys and other secrets come from a `secretKeyRef`, not a literal `value` in a committed file?
-- For a Python or TypeScript service, do `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` belong to the sidecar and
+- For a Python or TypeScript service, do `ANTHROPIC_*`, `OPENAI_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` belong to the sidecar and
   everything else to the process, as intended?
 - Is the instance count odd, and does the instance type fit a JVM (a `small` is 512Mi)?
 
@@ -101,6 +101,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Run and deploy
 
 - `references/deploy/run-locally.md` — Run an ankka service on your own machine against a local Postgres, configure its database and HTTP port, form a two-node cluster in two terminals, and run a Python service beside the sidecar.
+- `references/deploy/local-models.md` — Point an ankka agent at a model server on your own machine — Ollama, LM Studio, llama.cpp, Docker Model Runner — with no key, from a Scala service or a sidecar, and which models call tools.
 - `references/deploy/images.md` — Package a Scala, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
@@ -129,5 +130,6 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/reference/web-hosting.md` — Exactly what the platform's proxy gives a web-hosted service's process and asks of it — the environment, the headers on every request, the calling address, mounts, the proxy's own answers, readiness and stopping.
 - `references/reference/lifecycle-states.md` — What each of a deployed service's eight lifecycle states means, what usually causes it, what to do about it, and what an unconfirmed status is.
 - `references/reference/configuration.md` — Every environment variable and configuration key a running ankka service reads, their defaults, how configuration is layered, and which variables the platform sets for you.
+- `references/reference/model-providers.md` — Every way a service is given a model provider — a vendor's API, any server speaking either protocol, a preset — the sidecar's variables, the default, each setting per protocol, and every preset.
 - `references/reference/runtime-endpoints.md` — The ports and HTTP endpoints every running ankka service exposes besides its own routes — readiness, version and metrics on a deployed instance, and the loopback observability endpoint a local one serves the console.
 - `references/reference/error-codes.md` — The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.

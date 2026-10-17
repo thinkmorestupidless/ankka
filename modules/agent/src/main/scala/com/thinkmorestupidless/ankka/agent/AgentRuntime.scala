@@ -153,6 +153,15 @@ final class AgentRuntime private (
   def start(service: AnkkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
 
+    // A provider is named as the service chose, and a name the platform keeps or cannot put in a
+    // variable is refused here, before any agent is asked anything (feature 052).
+    defaultModel.foreach { provider =>
+      providers.ModelProviders.validName(provider.name).left.foreach { problem =>
+        throw IllegalArgumentException(s"the default model provider cannot be used: $problem")
+      }
+      system.log.info("agents answered by default by '{}' ({})", provider.name, provider.modelName)
+    }
+
     judgments.default.foreach { provider =>
       system.log.info(
         "judgments answered by '{}' ({}), within {}",

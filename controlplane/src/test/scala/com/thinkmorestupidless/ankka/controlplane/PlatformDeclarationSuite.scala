@@ -63,7 +63,9 @@ final class PlatformDeclarationSuite extends munit.FunSuite:
         val literals = elements.collect { case Literal(v) => v }
         Option.when(
           elements.nonEmpty && literals.size == elements.size &&
-            literals.exists(v => v.startsWith("ANKKA_") || v.startsWith("ANTHROPIC_"))
+            literals.exists(v =>
+              v.startsWith("ANKKA_") || v.startsWith("ANTHROPIC_") || v.startsWith("OPENAI_")
+            )
         )(s"${m.group(1)}($body)")
       }
       .toVector
@@ -101,6 +103,11 @@ final class PlatformDeclarationSuite extends munit.FunSuite:
     assertEquals(
       lists("""val L = Vector("ANTHROPIC_", "ANKKA_MODEL_") // the model's"""),
       Vector("""Vector("ANTHROPIC_", "ANKKA_MODEL_")""")
+    )
+    assertEquals(
+      lists("""val K = Set("OPENAI_API_KEY", "OPENAI_BASE_URL")"""),
+      Vector("""Set("OPENAI_API_KEY", "OPENAI_BASE_URL")"""),
+      "OpenAI's variables are the platform's, so a list of them is a second declaration"
     )
     assertEquals(lists("""val E = Vector("ANKKA_DB_SSL_MODE" -> "verify-full")"""), Vector.empty)
     assertEquals(lists("""val P = Set("GREETING")"""), Vector.empty)

@@ -200,6 +200,13 @@ trait ConformanceTarget:
 
 object ConformanceTarget:
 
+  /** The models a process's agents may name: the script as the default, and `second` beside it. */
+  def models(model: TestModelProvider): Models =
+    Models(
+      Map(Models.Scripted -> model, "second" -> ConformanceReference.SecondModel),
+      Some(model)
+    )
+
   /**
    * The grants every target's server holds (feature 040): `billing/invoices` may call
    * `GET /callers/granted`, and nobody else holds anything. The same set in every target, so every
@@ -519,7 +526,7 @@ object ConformanceTarget:
       RemoteAgent.descriptor(
         RemoteAgent.spec(c).toOption.get,
         conversation,
-        Models.only(Models.Scripted, model),
+        ConformanceTarget.models(model),
         settings.commandTimeout
       )
     }
@@ -527,7 +534,7 @@ object ConformanceTarget:
       RemoteAutonomousAgent.descriptor(
         c,
         conversation,
-        Models.only(Models.Scripted, model),
+        ConformanceTarget.models(model),
         settings.commandTimeout
       )
     )
@@ -708,7 +715,7 @@ object ConformanceTarget:
       RemoteAgent.descriptor(
         RemoteAgent.spec(c).toOption.get,
         conversation,
-        Models.only(Models.Scripted, model),
+        ConformanceTarget.models(model),
         settings.commandTimeout
       )
     }
@@ -716,7 +723,7 @@ object ConformanceTarget:
       RemoteAutonomousAgent.descriptor(
         c,
         conversation,
-        Models.only(Models.Scripted, model),
+        ConformanceTarget.models(model),
         settings.commandTimeout
       )
     )

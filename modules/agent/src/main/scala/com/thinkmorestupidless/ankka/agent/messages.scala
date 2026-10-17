@@ -43,8 +43,12 @@ object ChatMessage:
    * Carries both prose and tool calls because a single response can contain both, and dropping
    * either half when replaying the conversation confuses the model about what it already did.
    */
-  final case class Assistant(text: String, toolCalls: Vector[ToolCall] = Vector.empty)
-      extends ChatMessage
+  final case class Assistant(
+      text: String,
+      toolCalls: Vector[ToolCall] = Vector.empty,
+      /** What the provider asked to be handed back within this turn; never recorded. */
+      providerState: Option[ProviderState] = None
+  ) extends ChatMessage
 
   /**
    * Results for the calls in the preceding assistant turn.
@@ -130,7 +134,9 @@ final case class ModelResponse(
     stopReason: StopReason = StopReason.EndTurn,
     usage: TokenUsage = TokenUsage.zero,
     /** Present when `stopReason` is `Refusal`. */
-    refusalReason: Option[String] = None
+    refusalReason: Option[String] = None,
+    /** For the next call of the same turn: see `ProviderState`. */
+    providerState: Option[ProviderState] = None
 ):
   def wantsTools: Boolean = toolCalls.nonEmpty
   def isRefusal: Boolean  = stopReason == StopReason.Refusal

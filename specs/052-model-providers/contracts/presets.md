@@ -3,8 +3,9 @@
 One row per preset in `Presets.all`; the documentation's table is generated from the same values.
 "Efforts" are the `reasoning_effort` values the quirks list, lowest first; "—" means none known,
 so `effort` is sent only when set, as given. "Temp." is whether `temperature` is sent. "Ids" is a
-tool call id rule. Default models marked ⁺ are to be read from the vendor's models page at
-implementation and dated in `Presets.scala`; the local presets have none by design.
+tool call id rule. A vendor preset carries a default model only where the vendor keeps a stable name
+for one (an alias it maintains, or a model every source lists as production, as of 2026-10-17); the
+rest, like the local presets, require a model, so no stale guess ships as a default.
 
 | Preset | Protocol | Shape | Address | Key | Default model | Efforts | Temp. | Ids | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -15,13 +16,13 @@ implementation and dated in `Presets.scala`; the local presets have none by desi
 | `llamacpp` | openai | chat-completions | `http://127.0.0.1:9931/v1` | none | — (required) | — | yes | — | older builds default to port 8080; override `_URL` |
 | `docker-model-runner` | openai | chat-completions | `http://localhost:12434/engines/v1` | none | — (required) | — | yes | — | from a container: `http://model-runner.docker.internal/engines/v1` |
 | `vllm` | openai | chat-completions | `http://localhost:8000/v1` | none | — (required) | — | yes | — | a key only when the server was started with one |
-| `groq` | openai | chat-completions | `https://api.groq.com/openai/v1` | required | ⁺ | — | yes | — | `stream_options.include_usage` honoured |
-| `mistral` | openai | chat-completions | `https://api.mistral.ai/v1` | required | ⁺ | — | yes | alphanumeric, 9 | ids rewritten (research R9) |
-| `deepseek` | openai | chat-completions | `https://api.deepseek.com` | required | ⁺ | — | yes | — | also serves Messages at `/anthropic` |
-| `xai` | openai | responses | `https://api.x.ai/v1` | required | ⁺ | low, high (as the vendor lists) | yes | — | Chat Completions is deprecated there |
-| `gemini` | openai | chat-completions | `https://generativelanguage.googleapis.com/v1beta/openai/` | required | ⁺ | low, medium, high | yes | — | no Responses; a native Gemini adapter is a later feature |
-| `openrouter` | openai | chat-completions | `https://openrouter.ai/api/v1` | required | ⁺ | — | yes | — | the model names the vendor (`vendor/model`) |
-| `huggingface` | openai | chat-completions | `https://router.huggingface.co/v1` | required | ⁺ | — | yes | — | |
+| `groq` | openai | chat-completions | `https://api.groq.com/openai/v1` | required | `openai/gpt-oss-120b` | — | yes | — | `stream_options.include_usage` honoured |
+| `mistral` | openai | chat-completions | `https://api.mistral.ai/v1` | required | `mistral-large-latest` | — | yes | alphanumeric, 9 | ids rewritten (research R9) |
+| `deepseek` | openai | chat-completions | `https://api.deepseek.com` | required | — (required) | — | yes | — | also serves Messages at `/anthropic` |
+| `xai` | openai | responses | `https://api.x.ai/v1` | required | — (required) | low, high (as the vendor lists) | yes | — | Chat Completions is deprecated there |
+| `gemini` | openai | chat-completions | `https://generativelanguage.googleapis.com/v1beta/openai/` | required | `gemini-flash-latest` | low, medium, high | yes | — | no Responses; a native Gemini adapter is a later feature |
+| `openrouter` | openai | chat-completions | `https://openrouter.ai/api/v1` | required | — (required) | — | yes | — | the model names the vendor (`vendor/model`) |
+| `huggingface` | openai | chat-completions | `https://router.huggingface.co/v1` | required | — (required) | — | yes | — | |
 | `bedrock` | openai | chat-completions | — (required: `https://bedrock-runtime.<region>.amazonaws.com/openai/v1`) | required | — (required) | — | yes | — | the key is a Bedrock API key sent as a bearer; SigV4 out of scope |
 | `azure` | openai | responses | — (required: `https://<resource>.openai.azure.com/openai/v1`) | required | — (required) | as `openai` | no | — | API-key bearer; Entra out of scope |
 

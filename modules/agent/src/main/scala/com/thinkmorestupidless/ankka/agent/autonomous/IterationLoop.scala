@@ -60,6 +60,32 @@ private[ankka] final class IterationLoop(
   private val tools    = allTools.map(t => t.name -> t).toMap
   private val log      = LoggerFactory.getLogger(getClass)
 
+  /**
+   * What the model asked to be handed back with its last tool calls, by the ids of those calls.
+   *
+   * Each iteration's request is rebuilt from the session, which never holds a provider's state, so
+   * the loop keeps the last one here, for the iteration that sends those calls' results. Held by
+   * this worker alone and never recorded: a restarted instance goes on without it, as the protocol
+   * allows.
+   */
+  @volatile private var lastState: Option[(Vector[String], ProviderState)] = None
+
+  /**
+   * The replayed turns with the kept state on the answer it belongs to, if it is still the last.
+   */
+  private def withState(turns: Vector[ChatMessage]): Vector[ChatMessage] =
+    lastState match
+      case None => turns
+      case Some((ids, state)) =>
+        val at = turns.lastIndexWhere {
+          case ChatMessage.Assistant(_, calls, _) => calls.nonEmpty
+          case _                                  => false
+        }
+        turns.lift(at) match
+          case Some(answer: ChatMessage.Assistant) if answer.toolCalls.map(_.id) == ids =>
+            turns.updated(at, answer.copy(providerState = Some(state)))
+          case _ => turns
+
   private def instance =
     client.forEventSourcedEntity(InstanceEntity.idFor(componentId, instanceId))
 
@@ -168,13 +194,16 @@ private[ankka] final class IterationLoop(
     val request = ModelRequest(
       settings = ModelSettings(model.modelName),
       systemMessage = Some(systemMessage(taskType, n, budget)),
-      messages = firstTurn(taskRecord, dependencies) +: PromptReplay.replay(history(taskRecord.id)),
+      messages = firstTurn(taskRecord, dependencies) +: withState(
+        PromptReplay.replay(history(taskRecord.id))
+      ),
       tools = allTools.map(_.spec).toVector ++ builtIns(taskType)
     )
     val response =
       try Right(Await.result(model.complete(request), modelTimeout))
       catch
-        case failure: ModelCallFailed if model.name == "test" =>
+        // Known by its type, not its name: a test may call its scripted model "openai".
+        case failure: ModelCallFailed if model.isInstanceOf[TestModelProvider] =>
           // A scripted model that has run out is a test that is no longer testing what it says:
           // fail the task now, naming it, rather than retrying into a stall.
           return IterationResult.Ended(TaskOutcome.Failed(failure.getMessage))
@@ -187,11 +216,14 @@ private[ankka] final class IterationLoop(
     response match
       case Left(error) => failed(taskRecord.id, n, error)
       case Right(r) =>
+        lastState = r.providerState.map(state => (r.toolCalls.map(_.id), state))
         val message = SessionMessage.AiMessage(
           math.max(now(), startedAt),
           r.text,
           role,
-          r.toolCalls.map(c => RecordedToolCall(c.id, c.name, c.arguments.render))
+          r.toolCalls.map(c => RecordedToolCall(c.id, c.name, c.arguments.render)),
+          provider = Some(model.name),
+          model = Some(model.modelName)
         )
         session(taskRecord.id)
           .call(SessionMemoryEntity.append)

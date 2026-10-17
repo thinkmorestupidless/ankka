@@ -365,6 +365,24 @@ feature also says what that feature does not do.
 - **A session that recorded judgment tokens is unreadable by an older runtime.** While a service is being
   rolled onto its first version that uses judgments, an instance still running the previous version cannot
   replay a session in which a judgment's tokens have been recorded, until the roll completes.
+- **Model providers speak two protocols, and nothing more of any vendor's API.** Every provider is
+  Anthropic's Messages protocol or OpenAI's, in its Responses or Chat Completions shape. A vendor's own
+  hosted tools (web search, file search, code interpreter), embeddings, and Gemini's native API are not
+  used; Gemini is reached through its OpenAI-compatible endpoint. A Bedrock endpoint takes a Bedrock API
+  key and an Azure one an API key: neither request signing nor Entra credentials are configured by
+  variable, though a Scala service may hand either provider a client of its own.
+- **A model provider at an address of the developer's own gives less than a vendor's.** A compatible
+  endpoint never produces a refusal: a model that declines in prose has answered, and a guardrail is the
+  place to catch it. Cache accounting is what the endpoint reports, which for a local server is none.
+  Whether a model calls a tool, rather than writing a call in its text, is the model's and its chat
+  template's to get right.
+- **A model's reasoning is carried within a turn only.** OpenAI's reasoning models are handed back what
+  they reasoned with a tool's result for the rest of the turn, and never after: a turn that waits for a
+  person to approve a tool goes on without it, and so does an autonomous agent's task after its instance
+  restarts. The protocol accepts that, at some cost to the answer.
+- **A process names a configured provider, not a model.** A Python, TypeScript or Rust handler names one
+  of the providers the sidecar was configured with, each with one model; it cannot choose another model
+  of the same provider for one interaction.
 - **MCP servers are reached over Streamable HTTP only.** There is no stdio or other transport, so a server
   that runs as a local program is reached through a small HTTP bridge. Only a server's tools are used —
   not its resources or prompts — and a server is listed in code, not discovered.

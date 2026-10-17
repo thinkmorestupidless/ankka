@@ -162,16 +162,18 @@ ends with its exit code. Without one, it prints both and waits for the process a
 
 ## Give agents a model key
 
-A service with agents needs a model provider. For the Anthropic provider the key comes from the
-environment:
+A service with agents needs a model provider. Anthropic's and OpenAI's keys come from the environment:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
 sbt run
 ```
 
-In a Python service the agent loop runs in the sidecar, so the key is set on the sidecar's container, not
-on your process. `ANKKA_MODEL_NAME` on the sidecar chooses the model. Tests need no key: see
+In a Python service the agent loop runs in the sidecar, so a key is set on the sidecar's container, not
+on your process. `ANKKA_MODEL_NAME` on the sidecar chooses the Claude model, and with both keys
+`ANKKA_MODEL_DEFAULT` says which answers an agent that names none. A model running on your own machine
+needs no key: see [Run a model on your own machine](local-models.md). Tests need no key either: see
 [Testing](../build/testing.md).
 
 ## See what it is doing

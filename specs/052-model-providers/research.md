@@ -19,8 +19,13 @@ POMs and source on GitHub, OpenAI's developer docs, each vendor's docs, and this
 - **Alternatives considered**: hand-rolled HTTP (owning SSE framing and two wire formats for no
   gain; the Anthropic provider made the same call); an adapter per vendor (every vendor named in
   the spec is one of two wire protocols; none ships a Java SDK worth adopting).
-- **To verify at implementation**: `sbt agent/evicted` shows no Kotlin or Jackson conflict with
-  `anthropic-java` 2.61.0; the image's licence report lists nothing outside Apache/MIT/BSD.
+- **Verified 2026-10-17** (`sbt agent/evicted`, `agent/compile`, the exported classpath): the SDK
+  adds `openai-java{,-core,-client-okhttp}` 4.83.0, `jsonschema-generator`, `-module-jackson` and
+  `-module-swagger-2` 4.38.0, `swagger-annotations` 2.2.50 and `jackson-module-kotlin` 2.19.4; it
+  shares with `anthropic-java` Kotlin 1.9.25, OkHttp 4.12.0, Okio 3.6.0 and the build's Jackson
+  2.21.6. Every one is Apache-2.0. The only eviction warning is slf4j-api, which predates this
+  feature. `jackson-module-kotlin` stays a minor behind databind; the offline suites build real
+  clients, so a refusal by the SDK's Jackson check would show there.
 
 ## R2. Responses for OpenAI's own API; Chat Completions for everything else
 

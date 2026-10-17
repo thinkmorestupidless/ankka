@@ -22,6 +22,8 @@ object Dependencies {
 
     val jsoniter  = "2.40.1"
     val anthropic = "2.61.0"
+    // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
+    val openai = "4.83.0"
 
     val logback = "1.6.3"
     val munit   = "1.3.6"
@@ -150,6 +152,7 @@ object Dependencies {
 
   // ── Model providers ──────────────────────────────────────────────────────
   val anthropicJava = "com.anthropic" % "anthropic-java" % V.anthropic
+  val openaiJava    = "com.openai"    % "openai-java"    % V.openai
 
   // ── Misc ─────────────────────────────────────────────────────────────────
   val logback             = "ch.qos.logback"     % "logback-classic"      % V.logback

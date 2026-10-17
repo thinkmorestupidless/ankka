@@ -42,6 +42,15 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
   )
   private val summary = SessionMessage.SummaryMessage(5L, "They asked about Berlin.", "weather")
 
+  // An answer recorded since model providers were named (feature 052): who answered, and with what.
+  private val answered = SessionMessage.AiMessage(
+    9L,
+    "Sunny in Berlin.",
+    "weather",
+    provider = Some("openai"),
+    model = Some("gpt-6.1-sol")
+  )
+
   private val events: Vector[SessionMemoryEvent] =
     import SessionMemoryEvent.*
     Vector(
@@ -55,7 +64,8 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
       ToolResultAdded(approvedResult),
       TurnSuspended(suspendedTurn),
       ApprovalDecided("a-2", Decision("a-2", approved = false, by = "sam", at = 8L)),
-      TurnEnded
+      TurnEnded,
+      AiMessageAdded(answered, usage)
     )
 
   private lazy val suspendedTurn = SuspendedTurn(
@@ -83,6 +93,13 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   private val waitingState = state.copy(suspended = Some(suspendedTurn))
 
+  private val providersState = SessionHistory(
+    Vector(user, answered),
+    usage + usage,
+    46,
+    usageByProvider = Map("openai" -> usage)
+  )
+
   private val append = SessionMemoryEntity.Append(Vector(user, ai, result), usage)
 
   private val endingAppend = SessionMemoryEntity.Append(Vector(result), usage, endsTurn = true)
@@ -108,11 +125,12 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
           line("session-history", state, stateSerializer),
           line("session-append", append, appendSerializer),
           line("session-history", waitingState, stateSerializer),
-          line("session-append", endingAppend, appendSerializer)
+          line("session-append", endingAppend, appendSerializer),
+          line("session-history", providersState, stateSerializer)
         )).mkString("", "\n", "\n")
 
     events.foreach(e => assertEquals(eventSerializer.fromBytes(eventSerializer.toBytes(e)), e))
-    Vector(state, waitingState).foreach(s =>
+    Vector(state, waitingState, providersState).foreach(s =>
       assertEquals(stateSerializer.fromBytes(stateSerializer.toBytes(s)), s)
     )
     Vector(append, endingAppend).foreach(a =>
@@ -171,6 +189,64 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
       String(eventSerializer.toBytes(SessionMemoryEvent.ToolResultAdded(approvedResult)), "UTF-8")
     assert(decided.contains("\"by\":\"dana\""), decided)
     assert(decided.contains("\"approvalId\":\"a-1\""), decided)
+  }
+
+  // ── Model providers ──────────────────────────────────────────────────────
+
+  test(
+    "an answer with no model provider named is stored exactly as before, and one named keeps it"
+  ) {
+    val plain =
+      String(eventSerializer.toBytes(SessionMemoryEvent.AiMessageAdded(ai, usage)), "UTF-8")
+    assert(!plain.contains("provider") && !plain.contains("\"model\""), plain)
+    val named =
+      String(eventSerializer.toBytes(SessionMemoryEvent.AiMessageAdded(answered, usage)), "UTF-8")
+    assert(named.contains("\"provider\":\"openai\""), named)
+    assert(named.contains("\"model\":\"gpt-6.1-sol\""), named)
+    val history = String(stateSerializer.toBytes(state), "UTF-8")
+    assert(!history.contains("usageByProvider"), history)
+  }
+
+  test("a session's usage is kept per model provider by the name its answers carry") {
+    val k = kit()
+    k.call(SessionMemoryEntity.append)(SessionMemoryEntity.Append(Vector(user, answered), usage))
+    val claude =
+      answered.copy(timestamp = 10L, provider = Some("anthropic"), model = Some("claude-opus-5"))
+    k.call(SessionMemoryEntity.append)(
+      SessionMemoryEntity.Append(Vector(claude), TokenUsage(inputTokens = 7, outputTokens = 3))
+    )
+    val history = k.currentState
+    assertEquals(history.usage, usage + TokenUsage(inputTokens = 7, outputTokens = 3))
+    assertEquals(
+      history.usageByProvider,
+      Map("openai" -> usage, "anthropic" -> TokenUsage(inputTokens = 7, outputTokens = 3))
+    )
+  }
+
+  test("a turn with a tool round counts its usage once, with its last answer") {
+    val k = kit()
+    val toolTurn = SessionMessage.AiMessage(
+      2L,
+      "",
+      "weather",
+      Vector(RecordedToolCall("c-1", "get_weather", "{}"))
+    )
+    val result = k.call(SessionMemoryEntity.append)(
+      SessionMemoryEntity.Append(Vector(user, toolTurn, this.result, answered), usage)
+    )
+    assertEquals(
+      result.events.collect { case SessionMemoryEvent.AiMessageAdded(_, u) => u },
+      Vector(TokenUsage.zero, usage)
+    )
+    assertEquals(k.currentState.usage, usage)
+    assertEquals(k.currentState.usageByProvider, Map("openai" -> usage))
+  }
+
+  test("an answer recorded before model providers were named counts in the total alone") {
+    val k = kit()
+    k.call(SessionMemoryEntity.append)(SessionMemoryEntity.Append(Vector(user, ai), usage))
+    assertEquals(k.currentState.usage, usage)
+    assertEquals(k.currentState.usageByProvider, Map.empty[String, TokenUsage])
   }
 
   // ── Judgment tokens ──────────────────────────────────────────────────────

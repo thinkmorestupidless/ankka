@@ -21,8 +21,8 @@ object AnthropicProvider:
 
 object OpenAiProvider:
   val DefaultModel: String = "gpt-6.1-sol"
-  enum Shape: case Responses, ChatCompletions
-  final case class Defaults(maxTokens: Long = 16000L, thinking: Boolean = true, effort: Option[Effort] = None)
+  final case class Defaults(maxTokens: Long = 16000L, thinking: Boolean = true, effort: Option[Effort] = None,
+                            temperature: Option[Double] = None)
 
   /** OPENAI_API_KEY from the environment; OpenAI's own API in the Responses shape; named `openai`. */
   def fromEnv(modelName: String = DefaultModel, defaults: Defaults = Defaults()): OpenAiProvider
@@ -56,14 +56,21 @@ short body summary, never from the SDK exception's class or text.
 ```scala
 package com.thinkmorestupidless.ankka.agent.providers
 
-enum ModelProtocol: case Anthropic, OpenAi
+enum ModelProtocol: case Anthropic, OpenAi          // wireName "anthropic", "openai"
+enum Shape: case Responses, ChatCompletions         // wireName "responses", "chat-completions"
 
-final case class ProviderConfig(name: String, protocol: Option[ModelProtocol] = None,
-  shape: Option[OpenAiProvider.Shape] = None, url: Option[String] = None, model: Option[String] = None,
-  key: Option[String] = None, preset: Option[String] = None):
-  def resolve: Either[String, ResolvedConfig]
+// As given: every value a string, so the sidecar hands its variables over unchanged and one check
+// refuses a bad one in the same words wherever it was written.
+final case class ProviderConfig(name: String, protocol: Option[String] = None, shape: Option[String] = None,
+  url: Option[String] = None, model: Option[String] = None, key: Option[String] = None,
+  preset: Option[String] = None):
+  def resolve: Either[ConfigProblem, ResolvedConfig]
 
-final case class ResolvedConfig(name: String, protocol: ModelProtocol, shape: OpenAiProvider.Shape,
+final case class ConfigProblem(name: String, message: String, setting: Option[String], fix: Vector[String]):
+  def describe(variable: String => String): String   // the sidecar's words, naming its variables
+  def describe: String                               // a Scala service's
+
+final case class ResolvedConfig(name: String, protocol: ModelProtocol, shape: Shape,
   url: String, model: String, key: Option[String], quirks: Quirks)
 
 object ModelProviders:
@@ -72,9 +79,10 @@ object ModelProviders:
   def validName(name: String): Either[String, String]
   def configure(config: ResolvedConfig): ModelProvider
   /** The four values, or a preset, in one call: `ModelProviders.named("local", preset = "ollama", model = "qwen3:8b")`. */
-  def named(name: String, protocol: Option[ModelProtocol] = None, url: Option[String] = None,
+  def named(name: String, protocol: Option[String] = None, url: Option[String] = None,
             model: Option[String] = None, key: Option[String] = None, preset: Option[String] = None,
-            shape: Option[OpenAiProvider.Shape] = None): ModelProvider   // throws IllegalArgumentException on a problem
+            shape: Option[String] = None): ModelProvider   // throws IllegalArgumentException on a problem
+  def unavailable(name: String, model: String, reason: String): ModelProvider
 
 object Presets:
   val all: Map[String, Preset]

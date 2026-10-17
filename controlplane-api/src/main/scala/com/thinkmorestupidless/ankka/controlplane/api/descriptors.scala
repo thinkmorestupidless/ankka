@@ -1162,7 +1162,35 @@ final case class Installation(
     platformVersion: String,
     cloud: Option[CloudInstallation] = None,
     backups: Option[InstallationStatus] = None,
-    secrets: Option[InstallationSecrets] = None
+    secrets: Option[InstallationSecrets] = None,
+    /**
+     * The installation's model server and what it serves (feature 053), read live from it. Absent
+     * when the installation has none.
+     */
+    models: Option[InstallationModels] = None
+)
+
+/** The model server of each cluster of the installation; one, `home`, until remote clusters. */
+final case class InstallationModels(clusters: Vector[ClusterModels])
+
+/**
+ * One cluster's model server: the door's address, whether it answers and has completed a pass, and
+ * each declared model's state. `detail` says why it is not ready, or that it could not be read.
+ */
+final case class ClusterModels(
+    cluster: String,
+    server: String,
+    ready: Boolean,
+    models: Vector[ModelLine] = Vector.empty,
+    detail: Option[String] = None
+)
+
+/** One declared model: `served`, `fetching`, `failed` or `removing`, its digest once served. */
+final case class ModelLine(
+    name: String,
+    state: String,
+    digest: Option[String] = None,
+    detail: Option[String] = None
 )
 
 /**

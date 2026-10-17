@@ -90,6 +90,14 @@ sidecar's `Models.fromEnv` turns `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `ANKK
 configs. `ModelStandIn` (agent main scope, beside `TestMcpServer`) is a loopback server speaking all three
 shapes from one script of `ModelResponse`s.
 
+An agent's model can be an **installation model** (feature 053): a provider whose preset is `installation`
+names only a model (`ANKKA_MODEL_<X>_PRESET=installation`, `ANKKA_MODEL_<X>_MODEL`) and takes its address
+from `ANKKA_MODELS_ADDRESS`, which the operator renders on the platform's container, and its client
+certificate from the service's own. No address and no key: the operator fails a descriptor that gives
+either, and holds the service until the model is served. Resolving the preset in the agent and the sidecar,
+and the capability check that tells an agent at its first call that its model cannot call tools or think,
+are not built yet.
+
 ## Traps
 
 - **One `TestModelProvider` cannot serve both an agent and an async consumer.** The

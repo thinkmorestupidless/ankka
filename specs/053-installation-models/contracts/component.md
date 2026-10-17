@@ -41,7 +41,7 @@ containers:
       - { name: ANKKA_KEEPER_DECLARATION, value: /etc/ankka/models/models.json }
       - { name: ANKKA_KEEPER_ADDRESS, value: "https://models.models-system.svc:8443" }
       - { name: ANKKA_KEEPER_PARALLEL, value: "1" }                      # the same value as OLLAMA_NUM_PARALLEL
-      - { name: ANKKA_OTLP_ENDPOINT, value: "http://otel-collector.ankka-telemetry.svc:4318" }
+      - { name: ANKKA_OTLP_ENDPOINT, value: "" }                         # the overlay's, from ankka-platform.otlpEndpoint
     ports:
       - { name: models, containerPort: 8443 }
       - { name: status, containerPort: 8080 }
@@ -86,13 +86,13 @@ spec:
       nodeSelector: { cloud.google.com/gke-accelerator: nvidia-l4 }        # SET
       tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]   # SET
       containers:
-        - name: ollama
+        - name: ollama                                                     # the size is the model runner's
           env: [{ name: OLLAMA_NUM_PARALLEL, value: "4" }]                 # SET
-        - name: keeper
-          env: [{ name: ANKKA_KEEPER_PARALLEL, value: "4" }]                # SET, the same value
           resources:
             requests: { cpu: "4", memory: 16Gi }                            # SET
             limits:   { cpu: "8", memory: 32Gi, nvidia.com/gpu: 1 }         # SET
+        - name: keeper
+          env: [{ name: ANKKA_KEEPER_PARALLEL, value: "4" }]                # SET, the same value
   volumeClaimTemplates:
     - metadata: { name: models }
       spec: { storageClassName: premium-rwo, resources: { requests: { storage: 200Gi } } }   # SET

@@ -1,6 +1,11 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaSerialization,
+  AnkkaService,
+  AnkkaServiceSpec,
+  EnvEntry
+}
 import io.fabric8.kubernetes.api.model.{HasMetadata, ObjectMetaBuilder}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -68,6 +73,19 @@ class RenderingGoldenSuite extends munit.FunSuite:
       base.copy(provisionDatabase = false),
       Settings.default,
       ProvisioningPlan.Supplied
+    ),
+    (
+      // Feature 053: a service naming a model the installation serves. The door's address on the
+      // platform container is the whole difference from 'embedded'.
+      "installation-model",
+      base.copy(env =
+        List(
+          EnvEntry("ANKKA_MODEL_LOCAL_PRESET", Some("installation")),
+          EnvEntry("ANKKA_MODEL_LOCAL_MODEL", Some("qwen3:0.6b"))
+        )
+      ),
+      Settings.default.copy(models = Some(InstallationModelsSuite.Server)),
+      provisioning
     )
   )
 

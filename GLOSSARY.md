@@ -2826,24 +2826,27 @@ and nothing else: no address and no key.
 Avoid: local model, self-hosted model, in-cluster model, private model
 
 ### keeper
-*Proposed.* The platform's own program beside the model server in its pod: the door only a holder
+The platform's own program beside the model server in its pod: the door only a holder
 of a service certificate can open, the loop that fetches, loads and removes models as the
 declaration says, the status it answers, and the metrics it sends. The model server itself listens
-to the keeper alone.
+to the keeper alone. It is not a service of any project, and it answers no one but the
+installation's services, the control plane and the operator.
 
 Avoid: model proxy, model sidecar
 
 ### served model
-*Proposed.* A declared model the model server has fetched and holds ready to answer; the only state
+A declared model the model server has fetched and holds ready to answer; the only state
 of a model in which a service naming it starts. A declared model is still being fetched, a served
-model, or failed with a reason.
+model, or failed with a reason. Served does not mean in memory: a served model may be loaded again
+on its next call.
 
 Avoid: loaded model, pulled model, available model
 
 ### capability
-*Proposed.* Of a model: something it can do that an agent may need, such as "tool calling" or
+Of a model: something it can do that an agent may need, such as "tool calling" or
 "thinking". A model server says what each of its models can do, and an agent that needs a
-capability its model lacks is told so at its first call.
+capability its model lacks is told so at its first call. It is what a model can do, not what a
+service may do with it.
 
 ## Everyday words
 

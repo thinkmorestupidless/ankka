@@ -127,6 +127,9 @@ object ControlPlane:
        */
       installationSecrets: () => Option[InstallationSecrets] = () =>
         Some(ControlPlane.defaultInstallationSecrets),
+      /** The installation's model server, read for `GET /installation` (feature 053). */
+      installationModels: com.thinkmorestupidless.ankka.controlplane.deploy.InstallationModelsReader =
+        com.thinkmorestupidless.ankka.controlplane.deploy.InstallationModelsReader.none,
       /** The installation's cloud (feature 044), shown on `GET /installation`; none by default. */
       cloud: Option[com.thinkmorestupidless.ankka.controlplane.deploy.CloudConfig] = None,
       /** The installation's backups (feature 041); none as the default, as before the feature. */
@@ -230,7 +233,8 @@ object ControlPlane:
           backups,
           platform,
           hold,
-          installationSecrets
+          installationSecrets,
+          installationModels
         )
     ) ++ {
       val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
@@ -302,7 +306,10 @@ object ControlPlane:
     val recordsConfig = secrets.SecretRecordsConfig.from(config)
     val records       = secrets.SecretRecords.postgres(recordsConfig)
     val installation  = ControlPlane.installationSecrets(backend, recordsConfig)
-    val cloud         = backend.cloud
+    // The model server, when the installation has one (feature 053): read through its door.
+    val models =
+      com.thinkmorestupidless.ankka.controlplane.deploy.InstallationModelsReader.fromEnvironment()
+    val cloud = backend.cloud
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     // First of the extensions (feature 041): the projector must know it is held before it starts.
@@ -337,6 +344,7 @@ object ControlPlane:
             schemas = Some(projector),
             secretRecords = Some(records),
             installationSecrets = () => Some(installation),
+            installationModels = models,
             cloud = cloud,
             backups = backups,
             platform = Some(projector),
@@ -361,6 +369,7 @@ object ControlPlane:
             schemas = Some(projector),
             secretRecords = Some(records),
             installationSecrets = () => Some(installation),
+            installationModels = models,
             cloud = cloud,
             backups = backups,
             platform = Some(projector),

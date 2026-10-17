@@ -74,9 +74,33 @@ export const installationSecretsSchema = z.object({
 });
 export type InstallationSecrets = z.infer<typeof installationSecretsSchema>;
 
+/** One model the installation's model server declares: its state, and its digest once served (feature 053). */
+export const modelLineSchema = z.object({
+  name: z.string(),
+  state: z.string(),
+  digest: optional(z.string()),
+  detail: optional(z.string()),
+});
+export type ModelLine = z.infer<typeof modelLineSchema>;
+
+/** One cluster's model server, read live through its door. */
+export const clusterModelsSchema = z.object({
+  cluster: z.string(),
+  server: z.string(),
+  ready: z.boolean(),
+  models: z.array(modelLineSchema).default([]),
+  detail: optional(z.string()),
+});
+export type ClusterModels = z.infer<typeof clusterModelsSchema>;
+
+export const installationModelsSchema = z.object({
+  clusters: z.array(clusterModelsSchema),
+});
+export type InstallationModels = z.infer<typeof installationModelsSchema>;
+
 /**
  * `GET /installation`: the platform's version, and its cloud when it names a provider; and its
- * backups (feature 041); and where it keeps its secrets (feature 038).
+ * backups (feature 041); where it keeps its secrets (feature 038); and its model server (feature 053).
  */
 export const installationSchema = z.object({
   platformVersion: z.string(),
@@ -84,6 +108,7 @@ export const installationSchema = z.object({
   // Lazily: its schema is with the other backup schemas, below.
   backups: optional(z.lazy(() => installationStatusSchema)),
   secrets: optional(installationSecretsSchema),
+  models: optional(installationModelsSchema),
 });
 export type Installation = z.infer<typeof installationSchema>;
 

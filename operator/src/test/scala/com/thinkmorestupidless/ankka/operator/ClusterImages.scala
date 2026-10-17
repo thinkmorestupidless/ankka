@@ -42,6 +42,7 @@ object ClusterImages:
               if image.startsWith("ankka-controlplane") then "controlPlane"
               else if image.startsWith("ankka-sidecar") then "sidecar"
               else if image.startsWith("ankka-proxy") then "proxy"
+              else if image.startsWith("ankka-model-keeper") then "modelKeeper"
               else "shoppingCart"
             s"    sbt $project/Docker/publishLocal\n(`sbt test` does this for you; `testOnly` does not.)"
         throw new IllegalStateException(

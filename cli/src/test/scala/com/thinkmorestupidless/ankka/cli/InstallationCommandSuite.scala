@@ -68,7 +68,8 @@ final class InstallationCommandSuite extends FunSuite:
         "provider   gcp",
         "account    acct",
         "location   europe-west2",
-        "kms key    keys/ankka"
+        "kms key    keys/ankka",
+        "model server: none"
       ).mkString("\n")
     )
   }
@@ -79,9 +80,9 @@ final class InstallationCommandSuite extends FunSuite:
     assert(!run()._2.contains("kms key"))
   }
 
-  test("an installation with no cloud provider says none, and nothing more") {
+  test("an installation with no cloud provider says none, and no model server") {
     answer = """{"platformVersion":"0.7.0"}"""
-    assertEquals(run()._2.trim, "platform   0.7.0\nprovider   none")
+    assertEquals(run()._2.trim, "platform   0.7.0\nprovider   none\nmodel server: none")
   }
 
   test("an installation that says where it keeps its secrets prints the backend and the record") {
@@ -94,7 +95,8 @@ final class InstallationCommandSuite extends FunSuite:
         "provider   none",
         "secrets    postgres",
         "records    365d",
-        "access log unknown"
+        "access log unknown",
+        "model server: none"
       ).mkString("\n")
     )
   }

@@ -1,0 +1,13 @@
+# What the model server serves: the models an administrator declared, by Ollama's tag. A tag with no
+# version is Ollama's `:latest`. The keeper re-reads the file within seconds of a change, fetches
+# what is new, one model at a time, and removes what is no longer listed.
+#
+# An overlay replaces it with a configMapGenerator of the same name and `behavior: replace`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: models-declaration
+  namespace: models-system
+data:
+  models.json: |
+    {"models": ["qwen3:0.6b"]}

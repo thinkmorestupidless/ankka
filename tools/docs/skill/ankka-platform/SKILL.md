@@ -12,6 +12,7 @@ pages:
   - platform/databases.md
   - platform/broker.md
   - platform/object-storage.md
+  - platform/installation-models.md
   - platform/cloud-provider.md
   - platform/secrets.md
   - platform/cross-project-access.md
@@ -88,6 +89,14 @@ shared by every installation and one overlay per cluster carrying only what diff
 10. **Platform administrators are a realm role, not a member.** They may operate any organization; the
     CLI's tenancy administration (create, invite, disable, delete) stays on the command line and is
     absent from `ankka mcp` on purpose.
+11. **The installation's model server serves what its administrator declared, to its services only.**
+    It is the `models` component: Ollama bound to its pod's loopback and a keeper beside it that is
+    the only way in, over mutual TLS admitting service certificates alone. The declaration is the
+    `models-declaration` ConfigMap's `models.json`; the keeper fetches what is added, one at a time,
+    and removes what is dropped. A service names a model through a provider whose preset is
+    `installation` and gives no address or key; it starts only once every model it names is served,
+    and `services get` says why it waits or failed. Adding the component rolls every service once,
+    since every platform container is given the door's address.
 
 ## Operating checklist
 

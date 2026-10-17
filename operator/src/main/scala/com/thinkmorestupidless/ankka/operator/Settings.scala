@@ -121,7 +121,12 @@ final case class Settings(
      * rejected, naming the setting. Must match the control plane's, which refuses to add one
      * without it.
      */
-    hostnameIssuer: Option[String] = None
+    hostnameIssuer: Option[String] = None,
+    /**
+     * The installation's model server, when it has one (feature 053). `None` renders nothing for
+     * it, and a service naming an installation model is failed saying this cluster has none.
+     */
+    models: Option[ModelServerSettings] = None
 ):
   /**
    * The store new buckets are made in (research R1a D1): the backend the installation names, else
@@ -272,6 +277,7 @@ object Settings:
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
+      models = ModelServerSettings.read(raw),
       objectStore = store,
       backups = BackupSettings.read(raw, store),
       secretStore = SecretStore(

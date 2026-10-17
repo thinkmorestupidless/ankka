@@ -1,0 +1,25 @@
+# Tells the operator where the model server is and where its status is read. In this component
+# rather than the operator's own manifest, so an installation without the component renders an
+# operator with none of the three — and a service that names an installation model is then reported
+# failed, with the reason, instead of waiting on nothing. All three or none: the operator refuses to
+# start configured by halves.
+#
+# The container's name must be the operator's own, `ankka-operator`: a strategic merge patch that
+# names a container the Deployment lacks adds a second container instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_MODELS_ADDRESS
+              value: "https://models.models-system.svc:8443"
+            - name: ANKKA_MODELS_STATUS_URL
+              value: "http://models.models-system.svc:8080/ankka/models"
+            - name: ANKKA_MODELS_NAMESPACE
+              value: "models-system"

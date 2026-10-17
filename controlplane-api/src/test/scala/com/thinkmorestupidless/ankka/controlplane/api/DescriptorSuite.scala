@@ -373,6 +373,27 @@ class DescriptorSuite extends munit.FunSuite:
         )
   }
 
+  test("a descriptor may not give the model server's address, and may name a model provider") {
+    assertEquals(
+      ServiceSpec(
+        "i:1",
+        env = Vector(EnvVar("ANKKA_MODELS_ADDRESS", value = Some("https://elsewhere:8443")))
+      ).problems,
+      Vector("env var 'ANKKA_MODELS_ADDRESS' is set by the platform and cannot be declared")
+    )
+    // A model provider's settings are the descriptor's to give (feature 052's family).
+    assertEquals(
+      ServiceSpec(
+        "i:1",
+        env = Vector(
+          EnvVar("ANKKA_MODEL_LOCAL_PRESET", value = Some("installation")),
+          EnvVar("ANKKA_MODEL_LOCAL_MODEL", value = Some("qwen3:0.6b"))
+        )
+      ).problems,
+      Vector.empty
+    )
+  }
+
   test("a descriptor may not read the collector's credential the platform writes for a service") {
     val problems = ServiceSpec(
       "i:1",

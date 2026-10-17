@@ -499,6 +499,10 @@ lazy val operator = project
     // asks the cloud provider for access by the prefixes the runtime names its secrets under.
     Compile / unmanagedSources += (core / Compile / scalaSource).value /
       "com/thinkmorestupidless/ankka/core/secrets/DerivedIds.scala",
+    // The model server's status document (feature 053), the same way: the keeper writes it and the
+    // operator reads it to decide whether a service's installation model is served.
+    Compile / unmanagedSources += (core / Compile / scalaSource).value /
+      "com/thinkmorestupidless/ankka/core/ModelServerDocument.scala",
     // Named, not discovered: the control plane and the sidecar take this module's test classes, and
     // a logback-test.xml here would be a second one beside ankka-testkit's in both.
     Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",
@@ -585,6 +589,8 @@ lazy val controlPlane = project
           (proxy / Docker / publishLocal).value
           // The mover a move of a bucket runs as a Job (feature 039).
           (storageMover / Docker / publishLocal).value
+          // The keeper beside the installation's model server (feature 053).
+          (modelKeeper / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built = scala.sys.process
@@ -789,6 +795,58 @@ lazy val storageMover = project
     Docker / packageName := "ankka-storage-mover",
     Compile / mainClass  := Some("com.thinkmorestupidless.ankka.mover.Main"),
     libraryDependencies ++= Seq(awsS3, logback, testcontainers % Test)
+  )
+
+/**
+ * The model server's keeper (feature 053): the program beside Ollama in the installation's model
+ * server pod. It is the mutual-TLS door only a service of the installation can open, the loop that
+ * fetches, loads and removes the declared models, the status document the operator and the control
+ * plane read, and the probe. Its own module and image because nothing that exists can run in that
+ * pod: the sidecar needs a cluster and a database, and the proxy admits under one service's
+ * identity. Nothing depends on it.
+ */
+lazy val modelKeeper = project
+  .in(file("model-keeper"))
+  .dependsOn(
+    proxy,
+    runtime,
+    telemetryOtlp,
+    testPki    % Test,
+    testOllama % Test,
+    testkit    % Test
+  )
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                 := "ankka-model-keeper",
+    publish / skip       := true,
+    Docker / packageName := "ankka-model-keeper",
+    Compile / mainClass  := Some("com.thinkmorestupidless.ankka.modelkeeper.Main"),
+    dockerExposedPorts   := Seq(8443, 8080, 7627),
+    libraryDependencies ++= Seq(logback, testcontainers % Test),
+    // The proxy's allotment (research R19 of feature 021): the keeper is I/O bound too.
+    Universal / javaOptions ++= Seq(
+      "-Djdk.httpclient.allowRestrictedHeaders=host",
+      "-J-XX:+UseSerialGC",
+      "-J-XX:TieredStopAtLevel=1",
+      "-J-XX:ActiveProcessorCount=1"
+    ),
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
+    // Named, not discovered, as the proxy's is: testkit ships a logback-test.xml.
+    Test / javaOptions += "-Dlogback.configurationFile=logback-keeper-test.xml"
+  )
+
+/**
+ * A stand-in Ollama on loopback with a scriptable catalogue (feature 053), for the keeper's suites
+ * and the sidecar's. A test helper like `testPki`: never published, no ankka dependency.
+ */
+lazy val testOllama = project
+  .in(file("modules/test-ollama"))
+  .settings(commonSettings)
+  .settings(
+    name           := "ankka-test-ollama",
+    publish / skip := true
   )
 
 /** The `ankka` command-line client. */
@@ -1029,6 +1087,8 @@ lazy val root = project
     proxyCore,
     proxy,
     storageMover,
+    modelKeeper,
+    testOllama,
     shoppingCart,
     shoppingCartApi,
     multiAgentPlanner,

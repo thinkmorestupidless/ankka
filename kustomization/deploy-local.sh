@@ -46,6 +46,19 @@ fi
 
 BASE_DOMAIN="${ANKKA_BASE_DOMAIN:-127.0.0.1.sslip.io}"
 
+# The installation's model server (feature 053) is opt-in locally: its first start fetches a model of
+# about 520 MB, and its pod asks for a CPU and 2Gi. `on` renders overlays/local-models in place of
+# overlays/local and waits for the model to be served; `off` changes nothing.
+LOCAL_MODELS="${ANKKA_LOCAL_MODELS:-off}"
+case "$LOCAL_MODELS" in
+  on) OVERLAY=kustomization/overlays/local-models ;;
+  off) OVERLAY=kustomization/overlays/local ;;
+  *)
+    echo "refusing to deploy: ANKKA_LOCAL_MODELS is '$LOCAL_MODELS'; it is 'on' or 'off'." >&2
+    exit 1
+    ;;
+esac
+
 # Network policy must be enforced, not merely accepted (feature 014). Every API server admits a
 # NetworkPolicy; only a network that implements them refuses anything, and on one that does not, the
 # platform's isolation is a set of objects that do nothing. kind has enforced policy since 0.24.
@@ -150,6 +163,10 @@ kind load docker-image ankka-console:latest --name "$CLUSTER_NAME"
 # Not part of the platform: the sample's interface, so `ankka services apply -f
 # samples/shopping-cart-web/service.json` has an image to run.
 kind load docker-image sample-shopping-cart-web:latest --name "$CLUSTER_NAME"
+if [[ "$LOCAL_MODELS" == "on" ]]; then
+  # The model server's keeper; Ollama's own image is pulled by the node, from Docker Hub.
+  kind load docker-image ankka-model-keeper:latest --name "$CLUSTER_NAME"
+fi
 
 echo "==> applying the CRD (must exist before anything references it)"
 kubectl apply -f kustomization/components/crd/ankkaservice.yaml
@@ -188,7 +205,7 @@ echo "==> applying everything else"
 # The two substitutions are anchored to the exact lines kustomize produces from the ConfigMap —
 # the base domain wherever it was fanned out, and the redirect's port — so nothing else in the
 # rendered manifests (which include cert-manager's and Envoy Gateway's) can be touched by accident.
-kubectl kustomize kustomization/overlays/local \
+kubectl kustomize "$OVERLAY" \
   | sed -e "s|127\.0\.0\.1\.sslip\.io|${BASE_DOMAIN}|g" \
         -e "s|^\(  httpsPort: \)\"8443\"|\1\"${HTTPS_HOST_PORT}\"|" \
         -e "s|^\(        port: \)8443$|\1${HTTPS_HOST_PORT}|" \
@@ -205,6 +222,9 @@ echo "==> restarting the operator and control plane onto the images just loaded"
 kubectl -n ankka-operator rollout restart deployment/ankka-operator
 kubectl -n ankka-controlplane rollout restart deployment/ankka-controlplane
 kubectl -n ankka-console rollout restart deployment/ankka-console
+if [[ "$LOCAL_MODELS" == "on" ]]; then
+  kubectl -n models-system rollout restart statefulset/models
+fi
 
 echo "==> waiting for the control plane's database"
 kubectl -n ankka-controlplane wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-controlplane-db --timeout=180s
@@ -218,6 +238,11 @@ echo "==> waiting for the control plane"
 # Three instances rolled one at a time (feature 004), each a JVM that has to join the cluster
 # before it counts — so a longer wait than one pod needed.
 kubectl -n ankka-controlplane rollout status deployment/ankka-controlplane --timeout=420s
+
+if [[ "$LOCAL_MODELS" == "on" ]]; then
+  echo "==> waiting for the model server (its first start fetches the declared model: minutes)"
+  kubectl -n models-system rollout status statefulset/models --timeout=900s
+fi
 
 echo "==> waiting for the console"
 kubectl -n ankka-console rollout status deployment/ankka-console --timeout=300s

@@ -39,10 +39,10 @@ import shoppingcart.application.*
   /**
    * The assistant is registered only when the environment can serve it.
    *
-   * An agent needs a model and the model needs a key, and `AnthropicProvider.fromEnv()` fails if
-   * there is none. Making that a startup requirement would mean no one could run the cart, and no
-   * cluster test could deploy it, without an API key — so the cart runs without an assistant rather
-   * than not running at all.
+   * An agent needs a model and the model needs a key. A provider built without one starts and fails
+   * every call, but an assistant that can only refuse is not one worth offering, and the cluster
+   * suites read the cart's components and routes without a key — so without a key the cart runs
+   * with no assistant at all.
    */
   /**
    * The checkout notices are published only when there is a broker to publish them to.

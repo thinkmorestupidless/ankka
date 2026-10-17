@@ -1283,6 +1283,16 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(model.lastRequest.systemMessage, Some("You are helpful."))
   }
 
+  test("agent.names-a-model") {
+    ConformanceReference.SecondModel.reset()
+    ConformanceReference.SecondModel.expectText("from the second")
+    val r = post("/conformance/ask-second/n1", "hi")
+    assertEquals(r.status, 200, r.body)
+    assertEquals(r.body, "from the second")
+    assertEquals(model.callCount, 0, "the default model was not asked")
+    assertEquals(ConformanceReference.SecondModel.callCount, 1)
+  }
+
   test("agent.tool-invoked-in-process") {
     model
       .expectToolCall("lookup", Json.obj("id" -> Json.str("tool1")))

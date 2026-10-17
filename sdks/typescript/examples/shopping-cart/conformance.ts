@@ -625,6 +625,10 @@ export class ConformanceAssistant extends Agent {
   static readonly handlers = {
     ask: command("ask", s.string, s.string, (a: ConformanceAssistant, question) => a.describe(question)),
     stream: stream("stream", s.string, (a: ConformanceAssistant, question) => a.describe(question)),
+    // Answered by the model the sidecar has under the name `second`, not its default.
+    askSecond: command("ask-second", s.string, s.string, (a: ConformanceAssistant, question) =>
+      a.effects.model("second").systemMessage("You are helpful.").userMessage(question).thenReply(),
+    ),
   }
 
   describe(question: string) {
@@ -853,6 +857,7 @@ export class ConformanceEndpoint extends Endpoint {
       return done
     }),
     ask: post("/ask/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.ask).invoke(question)),
+    askSecond: post("/ask-second/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.askSecond).invoke(question)),
     // docs:start approver-routes
     // A turn that may wait: the model's answer, or the approval requests it waits on.
     askApprover: post("/approver/{session}", s.string, s.string, async (ep: ConformanceEndpoint, req, question) =>

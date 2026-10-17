@@ -252,6 +252,6 @@ sets it, and a descriptor may not set any of these.
 
 A module has no environment of its own. The `config` import answers the variables the service's
 descriptor set, read from the runtime's environment, and answers absent for every name the platform
-reserves: model keys and settings (`ANTHROPIC_*`, `ANKKA_MODEL_*`), the database's (`ANKKA_DB_*`), the
+reserves: model keys and settings (`ANTHROPIC_*`, `OPENAI_*`, `ANKKA_MODEL_*`), the database's (`ANKKA_DB_*`), the
 cluster's and the runtime's own (`ANKKA_CLUSTER_*`, `ANKKA_WASM_*`, `ANKKA_SIDECAR_*`, `ANKKA_PROCESS_*`,
 `ANKKA_AUTH_*`), `POD_IP`, `ANKKA_HTTP_PORT`, `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`.

@@ -122,6 +122,9 @@ extra:
         kind: external
       control-plane-routes:
         kind: external
+      # Written by ModelPresetsReferenceSuite from the agent module's presets.
+      model-presets:
+        kind: external
       # Written by console/package/test/docs-properties.test.ts from src/ui/tokens.ts.
       console-properties:
         kind: external
@@ -192,6 +195,7 @@ nav:
       - Testing: build/testing.md
   - Run and deploy:
       - Run a service locally: deploy/run-locally.md
+      - Run a model on your own machine: deploy/local-models.md
       - Build an image: deploy/images.md
       - Deploy a service: deploy/deploy-a-service.md
       - Expose a service: deploy/expose.md
@@ -231,6 +235,7 @@ nav:
       - Service lifecycle states: reference/lifecycle-states.md
       - Control plane HTTP API: reference/control-plane-api.md
       - Runtime configuration: reference/configuration.md
+      - Model providers: reference/model-providers.md
       - Runtime endpoints: reference/runtime-endpoints.md
       - Error codes: reference/error-codes.md
       - Scala SDK: reference/scala-sdk.md

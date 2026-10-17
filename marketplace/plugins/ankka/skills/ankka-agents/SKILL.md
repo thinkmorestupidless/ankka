@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, AnthropicProvider, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails, TestJudgmentProvider), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, model providers, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails, TestJudgmentProvider), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM, Claude or OpenAI, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
 ---
 
 # ankka agents
@@ -48,11 +48,15 @@ probabilities behind each answer — for a decision whose answer is one of a kno
    givens); the schema is not sent, so describe it in the system message. The reply type also needs a
    `Serializer` because it crosses the wire to the caller. A reply that does not decode fails naming `T`.
 9. **Register the runtime pieces.** `AgentRuntime.withDefaultModel(AnthropicProvider.fromEnv(), timeout)`
+   (or `OpenAiProvider.fromEnv()`, or `ModelProviders.named(name, preset = ..., model = ...)` for any
+   server speaking either protocol, a local one included)
    plus `AgentRuntime.descriptors` (the session memory entity); with compaction, `agents.descriptors` and
    a `ProjectionRuntime`, because the compactor is a consumer over session events. Streaming handlers are
    registered with `stream`, not `command`, and consumed with `.stream(...)`.
 10. **Model choice is per interaction.** `effects.model(provider)` overrides the service default in that
-    handler; there is no per-agent default. `effort` is the lever on Claude models, not temperature. The
+    handler; there is no per-agent default. Several providers may serve one service, each under the name
+    it was built with, and a session continues across them. `effort` is the lever on Claude and OpenAI
+    reasoning models, not temperature; a setting an endpoint refuses is withheld. The
     model timeout (two minutes by default) applies to each round trip, so bound the whole with
     `maxToolCallSteps` (100 by default; lower it for short tasks). A caller's `invoke` waits only the
     10-second ask timeout: await agent calls with an explicit, longer timeout and match the step timeout.
@@ -86,10 +90,13 @@ the stream with a `CommandError`.
 ## Python differences
 
 Tools and guardrails are class attributes named in the effect (`tools("forecast")`); `memory(False)` is
-the memory-less case; `with_model(name)` chooses among the sidecar's configured models only
-(`anthropic`, `scripted`); `then_reply_json()` decodes by the handler's reply type; compaction is not yet
-configurable. The model is configured on the sidecar through the descriptor's `env`: `ANTHROPIC_API_KEY`,
-`ANKKA_MODEL_NAME`, or `ANKKA_MODEL_SCRIPT` for tests. The process never holds the key.
+the memory-less case; `with_model(name)` chooses among the sidecar's configured providers only, by the
+name the service gave each; `then_reply_json()` decodes by the handler's reply type; compaction is not yet
+configurable. Providers are configured on the sidecar through the descriptor's `env`: `ANTHROPIC_API_KEY`
+(with `ANKKA_MODEL_NAME`) for `anthropic`, `OPENAI_API_KEY` for `openai`,
+`ANKKA_MODEL_<NAME>_{PROTOCOL,URL,MODEL,KEY,SHAPE,PRESET}` for any other, `ANKKA_MODEL_DEFAULT` when there
+are several, or `ANKKA_MODEL_SCRIPT` for tests. A bad configuration stops the sidecar at start naming the
+variable. The process never holds a key.
 
 ## TypeScript differences
 
@@ -98,7 +105,7 @@ check)`, named in the effect by wire name (`.tools("lookup")`); the tool's input
 Schema the model sees, and its arguments arrive decoded. Handlers are `command(...)` or `stream(...)` entries
 returning `this.effects.systemMessage(...).userMessage(q)....thenReply()`; `thenReplyJson<R>()` types the
 JSON reply for the caller; `memory(false)` is the memory-less case; `withModel(name)` chooses among the
-sidecar's configured models. A tool runs on a fresh agent instance bound to the session, so `this.sessionId`
+sidecar's configured providers, by name. A tool runs on a fresh agent instance bound to the session, so `this.sessionId`
 and `this.client` are available in it. `AgentTestKit.of(Cls, session, new ScriptedModel().expectToolCall(...)
 .expectText(...))` runs the loop in process and fails when the script runs out. The model is configured on
 the sidecar as for Python; the process never holds the key.
@@ -167,3 +174,11 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/mcp-servers.md` — Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+
+### Run and deploy
+
+- `references/deploy/local-models.md` — Point an ankka agent at a model server on your own machine — Ollama, LM Studio, llama.cpp, Docker Model Runner — with no key, from a Scala service or a sidecar, and which models call tools.
+
+### Reference
+
+- `references/reference/model-providers.md` — Every way a service is given a model provider — a vendor's API, any server speaking either protocol, a preset — the sidecar's variables, the default, each setting per protocol, and every preset.

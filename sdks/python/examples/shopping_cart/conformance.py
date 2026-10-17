@@ -399,6 +399,11 @@ class ConformanceAssistant(Agent):
     def stream_ask(self, question: str) -> AgentEffect[str]:
         return self._describe(question)
 
+    @command("ask-second")
+    def ask_second(self, question: str) -> AgentEffect[str]:
+        # Answered by the model the sidecar has under the name `second`, not its default.
+        return self.effects.model("second").system_message("You are helpful.").user_message(question).then_reply()
+
 
 # ── answerer: an autonomous agent, whose tool acts through the client ──
 
@@ -753,6 +758,10 @@ class ConformanceEndpoint(Endpoint):
     @post("/ask/{session}")
     async def ask(self, session: str, question: str) -> str:
         return await self._scoped().for_agent("assistant", session).call("ask").invoke(question, reply=str)
+
+    @post("/ask-second/{session}")
+    async def ask_second(self, session: str, question: str) -> str:
+        return await self._scoped().for_agent("assistant", session).call("ask-second").invoke(question, reply=str)
 
     # docs:start approver-routes
     @post("/approver/{session}")

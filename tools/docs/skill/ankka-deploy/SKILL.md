@@ -9,6 +9,8 @@ pages:
   - reference/runtime-endpoints.md
   - reference/error-codes.md
   - deploy/run-locally.md
+  - deploy/local-models.md
+  - reference/model-providers.md
   - deploy/images.md
   - deploy/deploy-a-service.md
   - operate/console.md
@@ -93,7 +95,7 @@ pausing and restarting are commands, not descriptor fields.
 - Does the descriptor declare `runtime`, and for Python or TypeScript `hosting: "process"` with `protocol`,
   for Rust `hosting: "wasm"` with `protocol` (and no `"http": false`)?
 - Do model keys and other secrets come from a `secretKeyRef`, not a literal `value` in a committed file?
-- For a Python or TypeScript service, do `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` belong to the sidecar and
+- For a Python or TypeScript service, do `ANTHROPIC_*`, `OPENAI_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` belong to the sidecar and
   everything else to the process, as intended?
 - Is the instance count odd, and does the instance type fit a JVM (a `small` is 512Mi)?
 

@@ -32,6 +32,8 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     env = List(
       EnvEntry("GREETING", Some("hi"), None, None),
       EnvEntry("ANTHROPIC_API_KEY", None, Some("models"), Some("anthropic")),
+      EnvEntry("OPENAI_API_KEY", None, Some("models"), Some("openai")),
+      EnvEntry("ANKKA_MODEL_EU_KEY", None, Some("models"), Some("mistral")),
       EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None),
       EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None),
       EnvEntry("ANKKA_AUTH_ISSUERS", Some("customers"), None, None),
@@ -112,6 +114,9 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assert(!node.contains("GREETING"))
     assert(app.contains("GREETING"))
     assert(!app.contains("ANTHROPIC_API_KEY") && !app.contains("ANKKA_DB_HOST"))
+    // Every model key is the sidecar's: a vendor's shorthand and a named provider's alike.
+    assert(node.contains("OPENAI_API_KEY") && node.contains("ANKKA_MODEL_EU_KEY"))
+    assert(!app.contains("OPENAI_API_KEY") && !app.contains("ANKKA_MODEL_EU_KEY"))
     // The sidecar verifies tokens; the process is handed the principal and never the issuers.
     assert(node.contains("ANKKA_AUTH_ISSUERS"), "the issuers are the sidecar's")
     assert(!app.contains("ANKKA_AUTH_ISSUERS"), "the process never sees the issuers")

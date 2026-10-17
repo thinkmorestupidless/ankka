@@ -12,6 +12,7 @@ Feature: The platform's own settings
     Examples:
       | variable          |
       | ANTHROPIC_API_KEY |
+      | OPENAI_API_KEY    |
       | ANKKA_MODEL_NAME  |
       | ANKKA_DB_HOST     |
 
@@ -23,6 +24,7 @@ Feature: The platform's own settings
     Examples:
       | variable            |
       | ANTHROPIC_API_KEY   |
+      | OPENAI_API_KEY      |
       | ANKKA_MODEL_NAME    |
       | ANKKA_DB_HOST       |
       | ANKKA_CLUSTER_MODE  |

@@ -14,6 +14,7 @@ Feature: The platform's own settings
       | ANTHROPIC_API_KEY |
       | OPENAI_API_KEY    |
       | ANKKA_MODEL_NAME  |
+      | ANKKA_MODEL_EU_KEY |
       | ANKKA_DB_HOST     |
 
   Scenario Outline: a module that asks for a platform setting is told that it is not set

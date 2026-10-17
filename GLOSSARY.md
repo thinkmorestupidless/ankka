@@ -1359,6 +1359,19 @@ Of an agent: what comes out of its model, a reply or a task's result. A guardrai
 A check on what goes into an agent's model or comes out of it, declared by the
 developer, which refuses an interaction it does not allow. A refusal by a guardrail is a refusal.
 
+### model provider
+*Proposed.* Whose models a service talks to, behind one seam of the platform's: Anthropic's or
+OpenAI's, or the scripted model a test gives. A Scala service builds each it uses; a service
+written in another language is given each one's key, and the platform's own program talks to it.
+It is not a judgment provider.
+
+Avoid: vendor, LLM provider
+
+### default model
+*Proposed.* The model provider an agent, a worker or a definition that names none is answered by:
+the one a Scala service hands the platform; for a service written in another language, its only
+model provider, or the one its descriptor names when it has more than one.
+
 ### scripted model
 A model a test gives its agent, which answers from a script in order. A script that runs out fails the test.
 

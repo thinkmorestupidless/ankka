@@ -101,11 +101,17 @@ final class Keeper(
     telemetry.foreach(_.passTook(System.nanoTime() - started))
   }
 
-  /** Runs the loop on a thread of its own until `stop`. */
+  /**
+   * Runs the loop on a thread of its own until `stop`. A platform thread, not a virtual one: a pass
+   * blocks on Ollama inside `synchronized`, which on JDK 21 pins a virtual thread to its carrier,
+   * and the image has one processor, so one carrier. Pinned, the pass held it for the whole first
+   * fetch and no probe or call was answered until the kubelet restarted the keeper.
+   */
   def start(): Unit = synchronized {
     require(running.isEmpty, "the keeper is already running")
     val thread = Thread
-      .ofVirtual()
+      .ofPlatform()
+      .daemon()
       .name("ankka-model-keeper")
       .unstarted(() =>
         var last = 0L

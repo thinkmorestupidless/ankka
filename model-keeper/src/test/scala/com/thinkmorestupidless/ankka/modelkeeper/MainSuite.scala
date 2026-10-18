@@ -8,7 +8,8 @@ import java.net.URI
 import java.net.http.HttpResponse.BodyHandlers
 import java.net.http.{HttpClient, HttpRequest}
 import java.nio.file.{Files, Path}
-import java.util.concurrent.{ArrayBlockingQueue, TimeUnit}
+import java.time.Duration as JDuration
+import java.util.concurrent.{ArrayBlockingQueue, CountDownLatch, TimeUnit}
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.*
 
@@ -122,4 +123,46 @@ class MainSuite extends munit.FunSuite with LogCapturing:
       before.fold(sys.props.remove(Main.ServiceDirectoryProperty): Unit)(
         sys.props(Main.ServiceDirectoryProperty) = _
       )
+  }
+
+  // The image runs with one processor (`-XX:ActiveProcessorCount=1`), and so do these tests: one
+  // carrier for every virtual thread. A pass blocked on Ollama must not keep the probe from answering
+  // within the kubelet's one second, or the keeper is restarted in the middle of every first fetch.
+  test("the probe answers while a fetch is under way") {
+    assertEquals(Runtime.getRuntime.availableProcessors(), 1, "the tests run with one processor")
+    val ollama = FakeOllama.start()
+    ollama.offer("qwen3:0.6b")
+    val fetching = new CountDownLatch(1)
+    ollama.pullHold = Some(fetching)
+    val started = new ArrayBlockingQueue[Main.Started](1)
+    val env     = environment(declaration(), ollama.url)
+    val thread = withDirectory(certificate(Main.Identity)) {
+      val t = Thread.ofPlatform().daemon().start { () =>
+        Main.run(Array.empty, env.get, _ => (), s => started.put(s)): Unit
+      }
+      Option(started.poll(30, TimeUnit.SECONDS)).getOrElse(fail("the keeper did not start")) -> t
+    }
+    val (running, runner) = thread
+    try
+      val deadline = System.nanoTime() + 20.seconds.toNanos
+      while ollama.requestsTo("POST", "/api/pull").isEmpty && System.nanoTime() < deadline do
+        Thread.sleep(50)
+      assert(ollama.requestsTo("POST", "/api/pull").nonEmpty, "the keeper never began the fetch")
+      val client = HttpClient.newHttpClient()
+      val probe  = running.door.ports.probe
+      for path <- Vector("/live", "/ready") do
+        val answered = client.send(
+          HttpRequest
+            .newBuilder(URI.create(s"http://127.0.0.1:$probe$path"))
+            .timeout(JDuration.ofSeconds(1))
+            .build(),
+          BodyHandlers.ofString()
+        )
+        // Answering at all is the point; mid-fetch, ready is a 503 that says why.
+        if path == "/live" then assertEquals(answered.statusCode, 200)
+    finally
+      fetching.countDown()
+      running.stop()
+      runner.join(10000)
+      ollama.stop()
   }

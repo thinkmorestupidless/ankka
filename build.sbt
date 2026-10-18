@@ -834,7 +834,9 @@ lazy val modelKeeper = project
     ),
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // Named, not discovered, as the proxy's is: testkit ships a logback-test.xml.
-    Test / javaOptions += "-Dlogback.configurationFile=logback-keeper-test.xml"
+    Test / javaOptions += "-Dlogback.configurationFile=logback-keeper-test.xml",
+    // One processor, as the image has: one carrier for every virtual thread (MainSuite).
+    Test / javaOptions += "-XX:ActiveProcessorCount=1"
   )
 
 /**

@@ -35,6 +35,9 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
   /** When set, a streamed completion waits on it between its first chunk and the rest. */
   @volatile var streamHold: Option[CountDownLatch] = None
 
+  /** When set, a fetch waits on it after its first status line, as a download of minutes does. */
+  @volatile var pullHold: Option[CountDownLatch] = None
+
   def port: Int   = server.getAddress.getPort
   def url: String = s"http://127.0.0.1:$port"
 
@@ -134,6 +137,7 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
     exchange.sendResponseHeaders(200, 0)
     val out = exchange.getResponseBody
     line(out, """{"status":"pulling manifest"}""")
+    pullHold.foreach(_.await())
     (Option(failures.get(tag)), Option(registry.get(tag))) match
       case (Some(failure), _) => line(out, s"""{"error":"${escape(failure)}"}""")
       case (None, Some(model)) =>

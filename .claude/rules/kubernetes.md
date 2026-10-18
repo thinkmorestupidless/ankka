@@ -690,6 +690,16 @@ ConfigMap for nothing.
 - **The keeper's OTLP endpoint is filled by the overlay, as a service's is not.** The keeper is not an
   `AnkkaService`, so the operator renders nothing for it; the component sets `ANKKA_OTLP_ENDPOINT` to `""`
   and each overlay replaces it from `ankka-platform.otlpEndpoint`.
+- **k3s enforces network policy on the kubelet's probes.** The models policy once left 7627 unadmitted
+  on the belief that a node's traffic to its pods is exempt; the probe was refused and the keeper was never
+  ready. Every component's policy admits `probe` from anyone. (2026-10-18)
+- **A virtual thread that blocks inside `synchronized` holds its carrier on JDK 21, and the keeper has
+  one.** The image is `eclipse-temurin:21-jre` with `ActiveProcessorCount=1`; the declaration pass, a
+  `synchronized` method waiting minutes on Ollama's fetch, pinned the only carrier, so no probe was
+  answered and the kubelet restarted the keeper every minute. Development JDKs from 24 do not pin
+  (JEP 491), so the offline suites passed and a hung forked JVM was the only local sign on 21. The loop
+  is a platform thread; the keeper's tests run with one processor and `MainSuite` holds a fetch open
+  while it calls the probe. Run them with `sbt --java-home <jdk21>` when touching the keeper. (2026-10-18)
 
 ## Backups and recovery (feature 041)
 

@@ -61,6 +61,25 @@ class KeeperSuite extends munit.FunSuite with LogCapturing:
       r.keeper.stop()
       r.ollama.stop()
 
+  test("while a model is being fetched the status says fetching, and the address is published") {
+    withRig(rig()("qwen3:0.6b")) { r =>
+      r.ollama.offer("qwen3:0.6b")
+      val fetching = new java.util.concurrent.CountDownLatch(1)
+      r.ollama.pullHold = Some(fetching)
+      val pass = Thread.ofPlatform().daemon().start(() => r.keeper.pass())
+      try
+        val deadline = System.nanoTime() + 20.seconds.toNanos
+        while r.ollama.requestsTo("POST", "/api/pull").isEmpty && System.nanoTime() < deadline do
+          Thread.sleep(20)
+        assert(r.ollama.requestsTo("POST", "/api/pull").nonEmpty, "the pass never began the fetch")
+        assertEquals(r.state("qwen3:0.6b"), Some(ModelState.Fetching), r.doc.toString)
+        assertEquals(r.doc.server, "https://models.models-system.svc:8443")
+      finally fetching.countDown()
+      pass.join(10000)
+      assertEquals(r.state("qwen3:0.6b"), Some(ModelState.Served), r.doc.toString)
+    }
+  }
+
   test("a declared model is fetched, loaded and served after one pass, its digest recorded") {
     withRig(rig()("qwen3:0.6b")) { r =>
       r.ollama.offer("qwen3:0.6b")

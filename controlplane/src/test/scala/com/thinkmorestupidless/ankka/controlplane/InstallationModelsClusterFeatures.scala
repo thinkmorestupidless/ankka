@@ -437,7 +437,9 @@ class InstallationModelsClusterFeatures
       declare(Vector(Small))
       waitFor(120.seconds, s"$model leaving the status")(line(model).isEmpty)
       declare(Vector(Small, model))
-      waitFor(60.seconds, s"$model being fetched")(line(model).exists(_.state == "fetching"))
+      // The kubelet brings a ConfigMap's change to the mounted file within its sync period, a
+      // minute or more, before the keeper can see it.
+      waitFor(180.seconds, s"$model being fetched")(line(model).exists(_.state == "fetching"))
   }
 
   When("a platform administrator adds the model {string} to the model server's declaration") {
@@ -620,9 +622,16 @@ class InstallationModelsClusterFeatures
   ) { () =>
     // In a project's namespace and labelled as a platform workload, so the network policy admits it
     // and what refuses it is the door; `-k` so the refusal is the door's, not curl's own distrust.
+    // The namespace first: these scenarios run before any service has made it.
     val namespace = s"$Prefix-$Project"
     val manifest =
       s"""apiVersion: v1
+         |kind: Namespace
+         |metadata:
+         |  name: $namespace
+         |  labels: { app.kubernetes.io/managed-by: ankka }
+         |---
+         |apiVersion: v1
          |kind: Pod
          |metadata:
          |  name: uncertified

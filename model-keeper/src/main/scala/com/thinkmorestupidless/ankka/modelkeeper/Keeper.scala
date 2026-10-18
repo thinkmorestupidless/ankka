@@ -77,8 +77,16 @@ final class Keeper(
             probe = Left(reason)
             published = published.copy(ready = false, detail = Some(reason))
           case Right(observed) =>
-            val now      = clock.instant()
-            val plan     = Reconcile.plan(declaration, observed, recorded, backoff, now)
+            val now  = clock.instant()
+            val plan = Reconcile.plan(declaration, observed, recorded, backoff, now)
+            // What the pass is about to do, published first: a fetch is minutes, and until it ends
+            // the status must say the model is being fetched, not repeat the pass before.
+            if plan.actions.nonEmpty then
+              published = published.copy(
+                ready = declarationProblem.isEmpty,
+                models = plan.models,
+                detail = declarationProblem.orElse(plan.detail)
+              )
             val outcomes = perform(plan.actions)
             val digests =
               if plan.actions.exists(_.isInstanceOf[Action.Pull]) then

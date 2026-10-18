@@ -29,4 +29,5 @@ spec:
             matchLabels: { kubernetes.io/metadata.name: ankka-operator }
           podSelector:
             matchLabels: { app.kubernetes.io/name: ankka-operator }
-    # The kubelet's probe needs no rule: a node's own traffic to its pods is not subject to policy.
+    # Readiness: anyone. k3s enforces policy on the kubelet's probe too, so it needs this rule.
+    - ports: [{ protocol: TCP, port: 7627 }]

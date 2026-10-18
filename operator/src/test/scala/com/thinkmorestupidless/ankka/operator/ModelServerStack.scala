@@ -117,7 +117,7 @@ object ModelServerStack:
     PkiStack.kubectl(k3s, "-n", Namespace, "logs", s"$Name-0", "-c", "keeper")
 
   private def awaitReady(k3s: K3sContainer, timeout: FiniteDuration): Unit =
-    waitFor(timeout, "the model server is ready") {
+    waitFor(timeout, "the model server is ready", state(k3s)) {
       PkiStack.jsonPath(
         k3s,
         "-n",
@@ -146,7 +146,21 @@ object ModelServerStack:
     if !text.contains(line) then
       throw new AssertionError(s"$file no longer holds '${line.trim}', which this stack rewrites")
 
-  private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
+  /** What the node says about the server's pod, for a wait that ran out. */
+  private def state(k3s: K3sContainer): () => String = () =>
+    def run(args: String*): String =
+      val result = k3s.execInContainer(("kubectl" +: args)*)
+      s"$$ kubectl ${args.mkString(" ")}\n${result.getStdout}${result.getStderr}"
+    Vector(
+      run("-n", Namespace, "get", "pods,pvc", "-o", "wide"),
+      run("-n", Namespace, "describe", "pod", s"$Name-0"),
+      run("-n", Namespace, "logs", s"$Name-0", "-c", "keeper", "--tail=60"),
+      run("-n", Namespace, "logs", s"$Name-0", "-c", "ollama", "--tail=30")
+    ).mkString("\n")
+
+  private def waitFor(timeout: FiniteDuration, what: String, state: () => String)(
+      check: => Boolean
+  ): Unit =
     val deadline = System.nanoTime() + timeout.toNanos
     var passed   = false
     while !passed && System.nanoTime() < deadline do
@@ -154,4 +168,8 @@ object ModelServerStack:
         try check
         catch case _: Exception => false
       if !passed then Thread.sleep(2000)
-    if !passed then throw new AssertionError(s"$what did not happen within $timeout")
+    if !passed then
+      val seen =
+        try state()
+        catch case e: Exception => s"(the pod's state could not be read: ${e.getMessage})"
+      throw new AssertionError(s"$what did not happen within $timeout\n$seen")

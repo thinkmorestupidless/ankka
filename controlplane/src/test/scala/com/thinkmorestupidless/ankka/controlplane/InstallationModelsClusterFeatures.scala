@@ -571,11 +571,19 @@ class InstallationModelsClusterFeatures
 
   Then("the lifecycle of {string} is {string}, because {string} is still being fetched") {
     (logical: String, lifecycle: String, model: String) =>
-      lifecycleIs(logical, lifecycle)
-      assert(
-        detailOf(logical).contains(s"installation model \"$model\" is still being fetched"),
-        detailOf(logical)
-      )
+      // Both in one wait: an apply reads UpdateInProgress at once, before the operator has said why.
+      val name = real(logical)
+      val why  = s"installation model \"$model\" is still being fetched"
+      var seen = Option.empty[ServiceStatus]
+      try
+        waitFor(120.seconds, s"$name being $lifecycle because $model is being fetched") {
+          seen = statusOf(name)
+          seen.exists(s => s.lifecycle.toString == lifecycle && s.detail.exists(_.contains(why)))
+        }
+      catch
+        case e: munit.FailException =>
+          fail(s"${e.getMessage}; last seen ${seen
+              .map(s => s"${s.lifecycle}: ${s.detail.getOrElse("")}")}")
   }
 
   Then("when {string} becomes a served model, {string} is ready") {

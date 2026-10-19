@@ -850,7 +850,7 @@ written the day they cost time, and every suite once.
   the public bucket in a paragraph
 - [ ] T069 `just docs-sync && just docs`: every included sample found, the configuration table
   regenerated, the skills rendered; `just features`: 0 findings with the scenario count unchanged
-- [ ] T070 [P] Write the traps that cost time into the rule files, dated: `.claude/rules/runtime.md`
+- [X] T070 [P] Write the traps that cost time into the rule files, dated: `.claude/rules/runtime.md`
   (the JDK client's connection on a closed body stream; `UNSIGNED-PAYLOAD` on Garage, whichever way
   T005 went; the reserved path and the bound port promise), `.claude/rules/kubernetes.md` (the web
   listener and `ANKKA_OBJECT_STORE_WEB_SERVICE`; `Kept` as the operator's memory; the key is the

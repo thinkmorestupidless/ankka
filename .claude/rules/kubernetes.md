@@ -807,3 +807,17 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
   matched only Java collections read every cert-manager field as absent, offline tests passed, and on
   k3s a `Ready` certificate was reported "being issued" for ever. `Generic` (operator) reads both, and
   `GenericSuite` holds both shapes.
+
+- **A public bucket on Garage needs the store's web listener and the operator told where it is**
+  (2026-10-19, feature 055). The `garage` component serves `[s3_web]` on 3902 and patches
+  `ANKKA_OBJECT_STORE_WEB_SERVICE=garage-system/garage:3902` onto the operator; without the setting a
+  public bucket is `Failed` naming it. The public route (`Rendering.storeRoute` with `rewriteTo`)
+  rewrites the host to the bucket's name and replaces the bucket's path prefix with `/`, since the web
+  listener serves a bucket by its `Host`, where the S3 port reads it from the path.
+- **`Kept` is the operator's memory of a bucket the descriptor stopped naming.** Nothing else
+  remembers it: the spec no longer lists it, so the status carries it, with its store, bucket and
+  address, and the next pass removes its route and withholds its variables. A status rewritten from
+  the spec alone would forget it, and its route would outlive it.
+- **The storage key is the service's, not a bucket's.** Every made bucket of a service is allowed to
+  the one key, named as the unnamed bucket's key always was; a reissue or a write pause acts on every
+  bucket at once, and a move copies each bucket with the same pair of credentials.

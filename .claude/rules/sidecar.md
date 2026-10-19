@@ -118,3 +118,16 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   before the projections, the timers, the agents and HTTP, in `Main.build` and in `ConformanceTarget`
   alike; its timer thunk answers "not running" rather than throwing in the moment before the timers
   start.
+
+- **A module's `storage` import carries whole objects, bounded at 4,000,000 bytes** (2026-10-19,
+  protocol 1.20). `ClientLogic.answerStorage` refuses a put above the bound before anything is kept,
+  and a get after a `stat` before a byte is read; a listing answers pages of 1000 with `next`. A
+  Python or TypeScript process never reaches it: it speaks S3 itself from its own variables, so no
+  object passes through the sidecar. The import is permitted where `request` is (`CallSite.mayStore`).
+- **One `/_ankka` prefix is a process's: `/_ankka/storage`, for its directory store on a laptop.**
+  `Discovery` refuses any other endpoint under `/_ankka`, naming it, and `HttpServer` admits the one
+  only from a `RemoteEndpoint` (`servesReservedStorage`) and only when the runtime serves no
+  directory store of its own.
+- **A conformance case's input does not belong in a URI.** The storage rules fixture's longest names
+  are over 2048 characters, and pekko-http answers such a request `414` before any route: the rules
+  route takes the candidate in the body.

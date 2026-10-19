@@ -392,7 +392,11 @@ final class ServiceBuilder private[ankka] (
           .flatMap(settings =>
             storage.ObjectStorages.build(
               settings,
-              storage.LocalBuckets.read(),
+              storage.LocalBuckets.read(
+                Some(system.settings.config.getString("ankka.storage.descriptor-directory"))
+                  .filter(_.nonEmpty)
+                  .fold(java.nio.file.Paths.get("").toAbsolutePath)(java.nio.file.Paths.get(_))
+              ),
               () =>
                 Option(started.get())
                   .flatMap(_.boundAddresses.headOption)

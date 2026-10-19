@@ -382,6 +382,53 @@ class S3BucketSuite extends BucketContract:
     )
   }
 
+  test("a URL is signed for the public host, and the store honours it only from that host") {
+    val b = s3Bucket(publicEndpoint = Some(URI.create("https://storage.example.test")))
+    b.putBytes("exports/may.pdf", "may".getBytes(UTF_8), "application/pdf")
+    val url = b.signedUrl("exports/may.pdf", SignedAccess.Read, 1.minute)
+    assertEquals(url.getHost, "storage.example.test")
+    assertEquals(url.getPort, -1)
+    val target = s"${url.getRawPath}?${url.getRawQuery}"
+    // What the gateway does: the request reaches the store carrying the public host. The JDK's
+    // client refuses to set Host, so the request is written by hand.
+    val (status, body) = rawGet(target, "storage.example.test")
+    assertEquals(status, 200, body)
+    assert(body.endsWith("may"), body)
+    // The same URL arriving with the store's own host is not the URL that was signed.
+    val (other, _) = rawGet(target, s"${garage.s3.getHost}:${garage.s3.getPort}")
+    assert(Set(400, 403).contains(other), other)
+  }
+
+  test(
+    "a signed URL lasts 900 seconds unless the call says otherwise, and is made without a request"
+  ) {
+    val before = counting.requests.get
+    val url    = s3Bucket().signedUrl("exports/june.pdf", SignedAccess.Read)
+    assert(url.getRawQuery.contains("X-Amz-Expires=900"), url.getRawQuery)
+    val keep = s3Bucket().signedUrl("exports/june.pdf", SignedAccess.Keep, 2.hours)
+    assert(keep.getRawQuery.contains("X-Amz-Expires=7200"), keep.getRawQuery)
+    s3Bucket(
+      exposure = BucketExposure.Public,
+      name = Some("photos"),
+      publicUrl = Some("https://storage.example.test/t.svc.photos")
+    ).url("listings/42/front.jpg"): Unit
+    assertEquals(counting.requests.get, before, "a signed URL or an address asked the store")
+  }
+
+  /** A `GET` written on a socket to the store, with the `Host` given: status and whole answer. */
+  private def rawGet(target: String, host: String): (Int, String) =
+    val socket = java.net.Socket(garage.s3.getHost, garage.s3.getPort)
+    try
+      socket.setSoTimeout(10000)
+      val out = socket.getOutputStream
+      out.write(
+        s"GET $target HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n".getBytes(UTF_8)
+      )
+      out.flush()
+      val answer = new String(socket.getInputStream.readAllBytes(), UTF_8)
+      (answer.split(" ", 3)(1).toInt, answer)
+    finally socket.close()
+
   test("a public bucket answers its address by computation; any other refuses") {
     val photos = s3Bucket(
       exposure = BucketExposure.Public,
@@ -398,7 +445,9 @@ class S3BucketSuite extends BucketContract:
 /** An `HttpClient` that counts the listings it sends, and sends everything through `underlying`. */
 final class CountingClient(underlying: HttpClient) extends HttpClient:
   val listings = new java.util.concurrent.atomic.AtomicInteger()
+  val requests = new java.util.concurrent.atomic.AtomicInteger()
   private def counted(r: HttpRequest): Unit =
+    requests.incrementAndGet(): Unit
     if Option(r.uri.getRawQuery).exists(_.contains("list-type=2")) then
       listings.incrementAndGet(): Unit
   def cookieHandler()   = underlying.cookieHandler()

@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 dist/
+# The directory store a service keeps its objects in on this machine (ankka local).
+.ankka/

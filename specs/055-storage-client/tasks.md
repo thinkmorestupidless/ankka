@@ -389,7 +389,7 @@ computation alone, refused with `exposeObjectStorage` when the bucket is not rea
 **Independent Test**: `signed-urls.feature` on k3s with `exposeObjectStorage`, read and keep from the
 host through the gateway; the refusal without.
 
-- [ ] T028 [US3] Cases in `RTT/storage/S3BucketSuite.scala`: `signedUrl(name, Read, 1.minute)`
+- [X] T028 [US3] Cases in `RTT/storage/S3BucketSuite.scala`: `signedUrl(name, Read, 1.minute)`
   against a `publicEndpoint` that differs from `endpoint` answers a URL on the public host whose
   presigned `GET` works against Garage when the suite rewrites the host back (proving the signature
   is over the public host); `Keep` answers a `PUT` URL a plain client keeps through with the
@@ -620,7 +620,7 @@ reserved path, and the kit's store proven across a restart.
 **Independent Test**: `DirectoryBucketSuite`, `DirectoryStorageEndpointSuite`, `ReservedPathSuite`;
 `local.feature` and `testkit.feature` green in `StorageClientFeatures`; quickstart §6 by hand.
 
-- [ ] T049 [P] [US5] Write `STO/DirectoryBucket.scala` (R12): `DirectoryObjectStorage(root: Path, buckets, unnamed, addressBase: () => String, signer)`,
+- [X] T049 [P] [US5] Write `STO/DirectoryBucket.scala` (R12): `DirectoryObjectStorage(root: Path, buckets, unnamed, addressBase: () => String, signer)`,
   one directory per bucket (`default/` for the unnamed), an object at `<root>/<bucket>/<name>` with
   `<name>.meta.json` (`contentType`, `lastKept`) beside it; `put` writes `<name>.part` then
   `Files.move(ATOMIC_MOVE, REPLACE_EXISTING)` so a short stream leaves the old object; `list` walks
@@ -633,12 +633,12 @@ reserved path, and the kit's store proven across a restart.
   Cases in `RTT/storage/DirectoryBucketSuite.scala`: `BucketContract` over a temp directory; the
   `.part` file gone after a failed put and the old object readable; the meta file's content; a
   read-only root refused naming it; a name resolving outside the bucket refused
-- [ ] T050 [P] [US5] `HTTP/HttpServer.scala`: `validate` refuses an endpoint whose prefix is `_ankka`
+- [X] T050 [P] [US5] `HTTP/HttpServer.scala`: `validate` refuses an endpoint whose prefix is `_ankka`
   with `the /_ankka prefix is the runtime's`; `Router.handle` (`:460–491`, beside `/_ankka/health`)
   admits runtime-registered routes under `/_ankka/storage` only when one is registered, else `404`.
   Cases in `HTTPT/ReservedPathSuite.scala`: the refusal at `validate`; `/_ankka/storage/x/y` is `404`
   with nothing registered; `/_ankka/health` unchanged
-- [ ] T051 [US5] Write `STO/DirectoryStorageEndpoint.scala`: an endpoint the runtime registers at
+- [X] T051 [US5] Write `STO/DirectoryStorageEndpoint.scala`: an endpoint the runtime registers at
   `/_ankka/storage` only when the backend is `Directory` (`RT/Ankka.scala`, beside the HTTP server's
   registration), serving `GET /_ankka/storage/<bucket>/<name>` for a valid `token` or on a `Public`
   bucket (the object, its content type, `Content-Length`, as `Streamed`), `PUT` for a `Keep` token
@@ -651,7 +651,7 @@ reserved path, and the kit's store proven across a restart.
   `RTT/storage/DirectoryStorageEndpointSuite.scala` through `HttpServer.at("127.0.0.1", 0)`: valid
   read; valid keep then read; expired `403`; wrong token `403`; public bucket unsigned `200`;
   private unsigned `403`; `404`; a restarted server with the same root honours a URL made before
-- [ ] T052 [US5] Bind `FEAT/local.feature` in `StorageClientFeatures` with a kit started as
+- [X] T052 [US5] Bind `FEAT/local.feature` in `StorageClientFeatures` with a kit started as
   `StorageBackendChoice.FromEnvironment` and `ANKKA_STORAGE_DIR` at a temp directory: the objects
   under the directory; a signed URL on the service's own port read with the JDK client; a keep
   through a signed URL; an unsigned request `403`; the public address served; "a service given the
@@ -662,13 +662,13 @@ reserved path, and the kit's store proven across a restart.
   `s3` backend against a fake endpoint: `/_ankka/storage/...` is `404`, and `ranElsewhere` for the
   k3s copy in `StorageClientClusterFeatures` (a deployed service's pod answers `404` there). Green:
   `sbt 'testkit/testOnly *StorageClientFeatures -- *local*'`
-- [ ] T053 [US5] Bind `FEAT/testkit.feature` the same way over T014: seed and read; read what the
+- [X] T053 [US5] Bind `FEAT/testkit.feature` the same way over T014: seed and read; read what the
   service kept; survive `restartService()`; gone when the kit stops (a second kit on the same
   descriptor sees nothing); two kits apart; "a test reaches a service's public bucket through the
   storage client" through `declareBucket("photos", Public)` and `kit.storage.bucket("photos")`.
   Green: `sbt 'testkit/testOnly *StorageClientFeatures -- *test*'`. Then the whole suite: every
   in-process scenario green, the rest named in the two maps, the count equal to the files'
-- [ ] T054 [P] [US5] The templates: if `ankka.g8` or `ankka init`'s Scala, Python, TypeScript and
+- [X] T054 [P] [US5] The templates: if `ankka.g8` or `ankka init`'s Scala, Python, TypeScript and
   Rust templates (`cli/…/Scaffold.scala`, `ankka.g8/`) write a `.gitignore`, add `.ankka/` to it so a
   laptop's directory store is never committed; the template suites (`*TemplateSuite`) assert the
   line. If no template writes one, record that in `DOCS/build/object-storage.md`'s laptop section

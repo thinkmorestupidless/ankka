@@ -135,7 +135,14 @@ final class HttpServer private (
         service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys),
         service.storage
       )
-    serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout, Some(service))
+    serve(
+      factories.map(_(clients)).toVector,
+      host,
+      bindPort,
+      bodyTimeout,
+      Some(service),
+      directoryStorage = service.directoryStorage
+    )
 
   /**
    * Validates, logs and binds `endpoints` — everything `start` does once the endpoints exist. Split
@@ -148,7 +155,11 @@ final class HttpServer private (
       bodyTimeout: FiniteDuration,
       service: Option[AnkkaService] = None,
       /** `ankka.http.max-stream-bytes` unless a suite names another. */
-      maxStream: Option[Long] = None
+      maxStream: Option[Long] = None,
+      /** The directory store whose URLs this server answers at `/_ankka/storage`, on a laptop. */
+      directoryStorage: Option[
+        com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+      ] = None
   )(using system: ActorSystem[?]): Unit =
     maxStreamBytes = maxStream.getOrElse(
       system.settings.config.getBytes("ankka.http.max-stream-bytes").longValue
@@ -165,7 +176,7 @@ final class HttpServer private (
       case endpoint                => describedRoutes(endpoint)
     }
     logRoutes(endpoints)
-    bindAndListen(endpoints, host, bindPort, bodyTimeout)
+    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage)
 
   /** What the server reads from an endpoint's routes when the endpoint does not say itself. */
   private def describedRoutes(endpoint: HttpEndpoint): Vector[ServedRoute] =
@@ -233,7 +244,8 @@ final class HttpServer private (
       endpoints: Vector[HttpEndpoint],
       host: String,
       bindPort: Int,
-      bodyTimeout: FiniteDuration
+      bodyTimeout: FiniteDuration,
+      directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage]
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
     val config             = system.settings.config
@@ -269,7 +281,8 @@ final class HttpServer private (
         Some(upgrades),
         grants,
         Some(heartbeat),
-        maxStreamBytes
+        maxStreamBytes,
+        directoryStorage
       ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
@@ -422,6 +435,10 @@ final class HttpServer private (
         .foreach(needs => needs.bind(service).left.foreach(problems += _))
     }
 
+    endpoints.filter(_.prefixPath.headOption.contains(Router.Reserved)).foreach { endpoint =>
+      problems += s"'${endpoint.prefix}': the /${Router.Reserved} prefix is the runtime's"
+    }
+
     endpoints.foreach { endpoint =>
       // A socket route is a GET: one on the template of a GET or an SSE route would make which
       // one answers depend on whether the request asked to upgrade.
@@ -516,7 +533,9 @@ private final class Router(
     configuredUpgrades: Option[SocketUpgrades] = None,
     grants: Grants = Grants.none,
     heartbeat: Option[FiniteDuration] = None,
-    maxStreamBytes: Long = Router.DefaultMaxStreamBytes
+    maxStreamBytes: Long = Router.DefaultMaxStreamBytes,
+    directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage] =
+      None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -560,7 +579,14 @@ private final class Router(
   private val socketRoutesByEndpoint: Map[String, Vector[SocketRoute]] =
     endpoints.map(e => e.prefix -> e.socketRoutes.sortBy(_.template.specificity)).toMap
 
-  private val HealthPath = Vector("_ankka", "health")
+  private val HealthPath = Vector(Router.Reserved, "health")
+
+  private val StoragePath = Vector(Router.Reserved, "storage")
+
+  // Only on a developer's machine, where the service's store is a directory (feature 055).
+  private lazy val storageEndpoint = directoryStorage.map(store =>
+    DirectoryStorageEndpoint(store, maxStreamBytes, bodyTimeout, problem)
+  )
 
   /** Every endpoint's root routes, most specific first; `validate` keeps two off one path. */
   private val rootRoutes: Vector[(HttpEndpoint, Route)] =
@@ -577,6 +603,17 @@ private final class Router(
     // Exempt from ACLs because it reveals nothing: liveness probes need to work before
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
+    else if path.startsWith(StoragePath) then
+      // The runtime's: no endpoint is given a path under it, so nothing here is an endpoint's.
+      // Only this part of `/_ankka` is taken here; an MCP endpoint's sign-in routes are root routes.
+      storageEndpoint match
+        case Some(storage) =>
+          storage.handle(request, Router.decoded(request.uri.path).drop(StoragePath.size))
+        case None =>
+          request.discardEntityBytes(): Unit
+          Future.successful(
+            problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
+          )
     else
       // A root route is a whole path (feature 054), so it is matched before any prefix could
       // claim it: an endpoint at `/` would otherwise answer `/.well-known/…` with its own 404.
@@ -1104,6 +1141,22 @@ private final class Router(
 
 private object Router:
 
+  /** The first segment of every path the runtime serves itself, and no endpoint may. */
+  val Reserved: String = "_ankka"
+
+  /** A path's segments decoded, so a name with an encoded character reads as it was written. */
+  def decoded(path: Uri.Path): Vector[String] =
+    val out  = Vector.newBuilder[String]
+    var rest = path
+    while !rest.isEmpty do
+      rest match
+        case Uri.Path.Segment(head, tail) =>
+          out += head
+          rest = tail
+        case Uri.Path.Slash(tail) => rest = tail
+        case _                    => rest = Uri.Path.Empty
+    out.result()
+
   /**
    * Five gigabytes: S3's largest single put, and so the largest object an upload can keep whole.
    */
@@ -1128,6 +1181,9 @@ private object Router:
     val source =
       org.apache.pekko.stream.scaladsl.StreamConverters.fromInputStream(() => streamed.body)
     streamed.length match
+      case Some(0L) =>
+        streamed.body.close()
+        HttpEntity.empty(contentType)
       case Some(length) => HttpEntity.Default(contentType, length, source)
       case None         => HttpEntity.Chunked.fromData(contentType, source)
 

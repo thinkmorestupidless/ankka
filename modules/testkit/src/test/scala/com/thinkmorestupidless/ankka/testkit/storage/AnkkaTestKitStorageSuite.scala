@@ -22,6 +22,7 @@ class AnkkaTestKitStorageSuite extends munit.FunSuite with LogCapturing:
 
   test("a bucket the test declares after the start is answered, and its public address made") {
     withKit(StorageBackendChoice.Memory()) { kit =>
+      // docs:start kit
       kit.declareBucket("photos", BucketExposure.Public)
       kit.storage.bucket("photos").putBytes("a/b.png", "png".getBytes(UTF_8), "image/png")
       assertEquals(
@@ -29,6 +30,7 @@ class AnkkaTestKitStorageSuite extends munit.FunSuite with LogCapturing:
         Some("image/png")
       )
       assert(kit.storage.bucket("photos").url("a/b.png").toString.endsWith("/a/b.png"))
+      // docs:end kit
     }
   }
 

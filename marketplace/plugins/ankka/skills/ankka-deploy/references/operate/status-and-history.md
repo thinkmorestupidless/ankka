@@ -70,6 +70,7 @@ database    provisioned
 | `object store` | Which store the bucket is in: `garage`, or `gcs` for Google Cloud Storage. |
 | `bucket location` | Where a bucket in Google Cloud Storage was made, as the cloud provider reported it. |
 | `soft delete` | How many days a deleted object in a bucket in Google Cloud Storage can still be recovered. |
+| `bucket <name>` | One line per named bucket: its exposure (`private`, `signed` or `public`), `supplied` for a bucket the service brings, or `kept` for one the descriptor no longer names; then its name in the store and, when it is reachable from outside, its address. A kept bucket ends `(no longer named)`: nothing in it is deleted, and naming it again gives it back. |
 | `storage move` | Where a move of the bucket from Garage is: `waiting for its bucket in Google Cloud Storage`, `copying`, its write pause (since when, and how long it may last), `verifying`, `moved` or `move failed`, with why it failed in `detail`. |
 | `detail` | Why the service is in its state, when there is something to say: a rollout problem, a refused version, an unreachable cluster, or a route the gateway has not accepted (`route rejected: <reason>`). |
 

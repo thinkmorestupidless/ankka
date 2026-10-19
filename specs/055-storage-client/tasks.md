@@ -821,7 +821,7 @@ references; `languages.feature` `ranElsewhere`.
 **Purpose**: the pages that stand alone, the skills, the limitations page's honest lines, the traps
 written the day they cost time, and every suite once.
 
-- [ ] T066 [P] Write `DOCS/build/object-storage.md` (new, after `secrets.md` in the Build section):
+- [X] T066 [P] Write `DOCS/build/object-storage.md` (new, after `secrets.md` in the Build section):
   what the client is (the ten operations, the contexts, by name), what it is not (no directories,
   rename, copy, append or partial writes; a put declares its length), the four languages' samples
   included from the `// docs:start` regions of `TKT/storage/StorageComponents.scala`,
@@ -831,7 +831,7 @@ written the day they cost time, and every suite once.
   `.gitignore` or T054's note); the test kit's store, `declareBucket`; errors. Add it to
   `mkdocs.yml`'s nav (`:177` region) and to `SKILL/ankka-endpoints/SKILL.md`, `SKILL/ankka-workflows/SKILL.md`
   and the three language skills' page lists
-- [ ] T067 [P] `DOCS/platform/object-storage.md` gains "Named buckets" (the descriptor, the
+- [X] T067 [P] `DOCS/platform/object-storage.md` gains "Named buckets" (the descriptor, the
   exposures, the variables per bucket, the one credential, the status lines) and "A public bucket"
   (the web listener, the route, the address, the content delivery network note), and its "what every
   client must do" section says the SDK's client does it; `DOCS/reference/service-descriptor.md` gains
@@ -841,14 +841,14 @@ written the day they cost time, and every suite once.
   strict"); `DOCS/operate/status-and-history.md` the bucket lines; `DOCS/reference/configuration.md`'s
   prose the `ankka.storage` keys and `ankka.http.max-stream-bytes` (the generated table follows
   `just docs-sync`)
-- [ ] T068 [P] `DOCS/reference/limitations.md` (`:94`): drop "No storage client in the SDKs" and
+- [X] T068 [P] `DOCS/reference/limitations.md` (`:94`): drop "No storage client in the SDKs" and
   add the lines from R17 (a keep through a signed URL on a developer's machine is at most
   4,000,000 bytes for Python and TypeScript; no directories, rename, copy, append or partial writes; a put declares its
   length; a module's put and get carry a whole object of at most 4,000,000 bytes; a signed URL spans
   at most seven days; a gRPC endpoint has no client; a supplied bucket is checked on its first call;
   a process's endpoint routes are strict). `SKILL/ankka-platform/SKILL.md` says named buckets and
   the public bucket in a paragraph
-- [ ] T069 `just docs-sync && just docs`: every included sample found, the configuration table
+- [X] T069 `just docs-sync && just docs`: every included sample found, the configuration table
   regenerated, the skills rendered; `just features`: 0 findings with the scenario count unchanged
 - [X] T070 [P] Write the traps that cost time into the rule files, dated: `.claude/rules/runtime.md`
   (the JDK client's connection on a closed body stream; `UNSIGNED-PAYLOAD` on Garage, whichever way

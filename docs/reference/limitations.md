@@ -91,8 +91,20 @@ feature also says what that feature does not do.
 - **One cloud provider and one cloud account per installation.** A project names no account of its own. The
   platform deletes nothing in a cloud account, ever: removing what a provider made is the administrator's
   task.
-- **No storage client in the SDKs.** A service keeps and reads objects with its own language's S3 client. A
-  service run on a developer's own machine is given no bucket.
+- **An object is kept and read whole.** The storage client has no directories, no rename, no copy, no append
+  and no partial writes, and keeps nothing beside an object but its content type. A put declares its
+  length, so a body of unknown length is read first or uploaded through a signed URL.
+- **A module's objects are at most 4,000,000 bytes.** A Rust service's put and get carry the whole object
+  through the runtime; a larger one goes through a signed URL.
+- **A keep through a signed URL on a developer's machine is at most 4,000,000 bytes for Python and
+  TypeScript**, since the directory store's address is served through the platform's program beside the
+  process. A deployed service's signed URLs are the store's, with no such bound.
+- **A Python or TypeScript service's routes read their bodies whole.** Only a Scala endpoint streams a
+  request or a response; the other languages send large objects through signed URLs.
+- **A signed URL spans at most seven days.**
+- **A gRPC endpoint has no storage client.**
+- **A supplied bucket is checked on its first call**, not when the service starts: a wrong endpoint or key
+  is a refused call, not a refused start.
 - **An installation model is reached only inside an installation.** A service run on a developer's own
   machine is given no [model server](../platform/installation-models.md): a provider whose preset is
   `installation` is refused at start there, and the developer points a provider at a server of their own.

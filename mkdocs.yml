@@ -182,6 +182,7 @@ nav:
       - Workflows: build/workflows.md
       - Timers: build/timers.md
       - Secrets a service keeps: build/secrets.md
+      - Objects a service keeps: build/object-storage.md
       - Agents: build/agents.md
       - Judgments: build/judgments.md
       - Streaming responses: build/streaming.md

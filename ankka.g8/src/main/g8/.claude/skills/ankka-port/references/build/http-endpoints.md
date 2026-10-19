@@ -306,6 +306,32 @@ What a handler returns decides the response:
 | `Html(markup)` | `200`, `text/html; charset=UTF-8` |
 | `Bytes(contentType, body)` | `200`, the content type given: a stylesheet, an image, a download |
 | `Respond(body, status, headers)` | any of the above under a status and headers of the handler's choosing |
+| `Streamed(contentType, length, body)` | `200`, the content type given, the body written as it is read |
+
+### Streamed bodies
+
+Every route above reads its request's body whole before the handler runs, and every response is written
+from a value held whole. For an upload or a download larger than an instance should hold, a route streams
+instead:
+
+- **`postStream` and `putStream`** declare a route whose handler is given a `StreamedBody`: the request's
+  content type, its declared length when the client sent one, and an `InputStream` read as the body
+  arrives. The handler reads it on its own thread, and the server closes it when the handler returns.
+- **`Streamed(contentType, length, body)`** as a handler's return value writes `body` to the client as it
+  is read, and closes it when the response is written or the client goes away. With a length the response
+  says it; without, it is sent in chunks.
+
+A stream route reads at most `ankka.http.max-stream-bytes`, five gigabytes unless
+`ANKKA_HTTP_MAX_STREAM_BYTES` says otherwise. A request declaring a larger body is answered `413` and the
+handler never runs. Every other route keeps Pekko HTTP's own bound on a body read whole,
+`pekko.http.server.parsing.max-content-length`.
+
+The streamed upload in [Objects a service keeps](object-storage.md) passes the request's body straight to a
+bucket, and the download writes the object as it is read from it.
+
+A Python or TypeScript service's routes are strict: the platform reads a request's body whole before
+handing it to the process, and a response's whole before writing it. A large upload or download in those
+languages goes through a signed URL, straight between the browser and the bucket.
 
 ### Pages, redirects and cookies
 

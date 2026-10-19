@@ -136,8 +136,8 @@ and a number is its decimal text.
 | `identity` | `serviceAccount`: a cloud identity for this Kubernetes ServiceAccount | `identity`, and `serviceAccountAnnotations`: the annotations, as `key=value` pairs, that bind the ServiceAccount to it |
 | `secret-access` | `identity`, `own` and `read`: which secrets the identity may keep and which it may only read | nothing |
 | `secret-sync` | `secretName`, `entries` as `NAME=id`, `entryGeneration`: a Secret kept in step with secrets in the account | `entryGeneration`, the one kept |
-| `bucket` | `purpose` (`service` or `backup`), `location`, `versioning`, `softDeleteDays`, `corsOrigins`, `kmsKey`, `namePrefix`, `noncurrentVersionDays` (empty for none) | `bucket`, `endpoint`, `region` |
-| `bucket-credential` | `bucket`, `identity`, `secretName`, and a credential generation | `secretName` |
+| `bucket` | `purpose` (`service` or `backup`), `location`, `versioning`, `softDeleteDays`, `corsOrigins`, `kmsKey`, `namePrefix`, `noncurrentVersionDays` (empty for none); for a bucket a service names, `name` and `public` (`"true"` or `"false"`, absent meaning `"false"`) | `bucket`, `endpoint`, `region`; `publicUrl` when `public` is `"true"` |
+| `bucket-credential` | `bucket` for one bucket or `buckets` for several (comma-separated, never both), `identity`, `secretName`, and a credential generation | `secretName` |
 | `wrapping-key` | `identity`, `key`: that the identity may wrap with the installation's key | `key` |
 
 A service with `provisionObjectStorage` on an installation whose object store is its cloud account's
@@ -145,12 +145,33 @@ asks for an `identity`, a `bucket` and, once both are answered, a `bucket-creden
 answered. A `backup` bucket is named so no service's bucket can share its name, and its credential is
 granted only to its project's database.
 
+A service can also name buckets of its own in its descriptor. Each is one `bucket` request, named
+`<service>-bucket-<name>`, whose parameters carry the descriptor's `name` and whether the bucket is
+`public`; the service's own bucket carries neither, and its request is exactly as it would be without
+them. Once every bucket is answered, the service has one `bucket-credential` request: one credential,
+granted on every bucket in `buckets`. When a later descriptor names another bucket, the same request
+lists one more bucket at the same credential generation. The provider grants the credential it already
+issued on the new bucket in place, and writes nothing new into the Secret.
+
+A **public** bucket is readable by anyone, without a signature. A provider for Google Cloud sets public
+access prevention to `inherited`, turns uniform bucket-level access on, and grants `allUsers` the
+`roles/storage.objectViewer` role; versioning and soft delete are as every other bucket's. Every bucket
+that is not public keeps public access prevention enforced. `publicUrl` is the base a reader fetches an
+object from, without a trailing slash: `https://storage.googleapis.com/<bucket>`, or the base of a
+content delivery network in front of the bucket when the provider is configured with one. The service
+is given it as it is, so it never needs to know which.
+
+A provider that does not implement named or public buckets answers such a request `Failed`, saying
+what it does not implement. It never makes a private bucket for a request that asked for a public one.
+
 A provider names a service's bucket `<namePrefix>-<project>-<service>-<digest>`, where `digest` is the
 first eight lowercase hex characters of SHA-256 over `<project>.<service>` and is never shortened. Two
 services whose project and name join to the same hyphenated text therefore get different buckets. The
 whole name fits 63 characters of `[a-z0-9-]`: when it would not, the service's part is shortened from
-the right, then the project's, each keeping at least one character. A name another customer of the
-cloud already holds is `Failed`, naming the bucket; a provider never adopts it.
+the right, then the project's, each keeping at least one character. A bucket a service names is
+`<namePrefix>-<project>-<service>-<digest>-<name>`, its digest over `<project>.<service>.<name>`; when
+it would not fit, the service's part is shortened first, then the project's, then the name's. A name
+another customer of the cloud already holds is `Failed`, naming the bucket; a provider never adopts it.
 
 The operator copies `serviceAccountAnnotations` onto the service's Kubernetes ServiceAccount as they
 are, so a provider says how its cloud binds a workload to an identity and the platform needs no

@@ -105,6 +105,7 @@ settings, so one descriptor can be applied to several projects.
 | `objectStorageOrigins` | array of string | `[]` | The origins a browser may upload from while the bucket is reachable; the platform sets the bucket's CORS rule from them. Each is `scheme://host[:port]`, or `*`. |
 | `objectStorageCredential` | boolean | `true` | `false` gives the service no storage credential, for a program that reaches its bucket by the identity it runs as. Refused where the installation keeps its buckets in Garage, which needs a credential. |
 | `objectStorageVersionAgeDays` | integer | — | After how many days an object's earlier versions are deleted, in a store that keeps them. No effect in Garage, which keeps one version. |
+| `buckets` | array of [buckets](#buckets) | `[]` | The service's named buckets, each reached by its name and exposed in its own way, beside the bucket `provisionObjectStorage` gives. |
 
 ### image
 
@@ -330,6 +331,62 @@ get` reports `supplied`. See [Object storage](../platform/object-storage.md).
     "image": "registry.example.com/acme/reports:1.0.0",
     "provisionObjectStorage": true,
     "exposeObjectStorage": true
+  }
+}
+```
+
+### Buckets
+
+Each entry of `buckets` is a named bucket the storage client reaches as `storage.bucket("<name>")`. The
+platform makes it, in the store where it makes the service's other buckets, and reaches it with the same
+storage credential; or the service brings it, with `supplied`.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `name` | string | required | 1 to 32 lower-case letters, digits and `-`: the name the client reaches it by. |
+| `exposure` | string | `"private"` | `private`, reached only by the service; `signed`, for URLs the service signs; `public`, read by anyone at its address. |
+| `origins` | array of string | `[]` | The origins a browser may upload from, on a `signed` bucket. Each is `scheme://host[:port]`, or `*`. |
+| `supplied` | object | none | A bucket the service brings: `endpoint`, `region`, `bucket`, and `credential`, a project secret holding the entries `access-key` and `secret-key`. |
+
+A made bucket gives the service `ANKKA_S3_BUCKET_<NAME>` and `ANKKA_S3_EXPOSURE_<NAME>`, and a public one
+`ANKKA_S3_PUBLIC_URL_<NAME>`, beside the shared `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION`,
+`ANKKA_S3_ACCESS_KEY` and `ANKKA_S3_SECRET_KEY`. A supplied bucket gives `ANKKA_S3_ENDPOINT_<NAME>`,
+`ANKKA_S3_REGION_<NAME>`, `ANKKA_S3_BUCKET_<NAME>`, `ANKKA_S3_ACCESS_KEY_<NAME>` and
+`ANKKA_S3_SECRET_KEY_<NAME>`, the two keys taken from the project secret. `<NAME>` is the name upper-cased,
+with `-` as `_`. `buckets` without `provisionObjectStorage` is accepted: the service has named buckets and
+no unnamed one.
+
+| The descriptor | Refused with |
+|---|---|
+| names a bucket twice | `buckets: 'photos' is named twice` |
+| gives a name outside the rule | `buckets: 'Photos' is not a bucket name: lower-case letters, digits and '-', 1 to 32 characters` |
+| gives `origins` on a bucket that is not `signed` | `buckets: 'photos' names origins but is not signed` |
+| gives an origin that is not `scheme://host[:port]` or `*` | `buckets: 'exports': '<value>' is not an origin` |
+| gives an exposure to a supplied bucket | `buckets: 'archive' is supplied; its exposure is the store's` |
+| leaves out a supplied bucket's endpoint, region, bucket or credential | `buckets: 'archive' needs endpoint, region, bucket and credential` |
+| names a credential whose project secret lacks an entry | `buckets: 'archive': project secret 'archive-store' has no entry 'access-key'` |
+| asks for a bucket whose name in the store, `<project>.<service>.<name>`, would be over 63 characters | the bucket name refusal above, naming the bucket |
+
+```json title="service.json"
+{
+  "name": "listings",
+  "service": {
+    "image": "registry.example.com/acme/listings:1.0.0",
+    "provisionObjectStorage": true,
+    "buckets": [
+      { "name": "photos", "exposure": "public" },
+      { "name": "exports", "exposure": "signed", "origins": ["https://app.example.com"] },
+      { "name": "documents" },
+      {
+        "name": "archive",
+        "supplied": {
+          "endpoint": "https://s3.eu-west-2.amazonaws.com",
+          "region": "eu-west-2",
+          "bucket": "acme-archive",
+          "credential": "archive-store"
+        }
+      }
+    ]
   }
 }
 ```

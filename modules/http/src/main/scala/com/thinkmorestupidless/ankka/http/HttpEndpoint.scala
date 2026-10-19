@@ -384,6 +384,13 @@ abstract class HttpEndpoint(val prefix: String):
   private[ankka] def prefixPath: Vector[String] = prefixSegments
 
   /**
+   * Whether this is a process's own directory store, served at `/_ankka/storage` (feature 055): the
+   * one endpoint admitted under the runtime's prefix, and only from the sidecar, for a Python or
+   * TypeScript service on a developer's machine. No service's endpoint can say so.
+   */
+  private[ankka] def servesReservedStorage: Boolean = false
+
+  /**
    * Records a route, checking the handler's arity against the template's placeholders.
    *
    * A mismatch throws here — during construction, therefore during startup — so it lands next to

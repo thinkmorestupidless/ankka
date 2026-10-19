@@ -713,7 +713,7 @@ references; `languages.feature` `ranElsewhere`.
   `Translate.toCode`. Cases in `SCT/ClientStorageSuite.scala` (new, modelled on
   `SCT/ClientSecretsSuite.scala`): each op against a memory store; the bound both ways; an unknown
   bucket's error code and message
-- [ ] T057 [US6] The sidecar admits a process's directory endpoint: `SC/Main.scala`'s `Router` admits
+- [X] T057 [US6] The sidecar admits a process's directory endpoint: `SC/Main.scala`'s `Router` admits
   one endpoint whose prefix is `_ankka/storage` when the process declares it (the SDK registers it
   only when its store is a directory), refusing any other `_ankka` prefix as T050 does; `SC/Discovery.scala`
   or the descriptor check that refuses reserved prefixes lets that one through. Case in

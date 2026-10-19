@@ -435,9 +435,12 @@ final class HttpServer private (
         .foreach(needs => needs.bind(service).left.foreach(problems += _))
     }
 
-    endpoints.filter(_.prefixPath.headOption.contains(Router.Reserved)).foreach { endpoint =>
-      problems += s"'${endpoint.prefix}': the /${Router.Reserved} prefix is the runtime's"
-    }
+    endpoints
+      .filter(_.prefixPath.headOption.contains(Router.Reserved))
+      .filterNot(e => e.servesReservedStorage && e.prefixPath == Router.StoragePath)
+      .foreach { endpoint =>
+        problems += s"'${endpoint.prefix}': the /${Router.Reserved} prefix is the runtime's"
+      }
 
     endpoints.foreach { endpoint =>
       // A socket route is a GET: one on the template of a GET or an SSE route would make which
@@ -581,7 +584,12 @@ private final class Router(
 
   private val HealthPath = Vector(Router.Reserved, "health")
 
-  private val StoragePath = Vector(Router.Reserved, "storage")
+  private val StoragePath = Router.StoragePath
+
+  /**
+   * A process's directory store, which the sidecar serves where the runtime would serve its own.
+   */
+  private val processStorage: Boolean = endpoints.exists(_.servesReservedStorage)
 
   // Only on a developer's machine, where the service's store is a directory (feature 055).
   private lazy val storageEndpoint = directoryStorage.map(store =>
@@ -603,9 +611,10 @@ private final class Router(
     // Exempt from ACLs because it reveals nothing: liveness probes need to work before
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
-    else if path.startsWith(StoragePath) then
-      // The runtime's: no endpoint is given a path under it, so nothing here is an endpoint's.
-      // Only this part of `/_ankka` is taken here; an MCP endpoint's sign-in routes are root routes.
+    else if path.startsWith(StoragePath) && !(processStorage && storageEndpoint.isEmpty) then
+      // The runtime's: no endpoint is given a path under it but a process's directory store, so
+      // nothing else here is an endpoint's. Only this part of `/_ankka` is taken here; an MCP
+      // endpoint's sign-in routes are root routes.
       storageEndpoint match
         case Some(storage) =>
           storage.handle(request, Router.decoded(request.uri.path).drop(StoragePath.size))
@@ -1143,6 +1152,9 @@ private object Router:
 
   /** The first segment of every path the runtime serves itself, and no endpoint may. */
   val Reserved: String = "_ankka"
+
+  /** Where a directory store's signed and public URLs point, on a developer's machine. */
+  val StoragePath: Vector[String] = Vector(Reserved, "storage")
 
   /** A path's segments decoded, so a name with an encoded character reads as it was written. */
   def decoded(path: Uri.Path): Vector[String] =

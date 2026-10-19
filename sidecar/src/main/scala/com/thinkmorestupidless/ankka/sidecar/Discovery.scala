@@ -409,6 +409,10 @@ object Discovery:
       if e.id.isEmpty then problems += s"an endpoint with prefix '${e.prefix}' has no id"
       if !e.prefix.startsWith("/") then
         problems += s"endpoint '${e.id}': prefix '${e.prefix}' must start with '/'"
+      val segments = e.prefix.split('/').iterator.filter(_.nonEmpty).toVector
+      if segments.headOption.contains("_ankka") && segments != RemoteEndpoint.StoragePath then
+        problems += s"endpoint '${e.id}': prefix '${e.prefix}' is under /_ankka, which is the " +
+          "runtime's; a process declares /_ankka/storage only, for its directory store"
       if e.acl.isCallers && e.allowCallers.isEmpty then
         problems += s"endpoint '${e.id}': a CALLERS acl must name at least one caller"
       if !authConfigured then

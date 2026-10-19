@@ -55,6 +55,14 @@ final class RemoteEndpoint private (
 
   def acl: Acl = RemoteEndpoint.aclOf(spec.acl, spec.allowCallers, authenticated)
 
+  /**
+   * A Python or TypeScript service's directory store, which its SDK declares on a developer's
+   * machine so the URLs it signs are answered (feature 055). Discovery admits no other endpoint
+   * under `/_ankka`.
+   */
+  private[ankka] override def servesReservedStorage: Boolean =
+    prefixPath == RemoteEndpoint.StoragePath
+
   private val (sockets, requests) = spec.routes.toVector.partition(_.socket)
   private val (plain, streaming)  = requests.partition(!_.streaming)
 
@@ -235,6 +243,9 @@ object RemoteEndpoint:
   /**
    * `authenticated` is the rule every `AUTHENTICATED` route answers with: the issuers' verifier.
    */
+  /** The one prefix under `/_ankka` a process may declare. */
+  val StoragePath: Vector[String] = Vector("_ankka", "storage")
+
   def from(
       spec: EndpointSpec,
       conversation: Conversation,

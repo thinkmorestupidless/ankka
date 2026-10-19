@@ -1889,6 +1889,25 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(word(ask("get", "name" -> "front.jpg"), "outcome"), "absent")
   }
 
+  // `features/storage-client/languages.feature`, "no object passes through the platform's own
+  // program": an object above the storage import's bound is kept by a process, which speaks to the
+  // store itself, and refused to a module, whose objects do pass through the runtime. The Scala
+  // reference keeps it too. No rpc on `Client` carries storage (`client.proto`), so a process has
+  // no other way to hand an object to the sidecar.
+  test(
+    "storage.large: an object above the import's bound is kept by a process, refused to a module"
+  ) {
+    val size = 5_000_000
+    val kept = keep("large/five-megabytes", "x" * size, "application/octet-stream")
+    if target.isModule then
+      assertEquals((word(kept, "outcome"), word(kept, "code")), ("refused", "BAD_REQUEST"))
+      assert(word(kept, "message").contains("4000000"), kept.render)
+    else
+      assertEquals(word(kept, "outcome"), "ok", kept.render)
+      val stat = ask("stat", "name" -> "large/five-megabytes")
+      assertEquals(stat("length").flatMap(_.asDouble), Some(size.toDouble), stat.render)
+  }
+
   // ── SC-003: one request through the endpoint, entity and journal, both hosting modes ──
 
   test("bench.request-latency") {

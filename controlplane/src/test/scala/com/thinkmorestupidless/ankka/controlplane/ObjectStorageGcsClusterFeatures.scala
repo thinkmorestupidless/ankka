@@ -1243,10 +1243,23 @@ class ObjectStorageGcsClusterFeatures
     try
       apply("shop", logical, Some(json)): Unit
       awaitReady("shop", name)
-      waitFor(60.seconds, s"$name and its photos reported in Garage") {
-        statusOf(name).flatMap(_.objectStore).contains("garage") &&
-        photos.exists(b => b.phase == "Provisioned" && b.store.contains("garage"))
-      }
+      // The last status read is kept for the failure message: which half did not happen is the
+      // first thing a red run needs to say.
+      var seen: Option[ServiceStatus] = None
+      try
+        waitFor(60.seconds, s"$name and its photos reported in Garage") {
+          seen = statusOf(name)
+          seen.flatMap(_.objectStore).contains("garage") &&
+          seen
+            .flatMap(_.buckets.find(_.name == "photos"))
+            .exists(b => b.phase == "Provisioned" && b.store.contains("garage"))
+        }
+      catch
+        case e: munit.FailException =>
+          fail(
+            s"${e.getMessage}; last reported: object store ${seen.flatMap(_.objectStore)}, " +
+              s"buckets ${seen.map(_.buckets)}"
+          )
     finally startOperator(operatorSettings)
     val inGarage = Buckets.named("shop", name, "photos")
     keepIn(logical, "listing.json")

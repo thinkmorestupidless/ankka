@@ -78,7 +78,7 @@ class StorageClientClusterFeatures
     "contexts.feature"  -> "StorageContextsFeatures (testkit)",
     "testkit.feature"   -> "StorageTestKitFeatures (testkit)",
     "local.feature"     -> "StorageLocalFeatures (testkit)",
-    "languages.feature" -> "each SDK's own suite: Python's, TypeScript's and the Rust crate's"
+    "languages.feature" -> "ConformanceSuite (sidecar), against each language's reference"
   )
 
   /** The one scenario of another file that only a deployed service can answer. */
@@ -97,7 +97,19 @@ class StorageClientClusterFeatures
         "StorageBucketsFeatures (testkit), with a stand-in content delivery network",
       "a service's buckets are moved together" -> "ObjectStorageGcsClusterFeatures (k3s)",
       "a signed URL is made without a request to the object store" ->
-        "S3BucketSuite (runtime): signed with the store unreachable, and nothing sent"
+        "S3BucketSuite (runtime): signed with the store unreachable, and nothing sent",
+      // languages.feature, one runner per scenario: the conformance suite runs each case against
+      // the Scala reference in process, the Python and TypeScript references and the Rust module.
+      "an object is kept and read through the storage client in every language" ->
+        "ConformanceSuite (sidecar): storage.round-trip, against each language's reference",
+      "the storage client lists, tells what an object is and deletes in every language" ->
+        "ConformanceSuite (sidecar): storage.list, storage.stat and storage.delete-twice",
+      "no object passes through the platform's own program" ->
+        "ConformanceSuite (sidecar): storage.large, an object above the storage import's bound that the Python and TypeScript references keep and a module is refused",
+      "every SDK refuses the same object names for the same reasons" ->
+        "ConformanceSuite (sidecar): storage.rules, every row of the fixture",
+      "the storage client in every language keeps its objects in a directory on a developer's machine" ->
+        "StorageLocalFeatures (testkit) for Scala; each SDK's own directory store tests for Python, TypeScript and Rust"
     )
 
   private def otherFiles: Map[String, String] =

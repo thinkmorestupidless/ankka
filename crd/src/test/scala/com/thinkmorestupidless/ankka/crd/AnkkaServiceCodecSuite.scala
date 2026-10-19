@@ -441,3 +441,19 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
       status
     )
   }
+
+  test(
+    "a service with only named buckets writes no phase of its own, which the schema would refuse"
+  ) {
+    // The schema's enum has no empty word: a status written with `"phase": ""` was refused (422) and
+    // a service with named buckets only never became ready on k3s.
+    val status = ObjectStorageStatus(
+      credentialGeneration = 1,
+      buckets = List(BucketStatus("photos", "Provisioned", "garage", "checkout.cart.photos"))
+    )
+    val json = serialization.asJson(status)
+    assert("\"phase\"\\s*:\\s*\"\"".r.findFirstIn(json).isEmpty, json)
+    assert(json.contains("Provisioned"), json)
+    assertEquals(serialization.unmarshal(json, classOf[ObjectStorageStatus]), status)
+    assert(serialization.asJson(ObjectStorageStatus(phase = "Waiting")).contains("Waiting"))
+  }

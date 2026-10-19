@@ -470,11 +470,10 @@ class StorageClientClusterFeatures
   ): String =
     val (code, body) = handler(real(logical), "GET", path + query(params*))
     assertEquals(code, 200, body)
-    readFromString[String](body)(using StringCodec)
+    // A string is answered as text, not as a JSON string.
+    body.trim
 
   // ── the internet ───────────────────────────────────────────────────────────
-
-  private val StringCodec = com.thinkmorestupidless.ankka.core.Codecs.make[String]
 
   private val StorageHost = s"storage.$BaseDomain"
 

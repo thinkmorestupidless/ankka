@@ -354,8 +354,11 @@ final case class DatabaseStatus(
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class ObjectStorageStatus(
-    /** "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed". */
-    phase: String = "",
+    /**
+     * "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed"; left out for a service with
+     * named buckets only (feature 055), which the schema's enum would refuse as an empty word.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY) phase: String = "",
     /** The bucket's name; empty when the service has an object store of its own. */
     bucket: String = "",
     /** Where the bucket is on the internet, when its descriptor asked that it be reachable. */

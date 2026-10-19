@@ -556,7 +556,8 @@ object Output:
     val wordWidth   = buckets.map(word(_).length).maxOption.getOrElse(0)
     val bucketWidth = buckets.map(_.bucket.getOrElse("").length).maxOption.getOrElse(0)
     buckets.map { b =>
-      val tail = b.publicAddress.orElse(Option.when(b.kept)("(no longer named)"))
+      // A kept bucket's route is gone, so its last address is not shown.
+      val tail = if b.kept then Some("(no longer named)") else b.publicAddress
       val line =
         Vector(word(b).padTo(wordWidth, ' '), b.bucket.getOrElse("").padTo(bucketWidth, ' '))
           .mkString("  ")

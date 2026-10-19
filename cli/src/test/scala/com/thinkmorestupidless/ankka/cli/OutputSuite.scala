@@ -526,6 +526,7 @@ class OutputSuite extends munit.FunSuite:
         Some("garage"),
         Some("shop.listings.old-photos"),
         "public",
+        Some("https://storage.example.com/shop.listings.old-photos"),
         kept = true
       )
     )

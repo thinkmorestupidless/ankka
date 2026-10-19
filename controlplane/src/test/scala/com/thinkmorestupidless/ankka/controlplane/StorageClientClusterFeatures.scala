@@ -71,9 +71,9 @@ class StorageClientClusterFeatures
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
   /** The two files this suite runs; every other file of the directory is its own runner's. */
-  private val Here = Set("buckets.feature", "signed-urls.feature")
+  private lazy val Here = Set("buckets.feature", "signed-urls.feature")
 
-  private val Runners = Map(
+  private lazy val Runners = Map(
     "client.feature"    -> "StorageClientFeatures (testkit)",
     "contexts.feature"  -> "StorageContextsFeatures (testkit)",
     "testkit.feature"   -> "StorageTestKitFeatures (testkit)",
@@ -82,7 +82,7 @@ class StorageClientClusterFeatures
   )
 
   /** The one scenario of another file that only a deployed service can answer. */
-  private val Deployed = "a deployed service serves no signed URL and no public address itself"
+  private lazy val Deployed = "a deployed service serves no signed URL and no public address itself"
 
   override protected def ranElsewhere: Map[String, String] =
     otherFiles ++ Map(

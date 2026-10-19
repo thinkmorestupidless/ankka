@@ -308,6 +308,13 @@
     color: var(--ac-color-ink);
   }
 
+  .ac-mark-image {
+    width: 32px;
+    height: 32px;
+    background-color: currentColor;
+    mask: url(./ankka-mark.png) center / contain no-repeat;
+  }
+
   .ac-rail-item {
     width: 40px;
     height: 40px;

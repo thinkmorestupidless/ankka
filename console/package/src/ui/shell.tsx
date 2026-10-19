@@ -33,14 +33,12 @@ export function Backdrop() {
   return <div className="ac-backdrop" aria-hidden="true" />;
 }
 
+/**
+ * The mark: the duck, as a mask over the current colour, so it follows `--ac-color-ink` and a host's
+ * override of it in either theme with one asset. The build copies the image beside the stylesheet.
+ */
 function Mark() {
-  return (
-    <svg viewBox="0 0 36 36" width="32" height="32" fill="none" aria-hidden="true">
-      <path d="M8 24c0-7 5-12 10-12s10 5 10 12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M14 24h8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <circle cx="18" cy="9" r="2.2" fill="var(--ac-color-amber)" />
-    </svg>
-  );
+  return <span className="ac-mark-image" aria-hidden="true" />;
 }
 
 const initials = (name: string) =>

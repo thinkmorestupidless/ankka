@@ -258,6 +258,7 @@ object ConsoleServer:
       if path.endsWith(".html") then "text/html; charset=utf-8"
       else if path.endsWith(".css") then "text/css; charset=utf-8"
       else if path.endsWith(".js") then "text/javascript; charset=utf-8"
+      else if path.endsWith(".png") then "image/png"
       else "application/octet-stream"
 
   private def json200(exchange: HttpExchange, body: String): Unit =

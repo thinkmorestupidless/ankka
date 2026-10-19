@@ -19,8 +19,10 @@ validation:
 
 theme:
   name: material
-  logo: assets/ankka-mark.svg
-  favicon: assets/ankka-mark.svg
+  # The header is black in both schemes, so the logo is the white mark; the favicon sits on a tab bar
+  # that is usually light, so it is the black one.
+  logo: assets/ankka-mark-dark.png
+  favicon: assets/ankka-mark.png
   features:
     - navigation.sections
     - navigation.indexes

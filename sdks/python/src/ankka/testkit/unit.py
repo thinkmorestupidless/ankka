@@ -27,6 +27,7 @@ from ankka.effects.event_sourced import ReplicationChange
 from ankka.endpoint import Endpoint, HttpProblem, RouteSpec, Socket, SocketClosed
 from ankka.event_sourced_entity import EventSourcedEntity, HandlerSpec
 from ankka.mcp import TOOL_PREFIX
+from ankka.storage import Buckets, InMemoryBuckets
 
 S = TypeVar("S")
 E = TypeVar("E")
@@ -232,12 +233,15 @@ class Response:
 class EndpointTestKit:
     """Calls an endpoint's routes by path, binding parameters as the sidecar's router would."""
 
-    def __init__(self, endpoint: Endpoint) -> None:
+    def __init__(self, endpoint: Endpoint, storage: Buckets | None = None) -> None:
         self.endpoint = endpoint
+        # The endpoint's buckets: a store in memory unless the test hands one over, read back here.
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
+        endpoint.storage = self.storage
 
     @classmethod
-    def of(cls, endpoint_cls: type[Endpoint], *args: Any, **kwargs: Any) -> EndpointTestKit:
-        return cls(endpoint_cls(*args, **kwargs))
+    def of(cls, endpoint_cls: type[Endpoint], *args: Any, storage: Buckets | None = None, **kwargs: Any) -> EndpointTestKit:
+        return cls(endpoint_cls(*args, **kwargs), storage)
 
     def _match(self, method: str, path: str) -> tuple[RouteSpec, list[str]] | None:
         prefix = type(self.endpoint).prefix
@@ -433,18 +437,21 @@ class WorkflowTestKit(Generic[S]):
     """Drives commands and steps by hand: ``call`` runs a command, ``run_step`` a step, and
     ``run_until_end`` follows transitions (not pauses) until the workflow ends."""
 
-    def __init__(self, workflow_cls: type[Workflow[S]], workflow_id: str) -> None:
+    def __init__(self, workflow_cls: type[Workflow[S]], workflow_id: str, storage: Buckets | None = None) -> None:
         self.workflow_cls = workflow_cls
         self.workflow = workflow_cls()
         self.workflow._bind(workflow_id)
+        # What a step keeps and reads; a command handler is refused it, as the runtime refuses it.
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
+        self.workflow.storage = self.storage
         self.workflow_id = workflow_id
         self.state: S = self.workflow.empty_state()
         self.pending: StepRef | None = None
         self.transitions: list[str] = []
 
     @classmethod
-    def of(cls, workflow_cls: type[Workflow[S]], workflow_id: str = "test") -> WorkflowTestKit[S]:
-        return cls(workflow_cls, workflow_id)
+    def of(cls, workflow_cls: type[Workflow[S]], workflow_id: str = "test", storage: Buckets | None = None) -> WorkflowTestKit[S]:
+        return cls(workflow_cls, workflow_id, storage)
 
     def call(self, name: str, input: Any = None) -> WorkflowMaterialised[S]:
         spec = self.workflow_cls.handlers().get(name)
@@ -641,14 +648,15 @@ class ConsumerTestKit:
     ``produced`` holds each message's payload, one entry per message; ``messages`` holds the same
     messages with the record key each named and its metadata."""
 
-    def __init__(self, consumer_cls: type[Consumer[Any, Any]]) -> None:
+    def __init__(self, consumer_cls: type[Consumer[Any, Any]], storage: Buckets | None = None) -> None:
         self.consumer_cls = consumer_cls
         self.produced: list[Any] = []
         self.messages: list[Produced] = []
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
 
     @classmethod
-    def of(cls, consumer_cls: type[Consumer[Any, Any]]) -> ConsumerTestKit:
-        return cls(consumer_cls)
+    def of(cls, consumer_cls: type[Consumer[Any, Any]], storage: Buckets | None = None) -> ConsumerTestKit:
+        return cls(consumer_cls, storage)
 
     def on_message(
         self, message: Any, subject: str = "test", *, sequence: int | None = None, standing: Standing | None = None
@@ -665,6 +673,7 @@ class ConsumerTestKit:
         self, message_bytes: bytes | None, subject: str, sequence: int | None, standing: Standing | None = None
     ) -> ConsumerEffect:
         consumer = self.consumer_cls(_NoClient())
+        consumer.storage = self.storage
         effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence), standing))
         from ankka.effects.consumer import Produce, ProduceAll
 
@@ -687,13 +696,18 @@ class GraphConsumerTestKit:
     """Hands a graph consumer a change and returns the elements it published: each read back from
     the bytes that would be on the topic, under the key it would have. No sidecar, no broker."""
 
-    def __init__(self, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None) -> None:
+    def __init__(
+        self, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None, storage: Buckets | None = None
+    ) -> None:
         self.consumer_cls = consumer_cls
         self.client = client if client is not None else _NoClient()
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
 
     @classmethod
-    def of(cls, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None) -> GraphConsumerTestKit:
-        return cls(consumer_cls, client)
+    def of(
+        cls, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None, storage: Buckets | None = None
+    ) -> GraphConsumerTestKit:
+        return cls(consumer_cls, client, storage)
 
     def on_message(self, message: Any, subject: str = "test", *, sequence: int = 1) -> list[Element]:
         """``sequence`` is the change's sequence number: the version of every element that states
@@ -709,6 +723,7 @@ class GraphConsumerTestKit:
         from ankka.graph import read
 
         consumer = self.consumer_cls(self.client)
+        consumer.storage = self.storage
         effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence)))
         if not isinstance(effect, ProduceAll):
             return []
@@ -789,9 +804,15 @@ class AgentTestKit:
     with ``approval`` — is not run: the reply is ``awaiting`` its request, and ``decide`` goes on."""
 
     def __init__(
-        self, agent_cls: type[Agent], session_id: str, model: ScriptedModel | None = None, mcp: McpTools | None = None
+        self,
+        agent_cls: type[Agent],
+        session_id: str,
+        model: ScriptedModel | None = None,
+        mcp: McpTools | None = None,
+        storage: Buckets | None = None,
     ) -> None:
         self.agent_cls = agent_cls
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
         self.session_id = session_id
         self.model = model or ScriptedModel()
         self.mcp: McpTools = mcp or {}
@@ -802,9 +823,14 @@ class AgentTestKit:
 
     @classmethod
     def of(
-        cls, agent_cls: type[Agent], session_id: str = "test", model: ScriptedModel | None = None, mcp: McpTools | None = None
+        cls,
+        agent_cls: type[Agent],
+        session_id: str = "test",
+        model: ScriptedModel | None = None,
+        mcp: McpTools | None = None,
+        storage: Buckets | None = None,
     ) -> AgentTestKit:
-        return cls(agent_cls, session_id, model, mcp)
+        return cls(agent_cls, session_id, model, mcp, storage)
 
     def call(self, name: str, input: Any = None) -> AgentReply:
         spec = self.agent_cls.handlers().get(name)
@@ -817,6 +843,7 @@ class AgentTestKit:
             )
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
         agent = self.agent_cls(_NoClient())
+        agent.storage = self.storage
         plan: AgentEffect[Any] = _run(agent._plan(spec, input_bytes, self.session_id, Metadata()))
         self.model.requests.append(plan)
         if plan.failure is not None:
@@ -928,12 +955,13 @@ class AgentTestKit:
 
 
 class TimedActionTestKit:
-    def __init__(self, action_cls: type[TimedAction]) -> None:
+    def __init__(self, action_cls: type[TimedAction], storage: Buckets | None = None) -> None:
         self.action_cls = action_cls
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
 
     @classmethod
-    def of(cls, action_cls: type[TimedAction]) -> TimedActionTestKit:
-        return cls(action_cls)
+    def of(cls, action_cls: type[TimedAction], storage: Buckets | None = None) -> TimedActionTestKit:
+        return cls(action_cls, storage)
 
     def call(self, name: str, input: Any = None, *, metadata: Mapping[str, str] | None = None) -> TimedActionEffect:
         """Runs handler ``name`` with ``input``, and with ``metadata`` as the runtime would send it —
@@ -943,6 +971,7 @@ class TimedActionTestKit:
             raise AssertionError(f"{self.action_cls.__name__} has no handler {name!r}")
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
         action = self.action_cls(_NoClient())
+        action.storage = self.storage
         md = Metadata(tuple((metadata or {}).items()))
         return typing.cast(TimedActionEffect, _run(action._run(spec, input_bytes, md)))
 
@@ -955,19 +984,29 @@ class AutonomousAgentTestKit:
     ``client`` is what a tool calls other components through; the default refuses every call, so a
     tool that reaches for one says so."""
 
-    def __init__(self, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None) -> None:
+    def __init__(
+        self, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None, storage: Buckets | None = None
+    ) -> None:
         self.agent_cls = agent_cls
         self.client = client
+        self.storage: Buckets = storage if storage is not None else InMemoryBuckets()
 
     @classmethod
-    def of(cls, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None) -> AutonomousAgentTestKit:
-        return cls(agent_cls, client)
+    def of(
+        cls, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None, storage: Buckets | None = None
+    ) -> AutonomousAgentTestKit:
+        return cls(agent_cls, client, storage)
+
+    def _agent(self) -> AutonomousAgent:
+        built = self.agent_cls(self.client)
+        built.storage = self.storage
+        return built
 
     async def run_tool(self, name: str, arguments: dict[str, Any], task_id: str = "test-task") -> str:
         """Runs the tool with the model's arguments, as the sidecar would, and answers its text."""
         import json
 
-        agent = self.agent_cls(self.client)
+        agent = self._agent()
         return await agent._invoke_tool(name, json.dumps(arguments), f"task:{task_id}")
 
     async def check_result(self, task_type: TaskType[Any], result: Any, task_id: str = "test-task") -> Malformed | tuple[str, str] | None:
@@ -979,11 +1018,11 @@ class AutonomousAgentTestKit:
         text = result if isinstance(result, str) and task_type.result is not None else json.dumps(
             dataclasses.asdict(result) if dataclasses.is_dataclass(result) and not isinstance(result, type) else result
         )
-        agent = self.agent_cls(self.client)
+        agent = self._agent()
         return await agent._check_result(task_type.name, text, task_id)
 
     async def check_guardrail(self, name: str, stage: str, text: str, task_id: str = "test-task") -> str | None:
         """The reason the guardrail blocks ``text`` at ``stage`` ("input" or "output"), or ``None``."""
-        agent = self.agent_cls(self.client)
+        agent = self._agent()
         return await agent._check_guardrail(name, stage, text, f"task:{task_id}")
 

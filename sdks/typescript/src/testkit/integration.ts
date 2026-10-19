@@ -22,6 +22,7 @@ import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import type { ComponentClient } from "../client.ts"
 import type { ServiceBuilder } from "../service.ts"
 import type { Server } from "../server/server.ts"
+import { chooseStorage, type Buckets } from "../storage.ts"
 import { VERSION } from "../version.ts"
 
 const POSTGRES_IMAGE = "postgres:17-alpine"
@@ -37,6 +38,12 @@ export interface AnkkaTestKitOptions {
   /** How long to wait for the sidecar to report healthy; 120s by default. */
   readonly readyTimeoutMs?: number
   readonly log?: (message: string) => void
+  /**
+   * The service's buckets. By default the store `ANKKA_STORAGE_BACKEND=memory` gives this process: in
+   * memory, with the buckets `service.json` in the working directory declares (the unnamed one, and no
+   * named one, when there is no such file). `kit.storage` is the same store.
+   */
+  readonly storage?: Buckets
 }
 
 /** What `http` answers with. */
@@ -180,8 +187,11 @@ export class AnkkaTestKit {
 
   /** The component client every handler in `service` uses, pointed at the sidecar's mapped callback port. */
   readonly client: ComponentClient
+  /** The buckets the service holds: what a handler kept, a test reads here, and what a test puts here a handler reads. */
+  readonly storage: Buckets
 
   private constructor(service: ServiceBuilder, options: AnkkaTestKitOptions) {
+    this.storage = options.storage ?? chooseStorage({ ...process.env, ANKKA_STORAGE_BACKEND: "memory" }).buckets
     this.#service = service
     this.#image = options.image ?? sidecarImage()
     this.#env = options.env ?? {}
@@ -236,7 +246,7 @@ export class AnkkaTestKit {
       .withCopyDirectoriesToContainer([{ source: this.#ddlDir, target: "/docker-entrypoint-initdb.d", mode: 0o755 }])
       .start()
     // This process's server, on all interfaces: the sidecar is in a container and dials in.
-    this.#server = this.#service.server({ host: "0.0.0.0", port: 0, log: this.#log })
+    this.#server = this.#service.server({ host: "0.0.0.0", port: 0, log: this.#log, storage: this.storage })
     this.#processPort = (await this.#server.start()).port
     await this.#startSidecar()
   }

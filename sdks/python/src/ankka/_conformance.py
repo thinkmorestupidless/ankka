@@ -22,7 +22,16 @@ def _serve(ready: threading.Event, stop: threading.Event) -> None:
     from examples.shopping_cart.conformance import reference_service
 
     async def run() -> None:
-        server = reference_service().server()
+        from ankka.storage import STORAGE_BACKEND, from_environment
+
+        # The reference's buckets in memory (ANKKA_STORAGE_BACKEND=memory for this process alone,
+        # not for sbt beside it), as the example's service.json declares them: the unnamed bucket
+        # and `photos`, public, as the Scala reference's are.
+        storage = from_environment(
+            {**os.environ, STORAGE_BACKEND: os.environ.get(STORAGE_BACKEND) or "memory"},
+            descriptor_directory=SDK / "examples" / "shopping_cart",
+        )
+        server = reference_service().server(storage)
         await server.start("127.0.0.1", PORT)
         ready.set()
         while not stop.is_set():

@@ -18,6 +18,7 @@
 import { requestFromJson, type ApprovalRequest, type DecisionInput } from "./approvals.ts"
 import type { McpServerRef, ResultGuardrailRef } from "./mcp.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
+import { processStorage, type Buckets } from "./storage.ts"
 import type { GuardrailRef, ToolRef } from "./handlers.ts"
 import { decodeJsonValue, reviver } from "./json.ts"
 import type { Schema } from "./schema.ts"
@@ -116,6 +117,18 @@ export abstract class AutonomousAgent {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #storage: Buckets | undefined
+
+  /** The service's buckets: `this.storage.default`, or `this.storage.bucket("photos")`. */
+  get storage(): Buckets {
+    return this.#storage ?? processStorage()
+  }
+
+  /** A unit test's store in place of the runtime's: `component.storage = new InMemoryBuckets()`. */
+  set storage(buckets: Buckets) {
+    this.#storage = buckets
   }
 
   #services: Services | undefined

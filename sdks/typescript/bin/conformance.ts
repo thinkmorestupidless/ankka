@@ -13,7 +13,11 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const port = Number(process.env.ANKKA_PROCESS_PORT ?? 9010)
 
 export async function main(): Promise<number> {
-  const server = referenceService().server({ host: "127.0.0.1", port })
+  // The reference's buckets are in memory, as the suite's other targets' are: the unnamed bucket and
+  // `photos`, public, which the example's service.json declares. `ANKKA_STORAGE_BACKEND` set by the
+  // caller wins, so the storage cases can run against a store the caller's `ANKKA_S3_*` name.
+  process.env.ANKKA_STORAGE_BACKEND ??= "memory"
+  const server = referenceService().server({ host: "127.0.0.1", port, serviceDirectory: resolve(dirname(fileURLToPath(import.meta.url)), "..", "examples", "shopping-cart") })
   await server.start()
   console.error(`conformance: reference service listening on 127.0.0.1:${port}`)
   const only = process.env.ANKKA_CONFORMANCE_ONLY

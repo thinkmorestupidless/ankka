@@ -3,6 +3,7 @@
 // through the component's codecs, the server's reduction.
 
 import { ComponentClient, noClient } from "../client.ts"
+import { InMemoryBuckets, type Buckets } from "../storage.ts"
 import { binaryCodecs, codecFor, type Codec, type Shape } from "../codec.ts"
 import { commandContext } from "../context.ts"
 import { CommandError, ErrorCode, type ErrorDetail, type Metadata } from "../effects/common.ts"
@@ -106,19 +107,22 @@ export class WorkflowTestKit<S, C extends Workflow<S>> {
   readonly entityId: string
   state: S
   #progress: WorkflowProgress = { pending: null, paused: null, ended: false, failed: null }
+  /** The buckets the workflow's steps are given; the test reads what they kept here. */
+  readonly storage: Buckets
 
-  private constructor(cls: WorkflowClass<S, C>, entityId: string, client: ComponentClient) {
+  private constructor(cls: WorkflowClass<S, C>, entityId: string, client: ComponentClient, storage: Buckets) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredWorkflow
     this.#cls = cls
     this.#client = client
+    this.storage = storage
     this.entityId = entityId
     const instance = new cls()
     instance._bindInstance(entityId)
     this.state = instance.emptyState()
   }
 
-  static of<S, C extends Workflow<S>>(cls: WorkflowClass<S, C>, entityId = "test", client: ComponentClient = noClient()): WorkflowTestKit<S, C> {
-    return new WorkflowTestKit(cls, entityId, client)
+  static of<S, C extends Workflow<S>>(cls: WorkflowClass<S, C>, entityId = "test", client: ComponentClient = noClient(), storage: Buckets = new InMemoryBuckets()): WorkflowTestKit<S, C> {
+    return new WorkflowTestKit(cls, entityId, client, storage)
   }
 
   get progress(): WorkflowProgress {
@@ -128,6 +132,7 @@ export class WorkflowTestKit<S, C extends Workflow<S>> {
   #instance(): C {
     const w = new this.#cls()
     w._bindInstance(this.entityId)
+    w.storage = this.storage
     return w
   }
 
@@ -166,6 +171,7 @@ export class WorkflowTestKit<S, C extends Workflow<S>> {
     const wireInput = ref.input ? roundTrip(codecFor(ref.input as Shape<unknown>), input) : undefined
     const w = this.#instance()
     w._bindCommand(this.state, commandContext(this.#registered.id, this.entityId, 0n, {}), this.#client)
+    w._enterStep()
     let effect: StepEffect<S>
     try {
       effect = (await ref.run(w, wireInput)) as StepEffect<S>
@@ -364,19 +370,24 @@ export class ConsumerTestKit<M, Out, C extends Consumer<M, Out>> {
    */
   readonly produced: { readonly payload: Out; readonly metadata: Metadata; readonly key?: string }[] = []
 
-  private constructor(cls: ConsumerClass<M, Out, C>, client: ComponentClient) {
+  /** The buckets the consumer is given; the test reads what it kept here. */
+  readonly storage: Buckets
+
+  private constructor(cls: ConsumerClass<M, Out, C>, client: ComponentClient, storage: Buckets) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredConsumer
     this.#cls = cls
     this.#client = client
+    this.storage = storage
   }
 
-  static of<M, Out, C extends Consumer<M, Out>>(cls: ConsumerClass<M, Out, C>, client: ComponentClient = noClient()): ConsumerTestKit<M, Out, C> {
-    return new ConsumerTestKit(cls, client)
+  static of<M, Out, C extends Consumer<M, Out>>(cls: ConsumerClass<M, Out, C>, client: ComponentClient = noClient(), storage: Buckets = new InMemoryBuckets()): ConsumerTestKit<M, Out, C> {
+    return new ConsumerTestKit(cls, client, storage)
   }
 
   async #apply(fn: (c: C) => Promise<ConsumerEffect<Out>> | ConsumerEffect<Out>, metadata: Metadata, standing?: Standing): Promise<ConsumerEffect<Out>> {
     const consumer = new this.#cls()
     consumer._bind(metadata, this.#client.withMetadata(metadata), standing)
+    consumer.storage = this.storage
     const effect = await fn(consumer)
     const outCodec = (): Codec<Out> => {
       const codec = this.#registered.outCodec as Codec<Out> | undefined
@@ -419,14 +430,18 @@ export class GraphConsumerTestKit<M> {
   readonly #cls: GraphConsumerClass<M>
   readonly #client: ComponentClient
 
-  private constructor(cls: GraphConsumerClass<M>, client: ComponentClient) {
+  /** The buckets the graph consumer is given; the test reads what it kept here. */
+  readonly storage: Buckets
+
+  private constructor(cls: GraphConsumerClass<M>, client: ComponentClient, storage: Buckets) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredConsumer
     this.#cls = cls
     this.#client = client
+    this.storage = storage
   }
 
-  static of<M>(cls: GraphConsumerClass<M>, client: ComponentClient = noClient()): GraphConsumerTestKit<M> {
-    return new GraphConsumerTestKit(cls, client)
+  static of<M>(cls: GraphConsumerClass<M>, client: ComponentClient = noClient(), storage: Buckets = new InMemoryBuckets()): GraphConsumerTestKit<M> {
+    return new GraphConsumerTestKit(cls, client, storage)
   }
 
   async #apply(fn: (c: GraphConsumer<M>) => Promise<GraphEffect> | GraphEffect, options: GraphChange): Promise<Delta[]> {
@@ -438,6 +453,7 @@ export class GraphConsumerTestKit<M> {
     }
     const consumer = new this.#cls()
     consumer._bind(metadata, this.#client.withMetadata(metadata))
+    consumer.storage = this.storage
     const records = deltaRecords(await fn(consumer), metadata)
     if (records.length > 0) requireSeveralMessages(metadata)
     return records.map((r) => readDelta(r.value, r.key))
@@ -469,14 +485,18 @@ export class TimedActionTestKit<C extends TimedAction> {
   readonly #cls: TimedActionClass<C>
   readonly #client: ComponentClient
 
-  private constructor(cls: TimedActionClass<C>, client: ComponentClient) {
+  /** The buckets the timed action is given; the test reads what it kept here. */
+  readonly storage: Buckets
+
+  private constructor(cls: TimedActionClass<C>, client: ComponentClient, storage: Buckets) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredTimedAction
     this.#cls = cls
     this.#client = client
+    this.storage = storage
   }
 
-  static of<C extends TimedAction>(cls: TimedActionClass<C>, client: ComponentClient = noClient()): TimedActionTestKit<C> {
-    return new TimedActionTestKit(cls, client)
+  static of<C extends TimedAction>(cls: TimedActionClass<C>, client: ComponentClient = noClient(), storage: Buckets = new InMemoryBuckets()): TimedActionTestKit<C> {
+    return new TimedActionTestKit(cls, client, storage)
   }
 
   async invoke<I>(action: HandlerRef<C, I, any, any> | string, input?: I, metadata: Metadata = {}): Promise<TimedActionEffect> {
@@ -484,6 +504,7 @@ export class TimedActionTestKit<C extends TimedAction> {
     const wireInput = ref.input ? roundTrip(codecFor(ref.input as Shape<I>), input as I) : undefined
     const instance = new this.#cls()
     instance._bind({ "ankka.timer": "test", "ankka.attempts": "1", ...metadata }, this.#client.withMetadata(metadata))
+    instance.storage = this.storage
     return (await ref.run(instance, wireInput)) as TimedActionEffect
   }
 }
@@ -564,10 +585,14 @@ export class AgentTestKit<C extends Agent> {
   readonly #decided = new Set<string>()
   #nextId = 0
 
-  private constructor(cls: AgentClass<C>, sessionId: string, model: ScriptedModel, client: ComponentClient, mcp: ScriptedMcp) {
+  /** The buckets the agent's tools are given; the test reads what they kept here. */
+  readonly storage: Buckets
+
+  private constructor(cls: AgentClass<C>, sessionId: string, model: ScriptedModel, client: ComponentClient, mcp: ScriptedMcp, storage: Buckets) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredAgent
     this.#cls = cls
     this.#client = client
+    this.storage = storage
     this.#model = model
     this.#mcp = mcp
     this.sessionId = sessionId
@@ -578,14 +603,15 @@ export class AgentTestKit<C extends Agent> {
     sessionId: string,
     model: ScriptedModel,
     client: ComponentClient = noClient(),
-    options: { readonly mcp?: ScriptedMcp } = {},
+    options: { readonly mcp?: ScriptedMcp; readonly storage?: Buckets } = {},
   ): AgentTestKit<C> {
-    return new AgentTestKit(cls, sessionId, model, client, options.mcp ?? {})
+    return new AgentTestKit(cls, sessionId, model, client, options.mcp ?? {}, options.storage ?? new InMemoryBuckets())
   }
 
   #agent(): C {
     const a = new this.#cls()
     a._bind(this.sessionId, {}, this.#client)
+    a.storage = this.storage
     return a
   }
 

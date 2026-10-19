@@ -8,6 +8,7 @@ import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.t
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
 import { Kind } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
+import { STORAGE_PATH } from "../storage.ts"
 import { olderThan, olderThanContracts, olderThanDeclaredQueries, olderThanStartPositions, olderThanViewStreams, olderThanWorkflowSources } from "../startFrom.ts"
 
 /**
@@ -147,6 +148,9 @@ function startPositionRefusal(spec: Spec, sidecarProtocol: string): string | und
   )
 }
 
+/** The protocol version whose runtimes admit a process's endpoint at `/_ankka/storage`. */
+export const STORAGE_SINCE: readonly [number, number] = [1, 20]
+
 /** Every problem the sidecar has reported to this process, in order. */
 export const problems: string[] = []
 
@@ -154,7 +158,13 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
   router.service(Discovery, {
     async discover(info) {
       log(`ankka: discovery from sidecar (protocol ${info.protocolVersion}, runtime ${info.runtimeVersion})`)
-      const answer = spec()
+      let answer = spec()
+      // A runtime before 1.20 refuses a process's endpoint under /_ankka; the directory store's URLs then
+      // go unanswered, and nothing else of the store needs the runtime.
+      if (olderThan(info.protocolVersion, STORAGE_SINCE) && answer.endpoints.some((e) => e.prefix === STORAGE_PATH)) {
+        log(`ankka: the sidecar speaks protocol ${info.protocolVersion}; the directory store's URLs at ${STORAGE_PATH} need 1.20 and are not served`)
+        answer = { ...answer, endpoints: answer.endpoints.filter((e) => e.prefix !== STORAGE_PATH) }
+      }
       const why =
         refusal(answer, info.protocolVersion) ??
         socketRefusal(answer, info.protocolVersion) ??

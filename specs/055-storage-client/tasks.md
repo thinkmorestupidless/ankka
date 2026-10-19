@@ -137,7 +137,7 @@ once; and every scenario bound to a suite and red before a line of the client ex
   `caffeinate -i sbt 'operator/testOnly *GarageWebClusterSuite'`. If Garage does not match a dotted
   `Host`, stop and record it in R9 before T064; the public route is then a reader of the platform's
   own and the plan changes
-- [ ] T008 Bind every in-process scenario red: `TKT/storage/StorageClientFeatures.scala` (new,
+- [X] T008 Bind every in-process scenario red: `TKT/storage/StorageClientFeatures.scala` (new,
   modelled on `TKT/secrets/BackendFeatures.scala`), `extends GherkinSuite("../../features/storage-client")`
   with `LogCapturing`, steps for every `Given`/`When`/`Then` of `FEAT/client.feature`,
   `contexts.feature`, `testkit.feature` and `local.feature` written against a fixture service the
@@ -396,7 +396,7 @@ host through the gateway; the refusal without.
   `Content-Type` it sends; a span above 7 days is `BadRequest` naming the bound; the default span is
   900 seconds in `X-Amz-Expires`; a target with no `publicEndpoint` is `BadRequest` naming
   `exposeObjectStorage`; "made without a request": the counting client saw zero requests
-- [ ] T029 [US3] Bind `FEAT/signed-urls.feature` in `CPT/StorageClientClusterFeatures.scala`: deploy
+- [X] T029 [US3] Bind `FEAT/signed-urls.feature` in `CPT/StorageClientClusterFeatures.scala`: deploy
   T015's components as a service image (the suite builds it as `ObjectStorageClusterFeatures` builds
   its probe, or extends `samples/shopping-cart` with a storage endpoint if that is what the k3s
   suites deploy — read `CPT/ServicePods.scala` and choose the one already built, saying which in the
@@ -549,7 +549,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
 - [X] T041 [US4] `sbt 'operator/testOnly *RenderingUnchangedSuite'` after T040 with no change to its
   pins: green. If it is red, the render for a service without `buckets` changed and T040 is wrong,
   not the pin (plan: "no repin"). Then `sbt operator/test` offline
-- [ ] T042 [US4] Bind `FEAT/buckets.feature` in `CPT/StorageClientClusterFeatures.scala` on the local
+- [X] T042 [US4] Bind `FEAT/buckets.feature` in `CPT/StorageClientClusterFeatures.scala` on the local
   overlay with T006: "a service is given every bucket its descriptor names" (the pod's environment
   has the four families); "a browser reads an object in a public bucket without a signed URL"
   (`curl -k` from the host at the address the service's endpoint answered, no header, `200` and the
@@ -740,7 +740,7 @@ references; `languages.feature` `ranElsewhere`.
   not the client's, so the fixture's `bucketNames` are held by the descriptor's suites. Eight cases;
   green in-process on memory and on Garage (`-Dankka.conformance.storage=garage`, in-process and
   module targets only; a process target's store is its SDK's, from its launcher's variables)
-- [ ] T059 [P] [US6] Python (R14): `PY/src/ankka/storage.py` with `Buckets`, `Bucket`, `StoredObject`,
+- [X] T059 [P] [US6] Python (R14): `PY/src/ankka/storage.py` with `Buckets`, `Bucket`, `StoredObject`,
   `ObjectInfo`, `ObjectEntry`, `ObjectRules` (the name rule, bucket rule, the bound), `S3Buckets`
   built from `os.environ` exactly as T004 reads the families, `InMemoryBuckets`, `DirectoryBuckets(path)`
   (the layout of T049, the `.part` rename, the meta file), each `async` as contracts/sdk.md "Python"
@@ -755,14 +755,14 @@ references; `languages.feature` `ranElsewhere`.
   `PY/tests/test_storage.py`: the fixture rows (read as `test_secrets.py:26` reads its fixture), the
   SigV4 vectors of T003, the contract over `InMemoryBuckets` and `DirectoryBuckets`, the six kinds
   hold `storage`, the workflow guard, the directory endpoint's four answers. `uv run mypy` clean
-- [ ] T060 [P] [US6] Python kits and conformance: `PY/src/ankka/testkit/unit.py` kits take
+- [X] T060 [P] [US6] Python kits and conformance: `PY/src/ankka/testkit/unit.py` kits take
   `storage: Buckets = InMemoryBuckets()` and expose it; `PY/src/ankka/testkit/integration.py`'s
   `AnkkaTestKit.start` sets `ANKKA_STORAGE_BACKEND=memory` in the process's environment and offers
   `kit.storage`; `PY/examples/shopping_cart/conformance.py` gains the `/conformance/storage` routes
   of T058 in a `# docs:start storage` region and `service.json` declares `photos` public;
   `uv run conformance` against the Scala reference's cases green. Case in `PY/tests/test_storage.py`:
   a unit kit's endpoint puts and the test reads `kit.storage`
-- [ ] T061 [P] [US6] TypeScript (R14): `TS/src/storage.ts` with the interfaces of contracts/sdk.md
+- [X] T061 [P] [US6] TypeScript (R14): `TS/src/storage.ts` with the interfaces of contracts/sdk.md
   "TypeScript" (no `enum`), `ObjectRules`, `S3Buckets` from `process.env`, `InMemoryBuckets`,
   `DirectoryBuckets`, streams as `ReadableStream<Uint8Array>`; `TS/src/sigv4.ts` over `node:crypto`;
   the S3 calls over `node:http`/`node:https` with `Content-Length` set and the body piped (never
@@ -773,7 +773,7 @@ references; `languages.feature` `ranElsewhere`.
   a directory; `index.ts` exports. Tests in `TS/test/storage.test.ts`: the fixture rows (read as
   `secrets.test.ts:24` reads its fixture), the SigV4 vectors, the contract over both stores, the
   kinds, the guard, the directory endpoint. `npm run typecheck` clean under type stripping
-- [ ] T062 [P] [US6] TypeScript kits and conformance: `TS/src/testkit/kinds.ts` and `unit.ts` take
+- [X] T062 [P] [US6] TypeScript kits and conformance: `TS/src/testkit/kinds.ts` and `unit.ts` take
   `storage` defaulting to `new InMemoryBuckets()`; `TS/src/testkit/integration.ts` sets
   `ANKKA_STORAGE_BACKEND=memory` and offers `kit.storage`; `TS/examples/shopping-cart/conformance.ts`
   gains the routes in a `// docs:start storage` region and its `service.json` declares `photos`
@@ -801,7 +801,7 @@ references; `languages.feature` `ranElsewhere`.
   `WasmHostSuite` (`SCT/WasmHostSuite.scala`) gains a case loading a module that uses the client and
   one that does not, asserting through the loader's import list that `storage` appears only in the
   first (`wasm-objdump -j Import` by hand confirms; the case holds it in the build)
-- [ ] T065 [US6] `languages.feature`: in `TKT/storage/StorageClientFeatures.scala`'s `ranElsewhere`
+- [X] T065 [US6] `languages.feature`: in `TKT/storage/StorageClientFeatures.scala`'s `ranElsewhere`
   name, per outline row, the suite that holds it (`PY/tests/test_storage.py`,
   `TS/test/storage.test.ts`, `RS/ankka/tests/storage.rs`, `ConformanceSuite`'s `storage.*` cases for
   "every SDK refuses the same object names for the same reasons", the directory cases of each for

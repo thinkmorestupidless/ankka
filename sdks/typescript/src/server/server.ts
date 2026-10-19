@@ -7,8 +7,10 @@ import { createServer, type Http2Server, type ServerHttp2Session } from "node:ht
 import type { AddressInfo } from "node:net"
 import { connectNodeAdapter } from "@connectrpc/connect-node"
 import type { ConnectRouter } from "@connectrpc/connect"
-import type { Registry } from "../service.ts"
+import { Registry, type RegisteredEndpoint } from "../service.ts"
 import type { ComponentClient } from "../client.ts"
+import { _setProcessStorage, chooseStorage, DirectoryBuckets, type Buckets } from "../storage.ts"
+import { DirectoryStorageEndpoint } from "./storageEndpoint.ts"
 import { renderSpec } from "../spec.ts"
 import { discoveryRoutes } from "./discovery.ts"
 import { eventSourcedRoutes } from "./eventSourced.ts"
@@ -27,6 +29,13 @@ export interface ServerOptions {
   /** The largest message accepted from the sidecar; 64 MiB by default. */
   readonly readMaxBytes?: number
   readonly log?: (message: string) => void
+  /**
+   * The service's buckets, in place of the store `ANKKA_STORAGE_BACKEND` and the `ANKKA_S3_*` variables
+   * choose: the integration testkit's in-memory store.
+   */
+  readonly storage?: Buckets
+  /** Where `service.json` is read from for the buckets it declares; the working directory by default. */
+  readonly serviceDirectory?: string
 }
 
 /** What every servicer needs. */
@@ -34,12 +43,21 @@ export interface ServerContext {
   readonly registry: Registry
   readonly client: ComponentClient
   readonly log: (message: string) => void
+  /** The buckets every endpoint instance is given; the process's store when absent. */
+  readonly storage?: Buckets
+}
+
+/** The registry with the directory store's endpoint, which serves the URLs that store signs. */
+function withStorageEndpoint(registry: Registry): Registry {
+  const cls = DirectoryStorageEndpoint
+  const endpoint: RegisteredEndpoint = Object.freeze({ id: cls.name, cls, prefix: cls.prefix, acl: cls.acl, routes: new Map(Object.entries(cls.routes)) })
+  return new Registry(registry.components, new Map([...registry.endpoints, [endpoint.id, endpoint]]))
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"])
 
 export class Server {
-  readonly #context: ServerContext
+  #context: ServerContext
   readonly #options: ServerOptions
   readonly #shutdown = new AbortController()
   readonly #sessions = new Set<ServerHttp2Session>()
@@ -64,6 +82,15 @@ export class Server {
     }
     const port = this.#options.port ?? Number(process.env.ANKKA_PROCESS_PORT ?? 9010)
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`not a port: ${String(port)}`)
+
+    // The service's buckets: the store given, or the one the environment chooses. A directory store's
+    // URLs are answered by an endpoint this process declares at /_ankka/storage.
+    const given = this.#options.storage
+    const chosen = given ? { backend: "given", buckets: given } : chooseStorage(process.env, { ...(this.#options.serviceDirectory ? { serviceDirectory: this.#options.serviceDirectory } : {}) })
+    _setProcessStorage(chosen.buckets)
+    const registry = chosen.buckets instanceof DirectoryBuckets ? withStorageEndpoint(this.#context.registry) : this.#context.registry
+    this.#context = { ...this.#context, registry, storage: chosen.buckets }
+    this.#context.log(`ankka: object storage is ${chosen.backend}${chosen.buckets instanceof DirectoryBuckets ? ` at ${chosen.buckets.root}` : ""}`)
 
     const handler = connectNodeAdapter({
       routes: (router: ConnectRouter) => {

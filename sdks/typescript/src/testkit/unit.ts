@@ -7,6 +7,7 @@
 import { create } from "@bufbuild/protobuf"
 import { HttpRequestSchema, SocketInSchema, type SocketIn } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
 import { ComponentClient, noClient } from "../client.ts"
+import { InMemoryBuckets, type Buckets } from "../storage.ts"
 import { binaryCodecs, codecFor, type Codec, type Shape } from "../codec.ts"
 import { commandContext, eventContext, type Principal } from "../context.ts"
 import { ErrorCode, type ErrorDetail, type Metadata, type Retention } from "../effects/common.ts"
@@ -186,17 +187,20 @@ export interface SocketRun {
 export class EndpointTestKit<C extends Endpoint> {
   readonly #cls: EndpointClass<C>
   readonly #dispatcher: HttpDispatcher
+  /** The buckets the endpoint is given; the test reads what its routes kept here. */
+  readonly storage: Buckets
 
-  private constructor(cls: EndpointClass<C>, client: ComponentClient) {
+  private constructor(cls: EndpointClass<C>, client: ComponentClient, storage: Buckets) {
     this.#cls = cls
+    this.storage = storage
     const registry = Ankka.service({ client, log: () => {} })
       .register(cls)
       .validate()
-    this.#dispatcher = createHttpDispatcher({ registry, client, log: () => {} })
+    this.#dispatcher = createHttpDispatcher({ registry, client, log: () => {}, storage })
   }
 
-  static of<C extends Endpoint>(cls: EndpointClass<C>, client: ComponentClient = noClient()): EndpointTestKit<C> {
-    return new EndpointTestKit(cls, client)
+  static of<C extends Endpoint>(cls: EndpointClass<C>, client: ComponentClient = noClient(), storage: Buckets = new InMemoryBuckets()): EndpointTestKit<C> {
+    return new EndpointTestKit(cls, client, storage)
   }
 
   #match(method: string, path: string): { id: string; route: RouteRef<any, any, any, any>; args: string[] } | undefined {

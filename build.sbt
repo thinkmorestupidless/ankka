@@ -710,6 +710,10 @@ lazy val sidecar = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.sidecar.Main"),
     dockerExposedPorts  := Seq(9000),
+    // A module's directory store on a developer's machine (feature 055): the working directory,
+    // /opt/docker, is not the image user's to write, and a store it cannot write stops the start. A
+    // mounted ANKKA_STORAGE_DIR replaces it; in a cluster the store is S3 and this is never read.
+    dockerEnvVars := Map("ANKKA_STORAGE_DIR" -> "/tmp/ankka-storage"),
     // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
     // Postgres and copies the DDL out of this image, so a test can never pass against a schema
     // the platform does not have — the same rule as AnkkaTestKit, from the other side.

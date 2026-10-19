@@ -6,6 +6,7 @@
 import type { Metadata } from "./effects/common.ts"
 import { clientKeysFor, type ClientKeys } from "./client-keys.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
+import { processStorage, type Buckets } from "./storage.ts"
 import type { HandlerTable } from "./handlers.ts"
 import { TimedActionEffects } from "./effects/stateless.ts"
 import { servicesFor, type Services } from "./services.ts"
@@ -60,6 +61,18 @@ export abstract class TimedAction {
   /** A unit test's in place of the runtime's: `component.clientKeys = new InMemoryClientKeys()`. */
   set clientKeys(keys: ClientKeys) {
     this.#clientKeys = keys
+  }
+
+  #storage: Buckets | undefined
+
+  /** The service's buckets: `this.storage.default`, or `this.storage.bucket("photos")`. */
+  get storage(): Buckets {
+    return this.#storage ?? processStorage()
+  }
+
+  /** A unit test's store in place of the runtime's: `component.storage = new InMemoryBuckets()`. */
+  set storage(buckets: Buckets) {
+    this.#storage = buckets
   }
 
   #services: Services | undefined

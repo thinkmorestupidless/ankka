@@ -9,7 +9,7 @@ from ankka.contract import Contract, Publication
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -23,6 +23,7 @@ from ankka.client import Calls, CommandError, ComponentClient
 from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
 from ankka.consumer import Consumer
 from ankka.standing import Standing
+from ankka.storage import Access, Bucket
 from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
@@ -539,6 +540,23 @@ class ServiceCallRecord:
     body: str
     answer: str
     message: str
+
+
+@dataclass
+class StorageRecord:
+    """What a `/conformance/storage` call did, the same in every language. `outcome` is `ok`,
+    `absent` (a get or a stat found nothing) or `refused`; a refusal's `code` is the protocol's word
+    for it and `message` its text."""
+
+    outcome: str
+    code: str = ""
+    message: str = ""
+    contentType: str = ""  # noqa: N815 — the record's wire name, the same in every language
+    text: str = ""
+    length: int = 0
+    names: list[str] = field(default_factory=list)
+    url: str = ""
+
 SOCKET_LOG: list[str] = []
 """What the socket handlers noticed, for a case to read once a socket has closed."""
 
@@ -589,6 +607,77 @@ class ConformanceEndpoint(Endpoint):
         return DONE
 
     # docs:end secrets
+
+    # docs:start storage
+    # The service's buckets. `bucket` names one (absent: the unnamed bucket) and `name` the object;
+    # `op` is get, stat, list (under `prefix`), url or signed-url (`access` read or keep). A post
+    # keeps its body under `name`; a post with `rules` set to `name` or `prefix` instead tries its
+    # body as an object's name or a listing's prefix, and keeps nothing.
+    @post("/storage")
+    async def keep_object(self, body: str) -> StorageRecord:
+        async def call(bucket: Bucket) -> StorageRecord:
+            rules = self.request.query_param("rules")
+            if rules == "prefix":
+                async for _ in bucket.list(body):
+                    break
+            elif rules is not None:
+                await bucket.stat(body)
+            else:
+                content_type = self.request.header("Content-Type") or "application/octet-stream"
+                await bucket.put(self._required("name"), body.encode("utf-8"), content_type=content_type)
+            return StorageRecord("ok")
+
+        return await self._storage_call(call)
+
+    @get("/storage")
+    async def ask_storage(self) -> StorageRecord:
+        async def call(bucket: Bucket) -> StorageRecord:
+            name = self.request.query_param("name") or ""
+            op = self._required("op")
+            if op == "get":
+                found = await bucket.get(name)
+                if found is None:
+                    return StorageRecord("absent")
+                data = await found.read()
+                return StorageRecord("ok", contentType=found.content_type, text=data.decode("utf-8"), length=len(data))
+            if op == "stat":
+                info = await bucket.stat(name)
+                return StorageRecord("absent") if info is None else StorageRecord("ok", contentType=info.content_type, length=info.length)
+            if op == "list":
+                prefix = self.request.query_param("prefix") or ""
+                return StorageRecord("ok", names=[entry.name async for entry in bucket.list(prefix)])
+            if op == "url":
+                return StorageRecord("ok", url=bucket.url(name))
+            if op == "signed-url":
+                access: Access = "keep" if self.request.query_param("access") == "keep" else "read"
+                return StorageRecord("ok", url=bucket.signed_url(name, access))
+            return StorageRecord("refused", "BAD_REQUEST", f"no storage op '{op}'")
+
+        return await self._storage_call(call)
+
+    @delete("/storage")
+    async def delete_object(self) -> StorageRecord:
+        async def call(bucket: Bucket) -> StorageRecord:
+            await bucket.delete(self._required("name"))
+            return StorageRecord("ok")
+
+        return await self._storage_call(call)
+
+    # docs:end storage
+
+    def _required(self, name: str) -> str:
+        value = self.request.query_param(name)
+        if value is None:
+            raise HttpProblem(400, f"the query parameter '{name}' is required")
+        return value
+
+    async def _storage_call(self, call: Callable[[Bucket], Awaitable[StorageRecord]]) -> StorageRecord:
+        """The bucket the request names, and every refusal as a record rather than a status."""
+        try:
+            named = self.request.query_param("bucket")
+            return await call(self.storage.default if named is None else self.storage.bucket(named))
+        except CommandError as refused:
+            return StorageRecord("refused", refused.error.code.name, refused.error.message)
 
     # docs:start service-call
     @post("/service-call")

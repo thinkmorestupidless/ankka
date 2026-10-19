@@ -36,6 +36,7 @@ from ankka.autonomous import Notification, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
 from ankka.server import Server
 from ankka.service import ServiceBuilder
+from ankka.storage import STORAGE_BACKEND, Buckets, from_environment
 
 POSTGRES_IMAGE = "postgres:17-alpine"
 HTTP_PORT = 9000
@@ -84,10 +85,19 @@ def _start_or_explain(container: DockerContainer, what: str) -> None:
 
 
 class AnkkaTestKit:
-    def __init__(self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None, storage: Buckets | None = None
+    ) -> None:
         self.service = service
         self.image = image
         self.env = env or {}
+        # The service's buckets: chosen as the process would choose them with ANKKA_STORAGE_BACKEND
+        # set to memory — the buckets the service.json beside the test declares, else the unnamed
+        # one — unless the test hands its own over. The same store the handlers hold, so a test
+        # reads what a handler kept, and it outlives `restart`, which replaces only the sidecar.
+        self.storage: Buckets = (
+            storage if storage is not None else from_environment({**os.environ, STORAGE_BACKEND: "memory"})
+        )
         self._network: Network | None = None
         self._postgres: PostgresContainer | None = None
         self._sidecar: DockerContainer | None = None
@@ -99,10 +109,16 @@ class AnkkaTestKit:
 
     @classmethod
     async def start(
-        cls, service: ServiceBuilder, image: str | None = None, ready_timeout: float = 90.0, env: dict[str, str] | None = None
+        cls,
+        service: ServiceBuilder,
+        image: str | None = None,
+        ready_timeout: float = 90.0,
+        env: dict[str, str] | None = None,
+        storage: Buckets | None = None,
     ) -> AnkkaTestKit:
-        """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model."""
-        kit = cls(service, image or sidecar_image(), env)
+        """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model.
+        ``storage`` is the service's buckets, ``kit.storage``; by default a store in memory."""
+        kit = cls(service, image or sidecar_image(), env, storage)
         try:
             await kit._start(ready_timeout)
         except BaseException:
@@ -142,7 +158,7 @@ class AnkkaTestKit:
         )
         _start_or_explain(self._postgres, "postgres")
         # This process's server, on all interfaces: the sidecar is in a container and dials in.
-        self._server = Server(self.service.validate(), client=self.client)
+        self._server = Server(self.service.validate(), client=self.client, storage=self.storage)
         self.process_port = await self._server.start("0.0.0.0", 0)
         await self._start_sidecar(ready_timeout)
 

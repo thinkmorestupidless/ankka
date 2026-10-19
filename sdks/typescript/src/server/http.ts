@@ -24,7 +24,7 @@ import { CommandError, ErrorCode, httpStatusOf } from "../effects/common.ts"
 import type { Endpoint } from "../endpoint.ts"
 import { DecodingError } from "../json.ts"
 import { errorCodeToProto } from "../kinds.ts"
-import { HttpProblem, type RouteRef, type SseEvent } from "../routes.ts"
+import { HttpProblem, RawReply, type RouteRef, type SseEvent } from "../routes.ts"
 import { done, resolve, type Schema } from "../schema.ts"
 import { SocketClosed, socketOf } from "../socket.ts"
 import type { RegisteredEndpoint } from "../service.ts"
@@ -100,6 +100,9 @@ interface Prepared {
 type Prep = { ok: true; prepared: Prepared } | { ok: false; reply: HttpReply }
 
 function encodeResult(route: RouteRef<any, any, any, any>, result: unknown): HttpReply {
+  if (result instanceof RawReply) {
+    return create(HttpReplySchema, { message: { case: "response", value: { status: result.status, contentType: result.contentType, body: result.body, headers: [] } } })
+  }
   if (result === undefined || result === done) {
     return create(HttpReplySchema, { message: { case: "response", value: { status: 204, contentType: "", body: new Uint8Array(), headers: [] } } })
   }
@@ -130,6 +133,7 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
     if (!instance) {
       instance = new endpoint.cls() as Endpoint
       instance._bindClient(ctx.client)
+      if (ctx.storage) instance.storage = ctx.storage
       instances.set(endpoint.id, instance)
     }
 

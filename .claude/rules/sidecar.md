@@ -131,3 +131,11 @@ records (kinds 3–7) never reach a process as events. A module is told the even
 - **A conformance case's input does not belong in a URI.** The storage rules fixture's longest names
   are over 2048 characters, and pekko-http answers such a request `414` before any route: the rules
   route takes the candidate in the body.
+- **A sidecar beside a process keeps no store of its own** (2026-10-19, feature 055). Run outside a
+  cluster with nothing said about storage, the runtime chooses a directory store under its working
+  directory; in the sidecar image that is `/opt/docker`, which its user cannot write, so every process
+  test kit's sidecar refused to start, and one that could write it answered `/_ankka/storage` itself
+  and hid the process's own. A process speaks to its store itself, so `Main` hands a process's
+  service `ObjectStorage.unavailable`; a module's store is the runtime's, and the image sets
+  `ANKKA_STORAGE_DIR=/tmp/ankka-storage` for it. The Python and TypeScript kits' slow storage tests
+  fail against an image without the change.

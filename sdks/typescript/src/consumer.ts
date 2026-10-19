@@ -5,6 +5,7 @@ import type { Contract, Publication } from "./contract.ts"
 import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
+import { processStorage, type Buckets } from "./storage.ts"
 import { ConsumerEffects, type ConsumerEffect } from "./effects/stateless.ts"
 import { servicesFor, type Services } from "./services.ts"
 import type { Standing } from "./standing.ts"
@@ -91,6 +92,18 @@ export abstract class Consumer<M, Out = never> {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #storage: Buckets | undefined
+
+  /** The service's buckets: `this.storage.default`, or `this.storage.bucket("photos")`. */
+  get storage(): Buckets {
+    return this.#storage ?? processStorage()
+  }
+
+  /** A unit test's store in place of the runtime's: `component.storage = new InMemoryBuckets()`. */
+  set storage(buckets: Buckets) {
+    this.#storage = buckets
   }
 
   #services: Services | undefined

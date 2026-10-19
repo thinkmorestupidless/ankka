@@ -173,11 +173,13 @@ class ServiceBuilder:
         await server.start(host, resolved)
         await server.wait()
 
-    def server(self) -> Any:
-        """The server without starting it: what the integration testkit drives."""
+    def server(self, storage: Any = None, *, descriptor_directory: str | os.PathLike[str] | None = None) -> Any:
+        """The server without starting it: what the integration testkit drives. ``storage`` is the
+        service's buckets; omitted, they are chosen from the environment, with the buckets the
+        ``service.json`` in ``descriptor_directory`` (the working directory) declares."""
         from ankka.server import Server
 
-        return Server(self.validate())
+        return Server(self.validate(), storage=storage, descriptor_directory=descriptor_directory)
 
 
 class Ankka:

@@ -22,6 +22,17 @@ from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, S
 from ankka.endpoint import delete, get, patch, post, put, socket, sse  # noqa: E402
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError, command, query  # noqa: E402
 from ankka.secrets import InMemorySecrets, Secrets  # noqa: E402
+from ankka.storage import (  # noqa: E402
+    Bucket,
+    Buckets,
+    DirectoryBuckets,
+    InMemoryBuckets,
+    ObjectEntry,
+    ObjectInfo,
+    ObjectRules,
+    S3Buckets,
+    StoredObject,
+)
 from ankka.services import (  # noqa: E402
     ScriptedRequest,
     ScriptedServices,
@@ -63,6 +74,8 @@ __all__ = [
     "ScriptedRequest", "ScriptedServices", "ServiceCallFailed", "ServiceClient", "ServiceError",
     "ServiceIdentityMismatch", "ServiceResponse", "Services", "ServiceUnanswered", "ServiceUnresolvable",
     "Socket", "SocketClosed",
+    "Bucket", "Buckets", "DirectoryBuckets", "InMemoryBuckets", "ObjectEntry", "ObjectInfo", "ObjectRules", "S3Buckets",
+    "StoredObject",
     "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "socket", "sse",
     "table_of",
     "CaughtUp", "Overflow", "Removed", "WatchEnded", "sse_events",

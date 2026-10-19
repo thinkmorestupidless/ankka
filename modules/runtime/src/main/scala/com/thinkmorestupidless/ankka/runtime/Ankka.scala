@@ -385,6 +385,8 @@ final class ServiceBuilder private[ankka] (
       !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap")
     val started = new java.util.concurrent.atomic.AtomicReference[AnkkaService]()
     val builtStorage: storage.BuiltStorage = storageOverride match
+      case Some(handed) if handed eq ObjectStorage.unavailable =>
+        storage.BuiltStorage(storage.StorageBackend.Unavailable, handed, None)
       case Some(handed) => storage.BuiltStorage(storage.StorageBackend.Memory, handed, None)
       case None =>
         storage.StorageSettings

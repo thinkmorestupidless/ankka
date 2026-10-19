@@ -702,7 +702,7 @@ references; `languages.feature` `ranElsewhere`.
   the test pins in `SCT/ProtocolSuite.scala`, `APIT/HostingSuite.scala`, `APIT/CompatibilitySuite.scala`
   (1.20 supported, 1.21 not), `TS/test/contracts.test.ts`, `RS/ankka/tests/contracts_discovery.rs`.
   Copy to the three SDKs with their proto scripts; `diff -r`
-- [ ] T056 [US6] The sidecar answers the import: `SC/wasm/HostImports.scala` (`:83`) adds
+- [X] T056 [US6] The sidecar answers the import: `SC/wasm/HostImports.scala` (`:83`) adds
   `bytes("storage")(storage)` and `SC/wasm/ModuleLoader.scala` (`:74`) lists it, an older runtime's
   refusal of an unknown import naming it as it names any; `SC/ClientLogic.scala` gains
   `storage(request: StorageRequest): StorageReply` answering from `service.storage` on

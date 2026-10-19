@@ -329,7 +329,8 @@ message StorageRequest {
   }
   Access access = 6;                          // 1.20: for SIGNED_URL
   uint32 expires_seconds = 7;                 // 1.20: for SIGNED_URL
-  optional string continuation = 8;           // 1.20: for LIST, the `next` of the page before
+  optional string continuation = 8;           // 1.20: for LIST, the `next` of the page before;
+                                              // a page holds at most 1000 entries
 }
 
 // Exactly one case is set. A refusal or a fault is `error`, never a trap.
@@ -339,7 +340,7 @@ message StorageReply {
     ObjectInfo info = 2;                      // 1.20: STAT
     ObjectEntries entries = 3;                // 1.20: LIST
     string url = 4;                           // 1.20: SIGNED_URL, URL
-    Empty done = 5;                           // 1.20: PUT, DELETE
+    Empty done = 5;                           // 1.20: PUT, DELETE; a GET or STAT that finds nothing
     Error error = 6;                          // 1.20
   }
 }

@@ -91,6 +91,7 @@ final class HostImports(
     .addFunction(bytes("issue_client_key")(issueClientKey))
     .addFunction(bytes("list_client_keys")(listClientKeys))
     .addFunction(bytes("revoke_client_key")(revokeClientKey))
+    .addFunction(bytes("storage")(storage))
     .addFunction(logFunction)
     .build()
 
@@ -228,6 +229,20 @@ final class HostImports(
       case None => DeleteSecretReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(c.deleteSecret(DeleteSecretRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  /**
+   * The service's object storage (protocol 1.20), from where a call to another service may be made
+   * and refused, by throwing, from anywhere else. A refusal of the operation itself (a name, the
+   * bound, a bucket the service does not have) is the reply's `Error`.
+   */
+  private[sidecar] def storage(asked: Array[Byte]): Array[Byte] =
+    val site = CallSite.current.getOrElse(
+      throw ImportRefused("storage", "storage may not be called outside a call into the module")
+    )
+    site.mayStore.left.foreach(reason => throw ImportRefused("storage", reason))
+    logic match
+      case None    => StorageReply(StorageReply.Reply.Error(notReady)).toByteArray
+      case Some(c) => await(c.storage(StorageRequest.parseFrom(asked)), commandTimeout).toByteArray
 
   /**
    * A call to another service, as this service (protocol 1.10). Refused, by throwing, anywhere but

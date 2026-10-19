@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, EnvEntry, ObjectStorageStatus}
+import com.thinkmorestupidless.ankka.crd
+import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, Buckets, EnvEntry, ObjectStorageStatus}
 
 import java.time.Instant
 
@@ -395,4 +396,189 @@ class ObjectStorageSuite extends munit.FunSuite:
     )
     assertEquals(failed.flatMap(_.detail), Some("the location is refused"))
     assertEquals(failed.map(_.publicAddress), Some(None))
+  }
+
+  // Feature 055: named buckets.
+  private val web = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
+  private val served = withStore.copy(
+    objectStore = Some(store.copy(webService = Some(web))),
+    baseDomain = Some("example.test"),
+    httpsPort = 443
+  )
+  private val four = asks.copy(
+    serviceName = "listings",
+    buckets = List(
+      com.thinkmorestupidless.ankka.crd.BucketSpec("photos", exposure = "public"),
+      com.thinkmorestupidless.ankka.crd.BucketSpec("uploads", exposure = "signed"),
+      com.thinkmorestupidless.ankka.crd.BucketSpec("documents"),
+      com.thinkmorestupidless.ankka.crd.BucketSpec(
+        "archive",
+        supplied = Some(
+          com.thinkmorestupidless.ankka.crd.SuppliedBucket(
+            "https://s3.example.com",
+            "eu-west-1",
+            "acme-archive",
+            "archive-credential"
+          )
+        )
+      )
+    )
+  )
+  private def everyReady = four.buckets
+    .filter(_.made)
+    .map(b => Buckets.named("shop", "listings", b.name) -> ready)
+    .toMap
+
+  test("055: each exposure is decided, with its name in the store and its address") {
+    val decided = ObjectStorage.decideBuckets(four, served, everyReady, reported = None)
+    assertEquals(
+      decided.map(_.named),
+      Vector(
+        "shop.listings.photos",
+        "shop.listings.uploads",
+        "shop.listings.documents",
+        "acme-archive"
+      )
+    )
+    assertEquals(
+      decided.map(_.plan),
+      Vector(
+        ObjectStoragePlan.Ready(recovered = false),
+        ObjectStoragePlan.Ready(recovered = false),
+        ObjectStoragePlan.Ready(recovered = false),
+        ObjectStoragePlan.Supplied
+      )
+    )
+    assertEquals(
+      decided.map(_.status).toList,
+      List(
+        crd.BucketStatus(
+          "photos",
+          "Provisioned",
+          "garage",
+          "shop.listings.photos",
+          "public",
+          Some("https://storage.example.test/shop.listings.photos")
+        ),
+        crd.BucketStatus(
+          "uploads",
+          "Provisioned",
+          "garage",
+          "shop.listings.uploads",
+          "signed",
+          Some("https://storage.example.test/shop.listings.uploads")
+        ),
+        crd
+          .BucketStatus("documents", "Provisioned", "garage", "shop.listings.documents", "private"),
+        crd.BucketStatus("archive", "Supplied", "", "acme-archive", "supplied")
+      )
+    )
+  }
+
+  test("055: a named bucket not made yet, or with no key on it, is waiting") {
+    val decided = ObjectStorage.decideBuckets(four, served, Map.empty, reported = None)
+    assertEquals(decided.take(3).map(_.plan), Vector.fill(3)(ObjectStoragePlan.Waiting(None)))
+    assertEquals(decided.take(3).map(_.status.phase), Vector.fill(3)("Waiting"))
+    val noKey = everyReady.updated("shop.listings.documents", ready.copy(keyAllowed = false))
+    assertEquals(
+      ObjectStorage.decideBuckets(four, served, noKey, None)(2).plan,
+      ObjectStoragePlan.Waiting(None)
+    )
+  }
+
+  test("055: a public bucket with no web endpoint named fails, naming the setting") {
+    val decided =
+      ObjectStorage.decideBuckets(four, served.copy(objectStore = Some(store)), everyReady, None)
+    assertEquals(decided.head.plan, ObjectStoragePlan.Failed(Vector(ObjectStorage.NoWebService)))
+    assertEquals(decided.head.status.phase, "Failed")
+    assert(decided.head.status.detail.exists(_.contains("ANKKA_OBJECT_STORE_WEB_SERVICE")))
+    // Only the public one: the others are served by the S3 endpoint.
+    assertEquals(decided(1).plan, ObjectStoragePlan.Ready(recovered = false))
+  }
+
+  test("055: a named bucket over the name limit, or with no store, fails saying why") {
+    val long = four.copy(projectId = "p" * 40, buckets = List(crd.BucketSpec("a" * 20)))
+    val over = ObjectStorage.decideBuckets(long, served, Map.empty, None).head
+    assert(over.status.detail.exists(_.contains("63")), over.status)
+    val none = ObjectStorage.decideBuckets(four, withoutStore, Map.empty, None)
+    assertEquals(none(2).plan, ObjectStoragePlan.Failed(Vector(ObjectStorage.NoStore)))
+    // A supplied bucket is the service's own, store or no store.
+    assertEquals(none(3).plan, ObjectStoragePlan.Supplied)
+  }
+
+  test("055: a store that cannot be reached leaves each made bucket waiting with the reason") {
+    val down =
+      everyReady.map((k, _) => k -> ObjectStorageObservation(unreachable = Some("refused")))
+    val decided = ObjectStorage.decideBuckets(four, served, down, None)
+    assertEquals(decided.take(3).map(_.status.detail), Vector.fill(3)(Some("refused")))
+    assertEquals(decided(3).status.phase, "Supplied")
+  }
+
+  test(
+    "055: a bucket the descriptor stopped naming is kept, with its last store, name and address"
+  ) {
+    val first = ObjectStorage.decideBuckets(four, served, everyReady, None)
+    val status =
+      ObjectStorageStatus(phase = "", buckets = ObjectStorage.bucketStatuses(first, four, None))
+    val fewer  = four.copy(buckets = four.buckets.filterNot(_.name == "photos"))
+    val second = ObjectStorage.decideBuckets(fewer, served, everyReady, Some(status))
+    val listed = ObjectStorage.bucketStatuses(second, fewer, Some(status))
+    assertEquals(listed.map(_.name), List("uploads", "documents", "archive", "photos"))
+    assertEquals(
+      listed.last,
+      crd.BucketStatus(
+        "photos",
+        "Kept",
+        "garage",
+        "shop.listings.photos",
+        "public",
+        Some("https://storage.example.test/shop.listings.photos"),
+        kept = true
+      )
+    )
+    // Kept across a second pass, from the status the first wrote.
+    val again = ObjectStorage.bucketStatuses(
+      ObjectStorage.decideBuckets(fewer, served, everyReady, Some(status.copy(buckets = listed))),
+      fewer,
+      Some(status.copy(buckets = listed))
+    )
+    assertEquals(again, listed)
+    // A supplied bucket was never the platform's, and is not kept.
+    val noArchive = four.copy(buckets = four.buckets.filterNot(_.name == "archive"))
+    assertEquals(ObjectStorage.kept(noArchive, Some(status)), Nil)
+  }
+
+  test("055: a kept bucket named again is decided afresh") {
+    val keptPhotos = ObjectStorageStatus(buckets =
+      List(
+        crd.BucketStatus(
+          "photos",
+          "Kept",
+          "garage",
+          "shop.listings.photos",
+          "public",
+          None,
+          kept = true
+        )
+      )
+    )
+    val decided = ObjectStorage.decideBuckets(four, served, everyReady, Some(keptPhotos))
+    assertEquals(decided.head.status.phase, "Provisioned")
+    assertEquals(decided.head.status.kept, false)
+    assertEquals(ObjectStorage.kept(four, Some(keptPhotos)), Nil)
+  }
+
+  test("055: a supplied bucket is decided without an observation of the store") {
+    // The decision has nothing to ask: even an observation that says the store is down is not read.
+    val archive = four.buckets.last
+    val decided = ObjectStorage.decideBucket(
+      four,
+      archive,
+      withoutStore,
+      ObjectStorageObservation(unreachable = Some("refused")),
+      None
+    )
+    assertEquals(decided.plan, ObjectStoragePlan.Supplied)
+    assertEquals(decided.status.detail, None)
+    assertEquals(decided.status.store, "")
   }

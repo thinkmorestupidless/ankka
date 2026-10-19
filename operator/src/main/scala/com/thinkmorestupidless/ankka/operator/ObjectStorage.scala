@@ -4,6 +4,8 @@ import com.thinkmorestupidless.ankka.core.PlatformVariables
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaService,
   AnkkaServiceSpec,
+  BucketSpec,
+  BucketStatus,
   Buckets,
   CloudResource,
   ObjectStorageStatus
@@ -348,6 +350,186 @@ object ObjectStorage:
                 )
           case _ => ObjectStoragePlan.Waiting(all.flatMap(_.said).headOption)
 
+  /**
+   * One named bucket, decided (feature 055): its name in the store, the plan, and what the status
+   * says of it. A supplied bucket's plan is `Supplied` and its name is the descriptor's.
+   */
+  final case class NamedBucket(
+      spec: BucketSpec,
+      named: String,
+      plan: ObjectStoragePlan,
+      status: BucketStatus
+  ):
+    def made: Boolean = spec.made
+
+    /**
+     * Whether the platform makes it in the installation's store this pass, with the service's key
+     * on it: its name fits and the store answers. A public bucket with no web endpoint is made and
+     * fails all the same, so a setting added later serves it at once.
+     */
+    def provisioned: Boolean =
+      made && status.store == "garage" && (plan match
+        case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, None) => true
+        case ObjectStoragePlan.Failed(problems) => problems == Vector(NoWebService)
+        case _                                  => false)
+
+    /** Whether the service is told of it: made and ready, or supplied. */
+    def told: Boolean = plan match
+      case ObjectStoragePlan.Supplied       => true
+      case ObjectStoragePlan.Ready(_, None) => status.store == "garage"
+      case _                                => false
+
+  /** Why a public bucket in Garage cannot be served: the store's web endpoint is not named. */
+  val NoWebService: String =
+    "a public bucket is served at the store's web endpoint, which the installation does not name " +
+      "(ANKKA_OBJECT_STORE_WEB_SERVICE)"
+
+  /**
+   * Whether a named bucket is the installation's cloud account's (feature 055): as the unnamed one,
+   * from where the operator last reported it made, else the installation's backend.
+   */
+  def bucketInCloud(settings: Settings, reported: Option[BucketStatus]): Boolean =
+    val made = reported.filter(r => r.phase == "Provisioned" || r.phase == "Recovered")
+    val inCloud = made.map(_.store) match
+      case Some(store) => store == "gcs"
+      case None        => settings.bucketBackend.contains(ObjectStoreBackend.Gcs)
+    settings.cloud.isDefined && inCloud
+
+  /**
+   * What to do about one named bucket, as `decide` does about the unnamed one, with its exposure: a
+   * `public` bucket in Garage needs the store's web endpoint, and fails naming the setting without
+   * it. A supplied bucket is the service's own and the store is asked nothing.
+   */
+  def decideBucket(
+      spec: AnkkaServiceSpec,
+      bucket: BucketSpec,
+      settings: Settings,
+      observed: ObjectStorageObservation,
+      reported: Option[BucketStatus],
+      cloud: Option[CloudBucketPlans] = None
+  ): NamedBucket =
+    bucket.supplied match
+      case Some(supplied) =>
+        NamedBucket(
+          bucket,
+          supplied.bucket,
+          ObjectStoragePlan.Supplied,
+          BucketStatus(
+            name = bucket.name,
+            phase = "Supplied",
+            bucket = supplied.bucket,
+            exposure = "supplied"
+          )
+        )
+      case None =>
+        val named   = Buckets.named(spec.projectId, spec.serviceName, bucket.name)
+        val inCloud = bucketInCloud(settings, reported)
+        val plan =
+          if inCloud then cloud.fold(ObjectStoragePlan.Waiting(None))(fold(_, true))
+          else
+            val names = Buckets.problems(spec.projectId, spec.serviceName, bucket.name)
+            if names.nonEmpty then ObjectStoragePlan.Failed(names)
+            else if settings.objectStore.isEmpty then ObjectStoragePlan.Failed(Vector(NoStore))
+            else if bucket.exposure == "public" && settings.objectStore
+                .flatMap(_.webService)
+                .isEmpty
+            then ObjectStoragePlan.Failed(Vector(NoWebService))
+            else
+              observed.unreachable match
+                case Some(reason) => ObjectStoragePlan.Waiting(Some(reason))
+                case None =>
+                  observed.bucketCreated match
+                    case Some(created) if observed.keyAllowed =>
+                      ObjectStoragePlan.Ready(
+                        recovered = observed.resourceCreatedAt.exists(created.isBefore)
+                      )
+                    case _ => ObjectStoragePlan.Waiting(None)
+        val inStore = plan match
+          case ObjectStoragePlan.Ready(_, Some(c)) => c.bucket
+          case _ if inCloud                        => ""
+          case _                                   => named
+        val address = plan match
+          case ObjectStoragePlan.Ready(_, Some(c)) if bucket.exposure != "private" =>
+            Some(Buckets.gcsPublicAddress(c.endpoint, c.bucket))
+          case ObjectStoragePlan.Waiting(_) | ObjectStoragePlan.Ready(_, None)
+              if bucket.exposure != "private" && !inCloud =>
+            settings.baseDomain.map(base =>
+              s"${Buckets.publicEndpoint(base, settings.httpsPort)}/$named"
+            )
+          case _ => None
+        NamedBucket(
+          bucket,
+          named,
+          plan,
+          BucketStatus(
+            name = bucket.name,
+            phase = plan.reportedPhase.getOrElse(""),
+            store = if inCloud then "gcs" else "garage",
+            bucket = inStore,
+            exposure = bucket.exposure,
+            publicAddress = address,
+            detail = plan match
+              case ObjectStoragePlan.Failed(problems) => Some(problems.mkString("; "))
+              case ObjectStoragePlan.Waiting(detail)  => detail
+              case _                                  => None
+          )
+        )
+
+  /**
+   * Every named bucket the spec gives, decided from its own observation and its last status. A
+   * bucket the store was not asked about is waiting.
+   */
+  def decideBuckets(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      observed: Map[String, ObjectStorageObservation],
+      reported: Option[ObjectStorageStatus],
+      cloud: Map[String, CloudBucketPlans] = Map.empty
+  ): Vector[NamedBucket] =
+    val last = reported.toList.flatMap(_.buckets).map(b => b.name -> b).toMap
+    spec.buckets.toVector.map { b =>
+      val named = Buckets.named(spec.projectId, spec.serviceName, b.name)
+      decideBucket(
+        spec,
+        b,
+        settings,
+        observed.getOrElse(named, ObjectStorageObservation.empty),
+        last.get(b.name),
+        cloud.get(b.name)
+      )
+    }
+
+  /**
+   * The buckets the status names and the spec no longer does (R7): written back `Kept`, with their
+   * last store, name and address, so a later pass still knows to remove a route and withhold the
+   * variables. The platform never deletes a bucket. A supplied one was never the platform's, and is
+   * forgotten.
+   */
+  def kept(spec: AnkkaServiceSpec, reported: Option[ObjectStorageStatus]): List[BucketStatus] =
+    val named = spec.buckets.map(_.name).toSet
+    reported.toList
+      .flatMap(_.buckets)
+      .filterNot(b => named(b.name) || b.exposure == "supplied")
+      .map(_.copy(phase = "Kept", kept = true, detail = None))
+
+  /**
+   * Why the Deployment waits for a named bucket, if it does (feature 055): a bucket the platform
+   * makes that is not yet made, whose variables an instance would otherwise start without.
+   */
+  def namedWithheld(named: Vector[NamedBucket]): Option[String] =
+    named.collectFirst {
+      case b if b.made && b.plan.isInstanceOf[ObjectStoragePlan.Waiting] =>
+        b.status.detail.getOrElse(s"waiting for the bucket '${b.spec.name}' to be made")
+    }
+
+  /** The status's list: each named bucket in the spec's order, then the kept ones. */
+  def bucketStatuses(
+      decided: Vector[NamedBucket],
+      spec: AnkkaServiceSpec,
+      reported: Option[ObjectStorageStatus]
+  ): List[BucketStatus] =
+    decided.toList.map(_.status) ++ kept(spec, reported)
+
   /** The bucket's address on the internet, when its descriptor asks and there is a base domain. */
   def publicAddress(
       spec: AnkkaServiceSpec,
@@ -385,7 +567,32 @@ object ObjectStorage:
       spec: AnkkaServiceSpec,
       settings: Settings,
       reported: Option[ObjectStorageStatus],
-      inPlace: Int = 0
+      inPlace: Int = 0,
+      named: Vector[NamedBucket] = Vector.empty
+  ): Option[ObjectStorageStatus] =
+    val listed = bucketStatuses(named, spec, reported)
+    unnamedStatus(plan, spec, settings, reported, inPlace) match
+      case Some(s) if listed.nonEmpty => Some(s.copy(buckets = listed))
+      case None if listed.nonEmpty    =>
+        // Only named buckets (feature 055): no phase of the unnamed one's, and the credential in
+        // place, which the pod template carries, once the platform makes any of them.
+        Some(
+          ObjectStorageStatus(
+            credentialGeneration =
+              if named.exists(_.provisioned) then
+                math.max(spec.storageCredentialGeneration, inPlace)
+              else inPlace,
+            buckets = listed
+          )
+        )
+      case unchanged => unchanged
+
+  private def unnamedStatus(
+      plan: ObjectStoragePlan,
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      reported: Option[ObjectStorageStatus],
+      inPlace: Int
   ): Option[ObjectStorageStatus] =
     val inCloud = takesCloudPath(spec, settings, reported)
     // A cloud bucket's name is the provider's, known once it has answered; the store's is derived.

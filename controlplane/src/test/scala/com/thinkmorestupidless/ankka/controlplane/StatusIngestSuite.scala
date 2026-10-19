@@ -374,6 +374,8 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
       )
     )
     assertEquals(known.toStatus.buckets.map(_.name), Vector("photos"))
+    // Only named buckets: the operator reports no phase of an unnamed one, and none is recorded.
+    assertEquals(first.objectStorage, None)
     val restated = StatusIngest.observe(known, ClusterView.Unreachable("down"))
     assertEquals(restated.buckets.map(_.name), Vector("photos"))
   }

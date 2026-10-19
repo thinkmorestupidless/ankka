@@ -111,7 +111,8 @@ object StatusIngest:
         confirmed = true,
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
-        objectStorage = status.objectStorage.map(_.phase),
+        // A service with only named buckets reports no phase of an unnamed one (feature 055).
+        objectStorage = status.objectStorage.map(_.phase).filter(_.nonEmpty),
         storage = status.objectStorage.flatMap(report),
         grants = status.grants,
         // Verbatim, in the spec's order (feature 045): the words are the authority's and the

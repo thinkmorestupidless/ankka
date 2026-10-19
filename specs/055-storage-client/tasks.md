@@ -520,14 +520,14 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   ensure on three buckets allows the one key on each; reissue denies and re-allows on each; pause
   denies on each; a bucket allowed to another key reads `keyAllowed = false`; `SetWebsiteAccess`
   against the double is a no-op when equal
-- [ ] T039 [US4] `OP/ObjectStorage.scala` `decide` (`:293`) is called per bucket with its exposure,
+- [X] T039 [US4] `OP/ObjectStorage.scala` `decide` (`:293`) is called per bucket with its exposure,
   answering the plan and a `BucketStatus` for a named bucket; a `public` bucket with no `webService`
   is made with its credential and is `Failed` naming `ANKKA_OBJECT_STORE_WEB_SERVICE`; a bucket in the status and not in the spec
   is written back `Kept` with its last store, bucket and address (R7); a supplied bucket's status is
   `Supplied` with the entry's bucket and no store. Cases in `OPT/ObjectStorageSuite.scala`: each
   exposure's plan; `Kept` from a status after un-naming, and kept across a second pass; `Failed`
   naming the setting; supplied touches no store (the double records no call)
-- [ ] T040 [US4] `OP/Rendering.scala`: `bucketsActions` per named made bucket (`EnsureBucket(named, keyName)`,
+- [X] T040 [US4] `OP/Rendering.scala`: `bucketsActions` per named made bucket (`EnsureBucket(named, keyName)`,
   `SetWebsiteAccess(named, exposure == public)`, `SetBucketCors` for `signed` from `origins`, the
   route for `signed` as `bucketRoute` (`:658`) renders it named `<service>-storage-<name>`, the
   public route as contracts/operator-and-cloud.md "The public route" gives it, `URLRewrite` with
@@ -546,7 +546,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   from a `Kept` status; `SetWebsiteAccess(false)` for a private named bucket; the supplied bucket's
   `secretKeyRef`s; `OPT/RenderingGoldenSuite.scala` gains `operator/src/test/resources/golden/storage-client.txt`
   rendered from the four-bucket service
-- [ ] T041 [US4] `sbt 'operator/testOnly *RenderingUnchangedSuite'` after T040 with no change to its
+- [X] T041 [US4] `sbt 'operator/testOnly *RenderingUnchangedSuite'` after T040 with no change to its
   pins: green. If it is red, the render for a service without `buckets` changed and T040 is wrong,
   not the pin (plan: "no repin"). Then `sbt operator/test` offline
 - [ ] T042 [US4] Bind `FEAT/buckets.feature` in `CPT/StorageClientClusterFeatures.scala` on the local

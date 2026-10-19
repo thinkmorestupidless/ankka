@@ -68,7 +68,10 @@ final class ServiceReconciler(
     // The move's state as this pass leaves it, or as the last pass did once it is over.
     val moveStatus   = movePass.fold(reported.flatMap(_.move))(_.step.status)
     val storagePlan  = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
-    val withheld     = ObjectStorage.withheld(storagePlan, spec, settings, reported)
+    val namedBuckets = decideNamedBuckets(ref, spec, reported)
+    val namedHeld    = ObjectStorage.namedWithheld(namedBuckets)
+    val withheld =
+      ObjectStorage.withheld(storagePlan, spec, settings, reported).orElse(namedHeld)
     val refused      = ObjectStorage.refused(storagePlan, spec, settings, reported)
     val secretAccess = decideSecretAccess(ref, resource, spec, cloudBucket)
     val secretSyncs  = decideProjectSecrets(ref, spec)
@@ -96,7 +99,8 @@ final class ServiceReconciler(
         databasePlan,
         brokerPlan,
         storagePlan,
-        moveStatus
+        moveStatus,
+        namedBuckets
       )
       // A Deployment held back for a cloud bucket's answer, or for its access to its secrets, is an
       // update in progress, saying why; one held back for a bucket the provider refused is a
@@ -159,7 +163,8 @@ final class ServiceReconciler(
       // Read only where the service has a broker user to put them on.
       if settings.broker.isDefined then executor.grantsNaming(spec.projectId, spec.serviceName)
       else Vector.empty,
-      InstallationModels.withheld(modelsPlan)
+      InstallationModels.withheld(modelsPlan),
+      namedBuckets
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -213,6 +218,9 @@ final class ServiceReconciler(
             modelsPlan match
               case InstallationModelsPlan.Waiting(_) => later(ref, ServiceReconciler.ModelsRequeue)
               case _                                 => ()
+            // A named bucket made this pass is looked at again shortly, so the Deployment it held
+            // back is applied once the store has it (feature 055), not at the next resync.
+            if namedHeld.isDefined then later(ref, ServiceReconciler.NamedBucketRecheck)
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
@@ -267,6 +275,32 @@ final class ServiceReconciler(
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
       else ObjectStorageObservation.empty
     ObjectStorage.decide(spec, settings, observed, reported, cloud)
+
+  /**
+   * Asks the store about each named bucket the platform makes (feature 055), in one observation
+   * whose key is the service's own, and decides each. A supplied bucket is the service's: the store
+   * is asked nothing about it.
+   */
+  private def decideNamedBuckets(
+      ref: ServiceRef,
+      spec: AnkkaServiceSpec,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus]
+  ): Vector[ObjectStorage.NamedBucket] =
+    if spec.buckets.isEmpty then Vector.empty
+    else
+      val made = spec.buckets
+        .filter(_.made)
+        .map(b => Buckets.named(spec.projectId, spec.serviceName, b.name))
+      val observed =
+        if made.nonEmpty && settings.objectStore.isDefined then
+          val created = executor.resourceCreatedAt(ref.namespace, ref.name)
+          executor
+            .observeBuckets(made.toVector, Buckets.keyName(spec.projectId, spec.serviceName))
+            .view
+            .mapValues(_.copy(resourceCreatedAt = created))
+            .toMap
+        else Map.empty[String, ObjectStorageObservation]
+      ObjectStorage.decideBuckets(spec, settings, observed, reported)
 
   /**
    * A bucket in the installation's cloud account (feature 044): the requests it takes, what the
@@ -467,7 +501,8 @@ final class ServiceReconciler(
       databasePlan: ProvisioningPlan,
       brokerPlan: BrokerPlan,
       objectStoragePlan: ObjectStoragePlan,
-      move: Option[com.thinkmorestupidless.ankka.crd.MoveStatus]
+      move: Option[com.thinkmorestupidless.ankka.crd.MoveStatus],
+      named: Vector[ObjectStorage.NamedBucket]
   ) =
     val base = LifecycleRules.observe(
       spec,
@@ -493,7 +528,8 @@ final class ServiceReconciler(
           spec,
           settings,
           ObjectStorage.reported(resource),
-          ObjectStorage.inPlace(resource)
+          ObjectStorage.inPlace(resource),
+          named
         )
         .map(_.copy(move = move)),
       // A broker that failed says why where a member looks first, without changing the
@@ -542,6 +578,11 @@ object ServiceReconciler:
 
   /** How soon a service waiting on the model server is looked at again (feature 053). */
   val ModelsRequeue: FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")
+
+  /**
+   * How soon a service held back for a named bucket being made is looked at again (feature 055).
+   */
+  val NamedBucketRecheck: FiniteDuration = FiniteDuration(3, java.util.concurrent.TimeUnit.SECONDS)
 
   /** What holds a service for the project secrets it takes variables from, one per secret. */
   final case class ProjectSecretsPass(holds: Vector[SecretAccess.Hold], unacknowledged: Boolean)

@@ -189,6 +189,64 @@ class RenderingGoldenSuite extends munit.FunSuite:
       assertNoDiff(rendered, Files.readString(file, UTF_8))
   }
 
+  /**
+   * The four-bucket service (feature 055): public, signed, private and supplied, each ready. The
+   * record holds every named bucket's action, both routes and every variable.
+   */
+  test("what is rendered for 'storage-client' is what was rendered before") {
+    import com.thinkmorestupidless.ankka.crd.{BucketSpec, SuppliedBucket}
+    val settings = Settings.default.copy(
+      objectStore = Some(
+        store.copy(webService =
+          Some(ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902))
+        )
+      ),
+      baseDomain = Some("example.test")
+    )
+    val spec = base.copy(
+      provisionObjectStorage = true,
+      buckets = List(
+        BucketSpec("photos", exposure = "public"),
+        BucketSpec("uploads", exposure = "signed", origins = List("https://shop.example.com")),
+        BucketSpec("documents"),
+        BucketSpec(
+          "archive",
+          supplied = Some(
+            SuppliedBucket("https://s3.example.com", "eu-west-1", "acme-archive", "archive-store")
+          )
+        )
+      )
+    )
+    val ready = ObjectStorageObservation(
+      bucketCreated = Some(java.time.Instant.parse("2026-10-19T10:00:00Z")),
+      keyAllowed = true
+    )
+    val named = ObjectStorage.decideBuckets(
+      spec,
+      settings,
+      spec.buckets
+        .filter(_.made)
+        .map(b =>
+          com.thinkmorestupidless.ankka.crd.Buckets.named("checkout", "cart", b.name) -> ready
+        )
+        .toMap,
+      None
+    )
+    val rendered = render(
+      spec,
+      settings,
+      provisioning,
+      ObjectStoragePlan.Ready(recovered = false),
+      named = named
+    )
+    assert(!rendered.contains("the-admin-token"))
+    val file = directory.resolve("storage-client.txt")
+    if update then Files.writeString(file, rendered, UTF_8)
+    else
+      assert(Files.exists(file), s"no record at $file; run with -Dankka.golden.update=true once")
+      assertNoDiff(rendered, Files.readString(file, UTF_8))
+  }
+
   test("no record but the cloud bucket's holds a cloud request") {
     // absent.feature: "an installation with no cloud provider serves everything itself".
     Files.list(directory).iterator.asScala.foreach { file =>
@@ -209,7 +267,8 @@ class RenderingGoldenSuite extends munit.FunSuite:
       plan: ProvisioningPlan,
       storagePlan: ObjectStoragePlan,
       cloudRequests: AnkkaService => Vector[com.thinkmorestupidless.ankka.crd.CloudResource] = _ =>
-        Vector.empty
+        Vector.empty,
+      named: Vector[ObjectStorage.NamedBucket] = Vector.empty
   ): String =
     val resource = new AnkkaService
     resource.setMetadata(
@@ -226,7 +285,8 @@ class RenderingGoldenSuite extends munit.FunSuite:
       plan,
       BrokerProvisioning.known(spec, settings.broker),
       storagePlan,
-      cloudRequests = cloudRequests(resource)
+      cloudRequests = cloudRequests(resource),
+      namedBuckets = named
     ) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")

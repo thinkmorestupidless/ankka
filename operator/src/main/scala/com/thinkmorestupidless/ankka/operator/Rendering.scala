@@ -5,7 +5,10 @@ import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
   HTTPBackendRefBuilder,
   HTTPHeaderMatchBuilder,
   HTTPPathMatchBuilder,
+  HTTPPathModifierBuilder,
+  HTTPRouteFilterBuilder,
   HTTPRouteMatchBuilder,
+  HTTPURLRewriteFilterBuilder,
   HTTPRouteTimeoutsBuilder,
   HTTPRoute,
   HTTPRouteBuilder,
@@ -230,7 +233,10 @@ object Rendering:
       granted: Vector[GrantedTopic] = Vector.empty,
       // Why the service's installation models hold its Deployment back (feature 053), decided by
       // the caller from the model server's status; `None` when they are served or none is named.
-      modelsHold: Option[String] = None
+      modelsHold: Option[String] = None,
+      // The service's named buckets as the caller decided them (feature 055), each from its own
+      // observation of the store. Empty renders exactly what was rendered before.
+      namedBuckets: Vector[ObjectStorage.NamedBucket] = Vector.empty
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -270,7 +276,14 @@ object Rendering:
           identityActions(resource, spec, namespace, serviceAccountAnnotations) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
-          objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
+          objectStorageActions(
+            resource,
+            spec,
+            namespace,
+            settings,
+            objectStoragePlan,
+            namedBuckets
+          ) ++
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
           moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
@@ -282,7 +295,8 @@ object Rendering:
             .when(
               ObjectStorage
                 .withheld(objectStoragePlan, spec, settings, ObjectStorage.reported(resource))
-                .isEmpty && secretHold.isEmpty && modelsHold.isEmpty
+                .isEmpty && ObjectStorage.namedWithheld(namedBuckets).isEmpty &&
+                secretHold.isEmpty && modelsHold.isEmpty
             )(
               Action.ApplyDeployment(
                 BrokerMounts.attach(
@@ -298,16 +312,22 @@ object Rendering:
                     settings.httpsPort,
                     settings.otlpEndpoint,
                     settings.otlpHeaders.isDefined,
-                    storageEnv(
+                    withNamedStorage(
+                      storageEnv(
+                        spec,
+                        settings,
+                        ObjectStorage.reported(resource),
+                        objectStoragePlan,
+                        ObjectStorage.credentialGeneration(
+                          objectStoragePlan,
+                          spec,
+                          ObjectStorage.inPlace(resource)
+                        )
+                      ),
                       spec,
                       settings,
-                      ObjectStorage.reported(resource),
-                      objectStoragePlan,
-                      ObjectStorage.credentialGeneration(
-                        objectStoragePlan,
-                        spec,
-                        ObjectStorage.inPlace(resource)
-                      )
+                      namedBuckets,
+                      ObjectStorage.inPlace(resource)
                     ),
                     settings.secretStore.env ++
                       // The model server's door (feature 053), on every platform container while
@@ -406,33 +426,46 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String,
       settings: Settings,
-      plan: ObjectStoragePlan
+      plan: ObjectStoragePlan,
+      named: Vector[ObjectStorage.NamedBucket]
   ): Vector[Action] =
-    val bucket = Buckets.name(spec.projectId, spec.serviceName)
-    val secret = Buckets.secret(spec.serviceName)
+    val bucket  = Buckets.name(spec.projectId, spec.serviceName)
+    val secret  = Buckets.secret(spec.serviceName)
+    val inPlace = ObjectStorage.inPlace(resource)
+    val asked   = spec.storageCredentialGeneration
+    // Feature 055: the named buckets the platform makes this pass, each made and given the
+    // service's one key (R8), served at the store's web endpoint only when public, and with the
+    // descriptor's origins when signed. Before the credential, which is allowed on every one.
+    val made    = named.filter(_.provisioned)
+    val keyName = StorageCredential.keyName(bucket, math.max(asked, inPlace))
+    val namedActions = made.flatMap(b =>
+      Vector(
+        Action.EnsureBucket(b.named, Some(keyName)),
+        Action.SetWebsiteAccess(b.named, b.spec.exposure == "public")
+      ) ++ Option.when(b.spec.exposure == "signed")(Action.SetBucketCors(b.named, b.spec.origins))
+    )
+    // Feature 039: a generation asked above the one in place is issued, and its old keys end
+    // after the grace; the sweep runs only once a credential has been issued again, so a
+    // service that never asked makes the calls it made before.
+    def credential(buckets: List[String]) =
+      if asked > inPlace then
+        Vector(Action.ReissueStorageCredential(namespace, secret, bucket, asked, buckets))
+      else
+        Vector(
+          Action.EnsureStorageCredential(
+            namespace,
+            secret,
+            Labels.identity(spec.projectId, spec.serviceName),
+            bucket,
+            inPlace,
+            buckets
+          )
+        )
+    val sweep = Option.when(math.max(asked, inPlace) > 0)(Action.DeleteExpiredKeys(bucket))
     val provision = plan match
       case _ if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource)) =>
         Vector.empty
       case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, _) =>
-        val inPlace = ObjectStorage.inPlace(resource)
-        val asked   = spec.storageCredentialGeneration
-        // Feature 039: a generation asked above the one in place is issued, and its old keys end
-        // after the grace; the sweep runs only once a credential has been issued again, so a
-        // service that never asked makes the calls it made before.
-        val credential =
-          if asked > inPlace then
-            Vector(Action.ReissueStorageCredential(namespace, secret, bucket, asked))
-          else
-            Vector(
-              Action.EnsureStorageCredential(
-                namespace,
-                secret,
-                Labels.identity(spec.projectId, spec.serviceName),
-                bucket,
-                inPlace
-              )
-            )
-        val sweep = Option.when(math.max(asked, inPlace) > 0)(Action.DeleteExpiredKeys(bucket))
         // The bucket's CORS rule is the platform's (feature 039): the descriptor's origins while it
         // is reachable from the internet, else none. Rendered only for a descriptor that says
         // either, so a bucket nobody exposed is asked nothing more than before.
@@ -442,9 +475,81 @@ object Rendering:
             if spec.exposeObjectStorage then spec.objectStorageOrigins else Nil
           )
         )
-        (Action.EnsureBucket(bucket) +: credential) ++ sweep ++ cors
+        // A key over the unnamed bucket alone is described, and does, what it did before.
+        val buckets = if made.isEmpty then Nil else bucket :: made.map(_.named).toList
+        ((Action.EnsureBucket(bucket) +: namedActions) ++ credential(buckets)) ++ sweep ++ cors
+      case _ if made.nonEmpty && !spec.provisionObjectStorage =>
+        // Only named buckets: the key is still the service's, named for its unnamed bucket's name,
+        // which the platform does not make.
+        namedActions ++ credential(made.map(_.named).toList) ++ sweep
       case _ => Vector.empty
-    provision ++ bucketExposure(resource, spec, namespace, settings, plan)
+    val exposure = bucketExposure(resource, spec, namespace, settings, plan)
+    provision ++ exposure ++
+      namedBucketRoutes(resource, spec, namespace, settings, named).filterNot(exposure.contains)
+
+  /**
+   * A named bucket's route (feature 055), owned by the service: a `signed` one as the unnamed
+   * bucket's, to the store's S3 port at its path; a `public` one to the store's web endpoint, which
+   * serves it by host, so the route rewrites the host to the bucket's name and strips its path. A
+   * bucket whose last status had a route and which has none this pass, because the descriptor
+   * stopped naming it or lowered its exposure, has its route removed. A service whose status names
+   * no bucket renders nothing here.
+   */
+  private def namedBucketRoutes(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      named: Vector[ObjectStorage.NamedBucket]
+  ): Vector[Action] =
+    val uid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    val routes = for
+      base  <- settings.baseDomain.toVector
+      store <- settings.objectStore.toVector
+      b     <- named.filter(n => n.provisioned && !n.plan.isInstanceOf[ObjectStoragePlan.Failed])
+      route <- b.spec.exposure match
+        case "signed" =>
+          Vector(
+            storeRoute(
+              resource,
+              spec,
+              namespace,
+              base,
+              Names.bucketRoute(spec.serviceName, b.spec.name),
+              "/" + b.named,
+              store.service,
+              rewriteTo = None
+            )
+          )
+        case "public" =>
+          store.webService.toVector.map(web =>
+            storeRoute(
+              resource,
+              spec,
+              namespace,
+              base,
+              Names.bucketRoute(spec.serviceName, b.spec.name),
+              "/" + b.named + "/",
+              web,
+              rewriteTo = Some(b.named)
+            )
+          )
+        case _ => Vector.empty
+    yield route
+    val routed = routes.map(_.getMetadata.getName).toSet
+    val grant = settings.objectStore
+      .filter(_ => routes.nonEmpty)
+      .map(store => Action.EnsureReferenceGrant(referenceGrant(namespace, store)))
+    val removed = ObjectStorage
+      .reported(resource)
+      .toList
+      .flatMap(_.buckets)
+      .filter(b => b.exposure == "signed" || b.exposure == "public")
+      .map(b => Names.bucketRoute(spec.serviceName, b.name))
+      .filterNot(routed)
+      .distinct
+      .map(Action.RemoveHttpRoute(namespace, _, uid))
+    grant.toVector ++ routes.map(Action.EnsureHttpRoute(_)) ++ removed
 
   /**
    * A bucket reachable from the internet (feature 034): one route in the service's own namespace,
@@ -669,8 +774,58 @@ object Rendering:
       baseDomain: String,
       store: ObjectStoreSettings
   ): HTTPRoute =
+    storeRoute(
+      resource,
+      spec,
+      namespace,
+      baseDomain,
+      Names.bucketRoute(spec.serviceName),
+      "/" + Buckets.name(spec.projectId, spec.serviceName),
+      store.service,
+      rewriteTo = None
+    )
+
+  /**
+   * A route at the store's hostname: `path` to `backend`, with no route timeout. With `rewriteTo`,
+   * the request's host becomes that bucket's name and the matched path `/`, as the store's web
+   * endpoint serves a bucket by its host (feature 055); without it nothing is rewritten.
+   */
+  def storeRoute(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      baseDomain: String,
+      name: String,
+      path: String,
+      backend: ObjectStoreSettings.ServiceRef,
+      rewriteTo: Option[String]
+  ): HTTPRoute =
+    val rule = new HTTPRouteRuleBuilder()
+      .withMatches(
+        new HTTPRouteMatchBuilder()
+          .withPath(new HTTPPathMatchBuilder().withType("PathPrefix").withValue(path).build())
+          .build()
+      )
+    rewriteTo.foreach(host =>
+      rule.withFilters(
+        new HTTPRouteFilterBuilder()
+          .withType("URLRewrite")
+          .withUrlRewrite(
+            new HTTPURLRewriteFilterBuilder()
+              .withHostname(host)
+              .withPath(
+                new HTTPPathModifierBuilder()
+                  .withType("ReplacePrefixMatch")
+                  .withReplacePrefixMatch("/")
+                  .build()
+              )
+              .build()
+          )
+          .build()
+      ): Unit
+    )
     new HTTPRouteBuilder()
-      .withMetadata(identityMeta(resource, spec, namespace, Names.bucketRoute(spec.serviceName)))
+      .withMetadata(identityMeta(resource, spec, namespace, name))
       .withSpec(
         new HTTPRouteSpecBuilder()
           .withParentRefs(
@@ -684,23 +839,13 @@ object Rendering:
           )
           .withHostnames(Hostnames.storage(baseDomain))
           .withRules(
-            new HTTPRouteRuleBuilder()
-              .withMatches(
-                new HTTPRouteMatchBuilder()
-                  .withPath(
-                    new HTTPPathMatchBuilder()
-                      .withType("PathPrefix")
-                      .withValue("/" + Buckets.name(spec.projectId, spec.serviceName))
-                      .build()
-                  )
-                  .build()
-              )
+            rule
               .withTimeouts(new HTTPRouteTimeoutsBuilder().withRequest("0s").build())
               .withBackendRefs(
                 new HTTPBackendRefBuilder()
-                  .withName(store.service.name)
-                  .withNamespace(store.service.namespace)
-                  .withPort(store.service.port)
+                  .withName(backend.name)
+                  .withNamespace(backend.namespace)
+                  .withPort(backend.port)
                   .build()
               )
               .build()
@@ -749,6 +894,75 @@ object Rendering:
           )
         )
       case _ => None
+
+  /**
+   * The named buckets' variables (feature 055), after the unnamed family's: for each bucket the
+   * platform made and is ready, `ANKKA_S3_BUCKET_<NAME>`, `ANKKA_S3_EXPOSURE_<NAME>` and, for a
+   * public one, `ANKKA_S3_PUBLIC_URL_<NAME>`; for a supplied one its own five, its keys by
+   * reference to the project secret it names. A service with named buckets and no unnamed one is
+   * still told the store's endpoint and region and given the key's Secret, which the named ones
+   * share; one with a signed bucket is told the public endpoint. No named bucket changes nothing.
+   */
+  def withNamedStorage(
+      unnamed: Option[StorageEnv],
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      named: Vector[ObjectStorage.NamedBucket],
+      inPlace: Int
+  ): Option[StorageEnv] =
+    val told = named.filter(_.told)
+    if told.isEmpty then unnamed
+    else
+      import StorageEnv.suffixed
+      val made = told.filter(_.made)
+      val shared = unnamed.orElse(
+        Option.when(made.nonEmpty)(
+          StorageEnv(
+            secret = Some(Buckets.secret(spec.serviceName)),
+            literals = settings.objectStore.toVector.flatMap(store =>
+              Vector(StorageEnv.Endpoint -> store.endpoint, StorageEnv.Region -> store.region)
+            ),
+            credentialGeneration = math.max(spec.storageCredentialGeneration, inPlace)
+          )
+        )
+      )
+      val literals = told.flatMap { b =>
+        val n = PlatformVariables.bucketVariableSuffix(b.spec.name)
+        b.spec.supplied match
+          case Some(s) =>
+            Vector(
+              suffixed(StorageEnv.Endpoint, n) -> s.endpoint,
+              suffixed(StorageEnv.Region, n)   -> s.region,
+              suffixed(StorageEnv.Bucket, n)   -> s.bucket
+            )
+          case None =>
+            Vector(
+              suffixed(StorageEnv.Bucket, n)   -> b.named,
+              suffixed(StorageEnv.Exposure, n) -> b.spec.exposure
+            ) ++ (for
+              _    <- Option.when(b.spec.exposure == "public")(())
+              base <- settings.baseDomain
+            yield suffixed(StorageEnv.PublicUrl, n) ->
+              s"${Buckets.publicEndpoint(base, settings.httpsPort)}/${b.named}")
+      }
+      val refs = told.flatMap(b =>
+        b.spec.supplied.toVector.flatMap { s =>
+          val n = PlatformVariables.bucketVariableSuffix(b.spec.name)
+          Vector(
+            (suffixed(StorageEnv.AccessKey, n), s.credential, StorageEnv.SuppliedAccessKey),
+            (suffixed(StorageEnv.SecretKey, n), s.credential, StorageEnv.SuppliedSecretKey)
+          )
+        }
+      )
+      val base = shared.getOrElse(StorageEnv(secret = None, literals = Vector.empty))
+      val public = (for
+        _    <- Option.when(made.exists(_.spec.exposure == "signed"))(())
+        _    <- Option.when(!base.literals.exists(_._1 == StorageEnv.PublicEndpoint))(())
+        site <- settings.baseDomain
+      yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(site, settings.httpsPort)).toVector
+      Some(
+        base.copy(literals = base.literals ++ literals ++ public, refs = base.refs ++ refs)
+      )
 
   private def garageStorageEnv(
       spec: AnkkaServiceSpec,
@@ -1501,6 +1715,11 @@ object Rendering:
         target,
         new ContainerBuilder(containers(target))
           .addToEnv(env.literals.map((name, value) => literal(name, value))*)
+          .addToEnv(
+            env.refs.map((name, secret, key) =>
+              environment(EnvEntry(name, None, Some(secret), Some(key)))
+            )*
+          )
           .addToEnvFrom(
             env.secret.toVector.map(secret =>
               new EnvFromSourceBuilder()
@@ -2040,7 +2259,9 @@ final case class StorageEnv(
     /** The Secret its key comes from; none for a service that declined a credential. */
     secret: Option[String],
     literals: Vector[(String, String)],
-    credentialGeneration: Int = 0
+    credentialGeneration: Int = 0,
+    /** Variables by reference to a Secret's entry: (variable, Secret, entry). Feature 055. */
+    refs: Vector[(String, String, String)] = Vector.empty
 )
 
 object StorageEnv:
@@ -2048,3 +2269,14 @@ object StorageEnv:
   val Region: String         = PlatformVariables.ObjectStoragePrefix + "REGION"
   val Bucket: String         = PlatformVariables.ObjectStoragePrefix + "BUCKET"
   val PublicEndpoint: String = PlatformVariables.ObjectStoragePrefix + "PUBLIC_ENDPOINT"
+  val Exposure: String       = PlatformVariables.ObjectStoragePrefix + "EXPOSURE"
+  val PublicUrl: String      = PlatformVariables.ObjectStoragePrefix + "PUBLIC_URL"
+  val AccessKey: String      = PlatformVariables.ObjectStoragePrefix + "ACCESS_KEY"
+  val SecretKey: String      = PlatformVariables.ObjectStoragePrefix + "SECRET_KEY"
+
+  /** A supplied bucket's credential: the project secret's two entries (feature 055). */
+  val SuppliedAccessKey: String = "access-key"
+  val SuppliedSecretKey: String = "secret-key"
+
+  /** A named bucket's variable: the family's name and the bucket's `<NAME>`. */
+  def suffixed(variable: String, name: String): String = s"${variable}_$name"

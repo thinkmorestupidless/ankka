@@ -51,6 +51,11 @@ object Names:
     val BackupCredentialSuffix: String  = "backup-credential"
     val WrappingKeySuffix: String       = "wrapping-key"
 
+    /**
+     * A named bucket's request suffix (feature 055): the service's is `<service>-bucket-<name>`.
+     */
+    def namedBucket(name: String): String = s"$BucketSuffix-$name"
+
     def ofService(serviceName: String, suffix: String): String = s"$serviceName-$suffix"
     def ofProject(projectId: String, suffix: String): String   = s"$projectId.$suffix"
 

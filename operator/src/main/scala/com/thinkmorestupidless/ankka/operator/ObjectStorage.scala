@@ -79,7 +79,9 @@ final case class CloudBucket(
     region: String,
     credentialGeneration: Long,
     /** Where the provider made it, in the installation's words (feature 039). */
-    location: String = ""
+    location: String = "",
+    /** Where anyone reads a public bucket's objects, as the provider answered (feature 055). */
+    publicUrl: Option[String] = None
 )
 
 /**
@@ -233,17 +235,77 @@ object ObjectStorage:
       _ <- Option.when(spec.objectStorageCredential)(())
       i <- identity
       b <- bucket
-    yield CloudRequests.bucketCredential(
+    yield cloudCredential(resource, cloud, i, Vector(b)))
+
+  /**
+   * The one credential a service's buckets in the cloud share (features 044 and 055): its cloud
+   * identity on every bucket given, written into `<service>-cloud-storage`, at the member's count
+   * of credentials issued again plus one, since a provider's generations start at 1.
+   */
+  def cloudCredential(
+      resource: AnkkaService,
+      cloud: CloudSettings,
+      identity: String,
+      buckets: Vector[String]
+  ): CloudResource =
+    val spec = resource.getSpec
+    CloudRequests.bucketCredential(
       cloud,
-      by,
+      CloudRequests.Requester.of(resource),
       CloudRequests.Purpose.Service,
-      b,
-      i,
+      buckets,
+      identity,
       Buckets.cloudSecret(spec.serviceName),
-      // A member's count of credentials issued again, from 0 (feature 039); a provider's
-      // generations start at 1 (feature 044).
       spec.storageCredentialGeneration.toLong + 1
-    ))
+    )
+
+  /**
+   * A named bucket's request (feature 055): what the unnamed one's asks, in the same location and
+   * under the same rules for what is kept once asked, with the bucket's name and whether it is
+   * public; a signed bucket asks for the descriptor's origins.
+   */
+  def namedCloudRequest(
+      resource: AnkkaService,
+      settings: Settings,
+      cloud: CloudSettings,
+      projectLocation: Option[String],
+      bucket: BucketSpec,
+      existing: Option[CloudObservation]
+  ): CloudResource =
+    val spec  = resource.getSpec
+    val asked = existing.flatMap(_.spec).map(_.parameters)
+    val stamped = existing
+      .flatMap(_.annotations.get(Labels.SettingsGenerationKey))
+      .flatMap(_.toIntOption)
+      .getOrElse(0)
+    val keep = asked.filter(_ => spec.objectStorageSettingsGeneration <= stamped)
+    val ask = CloudRequests.BucketAsk(
+      versioning = true,
+      softDeleteDays = keep
+        .flatMap(_.get(CloudRequests.Keys.SoftDeleteDays))
+        .flatMap(_.toIntOption)
+        .getOrElse(settings.gcs.fold(GcsSettings.DefaultSoftDeleteDays)(_.softDeleteDays)),
+      corsOrigins = if bucket.exposure == "signed" then bucket.origins.toVector else Vector.empty,
+      namePrefix = settings.gcs.fold("")(_.prefix),
+      noncurrentVersionDays = spec.objectStorageVersionAgeDays,
+      kmsKey = keep.map(_.getOrElse(CloudRequests.Keys.KmsKey, ""))
+    )
+    val location = asked
+      .flatMap(_.get(CloudRequests.Keys.Location))
+      .filter(_.nonEmpty)
+      .getOrElse(projectLocation.getOrElse(cloud.location))
+    CloudRequests.bucket(
+      cloud,
+      CloudRequests.Requester.of(resource),
+      CloudRequests.Purpose.Service,
+      location,
+      ask,
+      annotations = Map(
+        Labels.SettingsGenerationKey ->
+          (if keep.isDefined then stamped else spec.objectStorageSettingsGeneration).toString
+      ),
+      named = Some(CloudRequests.NamedAsk(bucket.name, bucket.exposure == "public"))
+    )
 
   /**
    * What a move's target bucket has been answered (feature 039), as the move reads it: the bucket
@@ -339,7 +401,14 @@ object ObjectStorage:
               bucket   <- o.get(CloudRequests.Keys.Bucket)
               endpoint <- o.get(CloudRequests.Keys.Endpoint)
               region   <- o.get(CloudRequests.Keys.Region)
-            yield CloudBucket(bucket, endpoint, region, generation, location)
+            yield CloudBucket(
+              bucket,
+              endpoint,
+              region,
+              generation,
+              location,
+              o.get(CloudRequests.Keys.PublicUrl).filter(_.nonEmpty)
+            )
             found match
               case Some(b) => ObjectStoragePlan.Ready(recovered, Some(b))
               case None =>
@@ -375,9 +444,15 @@ object ObjectStorage:
 
     /** Whether the service is told of it: made and ready, or supplied. */
     def told: Boolean = plan match
-      case ObjectStoragePlan.Supplied       => true
-      case ObjectStoragePlan.Ready(_, None) => status.store == "garage"
-      case _                                => false
+      case ObjectStoragePlan.Supplied          => true
+      case ObjectStoragePlan.Ready(_, None)    => status.store == "garage"
+      case ObjectStoragePlan.Ready(_, Some(_)) => status.store == "gcs"
+      case _                                   => false
+
+    /** The bucket as the cloud provider made it, once it is answered. */
+    def inCloud: Option[CloudBucket] = plan match
+      case ObjectStoragePlan.Ready(_, Some(c)) => Some(c)
+      case _                                   => None
 
   /** Why a public bucket in Garage cannot be served: the store's web endpoint is not named. */
   val NoWebService: String =
@@ -388,12 +463,44 @@ object ObjectStorage:
    * Whether a named bucket is the installation's cloud account's (feature 055): as the unnamed one,
    * from where the operator last reported it made, else the installation's backend.
    */
-  def bucketInCloud(settings: Settings, reported: Option[BucketStatus]): Boolean =
-    val made = reported.filter(r => r.phase == "Provisioned" || r.phase == "Recovered")
-    val inCloud = made.map(_.store) match
-      case Some(store) => store == "gcs"
-      case None        => settings.bucketBackend.contains(ObjectStoreBackend.Gcs)
+  def bucketInCloud(
+      settings: Settings,
+      reported: Option[BucketStatus],
+      service: Option[ObjectStorageStatus] = None
+  ): Boolean =
+    def isMade(phase: String) = phase == "Provisioned" || phase == "Recovered"
+    val made                  = reported.filter(r => isMade(r.phase))
+    // A move that has switched took every bucket the service had to the cloud (R11), and one named
+    // since is made there; a bucket not yet made follows the unnamed one where that is made, so a
+    // service's buckets share one store and one key; else the installation's backend.
+    val inCloud =
+      if service.flatMap(_.move).exists(_.state == "Switched") then true
+      else
+        made.map(_.store) match
+          case Some(store) => store == "gcs"
+          case None =>
+            service.filter(s => isMade(s.phase)) match
+              case Some(unnamed) => unnamed.store == "gcs"
+              case None          => settings.bucketBackend.contains(ObjectStoreBackend.Gcs)
     settings.cloud.isDefined && inCloud
+
+  /**
+   * Why a bucket named while the service's buckets move waits: until the move has switched (R11).
+   */
+  val WaitingOnMove: String = "waiting for the service's buckets to finish moving to the cloud"
+
+  /**
+   * Whether a named bucket waits for a move (R11): one is asked for and has not switched, and this
+   * bucket was never made, so it is made in the target store once the move is done.
+   */
+  def waitsForMove(
+      spec: AnkkaServiceSpec,
+      reported: Option[BucketStatus],
+      service: Option[ObjectStorageStatus]
+  ): Boolean =
+    spec.objectStorageMove.isDefined &&
+      !service.flatMap(_.move).exists(_.state == "Switched") &&
+      !reported.exists(r => r.phase == "Provisioned" || r.phase == "Recovered")
 
   /**
    * What to do about one named bucket, as `decide` does about the unnamed one, with its exposure: a
@@ -406,7 +513,8 @@ object ObjectStorage:
       settings: Settings,
       observed: ObjectStorageObservation,
       reported: Option[BucketStatus],
-      cloud: Option[CloudBucketPlans] = None
+      cloud: Option[CloudBucketPlans] = None,
+      service: Option[ObjectStorageStatus] = None
   ): NamedBucket =
     bucket.supplied match
       case Some(supplied) =>
@@ -423,9 +531,11 @@ object ObjectStorage:
         )
       case None =>
         val named   = Buckets.named(spec.projectId, spec.serviceName, bucket.name)
-        val inCloud = bucketInCloud(settings, reported)
+        val inCloud = bucketInCloud(settings, reported, service)
         val plan =
-          if inCloud then cloud.fold(ObjectStoragePlan.Waiting(None))(fold(_, true))
+          if waitsForMove(spec, reported, service) then
+            ObjectStoragePlan.Waiting(Some(WaitingOnMove))
+          else if inCloud then cloud.fold(ObjectStoragePlan.Waiting(None))(fold(_, true))
           else
             val names = Buckets.problems(spec.projectId, spec.serviceName, bucket.name)
             if names.nonEmpty then ObjectStoragePlan.Failed(names)
@@ -449,10 +559,13 @@ object ObjectStorage:
           case _ if inCloud                        => ""
           case _                                   => named
         val address = plan match
+          case ObjectStoragePlan.Ready(_, Some(c)) if bucket.exposure == "public" =>
+            c.publicUrl.orElse(Some(Buckets.gcsPublicAddress(c.endpoint, c.bucket)))
           case ObjectStoragePlan.Ready(_, Some(c)) if bucket.exposure != "private" =>
             Some(Buckets.gcsPublicAddress(c.endpoint, c.bucket))
           case ObjectStoragePlan.Waiting(_) | ObjectStoragePlan.Ready(_, None)
-              if bucket.exposure != "private" && !inCloud =>
+              if bucket.exposure != "private" && !inCloud &&
+                !waitsForMove(spec, reported, service) =>
             settings.baseDomain.map(base =>
               s"${Buckets.publicEndpoint(base, settings.httpsPort)}/$named"
             )
@@ -495,7 +608,8 @@ object ObjectStorage:
         settings,
         observed.getOrElse(named, ObjectStorageObservation.empty),
         last.get(b.name),
-        cloud.get(b.name)
+        cloud.get(b.name),
+        reported
       )
     }
 

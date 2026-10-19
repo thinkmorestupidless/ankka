@@ -98,7 +98,12 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
       assertEquals(status.account, "acct", s.kind)
       assertEquals(status.location, "europe-west2", s.kind)
       assert(status.providerVersion.startsWith("scripted"), status.providerVersion)
-      assertEquals(status.outputs.keySet, CloudRequests.Keys.outputs(s.kind), s.kind)
+      assertEquals(
+        status.outputs.keySet,
+        CloudRequests.Keys.outputs(s.kind) --
+          CloudRequests.Keys.optionalOutputs.getOrElse(s.kind, Set.empty),
+        s.kind
+      )
     }
     assertEquals(fx.f.reached.get, 0)
   }
@@ -325,7 +330,12 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
       "europe-west2",
       20.seconds,
       () => now,
-      store = ScriptedStore.InGarage(garage, "http://garage.garage-system.svc:3900", "garage")
+      store = ScriptedStore.InGarage(
+        garage,
+        "http://garage.garage-system.svc:3900",
+        "garage",
+        publicBase = "https://storage.store.example.test"
+      )
     )
     def fulfil(
         name: String,
@@ -403,4 +413,99 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
       fx.secrets.held("ankka-shop" -> "reports-storage")("ANKKA_S3_ACCESS_KEY"),
       "before"
     )
+  }
+
+  // Feature 055: a bucket per name, a public one, one credential over several.
+
+  private def namedBucket(name: String, public: Boolean) =
+    garageBucket().copy(parameters =
+      garageBucket().parameters ++ Map("name" -> name, "public" -> public.toString)
+    )
+
+  test("055: a named bucket is made under its own name, beside the unnamed one, not over it") {
+    val fx      = InGarage()
+    val unnamed = fx.fulfil("reports-bucket", garageBucket())
+    val photos  = fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true))
+    val uploads = fx.fulfil("reports-bucket-uploads", namedBucket("uploads", public = false))
+    val names   = Vector(unnamed, photos, uploads).map(_.outputs("bucket"))
+    assertEquals(names.distinct.size, 3, names.toString)
+    assertEquals(photos.outputs("bucket"), BucketNames.named("t", "shop", "reports", "photos"))
+    assertEquals(unnamed.outputs("bucket"), named)
+    assertEquals(photos.phase, "Ready")
+    assert(fx.f.holds(CloudKinds.Bucket, reports))
+    assertEquals(fx.garage.buckets.keySet, names.toSet)
+  }
+
+  test(
+    "055: a public bucket is open to anyone and answers its public address; a signed one is not"
+  ) {
+    val fx      = InGarage()
+    val photos  = fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true))
+    val uploads = fx.fulfil("reports-bucket-uploads", namedBucket("uploads", public = false))
+    val made    = photos.outputs("bucket")
+    assertEquals(
+      photos.outputs.get("publicUrl"),
+      Some(s"https://storage.store.example.test/$made")
+    )
+    assert(fx.garage.buckets(made).website)
+    assertEquals(uploads.outputs.get("publicUrl"), None)
+    assert(!fx.garage.buckets(uploads.outputs("bucket")).website)
+  }
+
+  test("055: with no content delivery network, a public bucket's address is Google's own") {
+    val fx     = Fixture()
+    val photos = fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true))
+    assertEquals(
+      photos.outputs.get("publicUrl"),
+      Some(s"https://storage.googleapis.com/${photos.outputs("bucket")}")
+    )
+  }
+
+  test("055: one credential over three buckets is one key, granted on each") {
+    val fx = InGarage()
+    val buckets = Vector(
+      fx.fulfil("reports-bucket", garageBucket()),
+      fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true)),
+      fx.fulfil("reports-bucket-uploads", namedBucket("uploads", public = false))
+    ).map(_.outputs("bucket"))
+    val over = spec(
+      CloudKinds.BucketCredential,
+      "buckets"    -> buckets.mkString(","),
+      "identity"   -> "reports@acct.scripted",
+      "secretName" -> "reports-storage"
+    ).copy(credentialGeneration = 1L)
+    val status = fx.fulfil("reports-storage-credential", over)
+    assertEquals(status.phase, "Ready")
+    assertEquals(fx.f.issued.size, 1)
+    buckets.foreach(b => assertEquals(fx.garage.buckets(b).allowedKeys, Set("GK1"), b))
+    assertEquals(fx.secrets.held("ankka-shop" -> "reports-storage")("ANKKA_S3_ACCESS_KEY"), "GK1")
+  }
+
+  test(
+    "055: a bucket named after the credential is granted to the same key, with nothing reissued"
+  ) {
+    val fx    = InGarage()
+    val first = fx.fulfil("reports-bucket", garageBucket()).outputs("bucket")
+    def over(buckets: Vector[String]) = spec(
+      CloudKinds.BucketCredential,
+      "buckets"    -> buckets.mkString(","),
+      "identity"   -> "reports@acct.scripted",
+      "secretName" -> "reports-storage"
+    ).copy(credentialGeneration = 1L)
+    val issued = fx.fulfil(
+      "reports-storage-credential",
+      over(Vector(first)).copy(parameters =
+        Map(
+          "bucket"     -> first,
+          "identity"   -> "reports@acct.scripted",
+          "secretName" -> "reports-storage"
+        )
+      )
+    )
+    val photos =
+      fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true)).outputs("bucket")
+    fx.fulfil("reports-storage-credential", over(Vector(first, photos)), 2L, Some(issued))
+    assertEquals(fx.f.issued.size, 1)
+    assertEquals(fx.garage.buckets(photos).allowedKeys, Set("GK1"))
+    assertEquals(fx.garage.buckets(first).allowedKeys, Set("GK1"))
   }

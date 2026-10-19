@@ -66,10 +66,11 @@ final class ServiceReconciler(
     val movePass     = decideMove(ref, resource, spec)
     val reported     = ObjectStorage.reported(resource)
     // The move's state as this pass leaves it, or as the last pass did once it is over.
-    val moveStatus   = movePass.fold(reported.flatMap(_.move))(_.step.status)
-    val storagePlan  = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
-    val namedBuckets = decideNamedBuckets(ref, spec, reported)
-    val namedHeld    = ObjectStorage.namedWithheld(namedBuckets)
+    val moveStatus  = movePass.fold(reported.flatMap(_.move))(_.step.status)
+    val storagePlan = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
+    val namedBuckets =
+      decideNamedBuckets(ref, spec, reported, cloudBucket.fold(Map.empty)(_.named))
+    val namedHeld = ObjectStorage.namedWithheld(namedBuckets)
     val withheld =
       ObjectStorage.withheld(storagePlan, spec, settings, reported).orElse(namedHeld)
     val refused      = ObjectStorage.refused(storagePlan, spec, settings, reported)
@@ -284,12 +285,15 @@ final class ServiceReconciler(
   private def decideNamedBuckets(
       ref: ServiceRef,
       spec: AnkkaServiceSpec,
-      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus]
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus],
+      cloud: Map[String, CloudBucketPlans]
   ): Vector[ObjectStorage.NamedBucket] =
     if spec.buckets.isEmpty then Vector.empty
     else
+      // A bucket in the cloud is the provider's to answer: Garage is asked only about its own.
+      val inCloud = ServiceReconciler.namedInCloud(spec, settings, reported).map(_.name).toSet
       val made = spec.buckets
-        .filter(_.made)
+        .filter(b => b.made && !inCloud(b.name))
         .map(b => Buckets.named(spec.projectId, spec.serviceName, b.name))
       val observed =
         if made.nonEmpty && settings.objectStore.isDefined then
@@ -300,7 +304,7 @@ final class ServiceReconciler(
             .mapValues(_.copy(resourceCreatedAt = created))
             .toMap
         else Map.empty[String, ObjectStorageObservation]
-      ObjectStorage.decideBuckets(spec, settings, observed, reported)
+      ObjectStorage.decideBuckets(spec, settings, observed, reported, cloud)
 
   /**
    * A bucket in the installation's cloud account (feature 044): the requests it takes, what the
@@ -312,10 +316,13 @@ final class ServiceReconciler(
       resource: AnkkaService,
       spec: AnkkaServiceSpec
   ): Option[ServiceReconciler.CloudBucketPass] =
+    val reported = ObjectStorage.reported(resource)
+    val unnamed  = ObjectStorage.takesCloudPath(spec, settings, reported)
+    val named    = ServiceReconciler.namedInCloud(spec, settings, reported)
     for
       cloud <- settings.cloud
-      if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource))
-    yield cloudBucketPass(ref, resource, spec, cloud)
+      if unnamed || named.nonEmpty
+    yield cloudBucketPass(ref, resource, spec, cloud, unnamed, named)
 
   /**
    * A move of the service's bucket from Garage (feature 039), one transition per pass: the target's
@@ -334,7 +341,7 @@ final class ServiceReconciler(
       request <- spec.objectStorageMove
       if !current.exists(_.state == StorageMove.State.Switched.toString)
     yield
-      val pass               = cloudBucketPass(ref, resource, spec, cloud)
+      val pass               = cloudBucketPass(ref, resource, spec, cloud, true, Vector.empty)
       val (requests, target) = ObjectStorage.moveRequests(pass.plans)
       val phase = current.map(_.state) match
         case Some(s) if s == StorageMove.State.Copying.toString   => Some(MovePhase.Copy)
@@ -357,13 +364,16 @@ final class ServiceReconciler(
       ref: ServiceRef,
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      cloud: CloudSettings
+      cloud: CloudSettings,
+      unnamed: Boolean,
+      named: Vector[com.thinkmorestupidless.ankka.crd.BucketSpec]
   ): ServiceReconciler.CloudBucketPass =
     val now = Instant.now(clock)
     // The bucket's request as it stands, read once: what it asked is kept (feature 039).
     val bucketName =
       Names.CloudRequest.ofService(spec.serviceName, Names.CloudRequest.BucketSuffix)
-    val existingBucket = executor.observeCloudResource(ref.namespace, bucketName)
+    val existingBucket =
+      if unnamed then executor.observeCloudResource(ref.namespace, bucketName) else None
     def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
       val name = request.getMetadata.getName
       val seen =
@@ -385,21 +395,49 @@ final class ServiceReconciler(
         None
       )
     val Vector(idSeen -> idPlan, bucketSeen -> bucketPlan) = first.map(answered): @unchecked
-    val requests = ObjectStorage.cloudRequests(
-      resource,
-      settings,
-      cloud,
-      projectLocation,
-      existingBucket,
-      output(idPlan, CloudRequests.Keys.Identity),
-      output(bucketPlan, CloudRequests.Keys.Bucket)
-    )
-    val credential = requests.drop(2).headOption.map(answered)
+    // Each named bucket in the cloud has a request of its own, `<service>-bucket-<name>` (055).
+    val namedRequests = named.map { b =>
+      val name =
+        Names.CloudRequest.ofService(spec.serviceName, Names.CloudRequest.namedBucket(b.name))
+      b.name -> ObjectStorage.namedCloudRequest(
+        resource,
+        settings,
+        cloud,
+        projectLocation,
+        b,
+        executor.observeCloudResource(ref.namespace, name)
+      )
+    }
+    val namedAnswers = namedRequests.map((n, r) => n -> answered(r))
+    val identity     = output(idPlan, CloudRequests.Keys.Identity)
+    // One credential over every bucket, asked once each is answered, since it names each by what
+    // the provider made: the unnamed one's, unless the service declined it, then the named ones'.
+    val over: Option[Vector[String]] =
+      val ownBucket =
+        if unnamed && spec.objectStorageCredential then
+          output(bucketPlan, CloudRequests.Keys.Bucket).map(Vector(_))
+        else Some(Vector.empty)
+      val namedBuckets = namedAnswers.map((_, a) => output(a._2, CloudRequests.Keys.Bucket))
+      for
+        own <- ownBucket
+        all <- Option.when(namedBuckets.forall(_.isDefined))(namedBuckets.flatten)
+        if (own ++ all).nonEmpty
+      yield own ++ all
+    val credentialRequest =
+      for
+        i  <- identity
+        bs <- over
+      yield ObjectStorage.cloudCredential(resource, cloud, i, bs)
+    val credential  = credentialRequest.map(answered)
+    val ownRequests = if unnamed then first else first.take(1)
     ServiceReconciler.CloudBucketPass(
-      requests = requests,
+      requests = ownRequests ++ namedRequests.map(_._2) ++ credentialRequest,
       plans = CloudBucketPlans(idPlan, bucketPlan, credential.map(_._2)),
-      unacknowledged =
-        (Vector(idSeen, bucketSeen) ++ credential.map(_._1)).exists(!_.exists(_.acknowledged))
+      unacknowledged = (Vector(idSeen) ++ Option.when(unnamed)(bucketSeen) ++
+        namedAnswers.map(_._2._1) ++ credential.map(_._1)).exists(!_.exists(_.acknowledged)),
+      named = namedAnswers
+        .map((n, a) => n -> CloudBucketPlans(idPlan, a._2, credential.map(_._2)))
+        .toMap
     )
 
   /**
@@ -609,12 +647,28 @@ object ServiceReconciler:
       unacknowledged: Boolean
   )
 
-  /** One pass's view of a cloud bucket's three requests. */
+  /** One pass's view of a cloud bucket's three requests, and each named bucket's (feature 055). */
   final case class CloudBucketPass(
       requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
       plans: CloudBucketPlans,
-      unacknowledged: Boolean
+      unacknowledged: Boolean,
+      named: Map[String, CloudBucketPlans] = Map.empty
   )
+
+  /**
+   * The named buckets the platform makes in the installation's cloud account (feature 055): made,
+   * not waiting for a move, and in the cloud by `ObjectStorage.bucketInCloud`.
+   */
+  def namedInCloud(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      reported: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus]
+  ): Vector[com.thinkmorestupidless.ankka.crd.BucketSpec] =
+    val last = reported.toList.flatMap(_.buckets).map(b => b.name -> b).toMap
+    spec.buckets.toVector.filter(b =>
+      b.made && !ObjectStorage.waitsForMove(spec, last.get(b.name), reported) &&
+        ObjectStorage.bucketInCloud(settings, last.get(b.name), reported)
+    )
 
   /** One pass of a move (feature 039): its target's requests, the step, and the target as made. */
   final case class MovePass(

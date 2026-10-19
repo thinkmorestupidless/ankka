@@ -914,16 +914,28 @@ object Rendering:
     if told.isEmpty then unnamed
     else
       import StorageEnv.suffixed
-      val made = told.filter(_.made)
+      val made  = told.filter(_.made)
+      val cloud = made.flatMap(_.inCloud).headOption
+      // A service with named buckets and no unnamed one is told where they are and given their
+      // key: Garage's and the platform's Secret, or the cloud's as the provider answered and the
+      // Secret it wrote (feature 055); the buckets of one service are in one store.
       val shared = unnamed.orElse(
         Option.when(made.nonEmpty)(
-          StorageEnv(
-            secret = Some(Buckets.secret(spec.serviceName)),
-            literals = settings.objectStore.toVector.flatMap(store =>
-              Vector(StorageEnv.Endpoint -> store.endpoint, StorageEnv.Region -> store.region)
-            ),
-            credentialGeneration = math.max(spec.storageCredentialGeneration, inPlace)
-          )
+          cloud match
+            case Some(c) =>
+              StorageEnv(
+                secret = Some(Buckets.cloudSecret(spec.serviceName)),
+                literals = Vector(StorageEnv.Endpoint -> c.endpoint, StorageEnv.Region -> c.region),
+                credentialGeneration = c.credentialGeneration.toInt
+              )
+            case None =>
+              StorageEnv(
+                secret = Some(Buckets.secret(spec.serviceName)),
+                literals = settings.objectStore.toVector.flatMap(store =>
+                  Vector(StorageEnv.Endpoint -> store.endpoint, StorageEnv.Region -> store.region)
+                ),
+                credentialGeneration = math.max(spec.storageCredentialGeneration, inPlace)
+              )
         )
       )
       val literals = told.flatMap { b =>
@@ -936,14 +948,23 @@ object Rendering:
               suffixed(StorageEnv.Bucket, n)   -> s.bucket
             )
           case None =>
+            // In the cloud: the bucket and the public address the provider answered.
             Vector(
-              suffixed(StorageEnv.Bucket, n)   -> b.named,
+              suffixed(StorageEnv.Bucket, n)   -> b.inCloud.fold(b.named)(_.bucket),
               suffixed(StorageEnv.Exposure, n) -> b.spec.exposure
-            ) ++ (for
-              _    <- Option.when(b.spec.exposure == "public")(())
-              base <- settings.baseDomain
-            yield suffixed(StorageEnv.PublicUrl, n) ->
-              s"${Buckets.publicEndpoint(base, settings.httpsPort)}/${b.named}")
+            ) ++ (if b.spec.exposure != "public" then None
+                  else
+                    b.inCloud match
+                      case Some(c) =>
+                        Some(
+                          suffixed(StorageEnv.PublicUrl, n) ->
+                            c.publicUrl.getOrElse(Buckets.gcsPublicAddress(c.endpoint, c.bucket))
+                        )
+                      case None =>
+                        settings.baseDomain.map(base =>
+                          suffixed(StorageEnv.PublicUrl, n) ->
+                            s"${Buckets.publicEndpoint(base, settings.httpsPort)}/${b.named}"
+                        ))
       }
       val refs = told.flatMap(b =>
         b.spec.supplied.toVector.flatMap { s =>
@@ -955,11 +976,15 @@ object Rendering:
         }
       )
       val base = shared.getOrElse(StorageEnv(secret = None, literals = Vector.empty))
+      // A URL is signed for the host a browser reaches: the installation's gateway, or for a
+      // bucket in the cloud, the cloud's own address.
       val public = (for
-        _    <- Option.when(made.exists(_.spec.exposure == "signed"))(())
-        _    <- Option.when(!base.literals.exists(_._1 == StorageEnv.PublicEndpoint))(())
-        site <- settings.baseDomain
-      yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(site, settings.httpsPort)).toVector
+        _ <- Option.when(made.exists(_.spec.exposure == "signed"))(())
+        _ <- Option.when(!base.literals.exists(_._1 == StorageEnv.PublicEndpoint))(())
+        address <- cloud match
+          case Some(c) => Some(c.endpoint)
+          case None    => settings.baseDomain.map(Buckets.publicEndpoint(_, settings.httpsPort))
+      yield StorageEnv.PublicEndpoint -> address).toVector
       Some(
         base.copy(literals = base.literals ++ literals ++ public, refs = base.refs ++ refs)
       )

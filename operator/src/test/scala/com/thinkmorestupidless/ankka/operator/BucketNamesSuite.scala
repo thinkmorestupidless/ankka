@@ -43,3 +43,28 @@ class BucketNamesSuite extends munit.FunSuite:
     val n = BucketNames.name("ankka", "casino", "kyc-documents")
     assert(n.contains("-casino-kyc-documents-"), n)
   }
+
+  // Feature 055: a named bucket.
+
+  test("055: a named bucket's name is the unnamed one's rule with its name after the digest") {
+    val n = BucketNames.named("ankka", "shop", "listings", "photos")
+    assert(n.startsWith("ankka-shop-listings-"), n)
+    assert(n.endsWith("-photos"), n)
+    assert(Valid.matches(n), n)
+    assertNotEquals(n, BucketNames.name("ankka", "shop", "listings"))
+    assertNotEquals(n, BucketNames.named("ankka", "shop", "listings", "uploads"))
+  }
+
+  test("055: a named bucket keeps its name whole while the service and project give way") {
+    val bucket = "b" * 32
+    val n      = BucketNames.named("ankka", "p" * 63, "s" * 63, bucket)
+    assert(n.length <= BucketNames.MaxLength, s"${n.length}: $n")
+    assert(n.endsWith(s"-$bucket"), n)
+    assert(Valid.matches(n), n)
+  }
+
+  test("055: two triples that join to the same hyphenated name are given two names") {
+    val one = BucketNames.named("t", "shop", "a", "b-c")
+    val two = BucketNames.named("t", "shop", "a-b", "c")
+    assertNotEquals(one, two)
+  }

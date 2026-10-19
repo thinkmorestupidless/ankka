@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.mcp.McpRuntime
 import com.thinkmorestupidless.ankka.runtime.{
   StartRefusal,
   Ankka,
@@ -184,23 +185,34 @@ object Main:
       else Oidc.authenticate(settings.auth)
     val endpoints =
       discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings, authenticated))
-    val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
+    // MCP endpoints (feature 054): served here as a Scala one is, each tool run by the process.
+    val mcpEndpoints = discovered.mcpEndpoints.map(e =>
+      RemoteMcpEndpoint.from(e, conversation, settings, authenticated)
+    )
+    // The client keys and the sign-in broker are the MCP runtime's, registered only when an
+    // endpoint admits a key or is brokered, so a service that needs neither has no such entities.
+    val mcpRuntime =
+      Option.when(RemoteMcpEndpoint.needsRuntime(discovered.mcpEndpoints))(McpRuntime())
+    val mcpDescriptors =
+      mcpRuntime.fold(Vector.empty[ComponentDescriptor])(_ => McpRuntime.descriptors.toVector)
+    val served: Vector[ServedRoute] = endpoints.flatMap(_.served) ++ mcpEndpoints.flatMap(_.served)
     if endpoints.exists(_.socketRoutes.nonEmpty) then
       RemoteEndpoint.socketProblems(system.settings.config) match
         case Vector() => ()
         case found    => throw IllegalArgumentException(found.mkString("; "))
 
+    val mounted = endpoints ++ mcpEndpoints
     val http =
       sys.env.get("ANKKA_HTTP_PORT").map(_.toInt) match
-        case Some(port) => HttpServer.at("0.0.0.0", port)(endpoints.map(e => _ => e)*)
-        case None       => HttpServer.of(endpoints.map(e => _ => e)*)
+        case Some(port) => HttpServer.at("0.0.0.0", port)(mounted.map(e => _ => e)*)
+        case None       => HttpServer.of(mounted.map(e => _ => e)*)
 
     // The process's way back in starts first and stops last: extensions start in order, and a
     // projection or a route that reaches the process before the callback server is bound hands it a
     // call it cannot make. A consumer redelivered at a restart was refused on the callback port and
     // left the process's channel backing off for a second, failing every call behind it.
-    Ankka.service
-      .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory)
+    val builder = Ankka.service
+      .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory ++ mcpDescriptors)
       .withConversation(conversation)
       .withExtension(
         SidecarExtension(
@@ -215,5 +227,4 @@ object Main:
       .withExtension(projections)
       .withExtension(timers)
       .withExtension(agentRuntime)
-      .withExtension(http)
-      .startWith(system)
+    mcpRuntime.fold(builder)(builder.withExtension(_)).withExtension(http).startWith(system)

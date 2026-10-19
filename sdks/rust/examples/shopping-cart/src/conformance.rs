@@ -1782,6 +1782,143 @@ pub fn shape() -> Shape {
     }
 }
 
+// ── An MCP endpoint (feature 054): three tools, one a reference, behind keys or a token ──
+
+/// What `get_cart` answers: the cart, and who the tool was told it was for.
+#[derive(Serialize)]
+struct ToolCart {
+    cart: crate::domain::ShoppingCart,
+    subject: Option<String>,
+    claims: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct CartArgs {
+    #[serde(rename = "cartId")]
+    cart_id: String,
+}
+
+#[derive(Deserialize)]
+struct AddItemArgs {
+    #[serde(rename = "cartId")]
+    cart_id: String,
+    #[serde(rename = "productId")]
+    product_id: String,
+    quantity: i32,
+}
+
+// docs:start mcp-endpoint
+/// The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
+/// can see who a client key or a token made the caller, and that nothing in it reads as the key.
+pub struct CartMcp;
+
+impl McpEndpoint for CartMcp {
+    const ENDPOINT_ID: &'static str = "cart-mcp";
+    const PATH: &'static str = "/mcp";
+
+    fn acl() -> Acl {
+        Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])
+    }
+
+    fn tools() -> McpTools<CartMcp> {
+        McpTools::new()
+            .tool(
+                "get_cart",
+                "Reads one cart",
+                Schema::object().string("cartId", "The cart's id"),
+                |args: CartArgs, request: &McpRequest| {
+                    let cart: crate::domain::ShoppingCart =
+                        request
+                            .client()
+                            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())?;
+                    let principal = request.principal();
+                    Ok(ToolCart {
+                        cart,
+                        subject: principal.map(|p| p.subject.clone()),
+                        claims: principal.map(|p| p.claims.clone()).unwrap_or_default(),
+                    })
+                },
+            )
+            .tool(
+                "add_item",
+                "Adds an item to a cart",
+                Schema::object()
+                    .string("cartId", "The cart's id")
+                    .string("productId", "The product's id")
+                    .integer("quantity", "How many; greater than zero"),
+                |args: AddItemArgs, request: &McpRequest| {
+                    let item = crate::domain::LineItem {
+                        product_id: args.product_id.clone(),
+                        name: args.product_id,
+                        quantity: args.quantity,
+                    };
+                    request.client().invoke::<_, _, Done, _>(
+                        ShoppingCart,
+                        &args.cart_id,
+                        "add-item",
+                        item,
+                    )
+                },
+            )
+            .command(
+                "checkout",
+                "Checks a cart out",
+                ShoppingCart,
+                "checkout",
+                "cartId",
+                Schema::object(),
+            )
+    }
+}
+// docs:end mcp-endpoint
+
+/// What `POST /mcp-keys` is asked to issue: a key that never expires, for the cases.
+#[derive(Deserialize)]
+struct McpKeyRequest {
+    subject: String,
+    #[serde(default)]
+    scope: Vec<String>,
+    #[serde(default)]
+    attributes: BTreeMap<String, String>,
+}
+
+// docs:start mcp-keys
+/// The reference's own routes over its client keys, as a product would write them.
+pub struct McpKeysEndpoint;
+
+fn keys_of(request: &Request) -> Result<ankka::ClientKeys, HttpProblem> {
+    request
+        .context()
+        .client_keys()
+        .ok_or_else(|| HttpProblem::new(500, "an endpoint has the client keys"))
+}
+
+impl Endpoint for McpKeysEndpoint {
+    const ENDPOINT_ID: &'static str = "mcp-keys";
+    const PREFIX: &'static str = "/mcp-keys";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<McpKeysEndpoint> {
+        Routes::new()
+            .post("/", |request: &Request, body: McpKeyRequest| {
+                let mut key = IssueClientKey::new(body.subject, Expiry::Never).scope(body.scope);
+                for (name, value) in body.attributes {
+                    key = key.attribute(name, value);
+                }
+                Ok(keys_of(request)?.issue(key)?)
+            })
+            .get("/", |request: &Request| Ok(keys_of(request)?.list()?))
+            .delete("/{id}", |request: &Request| {
+                keys_of(request)?.revoke(request.path("id"))?;
+                Ok("revoked".to_string())
+            })
+    }
+}
+// docs:end mcp-keys
+
 /// The cart sample plus the conformance extras: what `conformance.sh` builds and runs the suite
 /// against, in the shape `ANKKA_CONFORMANCE_SHAPE` names.
 pub fn build() -> Service {
@@ -1827,7 +1964,9 @@ pub fn build() -> Service {
         .endpoint(ConformanceEndpoint)
         .endpoint(PrivateEndpoint)
         .endpoint(CallersEndpoint)
-        .endpoint(AutonomousEndpoint);
+        .endpoint(AutonomousEndpoint)
+        .endpoint(McpKeysEndpoint)
+        .mcp_endpoint(CartMcp);
     // What a suite drives to see a module call another service from a consumer and a step, and
     // read the time and random bytes. Rust's alone, so they are registered only where the module
     // is told to: every reference declares the same components to the conformance suite.

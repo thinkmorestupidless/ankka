@@ -10,6 +10,7 @@ pub mod endpoint;
 pub mod event_sourced;
 pub mod key_value;
 pub mod keyed_view;
+pub mod mcp_endpoint;
 pub mod timed_action;
 pub mod view;
 pub mod workflow;
@@ -31,6 +32,7 @@ pub use endpoint::{Acl, Caller, CallerMatcher, Endpoint, Principal, Request, Rou
 pub use event_sourced::{EventSourcedEntity, Handlers};
 pub use key_value::{KeyValueEntity, KeyValueHandlers};
 pub use keyed_view::{KeyedView, Sources};
+pub use mcp_endpoint::{McpEndpoint, McpRequest, McpTools};
 pub use timed_action::{Actions, TimedAction};
 pub use view::{DeclaredQuery, Source, TopicSource, View, query, table_of};
 pub use workflow::{Recovery, Steps, Workflow, WorkflowHandlers, WorkflowSettings};

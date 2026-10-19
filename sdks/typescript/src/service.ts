@@ -19,9 +19,10 @@ import { Agent, type AgentClass } from "./agent.ts"
 import { serverProblems, TOOL_PREFIX, type McpServerRef, type ResultGuardrailRef } from "./mcp.ts"
 import { AutonomousAgent, COMPLETE_TASK, FAIL_TASK, type AutonomousAgentClass, type TaskType } from "./autonomous.ts"
 import { Endpoint, type EndpointClass } from "./endpoint.ts"
+import { McpEndpoint, registerMcpEndpoint, type McpEndpointClass, type RegisteredMcpEndpoint } from "./mcp-endpoint.ts"
 import type { GuardrailRef, HandlerRef, ToolRef } from "./handlers.ts"
 import type { RouteRef, Acl } from "./routes.ts"
-import { isAcl } from "./routes.ts"
+import { isAcl, isEndpointAcl } from "./routes.ts"
 import { ComponentClient, type ComponentRef } from "./client.ts"
 import type { ComponentKind } from "./kinds.ts"
 import type { WorkflowSettings } from "./effects/workflow.ts"
@@ -178,11 +179,22 @@ export interface RegisteredEndpoint {
 export class Registry {
   readonly components: ReadonlyMap<string, RegisteredComponent>
   readonly endpoints: ReadonlyMap<string, RegisteredEndpoint>
+  /** The MCP endpoints (1.20), by id, their references resolved. */
+  readonly mcpEndpoints: ReadonlyMap<string, RegisteredMcpEndpoint>
 
-  constructor(components: ReadonlyMap<string, RegisteredComponent>, endpoints: ReadonlyMap<string, RegisteredEndpoint>) {
+  constructor(
+    components: ReadonlyMap<string, RegisteredComponent>,
+    endpoints: ReadonlyMap<string, RegisteredEndpoint>,
+    mcpEndpoints: ReadonlyMap<string, RegisteredMcpEndpoint> = new Map(),
+  ) {
     this.components = components
     this.endpoints = endpoints
+    this.mcpEndpoints = mcpEndpoints
     Object.freeze(this)
+  }
+
+  mcpEndpoint(id: string): RegisteredMcpEndpoint | undefined {
+    return this.mcpEndpoints.get(id)
   }
 
   component(id: string): RegisteredComponent | undefined {
@@ -257,6 +269,7 @@ export class ServiceBuilder {
   register<C extends TimedAction>(cls: TimedActionClass<C>): this
   register<C extends Agent>(cls: AgentClass<C>): this
   register<C extends AutonomousAgent>(cls: AutonomousAgentClass<C>): this
+  register<C extends McpEndpoint>(cls: McpEndpointClass<C>): this
   register<C extends Endpoint>(cls: EndpointClass<C>): this
   register(cls: AnyClass): this {
     this.#classes.push(cls)
@@ -269,6 +282,7 @@ export class ServiceBuilder {
     const components = new Map<string, RegisteredComponent>()
     const endpoints = new Map<string, RegisteredEndpoint>()
     const prefixes = new Map<string, string>()
+    const mcpClasses: McpEndpointClass<any>[] = []
 
     const add = (r: RegisteredComponent | undefined, cls: unknown) => {
       if (!r) return
@@ -287,6 +301,8 @@ export class ServiceBuilder {
       else if (extendsBase(cls, TimedAction)) add(registerTimedAction(cls as TimedActionClass<any>, problems), cls)
       else if (extendsBase(cls, Agent)) add(registerAgent(cls as AgentClass<any>, problems), cls)
       else if (extendsBase(cls, AutonomousAgent)) add(registerAutonomousAgent(cls as AutonomousAgentClass<any>, problems), cls)
+      // Before Endpoint: an MCP endpoint is one, served by the platform rather than by routes.
+      else if (extendsBase(cls, McpEndpoint)) mcpClasses.push(cls as McpEndpointClass<any>)
       else if (extendsBase(cls, Endpoint)) {
         const ep = cls as EndpointClass<any>
         if (typeof ep.prefix === "string") {
@@ -300,12 +316,31 @@ export class ServiceBuilder {
           else endpoints.set(r.id, r)
         }
       } else {
-        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, KeyedView, Consumer, GraphConsumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
+        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, KeyedView, Consumer, GraphConsumer, TimedAction, Agent, AutonomousAgent, Endpoint or McpEndpoint`)
       }
     }
 
+    // MCP endpoints last: their references name the components and endpoints registered above.
+    const mcpEndpoints = new Map<string, RegisteredMcpEndpoint>()
+    const mcpPaths = new Map<string, string>()
+    for (const cls of mcpClasses) {
+      const r = registerMcpEndpoint(cls, components, endpoints, problems)
+      if (!r) continue
+      const other = mcpPaths.get(r.path)
+      if (other) problems.push(`MCP endpoints ${other} and ${r.id} share the path ${r.path}`)
+      mcpPaths.set(r.path, r.id)
+      for (const e of endpoints.values()) {
+        for (const route of e.routes.values()) {
+          const full = route.template === "/" ? e.prefix : e.prefix === "/" ? route.template : `${e.prefix}${route.template}`
+          if (full === r.path) problems.push(`${r.id}: its path ${r.path} is also the route ${route.method} ${full} of ${e.id}`)
+        }
+      }
+      if (mcpEndpoints.has(r.id)) problems.push(`two MCP endpoints are named ${r.id}`)
+      else mcpEndpoints.set(r.id, r)
+    }
+
     if (problems.length > 0) throw new RegistrationError(problems)
-    return new Registry(components, endpoints)
+    return new Registry(components, endpoints, mcpEndpoints)
   }
 
   /** The discovery `Spec` for what is registered, without listening. */
@@ -789,6 +824,8 @@ function registerEndpoint(cls: EndpointClass<any>, problems: string[]): Register
   }
   if (!isAcl(cls.acl)) {
     fail(`needs a static acl — Acl.allowAll, Acl.denyAll, Acl.authenticated or Acl.allowCallers(...). An unstated access rule is a decision nobody made`)
+  } else if (!isEndpointAcl(cls.acl)) {
+    fail("admits client keys or states Acl.anyOf, which only an MCP endpoint can: extend McpEndpoint")
   }
   const routes = new Map<string, RouteRef<any, any, any, any>>()
   const seen = new Map<string, string>()
@@ -806,6 +843,7 @@ function registerEndpoint(cls: EndpointClass<any>, problems: string[]): Register
       if (other) fail(`routes ${other} and ${id} both declare ${key}`)
       seen.set(key, id)
       if (r.acl !== undefined && !isAcl(r.acl)) fail(`routes.${id}: unknown acl ${JSON.stringify(r.acl)}`)
+      else if (r.acl !== undefined && !isEndpointAcl(r.acl)) fail(`routes.${id} admits client keys or states Acl.anyOf, which only an MCP endpoint can`)
       routes.set(id, r)
     }
   }

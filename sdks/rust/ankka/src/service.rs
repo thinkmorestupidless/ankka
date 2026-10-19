@@ -14,12 +14,16 @@ use prost::Message;
 
 use crate::abi::exports::Export;
 use crate::abi::imports::{Level, log};
+use crate::components::McpEndpoint;
 use crate::components::endpoint::{EndpointRegistration, RegisteredEndpoint};
+use crate::components::mcp_endpoint::{
+    McpEndpointRegistration, Reference, RegisteredMcpEndpoint, RouteCall,
+};
 use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.19";
+pub const PROTOCOL_VERSION: &str = "1.20";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -51,6 +55,7 @@ pub struct Service {
     sdk_name: String,
     components: Vec<Box<dyn Registered>>,
     endpoints: Vec<Box<dyn RegisteredEndpoint>>,
+    mcp_endpoints: Vec<Box<dyn RegisteredMcpEndpoint>>,
     problems: Vec<String>,
     held: RefCell<HashMap<String, HeldState>>,
 }
@@ -62,6 +67,7 @@ impl Service {
             sdk_name: sdk_name.into(),
             components: Vec::new(),
             endpoints: Vec::new(),
+            mcp_endpoints: Vec::new(),
             problems: Vec::new(),
             held: RefCell::default(),
         }
@@ -124,6 +130,86 @@ impl Service {
         self
     }
 
+    /// Registers an MCP endpoint by its value: `.mcp_endpoint(CartMcp)` (protocol 1.20).
+    pub fn mcp_endpoint<E: McpEndpoint>(mut self, endpoint: E) -> Service {
+        let _ = endpoint;
+        let registration: Box<dyn RegisteredMcpEndpoint> =
+            Box::new(McpEndpointRegistration::<E>::new());
+        if self
+            .mcp_endpoints
+            .iter()
+            .any(|e| e.id() == registration.id())
+        {
+            self.problems.push(format!(
+                "MCP endpoint '{}' is registered twice",
+                registration.id()
+            ));
+        } else if let Some(other) = self
+            .mcp_endpoints
+            .iter()
+            .find(|e| e.path() == registration.path())
+        {
+            self.problems.push(format!(
+                "MCP endpoints '{}' and '{}' share the path '{}'",
+                other.id(),
+                registration.id(),
+                registration.path()
+            ));
+        } else {
+            self.mcp_endpoints.push(registration);
+        }
+        self
+    }
+
+    /// What is wrong with the MCP endpoints' references: each must name a component's handler or
+    /// an endpoint's route this service registers.
+    fn reference_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        for endpoint in &self.mcp_endpoints {
+            for (tool, reference) in endpoint.references() {
+                let owner = format!("MCP endpoint '{}', tool '{tool}'", endpoint.id());
+                match reference {
+                    Reference::Handler {
+                        kind,
+                        component_id,
+                        handler,
+                    } => match self.component(&component_id) {
+                        None => problems.push(format!(
+                            "{owner} names component '{component_id}', which this service does not register"
+                        )),
+                        Some(c) if c.kind() != kind => problems.push(format!(
+                            "{owner} names component '{component_id}' as another kind than it is"
+                        )),
+                        Some(c) => {
+                            let declared = c.to_component();
+                            if !declared.handlers.iter().any(|h| h.name == handler) {
+                                problems.push(format!(
+                                    "{owner} names handler '{handler}' of '{component_id}', which declares none"
+                                ));
+                            }
+                        }
+                    },
+                    Reference::Route {
+                        endpoint_id,
+                        route_id,
+                    } => match self.endpoints.iter().find(|e| e.id() == endpoint_id) {
+                        None => problems.push(format!(
+                            "{owner} names endpoint '{endpoint_id}', which this service does not register"
+                        )),
+                        Some(e) => {
+                            if !e.to_endpoint().routes.iter().any(|r| r.id == route_id) {
+                                problems.push(format!(
+                                    "{owner} names route '{route_id}' of '{endpoint_id}', which declares none"
+                                ));
+                            }
+                        }
+                    },
+                }
+            }
+        }
+        problems
+    }
+
     /// Every problem with the declaration, all at once: none means the runtime can host it.
     pub fn problems(&self) -> Vec<Problem> {
         let mut problems = self.problems.clone();
@@ -143,6 +229,10 @@ impl Service {
         for endpoint in &self.endpoints {
             problems.extend(endpoint.problems());
         }
+        for endpoint in &self.mcp_endpoints {
+            problems.extend(endpoint.problems());
+        }
+        problems.extend(self.reference_problems());
         problems
             .into_iter()
             .map(|message| Problem { message })
@@ -176,8 +266,11 @@ impl Service {
         }
         let endpoints: Vec<proto::Endpoint> =
             self.endpoints.iter().map(|e| e.to_endpoint()).collect();
+        let mcp_endpoints: Vec<proto::McpEndpoint> =
+            self.mcp_endpoints.iter().map(|e| e.to_proto()).collect();
         if let Some(refusal) = grants_refusal(&endpoints, &info.protocol_version)
             .or_else(|| cross_project_refusal(&components, &info.protocol_version))
+            .or_else(|| mcp_refusal(&mcp_endpoints, &info.protocol_version))
         {
             panic!("{refusal}");
         }
@@ -197,6 +290,7 @@ impl Service {
                 }),
                 components,
                 endpoints,
+                mcp_endpoints,
             }),
             stateful,
             abi_version: ABI_VERSION.to_string(),
@@ -249,6 +343,30 @@ impl Service {
                     command_id: 0,
                     error: Some(proto::Error {
                         message: format!("no endpoint '{}' in this service", request.endpoint_id),
+                        code: proto::ErrorCode::NotFound as i32,
+                        ..Default::default()
+                    }),
+                })),
+            },
+        }
+    }
+
+    /// `ankka1_mcp_tool`: a tool of one of the service's MCP endpoints.
+    pub fn mcp_tool(&self, request: proto::McpToolRequest) -> proto::McpToolReply {
+        match self
+            .mcp_endpoints
+            .iter()
+            .find(|e| e.id() == request.endpoint_id)
+        {
+            Some(endpoint) => endpoint.handle(request, self),
+            None => proto::McpToolReply {
+                reply: Some(proto::mcp_tool_reply::Reply::Failure(proto::Failure {
+                    command_id: 0,
+                    error: Some(proto::Error {
+                        message: format!(
+                            "no MCP endpoint '{}' in this service",
+                            request.endpoint_id
+                        ),
                         code: proto::ErrorCode::NotFound as i32,
                         ..Default::default()
                     }),
@@ -310,6 +428,7 @@ impl Service {
             Export::Handle => self.handle(decode(export, request)).encode_to_vec(),
             Export::Fold => self.fold(decode(export, request)).encode_to_vec(),
             Export::Http => self.http(decode(export, request)).encode_to_vec(),
+            Export::McpTool => self.mcp_tool(decode(export, request)).encode_to_vec(),
             Export::Close => {
                 self.close(decode(export, request));
                 Vec::new()
@@ -359,6 +478,29 @@ impl Service {
             }
         }
     }
+}
+
+impl RouteCall for Service {
+    fn call_route(&self, request: proto::HttpRequest) -> proto::HttpReply {
+        self.http(request)
+    }
+}
+
+/// Why a host speaking `host_protocol` cannot serve `mcp_endpoints`, if it cannot: one before 1.20
+/// knows no MCP endpoint, and would serve none of them. Last in the order, as the newest.
+pub(crate) fn mcp_refusal(
+    mcp_endpoints: &[proto::McpEndpoint],
+    host_protocol: &str,
+) -> Option<String> {
+    if mcp_endpoints.is_empty() || !start_from::older_than_mcp(host_protocol) {
+        return None;
+    }
+    let naming: Vec<&str> = mcp_endpoints.iter().map(|e| e.id.as_str()).collect();
+    Some(format!(
+        "{} are MCP endpoints, which need protocol 1.20: the runtime speaks {host_protocol}, and \
+         this crate {PROTOCOL_VERSION}. Run a runtime speaking 1.20 or later.",
+        naming.join(", ")
+    ))
 }
 
 fn decode<T: Message + Default>(export: Export, request: &[u8]) -> T {

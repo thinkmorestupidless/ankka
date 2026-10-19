@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.19")
+    assertEquals(Discovery.ProtocolVersion, "1.20")
   }
 
   test(
@@ -1288,4 +1288,144 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         problems.toString
       )
     }
+  }
+
+  // ── MCP endpoints (protocol 1.20, feature 054) ──────────────────────────────
+
+  private val CartSchema =
+    """{"type":"object","properties":{"cartId":{"type":"string"}},"required":["cartId"]}"""
+
+  private def mcpTool(name: String = "get_cart", description: String = "Reads one cart") =
+    McpTool(name, description, CartSchema)
+
+  private def mcpSpec(
+      endpoint: McpEndpoint,
+      version: String = Discovery.ProtocolVersion,
+      endpoints: Vector[Endpoint] = Vector.empty
+  ) = Spec(protocolVersion = version, endpoints = endpoints, mcpEndpoints = Vector(endpoint))
+
+  private val keysAcl = McpAcl(clientKeys = true)
+
+  private def mcpEndpoint(
+      path: String = "/mcp",
+      acl: Option[McpAcl] = Some(keysAcl),
+      tools: Vector[McpTool] = Vector(mcpTool()),
+      brokered: Boolean = false
+  ) = McpEndpoint(id = "cart-mcp", path = path, acl = acl, tools = tools, brokered = brokered)
+
+  private def mcpRefusals(spec: Spec, authConfigured: Boolean = true): Vector[String] =
+    Discovery.validate(spec, Discovery.ProtocolVersion, authConfigured).left.getOrElse(Vector.empty)
+
+  test(
+    "discovery 1.20: an MCP endpoint is declared under 1.20, and refused under an earlier minor"
+  ) {
+    assertEquals(Discovery.McpSince, 20)
+    val accepted = validateSpec(mcpSpec(mcpEndpoint()))
+    assert(accepted.isRight, accepted.toString)
+    assertEquals(accepted.toOption.get.mcpEndpoints.map(_.path), Vector("/mcp"))
+    assertEquals(
+      mcpRefusals(mcpSpec(mcpEndpoint(), version = "1.19")),
+      Vector("MCP endpoint /mcp needs protocol 1.20; the SDK speaks 1.19")
+    )
+  }
+
+  test("discovery 1.20: an MCP endpoint's path, tools and ACL are refused in the Scala wording") {
+    val cases: Vector[(String, Spec, Boolean, String)] = Vector(
+      (
+        "a reserved path",
+        mcpSpec(mcpEndpoint(path = "/_ankka/mcp")),
+        true,
+        "MCP endpoint /_ankka/mcp path is reserved"
+      ),
+      (
+        "a path a route claims",
+        mcpSpec(
+          mcpEndpoint(),
+          endpoints = Vector(
+            Endpoint("root", "/", Endpoint.Acl.ALLOW_ALL, Vector(Route("r", "POST", "/mcp", true)))
+          )
+        ),
+        true,
+        "MCP endpoint /mcp: its path is a route of an HTTP endpoint of this service"
+      ),
+      (
+        "no tool",
+        mcpSpec(mcpEndpoint(tools = Vector.empty)),
+        true,
+        "MCP endpoint /mcp declares no tool"
+      ),
+      (
+        "a bad name",
+        mcpSpec(mcpEndpoint(tools = Vector(mcpTool(name = "Get Cart")))),
+        true,
+        "MCP endpoint /mcp: "
+      ),
+      (
+        "a blank description",
+        mcpSpec(mcpEndpoint(tools = Vector(mcpTool(description = "  ")))),
+        true,
+        "MCP endpoint /mcp: tool 'get_cart' has no description"
+      ),
+      (
+        "a schema that is not an object",
+        mcpSpec(mcpEndpoint(tools = Vector(McpTool("get_cart", "Reads one cart", "[1]")))),
+        true,
+        "MCP endpoint /mcp: tool 'get_cart' has an input schema that is not a JSON object"
+      ),
+      (
+        "an empty ACL",
+        mcpSpec(mcpEndpoint(acl = Some(McpAcl()))),
+        true,
+        "MCP endpoint /mcp states no ACL; an MCP endpoint must state its ACL"
+      ),
+      (
+        "no ACL",
+        mcpSpec(mcpEndpoint(acl = None)),
+        true,
+        "MCP endpoint /mcp states no ACL; an MCP endpoint must state its ACL"
+      ),
+      (
+        "deny_all beside tokens",
+        mcpSpec(mcpEndpoint(acl = Some(McpAcl(denyAll = true, tokens = true)))),
+        true,
+        "MCP endpoint /mcp denies all beside admitting others"
+      ),
+      (
+        "tokens with no issuer",
+        mcpSpec(mcpEndpoint(acl = Some(McpAcl(tokens = true)))),
+        false,
+        "MCP endpoint /mcp admits tokens but no issuer is configured"
+      ),
+      (
+        "brokered without tokens",
+        mcpSpec(mcpEndpoint(brokered = true)),
+        true,
+        "MCP endpoint /mcp opts into brokered sign-in and its ACL admits no token"
+      )
+    )
+    cases.foreach { (what, spec, authConfigured, expected) =>
+      val refused = mcpRefusals(spec, authConfigured)
+      assert(refused.exists(_.startsWith(expected)), s"$what: expected '$expected' in $refused")
+    }
+  }
+
+  test("discovery 1.20: a brokered MCP endpoint is refused when an issuer has no client id") {
+    val spec = mcpSpec(mcpEndpoint(acl = Some(McpAcl(tokens = true)), brokered = true))
+    assert(validateSpec(spec).isRight, validateSpec(spec).toString)
+    val refused = Discovery
+      .validate(
+        spec,
+        Discovery.ProtocolVersion,
+        authConfigured = true,
+        issuersWithoutClientId = Vector("test")
+      )
+      .left
+      .getOrElse(Vector.empty)
+    assertEquals(
+      refused,
+      Vector(
+        "MCP endpoint /mcp opts into brokered sign-in and the issuer 'test' has no client id; " +
+          "set ANKKA_AUTH_TEST_CLIENT_ID"
+      )
+    )
   }

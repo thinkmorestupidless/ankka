@@ -129,11 +129,38 @@ private[grpc] final class Admission(
           case AuthDecision.Forbidden(reason) => refused(reason)
           case AuthDecision.Unavailable(reason) =>
             Left(Status.UNAVAILABLE.withDescription(reason) -> Metadata())
+      case Acl.AnyOf(acls) =>
+        // As the HTTP server decides it: the first member that admits, else the refusal a caller
+        // can act on — unavailable, then the challenge that says what was wrong, then any
+        // challenge, then the first refusal.
+        val refusals = Vector.newBuilder[(Status, Metadata)]
+        acls.iterator
+          .map(acl =>
+            decide(acl, context) match
+              case Right(admitted) => Some(admitted)
+              case Left(refused) =>
+                refusals += refused
+                None
+          )
+          .collectFirst { case Some(admitted) => admitted } match
+          case Some(admitted) => Right(admitted)
+          case None =>
+            val all                                = refusals.result()
+            def challengeOf(r: (Status, Metadata)) = Option(r._2.get(Admission.Challenge))
+            val unavailable = all.find(_._1.getCode == Status.Code.UNAVAILABLE)
+            val challenged  = all.filter(challengeOf(_).isDefined)
+            val pointed     = challenged.find(challengeOf(_).exists(_.contains("error=")))
+            unavailable
+              .orElse(pointed)
+              .orElse(challenged.headOption)
+              .orElse(all.headOption)
+              .map(Left(_))
+              .getOrElse(refused(Admission.NotPermitted))
 
   /** Whether any ACL here names callers, which outside a cluster cannot be enforced. */
   def namesCallers(endpoints: Vector[GrpcEndpoint]): Boolean =
     endpoints.exists(e =>
-      (e.acl +: e.methods.flatMap(_.acl)).exists {
+      (e.acl +: e.methods.flatMap(_.acl)).flatMap(Acl.flatten).exists {
         case Acl.AllowCallers(_) => true
         case _                   => false
       }

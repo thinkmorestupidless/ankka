@@ -39,7 +39,13 @@ final class EndpointClients private[ankka] (
     /**
      * How often a wait served as a stream says it goes on: `Heartbeat.interval` of the server's.
      */
-    heartbeat: FiniteDuration = Heartbeat.Default
+    heartbeat: FiniteDuration = Heartbeat.Default,
+    /**
+     * The service's client keys for its MCP endpoint (feature 054):
+     * `clients.clientKeys.issue(...)`. Refuses every call, saying why, when the service registers
+     * no `McpRuntime()`.
+     */
+    val clientKeys: ClientKeys = ClientKeys.unavailable
 ):
 
   /**

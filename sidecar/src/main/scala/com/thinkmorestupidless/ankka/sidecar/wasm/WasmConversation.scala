@@ -388,6 +388,21 @@ final class WasmConversation(
       )(GuardrailResult.parseFrom)
     ).map(fromGuardrailResult)
 
+  /** A tool of an MCP endpoint (1.20), run by the module on a fresh instance as a route is. */
+  override def invokeMcpTool(
+      call: RemoteMcpCall
+  ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
+    val stampedCall = call.copy(metadata = stamped(call.metadata))
+    fresh(
+      "mcp_tool",
+      Translate.toMcpToolRequest(stampedCall),
+      settings.requestTimeout,
+      Purpose(call.endpointId, Some(call.tool), stampedCall.metadata)
+    )(ankka.protocol.v1.mcp.McpToolReply.parseFrom).map {
+      case Left(fault)  => Left(failure(0L, fault))
+      case Right(reply) => Translate.fromMcpToolReply(reply)
+    }
+
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
     fresh(

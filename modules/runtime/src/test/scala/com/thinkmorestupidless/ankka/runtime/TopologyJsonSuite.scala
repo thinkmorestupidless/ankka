@@ -160,6 +160,24 @@ final class TopologyJsonSuite extends FunSuite:
     )
   }
 
+  test("a tool of an MCP endpoint is one of its endpoint's handlers, named alone, of type tool") {
+    val routes = Vector(
+      ServedRoute("POST", "/mcp", streaming = false, "endpoint:/mcp"),
+      ServedRoute("MCP", "/mcp get_cart", streaming = false, "endpoint:/mcp"),
+      ServedRoute("MCP", "/mcp add_item", streaming = false, "endpoint:/mcp", grantable = true)
+    )
+    val nodes = read(render(Nil, routes)).nodes
+    assertEquals(nodes.map(_.id), Vector("endpoint:/mcp"))
+    assertEquals(
+      nodes.head.handlers.toSet,
+      Set(
+        Handler("POST /mcp", "route", Some(false)),
+        Handler("get_cart", "tool"),
+        Handler("add_item", "tool", grantable = Some(true))
+      )
+    )
+  }
+
   test("a route whose ACL admits granted callers says so, and no other route carries the field") {
     val routes = Vector(
       ServedRoute(

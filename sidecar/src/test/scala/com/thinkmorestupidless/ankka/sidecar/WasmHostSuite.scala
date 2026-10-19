@@ -239,6 +239,36 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("an MCP endpoint needs the export that runs its tools") {
+    val endpoint = ankka.protocol.v1.discovery.McpEndpoint(
+      id = "cart-mcp",
+      path = "/mcp",
+      acl = Some(ankka.protocol.v1.discovery.McpAcl(clientKeys = true)),
+      tools = Vector(
+        ankka.protocol.v1.discovery.McpTool("get_cart", "Reads one cart", """{"type":"object"}""")
+      )
+    )
+    val declared = WasmSpec(
+      Some(cartSpec().withProtocolVersion(Discovery.ProtocolVersion).addMcpEndpoints(endpoint)),
+      Seq.empty,
+      "1"
+    )
+    val found = problems(declared, everyExport - "ankka1_mcp_tool")
+    assert(
+      found.exists(p => p.contains("MCP endpoint /mcp") && p.contains("ankka1_mcp_tool")),
+      found.toString
+    )
+    // With the export, the same declaration is accepted.
+    val accepted =
+      WasmDiscovery.validate(
+        declared,
+        everyExport,
+        Discovery.ProtocolVersion,
+        authConfigured = true
+      )
+    assert(accepted.isRight, accepted.left.toString)
+  }
+
   test("a declaration is refused for another ABI version, a bad stateful id, or a missing export") {
     val view = Component(
       kind = Kind.VIEW,

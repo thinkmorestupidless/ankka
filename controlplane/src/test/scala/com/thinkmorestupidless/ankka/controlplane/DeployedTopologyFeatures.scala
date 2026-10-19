@@ -20,7 +20,24 @@ import scala.concurrent.duration.*
  * does not. The member and the stranger read the route as the console and the CLI do.
  */
 final class DeployedTopologyFeatures
-    extends GherkinSuite("../features/topology/deployed-services.feature")
+    extends DeployedTopologySteps("../features/topology/deployed-services.feature")
+
+/**
+ * The report scenario of `features/mcp-endpoints/observing.feature`: an instance reports an MCP
+ * endpoint whose tools are its handlers, and the real control plane, the CLI's table and the
+ * console's document show them beside the route. The trace scenario reads a running service's
+ * recorder, which `mcp`'s suite does.
+ */
+final class DeployedMcpTopologyFeatures
+    extends DeployedTopologySteps("../features/mcp-endpoints/observing.feature"):
+
+  override protected def ranElsewhere: Map[String, String] = Map(
+    "a tool call is traced under its MCP endpoint and tool with the principal's subject" ->
+      "ObservingFeatures (mcp): a running service's recorder"
+  )
+
+abstract class DeployedTopologySteps(feature: String)
+    extends GherkinSuite(feature)
     with LogCapturing:
 
   override val munitTimeout: scala.concurrent.duration.Duration = 5.minutes
@@ -265,4 +282,77 @@ final class DeployedTopologyFeatures
       Some(Vector(instances.head)),
       topology.toString
     )
+  }
+
+  // ── Steps: observing.feature ──────────────────────────────────────────────
+
+  private var mcpTools: Vector[String] = Vector.empty
+  private var cartRoute: String        = ""
+
+  Given(
+    "a service {string} with an MCP endpoint at {string} whose tools are {string} and {string}"
+  ) { (name: String, path: String, a: String, b: String) =>
+    assertEquals((name, path), ("cart", "/mcp"))
+    mcpTools = Vector(a, b)
+  }
+
+  Given("an HTTP endpoint of {string} whose route is {string}") { (name: String, route: String) =>
+    assertEquals(name, "cart")
+    cartRoute = route
+  }
+
+  Given("{string} is deployed") { (name: String) =>
+    deployed(name, "shop", 1)
+    // What the instance reports: its MCP endpoint's node, each tool a handler of type tool, beside
+    // the route, as `TopologyJson` writes them.
+    val mcp = TopologyNode(
+      "endpoint:/mcp",
+      "Endpoint",
+      0,
+      platform = false,
+      TopologyHandler("POST /mcp", "route", Some(false)) +: mcpTools.map(TopologyHandler(_, "tool"))
+    )
+    val routes = TopologyNode(
+      "endpoint:/carts",
+      "Endpoint",
+      0,
+      platform = false,
+      Vector(TopologyHandler(cartRoute, "route", Some(false)))
+    )
+    topologies.script(
+      project,
+      name,
+      instances.map { pod =>
+        val document = Topologies.cart(pod, 1L)
+        Topologies.ok(pod) -> Some(
+          document.copy(nodes =
+            document.nodes.filterNot(_.id == "endpoint:/carts") ++ Vector(routes, mcp)
+          )
+        )
+      }
+    )
+  }
+
+  When("a member reads the service {string}")((name: String) => readAs(member, name))
+
+  Then(
+    "the report names the MCP endpoint {string} with the tools {string} and {string} beside the route {string}"
+  ) { (path: String, a: String, b: String, route: String) =>
+    val shown = topology
+    val mcp   = shown.nodes.find(_.id == s"endpoint:$path").getOrElse(fail(shown.toString))
+    assertEquals(mcp.handlers.filter(_.`type` == "tool").map(_.name), Vector(a, b))
+    val carts = shown.nodes.find(_.id == "endpoint:/carts").getOrElse(fail(shown.toString))
+    assertEquals(carts.handlers.map(h => h.name -> h.`type`), Vector(route -> "route"))
+    // The CLI's table, from the same answer: the tools marked, the route beside them.
+    val printed = com.thinkmorestupidless.ankka.cli.Output
+      .topology(shown, com.thinkmorestupidless.ankka.cli.Format.Table)
+    assert(printed.contains(s"$a (tool), $b (tool)"), printed)
+    assert(printed.contains(route), printed)
+  }
+
+  Then("the console shows the same") { () =>
+    // The console renders this route's document; `Table.tsx` marks a handler of type tool, held by
+    // `console/e2e/tests/topology.spec.ts` against the fixture `ControlPlaneFixturesSuite` writes.
+    val (_, body) = answered.get
+    mcpTools.foreach(t => assert(body.contains(s"""{"name":"$t","type":"tool"}"""), body))
   }

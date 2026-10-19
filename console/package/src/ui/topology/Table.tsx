@@ -12,6 +12,14 @@ function kindInWords(kind: string): string {
   return kind.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 }
 
+/**
+ * A handler as the table names it: a tool, an agent's or an MCP endpoint's, is marked with a tool
+ * glyph and the word, so an MCP endpoint's tools read apart from its routes, to a screen reader too.
+ */
+export function handlerInWords(h: { name: string; type: string }): string {
+  return h.type === "tool" ? `🔧 ${h.name} (tool)` : h.name;
+}
+
 export function duration(pair: Pair): string {
   const d = pair.durationMillis;
   return d ? `~${d.p50} / ~${d.p99} / ~${d.max} ms` : "";
@@ -39,7 +47,7 @@ export function Table({ shown, differs }: { shown: View; differs: Map<string, st
                   {n.platform ? ", platform" : ""}
                   {differs.has(n.id) ? `, only on ${differs.get(n.id)!.join(", ")}` : ""}
                 </td>
-                <td>{n.handlers.map((h) => h.name).join(", ")}</td>
+                <td>{n.handlers.map(handlerInWords).join(", ")}</td>
               </tr>
             ))}
           </tbody>

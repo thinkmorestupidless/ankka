@@ -9,7 +9,9 @@ import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * The local console lists a service's gRPC methods beside its HTTP routes, and calls none of them.
+ * The local console lists a service's gRPC methods, socket routes and MCP endpoints beside its HTTP
+ * routes, and calls none of them. How the page groups an MCP endpoint's tools is `topology.js`'s
+ * `mcpEndpoints`, held by `cli/src/test/js/topology.test.js`.
  */
 final class ConsoleGrpcSuite extends FunSuite:
 
@@ -23,7 +25,9 @@ final class ConsoleGrpcSuite extends FunSuite:
         """{"name":"cart","instances":[],"components":[],"routes":[""" +
           """{"method":"GET","path":"/carts/{cartId}","streaming":false},""" +
           """{"method":"GRPC","path":"shoppingcart.v1.CartService/GetCart","streaming":false},""" +
-          """{"method":"SOCKET","path":"/carts/{cartId}/watch","streaming":true}]}"""
+          """{"method":"SOCKET","path":"/carts/{cartId}/watch","streaming":true},""" +
+          """{"method":"MCP","path":"/mcp get_cart","streaming":false},""" +
+          """{"method":"MCP","path":"/mcp add_item","streaming":false}]}"""
       )
     def traces(name: String): Option[String]              = None
     def topology(name: String): Option[QueryResponse]     = None
@@ -84,6 +88,24 @@ final class ConsoleGrpcSuite extends FunSuite:
         val refused = post(server, path, "SOCKET")
         assertEquals(refused.statusCode, 400, path)
         assert(refused.body.contains("does not open sockets"), refused.body)
+      }
+      assertEquals(invoked.get, before)
+    }
+  }
+
+  test("the local console lists a service's MCP endpoints and their tools") {
+    withConsole { server =>
+      val inventory = client.send(
+        HttpRequest.newBuilder(URI.create(s"${server.address}/api/service/cart")).build(),
+        HttpResponse.BodyHandlers.ofString()
+      )
+      assert(inventory.body.contains("\"MCP\",\"path\":\"/mcp get_cart\""), inventory.body)
+      assert(inventory.body.contains("\"MCP\",\"path\":\"/mcp add_item\""), inventory.body)
+      val before = invoked.get
+      Seq("/api/invoke/cart", "/api/invoke-stream/cart").foreach { path =>
+        val refused = post(server, path, "MCP")
+        assertEquals(refused.statusCode, 400, path)
+        assert(refused.body.contains("does not call MCP tools"), refused.body)
       }
       assertEquals(invoked.get, before)
     }

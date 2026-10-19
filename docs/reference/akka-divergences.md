@@ -32,6 +32,7 @@ will recognise every component. The differences below are deliberate, and each h
 | A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
 | `Question.choice("…").option(…)` built inline in the effect | questions declared once as values, with declared wire ids and option keys | A question is checked where it is built, and reading an answer through the question that asked it is typed. |
 | A caller polls a workflow's status, or subscribes to notifications | `awaitEnd`, answered when the workflow ends | One call, no interval, and every workflow can be waited for without changing it. |
+| `@McpEndpoint` with `@McpTool`, `@McpResource` and `@McpPrompt` methods | an `McpEndpoint` whose tools are built or refer to a command, query or route, behind client keys, tokens or named workloads | A tool that is a handler the service already has is one line, checked at start; a customer's assistant needs a credential the service can issue and revoke. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
 
 ## A workflow source carries the standing
@@ -235,8 +236,27 @@ Akka's replicated writes with merged state is not offered: a replicated entity h
 and a handler needs no merge function. The link between installations on a network is the licensed
 `ankka-replication`, not part of the runtime. See [Replicated entities](../concepts/replicated-entities.md).
 
+## An MCP endpoint offers tools, built or referenced
+
+Akka's MCP endpoint is an annotated class whose methods are tools (`@McpTool`), resources (`@McpResource`)
+and prompts (`@McpPrompt`), each written as a method that calls the service's components.
+
+ankka's `McpEndpoint` offers tools only. A tool is built, as an agent's function tool is, with its name,
+description and typed arguments in one place; or it **refers** to a command or query of an entity, or a
+route of one of the service's HTTP endpoints, and the reference is checked when the service starts. Who
+may call is stated as an ACL, as for any endpoint, and admits three kinds of caller: a **client key** the
+service issues to a customer's assistant from its own code and can revoke, a token from an issuer the
+service lists, or a named workload. An endpoint whose clients can only sign a person in can opt into
+**brokered sign-in**, an authorization server the platform runs for that endpoint alone.
+
+Resources and prompts are left out because the clients ankka serves act on a service, which is what tools
+are for, and a tool that reads covers what a resource would. Client keys and the broker exist because a
+customer's assistant needs a credential scoped to that customer, which a service otherwise has to build
+itself. See [MCP endpoints](../build/mcp-endpoints.md).
+
 ## What Akka has that ankka does not
 
 Multi-table views, view rebuild on deploy, and autoscaling are among the
 capabilities ankka does not have. Autonomous agents do not yet delegate subtasks, hand tasks on, lead teams
-or moderate conversations, and have no MCP tools. See [Limitations](limitations.md).
+or moderate conversations, and have no MCP tools. An MCP endpoint offers no resources or prompts. See
+[Limitations](limitations.md).

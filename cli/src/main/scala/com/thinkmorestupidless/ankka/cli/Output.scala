@@ -954,7 +954,10 @@ object Output:
               n.id,
               n.kind + (if n.platform then " (platform)" else "") +
                 onSome.fold("")(d => s" [on ${d.presentOn.mkString(", ")} only]"),
-              n.handlers.map(_.name).mkString(", ")
+              // An MCP endpoint's tools read apart from its routes, as the console marks them.
+              n.handlers
+                .map(h => if h.`type` == "tool" then s"${h.name} (tool)" else h.name)
+                .mkString(", ")
             )
           }
         )

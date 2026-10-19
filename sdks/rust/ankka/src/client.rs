@@ -472,6 +472,43 @@ impl Client {
         Ok(())
     }
 
+    /// Calls a handler with a payload already encoded, answering the reply's payload as it came:
+    /// what a reference tool of an MCP endpoint does, which knows no types.
+    pub(crate) fn invoke_payload(
+        &self,
+        kind: Kind,
+        component_id: &str,
+        entity_id: &str,
+        name: &str,
+        payload: proto::Payload,
+    ) -> Result<proto::Payload, CommandError> {
+        let request = proto::InvokeRequest {
+            kind: kind as i32,
+            component_id: component_id.to_string(),
+            entity_id: entity_id.to_string(),
+            name: name.to_string(),
+            payload: Some(payload),
+            metadata: Some(self.metadata.to_proto()),
+        };
+        let reply: proto::InvokeReply = answer(Import::Invoke, request);
+        match reply.result {
+            Some(proto::invoke_reply::Result::Reply(reply)) => {
+                Ok(reply.payload.unwrap_or_default())
+            }
+            Some(proto::invoke_reply::Result::Error(error)) => {
+                Err(CommandError::from_proto(&error))
+            }
+            Some(proto::invoke_reply::Result::Approval(_)) => Err(CommandError::new(
+                ErrorCode::Conflict,
+                "the agent's turn is awaiting an approval decision, which a module cannot make",
+            )),
+            None => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered an invoke with nothing",
+            )),
+        }
+    }
+
     fn request<P: Serialize + 'static>(
         &self,
         kind: Kind,

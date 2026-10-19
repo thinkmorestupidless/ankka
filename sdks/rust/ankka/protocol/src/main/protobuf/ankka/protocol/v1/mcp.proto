@@ -1,0 +1,35 @@
+// A tool of an MCP endpoint the process declared in discovery (protocol 1.20). The sidecar serves
+// the endpoint: it answers the MCP protocol, applies the ACL and checks the arguments against the
+// tool's schema, then asks the process to run the tool. The process never sees the credential.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+import "ankka/protocol/v1/endpoint.proto";
+
+service Mcp {
+  rpc InvokeTool (McpToolRequest) returns (McpToolReply);
+}
+
+message McpToolRequest {
+  string endpoint_id = 1;
+  string tool = 2;
+  string arguments_json = 3;          // a JSON object, already checked against the tool's schema's types
+  optional Principal principal = 4;   // when the ACL authenticated: a token's or a client key's, never the credential
+  optional Caller caller = 5;
+  Metadata metadata = 6;              // the trace, and the tool as the caller of what it calls
+}
+
+message McpToolReply {
+  oneof reply {
+    McpToolAnswer ok = 1;
+    string error = 2;                 // a tool error: the message the model reads
+    Failure failure = 3;              // the process could not run it
+  }
+}
+
+message McpToolAnswer {
+  string text = 1;
+  optional string structured_json = 2;   // when the result is a record or a map
+}

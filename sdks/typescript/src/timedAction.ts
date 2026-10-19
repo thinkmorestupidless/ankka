@@ -4,6 +4,7 @@
 //   static readonly actions = { remind: action("remind", s.string, (t: Reminder, id) => t.remind(id)) }
 
 import type { Metadata } from "./effects/common.ts"
+import { clientKeysFor, type ClientKeys } from "./client-keys.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { HandlerTable } from "./handlers.ts"
 import { TimedActionEffects } from "./effects/stateless.ts"
@@ -47,6 +48,18 @@ export abstract class TimedAction {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #clientKeys: ClientKeys | undefined
+
+  /** The service's client keys (1.20): issued for its MCP endpoint, kept by the runtime, each shown once. */
+  get clientKeys(): ClientKeys {
+    return this.#clientKeys ?? clientKeysFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.clientKeys = new InMemoryClientKeys()`. */
+  set clientKeys(keys: ClientKeys) {
+    this.#clientKeys = keys
   }
 
   #services: Services | undefined

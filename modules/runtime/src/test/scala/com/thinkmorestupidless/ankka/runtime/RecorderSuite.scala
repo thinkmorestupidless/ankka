@@ -30,6 +30,30 @@ final class RecorderSuite extends FunSuite:
     assert(read.head.durationNanos >= 0L, "a completed span has a duration")
   }
 
+  test("a span carries the subject it was given, and a span given none carries none") {
+    val r       = Recorder(16)
+    val subject = r.begin(1L, 0L, componentRef = 1, handlerRef = 2)
+    r.withSubject(subject, "acme")
+    r.complete(subject, SpanOutcome.Ok)
+    record(r, traceId = 2L)
+    // A slot reused by a span given none does not inherit the last one's subject.
+    val r2 = Recorder(1)
+    val a  = r2.begin(1L, 0L, 1, 2)
+    r2.withSubject(a, "acme")
+    r2.complete(a, SpanOutcome.Ok)
+    record(r2, traceId = 3L)
+
+    assertEquals(
+      r.snapshot().map(s => s.traceId -> s.subject).toMap,
+      Map(1L -> Some("acme"), 2L -> None)
+    )
+    assertEquals(r2.snapshot().map(_.subject), Vector(None))
+    // Recorded whole, as a socket's span is.
+    val reserved = r.reserve(0L, 9L, 1, 2)
+    r.record(reserved, 0L, SpanKind.Server, SpanOutcome.Ok, Some("ada"))
+    assertEquals(r.snapshot().find(_.traceId == 9L).flatMap(_.subject), Some("ada"))
+  }
+
   test("capacity is a hard bound — the oldest are overwritten, not queued") {
     val r = Recorder(16)
     (1 to 100).foreach(i => record(r, traceId = i.toLong))

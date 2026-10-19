@@ -25,8 +25,18 @@ final case class Issuer(
      * else or nothing, so it is off unless asked for.
      */
     typ: Option[String] = None,
-    clockSkew: FiniteDuration = Issuer.DefaultClockSkew
-)
+    clockSkew: FiniteDuration = Issuer.DefaultClockSkew,
+    /**
+     * The client id a sign-in broker signs people in under (feature 054), registered at this issuer
+     * for the service. Only a brokered MCP endpoint needs one.
+     */
+    clientId: Option[String] = None,
+    /** The secret of a confidential client; a public client has none. Never printed. */
+    clientSecret: Option[String] = None
+):
+  override def toString: String =
+    s"Issuer($name,$issuer,$jwksUrl,$audience,$ca,$typ,$clockSkew,$clientId," +
+      s"${clientSecret.fold("None")(_ => "Some(<secret>)")})"
 
 object Issuer:
   val DefaultClockSkew: FiniteDuration = 60.seconds
@@ -52,7 +62,8 @@ object OidcConfig:
 
   /**
    * Reads the named set: `ANKKA_AUTH_ISSUERS=customers,staff`, then `ANKKA_AUTH_CUSTOMERS_ISSUER`,
-   * `_JWKS_URL`, `_AUDIENCE` and the optional `_CA`, `_TYP` and `_CLOCK_SKEW` for each name.
+   * `_JWKS_URL`, `_AUDIENCE` and the optional `_CA`, `_TYP`, `_CLOCK_SKEW`, `_CLIENT_ID` and
+   * `_CLIENT_SECRET` for each name.
    *
    * Every problem is reported, not the first: a descriptor with three mistakes should take one
    * apply to fix. Only the variables of listed names are read, so a shell that also carries the
@@ -109,7 +120,17 @@ object OidcConfig:
       a <- audience
       c <- ca
       s <- skew
-    yield Issuer(name, i.stripSuffix("/"), j, a, c, value("TYP"), s)
+    yield Issuer(
+      name,
+      i.stripSuffix("/"),
+      j,
+      a,
+      c,
+      value("TYP"),
+      s,
+      value("CLIENT_ID"),
+      value("CLIENT_SECRET")
+    )
 
   /** `60s`, `500ms`, `2m`, or a bare number of seconds. */
   private def duration(text: String): Option[FiniteDuration] =

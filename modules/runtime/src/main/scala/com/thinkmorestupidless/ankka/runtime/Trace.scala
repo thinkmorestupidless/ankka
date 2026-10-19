@@ -51,7 +51,9 @@ final case class TraceSpan(
     outcome: SpanOutcome,
     children: Vector[TraceSpan],
     parentUnknown: Boolean,
-    unattributedNanos: Long
+    unattributedNanos: Long,
+    /** Who the span was for, when a credential said (feature 054). */
+    subject: Option[String] = None
 )
 
 /**
@@ -313,7 +315,8 @@ object Trace:
           // that as unattributed would put a second row under every entity call saying nothing.
           unattributedNanos =
             if kids.isEmpty then 0L
-            else math.max(0L, span.durationNanos - kids.map(_.durationNanos).sum)
+            else math.max(0L, span.durationNanos - kids.map(_.durationNanos).sum),
+          subject = span.subject
         )
 
       // Roots are spans with no parent, plus orphans — whose parent is named but absent.

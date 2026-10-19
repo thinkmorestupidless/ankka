@@ -88,6 +88,9 @@ final class HostImports(
     .addFunction(randomFunction)
     .addFunction(bytes("schedule_recurring")(scheduleRecurring))
     .addFunction(bytes("await_end")(awaitEnd))
+    .addFunction(bytes("issue_client_key")(issueClientKey))
+    .addFunction(bytes("list_client_keys")(listClientKeys))
+    .addFunction(bytes("revoke_client_key")(revokeClientKey))
     .addFunction(logFunction)
     .build()
 
@@ -189,6 +192,36 @@ final class HostImports(
       case None => PutSecretReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(c.putSecret(PutSecretRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  // The service's client keys (protocol 1.20). A refusal is the reply's `Error`, as for a secret.
+
+  private def issueClientKey(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None =>
+        IssueClientKeyReply(IssueClientKeyReply.Reply.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(
+          c.issueClientKey(IssueClientKeyRequest.parseFrom(request)),
+          commandTimeout
+        ).toByteArray
+
+  private def listClientKeys(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => ListClientKeysReply(error = Some(notReady)).toByteArray
+      case Some(c) =>
+        await(
+          c.listClientKeys(ListClientKeysRequest.parseFrom(request)),
+          commandTimeout
+        ).toByteArray
+
+  private def revokeClientKey(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => RevokeClientKeyReply(Some(notReady)).toByteArray
+      case Some(c) =>
+        await(
+          c.revokeClientKey(RevokeClientKeyRequest.parseFrom(request)),
+          commandTimeout
+        ).toByteArray
 
   private def deleteSecret(request: Array[Byte]): Array[Byte] =
     logic match

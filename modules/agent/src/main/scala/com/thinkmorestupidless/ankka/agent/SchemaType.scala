@@ -105,6 +105,9 @@ object ToolOutput:
 
   given json: ToolOutput[Json] = _.render
 
+  /** A command that answers only that it was done, as a reference tool's `Done` reply is. */
+  given done: ToolOutput[com.thinkmorestupidless.ankka.core.Done] = _ => "done"
+
   /**
    * Anything with a jsoniter codec, rendered as JSON.
    *

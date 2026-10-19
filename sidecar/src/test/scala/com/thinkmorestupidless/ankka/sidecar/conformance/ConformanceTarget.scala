@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.runtime.replication.{
 }
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
+import com.thinkmorestupidless.ankka.mcp.McpRuntime
 import ankka.protocol.v1.discovery.{Component, Spec}
 import com.thinkmorestupidless.ankka.sdk.{
   ServiceClient,
@@ -34,6 +35,7 @@ import com.thinkmorestupidless.ankka.sidecar.{
   RemoteAgent,
   RemoteAutonomousAgent,
   RemoteEndpoint,
+  RemoteMcpEndpoint,
   Settings,
   SidecarExtension
 }
@@ -408,16 +410,18 @@ object ConformanceTarget:
   final class InProcess(val model: TestModelProvider) extends ConformanceTarget:
     private val timers = TimerRuntime(200.millis)
     private val kit = AnkkaTestKit.start(
-      reference.descriptors ++ AgentRuntime.descriptors,
+      reference.descriptors ++ AgentRuntime.descriptors ++ McpRuntime.descriptors,
       Seq(
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
+        McpRuntime(),
         HttpServer
           .at("127.0.0.1", 0)(
-            reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
+            (reference.endpoints(() => timers.timerScheduler, () => Vector.empty) ++
+              reference.mcpEndpoints(ConformanceTarget.authenticated))*
           )
           .withGrants(ConformanceTarget.grants)
       ),
@@ -434,10 +438,11 @@ object ConformanceTarget:
     def restart(): Unit                   = kit.restartService()
     def isProcess: Boolean                = false
     def problems: Vector[String]          = Vector.empty
-    // Minus the agent runtime's own components, which a process target never declares.
+    // Minus the agent and MCP runtimes' own components, which a process target never declares.
     def componentIds: Set[String] =
       kit.service.registry.components.map(_.componentId.toString).toSet --
-        AgentRuntime.descriptors.map(_.componentId.toString)
+        AgentRuntime.descriptors.map(_.componentId.toString) --
+        McpRuntime.descriptors.map(_.componentId.toString)
     def readOnlyHandlers: Set[(String, String)] =
       Set(
         ("shopping-cart", "get-cart"),
@@ -542,9 +547,20 @@ object ConformanceTarget:
       discovered.endpoints.map(e =>
         RemoteEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
       )
-    private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
+    // The MCP endpoints, mounted beside the others as Main mounts them (feature 054).
+    private val mcpEndpoints =
+      discovered.mcpEndpoints.map(e =>
+        RemoteMcpEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
+      )
+    private val mcpRuntime =
+      Option.when(RemoteMcpEndpoint.needsRuntime(discovered.mcpEndpoints))(McpRuntime())
+    private val served: Vector[ServedRoute] =
+      endpoints.flatMap(_.served) ++ mcpEndpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
-      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
+      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors ++
+        mcpRuntime.fold(Vector.empty[com.thinkmorestupidless.ankka.core.ComponentDescriptor])(_ =>
+          McpRuntime.descriptors.toVector
+        ),
       Seq(
         // First, as Main wires it: the callback server is up before a projection redelivers.
         SidecarExtension(settings, conversation, timers, served),
@@ -552,9 +568,10 @@ object ConformanceTarget:
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
-        AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
+        AgentRuntime.withDefaultModel(model).withVariables(mcpVariables)
+      ) ++ mcpRuntime.toSeq ++ Seq(
         HttpServer
-          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .at("127.0.0.1", 0)((endpoints ++ mcpEndpoints).map(e => _ => e)*)
           .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
@@ -731,18 +748,30 @@ object ConformanceTarget:
       discovered.endpoints.map(e =>
         RemoteEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
       )
-    private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
+    // The MCP endpoints, mounted beside the others as Main mounts them (feature 054).
+    private val mcpEndpoints =
+      discovered.mcpEndpoints.map(e =>
+        RemoteMcpEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
+      )
+    private val mcpRuntime =
+      Option.when(RemoteMcpEndpoint.needsRuntime(discovered.mcpEndpoints))(McpRuntime())
+    private val served: Vector[ServedRoute] =
+      endpoints.flatMap(_.served) ++ mcpEndpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
-      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
+      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors ++
+        mcpRuntime.fold(Vector.empty[com.thinkmorestupidless.ankka.core.ComponentDescriptor])(_ =>
+          McpRuntime.descriptors.toVector
+        ),
       Seq(
         SidecarExtension(settings, conversation, timers, served, Some(imports)),
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
         timers,
-        AgentRuntime.withDefaultModel(model).withVariables(mcpVariables),
+        AgentRuntime.withDefaultModel(model).withVariables(mcpVariables)
+      ) ++ mcpRuntime.toSeq ++ Seq(
         HttpServer
-          .at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+          .at("127.0.0.1", 0)((endpoints ++ mcpEndpoints).map(e => _ => e)*)
           .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,

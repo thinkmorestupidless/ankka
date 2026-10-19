@@ -76,6 +76,21 @@ final class CallOriginSuite extends FunSuite:
     )
   }
 
+  test("a tool of an MCP endpoint is believed as its endpoint's handler, by the record it serves") {
+    val withTool = DeclaredNames.of(
+      ComponentRegistry.fromOrThrow(Seq.empty),
+      Vector(ServedRoute("MCP", "/mcp get_cart", streaming = false, "endpoint:/mcp"))
+    )
+    assert(withTool.validate("endpoint:/mcp", "MCP /mcp get_cart"))
+    assert(!withTool.validate("endpoint:/mcp", "MCP /mcp checkout"))
+    assertEquals(
+      withTool.origin(
+        CallOrigin.into(Metadata.empty, CallOrigin("endpoint:/mcp", "MCP /mcp get_cart"))
+      ),
+      Some(CallOrigin("endpoint:/mcp", "MCP /mcp get_cart"))
+    )
+  }
+
   test("a name nobody declared is not believed, whichever half is wrong") {
     def believed(component: String, handler: String) =
       declared.origin(CallOrigin.into(Metadata.empty, CallOrigin(component, handler)))

@@ -537,6 +537,17 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
             platform = false,
             Vector(TopologyHandler("POST /carts/{cartId}/items", "route", Some(false)))
           ),
+          // An MCP endpoint's tools are its node's handlers, of type tool, beside its route.
+          TopologyNode(
+            "endpoint:/mcp",
+            "Endpoint",
+            0,
+            platform = false,
+            Vector(
+              TopologyHandler("POST /mcp", "route", Some(false)),
+              TopologyHandler("get_cart", "tool")
+            )
+          ),
           TopologyNode(
             "cart",
             "EventSourcedEntity",

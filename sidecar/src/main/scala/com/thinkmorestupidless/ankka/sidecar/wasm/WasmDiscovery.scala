@@ -105,6 +105,13 @@ object WasmDiscovery:
           "does not have"
     }
 
+    // An MCP endpoint's tools are run by the module's `ankka1_mcp_tool` (1.20).
+    spec.mcpEndpoints.foreach { e =>
+      if !exports.contains(Abi.Prefix + "mcp_tool") then
+        problems += s"MCP endpoint ${e.path} needs the export '${Abi.Prefix}mcp_tool', which the " +
+          "module does not have"
+    }
+
     val own = problems.result()
     Discovery.validate(spec, protocolVersion, authConfigured) match
       case Left(shared)             => Left(own ++ shared)

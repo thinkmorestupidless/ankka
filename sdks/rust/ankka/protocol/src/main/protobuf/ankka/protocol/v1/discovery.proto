@@ -18,6 +18,37 @@ message Spec {
   SdkInfo sdk = 2;
   repeated Component components = 3;
   repeated Endpoint endpoints = 4;
+  // 1.20: MCP endpoints, each served by the sidecar over Streamable HTTP. A sidecar refuses one from
+  // an SDK declaring an earlier minor.
+  repeated McpEndpoint mcp_endpoints = 5;
+}
+
+// 1.20: an MCP endpoint. The sidecar answers the protocol, applies the ACL and checks a call's
+// arguments against the tool's schema; the process only runs the tool (`Mcp.InvokeTool`).
+message McpEndpoint {
+  string id = 1;                 // the SDK's name for it; reported, never routed on
+  string path = 2;               // "/mcp"
+  string name = 3;               // serverInfo.name; empty: the service's
+  string version = 4;            // serverInfo.version; empty: the image tag
+  McpAcl acl = 5;                // required
+  repeated McpTool tools = 6;    // at least one
+  bool brokered = 7;             // brokered sign-in: the platform runs an authorization server
+}
+
+message McpTool {
+  string name = 1;               // [a-z0-9_-]+, at most 128
+  string description = 2;        // non-blank
+  string input_schema_json = 3;  // a JSON Schema object
+  optional McpAcl acl = 4;       // unset: the endpoint's
+}
+
+// Admitted when any set member admits. Nothing set is refused, as is deny_all beside anything.
+message McpAcl {
+  bool allow_all = 1;
+  bool deny_all = 2;
+  bool tokens = 3;                     // the service's issuers; needs one on the sidecar
+  bool client_keys = 4;                // a client key issued for this endpoint
+  repeated CallerMatcher callers = 5;  // as an endpoint's CALLERS
 }
 
 message SdkInfo { string name = 1; string version = 2; }

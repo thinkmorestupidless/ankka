@@ -168,6 +168,40 @@ private[sidecar] object Translate:
       r.copy(metadata = r.metadata.set(WireProtocol.MetadataKey, WireProtocol.Version))
     )
 
+  /** A tool of an MCP endpoint, as the process is asked to run it (protocol 1.20). */
+  def toMcpToolRequest(c: RemoteMcpCall): ankka.protocol.v1.mcp.McpToolRequest =
+    ankka.protocol.v1.mcp.McpToolRequest(
+      endpointId = c.endpointId,
+      tool = c.tool,
+      argumentsJson = c.argumentsJson,
+      principal = c.principal.map(p =>
+        ankka.protocol.v1.endpoint
+          .Principal(p.subject, p.name, p.email, p.emailVerified, p.roles.toSeq, p.claims, p.issuer)
+      ),
+      caller = Some(toCaller(c.caller)),
+      metadata = Some(toMetadata(c.metadata))
+    )
+
+  /**
+   * What the process answered: the tool's answer, a tool error the model reads (`Right(Left)`), or
+   * a process that could not run it. A reply with no case is a fault, never an empty answer.
+   */
+  def fromMcpToolReply(
+      reply: ankka.protocol.v1.mcp.McpToolReply
+  ): Either[ProcessFailure, Either[String, RemoteMcpAnswer]] =
+    import ankka.protocol.v1.mcp.McpToolReply.Reply
+    reply.reply match
+      case Reply.Ok(answer)     => Right(Right(RemoteMcpAnswer(answer.text, answer.structuredJson)))
+      case Reply.Error(message) => Right(Left(message))
+      case Reply.Failure(f)     => Left(fromFailure(f))
+      case Reply.Empty =>
+        Left(
+          ProcessFailure(
+            0L,
+            CommandError("the process answered the tool with nothing", ErrorCode.Internal)
+          )
+        )
+
   private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
     import ankka.protocol.v1.endpoint.{Caller as PbCaller, MachineCaller, ServiceCaller}
     import ankka.protocol.v1.payload.Empty

@@ -1,13 +1,16 @@
 //! What a service file imports: `use ankka::prelude::*;`.
 
+pub use crate::client_keys::{
+    ClientKeySummary, ClientKeys, Expiry, IssueClientKey, IssuedClientKey,
+};
 pub use crate::codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use crate::codec::{Bytes, Done};
 pub use crate::components::{
     Acl, Actions, Agent, AgentHandlers, AutonomousAgent, AutonomousSettings, Caller, CallerMatcher,
     Consumer, DeclaredQuery, Endpoint, EventSourcedEntity, Guardrails, Handlers, KeyValueEntity,
-    KeyValueHandlers, KeyedView, Principal, Recovery, Request, Routes, Schema, Shape, Source,
-    Stage, Steps, TaskAcceptance, TaskType, TimedAction, Tools, Verdict, View, Workflow,
-    WorkflowHandlers, WorkflowSettings,
+    KeyValueHandlers, KeyedView, McpEndpoint, McpRequest, McpTools, Principal, Recovery, Request,
+    Routes, Schema, Shape, Source, Stage, Steps, TaskAcceptance, TaskType, TimedAction, Tools,
+    Verdict, View, Workflow, WorkflowHandlers, WorkflowSettings,
 };
 pub use crate::components::{Publication, Sources, TopicSource, query, table_of};
 pub use crate::config::config;

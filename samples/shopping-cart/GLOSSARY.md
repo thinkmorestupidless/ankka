@@ -46,9 +46,21 @@ Where checkout notices are published and read from, by its name.
 
 Avoid: queue, stream
 
+### assistant
+A program that acts on a cart for a customer through the cart's tools: Claude, a coding agent, or
+a product's own assistant.
+
+Avoid: bot, agent
+
+### tool
+One thing the cart offers an assistant to do, by name ("get_cart"), with what it does and the
+arguments it takes.
+
+Avoid: function, action
+
 ## Everyday words
 
 add, adds, addition, remove, removes, removal, hold, holds, empty, only, line, total, already,
 greater, zero, positive, leave, leaves, refuse, refused, ends, answers, starts, held, nothing,
 collects, checking, cannot, again, keeps, kept, never, record, ordered, deleted, want, throwing,
-away
+away, told, tells, asks, reads, calls, with, does, takes, offers

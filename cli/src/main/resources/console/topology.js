@@ -231,5 +231,29 @@
     return compare(a.component, b.component) || compare(a.relation, b.relation);
   }
 
-  return { view, linkFor, label, totals, describe, edgeMark, weight, observedLine };
+  // What a trace's span row names: its component and handler, and who it was for when a credential
+  // said (feature 054). An unattributed row has no handler and no subject.
+  function spanWho(span) {
+    const who = span.handler ? `${span.component}#${span.handler}` : span.component;
+    return span.subject ? `${who} · ${span.subject}` : who;
+  }
+
+  // A service's MCP endpoints, read from its routes: each tool is a record `MCP <path> <tool>`, and
+  // the console lists them under their endpoint's path, in the order the service declared them.
+  function mcpEndpoints(routes) {
+    const byPath = new Map();
+    for (const route of routes || []) {
+      if (route.method !== 'MCP') continue;
+      const space = route.path.lastIndexOf(' ');
+      const path = space < 0 ? route.path : route.path.slice(0, space);
+      const tool = space < 0 ? '' : route.path.slice(space + 1);
+      if (!byPath.has(path)) byPath.set(path, []);
+      if (tool) byPath.get(path).push(tool);
+    }
+    return [...byPath].map(([path, tools]) => ({ path, tools }));
+  }
+
+  return {
+    view, linkFor, label, totals, describe, edgeMark, weight, observedLine, spanWho, mcpEndpoints,
+  };
 });

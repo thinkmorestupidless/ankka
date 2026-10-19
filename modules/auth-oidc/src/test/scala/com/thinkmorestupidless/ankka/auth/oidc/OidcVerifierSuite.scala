@@ -239,3 +239,16 @@ class OidcVerifierSuite extends munit.FunSuite:
       verified(v.verify(customers.token("ada", typ = None))): Unit
     }
   }
+
+  test("the authenticator says which issuers it admits tokens from, in order (feature 054)") {
+    val other = TestIssuer(issuer = "https://staff.example.test/realms/staff", name = "staff")
+    try
+      val config = OidcConfig(Vector(issuer.asIssuer(), other.asIssuer()))
+      Oidc.authenticate(new OidcVerifier(config, _ => issuer.keySource()), "shop") match
+        case com.thinkmorestupidless.ankka.http.Acl.Authenticate(
+              decide: com.thinkmorestupidless.ankka.http.TokenAuthenticator
+            ) =>
+          assertEquals(decide.authorizationServers, Vector(issuer.issuer, other.issuer))
+        case acl => fail(s"not a token authenticator: $acl")
+    finally other.stop()
+  }

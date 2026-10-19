@@ -10,6 +10,7 @@ that moment (research item 4), and both mean the same thing here.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import traceback
 from collections.abc import AsyncIterator
@@ -32,6 +33,8 @@ from ankka._proto.ankka.protocol.v1 import (
     event_sourced_pb2_grpc,
     key_value_pb2,
     key_value_pb2_grpc,
+    mcp_pb2,
+    mcp_pb2_grpc,
     payload_pb2,
     timed_action_pb2,
     timed_action_pb2_grpc,
@@ -45,6 +48,8 @@ from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient, SidecarRows
 from ankka.effects import keyed_view as keyed_effects
+from ankka.client_keys import ClientKeys
+from ankka.mcp_endpoint import MCP_SINCE, RouteRefused, answer_of
 from ankka.secrets import Secrets
 from ankka.services import Services
 from ankka.context import Caller, CommandContext, EventContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
@@ -85,6 +90,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             or socket_refusal(self.registry, request.protocol_version)
             or grants_refusal(self.registry, request.protocol_version)
             or replication_refusal(self.registry, request.protocol_version)
+            or mcp_refusal(self.registry, request.protocol_version)
         )
         if refusal is not None:
             log.error(refusal)
@@ -612,6 +618,18 @@ def replication_refusal(registry: Registry, sidecar_protocol: str) -> str | None
     )
 
 
+def mcp_refusal(registry: Registry, sidecar_protocol: str) -> str | None:
+    """A runtime before 1.20 would read an MCP endpoint as nothing and serve no tool: refused,
+    naming the version, rather than started without the endpoint."""
+    if not start_from.older_than(sidecar_protocol, MCP_SINCE) or not registry.mcp_endpoints:
+        return None
+    paths = ", ".join(cls.path for cls in registry.mcp_endpoints.values())
+    return (
+        f"MCP endpoint {paths} needs protocol 1.20: the sidecar speaks protocol {sidecar_protocol}, and this SDK "
+        f"{PROTOCOL_VERSION}. Run a sidecar speaking 1.20 or later."
+    )
+
+
 def replication_to_pb(change: Any) -> event_sourced_pb2.ReplicationChange:
     """A handler's handover or change to the replication set, as the reply carries it."""
     if isinstance(change, HandOver):
@@ -883,22 +901,12 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
             # And the client for other services, carrying the request's own metadata: an endpoint is
             # built once with the unscoped client, so each call reads the request it is part of.
             instance.services = Services(self.client, _request_metadata)
+            instance.client_keys = ClientKeys(self.client, _request_metadata)
             self.instances[endpoint_id] = instance
         return self.instances[endpoint_id]
 
     def _context(self, request: endpoint_pb2.HttpRequest) -> RequestContext:
-        principal = None
-        if request.HasField("principal"):
-            p = request.principal
-            principal = Principal(
-                p.subject,
-                p.name if p.HasField("name") else None,
-                p.email if p.HasField("email") else None,
-                p.email_verified,
-                frozenset(p.roles),
-                MappingProxyType(dict(p.claims)),
-                p.issuer if p.HasField("issuer") else None,
-            )
+        principal = _principal(request.principal) if request.HasField("principal") else None
         return RequestContext(
             query=tuple((q.name, q.value) for q in request.query),
             headers=tuple((h.name, h.value) for h in request.headers),
@@ -1016,6 +1024,80 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
                 task.cancel()
 
 
+class McpServicer(mcp_pb2_grpc.McpServicer):
+    """Runs a tool of one of the process's MCP endpoints. The sidecar has answered the protocol,
+    applied the ACL and checked the arguments' types; this decodes them, runs the tool with the
+    principal and caller as its request, and answers what it returned, a tool error, or a failure."""
+
+    def __init__(self, registry: Registry, client: ComponentClient, http: HttpServicer) -> None:
+        self.registry = registry
+        self.client = client
+        self.http = http
+        self.instances: dict[str, Any] = {}
+
+    def _instance(self, endpoint_id: str) -> Any:
+        if endpoint_id not in self.instances:
+            cls = self.registry.mcp_endpoints[endpoint_id]
+            instance = cls(self.client) if _takes_client(cls) else cls()
+            if getattr(instance, "client", None) is None:
+                instance.client = self.client
+            instance.secrets = Secrets(self.client)
+            instance.services = Services(self.client, _request_metadata)
+            instance.client_keys = ClientKeys(self.client, _request_metadata)
+            instance._endpoints = self.http._instance
+            self.instances[endpoint_id] = instance
+        return self.instances[endpoint_id]
+
+    async def InvokeTool(self, request: mcp_pb2.McpToolRequest, context: Any) -> mcp_pb2.McpToolReply:
+        cls = self.registry.mcp_endpoints.get(request.endpoint_id)
+        spec = self.registry.tools_of(request.endpoint_id).get(request.tool) if cls else None
+        if cls is None or spec is None:
+            return mcp_pb2.McpToolReply(
+                failure=_failure(0, f"unknown tool {request.endpoint_id}/{request.tool}", payload_pb2.NOT_FOUND)
+            )
+        try:
+            arguments = json.loads(request.arguments_json or "{}")
+        except ValueError as e:
+            return mcp_pb2.McpToolReply(failure=_failure(0, f"the arguments are not JSON: {e}"))
+        if not isinstance(arguments, dict):
+            return mcp_pb2.McpToolReply(failure=_failure(0, "the arguments are not a JSON object"))
+        ctx = RequestContext(
+            principal=_principal(request.principal) if request.HasField("principal") else None,
+            metadata=Metadata.from_pb(request.metadata),
+            caller=_caller(request),
+        )
+        instance = self._instance(request.endpoint_id)
+        try:
+            result = await instance._run(spec, arguments, ctx)
+        except CommandError as refused:
+            return mcp_pb2.McpToolReply(error=refused.error.message)
+        except HttpProblem as p:
+            return mcp_pb2.McpToolReply(error=p.message)
+        except RouteRefused as r:
+            return mcp_pb2.McpToolReply(error=str(r))
+        except Exception as e:
+            log.warning("MCP tool %s/%s raised: %s", request.endpoint_id, request.tool, e)
+            log.debug("%s", traceback.format_exc())
+            return mcp_pb2.McpToolReply(error=str(e) or type(e).__name__)
+        answer = answer_of(result)
+        ok = mcp_pb2.McpToolAnswer(text=answer.text)
+        if answer.structured_json is not None:
+            ok.structured_json = answer.structured_json
+        return mcp_pb2.McpToolReply(ok=ok)
+
+
+def _principal(p: Any) -> Principal:
+    return Principal(
+        p.subject,
+        p.name if p.HasField("name") else None,
+        p.email if p.HasField("email") else None,
+        p.email_verified,
+        frozenset(p.roles),
+        MappingProxyType(dict(p.claims)),
+        p.issuer if p.HasField("issuer") else None,
+    )
+
+
 def _takes_client(cls: type) -> bool:
     import inspect
 
@@ -1052,7 +1134,9 @@ class Server:
         view_pb2_grpc.add_ViewServicer_to_server(ViewServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        endpoint_pb2_grpc.add_HttpServicer_to_server(HttpServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        http = HttpServicer(self.registry, self.client)
+        endpoint_pb2_grpc.add_HttpServicer_to_server(http, server)  # type: ignore[no-untyped-call]
+        mcp_pb2_grpc.add_McpServicer_to_server(McpServicer(self.registry, self.client, http), server)  # type: ignore[no-untyped-call]
         agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:
@@ -1077,7 +1161,7 @@ class Server:
         await self.client.close()
 
 
-def _caller(request: endpoint_pb2.HttpRequest) -> Caller:
+def _caller(request: Any) -> Caller:
     """The caller the sidecar established; a sidecar that predates protocol 1.1 sends none."""
     if not request.HasField("caller"):
         return LocalCaller()

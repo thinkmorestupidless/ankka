@@ -372,6 +372,14 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
               metadata
             )
           )
+      ),
+      (
+        "ankka1_mcp_tool",
+        Some("get_cart"),
+        () =>
+          talk.invokeMcpTool(
+            RemoteMcpCall("teller", "get_cart", "{}", None, RemoteCaller.Local, metadata)
+          )
       )
     )
 

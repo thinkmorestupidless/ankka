@@ -94,6 +94,7 @@ extra:
         - autonomous-agent
         - http-endpoint
         - grpc-endpoint
+        - mcp-endpoint
     # The curated SKILL.md files, and where the rendered skills are written, committed and checked.
     # Giter8 reads `$` as template syntax, so the template's copy escapes it.
     skills:
@@ -113,6 +114,7 @@ extra:
           - { path: modules/grpc/src/main/resources/reference.conf, scope: a service that serves gRPC }
           - { path: modules/telemetry-otlp/src/main/resources/reference.conf, scope: a service that exports telemetry }
           - { path: modules/agent/src/main/resources/reference.conf, scope: a service with agents }
+          - { path: modules/mcp/src/main/resources/reference.conf, scope: a service with an MCP endpoint that admits client keys or signs people in }
           - { path: modules/runtime/src/main/resources/ankka-cluster-local.conf, scope: local mode }
           - { path: modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf, scope: kubernetes mode }
         prefix: ankka.
@@ -187,6 +189,7 @@ nav:
       - Autonomous agents: build/autonomous-agents.md
       - Blueprints: build/blueprints.md
       - MCP servers: build/mcp-servers.md
+      - MCP endpoints: build/mcp-endpoints.md
       - HTTP endpoints: build/http-endpoints.md
       - Calling other services: build/calling-services.md
       - gRPC endpoints: build/grpc-endpoints.md

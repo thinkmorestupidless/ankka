@@ -1,0 +1,6 @@
+{
+  "source": "modelcontextprotocol.io/specification/2025-06-18/server/tools, Error Handling (protocol error)",
+  "request": {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "invalid_tool_name", "arguments": {}}},
+  "response": {"jsonrpc": "2.0", "id": 3, "error": {"code": -32602, "message": "Unknown tool: invalid_tool_name"}},
+  "same": ["error/code"]
+}

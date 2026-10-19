@@ -380,7 +380,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "describe_local_service",
       "Describe a local service",
-      "A local service's runtime version, instances with their HTTP address, registered components (kind, id, declared queries) and HTTP routes.",
+      "A local service's runtime version, instances with their HTTP address, registered components (kind, id, declared queries), HTTP routes, and MCP endpoints and their tools (each tool a route record 'MCP <path> <tool>').",
       schema(Seq("service"), serviceOnMachine),
       readOnly = true,
       idempotent = true

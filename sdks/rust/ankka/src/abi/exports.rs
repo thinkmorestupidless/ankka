@@ -39,6 +39,8 @@ pub enum Export {
     CheckTaskResult,
     /// `ankka1_http`: `HttpRequest` in, `HttpReply` out.
     Http,
+    /// `ankka1_mcp_tool`: `McpToolRequest` in, `McpToolReply` out (protocol 1.20).
+    McpTool,
 }
 
 thread_local! {
@@ -174,6 +176,12 @@ macro_rules! service {
             pub unsafe extern "C" fn ankka1_http(ptr: i32, len: i32) -> i64 {
                 // SAFETY: as above.
                 unsafe { run(Export::Http, ptr, len, $build) }
+            }
+
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn ankka1_mcp_tool(ptr: i32, len: i32) -> i64 {
+                // SAFETY: as above.
+                unsafe { run(Export::McpTool, ptr, len, $build) }
             }
         };
     };

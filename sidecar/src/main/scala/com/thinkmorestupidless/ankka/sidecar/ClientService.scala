@@ -70,7 +70,15 @@ final class ClientService(
   def deleteSecret(request: DeleteSecretRequest): Future[DeleteSecretReply] =
     logic.deleteSecret(request)
   def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
-  def decide(request: DecideRequest): Future[InvokeReply]    = logic.decide(request)
+
+  // Client keys (1.20): a refusal travels in the reply, as for the secret store.
+  def issueClientKey(request: IssueClientKeyRequest): Future[IssueClientKeyReply] =
+    logic.issueClientKey(request)
+  def listClientKeys(request: ListClientKeysRequest): Future[ListClientKeysReply] =
+    logic.listClientKeys(request)
+  def revokeClientKey(request: RevokeClientKeyRequest): Future[RevokeClientKeyReply] =
+    logic.revokeClientKey(request)
+  def decide(request: DecideRequest): Future[InvokeReply] = logic.decide(request)
 
   // A wait's end, a failure included, travels in the reply; this never fails the gRPC call.
   def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] = logic.awaitEnd(request)

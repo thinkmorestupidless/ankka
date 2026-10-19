@@ -64,6 +64,12 @@ pub enum Acl {
     Authenticated,
     /// Only the callers named.
     Callers(Vec<CallerMatcher>),
+    /// A caller holding a client key the service issued (protocol 1.20). Only an
+    /// [`McpEndpoint`](super::McpEndpoint) or one of its tools takes it.
+    ClientKeys,
+    /// A caller any one of these admits (protocol 1.20). Only an
+    /// [`McpEndpoint`](super::McpEndpoint) or one of its tools takes it.
+    AnyOf(Vec<Acl>),
 }
 
 impl Acl {
@@ -73,7 +79,63 @@ impl Acl {
             Acl::DenyAll => proto::endpoint::Acl::DenyAll,
             Acl::Authenticated => proto::endpoint::Acl::Authenticated,
             Acl::Callers(_) => proto::endpoint::Acl::Callers,
+            // Refused by `problems` on an HTTP endpoint; nobody, should it be served regardless.
+            Acl::ClientKeys | Acl::AnyOf(_) => proto::endpoint::Acl::DenyAll,
         }
+    }
+
+    /// Whether this is, or contains, an ACL only an MCP endpoint takes.
+    pub(crate) fn is_mcp_only(&self) -> bool {
+        matches!(self, Acl::ClientKeys | Acl::AnyOf(_))
+    }
+
+    /// The ACL as an MCP endpoint's discovery carries it: one message whose flags admit whoever
+    /// any of them admits, so `AnyOf` is its members' flags together.
+    pub(crate) fn to_mcp(&self) -> proto::McpAcl {
+        let mut acl = proto::McpAcl::default();
+        self.fold_into(&mut acl);
+        acl
+    }
+
+    fn fold_into(&self, acl: &mut proto::McpAcl) {
+        match self {
+            Acl::AllowAll => acl.allow_all = true,
+            Acl::DenyAll => acl.deny_all = true,
+            Acl::Authenticated => acl.tokens = true,
+            Acl::ClientKeys => acl.client_keys = true,
+            Acl::Callers(matchers) => acl
+                .callers
+                .extend(matchers.iter().map(CallerMatcher::to_proto)),
+            Acl::AnyOf(members) => members.iter().for_each(|m| m.fold_into(acl)),
+        }
+    }
+
+    /// What is wrong with this ACL on an MCP endpoint or tool named `owner`, if anything.
+    pub(crate) fn mcp_problems(&self, owner: &str) -> Vec<String> {
+        let mut problems = Vec::new();
+        match self {
+            Acl::Callers(matchers) if matchers.is_empty() => problems.push(format!(
+                "{owner}: an acl of named callers must name at least one"
+            )),
+            Acl::AnyOf(members) if members.is_empty() => problems.push(format!(
+                "{owner}: an acl of any of several must name at least one"
+            )),
+            Acl::AnyOf(members) => {
+                if members
+                    .iter()
+                    .any(|m| matches!(m, Acl::AllowAll | Acl::DenyAll))
+                {
+                    problems.push(format!(
+                        "{owner}: allow-all and deny-all cannot be one of several acls"
+                    ));
+                }
+                for member in members {
+                    problems.extend(member.mcp_problems(owner));
+                }
+            }
+            _ => {}
+        }
+        problems
     }
 
     fn callers(&self) -> Vec<proto::CallerMatcher> {
@@ -448,6 +510,11 @@ impl<E: Endpoint> Routes<E> {
     }
 }
 
+/// The parameter names a template declares, in order, or why it declares none.
+pub(crate) fn template_names(template: &str) -> Result<Vec<String>, String> {
+    placeholders(template)
+}
+
 /// The parameter names a template declares, in order: `/{cartId}/items/{productId}`.
 fn placeholders(template: &str) -> Result<Vec<String>, String> {
     let mut names = Vec::new();
@@ -579,6 +646,12 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                 "endpoint '{owner}': an acl of named callers must name at least one"
             ));
         }
+        if acls.iter().any(Acl::is_mcp_only) {
+            problems.push(format!(
+                "endpoint '{owner}': client keys and any-of are acls of an MCP endpoint, not of an \
+                 HTTP endpoint"
+            ));
+        }
         problems
     }
 
@@ -611,18 +684,11 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
             headers: pairs(request.headers),
             content_type: request.content_type,
             body: request.body,
-            principal: request.principal.map(|p| Principal {
-                subject: p.subject,
-                name: p.name,
-                email: p.email,
-                email_verified: p.email_verified,
-                roles: p.roles,
-                claims: p.claims.into_iter().collect(),
-                issuer: p.issuer,
-            }),
+            principal: request.principal.map(principal_of),
             caller: caller_of(request.caller),
             context: Context::new(E::ENDPOINT_ID, "", 0, metadata)
                 .with_secrets()
+                .with_client_keys()
                 .with_services(),
         };
         let response = (route.handler)(&forwarded).unwrap_or_else(|problem| Response {
@@ -646,7 +712,20 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
     }
 }
 
-fn caller_of(caller: Option<proto::Caller>) -> Caller {
+/// The principal a request carried, as a handler reads it.
+pub(crate) fn principal_of(p: proto::Principal) -> Principal {
+    Principal {
+        subject: p.subject,
+        name: p.name,
+        email: p.email,
+        email_verified: p.email_verified,
+        roles: p.roles,
+        claims: p.claims.into_iter().collect(),
+        issuer: p.issuer,
+    }
+}
+
+pub(crate) fn caller_of(caller: Option<proto::Caller>) -> Caller {
     use proto::caller::Kind;
     match caller.and_then(|c| c.kind) {
         Some(Kind::Gateway(_)) => Caller::Gateway,

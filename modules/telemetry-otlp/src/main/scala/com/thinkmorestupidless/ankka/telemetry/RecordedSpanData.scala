@@ -75,6 +75,10 @@ final class RecordedSpanData(
       .put(Handler, handler)
       .put(Outcome, outcomeName(span.outcome))
     if span.callerUnknown then builder.put(Caller, "unknown"): Unit
+    // OpenTelemetry's own name for who a request was for (feature 054).
+    span.subject.foreach(subject => builder.put(EndUser, subject): Unit)
+    // A client key's id on a tool call, under the platform's own namespace.
+    span.attributes.foreach((name, value) => builder.put(s"ankka.$name", value): Unit)
     builder.build()
 
   def getStartEpochNanos: Long                                       = start
@@ -96,6 +100,7 @@ object RecordedSpanData:
   val Handler: AttributeKey[String]   = AttributeKey.stringKey("ankka.handler")
   val Outcome: AttributeKey[String]   = AttributeKey.stringKey("ankka.outcome")
   val Caller: AttributeKey[String]    = AttributeKey.stringKey("ankka.caller")
+  val EndUser: AttributeKey[String]   = AttributeKey.stringKey("enduser.id")
 
   def outcomeName(outcome: SpanOutcome): String = outcome match
     case SpanOutcome.Ok       => "ok"

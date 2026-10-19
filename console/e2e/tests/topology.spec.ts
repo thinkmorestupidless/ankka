@@ -6,6 +6,8 @@ function cartTopology(ok: number, missing?: { pod: string; status: "unreachable"
     instances: [{ pod: "cart-0", status: "ok" as const }, missing ?? { pod: "cart-1", status: "ok" as const }],
     nodes: [
       { id: "endpoint:/carts", kind: "Endpoint", layer: 0, platform: false, handlers: [{ name: "POST /carts/{cartId}/items", type: "route", streaming: false }] },
+      // An MCP endpoint: its tools are its handlers, of type tool, beside its route.
+      { id: "endpoint:/mcp", kind: "Endpoint", layer: 0, platform: false, handlers: [{ name: "POST /mcp", type: "route", streaming: false }, { name: "get_cart", type: "tool" }] },
       { id: "cart", kind: "EventSourcedEntity", layer: 1, platform: false, handlers: [{ name: "add-item", type: "command" }] },
       { id: "carts-by-customer", kind: "View", layer: 2, platform: false, handlers: [] },
     ],
@@ -43,7 +45,9 @@ test("TOPO-1 a member reads a deployed service's topology, merged across its ins
   await page.getByRole("link", { name: "Topology" }).click();
   await expect(page.getByRole("heading", { name: "Topology of cart" })).toBeVisible();
   await expect(page.locator("[data-instances]")).toHaveText("2 of 2 instances answered");
-  await expect(page.getByRole("group", { name: /3 components, 1 declared connection, 1 observed call/ })).toBeVisible();
+  await expect(page.getByRole("group", { name: /4 components, 1 declared connection, 1 observed call/ })).toBeVisible();
+  // An MCP endpoint's tool reads as a tool beside the endpoint's route.
+  await expect(page.locator('tr[data-node="endpoint:/mcp"]')).toContainText("get_cart (tool)");
   const row = page.locator('tr[data-pair="POST /carts/{cartId}/items -> add-item"]');
   await expect(row).toContainText("5");
   await expect(page.locator('[data-difference="carts-by-customer"]')).toContainText("cart-0");

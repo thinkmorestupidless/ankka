@@ -21,11 +21,12 @@ from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
 from ankka.graph import GraphConsumer
 from ankka.key_value_entity import KeyValueEntity
 from ankka.keyed_view import KeyedView
+from ankka.mcp_endpoint import McpEndpoint, McpToolSpec
 from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
 
-PROTOCOL_VERSION = "1.19"
+PROTOCOL_VERSION = "1.20"
 DEFAULT_PROCESS_PORT = 9010
 
 
@@ -44,7 +45,16 @@ class Registry:
     agents: dict[str, type[Agent]] = field(default_factory=dict)
     autonomous: dict[str, type[AutonomousAgent]] = field(default_factory=dict)
     endpoints: dict[str, type[Endpoint]] = field(default_factory=dict)
+    mcp_endpoints: dict[str, type[McpEndpoint]] = field(default_factory=dict)
+    # Each MCP endpoint's tools, its references bound to what is registered: filled by `validate`.
+    mcp_tools: dict[str, dict[str, McpToolSpec]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
+
+    def tools_of(self, endpoint_id: str) -> dict[str, McpToolSpec]:
+        if endpoint_id not in self.mcp_tools:
+            cls = self.mcp_endpoints[endpoint_id]
+            self.mcp_tools[endpoint_id] = cls.resolve(self)[0]
+        return self.mcp_tools[endpoint_id]
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
@@ -66,6 +76,7 @@ class Registry:
             sdk=discovery_pb2.SdkInfo(name="ankka-python", version=__version__),
             components=components,
             endpoints=[cls.to_endpoint() for cls in self.endpoints.values()],
+            mcp_endpoints=[cls.to_pb(self.tools_of(eid)) for eid, cls in self.mcp_endpoints.items()],
         )
 
 
@@ -104,6 +115,16 @@ class ServiceBuilder:
             self._add(self._registry.agents, "agent", component)
         elif isinstance(component, type) and issubclass(component, AutonomousAgent):
             self._add(self._registry.autonomous, "autonomous agent", component)
+        elif isinstance(component, type) and issubclass(component, McpEndpoint):
+            eid = component.endpoint_id()
+            if eid in self._registry.mcp_endpoints:
+                self._problems.append(f"MCP endpoint '{eid}' is registered twice")
+            for held in self._registry.mcp_endpoints.values():
+                if held.path.rstrip("/") == component.path.rstrip("/"):
+                    self._problems.append(
+                        f"MCP endpoints '{held.endpoint_id()}' and '{eid}' share the path '{component.path}'"
+                    )
+            self._registry.mcp_endpoints[eid] = component
         elif isinstance(component, type) and issubclass(component, Endpoint):
             eid = component.endpoint_id()
             if eid in self._registry.endpoints:
@@ -119,8 +140,22 @@ class ServiceBuilder:
         return self
 
     def validate(self) -> Registry:
-        if self._problems:
-            raise RegistrationError("invalid ankka service:\n  - " + "\n  - ".join(self._problems))
+        # References are bound here, once everything is registered, so the order of `register`
+        # calls does not matter; and an MCP endpoint's path may not be a route an endpoint serves.
+        problems = list(self._problems)
+        routes = {
+            (cls.prefix.rstrip("/") + r.template).rstrip("/") or "/"
+            for cls in self._registry.endpoints.values()
+            for r in cls.routes().values()
+        }
+        for eid, mcp in self._registry.mcp_endpoints.items():
+            tools, unbound = mcp.resolve(self._registry)
+            problems.extend(unbound)
+            self._registry.mcp_tools[eid] = tools
+            if (mcp.path.rstrip("/") or "/") in routes:
+                problems.append(f"MCP endpoint {mcp.path}: its path is a route of an HTTP endpoint of this service")
+        if problems:
+            raise RegistrationError("invalid ankka service:\n  - " + "\n  - ".join(problems))
         return self._registry
 
     def spec(self) -> discovery_pb2.Spec:

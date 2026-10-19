@@ -324,13 +324,22 @@ object TopologyJson:
     s"""{"name":${Json.str(declared.name)},"type":${Json.str(kind)}}"""
 
   /** An endpoint's handlers are its routes, each by its method and its path as a template. */
+  /** How a served route names a tool of an MCP endpoint. */
+  private val McpMethod = "MCP"
+
   private def endpoint(id: String, served: Vector[ServedRoute]): Node =
     val handlers = served
       .sortBy(r => (r.path, r.method))
       .map(r =>
-        s"""{"name":${Json.str(s"${r.method} ${r.path}")},"type":"route",""" +
-          s""""streaming":${r.streaming}""" +
-          (if r.grantable then ""","grantable":true}""" else "}")
+        // A tool of an MCP endpoint is served as `MCP <path> <tool>`: on its endpoint's node it is
+        // the tool, named alone, beside the routes (feature 054).
+        if r.method == McpMethod then
+          s"""{"name":${Json.str(r.path.substring(r.path.lastIndexOf(' ') + 1))},"type":"tool"""" +
+            (if r.grantable then ""","grantable":true}""" else "}")
+        else
+          s"""{"name":${Json.str(s"${r.method} ${r.path}")},"type":"route",""" +
+            s""""streaming":${r.streaming}""" +
+            (if r.grantable then ""","grantable":true}""" else "}")
       )
       .mkString("[", ",", "]")
     node(

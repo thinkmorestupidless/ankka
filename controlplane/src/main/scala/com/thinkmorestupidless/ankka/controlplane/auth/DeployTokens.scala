@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane.auth
 
-import java.security.{MessageDigest, SecureRandom}
+import com.thinkmorestupidless.ankka.http.OpaqueCredentials
 
 /**
  * The deploy token credential: how one is minted, recognised and checked.
@@ -17,44 +17,30 @@ import java.security.{MessageDigest, SecureRandom}
  *     dictionary or a rainbow table, so a plain SHA-256 is enough and a key-derivation function
  *     would only add a tunable cost to a check that must not perform work at all. This is not a
  *     password table.
+ *
+ * The shape is `OpaqueCredentials`', which a service's client keys share (feature 054).
  */
 object DeployTokens:
 
   val Prefix = "ankka_"
 
-  private val IdLength     = 16
-  private val SecretLength = 64
-
-  private val Shape = s"$Prefix[0-9a-f]{$IdLength}_[0-9a-f]{$SecretLength}".r
-
-  private val random = new SecureRandom()
+  private val credentials = OpaqueCredentials(Prefix, separator = "_")
 
   /** A freshly minted token: what to store, and the one string the creator is ever shown. */
   final case class Minted(id: String, secret: String, presented: String, digest: String)
 
   def mint(): Minted =
-    val id     = hex(IdLength / 2)
-    val secret = hex(SecretLength / 2)
-    Minted(id, secret, s"$Prefix${id}_$secret", digest(secret))
+    val minted = credentials.mint()
+    Minted(minted.id, minted.secret, minted.presented, minted.digest)
 
   /** SHA-256 of the secret half, lowercase hex. The only form that is ever written down. */
-  def digest(secret: String): String =
-    MessageDigest
-      .getInstance("SHA-256")
-      .digest(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-      .map(b => f"${b & 0xff}%02x")
-      .mkString
+  def digest(secret: String): String = credentials.digest(secret)
 
   /** Whether a presented string is a deploy token at all, and its two halves if it is. */
-  def parse(presented: String): Option[(String, String)] =
-    Option.when(Shape.matches(presented)) {
-      val body = presented.drop(Prefix.length)
-      val at   = body.indexOf('_')
-      (body.take(at), body.drop(at + 1))
-    }
+  def parse(presented: String): Option[(String, String)] = credentials.parse(presented)
 
   /** Whether a presented string even claims to be a deploy token. */
-  def looksLikeOne(presented: String): Boolean = presented.startsWith(Prefix)
+  def looksLikeOne(presented: String): Boolean = credentials.looksLikeOne(presented)
 
   /**
    * Constant-time comparison of a presented secret against a stored digest.
@@ -63,12 +49,4 @@ object DeployTokens:
    * of a guess was right, one byte at a time.
    */
   def matches(storedDigest: String, secret: String): Boolean =
-    MessageDigest.isEqual(
-      storedDigest.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-      digest(secret).getBytes(java.nio.charset.StandardCharsets.UTF_8)
-    )
-
-  private def hex(bytes: Int): String =
-    val buffer = new Array[Byte](bytes)
-    random.nextBytes(buffer)
-    buffer.map(b => f"${b & 0xff}%02x").mkString
+    credentials.matches(storedDigest, secret)

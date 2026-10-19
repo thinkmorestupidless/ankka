@@ -51,6 +51,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_check_guardrail(ptr, len) -> i64` | `GuardrailRequest` | `GuardrailResult` | |
 | `ankka1_check_task_result(ptr, len) -> i64` | `TaskResultRequest` | `TaskResultVerdict` | an autonomous agent's result: decoded as its task type's, then held to the type's rules |
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
+| `ankka1_mcp_tool(ptr, len) -> i64` | `McpToolRequest` | `McpToolReply` | a tool of an MCP endpoint, since 1.20; required when the module declares one |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
 `ankka1_alloc`, `ankka1_free`, `ankka1_discover` and the `memory` export are required of every
@@ -91,6 +92,9 @@ declared.
 | `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `Client.ScheduleRecurring`: a recurring timer, since 1.12; blocks the calling instance. A refusal is the reply's `Error`, not a trap |
 | `await_end(ptr, len) -> i64` | `AwaitEndRequest` | `InvokeReply` | `Client.AwaitEnd`: waits for a workflow's end, since 1.18; blocks the calling instance for as long as the wait. A failed or deleted workflow is the reply's `Error`, `WORKFLOW_FAILED` with `details`, not a trap |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
+| `issue_client_key(ptr, len) -> i64` | `IssueClientKeyRequest` | `IssueClientKeyReply` | `Client.IssueClientKey`, since 1.20; the key is in the reply and nowhere else |
+| `list_client_keys(ptr, len) -> i64` | `ListClientKeysRequest` | `ListClientKeysReply` | `Client.ListClientKeys`, since 1.20 |
+| `revoke_client_key(ptr, len) -> i64` | `RevokeClientKeyRequest` | `RevokeClientKeyReply` | `Client.RevokeClientKey`, since 1.20 |
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.6 |
 | `delete_secret(ptr, len) -> i64` | `DeleteSecretRequest` | `DeleteSecretReply` | `Client.DeleteSecret`, since 1.6 |
@@ -104,7 +108,9 @@ The three secret imports answer every refusal and fault in the reply's `Error`, 
 secret store imports none of them, and so runs on a runtime that predates them. `schedule_recurring`
 is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service has started, and a
 module that never sets a recurring timer does not import it. `await_end` is the same: a module that never
-waits for a workflow's end does not import it, and so runs on a runtime from before 1.18.
+waits for a workflow's end does not import it, and so runs on a runtime from before 1.18. The
+three client key imports are the same again: each answers in the reply, and a module that issues no
+key imports none of them.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from
@@ -127,6 +133,7 @@ request to decide, and it does not depend on what the guest library checks.
 | `ankka1_check_guardrail` | proceeds |
 | `ankka1_check_task_result` | proceeds |
 | `ankka1_http` | proceeds |
+| `ankka1_mcp_tool` | proceeds |
 | `ankka1_handle` | refused: a command of an entity or of a workflow, which every other command to the same instance would wait behind |
 | `ankka1_fold` | refused: an event applied to an entity's state, which must give the same state every time |
 | `ankka1_view` | refused: a view's handler, for the same reason |

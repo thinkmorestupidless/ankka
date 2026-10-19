@@ -158,7 +158,9 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
       const why =
         refusal(answer, info.protocolVersion) ??
         socketRefusal(answer, info.protocolVersion) ??
-        grantsRefusal(answer, info.protocolVersion)
+        grantsRefusal(answer, info.protocolVersion) ??
+        // Last: an older runtime is told the oldest thing it lacks first.
+        mcpRefusal(answer, info.protocolVersion)
       if (why !== undefined) {
         log(`ankka: ${why}`)
         problems.push(why)
@@ -210,4 +212,17 @@ export function grantsRefusal(spec: Spec, runtime: string): string | undefined {
   const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
   if (speaks[0]! > GRANTS_SINCE[0] || (speaks[0] === GRANTS_SINCE[0] && speaks[1]! >= GRANTS_SINCE[1])) return undefined
   return `this runtime speaks protocol ${runtime || "unknown"}; granted callers and another project's topics need 1.15 (${endpoints.join(", ")})`
+}
+
+/** The protocol version whose runtimes serve a process's MCP endpoint. */
+export const MCP_SINCE: readonly [number, number] = [1, 20]
+
+/** Why `spec` cannot be declared to a runtime speaking `runtime`, or undefined. A runtime before 1.20
+ * does not know an MCP endpoint, and would serve nothing at its path. */
+export function mcpRefusal(spec: Spec, runtime: string): string | undefined {
+  if (spec.mcpEndpoints.length === 0) return undefined
+  const [major, minor] = runtime.split(".").map((part) => Number.parseInt(part, 10))
+  const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
+  if (speaks[0]! > MCP_SINCE[0] || (speaks[0] === MCP_SINCE[0] && speaks[1]! >= MCP_SINCE[1])) return undefined
+  return `this runtime speaks protocol ${runtime || "unknown"}; an MCP endpoint needs 1.20 (${spec.mcpEndpoints.map((e) => e.path).join(", ")})`
 }

@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.grpc
 
 import ankka.fixtures.v1.cart.*
-import com.thinkmorestupidless.ankka.http.*
+import com.thinkmorestupidless.ankka.http.{Admission as _, *}
 import com.thinkmorestupidless.ankka.runtime.RotatingTls
 import com.thinkmorestupidless.ankka.testpki.TestPki
 import com.typesafe.config.ConfigFactory

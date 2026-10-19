@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.19`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.20`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -66,6 +66,14 @@ and refuses a module importing `await_end` when it loads.
 set), the `NOT_HOME` code, and `ankka.installation` and `ankka.local` on a consumer's request. A
 sidecar refuses a replicated entity from an SDK declaring an earlier minor, and an SDK declaring one
 refuses discovery from a runtime that states an earlier one.
+`1.20` added MCP endpoints: `Spec.mcp_endpoints` with `McpEndpoint`, `McpTool` and `McpAcl` in
+discovery, the `Mcp` service the process serves (`InvokeTool`: the sidecar has answered the MCP
+protocol, applied the ACL and checked the arguments, and the process runs the tool with the
+principal and the caller, never the credential), and the client key rpcs on `Client`
+(`IssueClientKey`, `ListClientKeys`, `RevokeClientKey`), with the `ankka1_mcp_tool` export and the
+three imports of the same names for a module. A sidecar refuses an MCP endpoint from an SDK
+declaring an earlier minor, an SDK declaring one refuses discovery from a runtime that states an
+earlier one, and an earlier runtime answers the client key rpcs `UNIMPLEMENTED`.
 
 `MAJOR.MINOR`. Within a major:
 

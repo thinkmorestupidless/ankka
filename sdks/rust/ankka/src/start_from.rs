@@ -79,6 +79,11 @@ pub(crate) fn older_than_replication(protocol_version: &str) -> bool {
     older_than(protocol_version, (1, 19))
 }
 
+/// Whether a runtime speaking `version` predates MCP endpoints and client keys (protocol 1.20).
+pub(crate) fn older_than_mcp(version: &str) -> bool {
+    older_than(version, (1, 20))
+}
+
 /// Whether a discovered component is a replicated entity or a consumer given mirrored changes.
 pub(crate) fn declares_replication(component: &proto::Component) -> bool {
     match &component.detail {

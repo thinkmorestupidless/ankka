@@ -3,7 +3,13 @@ package shoppingcart
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
 import com.thinkmorestupidless.ankka.runtime.{InMemoryBroker, ProjectionRuntime}
-import shoppingcart.api.{CheckoutsSeenEndpoint, ShoppingCartEndpoint}
+import com.thinkmorestupidless.ankka.mcp.McpRuntime
+import shoppingcart.api.{
+  CartKeysEndpoint,
+  CartMcpEndpoint,
+  CheckoutsSeenEndpoint,
+  ShoppingCartEndpoint
+}
 import shoppingcart.application.{CheckoutNotifier, CheckoutsSeen, ShoppingCartEntity}
 
 import java.net.URI
@@ -35,22 +41,51 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
   override def beforeAll(): Unit =
     server = HttpServer.at("127.0.0.1", 0)(
       clients => ShoppingCartEndpoint(clients.componentClient),
-      clients => CheckoutsSeenEndpoint(clients.viewClient)
+      clients => CheckoutsSeenEndpoint(clients.viewClient),
+      clients => CartMcpEndpoint(clients.componentClient),
+      clients => CartKeysEndpoint(clients.clientKeys)
     )
     // The notices go to an in-memory broker, and the view reads them back from it, as the deployed
     // service does from the installation's broker.
     val broker = InMemoryBroker()
     testKit = AnkkaTestKit.start(
-      Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor, CheckoutsSeen.descriptor),
-      Seq(server, ProjectionRuntime.withBroker(broker, broker))
+      Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor, CheckoutsSeen.descriptor) ++
+        McpRuntime.descriptors,
+      Seq(server, ProjectionRuntime.withBroker(broker, broker), McpRuntime())
     )
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
+    // The customer's assistant holds the customer's key to the cart's tools, issued as the sample
+    // issues one; until the keys have loaded, the issue is answered 503.
+    val deadline = 30.seconds.fromNow
+    var issued = send(
+      "POST",
+      "/mcp-keys",
+      Some("""{"subject":"customer","label":"the customer's assistant"}""")
+    )
+    while issued._1 == 503 && deadline.hasTimeLeft() do
+      Thread.sleep(50)
+      issued = send(
+        "POST",
+        "/mcp-keys",
+        Some("""{"subject":"customer","label":"the customer's assistant"}""")
+      )
+    assertEquals(issued._1, 200, issued._2)
+    assistantKey = """"clientKey":"([^"]+)"""".r.findFirstMatchIn(issued._2).map(_.group(1)).get
 
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()
 
-  private def send(method: String, path: String, body: Option[String] = None): (Int, String) =
+  /** The key the customer's assistant carries to the cart's tools. */
+  private var assistantKey = ""
+
+  private def send(
+      method: String,
+      path: String,
+      body: Option[String] = None,
+      headers: Seq[(String, String)] = Nil
+  ): (Int, String) =
     val builder = JdkRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(30))
+    headers.foreach((name, value) => builder.header(name, value))
     body match
       case Some(json) =>
         builder.header("Content-Type", "application/json")
@@ -180,6 +215,65 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
 
   Then("the checkout is refused because the cart is empty") { () =>
     refused(400, "cannot check out an empty cart")
+  }
+
+  // ── The cart's tools, as an assistant calls them ─────────────────────────
+
+  private var told: Vector[String] = Vector.empty
+
+  // docs:start mcp-request
+  /** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
+  private def mcp(method: String, params: String): String =
+    val (status, body) = send(
+      "POST",
+      "/mcp",
+      Some(s"""{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}"""),
+      Seq("Authorization" -> s"Bearer $assistantKey")
+    )
+    assertEquals(status, 200, body)
+    body
+
+  private def callTool(name: String, arguments: String): Unit =
+    last = (0, mcp("tools/call", s"""{"name":"$name","arguments":$arguments}"""))
+  // docs:end mcp-request
+
+  When("the customer's assistant asks for the cart's tools") { () =>
+    told =
+      """"name":"([a-z_]+)"""".r.findAllMatchIn(mcp("tools/list", "{}")).map(_.group(1)).toVector
+  }
+
+  Then("the assistant is told the tools {string}, {string} and {string}") {
+    (a: String, b: String, c: String) => assertEquals(told, Vector(a, b, c))
+  }
+
+  When("the customer's assistant adds {int} of {string} with the tool {string}") {
+    (quantity: Int, product: String, tool: String) =>
+      callTool(
+        tool,
+        s"""{"cartId":"$scenarioId","productId":"${id(product)}","quantity":$quantity}"""
+      )
+  }
+
+  When("the customer's assistant reads the cart with the tool {string}") { (tool: String) =>
+    callTool(tool, s"""{"cartId":"$scenarioId"}""")
+  }
+
+  When("the customer's assistant checks the cart out with the tool {string}") { (tool: String) =>
+    callTool(tool, s"""{"cartId":"$scenarioId"}""")
+    assert(last._2.contains("\"isError\":false"), last._2)
+  }
+
+  Then("the assistant is told the cart holds {int} of {string}") {
+    (quantity: Int, product: String) =>
+      assert(last._2.contains("\"isError\":false"), last._2)
+      // The structured content is the cart itself, as the cart's own read answers it.
+      val structured = last._2.substring(last._2.indexOf("\"structuredContent\""))
+      assertEquals(quantityIn(structured, product), quantity)
+  }
+
+  Then("the assistant is told {string}") { (words: String) =>
+    assert(last._2.contains("\"isError\":true"), last._2)
+    assert(last._2.contains(words), last._2)
   }
 
   // One rule refuses every change to a checked-out cart; each Then names the change it refused.

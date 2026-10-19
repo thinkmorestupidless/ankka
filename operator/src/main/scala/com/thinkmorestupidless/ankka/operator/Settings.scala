@@ -422,6 +422,21 @@ object Settings:
             throw new IllegalArgumentException(
               s"ANKKA_OBJECT_STORE_SERVICE is '$service'; it must be <namespace>/<name>:<port>"
             )
+          ),
+        // Feature 055: where a public bucket is read with no signature; optional, and a public
+        // bucket on an installation without it is failed naming the variable.
+        webService = raw(
+          "ankka.operator.object-store.web-service",
+          "ANKKA_OBJECT_STORE_WEB_SERVICE"
+        )
+          .map(web =>
+            ObjectStoreSettings.ServiceRef
+              .parse(web)
+              .getOrElse(
+                throw new IllegalArgumentException(
+                  s"ANKKA_OBJECT_STORE_WEB_SERVICE is '$web'; it must be <namespace>/<name>:<port>"
+                )
+              )
           )
       )
     }

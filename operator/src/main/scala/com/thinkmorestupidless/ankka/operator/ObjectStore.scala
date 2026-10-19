@@ -47,6 +47,12 @@ trait ObjectStore:
    */
   def setCors(bucketId: String, origins: Seq[String]): Unit
 
+  /**
+   * Whether the store serves the bucket's objects at its web endpoint with no signature (feature
+   * 055): on for a `public` named bucket, off for every other. Setting what is set changes nothing.
+   */
+  def setWebsite(bucketId: String, enabled: Boolean): Unit
+
   /** Makes the key stop working at `at`, by the store's own clock. */
   def expire(accessKeyId: String, at: Instant): Unit
 
@@ -100,7 +106,9 @@ final case class BucketInfo(
     created: Instant,
     allowedKeys: Set[String],
     /** The origins the bucket's CORS rules admit (feature 039). */
-    corsOrigins: Seq[String] = Nil
+    corsOrigins: Seq[String] = Nil,
+    /** Whether the store serves its objects at its web endpoint (feature 055). */
+    website: Boolean = false
 )
 
 /** An access key as the store describes it, without its secret. */

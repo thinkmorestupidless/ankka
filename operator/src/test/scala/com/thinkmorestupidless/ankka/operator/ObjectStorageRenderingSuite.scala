@@ -93,7 +93,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
               "reports-storage",
               _,
               "shop.reports",
-              0
+              0,
+              Nil
             ) =>
           true
         case _ => false
@@ -345,8 +346,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     val actions =
       renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 1), ready)
     val reissue = actions.indexWhere {
-      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2) => true
-      case _                                                                        => false
+      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2, Nil) => true
+      case _                                                                             => false
     }
     assert(reissue >= 0, actions.toString)
     assert(reissue < actions.indexWhere(_.isInstanceOf[Action.ApplyDeployment]), actions.toString)

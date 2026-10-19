@@ -98,6 +98,13 @@ final class GarageStore(
       rule.put("MaxAgeSeconds", 3600): Unit
     send("POST", s"/v2/UpdateBucket?id=${encode(bucketId)}", Some(body)): Unit
 
+  def setWebsite(bucketId: String, enabled: Boolean): Unit =
+    val body   = json.createObjectNode()
+    val access = body.putObject("websiteAccess")
+    access.put("enabled", enabled)
+    if enabled then access.put("indexDocument", "index.html"): Unit
+    send("POST", s"/v2/UpdateBucket?id=${encode(bucketId)}", Some(body)): Unit
+
   def expire(accessKeyId: String, at: Instant): Unit =
     val body = json.createObjectNode()
     body.put("expiration", at.toString)
@@ -139,7 +146,11 @@ final class GarageStore(
         .elements
         .asScala
         .flatMap(_.path("AllowedOrigin").elements.asScala.map(_.asText()))
-        .toVector
+        .toVector,
+      // A boolean in the v2 API's answer; an object with `enabled` is read too.
+      website = body.path("websiteAccess") match
+        case w if w.isBoolean => w.asBoolean()
+        case w                => w.path("enabled").asBoolean(false)
     )
 
   private def obj(fields: (String, String)*): JsonNode =

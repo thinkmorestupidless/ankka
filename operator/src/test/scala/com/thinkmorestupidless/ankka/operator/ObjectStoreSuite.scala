@@ -9,6 +9,10 @@ class ObjectStoreSuite extends munit.FunSuite:
     assert(!printed.contains("s3cret-value"), printed)
   }
 
+  test("a bucket is described as not served at the web endpoint unless the store says it is") {
+    assertEquals(BucketInfo("b", java.time.Instant.EPOCH, Set.empty).website, false)
+  }
+
   test("the store's settings print no token") {
     val printed = ObjectStoreSettings(
       "http://admin",

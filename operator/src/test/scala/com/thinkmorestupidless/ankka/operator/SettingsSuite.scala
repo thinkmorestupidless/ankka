@@ -148,6 +148,27 @@ class SettingsSuite extends munit.FunSuite:
   }
 
   test(
+    "the store's web endpoint is read when given, absent otherwise, and refused when malformed"
+  ) {
+    withProperties(store*) {
+      assertEquals(Settings.fromEnvironment().objectStore.flatMap(_.webService), None)
+    }
+    withProperties(
+      (store :+ ("ankka.operator.object-store.web-service" -> "garage-system/garage:3902"))*
+    ) {
+      assertEquals(
+        Settings.fromEnvironment().objectStore.flatMap(_.webService),
+        Some(ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902))
+      )
+    }
+    withProperties((store :+ ("ankka.operator.object-store.web-service" -> "garage:3902"))*) {
+      val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_OBJECT_STORE_WEB_SERVICE"), e.getMessage)
+      assert(e.getMessage.contains("garage:3902"), e.getMessage)
+    }
+  }
+
+  test(
     "the issuer for custom hostnames is read from ankka.operator.hostname-issuer, and is absent by default"
   ) {
     assertEquals(Settings.fromEnvironment().hostnameIssuer, None)

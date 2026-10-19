@@ -496,17 +496,17 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
 
 ### 6b. The operator on Garage
 
-- [ ] T036 [P] [US4] `OP/Settings.scala` and `OP/ObjectStoreSettings.scala` gain
+- [X] T036 [P] [US4] `OP/Settings.scala` and `OP/ObjectStoreSettings.scala` gain
   `webService: Option[String]` from `ANKKA_OBJECT_STORE_WEB_SERVICE` (`namespace/service:port`,
   parsed as `ANKKA_OBJECT_STORE_SERVICE` is); case in `OPT/SettingsSuite.scala`: present, absent, a
   malformed value refused naming the variable
-- [ ] T037 [P] [US4] `OP/ObjectStore.scala` gains `def setWebsite(bucketId: String, enabled: Boolean): Unit`
+- [X] T037 [P] [US4] `OP/ObjectStore.scala` gains `def setWebsite(bucketId: String, enabled: Boolean): Unit`
   and `BucketInfo.website: Boolean` (`:98`); `OP/GarageStore.scala` implements it with
   `POST /v2/UpdateBucket?id=` and `websiteAccess { enabled, indexDocument: "index.html" }`, and reads
   `websiteAccess.enabled` into `BucketInfo` from `GetBucketInfo`. Case in `OPT/GarageStoreSuite.scala`
   against the container: off by default, on after `setWebsite(true)`, read back; the in-memory
   `ObjectStore` double in `OPT/ObjectStoreSuite.scala` records it
-- [ ] T038 [US4] Actions (contracts/operator-and-cloud.md "Actions"): in `OP/Action.scala`
+- [X] T038 [US4] Actions (contracts/operator-and-cloud.md "Actions"): in `OP/Action.scala`
   `EnsureBucket(bucket, keyName)` (`:152`), `EnsureStorageCredential(ns, secret, labels, keyName, buckets: List[String], generation)`
   (`:159`), `ReissueStorageCredential(…, keyName, buckets, generation)`, `SetWebsiteAccess(bucket, enabled)`,
   `PauseWrites(buckets, generation)` and `ResumeWrites(buckets, generation)` as lists, each with its

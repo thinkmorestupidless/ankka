@@ -32,6 +32,7 @@ class StorageCredentialSuite extends munit.FunSuite:
     val writers                      = mutable.Set.empty[String]
     val expiries                     = mutable.Map.empty[String, Instant]
     var cors                         = Seq.empty[String]
+    var website                      = false
     var now                          = Instant.parse("2026-10-09T10:00:00Z")
     def expired(id: String): Boolean = expiries.get(id).exists(!_.isAfter(now))
     private var next                 = 0
@@ -57,6 +58,8 @@ class StorageCredentialSuite extends munit.FunSuite:
         if write then writers += accessKeyId: Unit
       def setCors(bucketId: String, origins: Seq[String]): Unit =
         calls += s"cors ${origins.mkString(",")}"; cors = origins
+      def setWebsite(bucketId: String, enabled: Boolean): Unit =
+        calls += s"website $enabled"; website = enabled
       def expire(accessKeyId: String, at: Instant): Unit =
         calls += s"expire $accessKeyId"; expiries(accessKeyId) = at
       def keyInfo(accessKeyId: String): Option[KeyInfo] =
@@ -365,6 +368,7 @@ class StorageCredentialSuite extends munit.FunSuite:
       def allow(bucketId: String, id: String, write: Boolean) =
         fail("granted owner when asked for less")
       def setCors(bucketId: String, origins: Seq[String]) = ()
+      def setWebsite(bucketId: String, enabled: Boolean)  = ()
       def expire(id: String, at: Instant)                 = ()
       def keyInfo(id: String)                             = None
       def keysOf(bucket: String)                          = Vector.empty

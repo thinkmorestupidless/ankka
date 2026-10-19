@@ -305,6 +305,8 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
       update(bucketId)(b => b.copy(allowedKeys = b.allowedKeys + accessKeyId))
     def setCors(bucketId: String, origins: Seq[String]): Unit =
       update(bucketId)(_.copy(corsOrigins = origins))
+    def setWebsite(bucketId: String, enabled: Boolean): Unit =
+      update(bucketId)(_.copy(website = enabled))
     def expire(accessKeyId: String, at: Instant): Unit = expiries(accessKeyId) = at
     def keyInfo(accessKeyId: String): Option[KeyInfo] =
       keys.get(accessKeyId).map(KeyInfo(accessKeyId, _, false, expiries.get(accessKeyId)))

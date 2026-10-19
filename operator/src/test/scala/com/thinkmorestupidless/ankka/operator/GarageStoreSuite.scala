@@ -245,6 +245,18 @@ class GarageStoreSuite extends munit.FunSuite:
     assert(!admits("https://play.example", preflight("casino.cors", "https://play.example")))
   }
 
+  // Feature 055: a public bucket is served at the store's web endpoint, and no other is.
+  test("a bucket is not served at the web endpoint until asked, and the answer is read back") {
+    val bucket = store.createBucket("shop.listings.photos")
+    assertEquals(store.bucket("shop.listings.photos").map(_.website), Some(false))
+    store.setWebsite(bucket.id, enabled = true)
+    assertEquals(store.bucket("shop.listings.photos").map(_.website), Some(true))
+    store.setWebsite(bucket.id, enabled = true)
+    assertEquals(store.bucket("shop.listings.photos").map(_.website), Some(true))
+    store.setWebsite(bucket.id, enabled = false)
+    assertEquals(store.bucket("shop.listings.photos").map(_.website), Some(false))
+  }
+
   // Feature 039, research S1: a move's write pause is a key that reads and cannot write.
   test("a key allowed to read and not write reads an object and is refused a write") {
     val bucket = store.createBucket("casino.paused")

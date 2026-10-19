@@ -14,16 +14,20 @@ package com.thinkmorestupidless.ankka.operator
  *   refuses a signature made for any other
  * @param service
  *   the store's Service, which a bucket reachable from the internet is routed to
+ * @param webService
+ *   the store's web endpoint, which a public bucket's objects are read from with no signature
+ *   (feature 055); without it a public bucket cannot be served, and says so
  */
 final case class ObjectStoreSettings(
     adminUrl: String,
     adminToken: String,
     endpoint: String,
     region: String,
-    service: ObjectStoreSettings.ServiceRef
+    service: ObjectStoreSettings.ServiceRef,
+    webService: Option[ObjectStoreSettings.ServiceRef] = None
 ):
   override def toString: String =
-    s"ObjectStoreSettings($adminUrl, <token>, $endpoint, $region, $service)"
+    s"ObjectStoreSettings($adminUrl, <token>, $endpoint, $region, $service, ${webService.fold("no web endpoint")(_.toString)})"
 
 /** The store an installation makes new buckets in (feature 039). */
 enum ObjectStoreBackend:

@@ -606,7 +606,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   `buckets.feature`'s "a service's buckets are moved together" there and name it in
   `StorageClientClusterFeatures`'s `ranElsewhere`. `ranOutside` for "a public bucket readable by
   anyone on Google" and `publicUrl`, by name, for ankka-gcp's nightly suite
-- [ ] T048 [US4] Write the amendments into `DOCS/platform/cloud-provider.md`'s request tables
+- [X] T048 [US4] Write the amendments into `DOCS/platform/cloud-provider.md`'s request tables
   (`bucket`: `name`, `public`, `publicUrl`; `bucket-credential`: `buckets`; the public bucket's
   access settings; `publicUrl` as Google's address or the installation's content delivery network's)
   so `ankka-gcp` reads its contract from the page, and note under the provider's obligations that an

@@ -429,7 +429,22 @@ abstract class McpEndpointsClusterSteps(feature: String)
     assertEquals(answer.status, 200, answer.body)
     val id     = """"id":"([0-9a-f]+)"""".r.findFirstMatchIn(answer.body).map(_.group(1))
     val secret = """"clientKey":"([^"]+)"""".r.findFirstMatchIn(answer.body).map(_.group(1))
-    Key(id.getOrElse(fail(answer.body)), secret.getOrElse(fail("no key in the issue answer")))
+    val made =
+      Key(id.getOrElse(fail(answer.body)), secret.getOrElse(fail("no key in the issue answer")))
+    // The instance that took the issue writes the key through; the others learn it from the
+    // journal about half a second later. A scenario's next request may go to any of them.
+    val ips = readyPods.map(_.getStatus.getPodIP)
+    waitFor(10.seconds, s"every instance admits the client key ${made.id}") {
+      ips.forall(ip =>
+        inCluster(
+          ip,
+          "/mcp",
+          body = Some(listTools),
+          headers = McpHeaders :+ bearer(made)
+        ).status == 200
+      )
+    }
+    made
 
   /** The scenario's key, for a subject of the suite's own when a scenario names none. */
   private def carried: Key =

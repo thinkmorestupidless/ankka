@@ -150,6 +150,11 @@ Traps:
 - **The issue answer is the one place a key is shown.** `McpEndpointSteps` scans everything a
   scenario read for every minted key, and leaves that one answer out; a step that echoes the issue
   answer anywhere else fails the scan.
+- **A key issued through a Service is known at once only to the instance that took the issue.** The
+  others follow the journal, about half a second behind, so "issue, then call a pod by its address"
+  answered 401 on the first k3s run of both cluster suites, on whichever pod had not caught up.
+  `McpEndpointsClusterSteps.issue` waits until every ready instance admits the key before handing it
+  to a scenario; a client of a several-instance service should expect the same window.
 - **A lambda answering `Done` infers `Done.type`, which has no `ToolOutput`.** Ascribe it,
   `() => (Done: Done)`; a reference whose handle answers `Done` is unaffected.
 

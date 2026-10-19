@@ -719,7 +719,7 @@ references; `languages.feature` `ranElsewhere`.
   or the descriptor check that refuses reserved prefixes lets that one through. Case in
   `SCT/RemoteEndpointSuite.scala`: a process declaring `/_ankka/storage` is served; `/_ankka/other`
   refused naming the prefix
-- [ ] T058 [US6] The Scala reference's conformance routes: `SCT/conformance/ConformanceReference.scala`
+- [X] T058 [US6] The Scala reference's conformance routes: `SCT/conformance/ConformanceReference.scala`
   gains `/conformance/storage?op=…&bucket=…&name=…` routes over the reference's `storage` (put from
   the body with a content type, get, delete, list, stat, signed-url, url, and a `rules` op that
   tries a name and answers the refusal's code and message); `SCT/conformance/ConformanceSuite.scala`
@@ -731,6 +731,15 @@ references; `languages.feature` `ranElsewhere`.
   trap), the `ANKKA_S3_*` of a Garage the suite starts; the memory store declares `photos` public
   for every target through the environment overlay. In-process first:
   `sbt 'sidecar/testOnly *ConformanceSuite -- *storage.*'` reports the case count, not zero
+  *As built:* every answer is a JSON `StorageRecord` (`outcome` ok, absent or refused; `code` the
+  protocol's word, `BAD_REQUEST`; `message`, `contentType`, `text`, `length`, `names`, `url`), so a
+  refusal reads the same in every language. `POST ?name=` keeps the body under its content type;
+  `POST ?rules=name|prefix` tries the body as an object's name or a listing's prefix (the fixture's
+  longest rows exceed a URI's 2048 characters); `GET ?op=get|stat|list|url|signed-url`;
+  `DELETE ?name=`; `bucket` absent is the unnamed bucket. Bucket names are the descriptor's rule,
+  not the client's, so the fixture's `bucketNames` are held by the descriptor's suites. Eight cases;
+  green in-process on memory and on Garage (`-Dankka.conformance.storage=garage`, in-process and
+  module targets only; a process target's store is its SDK's, from its launcher's variables)
 - [ ] T059 [P] [US6] Python (R14): `PY/src/ankka/storage.py` with `Buckets`, `Bucket`, `StoredObject`,
   `ObjectInfo`, `ObjectEntry`, `ObjectRules` (the name rule, bucket rule, the bound), `S3Buckets`
   built from `os.environ` exactly as T004 reads the families, `InMemoryBuckets`, `DirectoryBuckets(path)`

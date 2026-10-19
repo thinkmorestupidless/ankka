@@ -47,6 +47,8 @@ import com.thinkmorestupidless.ankka.sidecar.wasm.{
   WasmDiscovery
 }
 import com.thinkmorestupidless.ankka.core.secrets.ReadRecord
+import com.thinkmorestupidless.ankka.sdk.BucketExposure
+import com.thinkmorestupidless.ankka.testkit.StorageBackendChoice
 import com.thinkmorestupidless.ankka.testkit.{
   AnkkaTestKit,
   FakeSecretManager,
@@ -343,6 +345,23 @@ object ConformanceTarget:
       SecretBackendChoice.secretManager(fake, SecretProject, SecretService)
     )
 
+  /**
+   * A Garage the storage cases run against under `-Dankka.conformance.storage=garage` (feature
+   * 055), for the in-process and module targets, whose store is the runtime's; by default their
+   * store is in memory. Either way the unnamed bucket is there and `photos` is public. A process
+   * target speaks S3 itself, from the variables its SDK's conformance launcher sets.
+   */
+  lazy val garage: Option[ConformanceGarage] =
+    sys.props
+      .get("ankka.conformance.storage")
+      .filter(_ == "garage")
+      .map(_ => ConformanceGarage.start())
+
+  def storageBackend: StorageBackendChoice =
+    garage.fold(
+      StorageBackendChoice.Memory(buckets = Map("photos" -> BucketExposure.Public))
+    )(_.choice)
+
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match
       case Some(module) if module.startsWith("wasm:") =>
@@ -429,6 +448,7 @@ object ConformanceTarget:
       ConformanceTarget.withImpostor,
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
+      storage = ConformanceTarget.storageBackend,
       settings = ConformanceTarget.installation
     )
     def name: String           = "in-process"
@@ -578,6 +598,7 @@ object ConformanceTarget:
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
+      storage = ConformanceTarget.storageBackend,
       settings = ConformanceTarget.installation
     )
     def name: String           = s"sidecar → $address"
@@ -778,6 +799,7 @@ object ConformanceTarget:
       b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
+      storage = ConformanceTarget.storageBackend,
       settings = ConformanceTarget.installation
     )
     def name: String               = s"module $path ($shape)"

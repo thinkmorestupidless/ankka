@@ -194,6 +194,9 @@ lazy val commonSettings = Seq(
     // The secret backend the conformance suite's secret cases run on (feature 038): `postgres`, or
     // `secret-manager` against the test kit's Secret Manager fake.
     "ankka.conformance.secrets",
+    // The store the conformance suite's storage cases run on (feature 055): memory by default, or
+    // `garage` against a Garage the suite starts, for the in-process and module targets.
+    "ankka.conformance.storage",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
     "ankka.docs.update",

@@ -795,7 +795,7 @@ references; `languages.feature` `ranElsewhere`.
   the fixture rows (read as `secrets.rs:33` reads its fixture), the contract over the native host,
   `TooLarge` both ways, a compile-fail case in `RS/ankka/tests/compile_fail/` for `storage()` on an
   entity context; `cargo test --workspace`
-- [ ] T064 [US6] Rust conformance and the import's presence: `RS/examples/shopping-cart/src/conformance.rs`
+- [X] T064 [US6] Rust conformance and the import's presence: `RS/examples/shopping-cart/src/conformance.rs`
   gains the routes in a `// docs:start storage` region and the example's `service.json` declares
   `photos` public; `./conformance.sh` green through the sidecar's `ModuleTarget` (T056);
   `WasmHostSuite` (`SCT/WasmHostSuite.scala`) gains a case loading a module that uses the client and

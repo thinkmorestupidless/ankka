@@ -262,7 +262,7 @@ and an object larger than the heap through an endpoint.
 `-Xmx512m`; `client.feature` green in `StorageClientFeatures` on the memory store; the `garage` row
 of "same on every object store" in the cluster suite.
 
-- [ ] T016 [US1] Bind the rest of `FEAT/client.feature` in `TKT/storage/StorageClientFeatures.scala`:
+- [X] T016 [US1] Bind the rest of `FEAT/client.feature` in `TKT/storage/StorageClientFeatures.scala`:
   "an object larger than an instance's memory passes through the storage client" through the
   endpoint with a body of `Runtime.maxMemory * 2` from a counting `InputStream`, asserted by a
   counting sink, and the suite failing by name when `maxMemory` is above 1 GiB (so a big heap
@@ -271,6 +271,10 @@ of "same on every object store" in the cluster suite.
   `Unavailable` and the endpoint in the message; "a keep that fails part way leaves no partial
   object" with a stream that ends at half its declared length, then `get` answering the old object.
   Red
+  *Done as:* the store in memory holds what it keeps and the test kit's JVM has a quarter of the
+  machine's memory, so "larger than an instance's memory" is `StreamedBodySuite`'s last case (http,
+  512 MiB heap): 2 GiB kept through `putStream` into the directory store and read back as `Streamed`.
+  `StorageClientFeatures` names it in `ranElsewhere`. The in-process features run one suite per file.
 - [X] T017 [P] [US1] Write `STO/S3Bucket.scala` (R3, R5): `S3Bucket(target: S3Target, bucket: String, name: Option[String], exposure, settings, client: HttpClient, clock)`
   implementing `Bucket`: `put` as `PUT /<bucket>/<key>` with `Content-Type`, `Content-Length`,
   `x-amz-content-sha256: UNSIGNED-PAYLOAD` (or the temporary-file hash if T005 said so) and
@@ -291,7 +295,7 @@ of "same on every object store" in the cluster suite.
   wrapper); a `get` body closed after one byte lets the next request proceed within the timeout;
   a 403 from a wrong key is `Unavailable` naming the endpoint. Then the `garage` row of
   `client.feature`'s "same on every object store" is this suite's, named in `ranElsewhere`
-- [ ] T019 [P] [US1] Streamed request bodies in `ankka-http` (R4): in `HTTP/codecs.scala` or
+- [X] T019 [P] [US1] Streamed request bodies in `ankka-http` (R4): in `HTTP/codecs.scala` or
   `HTTP/HttpEndpoint.scala` add `final case class StreamedBody(contentType: String, length: Option[Long], body: InputStream)`
   and on `HttpEndpoint` `postStream[Out: ToResponse](path)(handler: StreamedBody => Out)` and
   `putStream`, a route kind `needsBody = false, streams = true`; in `HTTP/HttpServer.scala`
@@ -300,14 +304,14 @@ of "same on every object store" in the cluster suite.
   thread, with `withSizeLimit(maxStreamBytes)` so a larger body is `413`; `ankka.http.max-stream-bytes = 5g`
   in `modules/http/src/main/resources/reference.conf` read beside the strict limit. Nothing changes for
   strict routes
-- [ ] T020 [P] [US1] Streamed responses: in `HTTP/responses.scala` add
+- [X] T020 [P] [US1] Streamed responses: in `HTTP/responses.scala` add
   `final case class Streamed(contentType: String, length: Option[Long], body: InputStream)` with a
   `ToResponse` given marshalling `HttpEntity.Default(contentType, length, StreamConverters.fromInputStream(() => body))`
   when the length is known, else `HttpEntity.Chunked`, closing the stream when the response completes
   or the client goes away (`watchTermination`); `EncodedResponse` (`HTTP/HttpEndpoint.scala:133`)
   gains the streamed case beside strict. The sidecar's `Router` (`SC/Main.scala`) serves a process's
   routes strict as before: a stream route is Scala's, said in T106
-- [ ] T021 [US1] Cases in `HTTPT/StreamedBodySuite.scala` (new, `HttpServer.at("127.0.0.1", 0)`):
+- [X] T021 [US1] Cases in `HTTPT/StreamedBodySuite.scala` (new, `HttpServer.at("127.0.0.1", 0)`):
   a 2 GiB `putStream` from a counting `InputStream` into a counting sink, the suite refusing to
   run when `Runtime.getRuntime.maxMemory > 1 GiB` and naming `http / Test / javaOptions += "-Xmx512m"`
   (add that option in `build.sbt` for the `http` project's tests, forwarded as every `-D` must be);
@@ -316,7 +320,7 @@ of "same on every object store" in the cluster suite.
   a strict route beside a stream route behaves as before; an aborted client closes the handler's
   stream (the counting sink sees `close`). Then T015's `PhotosEndpoint` uses `putStream` and
   `Streamed`, and `client.feature`'s "larger than an instance's memory" is green
-- [ ] T022 [US1] `sbt -Dankka.cluster.tests=off 'runtime/testOnly *storage.*' 'http/testOnly *StreamedBodySuite' 'testkit/testOnly *StorageClientFeatures'`:
+- [X] T022 [US1] `sbt -Dankka.cluster.tests=off 'runtime/testOnly *storage.*' 'http/testOnly *StreamedBodySuite' 'testkit/testOnly *StorageClientFeatures'`:
   every `client.feature` scenario green except the `gcs` and `supplied` rows, named in the maps;
   break `S3Bucket.put`'s `Content-Length` once and watch `S3BucketSuite` go red
 

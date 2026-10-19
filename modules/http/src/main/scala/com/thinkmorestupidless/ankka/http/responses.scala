@@ -48,3 +48,26 @@ object Respond:
       val contentType                         = inner.contentType
       def write(value: Respond[A])            = inner.write(value.body)
       override def headers(value: Respond[A]) = value.headers ++ inner.headers(value.body)
+
+/**
+ * A request body read as it arrives, for a route declared with `postStream` or `putStream` (feature
+ * 055): never held whole, so a body larger than the instance's memory passes through. `length` is
+ * the declared `Content-Length`, when the client sent one. The handler reads `body` on its own
+ * thread; the server closes it when the handler returns.
+ */
+final case class StreamedBody(contentType: String, length: Option[Long], body: java.io.InputStream)
+
+/**
+ * A response body written as it is read, never held whole: an object read from a bucket, say. The
+ * server closes `body` when the response is written or the client goes away. With a `length` the
+ * response says it; without, it is sent chunked.
+ */
+final case class Streamed(contentType: String, length: Option[Long], body: java.io.InputStream)
+
+object Streamed:
+  given toResponse: ToResponse[Streamed] = new ToResponse[Streamed]:
+    def status(value: Streamed) = 200
+    val contentType             = "application/octet-stream"
+    // Never called: a route recognises a streamed value and hands the stream to the server.
+    def write(value: Streamed) =
+      throw IllegalStateException("a streamed response is written as it is read, never whole")

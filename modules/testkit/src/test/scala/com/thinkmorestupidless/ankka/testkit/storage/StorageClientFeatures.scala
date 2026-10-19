@@ -18,6 +18,11 @@ import StorageCodecs.given
 final class StorageClientFeatures
     extends StorageFeatures("../../features/storage-client/client.feature"):
 
+  override protected def ranElsewhere: Map[String, String] = Map(
+    "an object larger than an instance's memory passes through the storage client" ->
+      "StreamedBodySuite (http), under a 512 MiB heap: twice it kept and read back through the directory store"
+  )
+
   Given("a handler of {string} has kept the object {string} with the content type {string}") {
     (name: String, objectName: String, contentType: String) =>
       assertOk(keepThroughEndpoint(name, objectName, contentType))

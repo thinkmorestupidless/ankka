@@ -318,7 +318,10 @@ lazy val http = project
   .settings(commonSettings)
   .settings(
     name := "ankka-http",
-    libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test)
+    libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test),
+    // StreamedBodySuite passes bodies of 2 GiB through an endpoint (feature 055): with a heap of
+    // 512 MiB, a body held whole anywhere fails the run instead of passing it.
+    Test / javaOptions += "-Xmx512m"
   )
 
 /**

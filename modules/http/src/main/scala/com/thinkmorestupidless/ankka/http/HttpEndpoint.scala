@@ -195,7 +195,9 @@ private[ankka] final case class EncodedResponse(
     status: Int,
     contentType: String,
     body: Array[Byte],
-    headers: Vector[(String, String)] = Vector.empty
+    headers: Vector[(String, String)] = Vector.empty,
+    /** A body written as it is read (feature 055), in place of `body`. */
+    streamed: Option[Streamed] = None
 )
 
 private[ankka] final case class Route(
@@ -204,7 +206,12 @@ private[ankka] final case class Route(
     needsBody: Boolean,
     run: (Vector[String], Array[Byte]) => EncodedResponse,
     /** Declared by `withAcl`; `None` means the endpoint's. */
-    acl: Option[Acl] = None
+    acl: Option[Acl] = None,
+    /**
+     * A route whose body is read as it arrives (`postStream`, `putStream`; feature 055): the server
+     * hands this the body as a stream instead of calling `run` with it whole.
+     */
+    streamedBody: Option[(Vector[String], StreamedBody) => EncodedResponse] = None
 ):
   def describe: String = s"$method ${template.render}"
 
@@ -396,9 +403,20 @@ abstract class HttpEndpoint(val prefix: String):
       method,
       template,
       needsBody,
-      (args, body) =>
-        val value = run(args, body)
-        // `Bytes` names its own content type per value; every other body type has one per type.
+      (args, body) => encode(run(args, body)),
+      scopedAcl
+    )
+
+  /** A handler's value as the server answers it: whole, or as a stream the server writes. */
+  private def encode[R](value: R)(using response: ToResponse[R]): EncodedResponse =
+    // `Bytes` and `Streamed` name their own content type per value; every other body type has one
+    // per type.
+    value match
+      case s: Streamed =>
+        EncodedResponse(200, s.contentType, Array.emptyByteArray, Vector.empty, Some(s))
+      case Respond(s: Streamed, status, headers) =>
+        EncodedResponse(status, s.contentType, Array.emptyByteArray, headers, Some(s))
+      case _ =>
         val contentType = value match
           case Bytes(kind, _)                => kind
           case Respond(Bytes(kind, _), _, _) => kind
@@ -409,8 +427,53 @@ abstract class HttpEndpoint(val prefix: String):
           response.write(value),
           response.headers(value)
         )
-      ,
-      scopedAcl
+
+  /**
+   * Records a route whose body is read as it arrives (feature 055). Its handler is given a
+   * `StreamedBody` and may answer anything a route answers, a `Streamed` body included.
+   */
+  private def addStreamedBody[R](method: String, rawTemplate: String, arity: Int)(
+      run: (Vector[String], StreamedBody) => R
+  )(using response: ToResponse[R]): Unit =
+    val template = PathTemplate.parse(rawTemplate)
+    if template.arity != arity then
+      throw IllegalArgumentException(
+        s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
+          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
+      )
+    collected += Route(
+      method,
+      template,
+      needsBody = false,
+      (_, _) => throw IllegalStateException(s"$method $rawTemplate reads its body as a stream"),
+      scopedAcl,
+      Some((args, body) => encode(run(args, body)))
+    )
+
+  /**
+   * A `POST` whose body is read as it arrives rather than whole (feature 055): an upload passed
+   * straight to a bucket, say, of any size up to `ankka.http.max-stream-bytes`. A larger declared
+   * body is answered `413` and the handler never runs.
+   */
+  protected def postStream[R: ToResponse](template: String)(handler: StreamedBody => R): Unit =
+    addStreamedBody("POST", template, 0)((_, body) => handler(body))
+
+  protected def postStream[A: FromPath, R: ToResponse](template: String)(
+      handler: (A, StreamedBody) => R
+  ): Unit =
+    addStreamedBody("POST", template, 1)((args, body) =>
+      handler(pathArg[A](args, 0, template), body)
+    )
+
+  /** A `PUT` whose body is read as it arrives, as `postStream`. */
+  protected def putStream[R: ToResponse](template: String)(handler: StreamedBody => R): Unit =
+    addStreamedBody("PUT", template, 0)((_, body) => handler(body))
+
+  protected def putStream[A: FromPath, R: ToResponse](template: String)(
+      handler: (A, StreamedBody) => R
+  ): Unit =
+    addStreamedBody("PUT", template, 1)((args, body) =>
+      handler(pathArg[A](args, 0, template), body)
     )
 
   /**

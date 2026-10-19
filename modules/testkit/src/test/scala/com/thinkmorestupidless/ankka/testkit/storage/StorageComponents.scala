@@ -90,6 +90,24 @@ final class PhotosEndpoint(clients: EndpointClients) extends HttpEndpoint("/stor
     Done: Done
   }
 
+  // An upload passed to the bucket as it arrives, never held whole: any size the route admits.
+  putStream("/upload") { (body: StreamedBody) =>
+    val length =
+      body.length.getOrElse(throw HttpProblem.badRequest("an upload declares its length"))
+    bucket.put(query.required[String]("name"), body.body, length, body.contentType)
+    Done: Done
+  }
+
+  // A download written as it is read from the bucket.
+  get("/download") { () =>
+    val name = query.required[String]("name")
+    bucket
+      .get(name)
+      .fold(throw HttpProblem.notFound(s"no object '$name'"))(o =>
+        Streamed(o.contentType, Some(o.length), o.body)
+      )
+  }
+
   get("/objects") { () =>
     val name = query.required[String]("name")
     bucket

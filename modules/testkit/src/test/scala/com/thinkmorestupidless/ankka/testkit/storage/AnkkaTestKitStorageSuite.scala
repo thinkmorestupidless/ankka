@@ -44,6 +44,44 @@ class AnkkaTestKitStorageSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test("an upload passes to the bucket as it arrives, and a download is read from it") {
+    val kit = AnkkaTestKit.start(
+      Seq(Listing.descriptor),
+      Seq(
+        com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(clients =>
+          PhotosEndpoint(clients)
+        )
+      )
+    )
+    try
+      val base   = kit.service.boundAddresses.head
+      val client = java.net.http.HttpClient.newHttpClient()
+      val body   = Array.fill[Byte](3 * 1024 * 1024)('p'.toByte)
+      val uploaded = client.send(
+        java.net.http.HttpRequest
+          .newBuilder(java.net.URI.create(s"$base/storage/upload?name=listings%2F42%2Ffront.jpg"))
+          .header("Content-Type", "image/jpeg")
+          .PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(body))
+          .build(),
+        java.net.http.HttpResponse.BodyHandlers.ofString()
+      )
+      assertEquals(uploaded.statusCode, 204, uploaded.body)
+      assertEquals(
+        kit.storage.default.stat("listings/42/front.jpg").map(i => (i.contentType, i.length)),
+        Some(("image/jpeg", body.length.toLong))
+      )
+      val downloaded = client.send(
+        java.net.http.HttpRequest
+          .newBuilder(java.net.URI.create(s"$base/storage/download?name=listings%2F42%2Ffront.jpg"))
+          .build(),
+        java.net.http.HttpResponse.BodyHandlers.ofByteArray()
+      )
+      assertEquals(downloaded.statusCode, 200)
+      assertEquals(downloaded.headers.firstValue("Content-Type").orElse(""), "image/jpeg")
+      assert(java.util.Arrays.equals(downloaded.body, body))
+    finally kit.stop()
+  }
+
   test("a store in memory is the kit's alone: two kits keep apart") {
     withKit(StorageBackendChoice.Memory()) { a =>
       withKit(StorageBackendChoice.Memory()) { b =>

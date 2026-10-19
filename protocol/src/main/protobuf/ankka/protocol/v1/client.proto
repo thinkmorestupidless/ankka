@@ -304,3 +304,67 @@ message ServiceFailure {
     IDENTITY_MISMATCH = 2;                    // what answered is not the service; nothing was sent
   }
 }
+
+// The service's object storage, for a module (1.20): one request and one reply through the
+// `storage` import. No rpc carries it: a process speaks S3 itself from the variables it is given,
+// so no object passes through the sidecar.
+message StorageRequest {
+  optional string bucket = 1;                 // 1.20: absent: the service's own bucket
+  enum Op {
+    PUT = 0;                                  // 1.20
+    GET = 1;                                  // 1.20
+    DELETE = 2;                               // 1.20
+    LIST = 3;                                 // 1.20
+    STAT = 4;                                 // 1.20
+    SIGNED_URL = 5;                           // 1.20
+    URL = 6;                                  // 1.20: a public bucket's address, signed by nothing
+  }
+  Op op = 2;                                  // 1.20
+  string name = 3;                            // 1.20: the object's name, or the prefix for LIST
+  string content_type = 4;                    // 1.20: for PUT
+  optional bytes body = 5;                    // 1.20: for PUT; at most 4000000 bytes
+  enum Access {
+    READ = 0;                                 // 1.20
+    KEEP = 1;                                 // 1.20
+  }
+  Access access = 6;                          // 1.20: for SIGNED_URL
+  uint32 expires_seconds = 7;                 // 1.20: for SIGNED_URL
+  optional string continuation = 8;           // 1.20: for LIST, the `next` of the page before
+}
+
+// Exactly one case is set. A refusal or a fault is `error`, never a trap.
+message StorageReply {
+  oneof reply {
+    StoredObject object = 1;                  // 1.20: GET
+    ObjectInfo info = 2;                      // 1.20: STAT
+    ObjectEntries entries = 3;                // 1.20: LIST
+    string url = 4;                           // 1.20: SIGNED_URL, URL
+    Empty done = 5;                           // 1.20: PUT, DELETE
+    Error error = 6;                          // 1.20
+  }
+}
+
+message StoredObject {
+  string content_type = 1;                    // 1.20
+  bytes body = 2;                             // 1.20
+  uint64 length = 3;                          // 1.20
+  string last_kept = 4;                       // 1.20: ISO-8601
+}
+
+message ObjectInfo {
+  string name = 1;                            // 1.20
+  string content_type = 2;                    // 1.20
+  uint64 length = 3;                          // 1.20
+  string last_kept = 4;                       // 1.20: ISO-8601
+}
+
+message ObjectEntries {
+  repeated ObjectEntry entries = 1;           // 1.20: in name order
+  optional string next = 2;                   // 1.20: absent: the last page
+}
+
+message ObjectEntry {
+  string name = 1;                            // 1.20
+  uint64 length = 2;                          // 1.20
+  string last_kept = 3;                       // 1.20: ISO-8601
+}

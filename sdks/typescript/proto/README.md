@@ -74,6 +74,9 @@ principal and the caller, never the credential), and the client key rpcs on `Cli
 three imports of the same names for a module. A sidecar refuses an MCP endpoint from an SDK
 declaring an earlier minor, an SDK declaring one refuses discovery from a runtime that states an
 earlier one, and an earlier runtime answers the client key rpcs `UNIMPLEMENTED`.
+`1.21` added the service's object storage for a module: the `storage` import with `StorageRequest`
+and `StorageReply`. No rpc carries it, since a process reaches its buckets over S3 itself; an
+earlier runtime refuses a module importing `storage` when it loads.
 
 `MAJOR.MINOR`. Within a major:
 

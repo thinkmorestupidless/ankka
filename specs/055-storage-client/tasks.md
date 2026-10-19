@@ -691,7 +691,7 @@ conformance suite checking the rule and the codes.
 **Independent Test**: each SDK's suite; `ConformanceSuite`'s `storage.*` cases against the four
 references; `languages.feature` `ranElsewhere`.
 
-- [ ] T055 [US6] Protocol 1.20: in `PROTO/client.proto` add `StorageRequest`, `StorageReply`,
+- [X] T055 [US6] Protocol 1.20: in `PROTO/client.proto` add `StorageRequest`, `StorageReply`,
   `StoredObject`, `ObjectInfo`, `ObjectEntries`, `ObjectEntry` exactly as
   contracts/runtime-and-protocol.md "Protocol" gives them, each field with a `// 1.20:` comment;
   `protocol/WASM-ABI.md` lists `storage(ptr, len) -> i64` since 1.20 from the same `CallSite`s as

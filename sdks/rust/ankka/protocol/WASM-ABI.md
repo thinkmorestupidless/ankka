@@ -98,6 +98,7 @@ declared.
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.6 |
 | `delete_secret(ptr, len) -> i64` | `DeleteSecretRequest` | `DeleteSecretReply` | `Client.DeleteSecret`, since 1.6 |
+| `storage(ptr, len) -> i64` | `StorageRequest` | `StorageReply` | the service's object storage, since 1.20: put, get, delete, list, stat, a signed URL or a public bucket's address. Served only to the exports listed under *Where `request` may be called*. A body, in or out, is at most 4,000,000 bytes: a larger `PUT` is refused, and a `GET` of a larger object is refused before any of it is read. Every refusal and fault is the reply's `Error`. Blocks the calling instance |
 | `request(ptr, len) -> i64` | `ServiceRequest` | `ServiceReply` | `Client.Request`: a call to another service, made by the runtime as this service, since 1.10. Served only to the exports listed under *Where `request` may be called*; from any other, the call into the module ends there. Blocks the calling instance until the service answers or the runtime's wait for it ends |
 | `now() -> i64` | | | the runtime's clock as milliseconds since the Unix epoch, when it is asked; from any export, since 1.10 |
 | `random(ptr, len)` | | | fills the `len` bytes at `ptr`, which the guest owns, from the runtime's secure source; `len` is at most 65,536; from any export, since 1.10 |
@@ -110,7 +111,8 @@ is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service
 module that never sets a recurring timer does not import it. `await_end` is the same: a module that never
 waits for a workflow's end does not import it, and so runs on a runtime from before 1.18. The
 three client key imports are the same again: each answers in the reply, and a module that issues no
-key imports none of them.
+key imports none of them. `storage` is the same: a module that never
+reaches a bucket does not import it, and so runs on a runtime from before 1.21.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

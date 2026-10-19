@@ -1222,3 +1222,61 @@ class ObjectStorageGcsClusterFeatures
       Some("contents of passport.pdf")
     )
   }
+
+  // ── Feature 055: a service's buckets are moved together (buckets.feature) ──
+
+  /**
+   * `features/storage-client/buckets.feature`'s "a service's buckets are moved together", run here
+   * because this suite has the scripted provider in its Garage-backed mode and a mover image: a
+   * service with its bucket and a public bucket "photos", both made in Garage, moved as one move.
+   */
+  test("a service's buckets are moved together") {
+    val logical = "listings"
+    val name    = real(logical)
+    val json =
+      s"""{"name":"$name","service":{"image":"$SampleImage","provisionObjectStorage":true,""" +
+        s""""buckets":[{"name":"photos","exposure":"public"}]}}"""
+    def photos = statusOf(name).flatMap(_.buckets.find(_.name == "photos"))
+
+    // Given a deployed service "listings" with a bucket and a public bucket "photos", both in Garage
+    startOperator(operatorSettings.copy(objectStoreBackend = Some(ObjectStoreBackend.Garage)))
+    try
+      apply("shop", logical, Some(json)): Unit
+      awaitReady("shop", name)
+      waitFor(60.seconds, s"$name and its photos reported in Garage") {
+        statusOf(name).flatMap(_.objectStore).contains("garage") &&
+        photos.exists(b => b.phase == "Provisioned" && b.store.contains("garage"))
+      }
+    finally startOperator(operatorSettings)
+    val inGarage = Buckets.named("shop", name, "photos")
+    keepIn(logical, "listing.json")
+    val (code, body) =
+      servicePods.s3("shop", name, "PUT", s"/$inGarage/front.jpg", Some("contents of front.jpg"))
+    assertEquals(code, 200, body)
+
+    // When a member moves the buckets of "listings" to Google Cloud Storage
+    move(logical, None)
+    awaitMoved(logical)
+
+    // Then the bucket of "listings" and the bucket "photos" are in Google Cloud Storage with their
+    // objects
+    waitFor(120.seconds, s"$name and its photos reported in Google Cloud Storage") {
+      statusOf(name).flatMap(_.objectStore).contains("gcs") &&
+      photos.exists(_.store.contains("gcs"))
+    }
+    val key    = secretKey(Buckets.cloudSecret(name))
+    val target = photos.flatMap(_.bucket).getOrElse(fail("no bucket reported for photos"))
+    assertNotEquals(target, inGarage)
+    assertEquals(
+      objectIn(reportedBucket(logical), "listing.json", key),
+      Some("contents of listing.json")
+    )
+    assertEquals(objectIn(target, "front.jpg", key), Some("contents of front.jpg"))
+    waitFor(300.seconds, s"$name's instances on both buckets in Google Cloud Storage") {
+      val env = servicePods.environment("shop", name)
+      env.get("ANKKA_S3_BUCKET").contains(reportedBucket(logical)) && env.values.exists(_ == target)
+    }
+
+    // And the status names the public address of "photos" in Google Cloud Storage
+    assertEquals(photos.flatMap(_.publicAddress), Some(s"${store.settings.endpoint}/$target"))
+  }

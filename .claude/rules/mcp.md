@@ -169,8 +169,10 @@ Traps:
   `mcp-protocol-version: 2025-06-18` and `sec-fetch-mode: cors`, no `Origin` and no session id, and
   needs nothing from `initialize` beyond the table above.
 - **Revoke to refusal** (`ClientKeysFeatures`, three kit instances, 2026-10-19): 7 to 9 ms on the
-  instance that revoked (the write-through), 507 to 536 ms on the other two, over two runs. The
-  k3s figure is `McpEndpointsClusterFeatures`' to record.
+  instance that revoked (the write-through), 507 to 536 ms on the other two, over two runs. On k3s
+  (`McpClientKeysClusterFeatures`, three pods, 2026-10-19, the time a prober pod saw): 90/390/430 ms
+  on arm64 and 110/140/380 ms on amd64, and 100/230/550 ms in an earlier amd64 run. Each run's figures
+  are in the order the instances refused; the bound is one second.
 - **Latency** (`McpLatencySuite`, `-Dankka.spikes=on`, 2026-10-19): one service on loopback, 200 reads
   of one cart after 100 to warm up, `GET /carts/{cartId}` median 0.89 ms against `get_cart` 0.67 ms
   (ratio 0.75; the bound is 1.5). The tool is not slower than the route it stands beside.

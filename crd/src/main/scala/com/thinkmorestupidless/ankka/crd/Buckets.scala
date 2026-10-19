@@ -23,7 +23,21 @@ object Buckets:
    */
   val SecretSuffix: String = "-storage"
 
+  /**
+   * The unnamed bucket's name, and the service's key's name in the store (feature 055, R8): one key
+   * per service, allowed on every bucket the platform made for it.
+   */
   def name(projectId: String, serviceName: String): String = s"$projectId.$serviceName"
+
+  /** The service's storage key's name in the store: the unnamed bucket's name, as it always was. */
+  def keyName(projectId: String, serviceName: String): String = name(projectId, serviceName)
+
+  /**
+   * A named bucket's name in the store (feature 055): a third part after the service's, joined by a
+   * dot as the first two are, so it cannot be another pair's unnamed bucket or another's named one.
+   */
+  def named(projectId: String, serviceName: String, bucket: String): String =
+    s"$projectId.$serviceName.$bucket"
 
   def secret(serviceName: String): String = s"$serviceName$SecretSuffix"
 
@@ -51,6 +65,17 @@ object Buckets:
       Vector(
         s"bucket name '$n' is ${n.length} characters, over the $MaxName character limit for a " +
           "bucket's name; a shorter service name or project id is the only fix"
+      )
+    else Vector.empty
+
+  /** Why this named bucket cannot be made, if it cannot: its name in the store is too long. */
+  def problems(projectId: String, serviceName: String, bucket: String): Vector[String] =
+    val n = named(projectId, serviceName, bucket)
+    if n.length > MaxName then
+      Vector(
+        s"buckets: '$bucket': bucket name '$n' is ${n.length} characters, over the $MaxName " +
+          "character limit for a bucket's name; a shorter bucket name, service name or project id " +
+          "is the only fix"
       )
     else Vector.empty
 

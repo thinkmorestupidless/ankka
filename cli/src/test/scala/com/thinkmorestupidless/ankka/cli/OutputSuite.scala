@@ -498,6 +498,78 @@ class OutputSuite extends munit.FunSuite:
     )
   }
 
+  // Feature 055: the contract's example, line for line.
+
+  test("each named bucket is one line: exposure, store bucket, address, and a kept one's note") {
+    val buckets = Vector(
+      BucketReport(
+        "photos",
+        "Provisioned",
+        Some("garage"),
+        Some("shop.listings.photos"),
+        "public",
+        Some("https://storage.example.com/shop.listings.photos")
+      ),
+      BucketReport(
+        "exports",
+        "Provisioned",
+        Some("garage"),
+        Some("shop.listings.exports"),
+        "signed",
+        Some("https://storage.example.com/shop.listings.exports")
+      ),
+      BucketReport("documents", "Provisioned", Some("garage"), Some("shop.listings.documents")),
+      BucketReport("archive", "Supplied", None, Some("acme-archive"), "supplied"),
+      BucketReport(
+        "old-photos",
+        "Kept",
+        Some("garage"),
+        Some("shop.listings.old-photos"),
+        "public",
+        kept = true
+      )
+    )
+    val rendered =
+      Output.service(status("listings").copy(buckets = buckets), Format.Table)
+    val lines = rendered.linesIterator.filter(_.startsWith("bucket ")).toVector
+    val cells = lines.map(_.split("\\s+").toVector)
+    assertEquals(
+      cells,
+      Vector(
+        Vector(
+          "bucket",
+          "photos",
+          "public",
+          "shop.listings.photos",
+          "https://storage.example.com/shop.listings.photos"
+        ),
+        Vector(
+          "bucket",
+          "exports",
+          "signed",
+          "shop.listings.exports",
+          "https://storage.example.com/shop.listings.exports"
+        ),
+        Vector("bucket", "documents", "private", "shop.listings.documents"),
+        Vector("bucket", "archive", "supplied", "acme-archive"),
+        Vector(
+          "bucket",
+          "old-photos",
+          "kept",
+          "shop.listings.old-photos",
+          "(no",
+          "longer",
+          "named)"
+        )
+      ),
+      rendered
+    )
+    // Columns line up, or it is not a table.
+    assertEquals(lines.map(_.indexOf("shop.listings.")).filter(_ >= 0).distinct.size, 1, rendered)
+    val plain = Output.service(status("listings"), Format.Table)
+    assert(!plain.linesIterator.exists(_.startsWith("bucket ")), plain)
+  }
+
   test(
     "a bucket in Google Cloud Storage says its store, location, window and a move, each when present"
   ) {

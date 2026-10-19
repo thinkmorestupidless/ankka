@@ -423,7 +423,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
 
 ### 6a. The descriptor, the resource, the control plane, the client by name (offline)
 
-- [ ] T030 [US4] In `API/descriptors.scala` add `Exposure` (`private | signed | public`, string
+- [X] T030 [US4] In `API/descriptors.scala` add `Exposure` (`private | signed | public`, string
   codec in its companion; named apart from the client's four-valued `BucketExposure`), `SuppliedBucket(endpoint, region, bucket, credential)`,
   `BucketSpec(name, exposure: BucketExposure = Private, origins: Vector[String] = Vector.empty, supplied: Option[SuppliedBucket] = None)`
   and `ServiceSpec.buckets: Vector[BucketSpec] = Vector.empty` beside `provisionObjectStorage`
@@ -441,7 +441,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   descriptor accepted; defaults omitted on the wire (`DescriptorSuite`'s round-trip style); a
   `BucketReport` round-trips; `DocumentationDescriptorsSuite` still reads every `service.json` under
   `DOCS/` (T106 adds one with buckets)
-- [ ] T031 [P] [US4] In `CRD/AnkkaService.scala` add `BucketSpec` and `SuppliedBucket` to
+- [X] T031 [P] [US4] In `CRD/AnkkaService.scala` add `BucketSpec` and `SuppliedBucket` to
   `AnkkaServiceSpec` as `buckets: List[BucketSpec] = Nil` (`:185` region) and
   `BucketStatus(name, phase, store, bucket, exposure, publicAddress, kept: Boolean = false, detail)`
   as `ObjectStorageStatus.buckets: List[BucketStatus] = Nil` (`:320`), phases `Waiting | Provisioned | Recovered | Supplied | Failed | Kept`
@@ -455,7 +455,7 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   status with `Kept` round-trips; an old resource without `buckets` decodes to `Nil`); extend
   `OPT/CrdSchemaSuite.scala` so the nested `items` of both lists are compared both ways, and scope its
   "phases equal to the database's" check to the unnamed block so `Kept` is not a finding
-- [ ] T032 [US4] Control plane projection and journal: `CP/deploy/ServiceProjection.scala` projects
+- [X] T032 [US4] Control plane projection and journal: `CP/deploy/ServiceProjection.scala` projects
   `buckets` into the resource field for field; `CP/domain/events.scala` `ServiceObserved` (`:491`)
   gains `buckets: Vector[BucketReport] = Vector.empty` and `CP/domain/model.scala` `Service.buckets`;
   `CP/deploy/StatusIngest.scala` (`:127`) reads `status.objectStorage.buckets` into `BucketReport`s;
@@ -470,18 +470,18 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   with `Kept` read); `CPT/ServiceEntitySuite.scala` (reissue refused with no made bucket, allowed
   with only a named one); `CPT/ReservedSecretNamesSuite.scala` (a supplied credential named
   `*-storage` refused as the reserved names are); an endpoint case for the missing-entry message
-- [ ] T033 [P] [US4] `CLI/Output.scala` (`:622` region) prints one `bucket <name> <exposure|supplied|kept> <bucket> [<address>] [(no longer named)]`
+- [X] T033 [P] [US4] `CLI/Output.scala` (`:622` region) prints one `bucket <name> <exposure|supplied|kept> <bucket> [<address>] [(no longer named)]`
   line per `BucketReport` after the unnamed bucket's lines as contracts/descriptor-and-status.md
   "What a member reads" shows; `CLI/ControlPlaneClient.scala` decodes `buckets`; `CLI/mcp/AnkkaTools.scala`'s
   `get_service` includes them. Case in the CLI's `OutputSuite`: the five lines from the contract's
   example, `kept` with its note, `services get` for a service without buckets unchanged
-- [ ] T034 [P] [US4] Console: `CON/src/client/schemas.ts` (`:228` region) adds `buckets` as an
+- [X] T034 [P] [US4] Console: `CON/src/client/schemas.ts` (`:228` region) adds `buckets` as an
   optional array of the report; `CON/src/routes/service.tsx` lists them under the bucket fact as a
   small table (name, exposure, store bucket, address as a link when present, "kept, no longer
   named"); `CON/src/testing/fake-control-plane.ts` and the fixtures under
   `CON/fixtures/control-plane/` carry a service with four buckets and one kept; a unit test for the
   rows and a Playwright assertion in the service page's spec. `just test-console`
-- [ ] T035 [US4] The client by name (FR-011): T017's `S3Bucket.url` for a `Public` named bucket is
+- [X] T035 [US4] The client by name (FR-011): T017's `S3Bucket.url` for a `Public` named bucket is
   `publicBase + "/" + name` with the name's segments URI-encoded, no request; T011's
   `ObjectStorages.build` maps every `NamedTarget` (made ones over the unnamed target's endpoint and
   key, supplied ones over their own); the refusals by exposure name the bucket's exposure

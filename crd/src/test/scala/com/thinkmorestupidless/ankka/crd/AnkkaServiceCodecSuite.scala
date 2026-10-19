@@ -386,3 +386,58 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
       0
     )
   }
+
+  // ── named buckets (feature 055) ───────────────────────────────────────────
+
+  test("a resource with named buckets round-trips, a supplied one among them") {
+    val spec = fullSpec.copy(
+      provisionObjectStorage = true,
+      buckets = List(
+        BucketSpec("photos", "public"),
+        BucketSpec("exports", "signed", List("https://app.example.com")),
+        BucketSpec("documents"),
+        BucketSpec(
+          "archive",
+          supplied = Some(
+            SuppliedBucket("https://s3.example.com", "eu-west-2", "acme-archive", "archive-store")
+          )
+        )
+      )
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(spec), classOf[AnkkaServiceSpec]),
+      spec
+    )
+  }
+
+  test("a resource from before named buckets has none, and one with none writes none") {
+    val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
+    assertEquals(serialization.unmarshal(sparse, classOf[AnkkaServiceSpec]).buckets, Nil)
+    val json = serialization.asJson(fullSpec)
+    assert(!json.contains("buckets"), json)
+    val status =
+      serialization.asJson(ObjectStorageStatus(phase = "Provisioned", bucket = "checkout.cart"))
+    assert(!status.contains("buckets"), status)
+  }
+
+  test("a status with a kept bucket round-trips") {
+    val status = ObjectStorageStatus(
+      phase = "Provisioned",
+      bucket = "checkout.cart",
+      buckets = List(
+        BucketStatus(
+          "photos",
+          "Provisioned",
+          "garage",
+          "checkout.cart.photos",
+          "public",
+          Some("https://storage.example.com/checkout.cart.photos")
+        ),
+        BucketStatus("old-photos", "Kept", "garage", "checkout.cart.old-photos", kept = true)
+      )
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(status), classOf[ObjectStorageStatus]),
+      status
+    )
+  }

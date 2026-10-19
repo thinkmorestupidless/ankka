@@ -249,6 +249,25 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         bucketLocation = Some("europe-west2"),
         softDeleteDays = Some(7),
         storageMove = Some("write pause"),
+        buckets = Vector(
+          BucketReport(
+            "photos",
+            "Provisioned",
+            Some("garage"),
+            Some("shop.cart.photos"),
+            "public",
+            Some("https://storage.example.com/shop.cart.photos")
+          ),
+          BucketReport("archive", "Supplied", None, Some("acme-archive"), "supplied"),
+          BucketReport(
+            "old-photos",
+            "Kept",
+            Some("garage"),
+            Some("shop.cart.old-photos"),
+            kept = true,
+            detail = Some("no longer named; kept")
+          )
+        ),
         grants = Some("mounted"),
         customHostnames = Vector(
           CustomHostname(

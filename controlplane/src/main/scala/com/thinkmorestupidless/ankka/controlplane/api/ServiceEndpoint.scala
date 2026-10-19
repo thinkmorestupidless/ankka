@@ -152,6 +152,20 @@ final class ServiceEndpoint(
           problems.mkString("invalid descriptor: ", "; ", ""),
           ErrorCode.BadRequest
         )
+      // Feature 055: a supplied bucket's credential is a project secret with the two entries the
+      // program is given, checked by name in the project's own record, never by reading a value.
+      val supplied = descriptor.service.buckets.filter(_.supplied.nonEmpty)
+      if supplied.nonEmpty then
+        val secrets = clients.componentClient
+          .forEventSourcedEntity(EntityId(projectId))
+          .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.secrets)
+          .invoke()
+        val missing = ServiceEndpoint.suppliedCredentialProblems(supplied, secrets)
+        if missing.nonEmpty then
+          throw CommandError(
+            missing.mkString("invalid descriptor: ", "; ", ""),
+            ErrorCode.BadRequest
+          )
       val key       = ServiceKey(projectId, name).id
       val instances = descriptor.service.resources.autoscaling.minInstances
       val previous  = usage.reserveService(authorized.organizationId, key, instances, by)
@@ -612,6 +626,34 @@ final class ServiceEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
 
 object ServiceEndpoint:
+
+  /** The entries a supplied bucket's project secret must have (feature 055). */
+  val SuppliedEntries: Vector[String] = Vector("access-key", "secret-key")
+
+  /**
+   * What is wrong with each supplied bucket's credential, by the project's record of its secrets'
+   * names and entries alone (feature 055). Empty when every one names a secret with both entries.
+   */
+  def suppliedCredentialProblems(
+      buckets: Vector[BucketSpec],
+      secrets: Vector[ProjectSecretSummary]
+  ): Vector[String] =
+    buckets.flatMap { bucket =>
+      bucket.supplied.toVector.flatMap { s =>
+        secrets.find(_.name == s.credential) match
+          case None =>
+            Vector(
+              s"buckets: '${bucket.name}': project secret '${s.credential}' does not exist; set " +
+                "it with the entries access-key and secret-key"
+            )
+          case Some(secret) =>
+            SuppliedEntries
+              .filterNot(secret.entries.contains)
+              .map(entry =>
+                s"buckets: '${bucket.name}': project secret '${s.credential}' has no entry '$entry'"
+              )
+      }
+    }
 
   /**
    * The other projects' topics the service's components read or publish to (feature 040), from the

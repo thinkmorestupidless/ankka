@@ -12,6 +12,7 @@ import type { CustomHostname, DnsRecord, ServiceStatus } from "../client/schemas
 import { Page, SectionTitle, ServiceSections } from "../ui/shell.tsx";
 import { Shape } from "../ui/shape.tsx";
 import { runsAs } from "../ui/hosting.ts";
+import { bucketRows } from "../ui/buckets.ts";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
@@ -332,6 +333,38 @@ export default function Service() {
             <>
               <dt>Bucket move</dt>
               <dd data-storage-move>{s.storageMove}</dd>
+            </>
+          ) : null}
+          {s.buckets && s.buckets.length > 0 ? (
+            <>
+              <dt>Named buckets</dt>
+              <dd>
+                <div className="ac-table-wrap">
+                <table className="ac-table" data-buckets>
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Exposure</th>
+                      <th scope="col">Bucket</th>
+                      <th scope="col">Address</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bucketRows(s.buckets).map((b) => (
+                      <tr key={b.name} data-bucket={b.name}>
+                        <th scope="row">{b.name}</th>
+                        <td data-bucket-exposure>{b.exposure}</td>
+                        <td>{b.bucket ?? ""}</td>
+                        <td>
+                          {b.address ? <a href={b.address}>{b.address}</a> : null}
+                          {b.note ? <span className="ac-hint" data-bucket-note>{b.note}</span> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </dd>
             </>
           ) : null}
           {s.broker ? (

@@ -544,6 +544,25 @@ object Output:
           .mkString("\n")
 
   /** One custom hostname, as `services get` shows it: where it stands, then the record. */
+  /**
+   * A named bucket's line (feature 055): its exposure, `supplied` or `kept`, its name in the store,
+   * where it is on the internet when it is, and a note on a bucket the descriptor no longer names.
+   */
+  private[cli] def bucketLines(buckets: Vector[BucketReport]): Vector[(String, String)] =
+    def word(b: BucketReport) =
+      if b.kept then "kept"
+      else if b.phase == "Supplied" || b.exposure == "supplied" then "supplied"
+      else b.exposure
+    val wordWidth   = buckets.map(word(_).length).maxOption.getOrElse(0)
+    val bucketWidth = buckets.map(_.bucket.getOrElse("").length).maxOption.getOrElse(0)
+    buckets.map { b =>
+      val tail = b.publicAddress.orElse(Option.when(b.kept)("(no longer named)"))
+      val line =
+        Vector(word(b).padTo(wordWidth, ' '), b.bucket.getOrElse("").padTo(bucketWidth, ' '))
+          .mkString("  ")
+      s"bucket ${b.name}" -> tail.fold(line)(t => s"$line  $t").stripTrailing
+    }
+
   private def customHostnameLines(h: CustomHostname): String =
     val stands = h.reason.fold(h.state)(r => s"${h.state}: $r")
     val point  = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
@@ -625,6 +644,8 @@ object Output:
           row.bucketLocation.map("bucket location" -> _) ++
           row.softDeleteDays.map(days => "soft delete" -> s"$days days") ++
           row.storageMove.map("storage move" -> _) ++
+          // Feature 055: one line per named bucket, kept ones last, columns aligned across them.
+          bucketLines(row.buckets) ++
           // Feature 040: whether a grant on the service's routes can reach its instances.
           row.grantsPhrase.map("grants" -> _) ++
           // Feature 040: each other project's topic, the right it needs, and whether it has it.

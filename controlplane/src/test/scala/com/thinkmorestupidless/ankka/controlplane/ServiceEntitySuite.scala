@@ -1277,3 +1277,36 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
       report.copy(hostnames = Vector(HostnameReport("app.example.com", "pending", Some("x"))))
     assertEquals(kit.call(ServiceEntity.observe)(pending).events.size, 1)
   }
+
+  // Feature 055: a credential covers the buckets the platform made, and only those.
+
+  private def withNamed(buckets: BucketSpec*) =
+    ApplyService(
+      "acme",
+      descriptor().copy(service = descriptor().service.copy(buckets = buckets.toVector))
+    )
+
+  test("a service with only a supplied bucket has no storage credential to issue again") {
+    val kit = newKit
+    val _ = kit.call(ServiceEntity.applyDescriptor)(
+      withNamed(
+        BucketSpec(
+          "archive",
+          supplied = Some(SuppliedBucket("https://s3.example", "eu-west-1", "theirs", "creds"))
+        )
+      )
+    )
+    val refused = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assert(refused.error.message.contains("no bucket the platform made"), refused.error.message)
+  }
+
+  test("a service with only a named bucket the platform made can have its credential reissued") {
+    val kit    = newKit
+    val _      = kit.call(ServiceEntity.applyDescriptor)(withNamed(BucketSpec("photos")))
+    val issued = kit.call(ServiceEntity.reissueStorageCredential)
+    assertEquals(
+      issued.events.collect { case e: StorageCredentialReissued => e.generation },
+      Vector(1)
+    )
+  }

@@ -46,22 +46,37 @@ object ServiceProjection:
       spec: com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec,
       config: DeployConfig
   ): Vector[String] =
-    if !spec.provisionObjectStorage then Vector.empty
-    else
-      config.objectStore match
-        case ObjectStoreKind.Garage =>
-          Buckets.problems(projectId, serviceName) ++
+    val unnamed =
+      if !spec.provisionObjectStorage then Vector.empty
+      else
+        config.objectStore match
+          case ObjectStoreKind.Garage =>
+            Buckets.problems(projectId, serviceName) ++
+              Option
+                .when(!spec.objectStorageCredential)(
+                  "objectStorageCredential: a bucket in Garage is reached only with a storage credential"
+                )
+                .toVector
+          case ObjectStoreKind.Gcs =>
             Option
-              .when(!spec.objectStorageCredential)(
-                "objectStorageCredential: a bucket in Garage is reached only with a storage credential"
+              .when(config.cloudProvider.isEmpty)(
+                "object storage 'gcs' needs a cloud provider, and the installation names none"
               )
               .toVector
+    // Feature 055: each named bucket the platform makes is named in the store as the unnamed one is,
+    // with its own name after the service's, and may be too long where the unnamed one is not.
+    val made = spec.buckets.filter(_.made)
+    val named =
+      config.objectStore match
+        case ObjectStoreKind.Garage =>
+          made.flatMap(b => Buckets.problems(projectId, serviceName, b.name))
         case ObjectStoreKind.Gcs =>
           Option
-            .when(config.cloudProvider.isEmpty)(
+            .when(made.nonEmpty && config.cloudProvider.isEmpty)(
               "object storage 'gcs' needs a cloud provider, and the installation names none"
             )
             .toVector
+    (unnamed ++ named).distinct
 
   private def objectStorageProblems(
       service: Service,
@@ -217,6 +232,19 @@ object ServiceProjection:
               objectStorageOrigins = descriptor.service.objectStorageOrigins.toList,
               objectStorageCredential = descriptor.service.objectStorageCredential,
               objectStorageVersionAgeDays = descriptor.service.objectStorageVersionAgeDays,
+              // Feature 055: the named buckets field for field; a made one's name in the store is
+              // the operator's to derive, as the unnamed one's is.
+              buckets = descriptor.service.buckets.toList.map(b =>
+                com.thinkmorestupidless.ankka.crd.BucketSpec(
+                  b.name,
+                  b.exposure.word,
+                  b.origins.toList,
+                  b.supplied.map(s =>
+                    com.thinkmorestupidless.ankka.crd
+                      .SuppliedBucket(s.endpoint, s.region, s.bucket, s.credential)
+                  )
+                )
+              ),
               databaseCluster = service.databaseCluster,
               // Whole, whether or not exposed: the operator renders them only while it is, so an
               // unexposed service keeps its names and exposing it again brings them back.

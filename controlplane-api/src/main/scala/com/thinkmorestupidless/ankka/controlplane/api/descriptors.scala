@@ -290,7 +290,13 @@ final case class ServiceSpec(
      * After how many days a noncurrent version of an object is deleted (feature 039), on a store
      * that keeps versions. Accepted, and without effect, on Garage, which keeps one.
      */
-    objectStorageVersionAgeDays: Option[Int] = None
+    objectStorageVersionAgeDays: Option[Int] = None,
+    /**
+     * The service's named buckets, beside the unnamed one (feature 055), each reached by its name
+     * from the storage client: one the platform makes, reached as its `exposure` says, or one the
+     * developer made and `supplied`. Accepted without `provisionObjectStorage`.
+     */
+    buckets: Vector[BucketSpec] = Vector.empty
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -502,7 +508,21 @@ final case class ServiceSpec(
       .filter(_ < 1)
       .map(d => s"objectStorageVersionAgeDays is $d; it must be one or more")
       .toVector
-    both ++ exposed ++ needsBucket ++ origins ++ age
+    // Feature 055: a named bucket and a store of one's own are, likewise, two different services.
+    val ownBeside =
+      if buckets.nonEmpty && !provisionObjectStorage then
+        own.map(name =>
+          s"buckets cannot be combined with env var '$name', which supplies an object store of " +
+            "the service's own"
+        )
+      else Vector.empty
+    val repeated = buckets
+      .groupBy(_.name)
+      .collect { case (name, named) if named.sizeIs > 1 => s"buckets: '$name' is named twice" }
+      .toVector
+      .sorted
+    both ++ exposed ++ needsBucket ++ origins ++ age ++ ownBeside ++ repeated ++
+      buckets.flatMap(_.problems)
 
   /**
    * What only a web-hosted service may say, and what it may not (feature 021). Empty for a service
@@ -861,6 +881,136 @@ enum ServiceLifecycle:
    */
   case Suspended
 
+/**
+ * How a bucket the platform makes is reached (feature 055): `private` by the service alone,
+ * `signed` through URLs it signs, `public` by anyone at its address. Named apart from the storage
+ * client's `BucketExposure`, which has a fourth word, `supplied`, for a bucket the platform does
+ * not make.
+ */
+enum Exposure:
+  case Private, Signed, Public
+
+  def word: String = toString.toLowerCase(java.util.Locale.ROOT)
+
+object Exposure:
+
+  def byWord(word: String): Option[Exposure] = values.find(_.word == word)
+
+  /** A plain word on the wire, as `ServiceLifecycle` is, for the same reason. */
+  given codec: JsonValueCodec[Exposure] = new JsonValueCodec[Exposure]:
+    def decodeValue(in: JsonReader, default: Exposure): Exposure =
+      val word = in.readString(null)
+      byWord(word).getOrElse(
+        in.decodeError(s"exposure '$word' is not one of private, signed or public")
+      )
+    def encodeValue(x: Exposure, out: JsonWriter): Unit = out.writeVal(x.word)
+    def nullValue: Exposure                             = null.asInstanceOf[Exposure]
+
+/**
+ * A bucket the developer made, in a store of their choosing (feature 055): where it is, and the
+ * project secret whose entries `access-key` and `secret-key` reach it. The platform makes nothing
+ * for it and never reads the secret; it is handed to the program by reference.
+ */
+final case class SuppliedBucket(
+    endpoint: String = "",
+    region: String = "",
+    bucket: String = "",
+    credential: String = ""
+)
+
+/**
+ * One of a service's named buckets (feature 055).
+ *
+ * @param name
+ *   what the storage client reaches it by: lower-case letters, digits and `-`, 1 to 32 characters
+ * @param exposure
+ *   how a bucket the platform makes is reached; a supplied bucket's is the store's
+ * @param origins
+ *   the origins a browser may send from, on a `signed` bucket
+ * @param supplied
+ *   present for a bucket the developer made
+ */
+final case class BucketSpec(
+    name: String,
+    exposure: Exposure = Exposure.Private,
+    origins: Vector[String] = Vector.empty,
+    supplied: Option[SuppliedBucket] = None
+):
+
+  /** Whether the platform makes this bucket. */
+  def made: Boolean = supplied.isEmpty
+
+  def problems: Vector[String] =
+    val named = BucketSpec
+      .nameProblem(name)
+      .map(p => s"buckets: $p")
+      .toVector
+    val notSigned =
+      Option
+        .when(origins.nonEmpty && exposure != Exposure.Signed)(
+          s"buckets: '$name' names origins but is not signed"
+        )
+        .toVector
+    val badOrigins =
+      origins.filterNot(ServiceSpec.isOrigin).map(o => s"buckets: '$name': '$o' is not an origin")
+    val supply = supplied.toVector.flatMap { s =>
+      val exposed =
+        Option
+          .when(exposure != Exposure.Private)(
+            s"buckets: '$name' is supplied; its exposure is the store's"
+          )
+          .toVector
+      val missing =
+        Option
+          .when(Seq(s.endpoint, s.region, s.bucket, s.credential).exists(_.trim.isEmpty))(
+            s"buckets: '$name' needs endpoint, region, bucket and credential"
+          )
+          .toVector
+      val credential =
+        if s.credential.trim.isEmpty then Vector.empty
+        else ProjectSecrets.nameProblems(s.credential).map(p => s"buckets: '$name': $p")
+      exposed ++ missing ++ credential
+    }
+    named ++ notSigned ++ badOrigins ++ supply
+
+object BucketSpec:
+
+  /**
+   * The storage client's rule for a bucket's name (`ObjectRules.bucketNameProblem` in the SDK),
+   * copied because this module sees `core` only; both are held to `protocol/fixtures/storage/`.
+   */
+  val NameRule: String  = "lower-case letters, digits and '-', 1 to 32 characters"
+  private val ValidName = "[a-z0-9-]{1,32}".r
+  def nameProblem(name: String): Option[String] =
+    Option.when(!ValidName.matches(name))(s"'$name' is not a bucket name: $NameRule")
+
+/**
+ * What the platform did about one named bucket (feature 055), as the operator reported it.
+ *
+ * @param phase
+ *   `Waiting`, `Provisioned`, `Recovered`, `Supplied`, `Failed` or `Kept`
+ * @param store
+ *   `garage` or `gcs`; absent for a supplied bucket
+ * @param bucket
+ *   its name in the store
+ * @param exposure
+ *   `private`, `signed`, `public`, or `supplied`
+ * @param publicAddress
+ *   where a public or signed bucket is on the internet
+ * @param kept
+ *   true for a bucket the descriptor stopped naming, which the platform keeps
+ */
+final case class BucketReport(
+    name: String,
+    phase: String,
+    store: Option[String] = None,
+    bucket: Option[String] = None,
+    exposure: String = "private",
+    publicAddress: Option[String] = None,
+    kept: Boolean = false,
+    detail: Option[String] = None
+)
+
 object ServiceLifecycle:
 
   def byName(name: String): Option[ServiceLifecycle] = values.find(_.toString == name)
@@ -1017,6 +1167,11 @@ final case class ServiceStatus(
      * `verifying`, `moved`, `move failed`. Its detail is in `detail`.
      */
     storageMove: Option[String] = None,
+    /**
+     * Each named bucket (feature 055), in the order the descriptor names them, then each the
+     * platform keeps after the descriptor stopped naming it.
+     */
+    buckets: Vector[BucketReport] = Vector.empty,
     /**
      * The project database cluster the service is switched to (feature 041): a restore, or one it
      * left. Absent is the project database.

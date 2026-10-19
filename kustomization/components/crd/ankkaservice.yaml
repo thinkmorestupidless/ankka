@@ -283,6 +283,44 @@ spec:
                       type: integer
                     writePauseBound:
                       type: string
+                buckets:
+                  type: array
+                  description: >-
+                    The service's named buckets (feature 055), beside the unnamed one. A made
+                    bucket's name in the store is derived by the operator, never carried here.
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: What the storage client reaches the bucket by.
+                      exposure:
+                        type: string
+                        enum:
+                          - private
+                          - signed
+                          - public
+                        description: How a bucket the platform makes is reached.
+                      origins:
+                        type: array
+                        items:
+                          type: string
+                        description: The origins a browser may send from to a signed bucket.
+                      supplied:
+                        type: object
+                        description: >-
+                          A bucket the developer made; the platform makes nothing for it and hands
+                          the program the project secret's entries by reference.
+                        properties:
+                          endpoint:
+                            type: string
+                          region:
+                            type: string
+                          bucket:
+                            type: string
+                          credential:
+                            type: string
+                            description: The project secret holding entries access-key and secret-key.
                 databaseCluster:
                   type: string
                   description: >-
@@ -427,6 +465,41 @@ spec:
                           type: string
                         detail:
                           type: string
+                    buckets:
+                      type: array
+                      description: >-
+                        Each named bucket (feature 055), then each the descriptor stopped naming,
+                        which the platform keeps.
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          phase:
+                            type: string
+                            enum:
+                              - Waiting
+                              - Provisioned
+                              - Recovered
+                              - Supplied
+                              - Failed
+                              - Kept
+                          store:
+                            type: string
+                            description: garage or gcs; empty for a supplied bucket.
+                          bucket:
+                            type: string
+                            description: Its name in the store.
+                          exposure:
+                            type: string
+                            description: private, signed, public or supplied.
+                          publicAddress:
+                            type: string
+                          kept:
+                            type: boolean
+                            description: True for a bucket the descriptor stopped naming.
+                          detail:
+                            type: string
                 grants:
                   type: string
                   description: mounted once the service is rendered with the project's ConfigMap,

@@ -39,8 +39,11 @@ object StorageMove:
     /** Not every request is answered yet; the detail says which, when one says why. */
     case Waiting(detail: Option[String])
 
-    /** The bucket and its credential are made; `bucket` is its name as the provider reported it. */
-    case Ready(bucket: String)
+    /**
+     * Every target bucket and their credential are made; `buckets` are their names as the provider
+     * reported them, the unnamed bucket's first, then each named one the move takes (feature 055).
+     */
+    case Ready(buckets: Vector[String])
 
     case Failed(detail: String)
 
@@ -66,20 +69,20 @@ object StorageMove:
     /** Keep the bucket and credential requests in Google Cloud Storage asked for. */
     case AskForBucket
 
-    /** Run (or keep) the copy Job into `bucket`. */
-    case Copy(bucket: String)
+    /** Run (or keep) the copy Job into `buckets`, pair by pair. */
+    case Copy(buckets: Vector[String])
 
-    /** Take write from the service's key in Garage. */
+    /** Take write from the service's key in Garage, on every bucket the move takes. */
     case PauseWrites
 
     /** Run (or keep) the verify Job, which Kubernetes stops after `deadlineSeconds`. */
-    case Verify(bucket: String, deadlineSeconds: Long)
+    case Verify(buckets: Vector[String], deadlineSeconds: Long)
 
     /** Give the service's key in Garage its writes back. */
     case ResumeWrites
 
-    /** Give the service the variables of its bucket in Google Cloud Storage. */
-    case Switch(bucket: String)
+    /** Give the service the variables of its buckets in Google Cloud Storage. */
+    case Switch(buckets: Vector[String])
 
   final case class Step(status: Option[MoveStatus], actions: Vector[Act])
 
@@ -146,13 +149,13 @@ object StorageMove:
     val bound   = s.pauseBound.orElse(Some(asked.writePauseBound)).flatMap(seconds).getOrElse(600L)
     val elapsed = s.pauseStartedAt.map(at => Duration.between(Instant.parse(at), o.now).getSeconds)
     val bucket = o.requests match
-      case Requests.Ready(name) => Some(name)
-      case _                    => None
+      case Requests.Ready(names) => Some(names)
+      case _                     => None
     State.valueOf(s.state) match
       case State.Requested =>
         o.requests match
-          case Requests.Ready(name) =>
-            Step(to(State.Copying), Vector(Act.AskForBucket, Act.Copy(name)))
+          case Requests.Ready(names) =>
+            Step(to(State.Copying), Vector(Act.AskForBucket, Act.Copy(names)))
           case Requests.Failed(detail) => Step(failed(detail), Vector.empty)
           case Requests.Waiting(_)     => Step(Some(s), Vector(Act.AskForBucket))
 

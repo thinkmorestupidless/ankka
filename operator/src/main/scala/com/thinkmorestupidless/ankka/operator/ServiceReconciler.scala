@@ -156,7 +156,8 @@ final class ServiceReconciler(
           m.step.actions,
           m.target,
           m.bucket.requests,
-          ObjectStorage.inPlace(resource)
+          ObjectStorage.inPlace(resource),
+          m.moved
         )
       ),
       secretHold,
@@ -341,8 +342,10 @@ final class ServiceReconciler(
       request <- spec.objectStorageMove
       if !current.exists(_.state == StorageMove.State.Switched.toString)
     yield
-      val pass               = cloudBucketPass(ref, resource, spec, cloud, true, Vector.empty)
-      val (requests, target) = ObjectStorage.moveRequests(pass.plans)
+      val moved = ObjectStorage.movedNamed(spec, ObjectStorage.reported(resource))
+      val pass  = cloudBucketPass(ref, resource, spec, cloud, true, moved)
+      val (requests, target) =
+        ObjectStorage.moveRequests(pass.plans, moved.flatMap(b => pass.named.get(b.name)))
       val phase = current.map(_.state) match
         case Some(s) if s == StorageMove.State.Copying.toString   => Some(MovePhase.Copy)
         case Some(s) if s == StorageMove.State.Verifying.toString => Some(MovePhase.Verify)
@@ -358,7 +361,7 @@ final class ServiceReconciler(
         current,
         StorageMove.MoveObservation(requests, job, Instant.now(clock))
       )
-      ServiceReconciler.MovePass(pass, step, target, request.generation)
+      ServiceReconciler.MovePass(pass, step, target, request.generation, moved.map(_.name))
 
   private def cloudBucketPass(
       ref: ServiceRef,
@@ -674,8 +677,10 @@ object ServiceReconciler:
   final case class MovePass(
       bucket: CloudBucketPass,
       step: StorageMove.Step,
-      target: Option[CloudBucket],
-      generation: Int
+      target: Vector[CloudBucket],
+      generation: Int,
+      /** The named buckets the move takes, by their descriptor names (feature 055). */
+      moved: Vector[String] = Vector.empty
   )
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
     new ServiceReconciler(client, settings, Fabric8Executor.of(client, settings))

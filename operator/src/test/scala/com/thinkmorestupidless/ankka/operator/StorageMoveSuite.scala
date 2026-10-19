@@ -16,7 +16,7 @@ class StorageMoveSuite extends munit.FunSuite:
 
   private def observed(
       at: Instant = t0,
-      requests: Requests = Requests.Ready("t-casino-kyc-3f9a1c2e"),
+      requests: Requests = Requests.Ready(Vector("t-casino-kyc-3f9a1c2e")),
       job: JobOutcome = JobOutcome.Absent
   ) = MoveObservation(requests, job, at)
 
@@ -51,7 +51,7 @@ class StorageMoveSuite extends munit.FunSuite:
   test("once the bucket and its credential are ready, the copy starts") {
     val step = StorageMove.next(Some(request), Some(state(State.Requested)), observed())
     assertEquals(step.status.map(_.state), Some("Copying"))
-    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Copy("t-casino-kyc-3f9a1c2e")))
+    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Copy(Vector("t-casino-kyc-3f9a1c2e"))))
   }
 
   test("a bucket the cloud provider cannot make fails the move with its words") {
@@ -72,7 +72,7 @@ class StorageMoveSuite extends munit.FunSuite:
       observed(job = JobOutcome.Running)
     )
     assertEquals(step.status.map(_.state), Some("Copying"))
-    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Copy("t-casino-kyc-3f9a1c2e")))
+    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Copy(Vector("t-casino-kyc-3f9a1c2e"))))
   }
 
   test("a copy that succeeded pauses the service's writes and records when and for how long") {
@@ -116,7 +116,7 @@ class StorageMoveSuite extends munit.FunSuite:
       Vector(
         Act.AskForBucket,
         Act.PauseWrites,
-        Act.Verify("t-casino-kyc-3f9a1c2e", deadlineSeconds = 540)
+        Act.Verify(Vector("t-casino-kyc-3f9a1c2e"), deadlineSeconds = 540)
       )
     )
   }
@@ -129,7 +129,10 @@ class StorageMoveSuite extends munit.FunSuite:
     )
     assertEquals(step.status.map(_.state), Some("Switched"))
     assertEquals(step.status.flatMap(_.verified), Some(3))
-    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Switch("t-casino-kyc-3f9a1c2e")))
+    assertEquals(
+      step.actions,
+      Vector(Act.AskForBucket, Act.Switch(Vector("t-casino-kyc-3f9a1c2e")))
+    )
   }
 
   test(
@@ -171,7 +174,10 @@ class StorageMoveSuite extends munit.FunSuite:
       observed(at = t0.plusSeconds(3600))
     )
     assertEquals(step.status.map(_.state), Some("Switched"))
-    assertEquals(step.actions, Vector(Act.AskForBucket, Act.Switch("t-casino-kyc-3f9a1c2e")))
+    assertEquals(
+      step.actions,
+      Vector(Act.AskForBucket, Act.Switch(Vector("t-casino-kyc-3f9a1c2e")))
+    )
   }
 
   test("a failed move stays failed until it is asked for again, and then starts afresh") {
@@ -219,5 +225,51 @@ class StorageMoveSuite extends munit.FunSuite:
       Some(state(State.Pausing, pauseStartedAt = Some(t0))),
       observed(at = t0.plusSeconds(600))
     )
-    assert(step.actions.contains(Act.Verify("t-casino-kyc-3f9a1c2e", 1)), step.toString)
+    assert(step.actions.contains(Act.Verify(Vector("t-casino-kyc-3f9a1c2e"), 1)), step.toString)
+  }
+
+  // Feature 055: a service's buckets are moved together, every target named in each act.
+
+  private val three = Vector("t-casino-kyc-1", "t-casino-kyc-photos-2", "t-casino-kyc-uploads-3")
+
+  test("055: a move of several buckets copies, verifies and switches every one of them") {
+    val ready = observed(requests = Requests.Ready(three))
+    assertEquals(
+      StorageMove.next(Some(request), Some(state(State.Requested)), ready).actions,
+      Vector(Act.AskForBucket, Act.Copy(three))
+    )
+    assert(
+      StorageMove
+        .next(
+          Some(request),
+          Some(state(State.Pausing, pauseStartedAt = Some(t0))),
+          observed(at = t0.plusSeconds(60), requests = Requests.Ready(three))
+        )
+        .actions
+        .contains(Act.Verify(three, deadlineSeconds = 540))
+    )
+    assertEquals(
+      StorageMove
+        .next(
+          Some(request),
+          Some(state(State.Verifying, pauseStartedAt = Some(t0))),
+          observed(
+            at = t0.plusSeconds(120),
+            requests = Requests.Ready(three),
+            job = JobOutcome.Succeeded(done)
+          )
+        )
+        .actions,
+      Vector(Act.AskForBucket, Act.Switch(three))
+    )
+  }
+
+  test("055: while any one target is unanswered, the copy waits") {
+    val step = StorageMove.next(
+      Some(request),
+      Some(state(State.Requested)),
+      observed(requests = Requests.Waiting(Some("t-casino-kyc-photos-2 is being made")))
+    )
+    assertEquals(step.status.map(_.state), Some("Requested"))
+    assertEquals(step.actions, Vector(Act.AskForBucket))
   }

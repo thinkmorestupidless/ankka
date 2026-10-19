@@ -612,22 +612,33 @@ object Rendering:
       settings: Settings,
       move: Int,
       acts: Vector[StorageMove.Act],
-      target: Option[CloudBucket],
+      targets: Vector[CloudBucket],
       requests: Vector[com.thinkmorestupidless.ankka.crd.CloudResource],
-      keyGeneration: Int
+      keyGeneration: Int,
+      moved: Vector[String] = Vector.empty
   ): Vector[Action] =
     val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    // The named buckets the move takes, by their names in Garage (feature 055, R11): the pause is
+    // on every one of them, under the one key.
+    val named = moved.map(Buckets.named(spec.projectId, spec.serviceName, _))
+    val pairs = (bucket +: named).zip(targets.map(_.bucket))
     def job(phase: MovePhase, deadline: Option[Long]) =
-      target.map(t =>
-        Action.EnsureMoveJob(moveJob(resource, spec, namespace, settings, move, phase, t, deadline))
-      )
+      targets.headOption
+        .filter(_ => targets.size == named.size + 1)
+        .map(t =>
+          Action.EnsureMoveJob(
+            moveJob(resource, spec, namespace, settings, move, phase, t, deadline, pairs)
+          )
+        )
     acts.distinct.flatMap {
-      case StorageMove.Act.AskForBucket       => requests.map(Action.EnsureCloudResource(_))
-      case StorageMove.Act.Copy(_)            => job(MovePhase.Copy, None).toVector
-      case StorageMove.Act.PauseWrites        => Vector(Action.PauseWrites(bucket, keyGeneration))
+      case StorageMove.Act.AskForBucket => requests.map(Action.EnsureCloudResource(_))
+      case StorageMove.Act.Copy(_)      => job(MovePhase.Copy, None).toVector
+      case StorageMove.Act.PauseWrites =>
+        Vector(Action.PauseWrites(bucket, keyGeneration, named.toList))
       case StorageMove.Act.Verify(_, seconds) => job(MovePhase.Verify, Some(seconds)).toVector
-      case StorageMove.Act.ResumeWrites       => Vector(Action.ResumeWrites(bucket, keyGeneration))
-      case StorageMove.Act.Switch(_)          => Vector.empty
+      case StorageMove.Act.ResumeWrites =>
+        Vector(Action.ResumeWrites(bucket, keyGeneration, named.toList))
+      case StorageMove.Act.Switch(_) => Vector.empty
     }
 
   def moveJob(
@@ -638,9 +649,14 @@ object Rendering:
       move: Int,
       phase: MovePhase,
       target: CloudBucket,
-      deadlineSeconds: Option[Long]
+      deadlineSeconds: Option[Long],
+      pairs: Vector[(String, String)] = Vector.empty
   ): io.fabric8.kubernetes.api.model.batch.v1.Job =
     val source = settings.objectStore
+    // Parallel lists, the unnamed bucket first (feature 055); one pair when no named bucket moves.
+    val moving =
+      if pairs.nonEmpty then pairs
+      else Vector(Buckets.name(spec.projectId, spec.serviceName) -> target.bucket)
     def literal(name: String, value: String) =
       new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(name).withValue(value).build()
     def fromSecret(name: String, secret: String, key: String) =
@@ -660,7 +676,7 @@ object Rendering:
     val env = Vector(
       literal("MOVER_SOURCE_ENDPOINT", source.map(_.endpoint).getOrElse("")),
       literal("MOVER_SOURCE_REGION", source.map(_.region).getOrElse("")),
-      literal("MOVER_SOURCE_BUCKET", Buckets.name(spec.projectId, spec.serviceName)),
+      literal("MOVER_SOURCE_BUCKETS", moving.map(_._1).mkString(",")),
       fromSecret(
         "MOVER_SOURCE_ACCESS_KEY",
         Buckets.secret(spec.serviceName),
@@ -673,7 +689,7 @@ object Rendering:
       ),
       literal("MOVER_TARGET_ENDPOINT", target.endpoint),
       literal("MOVER_TARGET_REGION", target.region),
-      literal("MOVER_TARGET_BUCKET", target.bucket),
+      literal("MOVER_TARGET_BUCKETS", moving.map(_._2).mkString(",")),
       fromSecret(
         "MOVER_TARGET_ACCESS_KEY",
         Buckets.cloudSecret(spec.serviceName),

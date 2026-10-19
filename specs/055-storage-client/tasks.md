@@ -570,25 +570,25 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
 
 ### 6c. The cloud path and the move
 
-- [ ] T043 [P] [US4] `OP/CloudRequests.scala`: the bucket request's `Keys.parameters` (`:50`) gains
+- [X] T043 [P] [US4] `OP/CloudRequests.scala`: the bucket request's `Keys.parameters` (`:50`) gains
   `name` and `public`, its outputs `publicUrl`; the credential request's `bucket` (`:40`) becomes
   `buckets` (comma-separated); a named bucket's request is `Requester.name("bucket-<name>")` so it
   is `<service>-bucket-<name>`; renderers in `OPT/CloudRequestsSuite.scala` hold the closed set.
   Cases: a named public bucket's request field for field; the credential request over three
   buckets; the unnamed bucket's request unchanged byte for byte
-- [ ] T044 [P] [US4] The scripted provider implements both amendments: `OPT/cloud/ScriptedFulfilment.scala`
+- [X] T044 [P] [US4] The scripted provider implements both amendments: `OPT/cloud/ScriptedFulfilment.scala`
   and `OPT/cloud/ScriptedCloudProvider.scala` make a bucket per `name`, mark `public` and answer
   `publicUrl` (Garage-backed mode: the web route's address; pure mode: `https://storage.googleapis.com/<bucket>`),
   grant the one identity on every bucket in `buckets`; `OPT/BucketNames.scala` derives the cloud
   bucket's name for a named bucket as 039 derives the unnamed one's with `-<name>` appended within
   the limit. Cases in `OPT/ScriptedCloudProviderSuite.scala`
-- [ ] T045 [US4] `OP/ServiceReconciler.scala` `decideCloudBucket` (`:253`) issues one bucket request
+- [X] T045 [US4] `OP/ServiceReconciler.scala` `decideCloudBucket` (`:253`) issues one bucket request
   per named made bucket with `name` and `public`, the credential request over the list, and reads
   `publicUrl` into `ANKKA_S3_PUBLIC_URL_<NAME>` and `BucketStatus.publicAddress`; a bucket named
   during a move is `Waiting` until `Switched`, then made in the target store (R11). Cases in
   `OPT/ServiceReconcilerCloudSuite.scala`: three requests for three buckets; the credential's list;
   `publicUrl` into the variable; `Waiting` during a move
-- [ ] T046 [P] [US4] The move over every bucket: `OP/StorageMove.scala` holds the list of made
+- [X] T046 [P] [US4] The move over every bucket: `OP/StorageMove.scala` holds the list of made
   buckets in its state and `Act.Copy(buckets)`; `OP/Rendering.scala`'s move job renders
   `MOVER_SOURCE_BUCKETS` and `MOVER_TARGET_BUCKETS` (parallel, the unnamed first when present);
   `MOVER/Main.scala` reads the lists, accepting the old single names as one-element lists; `MOVER/Mover.scala`
@@ -596,6 +596,10 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   (pause denies on every bucket, `Switched` switches all), `OPT/MoveJobRenderingSuite.scala` (the
   two lists), `MOVER/MoverSuite.scala` against two Garage containers (three pairs copied and
   verified; a missing target bucket names the pair; the old names still work)
+  *As built:* the move's named buckets are read each pass from the status (`ObjectStorage.movedNamed`:
+  those reported made in Garage) rather than kept in the move's state, so the resource's schema is
+  unchanged; a bucket named during the move is not made and waits for it. A missing target bucket is a
+  failed object (exit 1) as in feature 039, its reason naming the pair.
 - [ ] T047 [US4] Extend `CPT/ObjectStorageGcsClusterFeatures.scala` with the scripted provider in its
   Garage-backed mode: a service with the unnamed bucket and two named ones moved to the cloud as one
   move, every object present in each target bucket, the status naming each bucket's new store; bind

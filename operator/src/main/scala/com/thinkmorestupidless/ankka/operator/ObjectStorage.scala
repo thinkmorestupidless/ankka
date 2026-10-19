@@ -311,14 +311,36 @@ object ObjectStorage:
    * What a move's target bucket has been answered (feature 039), as the move reads it: the bucket
    * as the cloud provider made it once its identity, bucket and credential are all answered.
    */
-  def moveRequests(plans: CloudBucketPlans): (StorageMove.Requests, Option[CloudBucket]) =
-    fold(plans, credentialAsked = true) match
-      case ObjectStoragePlan.Ready(_, Some(bucket)) =>
-        StorageMove.Requests.Ready(bucket.bucket) -> Some(bucket)
-      case ObjectStoragePlan.Failed(problems) =>
-        StorageMove.Requests.Failed(problems.mkString("; ")) -> None
-      case ObjectStoragePlan.Waiting(detail) => StorageMove.Requests.Waiting(detail) -> None
-      case _                                 => StorageMove.Requests.Waiting(None)   -> None
+  def moveRequests(
+      plans: CloudBucketPlans,
+      named: Vector[CloudBucketPlans] = Vector.empty
+  ): (StorageMove.Requests, Vector[CloudBucket]) =
+    // The unnamed bucket's target first, then each named one's (feature 055): ready only when all
+    // are, refused when any is, else waiting on the first that says why.
+    val folded = (plans +: named).map(fold(_, credentialAsked = true))
+    val made   = folded.collect { case ObjectStoragePlan.Ready(_, Some(bucket)) => bucket }
+    folded.collectFirst { case ObjectStoragePlan.Failed(problems) => problems } match
+      case Some(problems) => StorageMove.Requests.Failed(problems.mkString("; ")) -> Vector.empty
+      case None if made.size == folded.size =>
+        StorageMove.Requests.Ready(made.map(_.bucket)) -> made
+      case None =>
+        val said = folded.collectFirst { case ObjectStoragePlan.Waiting(Some(d)) => d }
+        StorageMove.Requests.Waiting(said) -> Vector.empty
+
+  /**
+   * The named buckets a move takes (feature 055, R11): every bucket the descriptor names that the
+   * platform made in Garage. One named during the move is not made, and waits for it.
+   */
+  def movedNamed(
+      spec: AnkkaServiceSpec,
+      reported: Option[ObjectStorageStatus]
+  ): Vector[BucketSpec] =
+    val last = reported.toList.flatMap(_.buckets).map(b => b.name -> b).toMap
+    spec.buckets.toVector.filter(b =>
+      b.made && last
+        .get(b.name)
+        .exists(r => (r.phase == "Provisioned" || r.phase == "Recovered") && r.store == "garage")
+    )
 
   /**
    * The annotations the cloud provider's answer for the service's cloud identity says its

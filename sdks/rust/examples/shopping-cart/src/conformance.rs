@@ -1184,6 +1184,79 @@ impl ServiceCallRecord {
     }
 }
 
+/// What a `/conformance/storage` call did, the same record in every language's reference: `outcome`
+/// is `ok`, `absent` (a get or a stat found nothing) or `refused`; a refusal's `code` is the
+/// protocol's word for it and `message` its text. A get answers the object's `contentType`, `text`
+/// and `length`; a stat its `contentType` and `length`; a listing its `names`; `url` and
+/// `signed-url` the address.
+#[derive(Debug, Default, Serialize)]
+pub struct StorageRecord {
+    pub outcome: String,
+    pub code: String,
+    pub message: String,
+    #[serde(rename = "contentType")]
+    pub content_type: String,
+    pub text: String,
+    pub length: u64,
+    pub names: Vec<String>,
+    pub url: String,
+}
+
+impl StorageRecord {
+    fn ok() -> StorageRecord {
+        StorageRecord {
+            outcome: "ok".into(),
+            ..Default::default()
+        }
+    }
+
+    fn absent() -> StorageRecord {
+        StorageRecord {
+            outcome: "absent".into(),
+            ..Default::default()
+        }
+    }
+
+    fn url(url: String) -> StorageRecord {
+        StorageRecord {
+            url,
+            ..StorageRecord::ok()
+        }
+    }
+
+    fn refused(code: ErrorCode, message: impl Into<String>) -> StorageRecord {
+        StorageRecord {
+            outcome: "refused".into(),
+            code: code_word(code),
+            message: message.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The record either way: every refusal is a record, not a status.
+    fn of(answered: Result<StorageRecord, StorageError>) -> StorageRecord {
+        answered.unwrap_or_else(StorageRecord::from)
+    }
+}
+
+impl From<StorageError> for StorageRecord {
+    fn from(error: StorageError) -> StorageRecord {
+        StorageRecord::refused(error.code(), error.message())
+    }
+}
+
+/// `BadRequest` as the protocol says it: `BAD_REQUEST`.
+fn code_word(code: ErrorCode) -> String {
+    let mut word = String::new();
+    for (i, c) in format!("{code:?}").chars().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            word.push('_');
+        }
+        word.push(c.to_ascii_uppercase());
+    }
+    word
+}
+
 pub struct ConformanceEndpoint;
 
 impl ConformanceEndpoint {
@@ -1330,6 +1403,90 @@ impl ConformanceEndpoint {
         Ok(Done)
     }
     // docs:end secrets
+
+    // docs:start storage
+    // The service's buckets. `bucket` names one (absent: the unnamed bucket) and `name` the object;
+    // `op` is get, stat, list (under `prefix`), url or signed-url (`access` read or keep). A post
+    // keeps its body under `name`; a post with `rules` set to `name` or `prefix` instead tries its
+    // body as an object's name or a listing's prefix, and keeps nothing. Every answer is a record,
+    // refusals included.
+    fn bucket(request: &Request) -> Result<ankka::Bucket, StorageError> {
+        let storage = request
+            .context()
+            .storage()
+            .ok_or_else(|| StorageError::Internal("an endpoint has buckets".into()))?;
+        Ok(match request.query("bucket") {
+            Some(name) => storage.bucket(name),
+            None => storage.default(),
+        })
+    }
+
+    fn keep_object(request: &Request, body: String) -> Result<StorageRecord, HttpProblem> {
+        let kept = Self::bucket(request).and_then(|bucket| match request.query("rules") {
+            Some("prefix") => bucket.list(&body).map(|_| ()),
+            Some(_) => bucket.stat(&body).map(|_| ()),
+            None => {
+                let content_type = match request.content_type() {
+                    "" => "application/octet-stream",
+                    given => given,
+                };
+                let name = request.query("name").unwrap_or_default();
+                bucket.put(name, body.as_bytes(), content_type)
+            }
+        });
+        Ok(StorageRecord::of(kept.map(|()| StorageRecord::ok())))
+    }
+
+    fn read_object(request: &Request) -> Result<StorageRecord, HttpProblem> {
+        let name = request.query("name").unwrap_or_default();
+        let answered = Self::bucket(request).and_then(|bucket| {
+            match request.query("op").unwrap_or_default() {
+                "get" => bucket.get(name).map(|found| match found {
+                    None => StorageRecord::absent(),
+                    Some(o) => StorageRecord {
+                        content_type: o.content_type,
+                        text: String::from_utf8_lossy(&o.body).into_owned(),
+                        length: o.length,
+                        ..StorageRecord::ok()
+                    },
+                }),
+                "stat" => bucket.stat(name).map(|found| match found {
+                    None => StorageRecord::absent(),
+                    Some(i) => StorageRecord {
+                        content_type: i.content_type,
+                        length: i.length,
+                        ..StorageRecord::ok()
+                    },
+                }),
+                "list" => bucket
+                    .list(request.query("prefix").unwrap_or_default())
+                    .map(|entries| StorageRecord {
+                        names: entries.into_iter().map(|e| e.name).collect(),
+                        ..StorageRecord::ok()
+                    }),
+                "url" => bucket.url(name).map(StorageRecord::url),
+                "signed-url" => {
+                    let access = match request.query("access") {
+                        Some("keep") => SignedAccess::Keep,
+                        _ => SignedAccess::Read,
+                    };
+                    let span = Duration::of_seconds(ankka::storage::DEFAULT_SIGNED_URL_SECONDS);
+                    bucket
+                        .signed_url(name, access, span)
+                        .map(StorageRecord::url)
+                }
+                other => Err(StorageError::BadRequest(format!("no storage op '{other}'"))),
+            }
+        });
+        Ok(StorageRecord::of(answered))
+    }
+
+    fn remove_object(request: &Request) -> Result<StorageRecord, HttpProblem> {
+        let removed = Self::bucket(request)
+            .and_then(|bucket| bucket.delete(request.query("name").unwrap_or_default()));
+        Ok(StorageRecord::of(removed.map(|()| StorageRecord::ok())))
+    }
+    // docs:end storage
 
     fn set_profile(request: &Request, name: String) -> Result<String, HttpProblem> {
         Ok(request
@@ -1528,6 +1685,9 @@ impl Endpoint for ConformanceEndpoint {
             .post("/secrets", ConformanceEndpoint::keep_secret)
             .get("/secrets", ConformanceEndpoint::read_secret)
             .delete("/secrets", ConformanceEndpoint::remove_secret)
+            .post("/storage", ConformanceEndpoint::keep_object)
+            .get("/storage", ConformanceEndpoint::read_object)
+            .delete("/storage", ConformanceEndpoint::remove_object)
             .get("/echo", ConformanceEndpoint::echo)
             .get("/status/{code}", ConformanceEndpoint::status)
             .get("/boom", ConformanceEndpoint::boom)

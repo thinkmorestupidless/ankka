@@ -30,4 +30,7 @@ pub use crate::service::Service;
 pub use crate::services::{RequestOptions, ServiceError, ServiceResponse};
 pub use crate::standing::Standing;
 pub use crate::start_from::StartFrom;
+pub use crate::storage::{
+    Bucket, ObjectEntry, ObjectInfo, SignedAccess, Storage, StorageError, StoredObject,
+};
 pub use serde::{Deserialize, Serialize};

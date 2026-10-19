@@ -1,0 +1,25 @@
+error[E0599]: no method named `default` found for enum `std::option::Option<T>` in the current scope
+  --> tests/compile_fail/storage_in_an_entity.rs:20:23
+   |
+20 |         ctx.storage().default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
+   |                       ^^^^^^^ this is an associated function, not a method
+   |
+   = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in the trait `Default`
+  --> $RUST/core/src/default.rs
+note: the method `default` exists on the type `ankka::Storage`
+  --> src/storage.rs
+   |
+   |     pub fn default(&self) -> Bucket {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is a method `map_or_default` with a similar name, but with different arguments
+  --> $RUST/core/src/option.rs
+help: use associated function syntax instead
+   |
+20 -         ctx.storage().default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
+20 +         std::option::Option<ankka::Storage>::default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
+   |
+help: consider using `Option::expect` to unwrap the `ankka::Storage` value, panicking if the value is an `Option::None`
+   |
+20 |         ctx.storage().expect("REASON").default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
+   |                      +++++++++++++++++

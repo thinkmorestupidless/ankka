@@ -779,7 +779,7 @@ references; `languages.feature` `ranElsewhere`.
   gains the routes in a `// docs:start storage` region and its `service.json` declares `photos`
   public; `npm run conformance` green; a `test:slow` case against a Garage container if the slow
   suite already starts containers, else against the directory store
-- [ ] T063 [P] [US6] Rust (R6): `RS/ankka/src/abi/imports.rs` adds `storage(ptr, len) -> u64` to the
+- [X] T063 [P] [US6] Rust (R6): `RS/ankka/src/abi/imports.rs` adds `storage(ptr, len) -> u64` to the
   `ankka1` block (`:149`) and `Import::Storage` (`:219`), called through a `call_storage` beside
   `call_secret`; `RS/ankka/src/storage.rs` with `Storage`, `Bucket`, `StoredObject`, `ObjectInfo`,
   `ObjectEntry`, `SignedAccess`, `StorageError` (`TooLarge` naming the bound, `BadRequest`,

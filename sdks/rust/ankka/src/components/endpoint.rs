@@ -689,6 +689,7 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
             context: Context::new(E::ENDPOINT_ID, "", 0, metadata)
                 .with_secrets()
                 .with_client_keys()
+                .with_storage()
                 .with_services(),
         };
         let response = (route.handler)(&forwarded).unwrap_or_else(|problem| Response {

@@ -458,6 +458,7 @@ impl<C: AutonomousAgent> Registration<C> {
         )
         .with_secrets()
         .with_client_keys()
+        .with_storage()
         .with_services()
     }
 

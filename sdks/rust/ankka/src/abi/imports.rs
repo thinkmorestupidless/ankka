@@ -53,6 +53,9 @@ pub enum Import {
     /// `revoke_client_key`: `RevokeClientKeyRequest` in, `RevokeClientKeyReply` out (protocol
     /// 1.20). Called through [`call_client_key`].
     RevokeClientKey,
+    /// `storage`: `StorageRequest` in, `StorageReply` out (protocol 1.21). Called through
+    /// [`call_storage`].
+    Storage,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -138,6 +141,17 @@ pub fn call_client_key(import: Import, request: &[u8]) -> Vec<u8> {
         Import::RevokeClientKey => host::revoke_client_key(request),
         other => panic!("{other:?} is not one of the client key imports"),
     }
+}
+
+/// Calls `storage`: one operation on one of the service's buckets, an encoded `StorageRequest` in
+/// and an encoded `StorageReply` out. Apart from [`call`] for the reason [`call_secret`] is: a
+/// module that never reaches a bucket must not import it, or it would need a runtime that offers
+/// one (protocol 1.21).
+///
+/// The runtime serves it only where it serves [`call_request`]; natively, a test's store answers
+/// it (`ankka::testkit::with_storage`), or a map of this thread's when none was given.
+pub fn call_storage(request: &[u8]) -> Vec<u8> {
+    host::call_storage(request)
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -245,6 +259,12 @@ mod host {
         through(request, revoke_client_key_import)
     }
 
+    // Reached only from `call_storage`, so a module that never reaches a bucket does not import it.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn storage(ptr: u32, len: u32) -> u64;
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -269,6 +289,7 @@ mod host {
                 Import::IssueClientKey | Import::ListClientKeys | Import::RevokeClientKey => {
                     panic!("the client key imports are called through call_client_key")
                 }
+                Import::Storage => panic!("storage is called through call_storage"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -305,6 +326,15 @@ mod host {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: as for `call`.
         let packed = unsafe { await_end(ptr, len) };
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn call_storage(request: &[u8]) -> Vec<u8> {
+        let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
+        // SAFETY: as for `call`.
+        let packed = unsafe { storage(ptr, len) };
         let (rptr, rlen) = memory::unpack(packed);
         // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
         unsafe { memory::take(rptr as i32, rlen as i32) }
@@ -347,6 +377,7 @@ use native as host;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{
     NativeHost, with_native_clock, with_native_host, with_native_random, with_native_services,
+    with_native_storage,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -457,6 +488,30 @@ mod native {
             })),
         }
         .encode_to_vec()
+    }
+
+    thread_local! {
+        /// What answers `storage` on this thread when a test said: apart from the [`NativeHost`],
+        /// so a store works beside whichever host a testkit installs.
+        static STORAGE: RefCell<Option<Rc<dyn NativeHost>>> = const { RefCell::new(None) };
+        /// The store a unit test talks to when it gave none: the testkit's map, one per thread.
+        static DEFAULT_STORAGE: crate::testkit::unit::InMemoryStorage =
+            crate::testkit::unit::InMemoryStorage::new();
+    }
+
+    /// Runs `f` with `store` answering every `storage` call made on this thread, then puts back
+    /// whatever answered them before.
+    pub fn with_native_storage<T>(store: impl NativeHost + 'static, f: impl FnOnce() -> T) -> T {
+        let mut previous = STORAGE.with(|s| s.replace(Some(Rc::new(store))));
+        let _restore = Restore(|| STORAGE.with(|s| *s.borrow_mut() = previous.take()));
+        f()
+    }
+
+    pub(super) fn call_storage(request: &[u8]) -> Vec<u8> {
+        if let Some(store) = STORAGE.with(|s| s.borrow().clone()) {
+            return store.call(Import::Storage, request);
+        }
+        DEFAULT_STORAGE.with(|store| store.call(Import::Storage, request))
     }
 
     pub(super) fn now() -> i64 {
@@ -583,6 +638,7 @@ mod native {
             Import::IssueClientKey | Import::ListClientKeys | Import::RevokeClientKey => {
                 client_key(import, request)
             }
+            Import::Storage => call_storage(request),
         }
     }
 

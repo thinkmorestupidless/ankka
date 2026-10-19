@@ -17,7 +17,8 @@ import shoppingcart.api.{
   SecretsEndpoint,
   ServiceCallerEndpoint,
   ShoppingCartEndpoint,
-  StockHelperEndpoint
+  StockHelperEndpoint,
+  StorageEndpoint
 }
 import shoppingcart.application.*
 
@@ -196,6 +197,7 @@ import scala.concurrent.duration.DurationInt
           clients => CallersEndpoint(clients.services),
           clients => QuestionsEndpoint(clients.componentClient),
           clients => SecretsEndpoint(clients.secrets),
+          clients => StorageEndpoint(clients.storage),
           _ => GrpcCallersEndpoint(grpcClients),
           // The cart's tools, for a customer's assistant, and its keys (feature 054).
           clients => CartMcpEndpoint(clients.componentClient),

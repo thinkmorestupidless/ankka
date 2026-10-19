@@ -66,13 +66,19 @@ trait AutonomousAgentContext:
   /** Other services, called as this one, for a tool that needs one. */
   def services: ServiceClients
 
+  /** The service's buckets, for a tool that keeps or reads an object (feature 055). */
+  def storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage =
+    com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable
+
 private[ankka] final case class SimpleAutonomousAgentContext(
     componentId: ComponentId,
     instanceId: String,
     componentClient: ComponentClient,
     defaultModel: Option[ModelProvider],
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    override val storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage =
+      com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable
 ) extends AutonomousAgentContext
 
 object AutonomousAgent:

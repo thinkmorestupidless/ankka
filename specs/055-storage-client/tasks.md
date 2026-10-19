@@ -59,7 +59,7 @@ is "the sidecar" only in code and rule files, never in a feature step.
 stay; the one rule every SDK reads; the signer nothing else in the tree has; the variables declared
 once; and every scenario bound to a suite and red before a line of the client exists.
 
-- [ ] T001 [P] Write `protocol/fixtures/storage/rules.json` as contracts/sdk.md "The rules fixture"
+- [X] T001 [P] Write `protocol/fixtures/storage/rules.json` as contracts/sdk.md "The rules fixture"
   gives it: `objectNames` rows (at the limit of 1024 bytes accepted; 1025 refused "longer than the
   limit"; leading `/`; empty segment `a//b`; segments `.` and `..`; a multi-byte name whose byte
   length, not character length, crosses the limit; `a/b/c.jpg` accepted), `bucketNames` rows
@@ -68,14 +68,14 @@ once; and every scenario bound to a suite and red before a line of the client ex
   each refused row carrying the `why` every SDK must say. Copy it beside `secrets/rules.json` into
   the three SDKs with `PY/scripts/proto.py`, `npm run proto` in `TS` and `RS/scripts/proto.sh` (extend
   each script's fixture copy if it names `secrets` alone); `diff -r` the copies against `protocol/fixtures/storage`
-- [ ] T002 [P] In `CORE/PlatformVariables.scala` declare `ANKKA_STORAGE_BACKEND` and
+- [X] T002 [P] In `CORE/PlatformVariables.scala` declare `ANKKA_STORAGE_BACKEND` and
   `ANKKA_STORAGE_DIR` as the developer's program's, in no routing list, with the one-line comment
   `ANKKA_S3_` carries (R15), and a pure `def bucketVariableSuffix(name: String): String` (upper-case,
   `-` to `_`) beside the `ANKKA_S3_` prefix so the operator and the runtime derive `<NAME>` from one
   function; standard library only, since the operator compiles this file. Cases in `CORET`:
   `bucketVariableSuffix("old-photos") == "OLD_PHOTOS"`, and the two names are neither platform-only
   nor runtime-only. `PlatformDeclarationSuite` in `CPT` stays green
-- [ ] T003 [P] Write `STO/SigV4.scala`: `SigV4.sign(request: HttpRequest.Builder, method, uri, headers,
+- [X] T003 [P] Write `STO/SigV4.scala`: `SigV4.sign(request: HttpRequest.Builder, method, uri, headers,
   payloadHash, credentials, region, service = "s3", now)` adding `Authorization`, `x-amz-date` and
   `x-amz-content-sha256`, and `SigV4.presign(method, uri, credentials, region, expiresSeconds, now): URI`
   with `X-Amz-Algorithm`, `-Credential`, `-Date`, `-Expires`, `-SignedHeaders=host`, `-Signature`;
@@ -84,7 +84,7 @@ once; and every scenario bound to a suite and red before a line of the client ex
   `RTT/storage/SigV4Suite.scala`: the AWS SigV4 test vectors for a signed `GET` with headers and
   for a presigned URL (the documented `get-vanilla-query` and the presigned `GET` example, their
   expected signatures copied in), and a space and a `+` in a key encoded as `%20` and `%2B`
-- [ ] T004 [P] Add `ankka.storage` to `modules/runtime/src/main/resources/reference.conf` exactly as
+- [X] T004 [P] Add `ankka.storage` to `modules/runtime/src/main/resources/reference.conf` exactly as
   contracts/runtime-and-protocol.md gives it (`backend`, `directory`, `timeout = 30s`,
   `max-signed-url = 7d`, `default-signed-url = 15m`, the `${?ANKKA_STORAGE_BACKEND}` and
   `${?ANKKA_STORAGE_DIR}` overrides). Write `STO/StorageSettings.scala`: `StorageSettings.from(config: Config, env: Map[String, String])`
@@ -104,7 +104,7 @@ once; and every scenario bound to a suite and red before a line of the client ex
   chooses `S3`; `ANKKA_STORAGE_BACKEND=memory` wins; the unnamed family; `PHOTOS` public with a URL;
   `OLD_PHOTOS` undone to `old-photos`; a supplied `ARCHIVE` with its own endpoint and key; endpoint
   and bucket without keys is a target with no credential; the two refusals name their variables
-- [ ] T005 S1, the first spike, as the first three cases of `RTT/storage/S3BucketSuite.scala`:
+- [X] T005 S1, the first spike, as the first three cases of `RTT/storage/S3BucketSuite.scala`:
   start `dxflrs/garage:v2.3.0` by testcontainers as `OPT/GarageStoreSuite.scala` does (copy its
   layout and key bootstrap; the suite is tagged so `-Dankka.cluster.tests=off` leaves it running,
   since it needs Docker only), make a bucket and a key through the admin API, then with
@@ -116,16 +116,16 @@ once; and every scenario bound to a suite and red before a line of the client ex
   make T020's put hash through a temporary file first. Then the same three by hand against the
   prepared Google bucket with `ANKKA_GCS_*` as `CPT/GcsCompatibilitySuite.scala` is run, and record
   the result in research.md R3
-- [ ] T006 [P] The `garage` component's web listener (R9, contracts/operator-and-cloud.md): in
-  `KUST/garage/config.yaml` add `[s3_web] bind_addr = "[::]:3902"`, `index = "index.html"`, no
-  `root_domain`, and rewrite the leading comment to say what the listener serves and that nothing is
+- [X] T006 [P] The `garage` component's web listener (R9, contracts/operator-and-cloud.md): in
+  `KUST/garage/config.yaml` add `[s3_web] bind_addr = "[::]:3902"`, `index = "index.html"`, and
+  `root_domain = ".web.ankka.invalid"` (Garage requires one; R9), and rewrite the leading comment to say what the listener serves and that nothing is
   served without website access on the bucket; in `KUST/garage/service.yaml` the port `web` 3902; in
   `KUST/garage/zero-trust.yaml` a rule admitting the gateway's proxy pods (the selector the S3 rule
   uses for the gateway namespace) to 3902 and no workload namespace; in `KUST/garage/operator-patch.yaml`
   `ANKKA_OBJECT_STORE_WEB_SERVICE: garage-system/garage:3902`; `KUST/garage-replicated/config-patch.yaml`
   and its `kustomization.yaml` carry the same listener and port. `kubectl kustomize` of each
   component builds
-- [ ] T007 S2, the second spike, as a k3s case that stays: `OPT/GarageWebClusterSuite.scala` (new,
+- [X] T007 S2, the second spike, as a k3s case that stays: `CPT/GarageWebClusterSuite.scala` (in the control plane's tests, which see the runtime's signer) (new,
   reading `ankka.cluster.tests` like `OPT/OperatorClusterSuite.scala`, so `.github/cluster-suites.py`
   lists it): on the local overlay with T006 applied, make a bucket `t.svc.photos` with
   `websiteAccess { enabled: true, indexDocument: "index.html" }` through the admin API, put one
@@ -162,7 +162,7 @@ once; and every scenario bound to a suite and red before a line of the client ex
 Docker, the service carrying it as it carries `secrets`, and a kit that seeds it. Nothing here is a
 story on its own.
 
-- [ ] T009 Write `SDK/ObjectStorage.scala` as contracts/sdk.md "Scala" gives it: `trait ObjectStorage`
+- [X] T009 Write `SDK/ObjectStorage.scala` as contracts/sdk.md "Scala" gives it: `trait ObjectStorage`
   (`default`, `bucket(name)`, `buckets`), `trait Bucket` (the ten operations with the documented
   scaladoc on each; `signedUrl`'s span defaulting to `ObjectRules.DefaultSignedUrl`), `enum BucketExposure
   { Private, Signed, Public, Supplied }` with a string `JsonValueCodec` in its companion (the fieldless
@@ -176,7 +176,7 @@ story on its own.
   `protocol/fixtures/storage/rules.json` accepted or refused with the fixture's `why` contained in
   the message, read from the file so a fixture row added later is a case added; `unavailable`'s code
   and message
-- [ ] T010 [P] Write `STO/MemoryBucket.scala`: `MemoryObjectStorage(buckets: Map[String, BucketExposure], unnamed: Boolean, publicBase: String => String)`
+- [X] T010 [P] Write `STO/MemoryBucket.scala`: `MemoryObjectStorage(buckets: Map[String, BucketExposure], unnamed: Boolean, publicBase: String => String)`
   over one `TrieMap[(String, String), Stored(contentType, lastKept, bytes)]`, each `MemoryBucket`
   implementing `Bucket` whole: `put` reads exactly `length` bytes and fails with `Internal` naming the
   shortfall leaving the old entry; `get`/`stat` answer `None`; `list` orders by name and filters by
@@ -191,7 +191,7 @@ story on its own.
   type, declared length short leaves the old object, list pages and orders under a prefix and under
   an empty prefix, stat, delete twice, early close of a `get` body, every refusal's code and the
   word it names
-- [ ] T011 Write `STO/ObjectStorages.scala`: `ObjectStorages.build(settings: StorageSettings, bucketFactory): ObjectStorage`,
+- [X] T011 Write `STO/ObjectStorages.scala`: `ObjectStorages.build(settings: StorageSettings, bucketFactory): ObjectStorage`,
   the one place a backend is chosen: `Memory` is the kit's and never built here (a `Left` naming
   `ServiceBuilder.withStorage`); `Directory` builds T077's (until then a `Left` saying so);
   `S3` builds one `S3Bucket` per target from T020 (until then the same). The named map: the
@@ -203,7 +203,7 @@ story on its own.
   so the three stores and the directory endpoint say the same words. Case in
   `RTT/storage/ObjectStoragesSuite.scala`: the no-credential bucket's refusal; an unknown name's
   message lists `photos, exports`; `Memory` refused by name
-- [ ] T012 In `RT/Ankka.scala` beside `SecretStores.build` (`:324`): read `StorageSettings.from`,
+- [X] T012 In `RT/Ankka.scala` beside `SecretStores.build` (`:324`): read `StorageSettings.from`,
   build `ObjectStorages.build` into `val storage: ObjectStorage`, a `Left` stopping the start through
   `StartRefusal` naming the variable or directory; `AnkkaService` gains `val storage: ObjectStorage`
   beside `secrets` (`:567`), `ServiceBuilder` gains `withStorage(store: ObjectStorage)`; when it was
@@ -214,7 +214,7 @@ story on its own.
   beside `secrets` (`:38`) with the scaladoc line, and `HTTP/HttpServer.scala` builds it from the
   service's (`:125–133` region). Case in `RTT/StartRefusalSuite.scala`: a `backend = s3` with no
   endpoint refuses the start naming `ANKKA_S3_ENDPOINT`
-- [ ] T013 [P] Write `STO/LocalBuckets.scala`: a small reader of `service.json` beside the working
+- [X] T013 [P] Write `STO/LocalBuckets.scala`: a small reader of `service.json` beside the working
   directory (or `ANKKA_SERVICE_JSON` if that override exists; else the working directory only)
   answering `Option[(unnamed: Boolean, buckets: Map[String, BucketExposure])]` from
   `service.provisionObjectStorage` and `service.buckets[]` (`name`, `exposure` defaulting to
@@ -222,7 +222,7 @@ story on its own.
   by the directory store and the kit. Case in `RTT/storage/LocalBucketsSuite.scala`: the descriptor
   from contracts/descriptor-and-status.md read as four buckets and the unnamed one; a missing file
   is `None`; a file without `buckets` is the unnamed bucket alone
-- [ ] T014 The kit's store (R13): `TK/StorageBackendChoice.scala` (new) with `Memory(unnamed: Boolean = true, buckets: Map[String, BucketExposure] = Map.empty)`
+- [X] T014 The kit's store (R13): `TK/StorageBackendChoice.scala` (new) with `Memory(unnamed: Boolean = true, buckets: Map[String, BucketExposure] = Map.empty)`
   (explicit buckets win over `service.json`; holding a `MemoryObjectStorage` built from `LocalBuckets` when a `service.json` is found, else the unnamed
   bucket alone, every call to an undeclared name refused as the runtime's is) and `FromEnvironment`
   (the runtime decides from the variables); `TK/AnkkaTestKit.scala` gains `storage: StorageBackendChoice = StorageBackendChoice.Memory()`
@@ -236,7 +236,7 @@ story on its own.
   (through T015's endpoint); survives `restartService()`; empty after `stop()` and a new kit; two
   kits apart; `declareBucket("photos", Public)` then `bucket("photos").url(...)` answers; an
   undeclared name refused naming the declared ones
-- [ ] T015 Write the fixture service every in-process scenario drives, `TKT/storage/StorageComponents.scala`
+- [X] T015 Write the fixture service every in-process scenario drives, `TKT/storage/StorageComponents.scala`
   (new; its `// docs:start`/`// docs:end` regions are the docs' samples, R17): a `Listing` event
   sourced entity keeping an object's *name* (`PhotoRecorded(name)`), a `PhotosEndpoint` with
   `putStream`/`get` routes (strict until T023, then streamed) that keep through
@@ -271,7 +271,7 @@ of "same on every object store" in the cluster suite.
   `Unavailable` and the endpoint in the message; "a keep that fails part way leaves no partial
   object" with a stream that ends at half its declared length, then `get` answering the old object.
   Red
-- [ ] T017 [P] [US1] Write `STO/S3Bucket.scala` (R3, R5): `S3Bucket(target: S3Target, bucket: String, name: Option[String], exposure, settings, client: HttpClient, clock)`
+- [X] T017 [P] [US1] Write `STO/S3Bucket.scala` (R3, R5): `S3Bucket(target: S3Target, bucket: String, name: Option[String], exposure, settings, client: HttpClient, clock)`
   implementing `Bucket`: `put` as `PUT /<bucket>/<key>` with `Content-Type`, `Content-Length`,
   `x-amz-content-sha256: UNSIGNED-PAYLOAD` (or the temporary-file hash if T005 said so) and
   `BodyPublishers.ofInputStream` wrapped to count and fail short of `length`; `get` as `GET` with
@@ -285,9 +285,9 @@ of "same on every object store" in the cluster suite.
   status 403 and 5xx and `IOException` mapped to `Unavailable` naming the endpoint, a body the parser
   cannot read to `Internal`. Google's `<Generation>` is never requested. Then `ObjectStorages.build`
   builds it for `S3`
-- [ ] T018 [US1] Finish `RTT/storage/S3BucketSuite.scala` with T010's `BucketContract` against Garage
+- [X] T018 [US1] Finish `RTT/storage/S3BucketSuite.scala` with T010's `BucketContract` against Garage
   plus: a 20 MiB put from a counting stream reads the stream once (the counter equals the length);
-  a listing of 1,003 objects pages three times (count the requests through a counting `HttpClient`
+  a listing of 1,003 objects pages twice, Garage answering at most 1,000 keys a page (count the requests through a counting `HttpClient`
   wrapper); a `get` body closed after one byte lets the next request proceed within the timeout;
   a 403 from a wrong key is `Unavailable` naming the endpoint. Then the `garage` row of
   `client.feature`'s "same on every object store" is this suite's, named in `ranElsewhere`
@@ -333,7 +333,7 @@ command handler, and a reason for a service with no bucket or no credential.
 **Independent Test**: `StorageAvailabilitySuite`'s `compileErrors`; `StepScopeSuite`;
 `contexts.feature` green in `StorageClientFeatures`.
 
-- [ ] T023 [US2] In `SDK/contexts.scala` add `def storage: ObjectStorage` beside `secrets` on
+- [X] T023 [US2] In `SDK/contexts.scala` add `def storage: ObjectStorage` beside `secrets` on
   `WorkflowContext` (with the scaladoc "steps only; a command handler's call is refused"),
   `ConsumerContext` and whatever context `GraphConsumer` reads; in `SDK/TimedAction.scala` on
   `TimedActionContext`; in `AG/Agent.scala` on `AgentContext`, `AG/autonomous/AutonomousAgent.scala`
@@ -341,7 +341,7 @@ command handler, and a reason for a service with no bucket or no credential.
   declares `secrets`; and nowhere on `EntityContext`, `CommandContext`, `ViewComponentContext` or
   `KeyedView`'s. Every in-tree implementation of these contexts gets the field (the compiler lists
   them)
-- [ ] T024 [US2] In `RT/StepScope.scala` add `def stepsOnly(underlying: ObjectStorage): ObjectStorage`
+- [X] T024 [US2] In `RT/StepScope.scala` add `def stepsOnly(underlying: ObjectStorage): ObjectStorage`
   beside the secret store's (`:31`): every `Bucket` operation outside a step is `BadRequest` with the
   step's words (the same message the secret store's refusal uses, with `storage` in place of
   `secrets`), `signedUrl` and `url` included. Wire it: `RT/WorkflowHost.scala` builds the context's
@@ -350,19 +350,19 @@ command handler, and a reason for a service with no bucket or no credential.
   the timed action's; `AG/AgentRuntime.scala` (`:208`, `:262`, `:435`, `:548`), `AG/autonomous/AutonomousAgentHost.scala`
   and `AG/blueprint/BlueprintRegistry.scala` to the agents'. Case in `RTT/StepScopeSuite.scala`
   (extend or create beside the secret case): a `put` outside a step refused with the step's words; inside, passed through
-- [ ] T025 [P] [US2] The unit kits: `TK/ConsumerTestKit.scala` (`:31`, `:126`) and every other unit
+- [X] T025 [P] [US2] The unit kits: `TK/ConsumerTestKit.scala` (`:31`, `:126`) and every other unit
   kit that takes `secrets: InMemorySecretStore = InMemorySecretStore()` (grep `InMemorySecretStore()`
   under `TK/`: the endpoint, workflow, timed action, agent and autonomous agent kits) gain
   `storage: ObjectStorage = InMemoryObjectStorage()` handed to the context the same way; the kit
   exposes it as `kit.storage`. Case in `TKT/ConsumerTestKitSuite.scala`: a consumer's put is read
   back from `kit.storage`
-- [ ] T026 [P] [US2] Write `SDKT/StorageAvailabilitySuite.scala` modelled on
+- [X] T026 [P] [US2] Write `SDKT/StorageAvailabilitySuite.scala` modelled on
   `SDKT/SecretStoreAvailabilitySuite.scala`: `compileErrors` proving an event sourced entity's
   command handler, a key value entity's, a view's and a keyed view's cannot name `storage`, each
   assertion containing `storage is not a member`; and that an endpoint's `clients.storage`, a
   workflow step's, a consumer's, a timed action's and an agent's compile. Each `compileErrors` must be
   non-empty for the negatives: assert on the text, never on emptiness
-- [ ] T027 [US2] Bind `FEAT/contexts.feature` in `StorageClientFeatures`: the outline rows over the
+- [X] T027 [US2] Bind `FEAT/contexts.feature` in `StorageClientFeatures`: the outline rows over the
   five kinds through T015's components; "an entity and a view have no storage client" delegates to
   `StorageAvailabilitySuite`'s assertions, named in `ranElsewhere`; "a workflow keeps an object in a
   step and not in a command" through `ThumbnailWorkflow`; "a service that has no bucket" by starting

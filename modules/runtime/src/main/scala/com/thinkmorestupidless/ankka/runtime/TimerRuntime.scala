@@ -65,6 +65,7 @@ final class TimerRuntime private (
             service.componentClient,
             service.secrets,
             service.services,
+            service.storage,
             service.conversation,
             pollInterval,
             observer,

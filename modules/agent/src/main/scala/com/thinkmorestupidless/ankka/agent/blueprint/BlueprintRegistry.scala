@@ -19,6 +19,10 @@ trait BlueprintContext:
   def services: ServiceClients
   def secrets: SecretStore
 
+  /** The service's buckets, for a tool that keeps or reads an object (feature 055). */
+  def storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage =
+    com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable
+
   /** Whether the service registered a `TimerRuntime`; a schedule needs one. */
   def hasTimers: Boolean
 

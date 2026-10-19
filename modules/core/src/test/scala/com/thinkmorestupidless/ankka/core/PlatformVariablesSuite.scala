@@ -255,3 +255,20 @@ class PlatformVariablesSuite extends munit.FunSuite:
       assert(!runtimeOnly(name), name)
       assert(!objectStorage(name), name)
   }
+
+  test("the storage client's settings are the developer's program's, in no list") {
+    assertEquals((StorageBackend, StorageDir), ("ANKKA_STORAGE_BACKEND", "ANKKA_STORAGE_DIR"))
+    for name <- Vector(StorageBackend, StorageDir) do
+      assert(!platformOnly(name), name)
+      assert(!runtimeOnly(name), name)
+      assert(!shared(name), name)
+      assert(!withheldFromModule(name), name)
+  }
+
+  test("a named bucket's variable suffix is derived one way and undone the other") {
+    assertEquals(bucketVariableSuffix("photos"), "PHOTOS")
+    assertEquals(bucketVariableSuffix("old-photos-2"), "OLD_PHOTOS_2")
+    for name <- Vector("photos", "old-photos-2", "a", "0-9") do
+      assertEquals(bucketNameOf(bucketVariableSuffix(name)), name)
+    assert(objectStorage(ObjectStoragePrefix + "BUCKET_" + bucketVariableSuffix("photos")))
+  }

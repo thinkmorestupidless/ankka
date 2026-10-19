@@ -101,7 +101,8 @@ final class ServiceBuilder private[ankka] (
     private val conversation: Option[remote.Conversation] = None,
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
     private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
-    private val transportFactory: Option[replication.ReplicationTransportFactory] = None
+    private val transportFactory: Option[replication.ReplicationTransportFactory] = None,
+    private val storageOverride: Option[ObjectStorage] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
@@ -111,7 +112,8 @@ final class ServiceBuilder private[ankka] (
       conversation,
       identityOverride,
       wrapServices,
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
@@ -121,7 +123,8 @@ final class ServiceBuilder private[ankka] (
       conversation,
       identityOverride,
       wrapServices,
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
@@ -132,7 +135,8 @@ final class ServiceBuilder private[ankka] (
       conversation,
       identityOverride,
       wrapServices,
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   /**
@@ -146,7 +150,8 @@ final class ServiceBuilder private[ankka] (
       conversation,
       Some(identity),
       wrapServices,
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   /**
@@ -161,7 +166,8 @@ final class ServiceBuilder private[ankka] (
       Some(conversation),
       identityOverride,
       wrapServices,
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   /**
@@ -176,7 +182,8 @@ final class ServiceBuilder private[ankka] (
       conversation,
       identityOverride,
       wrapServices.andThen(wrap),
-      transportFactory
+      transportFactory,
+      storageOverride
     )
 
   /**
@@ -193,7 +200,24 @@ final class ServiceBuilder private[ankka] (
       conversation,
       identityOverride,
       wrapServices,
-      Some(factory)
+      Some(factory),
+      storageOverride
+    )
+
+  /**
+   * The storage client the service is given, in place of the one its settings would choose (feature
+   * 055). For the test kit, which hands every service it starts a store in memory; when given, the
+   * storage settings are not read and no store is built.
+   */
+  def withStorage(storage: ObjectStorage): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      Some(storage)
     )
 
   /** Validates the definition without starting anything. */
@@ -354,6 +378,40 @@ final class ServiceBuilder private[ankka] (
       move.start()
     }
 
+    // The storage client (feature 055), for the same reason: the S3 store the variables name, the
+    // directory store on a developer's machine, or none. A setting it cannot use stops the start,
+    // naming it. A test kit hands its own store over, and nothing is read.
+    val runningLocally =
+      !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap")
+    val started = new java.util.concurrent.atomic.AtomicReference[AnkkaService]()
+    val builtStorage: storage.BuiltStorage = storageOverride match
+      case Some(handed) => storage.BuiltStorage(storage.StorageBackend.Memory, handed, None)
+      case None =>
+        storage.StorageSettings
+          .from(system.settings.config, sys.env, runningLocally)
+          .flatMap(settings =>
+            storage.ObjectStorages.build(
+              settings,
+              storage.LocalBuckets.read(),
+              () =>
+                Option(started.get())
+                  .flatMap(_.boundAddresses.headOption)
+                  .getOrElse(
+                    throw com.thinkmorestupidless.ankka.core.CommandError(
+                      "this service serves no HTTP, so nothing serves its directory store's URLs",
+                      com.thinkmorestupidless.ankka.core.ErrorCode.Unavailable
+                    )
+                  )
+            )
+          )
+          .fold(problem => StartRefusal.refuse(problem, IllegalStateException(_)), identity)
+    system.log.info(
+      "storage client: {}",
+      builtStorage.directory.fold(builtStorage.backend.toString.toLowerCase)(d =>
+        s"a directory store at ${d.root}"
+      )
+    )
+
     // And the one client for other services that every component which may call one is given.
     val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))
 
@@ -363,7 +421,7 @@ final class ServiceBuilder private[ankka] (
       case descriptor: KeyValueEntityDescriptor[?, ?] =>
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
-        initWorkflow(sharding, descriptor, componentClient, secrets, services)
+        initWorkflow(sharding, descriptor, componentClient, secrets, services, builtStorage.storage)
       case descriptor: remote.RemoteKeyValueDescriptor =>
         val _ = sharding.init(
           Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
@@ -377,7 +435,8 @@ final class ServiceBuilder private[ankka] (
           remote.RemoteWorkflowHost.descriptor(descriptor, conversation.get, askTimeout),
           componentClient,
           secrets,
-          services
+          services,
+          builtStorage.storage
         )
       case descriptor: remote.RemoteEventSourcedDescriptor =>
         // `conversation.get` is safe: `validate` refused the registry without one.
@@ -417,8 +476,11 @@ final class ServiceBuilder private[ankka] (
       services,
       Some(builtSecrets),
       Some(readRecorder),
-      replicating
+      replicating,
+      builtStorage.storage,
+      builtStorage.directory
     )
+    started.set(service)
 
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
@@ -440,8 +502,6 @@ final class ServiceBuilder private[ankka] (
     // "bootstrap" is the Kubernetes overlay's formation; anything else is a locally-run service.
     // Keyed off formation rather than the mode variable because that is what the overlay actually
     // sets, and a service given a config by hand still gets the right answer.
-    val runningLocally =
-      !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap")
     // Handed to the service rather than held here: the service is what gets terminated, and this
     // builder is a singleton that would keep only the most recently started endpoint. It was a
     // `var` on this object that nothing ever read, so nothing ever withdrew the registration and
@@ -481,7 +541,8 @@ final class ServiceBuilder private[ankka] (
       descriptor: WorkflowDescriptor[?, ?],
       componentClient: ComponentClient,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      storage: ObjectStorage
   ): Unit =
     type AnyWorkflow = Workflow[Any]
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
@@ -492,7 +553,8 @@ final class ServiceBuilder private[ankka] (
           EntityId(ctx.entityId),
           componentClient,
           secrets,
-          services
+          services,
+          storage
         )
       }
     )
@@ -587,7 +649,16 @@ final class AnkkaService private[ankka] (
      * How this service replicates its replicated entities (feature 051), when it names other
      * installations; `None` for a service that names none.
      */
-    val replication: Option[com.thinkmorestupidless.ankka.runtime.replication.Replication] = None
+    val replication: Option[com.thinkmorestupidless.ankka.runtime.replication.Replication] = None,
+    /**
+     * The service's buckets (feature 055): given to endpoints, workflow steps, consumers, timed
+     * actions and agents, never to an entity or a view, as `secrets` is.
+     */
+    val storage: ObjectStorage = ObjectStorage.unavailable,
+    /** The directory store, on a developer's machine: what the runtime serves its URLs from. */
+    private[ankka] val directoryStorage: Option[
+      com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+    ] = None
 ):
 
   /**

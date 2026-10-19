@@ -12,7 +12,13 @@ import com.thinkmorestupidless.ankka.runtime.{
   ServiceIdentity
 }
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
+import com.thinkmorestupidless.ankka.runtime.storage.MemoryObjectStorage
+import com.thinkmorestupidless.ankka.sdk.{
+  BucketExposure,
+  ComponentClient,
+  ObjectStorage,
+  SecretStore
+}
 
 import java.nio.file.{Files, Path}
 
@@ -38,7 +44,9 @@ final class AnkkaTestKit private (
     /** The secret key the running service was started with, or `None` for none. */
     private var currentKey: Option[String],
     /** Where the service keeps its service secrets. */
-    private var backendChoice: SecretBackendChoice
+    private var backendChoice: SecretBackendChoice,
+    /** The store in memory the service was handed, unless the test chose its environment's. */
+    memoryStorage: Option[MemoryObjectStorage]
 ):
 
   /** Configuration laid over the kit's for every start from now on, by `restartOn`. */
@@ -79,6 +87,26 @@ final class AnkkaTestKit private (
    * fake the kit was started on.
    */
   def secrets: SecretStore = current.secrets
+
+  /**
+   * The running service's storage client (feature 055): the store in memory the kit handed it, the
+   * same one across `restartService`, or the store it chose from its environment. A test keeps an
+   * object before a handler runs, and reads what a handler kept, through this.
+   */
+  def storage: ObjectStorage = memoryStorage.getOrElse(current.storage)
+
+  /**
+   * Declares a named bucket in the kit's store, before or after the service starts, as a
+   * descriptor's `buckets` would. Only for the store in memory.
+   */
+  def declareBucket(name: String, exposure: BucketExposure): Unit =
+    memoryStorage
+      .getOrElse(
+        throw IllegalStateException(
+          "the service keeps its objects in its environment's store, not the kit's"
+        )
+      )
+      .declare(name, exposure)
 
   /**
    * The record of every read, keep and removal of a secret the running service made, oldest first:
@@ -256,6 +284,7 @@ final class AnkkaTestKit private (
 
   def stop(): Unit =
     current.terminate()
+    memoryStorage.foreach(_.clear())
     // Dropped once the service has let go of it, not before, or its last writes fail loudly.
     current.whenTerminated.andThen { case _ => SharedPostgres.release(database) }(using
       scala.concurrent.ExecutionContext.parasitic
@@ -321,7 +350,12 @@ object AnkkaTestKit:
        * `FakeSecretManager` the test started (`SecretBackendChoice.secretManager(fake)`). Kept
        * across `restartService`.
        */
-      secretBackend: SecretBackendChoice = SecretBackendChoice.postgres
+      secretBackend: SecretBackendChoice = SecretBackendChoice.postgres,
+      /**
+       * What stands behind the storage client: a store in memory of this kit's own, by default, or
+       * the environment's (`StorageBackendChoice.FromEnvironment`). Kept across `restartService`.
+       */
+      storage: StorageBackendChoice = StorageBackendChoice.Memory()
   ): AnkkaTestKit =
     startOn(
       SharedPostgres.acquire(),
@@ -333,7 +367,8 @@ object AnkkaTestKit:
       serviceIdentity,
       localServices,
       settings,
-      secretBackend
+      secretBackend,
+      storage
     )
 
   /** `start`, on a database the caller acquired; the kit releases it when it stops. */
@@ -347,13 +382,18 @@ object AnkkaTestKit:
       serviceIdentity: ServiceIdentity,
       localServices: Map[String, String],
       settings: Config,
-      secretBackend: SecretBackendChoice
+      secretBackend: SecretBackendChoice,
+      storage: StorageBackendChoice = StorageBackendChoice.Memory()
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
-    // identity that could not be read, which only ankka's own tests have reason to.
+    // identity that could not be read, which only ankka's own tests have reason to. The store in
+    // memory likewise: one per kit, so a restart reads what was kept before it.
+    val memoryStorage = StorageBackendChoice.store(storage)
     val configured: ServiceBuilder => ServiceBuilder =
-      builder => configure(builder.withIdentity(Right(serviceIdentity)))
+      builder =>
+        val handed = memoryStorage.fold(builder)(builder.withStorage(_))
+        configure(handed.withIdentity(Right(serviceIdentity)))
 
     // Keep the service registry out of the developer's home directory. A service announces itself
     // into `~/.ankka/running` for `ankka local console` to find; a *test* doing that leaves an
@@ -364,6 +404,7 @@ object AnkkaTestKit:
     claimRegistryDirectory()
 
     val config = settings
+      .withFallback(StorageBackendChoice.settings(storage))
       .withFallback(SecretBackendChoice.settings(secretBackend))
       .withFallback(ConfigFactory.parseString("ankka.telemetry.endpoint = \"\""))
       .withFallback(withLocalServices(configFor(database), localServices))
@@ -392,7 +433,8 @@ object AnkkaTestKit:
       readyTimeout,
       service,
       secretKey,
-      secretBackend
+      secretBackend,
+      memoryStorage
     )
 
   /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */

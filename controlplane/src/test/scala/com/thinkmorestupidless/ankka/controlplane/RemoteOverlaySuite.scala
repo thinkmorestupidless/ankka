@@ -935,7 +935,8 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     "ANKKA_OBJECT_STORE_ADMIN_TOKEN",
     "ANKKA_OBJECT_STORE_ENDPOINT",
     "ANKKA_OBJECT_STORE_REGION",
-    "ANKKA_OBJECT_STORE_SERVICE"
+    "ANKKA_OBJECT_STORE_SERVICE",
+    "ANKKA_OBJECT_STORE_WEB_SERVICE"
   )
 
   test(

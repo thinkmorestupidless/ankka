@@ -45,6 +45,7 @@ private[ankka] object TimerSweeper:
       componentClient: ComponentClient,
       secrets: SecretStore,
       services: ServiceClients,
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
       conversation: Option[Conversation],
       pollInterval: FiniteDuration,
       observer: TimerObserver = TimerObserver.none,
@@ -63,6 +64,7 @@ private[ankka] object TimerSweeper:
           componentClient,
           secrets,
           services,
+          storage,
           conversation,
           ctx.system.executionContext,
           Observability(ctx.system),
@@ -109,6 +111,7 @@ private[ankka] final class Sweep(
     componentClient: ComponentClient,
     secrets: SecretStore,
     services: ServiceClients,
+    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
     conversation: Option[Conversation],
     ec: ExecutionContext,
     observability: Observability,
@@ -296,7 +299,8 @@ private[ankka] final class Sweep(
       secrets,
       services,
       new DatabaseTimerScheduler(database, clock),
-      clock
+      clock,
+      storage
     )
 
     // Handlers may block on ComponentClient, so they run on a virtual thread.

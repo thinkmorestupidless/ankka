@@ -129,7 +129,8 @@ final class HttpServer private (
         service.services,
         service.secrets,
         Heartbeat.interval(config),
-        service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys)
+        service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys),
+        service.storage
       )
     serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout, Some(service))
 

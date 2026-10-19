@@ -15,5 +15,10 @@ data:
     s3_region = "garage"
     api_bind_addr = "[::]:3900"
 
+    [s3_web]
+    bind_addr = "[::]:3902"
+    root_domain = ".web.ankka.invalid"
+    index = "index.html"
+
     [admin]
     api_bind_addr = "[::]:3903"

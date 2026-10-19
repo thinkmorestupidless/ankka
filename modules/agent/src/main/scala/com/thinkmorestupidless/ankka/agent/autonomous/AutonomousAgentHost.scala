@@ -74,6 +74,7 @@ private[ankka] object AutonomousAgentHost:
       judgments: Judgments,
       secrets: SecretStore,
       services: ServiceClients,
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
       approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
       mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool] = Vector.empty,
       perTask: TaskDefinitionResolver = TaskDefinitionResolver.none
@@ -89,7 +90,8 @@ private[ankka] object AutonomousAgentHost:
             componentClient,
             defaultModel,
             secrets,
-            services
+            services,
+            storage
           )
           val emit: Notification => Unit = n => self ! Emit(n)
           val model                      = descriptor.definition.model.orElse(defaultModel)

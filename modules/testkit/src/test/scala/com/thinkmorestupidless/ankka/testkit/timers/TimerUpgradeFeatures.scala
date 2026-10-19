@@ -110,6 +110,7 @@ final class TimerUpgradeFeatures extends TimerSteps("../../features/timers/upgra
       service.componentClient,
       service.secrets,
       service.services,
+      service.storage,
       None,
       service.system.executionContext,
       Observability(service.system),

@@ -66,6 +66,13 @@ a `PutObject` with `Content-Length`, and a query-signed URL for `GET` and `PUT`.
 `UNSIGNED-PAYLOAD`, the put hashes through a temporary file first, which costs a pass over the
 object and nothing in the API.
 
+**Verified, 2026-10-19, against Garage**: `S3BucketSuite`'s three S1 cases pass with the signer
+and a plain JDK client: a 3 MiB `PUT` with `UNSIGNED-PAYLOAD` and a declared length streamed from
+an `InputStream` is kept whole with its content type; presigned `PUT` and `GET` work from a
+client that adds no header; `ListObjectsV2` pages by continuation token in name order. No
+fallback is needed. The Google half was not run here: it needs the prepared bucket's
+`ANKKA_GCS_*` credentials, as `GcsCompatibilitySuite` does.
+
 **Alternatives**: the AWS SDK for Java in `runtime` puts about 40 jars on every service's
 classpath for five operations, and 034's research already named it as the thing a client must be
 configured around; Pekko HTTP's client exists on the classpath, but the JDK's is what
@@ -194,6 +201,21 @@ the S3 port for a signed bucket.
 **To verify first (S2)**: a `Host` with dots (`shop.listings.photos`) is matched by Garage's web
 endpoint as a bucket name, and Envoy rewrites it; and that the web endpoint answers an object's
 `Content-Type` as kept.
+
+**Verified, 2026-10-19, the store's half**: Garage refuses `[s3_web]` without `root_domain`
+("missing field"), so the component sets one that matches nothing, `.web.ankka.invalid`; a `Host`
+not ending in it is read whole as the bucket's name. `S3BucketSuite`'s S2 case puts an object in
+`t.svc.photos`, is refused before website access is on, and after it reads the object at
+`Host: t.svc.photos` on 3902 with `Content-Type: image/png`. The gateway's half, the rewrite that
+sets that `Host`, is `GarageWebClusterSuite` on k3s.
+
+**Verified, 2026-10-19, the gateway's half**: `GarageWebClusterSuite` (control plane tests, beside
+the other object storage k3s suites, since it signs its put with the runtime's signer) passes on
+k3s v1.35.1 with Envoy Gateway v1.9.1 and the shipped `garage` component. A hand-written route of
+the shape above reads `https://storage.<base>/t.svc.photos/<name>` with no credential: `200`,
+`Content-Type: image/png`, the body. The same route to a bucket whose website access is off serves
+nothing. A labelled workload pod reaches 3900 and is refused on 3902, so only the gateway's proxies
+reach the web listener.
 
 **Alternatives**: a reader of the platform's own (a small image signing reads) is a fifth image
 for what the store does already; a hostname per bucket needs a certificate per bucket, which the

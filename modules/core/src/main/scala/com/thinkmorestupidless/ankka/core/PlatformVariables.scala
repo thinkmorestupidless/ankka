@@ -286,6 +286,29 @@ private[ankka] object PlatformVariables:
   def objectStorage(name: String): Boolean = name.startsWith(ObjectStoragePrefix)
 
   /**
+   * Which store the storage client stands on (feature 055): `s3`, `directory` or `memory`. The
+   * developer's program's own, like `ANKKA_S3_`, and in no list above: a laptop or a test sets it,
+   * the platform never does.
+   */
+  val StorageBackend: String = "ANKKA_STORAGE_BACKEND"
+
+  /** Where the directory store keeps a laptop's objects. The developer's program's own. */
+  val StorageDir: String = "ANKKA_STORAGE_DIR"
+
+  /**
+   * The `<NAME>` in a named bucket's variables (`ANKKA_S3_BUCKET_<NAME>` and the rest): the
+   * bucket's name upper-cased, with `-` as `_`. A bucket's name is lower-case letters, digits and
+   * `-`, so the derivation is total and `bucketNameOf` undoes it. The operator writes the variables
+   * and the runtime reads them through these two functions, so the two cannot spell a name apart.
+   */
+  def bucketVariableSuffix(bucket: String): String =
+    bucket.toUpperCase(java.util.Locale.ROOT).replace('-', '_')
+
+  /** The bucket a variable's `<NAME>` names: the inverse of `bucketVariableSuffix`. */
+  def bucketNameOf(suffix: String): String =
+    suffix.toLowerCase(java.util.Locale.ROOT).replace('_', '-')
+
+  /**
    * What a module's `config` import answers as absent. A module runs in the platform's own
    * container, so its environment holds every variable the platform's program reads; this is the
    * read-time version of the split the operator makes for a process.

@@ -85,6 +85,24 @@ final class ConsoleServerSuite extends FunSuite:
     }
   }
 
+  test("the mark is served as an image, in both inks") {
+    withConsole(FakeSource()) { server =>
+      for path <- List("/ankka-mark.png", "/ankka-mark-dark.png") do
+        val response = client.send(
+          HttpRequest.newBuilder(URI.create(s"${server.address}$path")).GET().build(),
+          HttpResponse.BodyHandlers.ofByteArray()
+        )
+        assertEquals(response.statusCode(), 200, path)
+        assertEquals(response.headers().firstValue("Content-Type").orElse(""), "image/png", path)
+        // The PNG signature: a browser given the wrong bytes under the right type shows nothing.
+        assertEquals(
+          response.body().take(8).toList.map(_ & 0xff),
+          List(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
+          path
+        )
+    }
+  }
+
   test("a path that is not an asset is a 404, not a stack trace") {
     withConsole(FakeSource())(server => assertEquals(get(server, "/nope.js")._1, 404))
   }

@@ -51,7 +51,8 @@ header {
   border-bottom: 1px solid var(--line);
 }
 header h1 { font-size: 15px; font-weight: 600; margin: 0; }
-.mark { display: flex; color: var(--ink); }
+.mark { display: flex; }
+.mark img { display: block; height: 26px; }
 .spacer { flex: 1; }
 .dim { color: var(--dim); font-weight: 400; }
 .status { color: var(--dim); font-size: 12px; }

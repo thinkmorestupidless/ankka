@@ -30,6 +30,11 @@ export function copyFonts(): void {
   for (const f of ["inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2"]) copyFileSync(join(files, f), join(root, "dist/fonts", f));
 }
 
+/** The mark, beside the stylesheet that masks with it by a relative url(). */
+export function copyMark(): void {
+  copyFileSync(join(root, "src/ui/ankka-mark.png"), join(root, "dist/ankka-mark.png"));
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   rmSync(join(root, "dist"), { recursive: true, force: true });
   writeTheme();
@@ -37,4 +42,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   tailwind();
   copyFileSync(join(root, "src/theme.generated.css"), join(root, "dist/theme.css"));
   copyFonts();
+  copyMark();
 }

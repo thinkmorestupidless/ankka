@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/ankka-lockup-dark.svg">
-  <img src="assets/ankka-lockup.svg" alt="ankka" width="400">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/ankka-lockup-dark.png">
+  <img src="assets/ankka-lockup.png" alt="ankka" width="400">
 </picture>
 
 [![ci](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml/badge.svg?event=pull_request)](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml) [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE.md)

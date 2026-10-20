@@ -72,8 +72,25 @@ giving the model's tag:
 
 The platform supplies the address and admits the service by the certificate it already holds. A
 descriptor gives neither: an address or a key beside the preset is refused, and a descriptor that
-sets the address variable itself is refused when it is applied. Whether an agent can call the model
-yet is on the [limitations](../reference/limitations.md) page.
+sets the address variable itself is refused when it is applied.
+
+A Scala service builds the same provider in code, naming the model:
+
+```scala
+val local = ModelProviders.installation("qwen3:0.6b")
+```
+
+Outside an installation there is no model server, and both forms are refused when the service
+starts: `there is no installation model server here: this platform runs none, or the service runs
+outside an installation`. A provider of the developer's own takes its place there.
+
+The model server says what each model can do, and an agent's first call that needs more is refused
+before the model is asked, naming the model:
+
+| The agent | The refusal |
+|---|---|
+| declares tools, and the model cannot call tools | `installation model "x" lacks tool calling` |
+| asks for an effort, and the model cannot think | `installation model "x" lacks thinking` |
 
 A service that names an installation model starts only once every model it names is served. Until
 then, `ankka services get` shows why, in these words:

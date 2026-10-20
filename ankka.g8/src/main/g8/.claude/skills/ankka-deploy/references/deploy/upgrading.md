@@ -160,6 +160,15 @@ broker is, and the certificate it holds is reissued with its name, so each servi
 replaced once, as a rolling update that refuses no request. A service whose descriptor names a broker of
 its own is left as it is. See [The installation's broker](../platform/broker.md).
 
+## Adding the model server
+
+An installation that adds the `models` component to a platform already running services gives every
+service the model server's address on the operator's next pass, so each service's instances are replaced
+once, as a rolling update that refuses no request. Removing the component does the same in reverse, and a
+service that names an installation model then fails saying the cluster has no model server. The models the
+keeper fetched stay on its volume, which is not deleted with the component. See
+[Models served by the installation](../platform/installation-models.md).
+
 ## Keeping buckets in Google Cloud Storage
 
 An installation that keeps its buckets in Garage can keep new ones in Google Cloud Storage by naming

@@ -1,0 +1,33 @@
+# Who may connect to the model server. The door is mutual TLS, and the keeper admits a service's
+# certificate only; this policy decides who may open a connection at all. A process beside a
+# service's platform container shares its pod, so the policy admits it; the handshake keeps it out.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: models
+  namespace: models-system
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: models }
+  policyTypes: [Ingress]
+  ingress:
+    # The door: ankka workloads in managed namespaces, and the control plane.
+    - ports: [{ protocol: TCP, port: 8443 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-controlplane }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+    # The status document, plain: the operator alone, which holds no service certificate.
+    - ports: [{ protocol: TCP, port: 8080 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-operator }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-operator }
+    # Readiness: anyone. k3s enforces policy on the kubelet's probe too, so it needs this rule.
+    - ports: [{ protocol: TCP, port: 7627 }]

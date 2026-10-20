@@ -72,6 +72,12 @@ final class ServiceReconciler(
     val refused      = ObjectStorage.refused(storagePlan, spec, settings, reported)
     val secretAccess = decideSecretAccess(ref, resource, spec, cloudBucket)
     val secretSyncs  = decideProjectSecrets(ref, spec)
+    // Feature 053: the model server's status is read only for a service that names a model of it.
+    val modelsPlan = InstallationModels.decide(
+      InstallationModels.named(spec),
+      settings.models,
+      settings.models.fold(Left(InstallationModels.NoServer))(ModelServerDocumentReader.read)
+    )
     // A refusal says more than a wait, whichever of the two it comes from.
     val secretHold = (secretAccess.flatMap(_.hold).toVector ++ secretSyncs.holds).sortBy {
       case _: SecretAccess.Hold.Refused => 0
@@ -97,9 +103,10 @@ final class ServiceReconciler(
       // failure, whose reason the status's object storage carries, and access the provider refused
       // is a failure with its reason. A failure found by rendering or a foreign Deployment says
       // more and is kept.
-      if problems.nonEmpty then observed
+      if problems.nonEmpty then
+        observed.copy(installationModels = InstallationModels.status(modelsPlan))
       else
-        secretHold match
+        val afterSecrets = secretHold match
           case Some(SecretAccess.Hold.Refused(why)) =>
             observed.copy(lifecycle = "Failed", detail = Some(why))
           case waiting =>
@@ -111,6 +118,17 @@ final class ServiceReconciler(
                   .fold(observed)(why =>
                     observed.copy(lifecycle = "UpdateInProgress", detail = Some(why))
                   )
+        // A model that is not served is a failure; one still being fetched is a wait. Either says
+        // less than a failure already found, which is kept.
+        val withModels =
+          (InstallationModels.refused(modelsPlan), InstallationModels.withheld(modelsPlan)) match
+            case _ if afterSecrets.lifecycle == "Failed" => afterSecrets
+            case (Some(why), _) => afterSecrets.copy(lifecycle = "Failed", detail = Some(why))
+            case (None, Some(why))
+                if afterSecrets.lifecycle != "UpdateInProgress" || afterSecrets.detail.isEmpty =>
+              afterSecrets.copy(lifecycle = "UpdateInProgress", detail = Some(why))
+            case _ => afterSecrets
+        withModels.copy(installationModels = InstallationModels.status(modelsPlan))
 
     Rendering.render(
       resource,
@@ -140,7 +158,8 @@ final class ServiceReconciler(
       executor.projectSpec(ref.namespace, spec.projectId),
       // Read only where the service has a broker user to put them on.
       if settings.broker.isDefined then executor.grantsNaming(spec.projectId, spec.serviceName)
-      else Vector.empty
+      else Vector.empty,
+      InstallationModels.withheld(modelsPlan)
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -190,6 +209,10 @@ final class ServiceReconciler(
             if cloudBucket.orElse(movePass.map(_.bucket)).exists(_.unacknowledged) ||
               secretAccess.exists(_.unacknowledged) || secretSyncs.unacknowledged
             then settings.cloud.foreach(cloud => later(ref, cloud.acknowledgementBound))
+            // A model still being fetched, or a server not answering: look again in thirty seconds.
+            modelsPlan match
+              case InstallationModelsPlan.Waiting(_) => later(ref, ServiceReconciler.ModelsRequeue)
+              case _                                 => ()
             val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
@@ -516,6 +539,9 @@ final class ServiceReconciler(
     else executor.execute(Action.SetStatus(ref.namespace, ref.name, next))
 
 object ServiceReconciler:
+
+  /** How soon a service waiting on the model server is looked at again (feature 053). */
+  val ModelsRequeue: FiniteDuration = scala.concurrent.duration.Duration(30, "seconds")
 
   /** What holds a service for the project secrets it takes variables from, one per secret. */
   final case class ProjectSecretsPass(holds: Vector[SecretAccess.Hold], unacknowledged: Boolean)

@@ -1,0 +1,28 @@
+{
+  "server": "https://models.models-system.svc:8443",
+  "ready": true,
+  "pass": "2026-10-17T15:04:05Z",
+  "models": [
+    {
+      "name": "qwen3:0.6b",
+      "state": "served",
+      "digest": "7d4f3a1c9b2e8f60aa11223344556677889900aabbccddeeff00112233445566",
+      "capabilities": ["completion", "tools", "thinking"],
+      "since": "2026-10-17T15:00:00Z"
+    },
+    {
+      "name": "llama3.2:1b",
+      "state": "fetching",
+      "capabilities": [],
+      "since": "2026-10-17T15:04:00Z"
+    },
+    {
+      "name": "no-such-model:1b",
+      "state": "failed",
+      "capabilities": [],
+      "detail": "pull model manifest: file does not exist",
+      "since": "2026-10-17T15:03:00Z"
+    }
+  ],
+  "calls": {"answered": 1240, "failed": 3, "inFlight": 1, "waiting": 0}
+}

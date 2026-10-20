@@ -1,0 +1,33 @@
+# The installation's model server (feature 053): Ollama, one replica, in a namespace of its own,
+# behind a keeper of ankka's that is the only way in. Services name a model the administrator
+# declared here, and their calls never leave the installation.
+#
+# Ollama listens on its pod's loopback alone. The keeper beside it fetches and keeps loaded what the
+# declaration (`models-declaration`, `models.json`) lists, removes what it no longer lists, serves a
+# status document, and admits a call only over mutual TLS from a certificate the service authority
+# issued to a service: no request a developer's program makes reaches Ollama, and no service can
+# fetch, remove or make a model.
+#
+# Listed after `operator` and `controlplane`, since it patches both: the operator learns where the
+# server and its status are, the control plane where the server is. An installation without the
+# component renders an operator and a control plane with neither, and a service that names an
+# installation model is then reported failed with that reason.
+#
+# One replica, sized for a CPU and a small model as shipped. Placement on an accelerator, the number
+# of calls at once and the volume's size are the overlay's (`overlays/cloud/models-size.yaml`); the
+# GPU node pool and its driver are the installation repository's.
+#
+# The namespace is `models-system`, outside the `ankka-<name>` pattern a project's namespace has, so
+# no project id can ever name it.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - declaration.yaml
+  - certificate.yaml
+  - statefulset.yaml
+  - service.yaml
+  - zero-trust.yaml
+patches:
+  - path: operator-patch.yaml
+  - path: controlplane-patch.yaml

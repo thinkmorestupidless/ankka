@@ -226,6 +226,7 @@ nav:
       - Databases: platform/databases.md
       - The broker: platform/broker.md
       - Object storage: platform/object-storage.md
+      - Installation models: platform/installation-models.md
       - The cloud provider: platform/cloud-provider.md
       - Secrets on the platform: platform/secrets.md
       - Cross-project access: platform/cross-project-access.md

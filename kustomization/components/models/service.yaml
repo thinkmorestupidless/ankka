@@ -1,0 +1,17 @@
+# The door and the status port. Ollama's own port is named by nothing. The address is published
+# before the pod is ready, so the operator and the control plane read `fetching` during the first
+# fetch rather than nothing at all.
+apiVersion: v1
+kind: Service
+metadata:
+  name: models
+  namespace: models-system
+  labels:
+    app.kubernetes.io/name: models
+spec:
+  selector:
+    app.kubernetes.io/name: models
+  publishNotReadyAddresses: true
+  ports:
+    - { name: models, port: 8443, targetPort: models }
+    - { name: status, port: 8080, targetPort: status }

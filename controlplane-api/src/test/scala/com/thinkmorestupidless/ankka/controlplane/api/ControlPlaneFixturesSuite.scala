@@ -118,7 +118,26 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         "0.12.0",
         Some(CloudInstallation("gcp", "acme-production", "europe-west2", Some("keys/ankka"))),
         secrets =
-          Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn))
+          Some(InstallationSecrets("secret-manager", "365d", InstallationSecrets.AuditLogOn)),
+        models = Some(
+          InstallationModels(
+            Vector(
+              ClusterModels(
+                "home",
+                "https://models.models-system.svc:8443",
+                ready = true,
+                Vector(
+                  ModelLine("qwen3:0.6b", "served", Some("7d4f3a1c9b2e8f60")),
+                  ModelLine(
+                    "no-such-model:1b",
+                    "failed",
+                    detail = Some("pull model manifest: file does not exist")
+                  )
+                )
+              )
+            )
+          )
+        )
       ),
       Installation("0.12.0")
     ),

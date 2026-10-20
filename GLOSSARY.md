@@ -665,8 +665,8 @@ a descriptor states, and brings back nothing the service's database held.
 Avoid: revert, rewind, undo
 
 ### digest
-Of a descriptor, or of a service secret's value: a short value that two share exactly when they
-are the same.
+Of a descriptor, of a service secret's value, or of a served model as fetched: a short value that two
+share exactly when they are the same.
 
 Avoid: hash, checksum
 
@@ -2808,6 +2808,46 @@ What carries a replicated entity's records and forwarded commands between
 installations, behind the seam the runtime defines; the runtime ships one of its own for tests and
 for services on one machine, and `ankka-replication` supplies the one between installations.
 
+## Installation models
+
+### model server
+The one server of a cluster that serves installation models: a platform component the
+installation runs, declared by a platform administrator, answering only a holder of a service
+certificate of the installation. An installation may have none; one with remote clusters may have
+one per cluster.
+
+Avoid: inference server, local model server, in-cluster model
+
+### installation model
+A model a cluster's model server serves, declared by name by a platform administrator,
+which a service names as a model provider through the preset "installation" with the model's name
+and nothing else: no address and no key.
+
+Avoid: local model, self-hosted model, in-cluster model, private model
+
+### keeper
+The platform's own program beside the model server in its pod: the door only a holder
+of a service certificate can open, the loop that fetches, loads and removes models as the
+declaration says, the status it answers, and the metrics it sends. The model server itself listens
+to the keeper alone. It is not a service of any project, and it answers no one but the
+installation's services, the control plane and the operator.
+
+Avoid: model proxy, model sidecar
+
+### served model
+A declared model the model server has fetched and holds ready to answer; the only state
+of a model in which a service naming it starts. A declared model is still being fetched, a served
+model, or failed with a reason. Served does not mean in memory: a served model may be loaded again
+on its next call.
+
+Avoid: loaded model, pulled model, available model
+
+### capability
+Of a model: something it can do that an agent may need, such as "tool calling" or
+"thinking". A model server says what each of its models can do, and an agent that needs a
+capability its model lacks is told so at its first call. It is what a model can do, not what a
+service may do with it.
+
 ## Everyday words
 
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
@@ -2884,4 +2924,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight

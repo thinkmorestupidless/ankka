@@ -96,6 +96,27 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     )
   }
 
+  test("a status with installation models round-trips, and one without decodes as before") {
+    val status = AnkkaServiceStatus(
+      lifecycle = "Ready",
+      installationModels = Some(
+        InstallationModelsStatus(
+          phase = "Ready",
+          models = List(ServedModel("qwen3:0.6b", "7d4f3a1c"))
+        )
+      )
+    )
+    val json = serialization.asJson(status)
+    assertEquals(serialization.unmarshal(json, classOf[AnkkaServiceStatus]), status)
+    // A status written before feature 053 carries no block, and reads as one without it.
+    val before = serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready"))
+    assert(!before.contains("installationModels"), before)
+    assertEquals(
+      serialization.unmarshal(before, classOf[AnkkaServiceStatus]).installationModels,
+      None
+    )
+  }
+
   test("the whole resource round-trips with spec and status independent") {
     val resource = AnkkaService("ankka-checkout", "cart", fullSpec)
     resource.setStatus(AnkkaServiceStatus(generation = 4L, lifecycle = "Ready", readyInstances = 1))

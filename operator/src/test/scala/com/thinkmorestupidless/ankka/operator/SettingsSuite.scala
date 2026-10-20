@@ -24,6 +24,20 @@ class SettingsSuite extends munit.FunSuite:
     assertEquals(Settings.default.proxyImage, "ankka-proxy:latest")
   }
 
+  test("the model server is read from its three properties, and absent without them") {
+    assertEquals(Settings.fromEnvironment().models, None)
+    withProperties(
+      "ankka.operator.models-address"    -> "https://models.models-system.svc:8443",
+      "ankka.operator.models-status-url" -> "http://models.models-system.svc:8080/ankka/models",
+      "ankka.operator.models-namespace"  -> "models-system"
+    ) {
+      assertEquals(
+        Settings.fromEnvironment().models.map(_.namespace),
+        Some("models-system")
+      )
+    }
+  }
+
   test("the proxy image is read from ankka.operator.proxy-image") {
     withProperties("ankka.operator.proxy-image" -> "ghcr.io/example/ankka-proxy:1.2.3") {
       assertEquals(Settings.fromEnvironment().proxyImage, "ghcr.io/example/ankka-proxy:1.2.3")

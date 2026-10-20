@@ -450,3 +450,27 @@ spec:
                           - rejected
                       reason:
                         type: string
+                installationModels:
+                  type: object
+                  description: >-
+                    Whether the installation models the service names are served (feature 053):
+                    Ready with each model's digest, or Waiting or Failed with why. Absent when the
+                    service names none.
+                  properties:
+                    phase:
+                      type: string
+                      enum:
+                        - Ready
+                        - Waiting
+                        - Failed
+                    models:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          digest:
+                            type: string
+                    detail:
+                      type: string

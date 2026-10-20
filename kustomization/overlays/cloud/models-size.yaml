@@ -1,0 +1,37 @@
+# The installation's model server, placed and sized for the cluster it runs on. The component's
+# values are a laptop's: a CPU, 4Gi and a 20Gi volume, one call at once. Set each value marked SET.
+#
+# The accelerator node pool, its driver and the accelerator's name are the installation
+# repository's. OLLAMA_NUM_PARALLEL and ANKKA_KEEPER_PARALLEL are one setting said twice: Ollama runs
+# that many calls at once, and the keeper counts a call beyond them as waiting.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: models
+  namespace: models-system
+spec:
+  template:
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-l4 # SET: the accelerator's node label
+      tolerations:
+        - { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule } # SET
+      containers:
+        - name: ollama
+          env:
+            - { name: OLLAMA_NUM_PARALLEL, value: "4" } # SET
+          resources:
+            requests: { cpu: "4", memory: 16Gi } # SET
+            limits: { cpu: "8", memory: 32Gi, nvidia.com/gpu: 1 } # SET
+        - name: keeper
+          env:
+            - { name: ANKKA_KEEPER_PARALLEL, value: "4" } # SET: the same value
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: premium-rwo # SET
+        resources:
+          requests:
+            storage: 200Gi # SET: every declared model's size, with room

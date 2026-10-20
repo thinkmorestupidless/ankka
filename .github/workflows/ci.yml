@@ -67,6 +67,8 @@ jobs:
               - 'sidecar/**'
               - 'proxy/**'
               - 'proxy-core/**'
+              # The keeper beside the installation's model server (feature 053).
+              - 'model-keeper/**'
               - 'samples/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:

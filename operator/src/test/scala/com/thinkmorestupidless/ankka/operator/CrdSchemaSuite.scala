@@ -24,7 +24,9 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudResourceStatus,
   CloudSubject,
   HostnameStatus,
+  InstallationModelsStatus,
   ObjectStorageStatus,
+  ServedModel,
   ProjectGrantEntry,
   ProjectTopicEntry,
   ProjectTopicStatus
@@ -191,6 +193,19 @@ class CrdSchemaSuite extends munit.FunSuite:
     val inClass  = fieldsOf(classOf[ObjectStorageStatus])
     assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
     assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+  }
+
+  test("the installation models status block is declared field for field, in both directions") {
+    // Feature 053. The block and each model inside it are nested objects a closed schema checks.
+    for (path, cls) <- Seq(
+        Seq("status", "installationModels")                    -> classOf[InstallationModelsStatus],
+        Seq("status", "installationModels", "models", "items") -> classOf[ServedModel]
+      )
+    do
+      val inSchema = declared(path*)
+      val inClass  = fieldsOf(cls)
+      assertEquals(inClass -- inSchema, Set.empty[String], s"${path.mkString(".")}: undeclared")
+      assertEquals(inSchema -- inClass, Set.empty[String], s"${path.mkString(".")}: not carried")
   }
 
   test("a custom hostname's status is declared field for field, in both directions") {

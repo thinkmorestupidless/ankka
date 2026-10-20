@@ -32,6 +32,7 @@ import com.thinkmorestupidless.ankka.operator.{
   GcsSettings,
   Names,
   ObjectStoreBackend,
+  ObjectStoreSettings,
   ObjectStoreStack,
   Operator,
   PkiStack,
@@ -225,7 +226,18 @@ class ObjectStorageGcsClusterFeatures
 
       operatorSettings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
-        objectStore = Some(store.settings),
+        // The store's web endpoint, which a public bucket made while the backend is Garage needs.
+        objectStore = Some(
+          store.settings.copy(webService =
+            Some(
+              ObjectStoreSettings.ServiceRef(
+                store.settings.service.namespace,
+                store.settings.service.name,
+                3902
+              )
+            )
+          )
+        ),
         objectStoreBackend = Some(ObjectStoreBackend.Gcs),
         gcs = Some(GcsSettings(NamePrefix, GcsSettings.DefaultSoftDeleteDays)),
         cloud = Some(cloud),

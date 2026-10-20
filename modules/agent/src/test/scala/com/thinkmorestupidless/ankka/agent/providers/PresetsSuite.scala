@@ -37,7 +37,7 @@ class PresetsSuite extends munit.FunSuite:
   private val standIn = FunFixture[ModelStandIn](_ => ModelStandIn.start(), _.close())
 
   test("the presets are exactly those the platform names") {
-    assertEquals(Presets.all.keySet, required)
+    assertEquals(Presets.all.keySet, required + Presets.Installation)
     Presets.all.foreach((name, preset) => assertEquals(preset.name, name))
   }
 
@@ -103,7 +103,11 @@ class PresetsSuite extends munit.FunSuite:
       )
     }
 
-  for (name, preset) <- Presets.all.toVector.sortBy(_._1) if preset.defaultModel.isEmpty do
+  // The installation preset is refused differently, and its rules are ProviderConfigSuite's.
+  for
+    (name, preset) <- Presets.all.toVector.sortBy(_._1)
+    if preset.defaultModel.isEmpty && name != Presets.Installation
+  do
     test(s"$name names no model, so one must be given") {
       val config = ProviderConfig(
         "p",

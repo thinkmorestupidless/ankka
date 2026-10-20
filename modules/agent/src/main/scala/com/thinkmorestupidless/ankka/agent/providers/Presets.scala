@@ -33,6 +33,13 @@ object Presets:
 
   private val Read = "2026-10-17"
 
+  /**
+   * The installation's own model server (feature 053). Its address is the platform's
+   * (`ANKKA_MODELS_ADDRESS`) and its credential is the service's certificate, so a service gives a
+   * model and nothing else; `ProviderConfig.resolve` holds those rules.
+   */
+  val Installation: String = "installation"
+
   private def openAiCompatible(
       name: String,
       address: Option[String],
@@ -80,6 +87,12 @@ object Presets:
       Some("http://localhost:11434/v1"),
       keyRequired = false,
       notes = "also serves Anthropic's protocol at `http://localhost:11434`"
+    ),
+    openAiCompatible(
+      Installation,
+      None,
+      keyRequired = false,
+      notes = "the installation's model server; the platform gives the address and the certificate"
     ),
     openAiCompatible("lmstudio", Some("http://localhost:1234/v1"), keyRequired = false),
     openAiCompatible(

@@ -51,7 +51,52 @@ final case class ProviderConfig(
 ):
 
   /** The preset's values under the given ones, checked; or the first thing wrong. */
-  def resolve: Either[ConfigProblem, ResolvedConfig] =
+  def resolve: Either[ConfigProblem, ResolvedConfig] = resolve(None)
+
+  /**
+   * As `resolve`, where the platform may run a model server.
+   *
+   * @param modelsAddress
+   *   the installation's model server, when the platform runs one here: what the preset
+   *   `installation` is resolved against, and nothing else is
+   */
+  def resolve(modelsAddress: Option[String]): Either[ConfigProblem, ResolvedConfig] =
+    if preset.contains(Presets.Installation) then installation(modelsAddress)
+    else resolveGiven
+
+  /**
+   * An installation model names a model and nothing else: the platform gives the address, and the
+   * service's certificate is the credential, so anything else beside it is a mistake.
+   */
+  private def installation(modelsAddress: Option[String]): Either[ConfigProblem, ResolvedConfig] =
+    def refuse(value: Option[String], what: String, setting: String) =
+      if value.exists(_.nonEmpty) then
+        Left(ConfigProblem(name, s"an installation model takes no $what", Some(setting)))
+      else Right(())
+    for
+      _ <- ModelProviders.validName(name).left.map(ConfigProblem(name, _))
+      _ <- refuse(url, "address", "URL")
+      _ <- refuse(key, "key", "KEY")
+      _ <- refuse(protocol, "protocol", "PROTOCOL")
+      _ <- refuse(shape, "shape", "SHAPE")
+      chosen <- model
+        .filter(_.nonEmpty)
+        .toRight(ConfigProblem(name, "an installation model must be named", Some("MODEL")))
+      address <- modelsAddress
+        .filter(_.nonEmpty)
+        .toRight(ConfigProblem(name, ProviderConfig.NoModelServer))
+    yield ResolvedConfig(
+      name,
+      ModelProtocol.OpenAi,
+      Shape.ChatCompletions,
+      s"${address.stripSuffix("/")}/v1",
+      chosen,
+      None,
+      Presets.all(Presets.Installation).quirks,
+      installation = true
+    )
+
+  private def resolveGiven: Either[ConfigProblem, ResolvedConfig] =
     def problem(
         message: String,
         setting: Option[String] = None,
@@ -144,6 +189,12 @@ object ProviderConfig:
   /** The settings a provider is configured by, as the sidecar's variables end. */
   val Settings: Vector[String] = Vector("PROTOCOL", "URL", "MODEL", "KEY", "SHAPE", "PRESET")
 
+  /** What a service naming an installation model is told where no model server runs. */
+  val NoModelServer: String =
+    "there is no installation model server here: this platform runs none, or the service runs " +
+      "outside an installation. Point a model provider at a server of your own instead; see " +
+      "docs.ankka.cloud/platform/installation-models"
+
   private[providers] def isAddress(value: String): Boolean =
     Try(URI.create(value)).toOption.exists { uri =>
       Option(uri.getScheme).exists(s => s == "http" || s == "https") && Option(uri.getHost).nonEmpty
@@ -157,5 +208,10 @@ final case class ResolvedConfig(
     url: String,
     model: String,
     key: Option[String],
-    quirks: Quirks
+    quirks: Quirks,
+    /**
+     * The installation's model server: reached with the service's certificate, admitting only the
+     * server's, and asked what a model can do before the model is called.
+     */
+    installation: Boolean = false
 )

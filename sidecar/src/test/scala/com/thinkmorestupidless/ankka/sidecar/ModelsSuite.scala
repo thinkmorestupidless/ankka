@@ -2,7 +2,12 @@ package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.agent.providers.ProviderConfig
+import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import com.thinkmorestupidless.ankka.testollama.FakeOllama
+import com.thinkmorestupidless.ankka.testpki.TestPki
 
+import java.nio.file.Files
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 
@@ -246,4 +251,99 @@ class ModelsSuite extends munit.FunSuite with LogCapturing:
       Map("ANKKA_MODEL_LOCAL_PRESET" -> "ollama", "ANKKA_MODEL_LOCAL_MODEL" -> "qwen3:8b")
     )
     assertEquals(local.named("local").map(_.name), Some("local"))
+  }
+
+  // ── Installation models ────────────────────────────────────────────────────
+
+  private val noCertificate: Map[String, String] => Either[String, RotatingTls] =
+    _ => Left("no certificate here")
+
+  private val installed = Map(
+    "ANKKA_MODEL_LOCAL_PRESET" -> "installation",
+    "ANKKA_MODEL_LOCAL_MODEL"  -> "qwen3:0.6b",
+    "ANKKA_MODELS_ADDRESS"     -> "https://models.models-system.svc:8443"
+  )
+
+  test(
+    "the preset installation is resolved against the model server, with the service's certificate"
+  ) {
+    val authority = TestPki.root("service authority")
+    val door = FakeOllama.startTls(
+      RotatingTls(
+        authority
+          .issue(uris = Seq("ankka://platform/models"), dnsNames = Seq("localhost"))
+          .writeTo(Files.createTempDirectory("ankka-door")),
+        1.minute
+      ).sslContext
+    )
+    try
+      door.hold("qwen3:0.6b")
+      val service = RotatingTls(
+        authority
+          .issue(uris = Seq("ankka://shop/support"))
+          .writeTo(Files.createTempDirectory("ankka-service")),
+        1.minute
+      )
+      val models = Models.fromEnv(
+        installed + ("ANKKA_MODELS_ADDRESS" -> door.url),
+        _ => Right(service)
+      )
+      val local = models.named("local").get
+      assertEquals(local.modelName, "qwen3:0.6b")
+      assertEquals(models.default.map(_.name), Some("local"))
+      val answer = Await.result(
+        local.complete(
+          ModelRequest(ModelSettings("qwen3:0.6b"), None, Vector(ChatMessage.User.text("hi")))
+        ),
+        30.seconds
+      )
+      assertEquals(answer.text, "Hello")
+      assertEquals(
+        door.requestsTo("POST", "/v1/chat/completions").head.header("authorization"),
+        Some("Bearer none")
+      )
+    finally door.stop()
+  }
+
+  test("an installation model is refused at the service's start beside an address or a key") {
+    def refused(env: Map[String, String]) =
+      intercept[IllegalArgumentException](Models.fromEnv(env, noCertificate)).getMessage
+    assertEquals(
+      refused(installed + ("ANKKA_MODEL_LOCAL_URL" -> "http://elsewhere:11434/v1")),
+      "ANKKA_MODEL_LOCAL_URL: an installation model takes no address"
+    )
+    assertEquals(
+      refused(installed + ("ANKKA_MODEL_LOCAL_KEY" -> "k")),
+      "ANKKA_MODEL_LOCAL_KEY: an installation model takes no key"
+    )
+    assertEquals(
+      refused(installed - "ANKKA_MODEL_LOCAL_MODEL"),
+      "ANKKA_MODEL_LOCAL_MODEL: an installation model must be named"
+    )
+    assertEquals(
+      refused(installed),
+      "model provider 'local': no certificate here"
+    )
+  }
+
+  test(
+    "a service run outside an installation that names the preset installation is told there is no model server"
+  ) {
+    assertEquals(
+      intercept[IllegalArgumentException](
+        Models.fromEnv(installed - "ANKKA_MODELS_ADDRESS", noCertificate)
+      ).getMessage,
+      s"model provider 'local': ${ProviderConfig.NoModelServer}"
+    )
+  }
+
+  test("the service's certificate is read only for an installation model") {
+    var asked = 0
+    Models.fromEnv(
+      Map("ANKKA_MODEL_LOCAL_PRESET" -> "ollama", "ANKKA_MODEL_LOCAL_MODEL" -> "qwen3:8b"),
+      _ =>
+        asked += 1
+        Left("not wanted")
+    ): Unit
+    assertEquals(asked, 0)
   }

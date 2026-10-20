@@ -12,6 +12,7 @@ import org.apache.pekko.stream.scaladsl.Source
 import org.slf4j.LoggerFactory
 
 import java.util.concurrent.Executors
+import javax.net.ssl.{SSLSocketFactory, X509TrustManager}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
@@ -235,20 +236,31 @@ object OpenAiProvider:
       key: Option[String] = None,
       shape: Shape = Shape.ChatCompletions,
       defaults: Defaults = Defaults(),
-      quirks: Quirks = Quirks.compatibleOpenAi
+      quirks: Quirks = Quirks.compatibleOpenAi,
+      tls: Option[ClientTls] = None
   ): OpenAiProvider =
-    new OpenAiProvider(Right(client(address, key)), name, modelName, shape, defaults, quirks)
+    new OpenAiProvider(Right(client(address, key, tls)), name, modelName, shape, defaults, quirks)
+
+  /**
+   * The certificate a call presents and the servers it accepts, for an address that asks for one.
+   */
+  final case class ClientTls(socketFactory: SSLSocketFactory, trustManager: X509TrustManager)
 
   /**
    * Nothing is retried here: a failed call is the provider's failure, as ankka treats every one.
    */
-  private def client(address: String, key: Option[String]): OpenAIClient =
-    OpenAIOkHttpClient
+  private def client(
+      address: String,
+      key: Option[String],
+      tls: Option[ClientTls] = None
+  ): OpenAIClient =
+    val builder = OpenAIOkHttpClient
       .builder()
       .baseUrl(address)
       .apiKey(key.filter(_.nonEmpty).getOrElse(ModelProviders.NoKey))
       .maxRetries(0)
-      .build()
+    tls.foreach(t => builder.sslSocketFactory(t.socketFactory).trustManager(t.trustManager))
+    builder.build()
 
   /** An SDK value as ankka's JSON, through the SDK's own mapper. */
   private[openai] def json(value: AnyRef): Json =

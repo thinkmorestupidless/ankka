@@ -9,6 +9,8 @@ import com.thinkmorestupidless.ankka.agent.{
   ModelResponse
 }
 import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
+import com.thinkmorestupidless.ankka.core.PlatformVariables
+import com.thinkmorestupidless.ankka.runtime.{ClusterConfig, RotatingTls}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
 
@@ -44,7 +46,44 @@ object ModelProviders:
           "starting with a letter"
       )
 
-  def configure(config: ResolvedConfig): ModelProvider =
+  /**
+   * The provider a resolved configuration describes. An installation model is reached with the
+   * service's certificate, asked for only when one is configured.
+   *
+   * @throws IllegalArgumentException
+   *   for an installation model where the service has no certificate
+   */
+  def configure(
+      config: ResolvedConfig,
+      serviceTls: => Either[String, RotatingTls] = Left("no certificate was given")
+  ): ModelProvider =
+    if config.installation then
+      serviceTls.fold(
+        why => throw IllegalArgumentException(s"model provider '${config.name}': $why"),
+        InstallationModels.provider(config, _)
+      )
+    else configureGiven(config)
+
+  /**
+   * A model the installation's model server serves, for a Scala service on the platform:
+   * `ModelProviders.installation("qwen3:0.6b")`. The address is the platform's and the credential
+   * the service's own certificate, so nothing else is given.
+   *
+   * @throws IllegalArgumentException
+   *   where the platform runs no model server, or the service has no certificate
+   */
+  def installation(
+      model: String,
+      name: String = Presets.Installation,
+      env: Map[String, String] = sys.env
+  ): ModelProvider =
+    ProviderConfig(name, model = Some(model), preset = Some(Presets.Installation))
+      .resolve(env.get(PlatformVariables.ModelsAddress)) match
+      case Right(resolved) =>
+        configure(resolved, InstallationModels.serviceTls(ClusterConfig.load(env)))
+      case Left(problem) => throw IllegalArgumentException(problem.describe)
+
+  private def configureGiven(config: ResolvedConfig): ModelProvider =
     config.protocol match
       case ModelProtocol.Anthropic =>
         AnthropicProvider.at(

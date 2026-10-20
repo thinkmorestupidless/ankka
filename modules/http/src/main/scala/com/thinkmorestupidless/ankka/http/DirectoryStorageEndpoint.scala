@@ -20,8 +20,9 @@ import scala.concurrent.{ExecutionContext, Future}
  * Not an endpoint a service declares: the router consults it only when the service's store is a
  * directory, and an object's name may hold slashes, which no route template matches. The request's
  * caller is not asked; the token is the whole of the authority, as a signature is on an object
- * store. A `GET` reads with a token for `read`, or with none on a public bucket; a `PUT` keeps with
- * a token for `keep`. Anything else is `403`, and an object not there `404`.
+ * store. A `GET` reads with a token for `read`, or with none on a public bucket, and a `HEAD` is
+ * answered as the `GET` would be, without the body; a `PUT` keeps with a token for `keep`. Anything
+ * else is `403`, and an object not there `404`.
  */
 private[http] final class DirectoryStorageEndpoint(
     val store: DirectoryObjectStorage,
@@ -55,7 +56,7 @@ private[http] final class DirectoryStorageEndpoint(
               store.signer.admits(bucket.segment, objectName, access, expires, token, clock())
             case _ => false
         request.method match
-          case HttpMethods.GET =>
+          case HttpMethods.GET | HttpMethods.HEAD =>
             val public = bucket.exposure == BucketExposure.Public && bucket.name.nonEmpty
             if public || signedFor("read") then read(bucket, objectName) else refused(request)
           case HttpMethods.PUT =>

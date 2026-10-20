@@ -64,14 +64,17 @@ them for any service with a made bucket.
 
 ```text
 .ankka/storage/
-├── default/                    # the unnamed bucket
-│   └── listings/42/photos/front.jpg
-│   └── listings/42/photos/front.jpg.meta.json   # {"contentType":"image/jpeg","lastKept":"…"}
+├── .key                        # the key signed URLs are checked against
+├── _default/                   # the unnamed bucket
+│   ├── objects/listings%2F42%2Fphotos%2Ffront.jpg
+│   └── meta/listings%2F42%2Fphotos%2Ffront.jpg.json   # name, contentType, length, lastKept
 └── photos/                     # a named bucket, by its descriptor name
 ```
 
-A put writes `<name>.part` beside and renames it over `<name>` so a failed put leaves the old
-object. The buckets a directory store has are the descriptor's when `service.json` is beside the
+*Amended in implementation:* an object's name is encoded into one file name (`/` as `%2F`, a name
+too long for a file name kept under its hash), so an object `a` and an object `a/b` can both be
+kept, which a directory tree cannot hold. A put writes a temporary file and moves it into place, so
+a failed put leaves the old object. The buckets a directory store has are the descriptor's when `service.json` is beside the
 working directory, else any name asked for, as `private`.
 
 ### Memory store

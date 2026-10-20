@@ -459,8 +459,10 @@ read from the store directly, never through the service.
 
 A service run on your machine with no store's variables keeps its objects in a directory,
 `.ankka/storage` under the directory it runs in, or wherever `ANKKA_STORAGE_DIR` says: one directory
-per bucket (`default` for the unnamed one), each object a file under its name with its content type in a
-`.meta.json` file beside it. The buckets are those the `service.json` beside it declares. Every project
+per bucket (`_default` for the unnamed one), holding each object as one file under `objects/`, its name
+encoded so that `/` is `%2F` (an object `a` and an object `a/b` can both be kept, as in a bucket), and its
+content type, length and the time it was kept in a JSON file of the same name under `meta/`. The buckets
+are those the `service.json` beside it declares. Every project
 `ankka init` makes ignores `.ankka/` in its `.gitignore`.
 
 Signed URLs and public addresses work there too. They point at the service's own port, under

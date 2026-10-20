@@ -133,6 +133,29 @@ class DirectoryStorageEndpointSuite extends munit.FunSuite:
     )
   }
 
+  test("a HEAD is answered as a GET would be, with no body") {
+    keepBytes(store.bucket("photos"), "listings/7/front.jpg", "a photo", "image/jpeg")
+    val head = client.send(
+      HttpRequest
+        .newBuilder(store.bucket("photos").url("listings/7/front.jpg"))
+        .method("HEAD", HttpRequest.BodyPublishers.noBody())
+        .build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    assertEquals(head.statusCode, 200, head.body)
+    assertEquals(head.headers.firstValue("Content-Type").orElse(""), "image/jpeg")
+    assertEquals(head.body, "")
+    val base = s"http://127.0.0.1:${server.boundPort.get}/_ankka/storage"
+    val refused = client.send(
+      HttpRequest
+        .newBuilder(URI.create(s"$base/exports/a.pdf"))
+        .method("HEAD", HttpRequest.BodyPublishers.noBody())
+        .build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    assertEquals(refused.statusCode, 403)
+  }
+
   test("an object that is not there is 404, and so is a bucket the store does not have") {
     assertEquals(
       get(store.default.signedUrl("exports/none.pdf", SignedAccess.Read)).statusCode,

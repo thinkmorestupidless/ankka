@@ -85,7 +85,7 @@ limitations page's new lines; the skills rendered.
 ankka init listings --language scala && cd listings
 docker compose up -d && sbt run                     # no ANKKA_S3_*: the directory store
 curl -X PUT --data-binary @front.jpg -H 'Content-Type: image/jpeg' localhost:9000/photos/42/front
-ls .ankka/storage/photos/listings/42/                # front.jpg and front.jpg.meta.json
+find .ankka/storage/photos -type f                  # objects/listings%2F42%2Ffront.jpg and meta/listings%2F42%2Ffront.jpg.json
 curl -s localhost:9000/photos/42/front/url           # http://127.0.0.1:9000/_ankka/storage/photos/listings/42/front.jpg
 curl -I "$(curl -s localhost:9000/photos/42/front/url)"   # 200 image/jpeg
 ```

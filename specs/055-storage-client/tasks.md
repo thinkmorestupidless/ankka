@@ -600,12 +600,17 @@ move in `ObjectStorageGcsClusterFeatures`; the Google-only rows `ranOutside`.
   those reported made in Garage) rather than kept in the move's state, so the resource's schema is
   unchanged; a bucket named during the move is not made and waits for it. A missing target bucket is a
   failed object (exit 1) as in feature 039, its reason naming the pair.
-- [ ] T047 [US4] Extend `CPT/ObjectStorageGcsClusterFeatures.scala` with the scripted provider in its
+- [X] T047 [US4] Extend `CPT/ObjectStorageGcsClusterFeatures.scala` with the scripted provider in its
   Garage-backed mode: a service with the unnamed bucket and two named ones moved to the cloud as one
   move, every object present in each target bucket, the status naming each bucket's new store; bind
   `buckets.feature`'s "a service's buckets are moved together" there and name it in
   `StorageClientClusterFeatures`'s `ranElsewhere`. `ranOutside` for "a public bucket readable by
   anyone on Google" and `publicUrl`, by name, for ankka-gcp's nightly suite
+  *Done 2026-10-20, run 39395272609, 25 of 25 on both architectures:* the suite installs the gateway
+  and its Garage-mode operator names a base domain, as `StorageClientClusterFeatures` does; the run
+  found that a public bucket in Garage with no base domain was handed to a service whose runtime
+  refused it (now `Failed`, `NoPublicAddress`). No scenario in `features/` needs Google itself, so
+  `ranOutside` names none; the two Google-only checks are named for ankka-gcp in the pull request.
 - [X] T048 [US4] Write the amendments into `DOCS/platform/cloud-provider.md`'s request tables
   (`bucket`: `name`, `public`, `publicUrl`; `bucket-credential`: `buckets`; the public bucket's
   access settings; `publicUrl` as Google's address or the installation's content delivery network's)
@@ -856,12 +861,20 @@ written the day they cost time, and every suite once.
   listener and `ANKKA_OBJECT_STORE_WEB_SERVICE`; `Kept` as the operator's memory; the key is the
   service's, not the bucket's), `.claude/rules/sidecar.md` (the `storage` import and the bound; the
   one admitted `_ankka` prefix), `.claude/rules/testing.md` (`StreamedBodySuite`'s heap guard)
-- [ ] T071 `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt -Dankka.cluster.tests=off buildAll`,
+- [X] T071 `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt -Dankka.cluster.tests=off buildAll`,
   `just test-console`, the SDK commands, `sbt 'storageMover/test'`; then
   `git diff main -- project/Dependencies.scala` shows no new `runtime` or `sdk` library (SC-003);
   `gh workflow run cluster --ref 055-storage-client` for the whole matrix (`StorageClientClusterFeatures`,
   `GarageWebClusterSuite`, `ObjectStorageGcsClusterFeatures`, `ObjectStorageClusterFeatures`,
   `OperatorClusterSuite` with the component change) and read every suite's own count
+  *Done 2026-10-20:* `buildAll` green but for `WatchRulesFeatures` (10 of 10 alone) and
+  `RustTemplateSuite` (7 of 7 alone in 68s; 7290s in the build was the machine); `storageMover/test`
+  15; the Rust crate's tests and `./conformance.sh` (137 passed, 33 skipped); no new library in
+  `project/Dependencies.scala`. Cluster matrix 39386499479: 77 of 85 green; `ObjectStorageClusterFeatures`
+  failed on its placeholder endpoint, which the runtime now reads (fixed, 39394345927, 28 of 28), the
+  GCS suite as above, and `BackupsClusterFeatures`, `AfterRestoreClusterFeatures`,
+  `RehearsalsClusterFeatures` and `CloudProviderClusterFeatures` on one architecture each, as `main`'s
+  nightly runs of 17 to 19 October fail them.
 - [X] T072 Quickstart §6 by hand: `ankka init listings --language scala`, `sbt run` with no
   variables, the `curl` round trip, the files under `.ankka/storage/`, the public address answering
   `200 image/jpeg`; then `ankka services apply` on the local installation and `ankka services get`

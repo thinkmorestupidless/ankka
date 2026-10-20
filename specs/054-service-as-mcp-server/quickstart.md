@@ -106,11 +106,13 @@ findings; the build warning-free with twelve artifacts on `publishLocal`.
 ```bash
 docker compose up -d
 sbt shoppingCart/run                                                       # /mcp with get_cart, add_item, checkout
-claude mcp add --transport http cart http://localhost:9000/mcp              # Claude Code lists and calls the tools
-curl -s -X POST localhost:9000/mcp-keys -d '{"subject":"acme","scope":["get_cart"]}'   # the sample's issuing route; shows the key once
+claude mcp add --transport http cart http://localhost:9000/mcp              # refused: the cart's /mcp admits client keys only
+curl -s -X POST localhost:9000/mcp-keys -H 'Content-Type: application/json' \
+  -d '{"subject":"acme","scope":["get_cart"]}'                              # the sample's issuing route; shows the key once
 claude mcp add --transport http cart-acme http://localhost:9000/mcp --header "Authorization: Bearer ankka_ck_…"
 ```
 
-Expect: Claude Code's `/mcp` listing the server, the tools, and a `get_cart` answered from the
-entity; with the key, one tool listed; `ankka local console` showing the span with the subject
-`acme` and the entity's call beneath it, and no key anywhere in it.
+Expect: Claude Code's `/mcp` showing `cart` failed or needing authentication (a 401:
+the endpoint admits client keys only), and `cart-acme` connected with one tool,
+`get_cart`, answered from the entity; `ankka local console` showing the tool's span with the
+subject `acme` and the entity's call beneath it, and no key anywhere in it.

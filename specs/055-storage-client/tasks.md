@@ -888,7 +888,7 @@ written the day they cost time, and every suite once.
   hand:* `ankka services apply` on the local installation, since the machine's kubectl context was a
   production cluster; `StorageClientClusterFeatures` runs the same five-bucket `services get` through
   the real CLI against a real control plane on k3s.
-- [ ] T073 The pull request: the operational consequences from plan.md's "Complexity Tracking"
+- [X] T073 The pull request: the operational consequences from plan.md's "Complexity Tracking"
   (the component's web listener and the operator setting an installation must take together; ankka-gcp's
   four amendments before a public or named bucket works on Google; protocol 1.20 and the `storage`
   import; the limitations lines) in the description, and the two `ranOutside` scenarios named for

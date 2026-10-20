@@ -862,10 +862,19 @@ written the day they cost time, and every suite once.
   `gh workflow run cluster --ref 055-storage-client` for the whole matrix (`StorageClientClusterFeatures`,
   `GarageWebClusterSuite`, `ObjectStorageGcsClusterFeatures`, `ObjectStorageClusterFeatures`,
   `OperatorClusterSuite` with the component change) and read every suite's own count
-- [ ] T072 Quickstart §6 by hand: `ankka init listings --language scala`, `sbt run` with no
+- [X] T072 Quickstart §6 by hand: `ankka init listings --language scala`, `sbt run` with no
   variables, the `curl` round trip, the files under `.ankka/storage/`, the public address answering
   `200 image/jpeg`; then `ankka services apply` on the local installation and `ankka services get`
   showing five bucket lines. Record what differed from the page in T066's text
+  *Done 2026-10-20 for the laptop half, against 8dfa1666 published locally:* the directory store,
+  the put, the public address read back byte for byte, 404 for an absent object. Two differences,
+  both fixed in 8dfa1666: a `HEAD` at the address answered 405 (now as the `GET`, without the body;
+  pekko-http sends no `Content-Length` on it), and the page described `<name>` with a `.meta.json`
+  beside it where the store keeps `objects/` and `meta/` with the name encoded. A Python or
+  TypeScript process's addresses still answer `HEAD` 405: they are sidecar `GET` routes. *Not run by
+  hand:* `ankka services apply` on the local installation, since the machine's kubectl context was a
+  production cluster; `StorageClientClusterFeatures` runs the same five-bucket `services get` through
+  the real CLI against a real control plane on k3s.
 - [ ] T073 The pull request: the operational consequences from plan.md's "Complexity Tracking"
   (the component's web listener and the operator setting an installation must take together; ankka-gcp's
   four amendments before a public or named bucket works on Google; protocol 1.20 and the `storage`

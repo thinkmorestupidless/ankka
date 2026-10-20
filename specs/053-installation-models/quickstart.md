@@ -106,14 +106,14 @@ Or on demand in CI: `gh workflow run cluster --ref 053-installation-models -f su
 ```bash
 kind create cluster --name ankka --config kustomization/kind.yaml   # if not there
 just deploy-models                                                   # ANKKA_LOCAL_MODELS=on deploy-local.sh
-ankka installation status                                            # model server (home): …, qwen3:0.6b served
+ankka installation                                                   # model server (home): …, qwen3:0.6b served
 ```
 
 Deploy the Python template with `ANKKA_MODEL_LOCAL_PRESET=installation` and
 `ANKKA_MODEL_LOCAL_MODEL=qwen3:0.6b` in its descriptor and `with_model("local")` on its agent; send
 it a message; read the session's model usage under `local` in the local console or `services
 logs`. Change the model to `nope:1b`, apply, and read `services get`'s detail. Run
-`just deploy` without the flag on a fresh cluster and confirm `ankka installation status` says
+`just deploy` without the flag on a fresh cluster and confirm `ankka installation` says
 `model server: none`.
 
 ## 8. Documentation

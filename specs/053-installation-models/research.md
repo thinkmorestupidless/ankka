@@ -245,7 +245,7 @@ still being fetched would crash-loop instead of waiting, and the spec says it wa
 the same variable) with a `RotatingTls` over the control plane's service mount requiring
 `ankka://platform/models`, as `InstanceTopologies` builds one per expected peer. `GET /installation`
 gains `models: Option[InstallationModels]`, a list of clusters each with its server's address and
-its model lines (name, state, digest, detail); today one entry, `home`. `ankka installation status`
+its model lines (name, state, digest, detail); today one entry, `home`. `ankka installation`
 prints a line per model; the MCP `installation_status` tool's description names it. Absent the
 variable, the field is absent and the CLI says the installation has no model server.
 

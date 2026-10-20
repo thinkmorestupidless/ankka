@@ -180,7 +180,7 @@ service certificate at all (a plain pod in a project namespace) is refused the s
 
 ### User Story 3 - A developer learns what is served and is told when it is not (Priority: P1)
 
-A developer runs `ankka installation status` and reads the model server's models. They deploy a
+A developer runs `ankka installation` and reads the model server's models. They deploy a
 service naming one that is not on the list; the service fails to start with a detail naming the
 served models, which `ankka services get` shows. They correct the name and the service starts. On a
 remote cluster with no model server, the same descriptor is refused naming that the cluster serves

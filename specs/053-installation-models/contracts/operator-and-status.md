@@ -58,7 +58,7 @@ shows every detail; no new console surface.
 plane has `ANKKA_MODELS_ADDRESS`; absent otherwise. A read that fails answers the cluster with
 `ready: false` and a `detail`, never a 500: the rest of the installation's status is still true.
 
-`ankka installation status` prints, after the backups:
+`ankka installation` prints, after the backups:
 
 ```
 model server (home): https://models.models-system.svc:8443, ready

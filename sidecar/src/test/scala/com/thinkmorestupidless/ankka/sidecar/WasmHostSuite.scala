@@ -383,7 +383,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       "ANKKA_BASE_DOMAIN",
       "ANKKA_HTTPS_PORT",
       "ANKKA_NAMESPACE_PREFIX",
-      "ANKKA_SECRET_KEY"
+      "ANKKA_SECRET_KEY",
+      "ANKKA_MODELS_ADDRESS"
     )
     val env         = reserved.map(_ -> "secret").toMap + ("GREETING" -> "hello")
     val hostImports = imports(env)

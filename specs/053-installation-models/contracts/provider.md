@@ -34,20 +34,22 @@ What the preset sets:
 | `ANKKA_MODEL_LOCAL_URL` set beside the preset | `ANKKA_MODEL_LOCAL_URL: an installation model takes no address` |
 | `ANKKA_MODEL_LOCAL_KEY` set beside the preset | `ANKKA_MODEL_LOCAL_KEY: an installation model takes no key` |
 | no `ANKKA_MODEL_LOCAL_MODEL` | `ANKKA_MODEL_LOCAL_MODEL: an installation model must be named` |
-| no `ANKKA_MODELS_ADDRESS` in the environment | `there is no installation model server here: this platform runs none, or the service runs outside an installation. Point a model provider at a server of your own instead; see docs.ankka.cloud/platform/installation-models` |
-| the model is not served when the sidecar starts | `installation model "x" is not served; served: a, b` (the operator normally holds the service back first; this is the belt) |
+| no `ANKKA_MODELS_ADDRESS` in the environment | `model provider 'local': there is no installation model server here: this platform runs none, or the service runs outside an installation. Point a model provider at a server of your own instead; see docs.ankka.cloud/platform/installation-models` |
 
-Each is a `StartRefusal`, so the pod's termination message reaches `services get`.
+Each is a `StartRefusal`, so the pod's termination message reaches `services get`. A model that is
+not served is not refused here: the operator holds the service back until it is, and a call to
+a model removed since is the provider's failure at that call.
 
 ## At the first call
 
-`InstallationModelClient.capabilities(model)`: `POST /api/show` through the door, once per model
-per process, cached. Then, before any call to the model:
+`InstallationModels.Capabilities` (agent, so a Scala service and the sidecar share it): `POST
+/api/show` through the door, once per model per process, cached on success. Then, before any call
+to the model:
 
 | Request | Model lacks | `ModelCallFailed(name, …)` |
 |---|---|---|
 | tools declared | `tools` | `installation model "x" lacks tool calling` |
-| `effort` set, or thinking on | `thinking` | `installation model "x" lacks thinking` |
+| `effort` set (thinking is a model's default, so asking for none needs nothing; FR-012) | `thinking` | `installation model "x" lacks thinking` |
 
 The loop answers the caller `Unavailable` and an autonomous agent a failed iteration, as for any
 provider's failure. A model with both capabilities is called with no further check. A `/api/show`

@@ -517,12 +517,25 @@ class ObjectStorageGcsClusterFeatures
       assertEquals(put, 200, s"the signed PUT from $origin")
 
   private def awaitReady(project: String, name: String): Unit =
-    waitFor(360.seconds, s"$project/$name being Ready") {
-      statusOf(name, project).exists(s =>
-        s.lifecycle == ServiceLifecycle.Ready && s.confirmed &&
-          s.objectStorage.exists(p => p == "provisioned" || p.startsWith("recovered"))
-      ) && pods(project, name).exists(ServicePods.running)
-    }
+    // The last status read is kept for the failure message, since which of the four did not
+    // happen is the first thing a red run needs to say.
+    var seen: Option[ServiceStatus] = None
+    try
+      waitFor(360.seconds, s"$project/$name being Ready") {
+        seen = statusOf(name, project)
+        seen.exists(s =>
+          s.lifecycle == ServiceLifecycle.Ready && s.confirmed &&
+            s.objectStorage.exists(p => p == "provisioned" || p.startsWith("recovered"))
+        ) && pods(project, name).exists(ServicePods.running)
+      }
+    catch
+      case e: munit.FailException =>
+        fail(
+          s"${e.getMessage}; last reported: " + seen.fold("nothing")(s =>
+            s"${s.lifecycle} (confirmed ${s.confirmed}), detail ${s.detail}, object storage " +
+              s"${s.objectStorage}, buckets ${s.buckets}"
+          )
+        )
 
   private def deploy(project: String, logical: String): String =
     val name = apply(project, logical)

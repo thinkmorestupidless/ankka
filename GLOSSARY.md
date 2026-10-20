@@ -2816,7 +2816,7 @@ installation runs, declared by a platform administrator, answering only a holder
 certificate of the installation. An installation may have none; one with remote clusters may have
 one per cluster.
 
-Avoid: inference server, Ollama, local model server, in-cluster model
+Avoid: inference server, local model server, in-cluster model
 
 ### installation model
 A model a cluster's model server serves, declared by name by a platform administrator,

@@ -529,7 +529,7 @@ the agents, the session memory entity (`AgentRuntime.descriptors`), and the exte
 
 <!-- include: samples/multi-agent-planner/src/main/scala/Main.scala#registration -->
 ```scala
-val model = OpenAiProvider.fromEnv()     // was AnthropicProvider.fromEnv()
+val model = AnthropicProvider.fromEnv()
 
 val service = Ankka.service
   .register(PreferencesEntity.descriptor)

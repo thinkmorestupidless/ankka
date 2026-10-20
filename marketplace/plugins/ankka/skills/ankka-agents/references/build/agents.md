@@ -503,7 +503,7 @@ Agents are hosted by the `AgentRuntime` extension, which supplies the service's 
 the agents, the session memory entity (`AgentRuntime.descriptors`), and the extension:
 
 ```scala
-val model = OpenAiProvider.fromEnv()     // was AnthropicProvider.fromEnv()
+val model = AnthropicProvider.fromEnv()
 
 val service = Ankka.service
   .register(PreferencesEntity.descriptor)

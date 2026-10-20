@@ -215,7 +215,7 @@ the same handler with the same period keeps its next due time. See [Timers](../b
 | Runtime | `AgentRuntime.withDefaultModel(provider)`, `.withCompaction(CompactionSettings(…))`, `.descriptors` |
 | Calling | `componentClient.forAgent(SessionId(id)).call(Companion.handler).invoke(input)`, `.stream(Companion.handler)(input)`; `.ask(Companion.handler).invoke(input)` → `AgentOutcome.Answered(value)` or `AgentOutcome.AwaitingApproval(requests)`; `.decide(Companion.handler)(Decision.approved(id, by) \| Decision.refused(id, by, note))`; `.streamParts(Companion.handler)(input)`; `call` and `stream` throw `ApprovalAwaited` |
 | Testing MCP | `TestMcpServer().tool(name, description)(args => text)`, `.url`, `.calls`, `.requireHeader(…)`, `.failNext(…)`; `AgentRuntime.withVariables(map.get)` |
-| Models | `AnthropicProvider.fromEnv(model)`, `TestModelProvider()` |
+| Models | `AnthropicProvider.fromEnv(model)`, `OpenAiProvider.fromEnv(model)` (in `agent.openai`), `.withApiKey(key)`, `.at(name, address, model, key)`, `ModelProviders.named(name, protocol, url, model, key, preset)` (in `agent.providers`), `TestModelProvider(model, name)`, `ModelStandIn.start()` for a provider's own tests |
 
 See [Agents](../build/agents.md), [Streaming responses](../build/streaming.md) and
 [Multi-agent orchestration](../build/multi-agent-orchestration.md).

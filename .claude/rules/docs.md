@@ -34,6 +34,11 @@ bite:
   sample or test, name it in `<!-- include: path#name -->` before the page's code block, and run
   `just docs-sync`. The copy lives in the page on purpose — the raw Markdown must be complete — and
   `docs check` fails when it drifts, so a renamed method breaks the docs build, not the reader.
+- **`docs sync` copies the working tree, not the commit.** An uncommitted edit to any included file —
+  a sample changed by hand to try something — lands in every page and skill copy that includes it, and
+  a local `just docs` passes because page and file agree. CI checks out the commit and fails with "an
+  included sample has drifted". Sync with only the edits you will commit in the tree (`git status`
+  first), or `git diff docs/ marketplace/ ankka.g8/` after syncing for lines you did not mean to write.
 - **Reference facts are generated.** Between `<!-- generated:start name -->` comments: configuration
   and the protocol by `docs sync`; the CLI's commands (`CliReferenceSuite`) and the control plane's
   routes (`ControlPlaneRoutesReferenceSuite`) by Scala suites that fail on a stale page and rewrite it

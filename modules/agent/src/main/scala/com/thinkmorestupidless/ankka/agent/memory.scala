@@ -28,7 +28,11 @@ object SessionMessage:
       timestamp: Long,
       text: String,
       agentId: String,
-      toolCalls: Vector[RecordedToolCall] = Vector.empty
+      toolCalls: Vector[RecordedToolCall] = Vector.empty,
+      // Which model provider answered, under the name the service chose, and which of its models.
+      // Absent on a message recorded before feature 052.
+      provider: Option[String] = None,
+      model: Option[String] = None
   ) extends SessionMessage
 
   final case class ToolResultMessage(

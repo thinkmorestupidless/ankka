@@ -61,7 +61,9 @@ private[blueprint] object Turns:
       case -1 => None
       case i =>
         ms.drop(i + 1)
-          .collect { case SessionMessage.AiMessage(_, text, _, calls) if calls.isEmpty => text }
+          .collect {
+            case SessionMessage.AiMessage(_, text, _, calls, _, _) if calls.isEmpty => text
+          }
           .lastOption
 
   /** How long a turn may go on after the call to it timed out, before the step gives up on it. */

@@ -337,7 +337,8 @@ name:
 | Prefix | Goes to | Why |
 |---|---|---|
 | `ANTHROPIC_` | the sidecar | The sidecar runs the agent loop and calls the model. |
-| `ANKKA_MODEL_` | the sidecar | Model configuration, including a scripted model for tests. |
+| `OPENAI_` | the sidecar | The same, for OpenAI's key. |
+| `ANKKA_MODEL_` | the sidecar | Model providers by name, their keys, the default, and a scripted model for tests. |
 | `ANKKA_DB_` | the sidecar | The sidecar owns the journal; the process never sees the database. |
 | anything else | the process | Your own configuration. |
 
@@ -345,7 +346,7 @@ name:
 
 With `"hosting": "wasm"` the pod has one container, so every variable in `env` is in the runtime's
 environment. The module reads them through the runtime, which answers a name that starts `ANTHROPIC_`,
-`ANKKA_MODEL_` or `ANKKA_DB_` — or is one of the platform's own — as unset. A model key supplied in the
+`OPENAI_`, `ANKKA_MODEL_` or `ANKKA_DB_` — or is one of the platform's own — as unset. A model key supplied in the
 descriptor therefore reaches the runtime, which runs the agent loop, and never the module.
 
 ## Resources

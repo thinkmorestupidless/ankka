@@ -82,8 +82,8 @@ platform, and the descriptor cannot name its image or set its variables.
   probe, the database credential and the cluster membership. Scaling, restarting, exposing and pausing
   behave exactly as for a Scala service.
 - **The app container has no ports and no probe**, and small fixed resources.
-- **The descriptor's environment is split by name.** Variables starting `ANTHROPIC_`, `ANKKA_MODEL_` or
-  `ANKKA_DB_` go to the sidecar; everything else goes to your process. A model key is therefore supplied
+- **The descriptor's environment is split by name.** Variables starting `ANTHROPIC_`, `OPENAI_`,
+  `ANKKA_MODEL_` or `ANKKA_DB_` go to the sidecar; everything else goes to your process. A model key is therefore supplied
   in the descriptor as usual, and your process never sees it or the database.
 - **A producing consumer or a topic-sourced view needs a broker.** Set `ANKKA_KAFKA_BOOTSTRAP_SERVERS`;
   the sidecar refuses to start without it and names the component that needs it.

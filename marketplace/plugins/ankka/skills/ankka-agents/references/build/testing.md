@@ -875,5 +875,33 @@ async def test_assistant_through_the_sidecar_with_a_scripted_model() -> None:
         assert leaked.status_code == 403, leaked.text
 ```
 
-`ANKKA_MODEL_SCRIPT` may also name a file holding the script. A sidecar with an `ANTHROPIC_API_KEY` uses
-the real model even when a script is set.
+`ANKKA_MODEL_SCRIPT` may also name a file holding the script. A sidecar with a real provider configured
+— a vendor's key, or a provider of its own — uses it as the default even when a script is set; the script
+is still nameable as `scripted`.
+
+### Testing a model provider
+
+A scripted model proves ankka's behaviour, not a provider's wire. To test a provider at an address — a
+preset, a server of your own, a proxy — point it at `ModelStandIn`, a model server on loopback that
+speaks Anthropic's protocol and both shapes of OpenAI's from one script of `ModelResponse` values,
+streams when asked, and records every request as JSON:
+
+```scala
+import com.thinkmorestupidless.ankka.agent.{ModelResponse, ModelStandIn}
+import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
+
+val standIn = ModelStandIn.start()
+standIn.answer(ModelResponse("Paris"))
+val local = OpenAiProvider.at("local", s"${standIn.address}/v1", "qwen3:8b")
+// … call it, then assert on standIn.lastRequest.body
+standIn.close()
+```
+
+`failNext(status)`, `reportNoUsage()`, `rejectSetting(field)` and `hang()` make it answer as a real
+endpoint sometimes does; with nothing scripted it answers 418, so a test that forgot a reply fails.
+`TestModelProvider(model, name)` names a scripted model as a service would name a vendor's, for a test
+with several providers in one service.
+
+Tests against real endpoints are skipped unless their variables are set: `OPENAI_API_KEY` and
+`ANTHROPIC_API_KEY` for the vendors' own APIs, `ANKKA_MODEL_<PRESET>_KEY` for a preset's, and
+`ANKKA_LOCAL_MODEL_URL` for a model server on the machine.

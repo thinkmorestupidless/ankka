@@ -25,7 +25,7 @@ will recognise every component. The differences below are deliberate, and each h
 | A gRPC endpoint as an annotated class implementing the generated service, asynchronously | a `GrpcEndpoint` declaring a blocking handler per method against the generated descriptors | The same handler shape as every other ankka handler, and every method checked at startup. |
 | `BACKOFFICE` among the callers an ACL can name | no equivalent | There is no backoffice proxy to be the caller. |
 | `@Consume.FromWorkflow` hands a view or a consumer the workflow's state | a workflow source hands the state and the workflow's standing | A listing of failed workflows uses the engine's word for where each stands, not a status field every author must remember to write. |
-| `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
+| `budget_tokens` and `temperature` | `effort` and adaptive thinking; a temperature only where the endpoint takes one | Current Claude and OpenAI reasoning models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
 | `AutonomousAgent` declared by a `definition()` on the instance | a `definition` on the companion, tools on the instance | The definition is checked at registration; the tools need the instance's component client. |
@@ -141,7 +141,11 @@ In one respect ankka's model is the richer: `AuthDecision` distinguishes "log in
 ## Model settings follow current models
 
 Akka's agent configuration exposes a thinking token budget and a temperature. Current Claude models refuse
-both, so ankka's Anthropic provider uses effort and adaptive thinking instead.
+both, so ankka's Anthropic provider uses effort and adaptive thinking instead. On OpenAI's protocol the
+same settings become a reasoning effort, clamped to what the endpoint offers, with thinking off as its
+lowest; a temperature is sent where the endpoint takes one and withheld from OpenAI's own reasoning
+models, which refuse it. A setting an endpoint does not accept is withheld rather than failing the call.
+[Model providers](model-providers.md) says what each setting does on each protocol.
 
 ## Descriptors are JSON
 

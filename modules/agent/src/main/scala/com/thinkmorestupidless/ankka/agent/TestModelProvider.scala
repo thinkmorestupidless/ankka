@@ -22,14 +22,20 @@ import scala.jdk.CollectionConverters.*
  *   .expectText("It is sunny in Berlin.")
  * }}}
  */
-final class TestModelProvider(val modelName: String = "test-model") extends ModelProvider:
+final class TestModelProvider(
+    val modelName: String = "test-model",
+    /**
+     * The name it answers under. `test` unless a test that has several providers in one service
+     * names each as the service would (`openai`, `anthropic`), which is what logs, failures and the
+     * session's usage then say.
+     */
+    val name: String = "test"
+) extends ModelProvider:
 
   private val scripted = ConcurrentLinkedQueue[ModelResponse]()
   private val rules =
     CopyOnWriteArrayList[(ModelRequest => Boolean, ModelRequest => ModelResponse)]()
   private val seen = ConcurrentLinkedQueue[ModelRequest]()
-
-  def name: String = "test"
 
   /** Queues a plain text reply. Scripted replies are consumed in order. */
   def expectText(text: String): TestModelProvider =
@@ -208,6 +214,10 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
 
 object TestModelProvider:
   def apply(): TestModelProvider = new TestModelProvider()
+
+  /** A scripted model calling itself `modelName`, under `name` as a service names its providers. */
+  def apply(modelName: String = "test-model", name: String = "test"): TestModelProvider =
+    new TestModelProvider(modelName, name)
 
 /** Convenience constructors, mostly for tests. */
 extension (response: ModelResponse.type)

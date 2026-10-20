@@ -521,7 +521,60 @@ val service = Ankka.service
 ```
 
 `AnthropicProvider.fromEnv()` reads `ANTHROPIC_API_KEY` from the environment and uses `claude-opus-5`
-unless given another model name. Its defaults can be changed:
+unless given another model name. `OpenAiProvider.fromEnv()` reads `OPENAI_API_KEY` and speaks OpenAI's
+Responses API, the one its current models call tools through while they reason; its default model is
+`gpt-6.1-sol`. A provider built from the environment whose key is not set still exists, and every call
+to it fails `Unavailable`, naming the variable, so a service with one key and not the other starts and
+refuses only the work that needs the missing one.
+
+A service may have any number of providers. Each has a name, which logs, failures and the session's model
+usage carry: `anthropic` and `openai` for the two vendors' own APIs, and whatever the service chooses for
+the rest. `ModelProviders.named` builds a provider for any server speaking either protocol, from a
+protocol, an address, a model and a key, or from a preset that names a tested endpoint. `AnthropicProvider`
+is in `com.thinkmorestupidless.ankka.agent`, `OpenAiProvider` in its `openai` package and `ModelProviders`
+in its `providers` package:
+
+```scala
+import com.thinkmorestupidless.ankka.agent.* // AnthropicProvider, AgentRuntime
+import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
+import com.thinkmorestupidless.ankka.agent.providers.ModelProviders
+```
+
+```scala
+// Both read their key from the environment. Without it a provider still exists and every call to
+// it fails naming the variable, so the service starts with either key missing.
+val claude = AnthropicProvider.fromEnv() // ANTHROPIC_API_KEY, named "anthropic"
+val gpt    = OpenAiProvider.fromEnv()    // OPENAI_API_KEY, named "openai"
+
+// Any server speaking either protocol, under a name the service chooses.
+val local = ModelProviders.named("local", preset = Some("ollama"), model = Some("qwen3:8b"))
+
+// One is the default; a handler names another with `effects.model(...)`.
+val runtime = AgentRuntime.withDefaultModel(claude)
+```
+
+One provider is the runtime's default; a handler names another with `effects.model(provider)`, an
+autonomous agent's definition with `.model(provider)`, and a blueprint's worker by a name registered with
+`BlueprintRegistry.models`:
+
+```scala
+final class Triage extends Agent:
+  def route(question: String): Effect[String] =
+    effects
+      .model(gpt)
+      .systemMessage("Say which team should answer.")
+      .userMessage(question)
+      .thenReply()
+
+object Triage extends Agent.Companion[Triage](ComponentId("triage")):
+  def create(context: AgentContext) = new Triage
+  val route                         = command("route")(_.route)
+```
+
+A session is ankka's, not a provider's: an agent on one provider continues a conversation an agent on
+another began, tool calls and results included, and the session's usage is kept per provider by name.
+
+Each provider's defaults can be changed:
 
 ```scala
 val model = AnthropicProvider.fromEnv(
@@ -533,14 +586,17 @@ val model = AnthropicProvider.fromEnv(
 | Setting | Default | Meaning |
 |---|---|---|
 | `maxTokens` | 16000 | The most the model may produce in one turn. |
-| `thinking` | on | Adaptive thinking: the model decides how much to reason. There is no token budget to set. |
-| `effort` | the provider's | `Low`, `Medium`, `High`, `XHigh` or `Max`: how hard the model works, trading cost against quality. |
+| `thinking` | on | Whether the model may reason before answering. Off is the lowest effort the endpoint offers. |
+| `effort` | the provider's | `Low`, `Medium`, `High`, `XHigh` or `Max`: how hard the model works, trading cost against quality. An effort above what a model offers is the highest it offers. |
+| `temperature` | none | `OpenAiProvider.Defaults` only: sent where the endpoint takes one, withheld from OpenAI's own reasoning models and from Claude, which reject it. |
 
-Sampling parameters such as temperature are not sent to Claude models, which reject them; use `effort`.
-`AnthropicProvider.withApiKey(key)` takes the key directly, and `AnthropicProvider(client)` takes a
-configured Anthropic client, for a proxy, a custom timeout, Bedrock or Vertex. Any other model is one
-class implementing `ModelProvider`, whose `complete` and `stream` methods are the whole contract: the
-loop, tools, memory and guardrails are above it.
+A setting an endpoint does not accept is withheld, never a failed call; [Model providers](../reference/model-providers.md)
+says what each setting does on each protocol and each preset. `withApiKey(key)` takes the key directly,
+`at(name, address, model, key)` points either protocol at any address, and `AnthropicProvider(client)` or
+`OpenAiProvider(client)` takes a configured client, for a proxy, a custom timeout, Bedrock, Vertex or
+Azure. Any other model is one class implementing `ModelProvider`, whose `complete` and `stream` methods
+are the whole contract: the loop, tools, memory and guardrails are above it. A model running on your own
+machine is a provider at a local address: see [Run a model on your own machine](../deploy/local-models.md).
 
 `AgentRuntime.withDefaultModel(model, modelTimeout)` waits two minutes for a model call by default,
 because a model working through a multi-step task can legitimately take that long. An `AgentRuntime()`
@@ -628,7 +684,7 @@ The effect has the same shape as the Scala one, with each SDK's spelling:
 | `system_message(text)`, `user_message(text)`, `with_context(text)` | As in Scala. |
 | `tools(*names)`, `guardrails(*names)` | By their keys in the class's `tools` and `guardrails`. |
 | `memory(False)` | No session memory, for a one-shot task. The default reads and writes the session. |
-| `with_model(name)` | A model the sidecar configured, by name: `anthropic` or `scripted`. |
+| `with_model(name)` | A model provider the sidecar configured, by the name the service gave it: `anthropic`, `openai`, `scripted`, or one of its own such as `local`. |
 | `then_reply()` | Reply with the text. |
 | `then_reply_json()` | Reply with the model's JSON, decoded by the handler's reply type. |
 | `self.effects.error(message, code)` | Refuse without calling a model. |
@@ -681,11 +737,20 @@ to the sidecar container rather than to your process:
 
 | Variable | Meaning |
 |---|---|
-| `ANTHROPIC_API_KEY` | Enables the `anthropic` model and makes it the default. |
-| `ANKKA_MODEL_NAME` | The Claude model to use; `claude-opus-5` when unset. |
+| `ANTHROPIC_API_KEY` | Configures `anthropic`, Anthropic's own API. |
+| `ANKKA_MODEL_NAME` | The Claude model `anthropic` uses; `claude-opus-5` when unset. |
+| `OPENAI_API_KEY` | Configures `openai`, OpenAI's own API. |
+| `ANKKA_MODEL_<NAME>_PROTOCOL`, `_URL`, `_MODEL`, `_KEY`, `_SHAPE`, `_PRESET` | Configure a provider named `<name>` at any address, by hand or from a preset. |
+| `ANKKA_MODEL_DEFAULT` | Which provider answers a plan that names none, when there is more than one. |
 | `ANKKA_MODEL_SCRIPT` | A scripted model for tests: a JSON array of turns, or the path of a file holding one. See [Testing](testing.md). |
 
-A sidecar with neither a key nor a script refuses agent calls, naming both variables. Compaction is not
+With one provider configured it is the default. With more than one, `ANKKA_MODEL_DEFAULT` names it;
+without it, a plan that names no model is refused naming the variable and the providers, and a plan that
+names one is answered. A configuration that cannot work — a misspelt variable, a reserved name, a
+missing address or model, a preset that needs a key given none — stops the sidecar at start, naming the
+variable. [Model providers](../reference/model-providers.md) lists every variable and preset.
+
+A sidecar with no provider at all refuses agent calls, naming the variables that would configure one. Compaction is not
 yet configurable for a Python or TypeScript service's sessions.
 
 ## What to read next

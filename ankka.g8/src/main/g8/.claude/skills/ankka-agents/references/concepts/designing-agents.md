@@ -145,9 +145,10 @@ The service names a default model on the agent runtime, and any handler may name
 `effects.model(provider)` for that interaction. There is no per-agent default: an agent that should
 always use a cheaper or a stronger model sets it in each of its handlers. Typical splits are a fast,
 cheap model for routing and classification, where the answer is a few tokens, and the strongest model
-for the answer a person reads. `effort` is the lever on Claude models; sampling parameters such as
-temperature are not sent to them. In a Python service the choice is limited to the models the sidecar
-was configured with.
+for the answer a person reads, and the two may be different vendors in one service, or a model on the
+developer's own machine. `effort` is the lever on Claude's and OpenAI's reasoning models; sampling
+parameters such as temperature are not sent to them. In a Python, TypeScript or Rust service the choice
+is among the providers the sidecar was configured with, each named by the service.
 
 Some decisions need no text model at all. A decision whose answer is one of a known set — which team, how
 severe, whether a refund is asked for — is a [judgment](../build/judgments.md): typed questions answered by

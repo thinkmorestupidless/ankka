@@ -757,10 +757,21 @@ object ConformanceReference:
     def ask(question: String): Effect[String]  = describe(question).thenReply()
     def stream(question: String): StreamEffect = describe(question).thenStream()
 
+    /** Answered by the model the service named `second`, not its default (feature 052). */
+    def askSecond(question: String): Effect[String] =
+      effects.model(SecondModel).systemMessage("You are helpful.").userMessage(question).thenReply()
+
   object Assistant extends Agent.Companion[Assistant](ComponentId("assistant")):
     def create(context: AgentContext) = new Assistant(context)
     val ask                           = command("ask")(_.ask)
     val streamAsk                     = stream("stream")(_.stream)
+    val askSecond                     = command("ask-second")(_.askSecond)
+
+  /**
+   * The second model every target configures beside its default, under the name `second`: what a
+   * process names with `with_model("second")` and the Scala reference hands its effect directly.
+   */
+  val SecondModel: TestModelProvider = TestModelProvider("second-model", name = "second")
 
   // ── answerer: an autonomous agent, whose tool acts through the client ──
 
@@ -1201,6 +1212,9 @@ object ConformanceReference:
     }
     postBody("/ask/{session}") { (session: String, question: String) =>
       agent(session).call(Assistant.ask).invoke(question)
+    }
+    postBody("/ask-second/{session}") { (session: String, question: String) =>
+      agent(session).call(Assistant.askSecond).invoke(question)
     }
     // docs:start approver-routes
     // A turn that may wait: the model's answer, or the approval requests it waits on.

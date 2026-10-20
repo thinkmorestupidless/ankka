@@ -167,7 +167,14 @@ object RemoteAutonomousAgent:
               ErrorCode.Unavailable
             )
           )
-      case None => models.default
+      case None =>
+        // With several models and none the default, the definition must name one; the runtime
+        // fails its tasks for want of a model, and the log says which variable would choose one.
+        if models.default.isEmpty then
+          org.slf4j.LoggerFactory
+            .getLogger(getClass)
+            .warn("autonomous agent '{}' names no model: {}", id, models.withoutDefault)
+        models.default
 
     val settings = detail.settings.fold(AutonomousAgentSettings()) { s =>
       val defaults = AutonomousAgentSettings()

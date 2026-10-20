@@ -129,6 +129,7 @@ features:
 docs-test:
     uv run --project tools/docs pytest tools/docs
 
-# Rewrite the reference pages the JVM generates: the CLI's commands and the control plane's routes.
+# Rewrite the reference pages the JVM generates: the CLI's commands, the control plane's routes and
+# the model presets.
 docs-reference:
-    sbt -Dankka.docs.update=true -Dankka.template.tests=off 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite'
+    sbt -Dankka.docs.update=true -Dankka.template.tests=off 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite' 'agent/testOnly *ModelPresetsReferenceSuite'

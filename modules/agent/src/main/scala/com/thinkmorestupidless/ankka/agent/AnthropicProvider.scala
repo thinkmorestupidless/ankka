@@ -20,6 +20,9 @@ import com.anthropic.models.messages.{
 }
 
 import com.anthropic.models.messages.RawMessageStreamEvent
+import com.anthropic.errors.AnthropicServiceException
+import com.thinkmorestupidless.ankka.agent.providers.{ModelProviders, Quirks}
+import org.slf4j.LoggerFactory
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.ActorAttributes
 import org.apache.pekko.stream.scaladsl.Source
@@ -28,6 +31,7 @@ import java.util.concurrent.Executors
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
+import scala.util.control.NonFatal
 
 /**
  * Talks to Claude through Anthropic's own Java SDK.
@@ -38,12 +42,14 @@ import scala.jdk.OptionConverters.*
  * and beta-header churn for no gain.
  */
 final class AnthropicProvider private (
-    client: AnthropicClient,
+    connection: Either[String, AnthropicClient],
     val modelName: String,
-    defaults: AnthropicProvider.Defaults
+    defaults: AnthropicProvider.Defaults,
+    val name: String,
+    quirks: Quirks
 ) extends ModelProvider:
 
-  def name: String = "anthropic"
+  ModelProviders.validName(name).left.foreach(problem => throw IllegalArgumentException(problem))
 
   /**
    * The SDK is blocking, so calls run on a virtual-thread executor.
@@ -55,7 +61,13 @@ final class AnthropicProvider private (
     ExecutionContext.fromExecutorService(Executors.newVirtualThreadPerTaskExecutor())
 
   def complete(request: ModelRequest): Future[ModelResponse] =
-    Future(translate(client.messages().create(build(request))))
+    connection match
+      case Left(reason) => Future.failed(ModelCallFailed(name, reason))
+      case Right(client) =>
+        Future(
+          try translate(client.messages().create(build(request)))
+          catch case NonFatal(failure) => throw AnthropicProvider.failed(name, failure)
+        )
 
   /**
    * Streams a response as it is generated.
@@ -66,10 +78,22 @@ final class AnthropicProvider private (
    * provides.
    */
   override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
+    connection match
+      case Left(reason)  => Source.failed(ModelCallFailed(name, reason))
+      case Right(client) => streamWith(client, request)
+
+  private def streamWith(
+      client: AnthropicClient,
+      request: ModelRequest
+  ): Source[ModelChunk, NotUsed] =
     Source
       .unfoldResource[Option[ModelChunk], Streaming](
-        () => new Streaming(client.messages().createStreaming(build(request))),
-        state => state.next(),
+        () =>
+          try new Streaming(client.messages().createStreaming(build(request)))
+          catch case NonFatal(failure) => throw AnthropicProvider.failed(name, failure),
+        state =>
+          try state.next()
+          catch case NonFatal(failure) => throw AnthropicProvider.failed(name, failure),
         state => state.close()
       )
       // `unfoldResource` pulls from a blocking iterator; keeping it off the default
@@ -93,15 +117,17 @@ final class AnthropicProvider private (
     // here would break every request that set it. Other providers still use it.
 
     // Adaptive thinking, never a token budget: `budget_tokens` is rejected outright on
-    // the current Opus and Fable models.
-    val thinking = request.settings.thinking || defaults.thinking
+    // the current Opus and Fable models. Both are Anthropic's own fields, sent only where the
+    // endpoint is known to take them: a compatible server may refuse what it does not know.
+    val thinking = quirks.sendsThinking && (request.settings.thinking || defaults.thinking)
     if thinking then
       builder.thinking(
         ThinkingConfigParam.ofAdaptive(ThinkingConfigAdaptive.builder().build())
       ): Unit
 
-    request.settings.effort.orElse(defaults.effort).foreach { effort =>
-      builder.outputConfig(OutputConfig.builder().effort(sdkEffort(effort)).build()): Unit
+    request.settings.effort.orElse(defaults.effort).filter(_ => quirks.sendsThinking).foreach {
+      effort =>
+        builder.outputConfig(OutputConfig.builder().effort(sdkEffort(effort)).build()): Unit
     }
 
     request.tools.foreach(spec => builder.addTool(tool(spec)): Unit)
@@ -158,7 +184,7 @@ final class AnthropicProvider private (
             .build()
         ): Unit
 
-      case ChatMessage.Assistant(text, calls) =>
+      case ChatMessage.Assistant(text, calls, _) =>
         val textBlocks =
           if text.isBlank then Vector.empty else Vector(ContentBlockParam.ofText(text))
 
@@ -232,8 +258,9 @@ final class AnthropicProvider private (
           block.id(),
           block.name(),
           // `_input()` is the raw JSON value; re-parsing keeps ankka's own AST as the
-          // single representation the tool layer understands.
-          Json.parse(block._input().toString).getOrElse(Json.Obj(Map.empty))
+          // single representation the tool layer understands. Its `toString` is a Java map's
+          // rendering, not JSON, so it is written through the SDK's own mapper.
+          Json.parse(AnthropicProvider.render(block._input())).getOrElse(Json.Obj(Map.empty))
         )
       }
       .toVector
@@ -343,12 +370,59 @@ object AnthropicProvider:
       effort: Option[Effort] = None
   )
 
-  /** Reads `ANTHROPIC_API_KEY` from the environment. */
+  /** The name a provider of Anthropic's own API answers under unless given another. */
+  val Name: String = "anthropic"
+
+  private val KeyVariable = "ANTHROPIC_API_KEY"
+
+  private val log = LoggerFactory.getLogger(classOf[AnthropicProvider])
+
+  /**
+   * Reads `ANTHROPIC_API_KEY` from the environment.
+   *
+   * Without it the provider still exists, under its name, and every call fails naming the variable:
+   * a service with one vendor's key and not the other's starts, and refuses only the work that
+   * needs the missing one.
+   */
   def fromEnv(
       modelName: String = DefaultModel,
       defaults: Defaults = Defaults()
   ): AnthropicProvider =
-    new AnthropicProvider(AnthropicOkHttpClient.fromEnv(), modelName, defaults)
+    if sys.env.get(KeyVariable).exists(_.nonEmpty) then
+      new AnthropicProvider(
+        Right(AnthropicOkHttpClient.fromEnv()),
+        modelName,
+        defaults,
+        Name,
+        Quirks.anthropic
+      )
+    else withoutKey(modelName, defaults)
+
+  /**
+   * The same, from the variables given rather than the process's: `ANTHROPIC_API_KEY` and
+   * `ANTHROPIC_BASE_URL`.
+   */
+  def fromEnv(env: Map[String, String], modelName: String, defaults: Defaults): AnthropicProvider =
+    env.get(KeyVariable).filter(_.nonEmpty) match
+      case None => withoutKey(modelName, defaults)
+      case Some(key) =>
+        val builder = AnthropicOkHttpClient.builder().apiKey(key)
+        env.get("ANTHROPIC_BASE_URL").filter(_.nonEmpty).foreach(url => builder.baseUrl(url): Unit)
+        new AnthropicProvider(Right(builder.build()), modelName, defaults, Name, Quirks.anthropic)
+
+  private def withoutKey(modelName: String, defaults: Defaults): AnthropicProvider =
+    log.warn(
+      "model provider '{}' has no key: {} is not set, so every call to it fails until it is",
+      Name,
+      KeyVariable
+    )
+    new AnthropicProvider(
+      Left(s"$KeyVariable is not set"),
+      modelName,
+      defaults,
+      Name,
+      Quirks.anthropic
+    )
 
   def withApiKey(
       apiKey: String,
@@ -356,15 +430,77 @@ object AnthropicProvider:
       defaults: Defaults = Defaults()
   ): AnthropicProvider =
     new AnthropicProvider(
-      AnthropicOkHttpClient.builder().apiKey(apiKey).build(),
+      Right(AnthropicOkHttpClient.builder().apiKey(apiKey).build()),
       modelName,
-      defaults
+      defaults,
+      Name,
+      Quirks.anthropic
     )
 
   /** For a pre-configured client — a proxy, a custom timeout, Bedrock or Vertex. */
   def apply(
       client: AnthropicClient,
       modelName: String = DefaultModel,
-      defaults: Defaults = Defaults()
+      defaults: Defaults = Defaults(),
+      name: String = Name
   ): AnthropicProvider =
-    new AnthropicProvider(client, modelName, defaults)
+    new AnthropicProvider(Right(client), modelName, defaults, name, Quirks.anthropic)
+
+  /**
+   * Anthropic's protocol at any address, under a name the service chose: a local server that speaks
+   * it, or Anthropic's own address behind a proxy. With no key the placeholder `none` is sent,
+   * which a local server ignores. The address is the server's root; a trailing `/v1` is dropped,
+   * since the protocol's paths begin with it.
+   *
+   * Nothing is retried here: a failed call is the provider's failure, as ankka treats every one.
+   */
+  def at(
+      name: String,
+      address: String,
+      modelName: String,
+      key: Option[String] = None,
+      defaults: Defaults = Defaults(),
+      quirks: Quirks = Quirks.compatibleAnthropic
+  ): AnthropicProvider =
+    val root = address.stripSuffix("/").stripSuffix("/v1")
+    val client = AnthropicOkHttpClient
+      .builder()
+      .baseUrl(root)
+      .apiKey(key.filter(_.nonEmpty).getOrElse(ModelProviders.NoKey))
+      .maxRetries(0)
+      .build()
+    new AnthropicProvider(Right(client), modelName, defaults, name, quirks)
+
+  /**
+   * A failure in ankka's words: the provider's name, and the endpoint's status and message or what
+   * stopped the connection. Never the SDK's own: a provider the service named `local` must not
+   * report itself as a vendor's.
+   */
+  private[agent] def failed(name: String, failure: Throwable): ModelCallFailed =
+    failure match
+      case already: ModelCallFailed => already
+      case service: AnthropicServiceException =>
+        ModelCallFailed(
+          name,
+          s"answered ${service.statusCode()}: ${summary(render(service.body()))}"
+        )
+      case other =>
+        ModelCallFailed(name, s"could not be reached: ${rootMessage(other)}", Some(other))
+
+  /** A value of the SDK's as JSON text. */
+  private[agent] def render(value: AnyRef): String =
+    com.anthropic.core.ObjectMappers.jsonMapper().writeValueAsString(value)
+
+  private[agent] def summary(body: String): String =
+    val message = Json.parse(body).toOption.flatMap { json =>
+      json("error")
+        .flatMap(e => e("message").flatMap(_.asString).orElse(e.asString))
+        .orElse(json("message").flatMap(_.asString))
+    }
+    val text = message.getOrElse(body)
+    if text.length > 300 then text.take(300) + "…" else text
+
+  private[agent] def rootMessage(failure: Throwable): String =
+    var cause = failure
+    while cause.getCause != null && cause.getCause != cause do cause = cause.getCause
+    Option(cause.getMessage).filter(_.nonEmpty).getOrElse(cause.getClass.getSimpleName)

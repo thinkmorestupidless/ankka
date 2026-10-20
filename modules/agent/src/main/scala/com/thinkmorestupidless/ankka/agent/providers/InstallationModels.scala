@@ -9,7 +9,7 @@ import com.thinkmorestupidless.ankka.agent.{
   ModelRequest,
   ModelResponse
 }
-import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import com.thinkmorestupidless.ankka.runtime.{RotatingTls, Trace}
 import com.typesafe.config.Config
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
@@ -155,9 +155,13 @@ object InstallationModels:
         )
 
     def complete(request: ModelRequest): Future[ModelResponse] =
-      checked(request).flatMap(_ => inner.complete(request))
+      val scope = Trace.capture()
+      checked(request).flatMap(_ => Trace.resume(scope)(inner.complete(request)))
 
+    // The lookup answers on another thread, which cannot see the caller's trace: it is carried over
+    // to the call, so the request still carries the turn's trace.
     override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
+      val scope = Trace.capture()
       Source
-        .futureSource(checked(request).map(_ => inner.stream(request)))
+        .futureSource(checked(request).map(_ => Trace.resume(scope)(inner.stream(request))))
         .mapMaterializedValue(_ => NotUsed)

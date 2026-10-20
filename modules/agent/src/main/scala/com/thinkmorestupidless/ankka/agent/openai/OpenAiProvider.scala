@@ -52,7 +52,8 @@ final class OpenAiProvider private (
     connection match
       case Left(reason) => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing = idsFor(request)
+        val outgoing    = idsFor(request)
+        val traceparent = OpenAiProvider.traceparent
         Future {
           try
             shape match
@@ -60,7 +61,9 @@ final class OpenAiProvider private (
                 ResponsesShape.translate(
                   name,
                   OpenAiProvider.json(
-                    client.responses().create(ResponsesShape.build(name, outgoing, settings))
+                    client
+                      .responses()
+                      .create(ResponsesShape.build(name, outgoing, settings, traceparent))
                   )
                 )
               case Shape.ChatCompletions =>
@@ -69,7 +72,9 @@ final class OpenAiProvider private (
                     client
                       .chat()
                       .completions()
-                      .create(ChatCompletionsShape.build(outgoing, settings, stream = false))
+                      .create(
+                        ChatCompletionsShape.build(outgoing, settings, stream = false, traceparent)
+                      )
                   )
                 )
           catch case NonFatal(failure) => throw OpenAiProvider.failed(name, failure)
@@ -83,7 +88,8 @@ final class OpenAiProvider private (
     connection match
       case Left(reason) => Source.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing = idsFor(request)
+        val outgoing    = idsFor(request)
+        val traceparent = OpenAiProvider.traceparent
         Source
           .unfoldResource[Option[ModelChunk], OpenAiStreaming](
             () =>
@@ -94,7 +100,9 @@ final class OpenAiProvider private (
                       name,
                       client
                         .responses()
-                        .createStreaming(ResponsesShape.build(name, outgoing, settings))
+                        .createStreaming(
+                          ResponsesShape.build(name, outgoing, settings, traceparent)
+                        )
                     )
                   case Shape.ChatCompletions =>
                     ChatCompletionsShape.Streaming(
@@ -102,7 +110,7 @@ final class OpenAiProvider private (
                         .chat()
                         .completions()
                         .createStreaming(
-                          ChatCompletionsShape.build(outgoing, settings, stream = true)
+                          ChatCompletionsShape.build(outgoing, settings, stream = true, traceparent)
                         )
                     )
               catch case NonFatal(failure) => throw OpenAiProvider.failed(name, failure),
@@ -122,6 +130,15 @@ final class OpenAiProvider private (
       case None       => request
 
 object OpenAiProvider:
+
+  /**
+   * The calling thread's trace, as the header that carries it to the endpoint: read before the call
+   * moves to the SDK's thread, which cannot see it, so a server that traces (the installation's
+   * model server does) records its span in the turn's trace.
+   */
+  private def traceparent: Option[String] =
+    com.thinkmorestupidless.ankka.runtime.Trace.currentContext
+      .map(com.thinkmorestupidless.ankka.runtime.Traceparent.render)
 
   /**
    * The current general-purpose OpenAI model, as of October 2026.

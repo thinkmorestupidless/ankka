@@ -76,7 +76,8 @@ class InstallationModelsClusterFeatures
     "a served model stays served while no call comes"                     -> "KeeperSuite",
     "a served model is fetched once and its digest recorded"              -> "KeeperSuite",
     "the model server's metrics reach the installation's telemetry store" -> "KeeperMetricsSuite",
-    "a call to an installation model is a span in the turn's trace"       -> "DoorSuite",
+    "a call to an installation model is a span in the turn's trace" ->
+      "InstallationModelsSuite (the call carries the turn's traceparent) and DoorSuite (the door records its span under it)",
     "the model server is placed and sized by the installation's own settings" -> "RemoteOverlaySuite",
     "a local platform asked for the model server serves one small model on a CPU" ->
       "RemoteOverlaySuite",

@@ -10,7 +10,7 @@ import com.thinkmorestupidless.ankka.agent.{
   ModelSettings,
   ToolSpec
 }
-import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import com.thinkmorestupidless.ankka.runtime.{RotatingTls, Trace, TraceContext, Traceparent}
 import com.thinkmorestupidless.ankka.testollama.FakeOllama
 import com.thinkmorestupidless.ankka.testpki.TestPki
 
@@ -70,6 +70,17 @@ class InstallationModelsSuite extends munit.FunSuite:
     val sent = fake.requestsTo("POST", "/v1/chat/completions")
     assertEquals(sent.size, 1)
     assertEquals(sent.head.header("authorization"), Some("Bearer none"))
+    assertEquals(sent.head.header("traceparent"), None)
+  }
+
+  door.test("a call carries the trace of the turn that makes it") { fake =>
+    val provider = providerAt(fake)
+    assertEquals(Trace.within(0xabcdefL, 0x1234L)(ask(provider)), Right("Hello"))
+    val sent = fake.requestsTo("POST", "/v1/chat/completions")
+    assertEquals(
+      sent.head.header("traceparent"),
+      Some(Traceparent.render(TraceContext(0L, 0xabcdefL, 0x1234L)))
+    )
   }
 
   test("a server without the model server's identity is never sent the prompt") {

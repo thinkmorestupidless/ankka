@@ -1,8 +1,10 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import com.thinkmorestupidless.ankka.agent.*
+// docs:start provider-imports
+import com.thinkmorestupidless.ankka.agent.* // AnthropicProvider, AgentRuntime
 import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
 import com.thinkmorestupidless.ankka.agent.providers.ModelProviders
+// docs:end provider-imports
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 

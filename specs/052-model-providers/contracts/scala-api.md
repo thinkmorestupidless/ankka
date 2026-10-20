@@ -1,11 +1,15 @@
 # Contract: the Scala API
 
-Everything a Scala service sees, in `com.thinkmorestupidless.ankka.agent`. Existing signatures
-keep working; every addition has a default.
+Everything a Scala service sees, under `com.thinkmorestupidless.ankka.agent`: `AnthropicProvider`,
+`TestModelProvider`, `ModelStandIn` and the messages in that package itself, `OpenAiProvider` in
+`agent.openai`, and the factory in `agent.providers`. Existing signatures keep working; every addition
+has a default.
 
 ## Providers
 
 ```scala
+package com.thinkmorestupidless.ankka.agent
+
 object AnthropicProvider:
   val DefaultModel: String = "claude-opus-5"
   final case class Defaults(maxTokens: Long = 16000L, thinking: Boolean = true, effort: Option[Effort] = None)
@@ -18,6 +22,8 @@ object AnthropicProvider:
   /** Anthropic's protocol at any address, under a name the service chose; no key sends a placeholder. */
   def at(name: String, address: String, modelName: String, key: Option[String] = None,
          defaults: Defaults = Defaults(), quirks: Quirks = Quirks.compatibleAnthropic): AnthropicProvider
+
+package com.thinkmorestupidless.ankka.agent.openai
 
 object OpenAiProvider:
   val DefaultModel: String = "gpt-6.1-sol"

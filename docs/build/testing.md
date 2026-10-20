@@ -935,6 +935,9 @@ speaks Anthropic's protocol and both shapes of OpenAI's from one script of `Mode
 streams when asked, and records every request as JSON:
 
 ```scala
+import com.thinkmorestupidless.ankka.agent.{ModelResponse, ModelStandIn}
+import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
+
 val standIn = ModelStandIn.start()
 standIn.answer(ModelResponse("Paris"))
 val local = OpenAiProvider.at("local", s"${standIn.address}/v1", "qwen3:8b")

@@ -529,7 +529,7 @@ the agents, the session memory entity (`AgentRuntime.descriptors`), and the exte
 
 <!-- include: samples/multi-agent-planner/src/main/scala/Main.scala#registration -->
 ```scala
-val model = AnthropicProvider.fromEnv()
+val model = OpenAiProvider.fromEnv()     // was AnthropicProvider.fromEnv()
 
 val service = Ankka.service
   .register(PreferencesEntity.descriptor)
@@ -556,7 +556,16 @@ refuses only the work that needs the missing one.
 A service may have any number of providers. Each has a name, which logs, failures and the session's model
 usage carry: `anthropic` and `openai` for the two vendors' own APIs, and whatever the service chooses for
 the rest. `ModelProviders.named` builds a provider for any server speaking either protocol, from a
-protocol, an address, a model and a key, or from a preset that names a tested endpoint:
+protocol, an address, a model and a key, or from a preset that names a tested endpoint. `AnthropicProvider`
+is in `com.thinkmorestupidless.ankka.agent`, `OpenAiProvider` in its `openai` package and `ModelProviders`
+in its `providers` package:
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ModelProviderSamples.scala#provider-imports -->
+```scala
+import com.thinkmorestupidless.ankka.agent.* // AnthropicProvider, AgentRuntime
+import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
+import com.thinkmorestupidless.ankka.agent.providers.ModelProviders
+```
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ModelProviderSamples.scala#two-providers -->
 ```scala

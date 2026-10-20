@@ -27,7 +27,10 @@ of a variable's name with nothing changed. `scripted`, `default`, `name` and `sc
 
 ## In Scala
 
-A Scala service builds each provider it uses and hands one to the runtime as the default:
+A Scala service builds each provider it uses and hands one to the runtime as the default.
+`AnthropicProvider` is in `com.thinkmorestupidless.ankka.agent`, `OpenAiProvider` in
+`com.thinkmorestupidless.ankka.agent.openai`, and `ModelProviders` in
+`com.thinkmorestupidless.ankka.agent.providers`:
 
 | Built with | What it is |
 |---|---|

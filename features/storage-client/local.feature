@@ -3,7 +3,8 @@ Feature: The storage client on a developer's machine
   client keeps its objects in a directory store instead, so the service's code runs unchanged. A
   signed URL and a public address made there point at the service's own HTTP port, and the
   service serves them itself, so a page written against them works on the machine too. A service
-  given the variables of an object store uses it rather than a directory.
+  given the variables of an object store uses it rather than a directory. A service that declares no
+  bucket starts whether or not its directory store can be written.
 
   Scenario: a service run on a developer's machine keeps its objects in a directory
     Given a service "listings" running on a developer's machine with no variable of an object store

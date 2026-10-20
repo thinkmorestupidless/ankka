@@ -17,7 +17,8 @@ impl Album {
     // An entity's context has no buckets: `storage()` answers an `Option` that is `None` here, so
     // a handler cannot reach a bucket without saying what it does when there is none.
     fn keep(_: &Photo, bytes: String, ctx: &Context) -> Effect<Photographed, Done> {
-        ctx.storage().default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
+        let storage: ankka::Storage = ctx.storage();
+        storage.default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
         effects::persist(Photographed::Kept {
             name: "front.jpg".into(),
         })

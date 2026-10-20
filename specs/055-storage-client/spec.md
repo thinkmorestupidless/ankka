@@ -406,8 +406,10 @@ codes against the fixture every SDK reads.
 - The variable derived from a bucket's name: `photos` is `ANKKA_S3_BUCKET_PHOTOS`; a name is
   lower-case letters, digits and `-`, 1 to 32 characters, so the derivation is total and two names
   cannot collide; `-` becomes `_`.
-- A directory store whose directory is not writable: the service does not start, and says which
-  directory and why.
+- A directory store whose directory is not writable: a service whose `service.json` declares a
+  bucket does not start, and says which directory and why. One that declares none (an image run
+  outside a cluster with no descriptor beside it) starts, and a call that cannot be kept fails
+  `Unavailable` naming the directory.
 - A `url(name)` for a name that has no object yet: answered, since it is computed; a browser that
   follows it is told the object is not there. The address of an object is its name's, not its
   existence's.
@@ -490,7 +492,9 @@ codes against the fixture every SDK reads.
   or a content delivery network's when the installation names one.
 - **FR-012**: A service with no `ANKKA_S3_*` variable MUST be given a client over a directory,
   `.ankka/storage/` under the working directory unless `ANKKA_STORAGE_DIR` names another, one
-  subdirectory per bucket, and MUST refuse to start when it cannot be written, naming it. Its
+  subdirectory per bucket, and MUST refuse to start when it cannot be written and the service's
+  `service.json` declares a bucket, naming it; a service that declares none MUST start, and a call
+  that cannot be kept MUST fail `Unavailable` naming the directory. Its
   signed URLs and its public bucket's addresses MUST point at the service's own HTTP server, at a
   path the runtime reserves, and MUST be served there: a read of a signed or public address
   answers the object, a keep through a signed URL keeps it, and an expired or unsigned address to

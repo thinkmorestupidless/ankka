@@ -213,12 +213,19 @@ class StreamedBodySuite extends munit.FunSuite:
   }
 
   test("a declared body above the limit is 413 and the handler never runs") {
+    // What the client sends before the 413 reaches it fills the sockets' buffers, which on a Linux
+    // runner's loopback held all of a 2 MiB body: the body is far larger than any buffer, so only a
+    // server that reads it is sent it whole.
+    val declared         = 256L * 1024 * 1024
     val before           = handlerRuns.get
-    val (response, sent) = put(limited, 2L * 1024 * 1024)
+    val (response, sent) = put(limited, declared)
     assertEquals(response.statusCode, 413, response.body)
     assert(response.body.contains("at most 1048576"), response.body)
     assertEquals(handlerRuns.get, before)
-    assert(sent.consumed.get < 2L * 1024 * 1024, s"the whole body was read: ${sent.consumed.get}")
+    assert(
+      sent.consumed.get < declared / 4,
+      s"the body was read: ${sent.consumed.get} of $declared"
+    )
   }
 
   test("a strict route beside the stream routes behaves as before") {

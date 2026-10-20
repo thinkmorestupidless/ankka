@@ -45,8 +45,11 @@ final class DirectoryObjectStorage(
 ) extends ObjectStorage:
   import DirectoryObjectStorage.{*, given}
 
-  /** The key the store's URLs are signed with, kept in the root so a restart honours them. */
-  val signer: DirectorySigner = DirectorySigner.at(root)
+  /**
+   * The key the store's URLs are signed with, kept in the root so a restart honours them. Made on
+   * first use: a service that declares no bucket may run where its directory cannot be written.
+   */
+  lazy val signer: DirectorySigner = DirectorySigner.at(root)
 
   def default: Bucket =
     if declared.forall(_.unnamed) then DirectoryBucket(None, BucketExposure.Signed)
@@ -174,7 +177,7 @@ final class DirectoryObjectStorage(
       ObjectRules.checkSpan(span)
       val expires = clock().getEpochSecond + span.toSeconds
       val word    = accessWord(access)
-      val token   = signer.token(segment, objectName, word, expires)
+      val token   = io(signer.token(segment, objectName, word, expires))
       URI.create(s"${address(objectName)}?access=$word&expires=$expires&token=$token")
 
     def url(objectName: String): URI =
@@ -225,18 +228,23 @@ object DirectoryObjectStorage:
   def accessWord(access: SignedAccess): String = access.toString.toLowerCase(java.util.Locale.ROOT)
 
   /**
-   * The store at `root`, made and proved writable, or why it cannot be: the reason a service on a
-   * developer's machine does not start.
+   * The store at `root`. When the service's descriptor declares a bucket, the store is made and
+   * proved writable, or the reason it cannot be is why the service does not start. Otherwise
+   * nothing is touched until the first call: an image run outside a cluster with no store
+   * variables, its working directory not its own, starts, and a call that cannot be kept fails
+   * `Unavailable` naming the directory.
    */
   def open(
       root: Path,
       declared: Option[LocalBuckets.Declared],
       addressBase: () => String
   ): Either[String, DirectoryObjectStorage] =
+    val asked = declared.exists(d => d.unnamed || d.buckets.nonEmpty)
     try
-      Files.createDirectories(root)
-      val probe = Files.createTempFile(root, ".probe", "")
-      Files.delete(probe)
+      if asked then
+        Files.createDirectories(root)
+        val probe = Files.createTempFile(root, ".probe", "")
+        Files.delete(probe)
       Right(DirectoryObjectStorage(root, declared, addressBase))
     catch
       case e: Exception =>

@@ -71,12 +71,37 @@ class DirectoryBucketSuite extends BucketContract:
     assertEquals(store.default.list("long/").map(_.name).toVector, Vector(long))
   }
 
-  test("a root that cannot be written is refused, naming it") {
+  test(
+    "a root that cannot be written is refused, naming it, when the descriptor declares a bucket"
+  ) {
     val readOnly = Files.createTempDirectory("ankka-read-only")
     readOnly.toFile.setWritable(false): Unit
     try
-      val opened = DirectoryObjectStorage.open(readOnly.resolve("storage"), None, () => "")
+      val declared = LocalBuckets.Declared(unnamed = false, Map("photos" -> BucketExposure.Public))
+      val opened =
+        DirectoryObjectStorage.open(readOnly.resolve("storage"), Some(declared), () => "")
       assert(opened.left.exists(_.contains(readOnly.resolve("storage").toString)), opened)
+    finally readOnly.toFile.setWritable(true): Unit
+  }
+
+  test(
+    "with no bucket declared, a root that cannot be written is not touched until a call, which is Unavailable naming it"
+  ) {
+    val readOnly = Files.createTempDirectory("ankka-read-only")
+    readOnly.toFile.setWritable(false): Unit
+    try
+      val storage = readOnly.resolve("storage")
+      val opened  = DirectoryObjectStorage.open(storage, None, () => "http://127.0.0.1:9000")
+      assert(opened.isRight, opened)
+      assert(!Files.exists(storage), "the store was made at open")
+      val bucket = opened.toOption.get.default
+      val put = refused(ErrorCode.Unavailable)(
+        bucket.put("a.txt", ByteArrayInputStream("a".getBytes(UTF_8)), 1, "text/plain")
+      )
+      assert(put.contains(storage.toString), put)
+      val signed =
+        refused(ErrorCode.Unavailable)(bucket.signedUrl("a.txt", SignedAccess.Read, 1.minute))
+      assert(signed.contains(storage.toString), signed)
     finally readOnly.toFile.setWritable(true): Unit
   }
 

@@ -454,6 +454,11 @@ content type, length and the time it was kept in a JSON file of the same name un
 are those the `service.json` beside it declares. Every project
 `ankka init` makes ignores `.ankka/` in its `.gitignore`.
 
+When that `service.json` declares a bucket, the directory is made at start, and a service that cannot
+write it does not start, naming the directory and why. A service that declares none (an image run
+outside a cluster, say, with no `service.json` beside it) starts wherever it runs; its directory is made
+at its first call, and a call that cannot be kept there fails as unavailable, naming the directory.
+
 Signed URLs and public addresses work there too. They point at the service's own port, under
 `/_ankka/storage/`, which only the runtime may serve: an endpoint declaring a path under `/_ankka` is
 refused at start. A signed URL is checked against a key kept in the store's directory, so a URL stays

@@ -233,8 +233,9 @@ On the installation's store, the store's **web listener** serves the bucket's ob
 writes a route for the bucket at the store's hostname, with the bucket in the path:
 `https://storage.<base domain>/<project>.<service>.<name>/<object>`. That is the bucket's
 `ANKKA_S3_PUBLIC_URL_<NAME>`, and `url(name)` in the storage client answers it with the object's name
-after it. An installation whose store has no web listener refuses a public bucket, and `services get`
-says so.
+after it. An installation whose store has no web listener, or that names no base domain, refuses a
+public bucket: the bucket is made, its phase is `Failed` with the reason, and `services get` says so. The
+service is not given a bucket it could not hand an address for.
 
 On Google Cloud Storage the cloud provider makes the bucket readable by everyone and answers its address,
 `https://storage.googleapis.com/<bucket>`, or the base of a content delivery network when the installation

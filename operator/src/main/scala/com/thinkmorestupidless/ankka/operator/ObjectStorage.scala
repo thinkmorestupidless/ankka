@@ -455,14 +455,14 @@ object ObjectStorage:
 
     /**
      * Whether the platform makes it in the installation's store this pass, with the service's key
-     * on it: its name fits and the store answers. A public bucket with no web endpoint is made and
-     * fails all the same, so a setting added later serves it at once.
+     * on it: its name fits and the store answers. A public bucket with no web endpoint or no base
+     * domain is made and fails all the same, so a setting added later serves it at once.
      */
     def provisioned: Boolean =
       made && status.store == "garage" && (plan match
         case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_, None) => true
-        case ObjectStoragePlan.Failed(problems) => problems == Vector(NoWebService)
-        case _                                  => false)
+        case ObjectStoragePlan.Failed(Vector(problem))                          => Unserved(problem)
+        case _                                                                  => false)
 
     /** Whether the service is told of it: made and ready, or supplied. */
     def told: Boolean = plan match
@@ -480,6 +480,20 @@ object ObjectStorage:
   val NoWebService: String =
     "a public bucket is served at the store's web endpoint, which the installation does not name " +
       "(ANKKA_OBJECT_STORE_WEB_SERVICE)"
+
+  /**
+   * Why a public bucket in Garage has no address: it is served at `storage.<base>`, and the
+   * installation names no base domain. Without one the service would be handed a public bucket with
+   * no address, which its runtime refuses at start.
+   */
+  val NoPublicAddress: String =
+    "a public bucket is served at storage.<base domain>, and the installation names no base domain " +
+      "(ANKKA_BASE_DOMAIN)"
+
+  /**
+   * The reasons a public bucket in Garage is made and still fails: a setting added later serves it.
+   */
+  private val Unserved: Set[String] = Set(NoWebService, NoPublicAddress)
 
   /**
    * Whether a named bucket is the installation's cloud account's (feature 055): as the unnamed one,
@@ -566,6 +580,8 @@ object ObjectStorage:
                 .flatMap(_.webService)
                 .isEmpty
             then ObjectStoragePlan.Failed(Vector(NoWebService))
+            else if bucket.exposure == "public" && settings.baseDomain.isEmpty then
+              ObjectStoragePlan.Failed(Vector(NoPublicAddress))
             else
               observed.unreachable match
                 case Some(reason) => ObjectStoragePlan.Waiting(Some(reason))

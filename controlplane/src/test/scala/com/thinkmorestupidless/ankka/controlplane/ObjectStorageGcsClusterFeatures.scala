@@ -33,9 +33,9 @@ import com.thinkmorestupidless.ankka.operator.{
   Names,
   ObjectStoreBackend,
   ObjectStoreSettings,
+  GatewayStack,
   ObjectStoreStack,
   Operator,
-  PkiStack,
   ServiceReconciler,
   Settings as OperatorSettings
 }
@@ -137,7 +137,9 @@ class ObjectStorageGcsClusterFeatures
   private val MoverImage  = s"ankka-storage-mover:$Tag"
   private val Prefix      = "ankka"
   private val NamePrefix  = "t"
-  private val Projects    = Vector("shop", "shop-a", "casino", "bank")
+  // The base domain a public bucket in Garage is addressed under, through the gateway.
+  private val StoreBaseDomain = "store.example.test"
+  private val Projects        = Vector("shop", "shop-a", "casino", "bank")
   private val WrappingKey =
     "projects/scripted-account/locations/europe-west2/keyRings/ankka/cryptoKeys/buckets"
   private val Grace = 20.seconds
@@ -204,7 +206,9 @@ class ObjectStorageGcsClusterFeatures
             .get()
         ).flatMap(d => Option(d.getStatus)).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
       }
-      PkiStack.install(k3s, k8s)
+      // The authorities, and the gateway a public bucket in Garage is served through: the
+      // moved-together scenario starts with one (feature 055).
+      GatewayStack.install(k3s, k8s, repoRoot, StoreBaseDomain)
       store = ObjectStoreStack.install(k3s, k8s, repoRoot)
       admin = GarageStore(store.settings.adminUrl, store.settings.adminToken)
       // The store's S3 port from the host, where a browser and an old credential are tried.
@@ -1264,7 +1268,13 @@ class ObjectStorageGcsClusterFeatures
     def photos = statusOf(name).flatMap(_.buckets.find(_.name == "photos"))
 
     // Given a deployed service "listings" with a bucket and a public bucket "photos", both in Garage
-    startOperator(operatorSettings.copy(objectStoreBackend = Some(ObjectStoreBackend.Garage)))
+    // A public bucket in Garage has its address at storage.<base>, so the operator names a base.
+    startOperator(
+      operatorSettings.copy(
+        objectStoreBackend = Some(ObjectStoreBackend.Garage),
+        baseDomain = Some(StoreBaseDomain)
+      )
+    )
     try
       apply("shop", logical, Some(json)): Unit
       awaitReady("shop", name)

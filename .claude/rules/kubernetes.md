@@ -811,7 +811,10 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
 - **A public bucket on Garage needs the store's web listener and the operator told where it is**
   (2026-10-19, feature 055). The `garage` component serves `[s3_web]` on 3902 and patches
   `ANKKA_OBJECT_STORE_WEB_SERVICE=garage-system/garage:3902` onto the operator; without the setting a
-  public bucket is `Failed` naming it. The public route (`Rendering.storeRoute` with `rewriteTo`)
+  public bucket is `Failed` naming it. Without a base domain it is `Failed` too (`NoPublicAddress`, 2026-10-20):
+  its address is `storage.<base>`, and a public bucket handed over with no `ANKKA_S3_PUBLIC_URL_<NAME>`
+  is refused by the runtime at start, so the pod never became ready and nothing said why
+  (`ObjectStorageGcsClusterFeatures`, which had no gateway, until it installed one). The public route (`Rendering.storeRoute` with `rewriteTo`)
   rewrites the host to the bucket's name and replaces the bucket's path prefix with `/`, since the web
   listener serves a bucket by its `Host`, where the S3 port reads it from the path.
 - **`Kept` is the operator's memory of a bucket the descriptor stopped naming.** Nothing else

@@ -496,6 +496,18 @@ class ObjectStorageSuite extends munit.FunSuite:
     assertEquals(decided(1).plan, ObjectStoragePlan.Ready(recovered = false))
   }
 
+  test("055: a public bucket with no base domain fails, naming it, and is made all the same") {
+    val decided =
+      ObjectStorage.decideBuckets(four, served.copy(baseDomain = None), everyReady, None)
+    assertEquals(decided.head.plan, ObjectStoragePlan.Failed(Vector(ObjectStorage.NoPublicAddress)))
+    assertEquals(decided.head.status.phase, "Failed")
+    assert(decided.head.status.detail.exists(_.contains("ANKKA_BASE_DOMAIN")))
+    assert(decided.head.provisioned, "made, so a base domain added later serves it at once")
+    assert(!decided.head.told, "never handed to the service, whose runtime would refuse it")
+    // Only the public one: a signed bucket has its address from the S3 endpoint.
+    assertEquals(decided(1).plan, ObjectStoragePlan.Ready(recovered = false))
+  }
+
   test("055: a named bucket over the name limit, or with no store, fails saying why") {
     val long = four.copy(projectId = "p" * 40, buckets = List(crd.BucketSpec("a" * 20)))
     val over = ObjectStorage.decideBuckets(long, served, Map.empty, None).head

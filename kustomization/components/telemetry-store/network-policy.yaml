@@ -1,6 +1,6 @@
 # Who may reach the store: the installation's own workloads — every project's services and the
-# platform's own — and the log agent, with OTLP; the gateway's proxy pods, which Envoy Gateway runs
-# in its own namespace, with Grafana's port; nothing else.
+# platform's own — the log agent and the model server's keeper, with OTLP; the gateway's proxy
+# pods, which Envoy Gateway runs in its own namespace, with Grafana's port; nothing else.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -22,6 +22,11 @@ spec:
             matchLabels: { app.kubernetes.io/managed-by: ankka }
         - podSelector:
             matchLabels: { app.kubernetes.io/name: log-agent }
+        # The model server's keeper, whose namespace is not one of the installation's own.
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: models-system }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: models }
     - ports:
         - { protocol: TCP, port: 3000 }
       from:

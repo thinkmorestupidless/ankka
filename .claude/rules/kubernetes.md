@@ -700,6 +700,16 @@ ConfigMap for nothing.
   (JEP 491), so the offline suites passed and a hung forked JVM was the only local sign on 21. The loop
   is a platform thread; the keeper's tests run with one processor and `MainSuite` holds a fetch open
   while it calls the probe. Run them with `sbt --java-home <jdk21>` when touching the keeper. (2026-10-18)
+- **The collector admits only managed namespaces, and `models-system` is not one.** Its OTLP rule
+  matched `app.kubernetes.io/managed-by: ankka` on namespace and pod alike, so the keeper's every export
+  timed out (a `SEVERE` stack trace each minute) while the overlay had set its endpoint correctly. The
+  collector's policy names the model server's pod; labelling the namespace instead would also admit it
+  to the Gateway and the trust bundle. No suite deploys both. (2026-10-20)
+- **`just deploy-models` on a full Docker disk takes the whole kind cluster down.** Ollama's image
+  (about 7 GB unpacked, pulled by the node) is what tips it: etcd cannot write its WAL, exits, and the
+  API server answers `EOF`. Check `docker exec ankka-control-plane df -h /` first; `docker builder
+  prune` cannot run on a disk with no room for its own metadata, so truncate the node's pod logs to
+  make some. (2026-10-20)
 
 ## Backups and recovery (feature 041)
 

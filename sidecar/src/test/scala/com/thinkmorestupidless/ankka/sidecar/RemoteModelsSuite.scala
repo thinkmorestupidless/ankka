@@ -21,10 +21,14 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   SessionId
 }
+import com.thinkmorestupidless.ankka.runtime.RotatingTls
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
+import com.thinkmorestupidless.ankka.testollama.FakeOllama
+import com.thinkmorestupidless.ankka.testpki.TestPki
 import ankka.protocol.v1.agent.AgentPlan
 import io.grpc.ManagedChannelBuilder
 
+import java.nio.file.Files
 import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration.*
 import scala.util.Try
@@ -225,6 +229,39 @@ class RemoteModelsSuite extends munit.FunSuite with LogCapturing:
       assert(refused.getMessage.startsWith("fast: could not be reached"), refused.getMessage)
       assert(!refused.getMessage.toLowerCase.contains("openai"), refused.getMessage)
     }
+  }
+
+  test(
+    "an agent of a process naming an installation model is answered by the model server, and its turn recorded under the provider"
+  ) {
+    val authority = TestPki.root("service authority")
+    val door = FakeOllama.startTls(
+      RotatingTls(
+        authority
+          .issue(uris = Seq("ankka://platform/models"), dnsNames = Seq("localhost"))
+          .writeTo(Files.createTempDirectory("ankka-door")),
+        1.minute
+      ).sslContext
+    )
+    try
+      door.hold("qwen3:0.6b")
+      val service = RotatingTls(
+        authority
+          .issue(uris = Seq("ankka://shop/support"))
+          .writeTo(Files.createTempDirectory("ankka-service")),
+        1.minute
+      )
+      val variables = Map(
+        "ANKKA_MODEL_LOCAL_PRESET" -> "installation",
+        "ANKKA_MODEL_LOCAL_MODEL"  -> "qwen3:0.6b",
+        "ANKKA_MODELS_ADDRESS"     -> door.url
+      )
+      using(Models.fromEnv(variables, _ => Right(service))) { s =>
+        assertEquals(s.ask("s-11", "ask-local", "hi"), Right("Hello"))
+        assertEquals(s.history("s-11").usageByProvider.keySet, Set("local"))
+      }
+      assertEquals(door.requestsTo("POST", "/v1/chat/completions").size, 1)
+    finally door.stop()
   }
 
   test("a model provider whose address reports no model usage is recorded as none") {

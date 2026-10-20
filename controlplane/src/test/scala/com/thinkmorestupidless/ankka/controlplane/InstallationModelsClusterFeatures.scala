@@ -85,7 +85,7 @@ class InstallationModelsClusterFeatures
     "a service names an installation model with a preset and a model and no key" ->
       "ModelsSuite (the sidecar resolves the preset to the model server, reached with the service's certificate) and InstallationModelsSuite (the operator gives the address to a process's sidecar)",
     "every call to an installation model is a turn or an iteration in a session" ->
-      "InstallationModelsSuite (an installation model is a model provider like any other, so the agent loop records its calls as any provider's)",
+      "RemoteModelsSuite (a process's agent on an installation model has its turn recorded in its session under the provider)",
     "an agent with tools on a model that cannot call tools is told so at the first call" ->
       "InstallationModelsSuite (agent): nothing is sent to the model",
     "effort on a model that cannot think is told so at the first call" ->

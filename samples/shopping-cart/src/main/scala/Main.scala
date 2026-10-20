@@ -1,4 +1,5 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
+import com.thinkmorestupidless.ankka.agent.providers.ModelProviders
 import com.thinkmorestupidless.ankka.grpc.{GrpcClients, GrpcServer}
 import com.thinkmorestupidless.ankka.http.{Acl, Callers, EndpointClients, HttpEndpoint, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
@@ -15,9 +16,12 @@ import shoppingcart.api.{
   QuestionsEndpoint,
   SecretsEndpoint,
   ServiceCallerEndpoint,
-  ShoppingCartEndpoint
+  ShoppingCartEndpoint,
+  StockHelperEndpoint
 }
 import shoppingcart.application.*
+
+import scala.concurrent.duration.DurationInt
 
 /**
  * The whole service definition.
@@ -135,6 +139,30 @@ import shoppingcart.application.*
     sys.env.get("CART_CALLING_AGENT").contains("on") && !sys.env.contains("ANTHROPIC_API_KEY")
 
   /**
+   * A descriptor naming a model provider `local` with the preset `installation` registers
+   * [[StockHelper]] on that installation model, with no model key, behind `/helper/ask`.
+   * `CART_MODEL_TIMEOUT` (seconds) bounds each model call. It is how the platform's cluster suite
+   * shows an agent answered by the installation's model server.
+   */
+  val installationModel =
+    Option
+      .when(sys.env.get("ANKKA_MODEL_LOCAL_PRESET").contains("installation"))(
+        sys.env.get("ANKKA_MODEL_LOCAL_MODEL")
+      )
+      .flatten
+      .filter(_ => !sys.env.contains("ANTHROPIC_API_KEY"))
+  def withHelper(builder: com.thinkmorestupidless.ankka.runtime.ServiceBuilder) =
+    installationModel.fold(builder) { model =>
+      val timeout = sys.env.get("CART_MODEL_TIMEOUT").map(_.toInt.seconds).getOrElse(10.minutes)
+      builder
+        .register(StockHelper.descriptor)
+        .registerAll(AgentRuntime.descriptors)
+        .withExtension(
+          AgentRuntime.withDefaultModel(ModelProviders.installation(model, "local"), timeout)
+        )
+    }
+
+  /**
    * `CART_WALLET=on` adds a player's wallet and an affiliates feed, under granted callers (feature
    * 040): what the platform's cross-project suites deploy as another project's service. The report
    * route authenticates when the descriptor lists issuers (`ANKKA_AUTH_ISSUERS`).
@@ -147,7 +175,7 @@ import shoppingcart.application.*
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
     .fold(
-      if !callingAgent then withWallet
+      if !callingAgent then withHelper(withWallet)
       else
         withWallet
           .register(ServiceCaller.descriptor)
@@ -174,6 +202,7 @@ import shoppingcart.application.*
           clients => CartKeysEndpoint(clients.clientKeys)
         ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient)) ++
           Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient)) ++
+          installationModel.map(_ => clients => StockHelperEndpoint(clients.componentClient)) ++
           Option.when(wallet)(clients =>
             shoppingcart.api.WalletEndpoint(clients.componentClient)
           ) ++

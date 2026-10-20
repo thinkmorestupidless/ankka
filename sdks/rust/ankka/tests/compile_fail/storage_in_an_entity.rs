@@ -1,4 +1,5 @@
 use ankka::prelude::*;
+use ankka::Storage;
 
 #[derive(Serialize, Deserialize)]
 struct Photo {
@@ -17,7 +18,7 @@ impl Album {
     // An entity's context has no buckets: `storage()` answers an `Option` that is `None` here, so
     // a handler cannot reach a bucket without saying what it does when there is none.
     fn keep(_: &Photo, bytes: String, ctx: &Context) -> Effect<Photographed, Done> {
-        let storage: ankka::Storage = ctx.storage();
+        let storage: Storage = ctx.storage();
         storage.default().put("front.jpg", bytes.as_bytes(), "image/jpeg").unwrap();
         effects::persist(Photographed::Kept {
             name: "front.jpg".into(),

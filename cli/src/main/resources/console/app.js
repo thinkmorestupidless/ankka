@@ -216,7 +216,7 @@ async function loadRoutes(name) {
   // gRPC methods are listed and never offered: the console has no client generated from a service
   // definition, and a form sending HTTP to one would teach the wrong thing.
   const all = service.routes || [];
-  const routes = all.filter((r) => r.method !== 'GRPC' && r.method !== 'SOCKET');
+  const routes = all.filter((r) => r.method !== 'GRPC' && r.method !== 'SOCKET' && r.method !== 'MCP');
   for (const method of all.filter((r) => r.method === 'GRPC')) {
     const row = document.createElement('div');
     row.className = 'route grpc';
@@ -235,6 +235,17 @@ async function loadRoutes(name) {
     row.innerHTML = `<span class="m"></span><span class="p"></span>`;
     row.querySelector('.m').textContent = 'socket';
     row.querySelector('.p').textContent = socketRoute.path;
+    container.appendChild(row);
+  }
+  // MCP endpoints likewise: an MCP client calls their tools, so each endpoint is listed with its tools
+  // under its path and offered no form.
+  for (const endpoint of topology.mcpEndpoints(all)) {
+    const row = document.createElement('div');
+    row.className = 'route mcp';
+    row.title = 'An MCP endpoint: point an MCP client at it; the console does not call its tools.';
+    row.innerHTML = `<span class="m"></span><span class="p"></span>`;
+    row.querySelector('.m').textContent = 'MCP';
+    row.querySelector('.p').textContent = `${endpoint.path}  ${endpoint.tools.join(', ')}`;
     container.appendChild(row);
   }
   // A service with "http": false has nothing to invoke. Say so rather than show a dead form.
@@ -521,7 +532,7 @@ function renderSpan(container, span, total, depth, unattributed) {
 
   const who = document.createElement('span');
   who.className = 'who';
-  who.textContent = span.handler ? `${span.component}#${span.handler}` : span.component;
+  who.textContent = topology.spanWho(span);
 
   const bar = document.createElement('span');
   bar.className = 'bar';

@@ -40,11 +40,18 @@ Feature: An agent using the tools of an MCP server
     And the reason names the MCP server "tickets" and the agent "helper"
 
   Scenario: the platform connects to an MCP server that is a service as the agent's service
-    Given the MCP server "tickets" is a service deployed in the project "shop" whose ACL admits only "support"
+    Given the MCP server "tickets" is the MCP endpoint of a service deployed in the project "shop" whose ACL admits only "support"
     And "support" is deployed in the project "shop"
     When "support" starts
     Then "tickets" is told that the call came from the service "support" in the project "shop"
     And the model is offered the tools "mcp__tickets__create" and "mcp__tickets__search"
+
+  Scenario: an agent is offered the tools of a sibling service's MCP endpoint by listing the service
+    Given the MCP server "tickets" is the MCP endpoint of a service deployed in the project "shop" whose ACL admits only "support"
+    And "support" is deployed in the project "shop" and has started
+    When the model calls "mcp__tickets__create" with the arguments "title printer"
+    Then the handler of "create" of the MCP endpoint of "tickets" is run with the title "printer"
+    And the model is told what the handler answered as the result of the tool call
 
   Scenario: an MCP server's tool with the name of one of the agent's own is offered beside it
     Given a tool "search" of "helper"

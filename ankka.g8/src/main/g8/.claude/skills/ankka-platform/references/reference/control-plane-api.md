@@ -1133,7 +1133,10 @@ of `instances` carries `pod` and a `status`:
 
 `partial` is `true` whenever an instance is not `ok`; such an instance contributes nothing and is never
 guessed at. Nodes and declared connections are the union across the instances that answered, and a
-node not on every one of them is listed under `differences` with the pods that have it. Observed calls
+node not on every one of them is listed under `differences` with the pods that have it. Each node's
+`handlers` carry a `name` and a `type` (`command`, `query`, `route`, `tool`, ...); an MCP endpoint's
+tools are handlers of type `tool` on the endpoint's node, named alone (`get_cart`), beside its route,
+and an agent's tools are of type `tool` too. Observed calls
 are summed per pair of handlers over a recent window, with `handled` (`ok`, `refused`, `failed`) and
 `unanswered` (`timedOut`, `undelivered`) kept apart: one is counted where a handler ran, the other where
 a caller got no answer, and they are never added together. Durations are read from bucketed histograms,

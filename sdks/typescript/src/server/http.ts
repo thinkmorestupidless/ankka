@@ -45,7 +45,8 @@ function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-function principalOf(req: HttpRequest): Principal | null {
+/** The principal the sidecar verified, for a route or a tool call; never the credential. */
+export function principalOf(req: Pick<HttpRequest, "principal">): Principal | null {
   const p = req.principal
   if (!p) return null
   return Object.freeze({
@@ -60,7 +61,7 @@ function principalOf(req: HttpRequest): Principal | null {
 }
 
 /** The caller the sidecar established; a sidecar that predates protocol 1.1 sends none, which reads as local. */
-function callerOf(req: HttpRequest): Caller {
+export function callerOf(req: Pick<HttpRequest, "caller">): Caller {
   const kind = req.caller?.kind
   switch (kind?.case) {
     case "gateway":
@@ -75,7 +76,7 @@ function callerOf(req: HttpRequest): Caller {
 }
 
 /** A path parameter as its declared schema: strings as they are, scalars through their text codec. */
-function parseParam(name: string, text: string, shape: Schema | undefined): unknown {
+export function parseParam(name: string, text: string, shape: Schema | undefined): unknown {
   if (!shape) return text
   const r = resolve(shape)
   if (r.kind === "string") return text

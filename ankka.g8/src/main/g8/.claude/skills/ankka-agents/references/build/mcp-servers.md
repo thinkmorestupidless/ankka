@@ -119,6 +119,14 @@ A server's address is one of three things:
 `ANKKA_MCP_TICKET_DESK_URL`. Setting the address in the descriptor's environment, rather than in code,
 lets one image talk to a different server in each environment.
 
+### An agent lists a sibling's MCP endpoint
+
+Another ankka service that serves an [MCP endpoint](mcp-endpoints.md) is listed by its service name and
+the endpoint's path, `McpServer.service("cart", "cart", "/mcp")`, or with a project for a service granted
+to this one. On the platform the agent calls as its service, presenting the service's certificate, so the
+endpoint's ACL admits it by name with `Acl.allowCallers` and no credential is configured. Locally the call
+goes to the service running on this machine under that name.
+
 The platform speaks the protocol's Streamable HTTP transport, version `2025-06-18`: it initializes a
 session, lists the server's tools a page at a time, and calls them, reading an answer sent as JSON or
 as an event stream. A session the server forgets is started again once. A tool's error result, and a

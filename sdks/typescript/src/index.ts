@@ -65,8 +65,16 @@ export {
   type TaskType,
 } from "./autonomous.ts"
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
+export {
+  McpEndpoint, ToolTable, tools, MCP_ENDPOINTS_SINCE,
+  type McpEndpointClass, type DeclaredTool, type ToolOptions, type ReferenceOptions, type RegisteredMcpEndpoint, type RegisteredMcpTool, type ToolRun,
+} from "./mcp-endpoint.ts"
+export {
+  ClientKeys, InMemoryClientKeys, Expiry, CLIENT_KEYS_SINCE,
+  type IssueClientKey, type IssuedClientKey, type ClientKeySummary,
+} from "./client-keys.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
-export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
+export { Acl, Callers, type CallerMatcher, type CallersAcl, type AnyOfAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type EventContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, AwaitingInvocation, AWAIT_SINCE, awaitPartJson, Views, Timers, Secrets, InMemorySecrets, noSecrets, WatchEnded, VIEW_STREAMS_SINCE, type AwaitPart, type WatchEvent, type WatchOptions, type Overflow, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
 export {
@@ -81,6 +89,7 @@ export {
 } from "./service.ts"
 export { Server, type ServerOptions } from "./server/server.ts"
 export { problems as sidecarProblems } from "./server/discovery.ts"
+export { createMcpDispatcher, type McpDispatcher, type ToolAnswer } from "./server/mcp.ts"
 export { PROTOCOL_VERSION, SDK_NAME } from "./spec.ts"
 export { StartFrom } from "./startFrom.ts"
 export { isTerminal, isUnknown, type Standing, type StandingStatus } from "./standing.ts"

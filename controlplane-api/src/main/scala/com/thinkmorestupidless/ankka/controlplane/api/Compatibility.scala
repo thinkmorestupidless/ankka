@@ -75,9 +75,11 @@ object Protocol:
    * module import (feature 048). 1.19 added replicated entities: `replicated` on an event sourced
    * entity and `mirrored_changes` on a consumer in discovery, the installation on an event and the
    * installation and `at_home` on a command, a reply's `ReplicationChange`, `NOT_HOME`, and
-   * `ankka.installation` and `ankka.local` on a consumer's request (feature 051).
+   * `ankka.installation` and `ankka.local` on a consumer's request (feature 051). 1.20 added MCP
+   * endpoints: `mcp_endpoints` in discovery, the `Mcp` service the process serves, the client key
+   * rpcs on `Client`, and the `ankka1_mcp_tool` export and its three imports (feature 054).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 19)
+  val version: ProtocolVersion = ProtocolVersion(1, 20)
 
 object Compatibility:
 

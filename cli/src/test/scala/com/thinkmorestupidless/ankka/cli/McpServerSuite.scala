@@ -224,3 +224,46 @@ final class McpServerSuite extends FunSuite:
       text(call("search_docs", """{"query":"expose hostname"}""")).contains("deploy/expose.md")
     )
   }
+
+  // `features/documentation/mcp-endpoints.feature`: the coding agent asks `ankka mcp` what a local
+  // service serves, and is told its MCP endpoint and tools beside its routes.
+  test("a coding agent is told a local service's tools") {
+    object Cart extends console.Source:
+      def services(): Vector[console.ServiceSummary] = Vector.empty
+      def service(name: String): Option[String] =
+        Option.when(name == "cart")(
+          """{"name":"cart","instances":[],"components":[],"routes":[""" +
+            """{"method":"GET","path":"/carts/{cartId}","streaming":false},""" +
+            """{"method":"MCP","path":"/mcp get_cart","streaming":false},""" +
+            """{"method":"MCP","path":"/mcp add_item","streaming":false}]}"""
+        )
+      def traces(name: String): Option[String]                                           = None
+      def topology(name: String): Option[console.QueryResponse]                          = None
+      def trace(name: String, id: String): Option[String]                                = None
+      def session(name: String, id: String): Option[String]                              = None
+      def invoke(name: String, r: console.InvokeRequest): Option[console.InvokeResponse] = None
+      def invokeStream(name: String, r: console.InvokeRequest, onChunk: String => Unit): Boolean =
+        false
+      def query(n: String, c: String, i: String, m: String): Option[console.QueryResponse] = None
+    val tools = AnkkaTools(() => settings, () => Cart)
+    val tool = tools.all
+      .find(_.name == "describe_local_service")
+      .getOrElse(fail("no describe_local_service"))
+    assert(tool.description.contains("MCP endpoints and their tools"), tool.description)
+    val agent =
+      McpServer("ankka", "test", AnkkaTools.Instructions, tools.all, () => tools.resources())
+    val bytes = ByteArrayOutputStream()
+    agent.serve(
+      BufferedReader(
+        StringReader(
+          """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"describe_local_service","arguments":{"service":"cart"}}}"""
+        )
+      ),
+      PrintStream(bytes, true, StandardCharsets.UTF_8),
+      PrintStream(ByteArrayOutputStream())
+    )
+    val told = String(bytes.toByteArray, StandardCharsets.UTF_8)
+    Seq("GET", "/carts/{cartId}", "/mcp get_cart", "/mcp add_item").foreach(fact =>
+      assert(told.contains(fact), s"the coding agent was not told $fact: $told")
+    )
+  }

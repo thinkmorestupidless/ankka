@@ -79,6 +79,16 @@ trait LogCapturing extends FunSuite:
 
   override def munitFixtures: Seq[AnyFixture[?]] = super.munitFixtures :+ logCaptureFixture
 
+  /**
+   * Every line captured so far in the running test: what a suite searches to show a value was never
+   * logged. Empty when capture is off (`ankka.test.logs=all`), so a check against it must also say
+   * capture was on (`capturingLogs`).
+   */
+  protected def capturedLog: String = LogCapture.capturedText
+
+  /** Whether lines are being captured at all; a search of an empty log proves nothing. */
+  protected def capturingLogs: Boolean = LogCapture.capturing
+
 /**
  * The capture itself: one per JVM, because logback's root logger is. `start` moves the root
  * logger's appenders aside and puts a buffer in their place; `stop` puts them back.
@@ -136,6 +146,8 @@ private[testkit] object LogCapture:
     moved = Vector.empty
     context = None
   }
+
+  def capturing: Boolean = lock.synchronized(context.isDefined)
 
   def discard(): Unit = lock.synchronized {
     events.clear()

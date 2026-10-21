@@ -21,6 +21,7 @@ from ankka._proto.ankka.protocol.v1 import discovery_pb2, payload_pb2
 from ankka.codec import Codec, Done, default_codec_for
 from ankka.context import RequestContext
 from ankka.event_sourced_entity import RegistrationError
+from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
 
@@ -78,16 +79,53 @@ class Acl:
 
     kind: discovery_pb2.Endpoint.Acl
     callers: tuple[CallerMatcher, ...] = ()
+    # An MCP endpoint's two more (protocol 1.20): a client key issued for the endpoint, and any of
+    # several. An ordinary endpoint refuses both, which the protocol's endpoint ACL cannot say.
+    client_keys: bool = False
+    members: tuple[Acl, ...] = ()
 
     ALLOW_ALL: ClassVar[Acl]
     DENY_ALL: ClassVar[Acl]
     AUTHENTICATED: ClassVar[Acl]
+    CLIENT_KEYS: ClassVar[Acl]
 
     @staticmethod
     def allow_callers(*matchers: CallerMatcher) -> Acl:
         if not matchers:
             raise ValueError("Acl.allow_callers needs at least one caller")
         return Acl(discovery_pb2.Endpoint.CALLERS, tuple(matchers))
+
+    @staticmethod
+    def any_of(*acls: Acl) -> Acl:
+        """Admits whoever any of ``acls`` admits: ``Acl.any_of(Acl.CLIENT_KEYS, Acl.AUTHENTICATED)``.
+        For an MCP endpoint and its tools."""
+        if len(acls) < 2:
+            raise ValueError("Acl.any_of needs at least two ACLs")
+        flat: list[Acl] = []
+        for a in acls:
+            flat.extend(a.members if a.members else (a,))
+        return Acl(discovery_pb2.Endpoint.DENY_ALL, members=tuple(flat))
+
+    @property
+    def mcp_only(self) -> bool:
+        """Whether only an MCP endpoint can state this ACL."""
+        return self.client_keys or bool(self.members)
+
+    def to_mcp_pb(self) -> discovery_pb2.McpAcl:
+        """The ACL as an MCP endpoint or tool declares it."""
+        pb = discovery_pb2.McpAcl()
+        for member in self.members or (self,):
+            if member.client_keys:
+                pb.client_keys = True
+            elif member.kind == discovery_pb2.Endpoint.ALLOW_ALL:
+                pb.allow_all = True
+            elif member.kind == discovery_pb2.Endpoint.DENY_ALL:
+                pb.deny_all = True
+            elif member.kind == discovery_pb2.Endpoint.AUTHENTICATED:
+                pb.tokens = True
+            elif member.kind == discovery_pb2.Endpoint.CALLERS:
+                pb.callers.extend(member.callers_pb())
+        return pb
 
     @property
     def value(self) -> discovery_pb2.Endpoint.Acl:
@@ -101,6 +139,8 @@ class Acl:
 Acl.ALLOW_ALL = Acl(discovery_pb2.Endpoint.ALLOW_ALL)
 Acl.DENY_ALL = Acl(discovery_pb2.Endpoint.DENY_ALL)
 Acl.AUTHENTICATED = Acl(discovery_pb2.Endpoint.AUTHENTICATED)
+# Its kind is never sent: an MCP endpoint states it as `client_keys`, and an ordinary one refuses it.
+Acl.CLIENT_KEYS = Acl(discovery_pb2.Endpoint.DENY_ALL, client_keys=True)
 
 
 @dataclass(frozen=True)
@@ -310,7 +350,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
 _current: ContextVar[RequestContext | None] = ContextVar("ankka_request", default=None)
 
 
-class Endpoint(HasSecrets, HasServices):
+class Endpoint(HasSecrets, HasServices, HasClientKeys):
     """Subclass this. Class attributes: ``prefix`` and ``acl``. Routes are decorated methods."""
 
     prefix: ClassVar[str]
@@ -333,6 +373,12 @@ class Endpoint(HasSecrets, HasServices):
                 "endpoint, or Acl.AUTHENTICATED, Acl.DENY_ALL or Acl.allow_callers(...)"
             )
         cls._routes = collect_routes(cls)
+        owned = [cls.acl] + [r.acl for r in cls._routes.values() if r.acl is not None]
+        if any(a.mcp_only for a in owned):
+            raise RegistrationError(
+                f"{cls.__name__}: Acl.CLIENT_KEYS and Acl.any_of are for an McpEndpoint and its tools; "
+                "an endpoint states Acl.ALLOW_ALL, Acl.DENY_ALL, Acl.AUTHENTICATED or Acl.allow_callers(...)"
+            )
 
     @property
     def request(self) -> RequestContext:

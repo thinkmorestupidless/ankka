@@ -1429,6 +1429,87 @@ object ConformanceReference:
     Approver.descriptor
   )
 
+  // ── An MCP endpoint (feature 054): three tools, one a reference, behind keys or a token ──
+
+  /** What `get_cart` answers: the cart, and who the tool was told it was for. */
+  final case class ToolCart(
+      cart: ShoppingCart,
+      subject: Option[String],
+      claims: Map[String, String]
+  )
+  given JsonValueCodec[ToolCart] = Codecs.make[ToolCart]
+
+  /**
+   * The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
+   * can see who a client key or a token made the caller, and that nothing in it reads as the key.
+   */
+  final class CartMcp(clients: EndpointClients, val acl: Acl)
+      extends com.thinkmorestupidless.ankka.mcp.McpEndpoint("/mcp"):
+    private def cart(id: String) = clients.componentClient.forEventSourcedEntity(EntityId(id))
+
+    tool("get_cart")
+      .describedAs("Reads one cart")
+      .param[String]("cartId", "The cart's id")
+      .handle { (cartId: String) =>
+        val p = request.principal
+        ToolCart(
+          cart(cartId).call(ShoppingCartEntity.getCart).invoke(),
+          p.map(_.subject),
+          p.fold(Map.empty[String, String])(_.claims)
+        )
+      }: Unit
+
+    tool("add_item")
+      .describedAs("Adds an item to a cart")
+      .param[String]("cartId", "The cart's id")
+      .param[String]("productId", "The product's id")
+      .param[Int]("quantity", "How many; greater than zero")
+      .handle { (cartId: String, productId: String, quantity: Int) =>
+        cart(cartId)
+          .call(ShoppingCartEntity.addItem)
+          .invoke(LineItem(productId, productId, quantity))
+      }: Unit
+
+    tool("checkout")
+      .describedAs("Checks a cart out")
+      .command(ShoppingCartEntity.checkout, id = "cartId"): Unit
+
+  /** What `POST /mcp-keys` is asked to issue: a key that never expires, for the cases. */
+  final case class McpKeyRequest(
+      subject: String,
+      scope: Set[String] = Set.empty,
+      attributes: Map[String, String] = Map.empty
+  )
+  given JsonValueCodec[McpKeyRequest]   = Codecs.make[McpKeyRequest]
+  given JsonValueCodec[IssuedClientKey] = Codecs.make[IssuedClientKey]
+  given clientKeyListCodec: JsonValueCodec[Vector[ClientKeySummary]] =
+    Codecs.make[Vector[ClientKeySummary]]
+
+  /** The reference's own routes over its client keys, as a product would write them. */
+  final class McpKeysEndpoint(clients: EndpointClients) extends HttpEndpoint("/mcp-keys"):
+    val acl: Acl = Acl.AllowAll
+    postBody("") { (body: McpKeyRequest) =>
+      clients.clientKeys.issue(
+        body.subject,
+        Expiry.Never,
+        scope = body.scope,
+        attributes = body.attributes
+      )
+    }
+    get("")(() => clients.clientKeys.list())
+    delete("/{id}") { (id: String) =>
+      clients.clientKeys.revoke(id)
+      "revoked"
+    }
+
+  /** The MCP endpoints, apart from `endpoints`: a process target serves its own. */
+  def mcpEndpoints(authenticated: Acl): Seq[EndpointClients => HttpEndpoint] = Seq(clients =>
+    CartMcp(
+      clients,
+      Acl.anyOf(com.thinkmorestupidless.ankka.mcp.ClientKeys.authenticate(), authenticated)
+    )
+  )
+
   def endpoints(
       timers: () => TimerScheduler,
       problems: () => Vector[String]
@@ -1440,5 +1521,6 @@ object ConformanceReference:
     clients => ConformanceEndpoint(clients, timers, problems),
     _ => PrivateEndpoint(),
     _ => CallersEndpoint(),
-    clients => AutonomousEndpoint(clients)
+    clients => AutonomousEndpoint(clients),
+    clients => McpKeysEndpoint(clients)
   )

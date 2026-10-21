@@ -1,0 +1,15 @@
+{
+  "source": "modelcontextprotocol.io/specification/2025-06-18/server/tools, Calling Tools",
+  "request": {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_weather", "arguments": {"location": "New York"}}},
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "content": [
+        {"type": "text", "text": "Current weather in New York:\nTemperature: 72°F\nConditions: Partly cloudy"}
+      ],
+      "isError": false
+    }
+  },
+  "same": ["result/content/0/type", "result/content/0/text", "result/isError"]
+}

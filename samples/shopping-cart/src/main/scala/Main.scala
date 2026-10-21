@@ -2,9 +2,12 @@ import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
 import com.thinkmorestupidless.ankka.grpc.{GrpcClients, GrpcServer}
 import com.thinkmorestupidless.ankka.http.{Acl, Callers, EndpointClients, HttpEndpoint, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
+import com.thinkmorestupidless.ankka.mcp.McpRuntime
 import shoppingcart.api.{
   CallersEndpoint,
   CartGrpcEndpoint,
+  CartKeysEndpoint,
+  CartMcpEndpoint,
   CartStreamsEndpoint,
   CheckoutsSeenEndpoint,
   GrpcCallersEndpoint,
@@ -32,6 +35,8 @@ import shoppingcart.application.*
     .register(CheckoutLog.descriptor)
     .register(CheckoutWorkflow.descriptor)
     .register(CartRows.descriptor)
+    // The client keys the cart's tools admit (feature 054).
+    .registerAll(McpRuntime.descriptors)
     // Without this the view's rows are never written, while every command still succeeds.
     // Kafka when ANKKA_KAFKA_BOOTSTRAP_SERVERS names a broker; entity sources only otherwise.
     .withExtension(ProjectionRuntime.fromEnv())
@@ -163,7 +168,10 @@ import shoppingcart.application.*
           clients => CallersEndpoint(clients.services),
           clients => QuestionsEndpoint(clients.componentClient),
           clients => SecretsEndpoint(clients.secrets),
-          _ => GrpcCallersEndpoint(grpcClients)
+          _ => GrpcCallersEndpoint(grpcClients),
+          // The cart's tools, for a customer's assistant, and its keys (feature 054).
+          clients => CartMcpEndpoint(clients.componentClient),
+          clients => CartKeysEndpoint(clients.clientKeys)
         ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient)) ++
           Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient)) ++
           Option.when(wallet)(clients =>
@@ -173,6 +181,7 @@ import shoppingcart.application.*
       )
     )
     .withExtension(grpcClients)
+    .withExtension(McpRuntime())
     .start()
   // docs:end registration
 

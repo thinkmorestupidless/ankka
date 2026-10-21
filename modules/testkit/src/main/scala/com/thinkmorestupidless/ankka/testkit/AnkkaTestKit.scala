@@ -65,6 +65,16 @@ final class AnkkaTestKit private (
   def componentClient: ComponentClient = current.componentClient
 
   /**
+   * The service's client keys (feature 054), as a handler reaches them through
+   * `clients.clientKeys`: a test issues a key with it. Refuses every call when the service
+   * registers no `McpRuntime()`.
+   */
+  def clientKeys: com.thinkmorestupidless.ankka.http.ClientKeys =
+    current
+      .extension[com.thinkmorestupidless.ankka.http.ClientKeysProvider]
+      .fold(com.thinkmorestupidless.ankka.http.ClientKeys.unavailable)(_.clientKeys)
+
+  /**
    * The running service's secret store: one table in this kit's database, or the Secret Manager
    * fake the kit was started on.
    */

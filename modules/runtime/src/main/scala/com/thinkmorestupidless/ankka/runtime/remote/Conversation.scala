@@ -196,7 +196,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.19"
+  val Version: String     = "1.20"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -277,6 +277,23 @@ enum RemoteCaller:
   /** A registered machine, proven by a token the control plane issued (protocol 1.15). */
   case Machine(organization: String, name: String)
   case Local
+
+/**
+ * A tool of an MCP endpoint the process declared (protocol 1.20), to run: the sidecar has answered
+ * the protocol, applied the ACL and checked `argumentsJson` against the tool's schema. The
+ * principal is the credential's, never the credential.
+ */
+final case class RemoteMcpCall(
+    endpointId: String,
+    tool: String,
+    argumentsJson: String,
+    principal: Option[RemotePrincipal],
+    caller: RemoteCaller,
+    metadata: Metadata
+)
+
+/** What a tool answered: its text, and its structured content when the result is a record. */
+final case class RemoteMcpAnswer(text: String, structuredJson: Option[String])
 
 final case class HttpResult(
     status: Int,
@@ -367,6 +384,17 @@ trait Conversation:
    */
   def openSocket(request: HttpForward): SocketLink =
     throw UnsupportedOperationException("this conversation cannot hold a socket")
+
+  /**
+   * Runs a tool of an MCP endpoint in the process (protocol 1.20). `Right(Left(message))` is a tool
+   * error the model reads; `Left` is a process that could not run it. A conversation whose program
+   * declares no MCP endpoint need not override it: discovery has refused one, and this is the
+   * backstop.
+   */
+  def invokeMcpTool(
+      call: RemoteMcpCall
+  ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
+    throw UnsupportedOperationException("this conversation cannot run an MCP tool")
 
   def reachable(): Boolean
 

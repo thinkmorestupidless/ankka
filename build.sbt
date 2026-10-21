@@ -387,6 +387,24 @@ lazy val agent = project
   )
 
 /**
+ * MCP endpoints (feature 054): a service's tools served over the Model Context Protocol, client
+ * keys scoped to a caller, the resource metadata a signing-in client reads, and brokered sign-in.
+ *
+ * A module of its own because the endpoint needs both `http` (it is an endpoint) and `agent` (its
+ * tools are described with the agent's schema types, and its tests drive it with the agent's MCP
+ * client), and neither may see the other: the direction `grpc` took for the same reason. It takes
+ * `auth-oidc` because the sign-in broker verifies the issuer's token with the verifier the platform
+ * already has, so nimbus reaches a service that adds an MCP endpoint (research R12).
+ */
+lazy val mcp = project
+  .in(file("modules/mcp"))
+  .dependsOn(core, sdk, runtime, http, agent, authOidc % "compile;test->test", testkit % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "ankka-mcp"
+  )
+
+/**
  * Telemetry export (feature 026): the recorder's spans and the runtime's invocation totals sent to
  * an OpenTelemetry collector over OTLP. A module of its own so that the OpenTelemetry SDK reaches a
  * service only through this dependency: `runtime` records with no library at all. A service names
@@ -666,6 +684,8 @@ lazy val sidecar = project
     // test->test: the conformance suite mints tokens with the module's test issuer.
     authOidc % "compile;test->test",
     agent,
+    // An MCP endpoint a process declares is served by the sidecar (feature 054).
+    mcp,
     protocol,
     // The image every process-hosted and module-hosted service runs: it exports for them, so their
     // developers write no telemetry code. test->test for the fake collector.
@@ -993,6 +1013,7 @@ lazy val shoppingCart = project
     authOidc,
     shoppingCartApi,
     agent,
+    mcp,
     telemetryOtlp,
     testkit % Test
   )
@@ -1076,6 +1097,7 @@ lazy val root = project
     grpcFixtures,
     authOidc,
     agent,
+    mcp,
     testkit,
     telemetryOtlp,
     graphSink,

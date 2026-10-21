@@ -37,6 +37,12 @@ enum Verification:
  */
 final class OidcVerifier(config: OidcConfig, keys: Issuer => JWKSource[SecurityContext]):
 
+  /** The issuers' URLs, in the order the configuration lists them. */
+  def issuers: Vector[String] = config.issuers.map(_.issuer)
+
+  /** The issuers as configured: what a sign-in broker signs people in at (feature 054). */
+  def configured: Vector[Issuer] = config.issuers
+
   private val processors: Map[String, (Issuer, DefaultJWTProcessor[SecurityContext])] =
     config.issuers.map(i => i.issuer -> (i, processor(i))).toMap
 

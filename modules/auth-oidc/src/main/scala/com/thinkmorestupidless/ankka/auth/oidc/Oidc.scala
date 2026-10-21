@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.auth.oidc
 
-import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, RequestContext}
+import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, RequestContext, TokenAuthenticator}
 
 /**
  * A service's users' tokens, verified: `val acl: Acl = Oidc.authenticate()`.
@@ -44,15 +44,24 @@ object Oidc:
 
   /** The ACL over a verifier already built, which is how a test hands in its own key sources. */
   def authenticate(verifier: OidcVerifier, realm: String): Acl =
-    val challenge = s"""realm="$realm""""
-    Acl.Authenticate { context =>
+    Acl.Authenticate(Issuers(verifier, s"""realm="$realm""""))
+
+  /**
+   * The decision over the issuers, and which they are (feature 054): an MCP endpoint's resource
+   * metadata names them as the places a client may sign in.
+   */
+  private final class Issuers(verifier: OidcVerifier, challenge: String)
+      extends TokenAuthenticator
+      with OidcIssuers:
+    def authorizationServers: Vector[String] = verifier.issuers
+    def configured: Vector[Issuer]           = verifier.configured
+    def apply(context: RequestContext): AuthDecision =
       context.caller match
         // A registered machine whose token the server already verified (feature 040): its token
         // is the installation's, not one of these issuers', and proves the principal as well.
         case com.thinkmorestupidless.ankka.http.Caller.Machine(organization, name) =>
           AuthDecision.Allow(Oidc.machinePrincipal(organization, name))
         case _ => fromIssuers(context, verifier, challenge)
-    }
 
   /** The principal a registered machine is, at a route that authenticates. */
   def machinePrincipal(
@@ -92,3 +101,11 @@ object Oidc:
   /** A challenge parameter is a quoted-string: no quotes, no newlines, and never the token. */
   def quoted(reason: String): String =
     reason.replace("\"", "'").replace("\n", " ").take(200)
+
+/**
+ * An authenticator over a service's issuers, as configured (feature 054): what an MCP endpoint's
+ * sign-in broker reads to send a person to the service's issuer, under the broker's client id
+ * there.
+ */
+trait OidcIssuers:
+  def configured: Vector[Issuer]

@@ -16,6 +16,7 @@ yourself** — a plan made before any matching file is opened has not seen it ye
 | `observability.md` | call attribution and topology, tracing, the recorder, the local console |
 | `messaging.md` | topic sources, consumer groups, view versions, Kafka, `publishAll`, graph deltas |
 | `agents.md` | agents, judgments, autonomous agents, scripted model providers |
+| `mcp.md` | MCP endpoints: the protocol kernel, tools and references, client keys, brokered sign-in |
 | `secrets.md` | service secrets, the secret key, project secrets |
 | `control-plane.md` | control plane invariants, Keycloak identity, deploy tokens, registry credentials, `auth-oidc`, CLI |
 | `kubernetes.md` | operator and `AnkkaService`, CNPG, cert-manager, Gateway API/Envoy, k3s suites, local and remote deploys, schema/DDL |

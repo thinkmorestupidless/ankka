@@ -9,6 +9,7 @@
 //     getCart(cartId: string) { return this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke() }
 //   }
 
+import { clientKeysFor, type ClientKeys } from "./client-keys.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import { currentRequest, requestIfAny, type RequestContext } from "./context.ts"
 import type { Acl, RouteTable } from "./routes.ts"
@@ -51,6 +52,18 @@ export abstract class Endpoint {
   /** A unit test's in place of the runtime's: `component.services = new ScriptedServices()`. */
   set services(services: Services) {
     this.#services = services
+  }
+
+  #clientKeys: ClientKeys | undefined
+
+  /** The service's client keys (1.20): issued for its MCP endpoint, kept by the runtime, each shown once. */
+  get clientKeys(): ClientKeys {
+    return this.#clientKeys ?? clientKeysFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.clientKeys = new InMemoryClientKeys()`. */
+  set clientKeys(keys: ClientKeys) {
+    this.#clientKeys = keys
   }
 
   /** @internal */

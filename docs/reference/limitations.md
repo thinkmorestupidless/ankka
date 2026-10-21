@@ -185,7 +185,12 @@ feature also says what that feature does not do.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the
   gateway, and one gateway per installation.
 - **Two protocols: HTTP and gRPC.** A service has at most an HTTP port and a gRPC port, and serves no other
-  protocol. A web page cannot call a gRPC endpoint: gRPC-Web is not routed.
+  protocol. A web page cannot call a gRPC endpoint: gRPC-Web is not routed. An MCP endpoint rides on the
+  HTTP port.
+- **The sign-in broker holds no account and no password.** The platform signs people in for a service only
+  through a broker the service's MCP endpoint opted into, which sends each person to the service's own
+  issuer and mints a token only for that endpoint. A service that has not opted in has no authorization
+  server, and no part of the platform keeps the accounts of the people a service serves.
 - **A gRPC service's peers address is skipped if its name is taken.** A service that serves gRPC has a
   headless address named `<service>-grpc-peers`. If another service in the project is called that, the
   platform leaves that service's address alone and does not create the peers address, and callers then
@@ -405,6 +410,14 @@ feature also says what that feature does not do.
   is no editing its arguments, and a decision is not streamed back to a caller still connected.
 - **A module's agents take no part in approvals or MCP servers.** A WebAssembly module declares neither,
   and its client answers a call that would wait for a person as a conflict.
+- **An MCP endpoint offers tools and nothing else.** It offers no resources or prompts, and asks the client
+  for no sampling or elicitation.
+- **An MCP endpoint keeps nothing between requests.** It issues no session and sends no notice that its
+  tools changed; a change to a service's tools is seen by an MCP client at its next listing.
+- **There is no one MCP endpoint for every service of a project.** Each service serves its own tools at its
+  own address, and a client that wants several services' tools lists each.
+- **A route referred to as a tool takes its body as JSON.** A route whose body is another content type
+  cannot be referred to; a tool with a handler of its own can call it.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.

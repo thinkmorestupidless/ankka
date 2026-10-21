@@ -57,12 +57,15 @@ import {
   isTerminal,
   type Infer,
   sseEvents,
+  Expiry,
+  McpEndpoint,
+  tools,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
 import { CartRows } from "./cartRows.ts"
 import { CheckoutWorkflow, type Checkout } from "./checkoutWorkflow.ts"
-import type { ShoppingCartEvent } from "./domain.ts"
+import { ShoppingCart, type ShoppingCartEvent } from "./domain.ts"
 
 // ── conformance: an entity whose handlers are the protocol's edge cases ──
 
@@ -1020,6 +1023,68 @@ export class AutonomousEndpoint extends Endpoint {
   }
 }
 
+// ── An MCP endpoint (feature 054): three tools, one a reference, behind keys or a token ──
+
+/** What `get_cart` answers: the cart, and who the tool was told it was for. */
+const ToolCart = s.record("ToolCart", { cart: ShoppingCart, subject: s.option(s.string), claims: s.stringMap(s.string) })
+const GetCartArguments = s.record("GetCartArguments", { cartId: s.string })
+const AddItemArguments = s.record("AddItemArguments", { cartId: s.string, productId: s.string, quantity: s.int })
+
+/**
+ * The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case can
+ * see who a client key or a token made the caller, and that nothing in it reads as the key.
+ */
+// docs:start mcp-endpoint
+export class CartMcp extends McpEndpoint {
+  static readonly path = "/mcp"
+  static readonly acl = Acl.anyOf(Acl.clientKeys, Acl.authenticated)
+  static readonly tools = tools<CartMcp>()
+    .tool("get_cart", "Reads one cart", GetCartArguments, ToolCart, async (args, ep) => {
+      const p = ep.request.principal
+      const cart = await ep.client.of(ShoppingCartEntity, args.cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
+      return { cart, subject: p?.subject ?? null, claims: { ...(p?.claims ?? {}) } }
+    })
+    .tool("add_item", "Adds an item to a cart", AddItemArguments, undefined, async (args, ep) => {
+      await ep.client.of(ShoppingCartEntity, args.cartId).call(ShoppingCartEntity.handlers.addItem).invoke({ productId: args.productId, name: args.productId, quantity: args.quantity })
+      return done
+    })
+    .command("checkout", "Checks a cart out", ShoppingCartEntity, "checkout", { id: "cartId" })
+}
+// docs:end mcp-endpoint
+
+/** What `POST /mcp-keys` is asked to issue: a key that never expires, for the cases. */
+const McpKeyRequest = s.record("McpKeyRequest", { subject: s.string, scope: s.list(s.string), attributes: s.stringMap(s.string) })
+const IssuedKey = s.record("IssuedKey", { id: s.string, clientKey: s.string })
+const ListedKey = s.record("ListedKey", {
+  id: s.string,
+  subject: s.string,
+  attributes: s.stringMap(s.string),
+  label: s.option(s.string),
+  endpoint: s.string,
+  scope: s.list(s.string),
+})
+
+/** The reference's own routes over its client keys, as a product would write them. */
+// docs:start mcp-keys
+export class McpKeysEndpoint extends Endpoint {
+  static readonly prefix = "/mcp-keys"
+  static readonly acl = Acl.allowAll
+  static readonly routes = {
+    issue: post("/", McpKeyRequest, IssuedKey, async (ep: McpKeysEndpoint, _req, body) => {
+      const issued = await ep.clientKeys.issue({ subject: body.subject, expiry: Expiry.never, scope: body.scope, attributes: body.attributes })
+      return { id: issued.id, clientKey: issued.clientKey }
+    }),
+    list: get("/", s.list(ListedKey), async (ep: McpKeysEndpoint) =>
+      (await ep.clientKeys.list()).map((k) => ({ id: k.id, subject: k.subject, attributes: { ...k.attributes }, label: k.label, endpoint: k.endpoint, scope: [...k.scope] })),
+    ),
+    revoke: del("/{id}", s.string, async (ep: McpKeysEndpoint, req) => {
+      await ep.clientKeys.revoke(req.params.id)
+      return "revoked"
+    }),
+  }
+}
+// docs:end mcp-keys
+
 /** The cart sample plus the conformance extras: what `npm run conformance` serves. */
 export function referenceService() {
   return Ankka.service()
@@ -1057,4 +1122,6 @@ export function referenceService() {
     .register(PrivateEndpoint)
     .register(CallersEndpoint)
     .register(AutonomousEndpoint)
+    .register(McpKeysEndpoint)
+    .register(CartMcp)
 }

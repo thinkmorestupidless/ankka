@@ -17,6 +17,7 @@ from typing import Any
 from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail, SseEvent, sse_events
 from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, MachineCaller, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
+from ankka import ClientKeySummary, Expiry, McpEndpoint, tool
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import Calls, CommandError, ComponentClient
 from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
@@ -38,7 +39,7 @@ from ankka.keyed_view import KeyedView, on
 from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRows
 from examples.shopping_cart.checkout_workflow import Checkout, CheckoutWorkflow
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
 from examples.shopping_cart.endpoint import ShoppingCartEndpoint
 from examples.shopping_cart.entity import ShoppingCartEntity
 
@@ -1235,6 +1236,84 @@ class PrivateEndpoint(Endpoint):
             pass
 
 
+# ── An MCP endpoint (feature 054): three tools, one a reference, behind keys or a token ──
+
+
+@dataclass(frozen=True)
+class ToolCart:
+    """What ``get_cart`` answers: the cart, and who the tool was told it was for."""
+
+    cart: ShoppingCart
+    subject: str | None
+    claims: dict[str, str]
+
+
+# docs:start mcp-endpoint
+class CartMcp(McpEndpoint):
+    """The cart's MCP endpoint at ``/mcp``. ``get_cart`` answers the principal beside the cart, so a
+    case can see who a client key or a token made the caller, and that nothing in it reads as the key."""
+
+    path = "/mcp"
+    acl = Acl.any_of(Acl.CLIENT_KEYS, Acl.AUTHENTICATED)
+
+    def _cart(self, cart_id: str) -> Calls:
+        assert self.client is not None
+        return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cart_id)
+
+    @tool("Reads one cart")
+    async def get_cart(self, cartId: str) -> ToolCart:
+        cart = await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
+        p = self.request.principal
+        return ToolCart(cart, p.subject if p else None, dict(p.claims) if p else {})
+
+    @tool("Adds an item to a cart")
+    async def add_item(self, cartId: str, productId: str, quantity: int) -> Done:
+        return await self._cart(cartId).call("add-item").invoke(LineItem(productId, productId, quantity))
+
+    checkout = tool.command(ShoppingCartEntity, "checkout", id="cartId", description="Checks a cart out")
+# docs:end mcp-endpoint
+
+
+@dataclass(frozen=True)
+class McpKeyRequest:
+    """What ``POST /mcp-keys`` is asked to issue: a key that never expires, for the cases."""
+
+    subject: str
+    scope: list[str] = field(default_factory=list)
+    attributes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class IssuedKey:
+    id: str
+    clientKey: str
+
+
+# docs:start mcp-keys
+class McpKeysEndpoint(Endpoint):
+    """The reference's own routes over its client keys, as a product would write them."""
+
+    prefix = "/mcp-keys"
+    acl = Acl.ALLOW_ALL
+
+    @post("/")
+    async def issue(self, body: McpKeyRequest) -> IssuedKey:
+        issued = await self.client_keys.issue(
+            body.subject, Expiry.never(), scope=body.scope, attributes=body.attributes
+        )
+        return IssuedKey(issued.id, issued.client_key)
+
+    @get("/")
+    async def listed(self) -> list[ClientKeySummary]:
+        return await self.client_keys.list()
+
+    @delete("/{id}")
+    async def revoke(self, id: str) -> str:
+        await self.client_keys.revoke(id)
+        return "revoked"
+# docs:end mcp-keys
+
+
 def reference_service() -> ServiceBuilder:
     """The cart sample plus the conformance extras: what `uv run conformance` serves."""
     return (
@@ -1273,4 +1352,6 @@ def reference_service() -> ServiceBuilder:
         .register(PrivateEndpoint)
         .register(CallersEndpoint)
         .register(AutonomousEndpoint)
+        .register(McpKeysEndpoint)
+        .register(CartMcp)
     )

@@ -121,7 +121,7 @@ memory, so it is never started on a deployed instance.
 
 | Path | Answers |
 |---|---|
-| `GET /observability/service` | The service's name, runtime version, instances with their HTTP address, registered components with their query handlers, and HTTP routes. |
+| `GET /observability/service` | The service's name, runtime version, instances with their HTTP address, registered components with their query handlers, and HTTP routes, an MCP endpoint's tools among them as `MCP <path> <tool>`. |
 | `GET /observability/topology` | The service's topology: its nodes, declared connections and the calls observed in the current window, with each pair of handlers' handled and unanswered counts and a duration histogram. |
 | `GET /observability/traces` | Summaries of the traces in the current window, newest first. |
 | `GET /observability/traces/{traceId}` | One trace as a tree of spans. |

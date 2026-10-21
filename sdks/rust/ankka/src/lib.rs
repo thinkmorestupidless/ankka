@@ -19,6 +19,7 @@
 
 pub mod abi;
 pub mod client;
+pub mod client_keys;
 pub mod codec;
 pub mod components;
 pub mod config;
@@ -36,6 +37,7 @@ pub mod start_from;
 pub mod testkit;
 
 pub use client::Client;
+pub use client_keys::{ClientKeySummary, ClientKeys, Expiry, IssueClientKey, IssuedClientKey};
 pub use codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use codec::{Bytes, Done};
 pub use components::Publication;

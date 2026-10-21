@@ -767,7 +767,8 @@ Who a token says it is for. A service accepts a token only for the audience it l
 with the token's issuer.
 
 ### subject
-The issuer's own id for the person a token names.
+The issuer's own id for the person a token names. Of a client key: the id the service issuing
+it chose for its holder, which a handler reads as the principal's subject.
 
 ### role
 A name an issuer gives a person's standing, carried in the token. A handler decides what
@@ -1137,8 +1138,8 @@ members and change their roles, rename it, manage its deploy tokens and delete i
 always has at least one owner, and a deploy token is never one.
 
 ### revoke
-Of a deploy token: end it, so that no request with it is admitted again. Of an accepted grant:
-end it, by the grantor and without the grantee, so that it opens nothing again.
+Of a deploy token, or of a client key: end it, so that no request with it is admitted again. Of
+an accepted grant: end it, by the grantor and without the grantee, so that it opens nothing again.
 
 ### job
 One run of a repository's automation on GitHub, on one machine, whose commands run one after another. It is not a workflow, which is a component.
@@ -1404,8 +1405,10 @@ The answers a scripted model or a scripted judgment provider gives, in order.
 
 ### tool
 Something an agent offers the model to call: a function of the agent's own, declared
-with a name, or one an MCP server has. Where a gRPC feature says "a tool" of something that reads
-reflection, it is the everyday word for a developer's program, and not this.
+with a name, or one an MCP server has. Seen from the other end, something an MCP endpoint offers an
+MCP client to call: a name, a description, typed arguments and a handler. Where a gRPC feature says
+"a tool" of something that reads reflection, it is the everyday word for a developer's program, and
+not this.
 
 ### tool call
 The model asking for one tool to be run, with arguments. It is not a call, which is
@@ -1459,7 +1462,7 @@ told of an error instead. It does not check the result of one of the agent's own
 ### MCP server
 A program outside the agent that has tools and answers the Model Context Protocol. An
 agent lists the ones whose tools it offers the model, each with the credential the platform is to
-send it, if it wants one.
+send it, if it wants one. A service's MCP endpoint is one.
 
 ## Autonomous agents
 
@@ -2848,6 +2851,71 @@ Of a model: something it can do that an agent may need, such as "tool calling" o
 capability its model lacks is told so at its first call. It is what a model can do, not what a
 service may do with it.
 
+## MCP endpoints
+
+### MCP endpoint
+A component of a service that serves the Model Context Protocol over HTTP at a path on
+the service's HTTP port, with a stated ACL and a set of tools. The third kind of endpoint, beside
+the HTTP endpoint and the gRPC endpoint; an MCP server from an agent's side. It keeps nothing
+between requests, so any instance answers any request.
+
+Avoid: tool server, MCP route
+
+### MCP client
+A program that speaks the Model Context Protocol to an MCP endpoint: an assistant, a
+coding agent, a script, or an agent of another service through the platform.
+
+Avoid: connector
+
+### client key
+A credential a service issues for one caller of its MCP endpoints: a subject the handler reads as
+the principal, attributes it reads as the principal's claims, a scope of tools, something it is
+labelled and when it expires. The service's own code issues it, lists it and revokes it through
+its client; the platform keeps it as a digest in the service's database and shows it exactly once.
+It is not a token: nobody signed it, and it says nothing about who a person is. Always two words:
+a *key* alone is a message's key on a topic.
+
+Avoid: API key, MCP key, assistant key, tool key
+
+### scope
+Of a client key: the tools it may be told and may call. A client key scoped to no
+tool may call every tool of the MCP endpoint, now and later.
+
+### attributes
+Of a client key: up to sixteen named values the service attaches when it issues the
+key, such as who it is for or their role, which a handler reads as the principal's claims. The
+platform keeps and shows them and never reads them.
+
+Avoid: metadata (of a client key)
+
+### protocol error
+What an MCP endpoint answers a request it cannot take to a tool: a tool it does not
+have, a tool the caller may not call, or arguments that do not match the tool's schema. The tool's
+handler does not run. It is not an error of the tool call, which is what a handler that ran and
+refused answers.
+
+### resource metadata
+What an MCP endpoint that admits tokens publishes, and names in its challenge: where an
+MCP client may sign in to get a token the MCP endpoint will verify. It names the service's issuers,
+or the service's broker when the service opted into brokered sign-in, and never the installation's
+issuer.
+
+### brokered sign-in
+What a service opts an MCP endpoint into so that the platform runs the authorization
+server for it, at the service's own hostnames: it registers an MCP client that presents itself,
+sends the person to the service's issuer to sign in, and mints a token for this service alone,
+which the MCP endpoint verifies as it verifies any token. The broker holds no account and no
+password; its keys live in the service's database.
+
+Avoid: OAuth server, authorization server (of the platform's), proxy login
+
+### sign-in broker
+The authorization server the platform runs for one service's MCP endpoints under
+brokered sign-in, at the service's own hostnames. Always two words: the broker alone is the
+installation's, which carries topics.
+
+Avoid: broker (alone, for this), auth server
+
 ## Everyday words
 
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
@@ -2924,4 +2992,4 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years

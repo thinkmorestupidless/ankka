@@ -657,6 +657,35 @@ class OutputSuite extends munit.FunSuite:
     assert(printed.contains("GET /notices, SOCKET /notices/stream"), printed)
   }
 
+  test("the topology of a service marks an MCP endpoint's tools beside its route") {
+    val topology = ServiceTopology(
+      service = "cart",
+      running = 1,
+      contributing = 1,
+      partial = false,
+      instances = Vector.empty,
+      window = TopologyWindow(300, "2026-10-04T00:00:00Z", 0),
+      nodes = Vector(
+        TopologyNode(
+          "endpoint:/mcp",
+          "Endpoint",
+          0,
+          platform = false,
+          Vector(
+            TopologyHandler("POST /mcp", "route", Some(false)),
+            TopologyHandler("get_cart", "tool"),
+            TopologyHandler("add_item", "tool")
+          )
+        )
+      ),
+      declared = Vector.empty,
+      calls = Vector.empty,
+      differences = Vector.empty
+    )
+    val printed = Output.topology(topology, Format.Table)
+    assert(printed.contains("POST /mcp, get_cart (tool), add_item (tool)"), printed)
+  }
+
   // ── rollbacks (feature 033) ────────────────────────────────────────────────
 
   private val digest = "3f9a1c0be2d4" + "0" * 52

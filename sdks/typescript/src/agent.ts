@@ -7,6 +7,7 @@
 //   static readonly handlers = { ask: command("ask", s.string, s.string, (a: Assistant, q) => a.ask(q)), chat: stream("chat", s.string, (a: Assistant, q) => a.ask(q)) }
 
 import type { Metadata } from "./effects/common.ts"
+import { clientKeysFor, type ClientKeys } from "./client-keys.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, HandlerTable, ToolRef } from "./handlers.ts"
 import { AgentEffects } from "./effects/agent.ts"
@@ -44,6 +45,18 @@ export abstract class Agent {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #clientKeys: ClientKeys | undefined
+
+  /** The service's client keys (1.20): issued for its MCP endpoint, kept by the runtime, each shown once. */
+  get clientKeys(): ClientKeys {
+    return this.#clientKeys ?? clientKeysFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.clientKeys = new InMemoryClientKeys()`. */
+  set clientKeys(keys: ClientKeys) {
+    this.#clientKeys = keys
   }
 
   #services: Services | undefined

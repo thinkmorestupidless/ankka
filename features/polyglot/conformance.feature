@@ -25,6 +25,17 @@ Feature: Proving an SDK compatible
       | Rust       | , with every component that has state stateless |
       | Rust       | , with every component that has state stateful  |
 
+  Scenario Outline: an SDK's MCP endpoint answers as the Scala reference does
+    Given the reference service written in "<language>", which declares an MCP endpoint
+    When the conformance suite drives the MCP endpoint
+    Then every answer is the one the reference service written in "Scala" gives
+
+    Examples:
+      | language   |
+      | Python     |
+      | TypeScript |
+      | Rust       |
+
   Scenario Outline: a behaviour broken in an SDK is named and no other
     Given the reference service written in "<language>", with one behaviour broken
     When the conformance suite runs against it

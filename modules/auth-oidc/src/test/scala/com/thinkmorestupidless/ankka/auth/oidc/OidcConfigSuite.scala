@@ -45,6 +45,27 @@ class OidcConfigSuite extends munit.FunSuite:
     assertEquals(c.issuers.head.clockSkew, 60.seconds)
   }
 
+  test("a sign-in broker's client id and secret are read, and the secret is never printed") {
+    val c = config(
+      customers ++ Map(
+        "ANKKA_AUTH_ISSUERS"                 -> "customers",
+        "ANKKA_AUTH_CUSTOMERS_CLIENT_ID"     -> "shop-broker",
+        "ANKKA_AUTH_CUSTOMERS_CLIENT_SECRET" -> "s3cret-value"
+      )
+    )
+    val issuer = c.issuers.head
+    assertEquals(
+      (issuer.clientId, issuer.clientSecret),
+      (Some("shop-broker"), Some("s3cret-value"))
+    )
+    assert(!issuer.toString.contains("s3cret-value"), issuer.toString)
+    assert(!c.toString.contains("s3cret-value"), c.toString)
+    assertEquals(
+      config(customers + ("ANKKA_AUTH_ISSUERS" -> "customers")).issuers.head.clientId,
+      None
+    )
+  }
+
   test("a name with a hyphen reads the variables with an underscore") {
     val env = Map(
       "ANKKA_AUTH_ISSUERS"               -> "customers-eu",

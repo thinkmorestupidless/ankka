@@ -1,0 +1,23 @@
+{
+  "source": "modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle, Initialization",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-06-18",
+      "capabilities": {"roots": {"listChanged": true}, "sampling": {}, "elicitation": {}},
+      "clientInfo": {"name": "ExampleClient", "title": "Example Client Display Name", "version": "1.0.0"}
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "protocolVersion": "2025-06-18",
+      "capabilities": {"tools": {"listChanged": false}},
+      "serverInfo": {"name": "ExampleServer", "version": "1.0.0"}
+    }
+  },
+  "same": ["result/protocolVersion", "result/capabilities/tools/listChanged"]
+}

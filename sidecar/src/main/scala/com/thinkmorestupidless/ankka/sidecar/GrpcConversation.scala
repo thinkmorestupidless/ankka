@@ -75,6 +75,7 @@ final class GrpcConversation(
   private val consumer     = ConsumerGrpc.stub(channel)
   private val timedAction  = TimedActionGrpc.stub(channel)
   private val http         = HttpGrpc.stub(channel)
+  private val mcp          = ankka.protocol.v1.mcp.McpGrpc.stub(channel)
   private val agent        = AgentGrpc.stub(channel)
   private val discovery    = DiscoveryGrpc.stub(channel)
 
@@ -484,6 +485,11 @@ final class GrpcConversation(
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     http.handle(toHttpRequest(request)).map(fromHttpReply)
+
+  override def invokeMcpTool(
+      call: RemoteMcpCall
+  ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
+    mcp.invokeTool(toMcpToolRequest(call)).map(fromMcpToolReply)
 
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
     handleHttpEvents(request).collect { case StreamPart.Text(text) => text }

@@ -457,6 +457,7 @@ impl<C: AutonomousAgent> Registration<C> {
             Metadata::from_proto(metadata),
         )
         .with_secrets()
+        .with_client_keys()
         .with_services()
     }
 

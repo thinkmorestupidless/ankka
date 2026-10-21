@@ -65,6 +65,24 @@ class DeployTokensSuite extends munit.FunSuite with LogCapturing:
       .foreach(value => assert(DeployTokens.looksLikeOne(value), value))
   }
 
+  test("the shape and digest are what they were before they moved to OpaqueCredentials") {
+    // A token and its digest, written down literally: a stored digest must keep verifying.
+    val secret    = "0123456789abcdef" * 4
+    val presented = s"ankka_0123456789abcdef_$secret"
+    assertEquals(DeployTokens.parse(presented), Some(("0123456789abcdef", secret)))
+    val digest = "a8ae6e6ee929abea3afcfc5258c8ccd6f85273e0d4626d26c7279f3250f77c8e"
+    assertEquals(DeployTokens.digest(secret), digest)
+    assert(DeployTokens.matches(digest, secret))
+  }
+
+  test(
+    "a client key presented as a deploy token is refused: its prefix matches, its shape does not"
+  ) {
+    val clientKey = com.thinkmorestupidless.ankka.http.OpaqueCredentials("ankka_ck_").mint()
+    assert(DeployTokens.looksLikeOne(clientKey.presented))
+    assertEquals(DeployTokens.parse(clientKey.presented), None)
+  }
+
   test("a presented token contains no character that needs quoting in a shell or YAML") {
     val presented = DeployTokens.mint().presented
     val awkward   = Set('.', '+', '/', '=', '-', '"', '\'', '$', '`', '\\', ' ')

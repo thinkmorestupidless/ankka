@@ -687,6 +687,72 @@ final class ClientLogic(
       DeleteSecretReply(Some(e))
     )
 
+  // ── Client keys (protocol 1.20) ─────────────────────────────────────────────
+  //
+  // The service's client keys, kept by its MCP runtime: what a Scala handler reaches as
+  // `clients.clientKeys`. A refusal or a fault is an Error in the reply, as for the secret store;
+  // a service whose MCP endpoints admit no key has no MCP runtime, and every call is refused
+  // saying so. The key is in an issue's reply and nowhere else: not logged, not in any span.
+
+  private def clientKeys: com.thinkmorestupidless.ankka.http.ClientKeys =
+    service
+      .extension[com.thinkmorestupidless.ankka.mcp.McpRuntime]
+      .map(_.clientKeys)
+      .getOrElse(com.thinkmorestupidless.ankka.http.ClientKeys.unavailable)
+
+  def issueClientKey(request: IssueClientKeyRequest): Future[IssueClientKeyReply] =
+    import com.thinkmorestupidless.ankka.http.{ClientKeyRequest, Expiry}
+    import IssueClientKeyRequest.Expiry as Wire
+    onStore {
+      val expiry = request.expiry match
+        case Wire.AfterMillis(millis)  => Some(Expiry.After(millis.millis))
+        case Wire.AtEpochMillis(epoch) => Some(Expiry.At(java.time.Instant.ofEpochMilli(epoch)))
+        case Wire.Never(true)          => Some(Expiry.Never)
+        case _                         => None
+      val issued = clientKeys.issueRequest(
+        ClientKeyRequest(
+          request.subject,
+          expiry,
+          request.endpoint.filter(_.nonEmpty),
+          request.scope.toSet,
+          request.attributes,
+          request.label.filter(_.nonEmpty)
+        )
+      )
+      IssueClientKeyReply(
+        IssueClientKeyReply.Reply.Issued(IssueClientKeyReply.Issued(issued.id, issued.clientKey))
+      )
+    }(e => IssueClientKeyReply(IssueClientKeyReply.Reply.Error(e)))
+
+  def listClientKeys(
+      @scala.annotation.unused request: ListClientKeysRequest
+  ): Future[ListClientKeysReply] =
+    onStore(
+      ListClientKeysReply(
+        clientKeys
+          .list()
+          .map(k =>
+            ClientKeySummary(
+              id = k.id,
+              subject = k.subject,
+              attributes = k.attributes,
+              label = k.label,
+              endpoint = k.endpoint,
+              scope = k.scope.toSeq.sorted,
+              issuedAtMillis = k.issuedAt.toEpochMilli,
+              expiresAtMillis = k.expiresAt.map(_.toEpochMilli),
+              lastUsedMillis = k.lastUsed.map(_.toEpochMilli),
+              revokedAtMillis = k.revokedAt.map(_.toEpochMilli)
+            )
+          )
+      )
+    )(e => ListClientKeysReply(error = Some(e)))
+
+  def revokeClientKey(request: RevokeClientKeyRequest): Future[RevokeClientKeyReply] =
+    onStore { clientKeys.revoke(request.id); RevokeClientKeyReply() }(e =>
+      RevokeClientKeyReply(Some(e))
+    )
+
   // ── Calls to other services (protocol 1.8) ──────────────────────────────────
   //
   // Made by the runtime's one client for other services, as this service: the resolution, the

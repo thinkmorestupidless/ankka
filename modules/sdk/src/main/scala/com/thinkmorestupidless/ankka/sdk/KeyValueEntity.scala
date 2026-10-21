@@ -68,6 +68,12 @@ object KeyValueEntity:
     /** Instantiates the entity. Called once per activation, not per command. */
     def create(ctx: KeyValueEntityContext): C
 
+    /**
+     * Whether this is one of the platform's own entities (feature 054: a sign-in broker's records).
+     * Only the platform can say so: a service's own entity never is.
+     */
+    private[ankka] def platform: Boolean = false
+
     protected final def command[I, O](name: String)(
         f: C => I => KeyValueEffect[S, O]
     )(using in: Serializer[I], out: Serializer[O]): CommandHandle[C, I, O] =
@@ -125,7 +131,8 @@ object KeyValueEntity:
         componentId,
         stateSerializer,
         create,
-        bindings.map(b => b.name -> b).toMap
+        bindings.map(b => b.name -> b).toMap,
+        platform
       )
 
 /** The registered form of a key value entity. */
@@ -133,7 +140,8 @@ final case class KeyValueEntityDescriptor[C <: KeyValueEntity[S], S](
     componentId: ComponentId,
     stateSerializer: Serializer[S],
     create: KeyValueEntityContext => C,
-    handlers: Map[MethodName, HandlerBinding[C]]
+    handlers: Map[MethodName, HandlerBinding[C]],
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.KeyValueEntity
 

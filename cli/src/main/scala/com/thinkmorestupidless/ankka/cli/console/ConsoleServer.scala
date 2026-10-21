@@ -131,6 +131,7 @@ object ConsoleServer:
       )
       if request.method == GrpcMethod then refuseGrpc(exchange)
       else if request.method == SocketMethod then refuseSocket(exchange)
+      else if request.method == McpMethod then refuseMcp(exchange)
       else
         source.invoke(name, request) match
           case None => notFound(exchange)
@@ -200,6 +201,9 @@ object ConsoleServer:
         return
       if request.method == SocketMethod then
         refuseSocket(exchange)
+        return
+      if request.method == McpMethod then
+        refuseMcp(exchange)
         return
       exchange.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
       exchange.sendResponseHeaders(200, 0)
@@ -299,6 +303,22 @@ object ConsoleServer:
       exchange,
       400,
       """{"error":"the console does not open sockets; open one with a WebSocket client"}"""
+    )
+
+  /**
+   * How a running service lists a tool of an MCP endpoint among its routes: `MCP <path> <tool>`.
+   */
+  private val McpMethod = "MCP"
+
+  /**
+   * The console lists a service's MCP endpoints and their tools and calls none: a tool is called by
+   * an MCP client, through the endpoint's protocol and its credential, not by a form.
+   */
+  private def refuseMcp(exchange: HttpExchange): Unit =
+    json(
+      exchange,
+      400,
+      """{"error":"the console does not call MCP tools; point an MCP client at the MCP endpoint"}"""
     )
 
   private def notFound(exchange: HttpExchange): Unit =

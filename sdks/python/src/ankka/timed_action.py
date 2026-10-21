@@ -12,6 +12,7 @@ from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.context import Metadata
 from ankka.effects.timed_action import Done, Failed, TimedActionEffect, TimedActionEffects
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers, command
+from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
 
@@ -27,7 +28,7 @@ def action(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return command(name)
 
 
-class TimedAction(HasSecrets, HasServices):
+class TimedAction(HasSecrets, HasServices, HasClientKeys):
     component_id: ClassVar[str]
     _handlers: ClassVar[dict[str, HandlerSpec]]
 

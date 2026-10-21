@@ -61,7 +61,9 @@ object CallSite:
     "invoke_tool",
     "check_guardrail",
     "check_task_result",
-    "http"
+    "http",
+    // A tool of an MCP endpoint (1.20), on a fresh instance as a route is.
+    "mcp_tool"
   ).map(Abi.Prefix + _)
 
   private val Where =

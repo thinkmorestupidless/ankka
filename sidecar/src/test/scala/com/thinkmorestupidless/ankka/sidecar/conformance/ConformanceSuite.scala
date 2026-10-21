@@ -160,7 +160,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       "GET /callers/whoami",
       "GET /callers/granted",
       "POST /autonomous/tasks/{type}",
-      "GET /autonomous/tasks/{id}"
+      "GET /autonomous/tasks/{id}",
+      "MCP /mcp get_cart",
+      "MCP /mcp add_item",
+      "MCP /mcp checkout"
     ).foreach { r =>
       assert(
         routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
@@ -2319,7 +2322,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       case Some(Some(m)) =>
         // A module refuses by trapping, which carries no message.
         if !target.isModule then assert(m.contains("1.19"), m)
+    // Every reference also declares an MCP endpoint, which needs 1.20 (feature 054): a 1.19
+    // runtime may be refused for that, and never for replication.
     target.refusalAt("1.19") match
+      case Some(Some(m)) if target.isModule || m.contains("1.20") => ()
       case Some(Some(m)) => fail(s"a runtime stating 1.19 was refused: $m")
       case _             => ()
   }
@@ -2509,4 +2515,217 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(after.size - before, 1)
     val trace = Observability(target.system).recorder.spansOf(after.last.traceId)
     assertEquals(trace.count(_.parentSpanId == 0L), 1, s"request spans in the trace: $trace")
+  }
+
+  // ── An MCP endpoint (feature 054): the raw protocol at /mcp ─────────────────
+  //
+  // These cases own the outline row "an SDK's MCP endpoint answers as the Scala reference does" of
+  // features/polyglot/conformance.feature, and the three scenarios of
+  // features/mcp-endpoints/languages.feature, one row per language (no Gherkin suite runs either):
+  //   "a Python, TypeScript or Rust service declares an MCP endpoint and the platform answers the
+  //    protocol for it": mcp-endpoint.lists-tools, unknown-tool-is-protocol-error and
+  //    bad-argument-is-protocol-error (the platform answers; the process only runs the tool);
+  //   "a service's own code is asked to run a tool with typed arguments and the principal, and never
+  //    sees the credential": mcp-endpoint.call-reaches-handler, client-key-admits-subject and
+  //    token-admits-subject;
+  //   "a service's own code issues, lists and revokes client keys through its client":
+  //    mcp-endpoint.client-key-admits-subject (issues), client-key-listed (lists) and
+  //    client-key-revoked (revokes).
+
+  private def mcp(method: String, params: String, headers: (String, String)*): Reply =
+    send(
+      "POST",
+      "/mcp",
+      Some(s"""{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}"""),
+      headers = ("Accept" -> "application/json, text/event-stream") +: headers,
+      contentType = "application/json"
+    )
+
+  private def callTool(name: String, arguments: String, headers: (String, String)*): Reply =
+    mcp("tools/call", s"""{"name":"$name","arguments":$arguments}""", headers*)
+
+  private def toolsListed(headers: (String, String)*): Vector[Json] =
+    val r = mcp("tools/list", "{}", headers*)
+    r.json("result").flatMap(_("tools")).flatMap(_.asArray).getOrElse(fail(s"no tools: $r"))
+
+  private def resultOf(r: Reply): Json =
+    assertEquals(r.status, 200, r.toString)
+    r.json("result").getOrElse(fail(s"no result: $r"))
+
+  private def errorOf(r: Reply): (Int, String) =
+    val e = r.json("error").getOrElse(fail(s"no error: $r"))
+    (
+      e("code").flatMap(_.asDouble).map(_.toInt).getOrElse(0),
+      e("message").flatMap(_.asString).getOrElse("")
+    )
+
+  private def textOf(result: Json): String =
+    result("content")
+      .flatMap(_.asArray)
+      .flatMap(_.headOption)
+      .flatMap(_("text"))
+      .flatMap(_.asString)
+      .getOrElse("")
+
+  private def isError(result: Json): Boolean = result("isError").flatMap(_.asBoolean).contains(true)
+
+  private def addTea(cartId: String): Unit =
+    val r = postJson(s"/carts/$cartId/items", """{"productId":"tea","name":"Tea","quantity":2}""")
+    assert(r.status < 300, r.toString)
+
+  /** Issues a key through the reference's own route: `(id, key)`. */
+  private def issueKey(
+      subject: String,
+      scope: Seq[String] = Nil,
+      attributes: Map[String, String] = Map.empty
+  ): (String, String) =
+    val scopeJson = scope.map(s => s"\"$s\"").mkString("[", ",", "]")
+    val attrsJson = attributes.map((k, v) => s"\"$k\":\"$v\"").mkString("{", ",", "}")
+    val r = postJson(
+      "/mcp-keys",
+      s"""{"subject":"$subject","scope":$scopeJson,"attributes":$attrsJson}"""
+    )
+    assertEquals(r.status, 200, r.toString)
+    (r.json("id").flatMap(_.asString).get, r.json("clientKey").flatMap(_.asString).get)
+
+  private def keyed(key: String)         = "Authorization" -> s"Bearer $key"
+  private def anyKey(): (String, String) = keyed(issueKey("conformance")._2)
+
+  private def named(tools: Vector[Json], name: String): Json =
+    tools.find(_("name").flatMap(_.asString).contains(name)).getOrElse(fail(s"$name not listed"))
+
+  test("mcp-endpoint.lists-tools") {
+    val tools = toolsListed(anyKey())
+    assertEquals(
+      tools.flatMap(_("name").flatMap(_.asString)).toSet,
+      Set("get_cart", "add_item", "checkout")
+    )
+    def described(name: String) = named(tools, name)("description").flatMap(_.asString)
+    assertEquals(described("get_cart"), Some("Reads one cart"))
+    assertEquals(described("add_item"), Some("Adds an item to a cart"))
+    assertEquals(described("checkout"), Some("Checks a cart out"))
+    val schema = named(tools, "add_item")("inputSchema").getOrElse(fail("no schema"))
+    assertEquals(schema("type").flatMap(_.asString), Some("object"))
+    assertEquals(
+      schema("properties").flatMap(_("quantity")).flatMap(_("type")).flatMap(_.asString),
+      Some("integer")
+    )
+    assertEquals(
+      schema("required").flatMap(_.asArray).map(_.flatMap(_.asString).toSet),
+      Some(Set("cartId", "productId", "quantity"))
+    )
+  }
+
+  test("mcp-endpoint.call-reaches-handler") {
+    val cartId = s"mcp-${System.nanoTime()}"
+    addTea(cartId)
+    val result = resultOf(callTool("get_cart", s"""{"cartId":"$cartId"}""", anyKey()))
+    assert(!isError(result), result.render)
+    val cart = result("structuredContent")
+      .flatMap(_("cart"))
+      .getOrElse(fail(s"no structured cart: ${result.render}"))
+    assertEquals(cart("cartId").flatMap(_.asString), Some(cartId))
+    assertEquals(
+      cart("items").flatMap(_.asArray).map(_.flatMap(_("productId")).flatMap(_.asString)),
+      Some(Vector("tea"))
+    )
+    // The same answer, as text.
+    assertEquals(
+      Json
+        .parse(textOf(result))
+        .toOption
+        .flatMap(_("cart"))
+        .flatMap(_("cartId"))
+        .flatMap(_.asString),
+      Some(cartId)
+    )
+  }
+
+  test("mcp-endpoint.handler-error-is-tool-error") {
+    val result = resultOf(
+      callTool("add_item", """{"cartId":"mcp-zero","productId":"tea","quantity":0}""", anyKey())
+    )
+    assert(isError(result), result.render)
+    assert(textOf(result).contains("quantity must be greater than zero"), result.render)
+  }
+
+  test("mcp-endpoint.unknown-tool-is-protocol-error") {
+    val (code, message) = errorOf(callTool("refund", "{}", anyKey()))
+    assertEquals(code, -32602)
+    assert(message.contains("refund"), message)
+  }
+
+  test("mcp-endpoint.bad-argument-is-protocol-error") {
+    val (code, message) = errorOf(
+      callTool("add_item", """{"cartId":"c","productId":"tea","quantity":"two"}""", anyKey())
+    )
+    assertEquals(code, -32602)
+    assert(message.contains("quantity"), message)
+  }
+
+  test("mcp-endpoint.client-key-admits-subject") {
+    val (_, key) = issueKey("acme", attributes = Map("person" -> "alice"))
+    val result   = resultOf(callTool("get_cart", """{"cartId":"mcp-acme"}""", keyed(key)))
+    assert(!isError(result), result.render)
+    val structured = result("structuredContent").getOrElse(fail(result.render))
+    assertEquals(structured("subject").flatMap(_.asString), Some("acme"))
+    assertEquals(structured("claims").flatMap(_("person")).flatMap(_.asString), Some("alice"))
+    // The handler was told nothing that reads as the key, whole or in part.
+    assert(!result.render.contains(key), "the key reached the handler")
+    assert(!result.render.contains(key.takeRight(16)), "part of the key reached the handler")
+  }
+
+  test("mcp-endpoint.client-key-scope") {
+    val (_, key) = issueKey("acme", scope = Seq("get_cart"))
+    assertEquals(toolsListed(keyed(key)).flatMap(_("name").flatMap(_.asString)), Vector("get_cart"))
+    val (code, message) = errorOf(callTool("checkout", """{"cartId":"c"}""", keyed(key)))
+    assertEquals(code, -32602)
+    assert(message.contains("checkout"), message)
+  }
+
+  test("mcp-endpoint.client-key-listed") {
+    val (id, key) = issueKey("listed-subject")
+    val r         = get("/mcp-keys")
+    assertEquals(r.status, 200, r.toString)
+    val listed = r.json.asArray.getOrElse(fail(r.toString))
+    val mine =
+      listed.find(_("id").flatMap(_.asString).contains(id)).getOrElse(fail(s"$id not listed: $r"))
+    assertEquals(mine("subject").flatMap(_.asString), Some("listed-subject"))
+    assert(!r.body.contains(key), "the key is in the listing")
+    assert(!r.body.contains(key.takeRight(16)), "part of the key is in the listing")
+  }
+
+  test("mcp-endpoint.client-key-revoked") {
+    val (id, key) = issueKey("acme")
+    assertEquals(mcp("tools/list", "{}", keyed(key)).status, 200)
+    assertEquals(delete(s"/mcp-keys/$id").status, 200)
+    // On the instance that revoked, at once; the wait is for a slow machine.
+    eventually()(Some(mcp("tools/list", "{}", keyed(key)).status).filter(_ == 401))
+  }
+
+  test("mcp-endpoint.token-admits-subject") {
+    val token  = ConformanceTarget.issuer.token("ada")
+    val result = resultOf(callTool("get_cart", """{"cartId":"mcp-token"}""", bearer(token)))
+    assert(!isError(result), result.render)
+    assertEquals(
+      result("structuredContent").flatMap(_("subject")).flatMap(_.asString),
+      Some("ada")
+    )
+  }
+
+  test("mcp-endpoint.metadata-names-issuer") {
+    val r = get("/.well-known/oauth-protected-resource/mcp")
+    assertEquals(r.status, 200, r.toString)
+    assertEquals(
+      r.json("authorization_servers").flatMap(_.asArray).map(_.flatMap(_.asString)),
+      Some(Vector("https://auth.conformance.test/realms/test"))
+    )
+  }
+
+  test("mcp-endpoint.reference-tool") {
+    val cartId = s"mcp-${System.nanoTime()}"
+    addTea(cartId)
+    val result = resultOf(callTool("checkout", s"""{"cartId":"$cartId"}""", anyKey()))
+    assert(!isError(result), result.render)
+    assertEquals(get(s"/carts/$cartId").json("checkedOut").flatMap(_.asBoolean), Some(true))
   }

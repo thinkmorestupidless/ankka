@@ -78,7 +78,9 @@ out until you ask for them; what a component does through one is listed on that 
 A call from a thread no handler is running on is drawn from the **unknown caller**. A call to another
 service is drawn to a node for that service, and that node opens the other service's own topology when
 exactly one service of that name is running on your machine; otherwise it is marked as not running here.
-The same picture is in a table below it, as text.
+The same picture is in a table below it, as text. An MCP endpoint is one node like any other endpoint, and
+its handlers are its tools, each marked as a tool beside the endpoint's routes, so a call a tool makes is
+drawn from that tool.
 
 ## Invoke
 
@@ -92,6 +94,11 @@ console to a handler. A service with `"http": false` serves no routes and has no
 A service's gRPC methods are listed beside its routes, marked gRPC, and are not offered as a form: the
 console has no client generated from the service definition, so it calls no gRPC method. Call one with
 `grpcurl` or a generated client; see [gRPC endpoints](../build/grpc-endpoints.md).
+
+A service's MCP endpoints are listed the same way: each endpoint's path, marked MCP, with the names of its
+tools, and no form. A tool is called by an MCP client, through the endpoint's protocol and with a credential
+the endpoint admits; point one at the endpoint, as [MCP endpoints](../build/mcp-endpoints.md) describes. A
+trace of a tool call names who it was for when a credential said, beside the tool.
 
 ## Traces
 

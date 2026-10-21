@@ -77,6 +77,9 @@ The table is generated from the `.proto` files.
 | `Client` | `Watch` | `WatchRequest` | `stream RowFrame` | `client.proto` |
 | `Client` | `AwaitEnd` | `AwaitEndRequest` | `InvokeReply` | `client.proto` |
 | `Client` | `AwaitEndStream` | `AwaitEndRequest` | `stream StreamToken` | `client.proto` |
+| `Client` | `IssueClientKey` | `IssueClientKeyRequest` | `IssueClientKeyReply` | `client.proto` |
+| `Client` | `ListClientKeys` | `ListClientKeysRequest` | `ListClientKeysReply` | `client.proto` |
+| `Client` | `RevokeClientKey` | `RevokeClientKeyRequest` | `RevokeClientKeyReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -85,6 +88,7 @@ The table is generated from the `.proto` files.
 | `Http` | `HandleSocket` | `stream SocketIn` | `stream SocketOut` | `endpoint.proto` |
 | `EventSourced` | `Handle` | `stream EventSourcedIn` | `stream EventSourcedOut` | `event_sourced.proto` |
 | `KeyValue` | `Handle` | `stream KeyValueIn` | `stream KeyValueOut` | `key_value.proto` |
+| `Mcp` | `InvokeTool` | `McpToolRequest` | `McpToolReply` | `mcp.proto` |
 | `TimedAction` | `Invoke` | `TimedActionRequest` | `TimedActionEffect` | `timed_action.proto` |
 | `View` | `Handle` | `ViewRequest` | `ViewEffect` | `view.proto` |
 | `Workflow` | `Handle` | `stream WorkflowIn` | `stream WorkflowOut` | `workflow.proto` |

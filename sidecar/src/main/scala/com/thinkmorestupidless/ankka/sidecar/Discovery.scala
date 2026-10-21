@@ -63,7 +63,10 @@ object Discovery:
    * project's topic (feature 040). 1.16: a workflow as the source of a view or a consumer, and its
    * standing on their requests (feature 046); refused from a process that declares an earlier
    * minor. 1.17: a view's query as a stream and a watch, `QueryStream` and `Watch` on `Client`, and
-   * a declared query's `watched` (feature 047).
+   * a declared query's `watched` (feature 047). 1.18: waiting for a workflow's end (feature 048).
+   * 1.19: replicated entities (feature 051). 1.20: MCP endpoints, `Spec.mcp_endpoints`, the `Mcp`
+   * service the process serves and the client key rpcs on `Client` (feature 054); refused from a
+   * process that declares an earlier minor.
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -78,7 +81,8 @@ object Discovery:
       agents: Vector[Component],
       endpoints: Vector[Endpoint],
       autonomousAgents: Vector[Component] = Vector.empty,
-      shapes: Map[ComponentId, Shape] = Map.empty
+      shapes: Map[ComponentId, Shape] = Map.empty,
+      mcpEndpoints: Vector[McpEndpoint] = Vector.empty
   ):
     def shapeOf(id: ComponentId): Shape = shapes.getOrElse(id, Shape.Stateless)
 
@@ -100,7 +104,12 @@ object Discovery:
   ): Either[Vector[String], Discovered] =
     val stub = DiscoveryGrpc.stub(channel)
     val spec = awaitSpec(stub, settings, runtimeVersion, protocolVersion)
-    validate(spec, protocolVersion, authConfigured = !settings.auth.isEmpty) match
+    validate(
+      spec,
+      protocolVersion,
+      authConfigured = !settings.auth.isEmpty,
+      issuersWithoutClientId = settings.auth.issuers.filter(_.clientId.isEmpty).map(_.name)
+    ) match
       case Left(problems) =>
         val message = problems.mkString("the sidecar refused the service:\n  - ", "\n  - ", "")
         log.error(message)
@@ -163,6 +172,9 @@ object Discovery:
   /** The first minor that declares a replicated entity (feature 051). */
   private[sidecar] val ReplicationSince = 19
 
+  /** The first minor that declares an MCP endpoint (feature 054). */
+  private[sidecar] val McpSince = 20
+
   /** The minor that introduced a watched query. */
   private val WatchedSince = 17
 
@@ -177,12 +189,14 @@ object Discovery:
    *
    * `authConfigured` says whether the sidecar has issuers to verify tokens against. Without them,
    * an `AUTHENTICATED` endpoint or route is a problem: it could only ever answer 503 (feature 022).
-   * Deliberately no default, so no caller can forget to say.
+   * Deliberately no default, so no caller can forget to say. `issuersWithoutClientId` names the
+   * issuers a brokered MCP endpoint could not send a person to (feature 054).
    */
   def validate(
       spec: Spec,
       protocolVersion: String,
-      authConfigured: Boolean
+      authConfigured: Boolean,
+      issuersWithoutClientId: Vector[String] = Vector.empty
   ): Either[Vector[String], Discovered] =
     val problems = Vector.newBuilder[String]
 
@@ -461,10 +475,87 @@ object Discovery:
             s"protocol 1.$GrantsSince; the SDK speaks ${spec.protocolVersion}"
       }
 
+    // MCP endpoints (feature 054): the rules `McpEndpoint.problems` holds a Scala one to, in its
+    // words, and the version they need, last.
+    problems ++= mcpProblems(spec, authConfigured, issuersWithoutClientId)
+
     val found = problems.result()
     if found.nonEmpty then Left(found)
     else
-      Right(Discovered(spec, built, agents.result(), spec.endpoints.toVector, autonomous.result()))
+      Right(
+        Discovered(
+          spec,
+          built,
+          agents.result(),
+          spec.endpoints.toVector,
+          autonomous.result(),
+          mcpEndpoints = spec.mcpEndpoints.toVector
+        )
+      )
+
+  /** What is wrong with a spec's MCP endpoints, worded as the Scala endpoint words it. */
+  private def mcpProblems(
+      spec: Spec,
+      authConfigured: Boolean,
+      issuersWithoutClientId: Vector[String]
+  ): Vector[String] =
+    val problems                 = Vector.newBuilder[String]
+    def normalised(path: String) = if path.length > 1 then path.stripSuffix("/") else path
+    val routePaths = spec.endpoints
+      .flatMap(e =>
+        e.routes
+          .map(r => normalised((e.prefix.stripSuffix("/") + r.template).replaceAll("//+", "/")))
+      )
+      .toSet
+    spec.mcpEndpoints.groupBy(e => normalised(e.path)).foreach { (path, same) =>
+      if same.sizeIs > 1 then problems += s"${same.size} MCP endpoints share the path '$path'"
+    }
+    spec.mcpEndpoints.foreach { e =>
+      val here  = normalised(e.path)
+      val label = s"MCP endpoint $here"
+      if !e.path.startsWith("/") then problems += s"$label: its path must start with '/'"
+      if here.startsWith("/_ankka") || here.startsWith("/.well-known") then
+        problems += s"$label path is reserved"
+      if routePaths.contains(here) then
+        problems += s"$label: its path is a route of an HTTP endpoint of this service"
+      def aclProblems(acl: Option[McpAcl], of: String): Unit = acl match
+        case None => problems += s"$of states no ACL; an MCP endpoint must state its ACL"
+        case Some(a) =>
+          val set = Vector(a.allowAll, a.tokens, a.clientKeys, a.callers.nonEmpty).count(identity)
+          if !a.denyAll && set == 0 then
+            problems += s"$of states no ACL; an MCP endpoint must state its ACL"
+          if a.denyAll && set > 0 then
+            problems += s"$of denies all beside admitting others; deny_all admits nobody, so state it alone"
+          if a.tokens && !authConfigured then
+            problems += s"$of admits tokens but no issuer is configured; set ${OidcConfig.IssuersVariable}"
+      aclProblems(e.acl, label)
+      if e.brokered then
+        if !e.acl.exists(_.tokens) then
+          problems += s"$label opts into brokered sign-in and its ACL admits no token"
+        issuersWithoutClientId.foreach { name =>
+          problems += s"$label opts into brokered sign-in and the issuer '$name' has no client id; " +
+            s"set ANKKA_AUTH_${OidcConfig.segment(name)}_CLIENT_ID"
+        }
+      if e.tools.isEmpty then problems += s"$label declares no tool"
+      e.tools.foreach { t =>
+        com.thinkmorestupidless.ankka.mcp.ToolName
+          .problems(t.name)
+          .foreach(p => problems += s"$label: $p")
+        if t.description.trim.isEmpty then
+          problems += s"$label: tool '${t.name}' has no description"
+        com.thinkmorestupidless.ankka.agent.Json.parse(t.inputSchemaJson) match
+          case Right(_: com.thinkmorestupidless.ankka.agent.Json.Obj) => ()
+          case _ =>
+            problems += s"$label: tool '${t.name}' has an input schema that is not a JSON object"
+        t.acl.foreach(a => aclProblems(Some(a), s"$label: tool '${t.name}'"))
+      }
+      e.tools.groupBy(_.name).foreach { (name, same) =>
+        if same.sizeIs > 1 then problems += s"$label declares the tool '$name' ${same.size} times"
+      }
+      if minorOf(spec.protocolVersion).exists(_ < McpSince) then
+        problems += s"$label needs protocol 1.$McpSince; the SDK speaks ${spec.protocolVersion}"
+    }
+    problems.result()
 
   /**
    * The engine's settings, as the process declared them. A failover target must be a declared step:

@@ -1,6 +1,6 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala, Python, TypeScript or Rust, or a gRPC endpoint in Scala — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, and calling entities, workflows, agents, views and other services from a handler. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, or EndpointClients.
+description: Write, change or test an ankka HTTP endpoint in Scala, Python, TypeScript or Rust, or a gRPC endpoint in Scala — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
 ---
 
 # ankka HTTP endpoints
@@ -117,6 +117,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/build/views.md` — Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
+- `references/build/mcp-endpoints.md` — Serve a service's commands, queries and routes as tools to any MCP client — declaring tools in each language, who may call them, client keys issued by the service, what a client that signs in is told, and brokered sign-in.
 - `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
 - `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python, TypeScript or Rust — so that service's access rules can admit yours by name.
 - `references/build/grpc-endpoints.md` — Serve a .proto service definition from a Scala service — every kind of method, access control, statuses, streams, reflection, calling another service's gRPC endpoint, and testing it.

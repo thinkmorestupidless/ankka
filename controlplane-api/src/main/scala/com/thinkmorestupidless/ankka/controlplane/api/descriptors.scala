@@ -1417,7 +1417,11 @@ final case class LogsResponse(instances: Vector[InstanceLogs])
 
 // ── Topology (feature 019) ──────────────────────────────────────────────────
 
-/** One handler of a node: a command, a query, a step, a route, a tool. */
+/**
+ * One handler of a node: a command, a query, a step, a route, a tool. `type` is `"tool"` for an
+ * agent's tool and for a tool of an MCP endpoint, which is named alone (`get_cart`) on its
+ * endpoint's node, beside the endpoint's routes (feature 054).
+ */
 final case class TopologyHandler(
     name: String,
     `type`: String,

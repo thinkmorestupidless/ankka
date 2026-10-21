@@ -99,6 +99,16 @@ replacement for itself or revoke the one that would stop it.
 
 See [Identity and machine accounts](../platform/identity.md#machine-accounts).
 
+## A client key belongs to a service
+
+The credentials so far are the installation's: a person's token and a deploy token are issued for the
+control plane, and a registered machine's token by it. A **client key** is a service's own. A service with an
+[MCP endpoint](../build/mcp-endpoints.md) issues one, from its own code, to one customer's assistant; the
+key acts as the subject the service named, can call only that endpoint's tools, and is revoked by the
+service. The platform keeps the keys and checks them, holding only a digest of each, and the control plane
+never sees one. Who a key's subject is, and what that subject may do, is the service's decision, as it is
+for a token from an issuer the service lists.
+
 ## Platform administrators
 
 One role lives in the identity provider rather than the control plane: `platform-admin`, a realm role for

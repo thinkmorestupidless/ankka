@@ -96,6 +96,30 @@ class SpanDataSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("a span's subject is exported as enduser.id, and a span with none says nothing") {
+    assertEquals(mapped().getAttributes.get(RecordedSpanData.EndUser), null)
+    val span = recorder.begin(0L, 0x0af7651916cd43ddL, 0L, cart, addItem, AnkkaKind.Server)
+    recorder.withSubject(span, "acme")
+    recorder.complete(span, SpanOutcome.Ok)
+    val recorded = recorder.snapshot().find(_.spanId == span.id).get
+    val data     = RecordedSpanData(recorded, names, recorder, identity.resource, scope)
+    assertEquals(data.getAttributes.get(RecordedSpanData.EndUser), "acme")
+  }
+
+  test("a span's attributes are exported under ankka.") {
+    val span = recorder.begin(0L, 0x0af7651916cd43ddL, 0L, cart, addItem, AnkkaKind.Server)
+    recorder.withAttribute(span, "client_key", "0123456789abcdef")
+    recorder.complete(span, SpanOutcome.Ok)
+    val recorded = recorder.snapshot().find(_.spanId == span.id).get
+    val data     = RecordedSpanData(recorded, names, recorder, identity.resource, scope)
+    assertEquals(
+      data.getAttributes.get(
+        io.opentelemetry.api.common.AttributeKey.stringKey("ankka.client_key")
+      ),
+      "0123456789abcdef"
+    )
+  }
+
   test("a root has no parent, and neither does a span whose caller is unknown, which says so") {
     val root = mapped()
     assert(!root.getParentSpanContext.isValid)

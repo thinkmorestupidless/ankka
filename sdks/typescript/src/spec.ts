@@ -1,7 +1,7 @@
 // Renders the discovery Spec from the registry: what the sidecar hosts is exactly what is registered.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
-import { Endpoint_Acl, Kind, SpecSchema, StartFrom_Named, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
+import { Endpoint_Acl, Kind, SpecSchema, type McpAclSchema, StartFrom_Named, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
 import type { Registry, RegisteredAutonomousAgent, RegisteredComponent, Source } from "./service.ts"
 import { resultSchemaJson, type AutonomousSettings } from "./autonomous.ts"
 import type { HandlerRef } from "./handlers.ts"
@@ -25,11 +25,12 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.19"
+export const PROTOCOL_VERSION = "1.20"
 export const SDK_NAME = "ankka-typescript"
 
+/** An HTTP endpoint's rule; client keys and `anyOf` are refused for one at registration, so they deny here. */
 export function aclToProto(acl: Acl): Endpoint_Acl {
-  if (typeof acl === "object") return Endpoint_Acl.CALLERS
+  if (typeof acl === "object") return acl.kind === "callers" ? Endpoint_Acl.CALLERS : Endpoint_Acl.DENY_ALL
   switch (acl) {
     case "allow-all":
       return Endpoint_Acl.ALLOW_ALL
@@ -37,12 +38,14 @@ export function aclToProto(acl: Acl): Endpoint_Acl {
       return Endpoint_Acl.DENY_ALL
     case "authenticated":
       return Endpoint_Acl.AUTHENTICATED
+    case "client-keys":
+      return Endpoint_Acl.DENY_ALL
   }
 }
 
 /** The callers a CALLERS acl names, as discovery carries them; empty for every other rule. */
 export function callersToProto(acl: Acl): MessageInitShape<typeof CallerMatcherSchema>[] {
-  if (typeof acl !== "object") return []
+  if (typeof acl !== "object" || acl.kind !== "callers") return []
   return acl.callers.map((m: CallerMatcher): MessageInitShape<typeof CallerMatcherSchema> => {
     switch (m.kind) {
       case "internet":
@@ -57,6 +60,37 @@ export function callersToProto(acl: Acl): MessageInitShape<typeof CallerMatcherS
         return { kind: { case: "service", value: m.project !== undefined ? { name: m.name, project: m.project } : { name: m.name } } }
     }
   })
+}
+
+/**
+ * An MCP endpoint's or tool's rule as discovery carries it (1.20): each member of an `anyOf` sets its
+ * own field, so `anyOf(clientKeys, authenticated)` is `client_keys` and `tokens`.
+ */
+export function mcpAclToProto(acl: Acl): MessageInitShape<typeof McpAclSchema> {
+  const out = { allowAll: false, denyAll: false, tokens: false, clientKeys: false, callers: [] as MessageInitShape<typeof CallerMatcherSchema>[] }
+  const add = (rule: Acl): void => {
+    if (typeof rule === "object") {
+      if (rule.kind === "anyOf") rule.acls.forEach(add)
+      else out.callers.push(...callersToProto(rule))
+      return
+    }
+    switch (rule) {
+      case "allow-all":
+        out.allowAll = true
+        break
+      case "deny-all":
+        out.denyAll = true
+        break
+      case "authenticated":
+        out.tokens = true
+        break
+      case "client-keys":
+        out.clientKeys = true
+        break
+    }
+  }
+  add(acl)
+  return out
 }
 
 type ComponentInit = MessageInitShape<typeof ComponentSchema>
@@ -253,10 +287,25 @@ export function renderSpec(registry: Registry): Spec {
       ...(r.acl !== undefined ? { acl: aclToProto(r.acl), allowCallers: callersToProto(r.acl) } : {}),
     })),
   }))
+  const mcpEndpoints = [...registry.mcpEndpoints.values()].map((e) => ({
+    id: e.id,
+    path: e.path,
+    ...(e.serverName !== undefined ? { name: e.serverName } : {}),
+    ...(e.serverVersion !== undefined ? { version: e.serverVersion } : {}),
+    acl: mcpAclToProto(e.acl),
+    tools: e.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchemaJson: JSON.stringify(t.inputSchema),
+      ...(t.acl !== undefined ? { acl: mcpAclToProto(t.acl) } : {}),
+    })),
+    brokered: e.brokered,
+  }))
   return create(SpecSchema, {
     protocolVersion: PROTOCOL_VERSION,
     sdk: { name: SDK_NAME, version: VERSION },
     components,
     endpoints,
+    mcpEndpoints,
   })
 }

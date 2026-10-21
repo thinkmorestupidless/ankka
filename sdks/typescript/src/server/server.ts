@@ -17,6 +17,7 @@ import { workflowRoutes } from "./workflow.ts"
 import { statelessRoutes } from "./stateless.ts"
 import { agentRoutes } from "./agent.ts"
 import { httpRoutes } from "./http.ts"
+import { mcpRoutes } from "./mcp.ts"
 
 export interface ServerOptions {
   /** `127.0.0.1` by default; `0.0.0.0` for the testkit; anything else is refused. */
@@ -73,6 +74,7 @@ export class Server {
         statelessRoutes(router, this.#context)
         agentRoutes(router, this.#context)
         httpRoutes(router, this.#context)
+        mcpRoutes(router, this.#context)
       },
       shutdownSignal: this.#shutdown.signal,
       readMaxBytes: this.#options.readMaxBytes ?? 64 * 1024 * 1024,

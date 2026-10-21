@@ -172,3 +172,11 @@ class FunctionToolSuite extends munit.FunSuite:
     intercept[IllegalArgumentException](weather.requiresApproval(0.seconds))
     intercept[IllegalArgumentException](weather.requiresApproval((-1).second))
   }
+
+  test("a command answered with Done renders as done (feature 054)") {
+    assertEquals(
+      summon[ToolOutput[com.thinkmorestupidless.ankka.core.Done]]
+        .render(com.thinkmorestupidless.ankka.core.Done),
+      "done"
+    )
+  }

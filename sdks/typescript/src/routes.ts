@@ -45,27 +45,47 @@ export interface CallersAcl {
   readonly callers: readonly CallerMatcher[]
 }
 
+/** Admitted when any of `acls` admits: an MCP endpoint's rule (protocol 1.20), `Acl.anyOf(Acl.clientKeys, Acl.authenticated)`. */
+export interface AnyOfAcl {
+  readonly kind: "anyOf"
+  readonly acls: readonly Acl[]
+}
+
 /**
  * Who may call: everyone, no one, authenticated callers only, or only the callers named. There is no default.
+ * An MCP endpoint may also admit a client key issued for it (`Acl.clientKeys`), and any of several rules
+ * (`Acl.anyOf`); an HTTP endpoint refuses both at registration.
  *
  * Outside a cluster every caller is `{ kind: "local" }`, and `allowCallers` admits it.
  */
-export type Acl = "allow-all" | "deny-all" | "authenticated" | CallersAcl
+export type Acl = "allow-all" | "deny-all" | "authenticated" | "client-keys" | CallersAcl | AnyOfAcl
 export const Acl = Object.freeze({
   allowAll: "allow-all" as Acl,
   denyAll: "deny-all" as Acl,
   authenticated: "authenticated" as Acl,
+  /** A client key issued for the MCP endpoint (protocol 1.20); its subject and attributes are the principal. */
+  clientKeys: "client-keys" as Acl,
   allowCallers(first: CallerMatcher, ...rest: CallerMatcher[]): Acl {
     return Object.freeze({ kind: "callers", callers: Object.freeze([first, ...rest]) })
   },
+  /** Admitted when any of the rules admits; for an MCP endpoint or one of its tools. */
+  anyOf(first: Acl, ...rest: Acl[]): Acl {
+    return Object.freeze({ kind: "anyOf", acls: Object.freeze([first, ...rest]) })
+  },
 })
 
-/** Whether `x` is an access rule: one of the three words, or a non-empty callers rule. */
+/** Whether `x` is an access rule: one of the words, a non-empty callers rule, or a non-empty `anyOf` of rules. */
 export function isAcl(x: unknown): x is Acl {
-  if (x === "allow-all" || x === "deny-all" || x === "authenticated") return true
+  if (x === "allow-all" || x === "deny-all" || x === "authenticated" || x === "client-keys") return true
   if (typeof x !== "object" || x === null) return false
-  const rule = x as Partial<CallersAcl>
+  const rule = x as Partial<CallersAcl> & Partial<AnyOfAcl>
+  if (rule.kind === "anyOf") return Array.isArray(rule.acls) && rule.acls.length > 0 && rule.acls.every(isAcl)
   return rule.kind === "callers" && Array.isArray(rule.callers) && rule.callers.length > 0
+}
+
+/** Whether `acl` is one an HTTP endpoint or route can state: neither client keys nor `anyOf`, which are an MCP endpoint's. */
+export function isEndpointAcl(acl: Acl): boolean {
+  return acl !== "client-keys" && !(typeof acl === "object" && acl.kind === "anyOf")
 }
 
 /** Thrown from a route handler to answer a status other than 200 with a plain-text message. */

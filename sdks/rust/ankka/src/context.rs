@@ -110,6 +110,7 @@ pub struct Context {
     metadata: Metadata,
     secrets: bool,
     services: bool,
+    client_keys: bool,
     rows_of: Option<String>,
     standing: Option<crate::standing::Standing>,
     installation: Option<String>,
@@ -169,6 +170,7 @@ impl Context {
             metadata,
             secrets: false,
             services: false,
+            client_keys: false,
             rows_of: None,
             standing: None,
             installation: None,
@@ -257,6 +259,20 @@ impl Context {
     pub fn with_services(mut self) -> Context {
         self.services = true;
         self
+    }
+
+    /// This context with the service's client keys: what the runtime builds for the handlers that
+    /// have the secret store, and a test builds for one of those.
+    pub fn with_client_keys(mut self) -> Context {
+        self.client_keys = true;
+        self
+    }
+
+    /// The service's client keys (protocol 1.20), or `None` in an entity, a view and a workflow's
+    /// command handler, for the reason the secret store is not offered there.
+    pub fn client_keys(&self) -> Option<crate::client_keys::ClientKeys> {
+        self.client_keys
+            .then(|| crate::client_keys::ClientKeys::with_metadata(self.metadata.clone()))
     }
 
     /// The clients for other services, or `None` in an entity, a view and a workflow's command

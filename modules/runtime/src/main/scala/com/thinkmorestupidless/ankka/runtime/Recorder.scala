@@ -84,6 +84,18 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
   private val outcomes     = new Array[Byte](capacity)
 
   /**
+   * Who a span was for, when a credential said (feature 054): a principal's subject. Stored per
+   * span and never interned — subjects are unbounded, and the names table must not be.
+   */
+  private val subjects = new Array[String](capacity)
+
+  /**
+   * What else a span says about who it was for (feature 054): a client key's id on a tool call.
+   * Stored per span, never interned, for the same reason as the subject; `null` is none.
+   */
+  private val attributes = new Array[Map[String, String]](capacity)
+
+  /**
    * 0 means "never written", `Recorder.Writing` that a writer holds the slot, `-seq` that the span
    * `seq` is in flight in it, and `seq` that the span is complete and may be read.
    */
@@ -143,8 +155,31 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       startedNanos(slot) = started
       durations(slot) = -1L
       outcomes(slot) = SpanOutcome.Ok.ordinal.toByte
+      subjects(slot) = null
+      attributes(slot) = null
       Recorder.Sequences.setRelease(sequences, slot, -seq) // in flight: not to be read yet
     Span(slot, seq, id, traceIdHigh, traceId, componentRef, handlerRef, started)
+
+  /**
+   * Names who a span in flight is for: a principal's subject, once admission has established one. A
+   * span whose slot has been reused, or that has completed, is left alone.
+   */
+  def withSubject(span: Span, subject: String): Unit =
+    val slot = span.slot
+    if slot >= 0 &&
+      Recorder.Sequences.compareAndSet(sequences, slot, -span.sequence, Recorder.Writing)
+    then
+      subjects(slot) = subject
+      Recorder.Sequences.setRelease(sequences, slot, -span.sequence)
+
+  /** Adds an attribute to a span in flight; a span reused or completed is left alone. */
+  def withAttribute(span: Span, name: String, value: String): Unit =
+    val slot = span.slot
+    if slot >= 0 &&
+      Recorder.Sequences.compareAndSet(sequences, slot, -span.sequence, Recorder.Writing)
+    then
+      attributes(slot) = Option(attributes(slot)).getOrElse(Map.empty).updated(name, value)
+      Recorder.Sequences.setRelease(sequences, slot, -span.sequence)
 
   /** A span that is the root of a fresh trace: an entry point's, which nothing called. */
   def beginRoot(componentRef: Int, handlerRef: Int, kind: SpanKind = SpanKind.Internal): Span =
@@ -208,7 +243,9 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
         outcome = SpanOutcome.fromOrdinal(outcomes(slot).toInt),
         traceIdHigh = traceIdsHigh(slot),
         kind = SpanKind.fromOrdinal(kinds(slot).toInt),
-        callerUnknown = parent == Recorder.UnknownCaller
+        callerUnknown = parent == Recorder.UnknownCaller,
+        subject = Option(subjects(slot)),
+        attributes = Option(attributes(slot)).getOrElse(Map.empty)
       )
       VarHandle.loadLoadFence()
       if sequences(slot) == seq && read.durationNanos >= 0L then read else null
@@ -232,7 +269,13 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
    * Publishes a span `reserve` made, ending now: claims a slot as `begin` does, writes it whole,
    * counts it as `complete` does, and publishes it at once.
    */
-  def record(span: Span, parentSpanId: Long, kind: SpanKind, outcome: SpanOutcome): Unit =
+  def record(
+      span: Span,
+      parentSpanId: Long,
+      kind: SpanKind,
+      outcome: SpanOutcome,
+      subject: Option[String] = None
+  ): Unit =
     val duration = System.nanoTime() - span.startedNanos
     totals.add(span.componentRef, span.handlerRef, outcome, duration)
     val seq  = next.incrementAndGet()
@@ -248,6 +291,8 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       startedNanos(slot) = span.startedNanos
       durations(slot) = duration
       outcomes(slot) = outcome.ordinal.toByte
+      subjects(slot) = subject.orNull
+      attributes(slot) = null
       Recorder.Sequences.setRelease(sequences, slot, seq) // publish: now it may be read
 
   /**
@@ -425,5 +470,9 @@ final case class RecordedSpan(
     outcome: SpanOutcome,
     traceIdHigh: Long = 0L,
     kind: SpanKind = SpanKind.Internal,
-    callerUnknown: Boolean = false
+    callerUnknown: Boolean = false,
+    /** Who the span was for, when a credential said: a principal's subject (feature 054). */
+    subject: Option[String] = None,
+    /** What else it says about that: a client key's id as `client_key` (feature 054). */
+    attributes: Map[String, String] = Map.empty
 )

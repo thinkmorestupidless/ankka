@@ -142,6 +142,15 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.telemetry.shutdown-timeout` | `3s` | a service that exports telemetry |
 | `ankka.telemetry.service-name` | `""` | a service that exports telemetry |
 | `ankka.telemetry.project` | `""` | a service that exports telemetry |
+| `ankka.mcp.client-keys.last-use-interval` | `1 minute` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.client-keys.query` | `${pekko.persistence.r2dbc.query}` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.client-keys.query.refresh-interval` | `500ms` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.token-lifetime` | `1 hour` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.refresh-lifetime` | `30 days` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.grant-lifetime` | `10 minutes` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.client-lifetime` | `30 days` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.rotate-every` | `30 days` | a service with an MCP endpoint that admits client keys or signs people in |
+| `ankka.mcp.sign-in.keep-for` | `31 days` | a service with an MCP endpoint that admits client keys or signs people in |
 | `ankka.cluster.formation` | `join-self-or-seeds` | local mode |
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
@@ -495,6 +504,34 @@ read, so the control plane's own `ANKKA_AUTH_ISSUER`, `ANKKA_AUTH_JWKS_URL` and 
 described on [Identity and machine accounts](../platform/identity.md), can sit beside a service's set. A
 name listed twice, a name that is not a word, a required variable missing, a CA that is not a file or a
 skew that is not a duration stops the service starting, with every problem named at once.
+
+### MCP endpoints
+
+A service whose MCP endpoint admits client keys or opts into brokered sign-in registers the MCP runtime,
+and these settings are read only then. They have no variables; a service overrides them in its
+`application.conf`.
+
+- `ankka.mcp.client-keys.last-use-interval` is how often a client key's last use is written down, `1 minute`
+  by default. A key used on every request is noted in memory and written at most once an interval, so a
+  busy assistant does not write on every call; a key's listing is that far behind at most.
+- `ankka.mcp.client-keys.query` is the read journal each instance follows the keys with, the runtime's own
+  with its connection pool, polling every `500ms` (`query.refresh-interval`). It is what bounds how soon
+  a key issued or revoked on one instance is known on the others.
+- `ankka.mcp.sign-in.token-lifetime` is how long a token the sign-in broker mints is good for, `1 hour`;
+  `refresh-lifetime`, its refresh token's, `30 days`, replaced each time it is used.
+- `ankka.mcp.sign-in.grant-lifetime` is how long a pending sign-in and the code it becomes wait to be used,
+  `10 minutes`; `client-lifetime`, how long a registered client that is never used is kept, `30 days`.
+- `ankka.mcp.sign-in.rotate-every` and `ankka.mcp.sign-in.keep-for` are how often the broker makes a new
+  signing key, `30 days`, and how long each is kept to verify what it signed, `31 days`. One key is always
+  kept.
+
+A brokered endpoint signs people in at the first issuer its ACL lists, as a client of that issuer. Two
+more variables of the issuer's set say who the broker is there:
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `ANKKA_AUTH_<NAME>_CLIENT_ID` | for each issuer of a brokered endpoint's ACL | The client id the broker is registered as at the issuer. Without it, a service with a brokered endpoint does not start. |
+| `ANKKA_AUTH_<NAME>_CLIENT_SECRET` | no | The client's secret, for an issuer that registered the broker as a confidential client. Without it, the broker is a public client and proves itself with PKCE alone. |
 
 ### Process-hosted services
 

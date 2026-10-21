@@ -128,9 +128,10 @@ final class HttpServer private (
         service.viewClient,
         service.services,
         service.secrets,
-        Heartbeat.interval(config)
+        Heartbeat.interval(config),
+        service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys)
       )
-    serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout)
+    serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout, Some(service))
 
   /**
    * Validates, logs and binds `endpoints` — everything `start` does once the endpoints exist. Split
@@ -140,16 +141,31 @@ final class HttpServer private (
       endpoints: Vector[HttpEndpoint],
       host: String,
       bindPort: Int,
-      bodyTimeout: FiniteDuration
+      bodyTimeout: FiniteDuration,
+      service: Option[AnkkaService] = None
   )(using system: ActorSystem[?]): Unit =
-    given ExecutionContext = system.executionContext
-    val config             = system.settings.config
-    validate(endpoints)
+    val mounting = Mounting(
+      service.map(_.registry).getOrElse(com.thinkmorestupidless.ankka.core.ComponentRegistry.empty),
+      endpoints,
+      service
+    )
+    validate(endpoints, mounting)
     // Kept so the local console can render a form per route. A description, not a door.
-    served = endpoints.flatMap { endpoint =>
+    served = endpoints.flatMap {
+      case describes: ServesRoutes => describes.served
+      case endpoint                => describedRoutes(endpoint)
+    }
+    logRoutes(endpoints)
+    bindAndListen(endpoints, host, bindPort, bodyTimeout)
+
+  /** What the server reads from an endpoint's routes when the endpoint does not say itself. */
+  private def describedRoutes(endpoint: HttpEndpoint): Vector[ServedRoute] =
+    locally {
       val id                          = ServedRoute.endpointId(endpoint.prefix)
       def grantable(acl: Option[Acl]) = Acl.namesGranted(acl.getOrElse(endpoint.acl))
-      endpoint.routes.map(r =>
+      endpoint.rootRoutes.map(r =>
+        ServedRoute(r.method, r.template.render, streaming = false, id, grantable(r.acl))
+      ) ++ endpoint.routes.map(r =>
         ServedRoute(
           r.method,
           s"${endpoint.prefix}${r.template.render}",
@@ -176,7 +192,11 @@ final class HttpServer private (
       )
     }
 
+  private def logRoutes(endpoints: Vector[HttpEndpoint])(using system: ActorSystem[?]): Unit =
     endpoints.foreach { endpoint =>
+      endpoint.rootRoutes.foreach { route =>
+        system.log.info("route {} {}", route.method, route.template.render)
+      }
       endpoint.routes.foreach { route =>
         system.log.info("route {} {}{}", route.method, endpoint.prefix, route.template.render)
       }
@@ -200,8 +220,16 @@ final class HttpServer private (
         )
     }
 
-    val upgrades  = SocketUpgrades.from(system, sockets)
-    val heartbeat = SseSettings.heartbeat(system)
+  private def bindAndListen(
+      endpoints: Vector[HttpEndpoint],
+      host: String,
+      bindPort: Int,
+      bodyTimeout: FiniteDuration
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val config             = system.settings.config
+    val upgrades           = SocketUpgrades.from(system, sockets)
+    val heartbeat          = SseSettings.heartbeat(system)
 
     val tls = serviceTls(config)
     // A machine's token is read only under TLS, where the gateway's certificate says the request
@@ -259,8 +287,7 @@ final class HttpServer private (
       bound.localAddress.getPort
     )
     val namesCallers = endpoints.exists(e =>
-      (e.acl +: (e.routes.flatMap(_.acl) ++ e.streamRoutes.flatMap(_.acl) ++
-        e.socketRoutes.flatMap(_.acl))).exists {
+      HttpServer.aclsOf(e).flatMap(Acl.flatten).exists {
         case Acl.AllowCallers(_) => true
         case _                   => false
       }
@@ -332,11 +359,50 @@ final class HttpServer private (
    * Overlapping prefixes would make dispatch depend on registration order, which is the kind of
    * thing that works locally and then serves the wrong handler in production.
    */
-  private def validate(endpoints: Vector[HttpEndpoint]): Unit =
+  private def validate(endpoints: Vector[HttpEndpoint], mounting: Mounting): Unit =
     val problems = Vector.newBuilder[String]
 
     endpoints.groupBy(_.prefix).foreach { (prefix, sharing) =>
       if sharing.sizeIs > 1 then problems += s"${sharing.size} endpoints share the prefix '$prefix'"
+    }
+
+    // A root route is a whole path (feature 054): two endpoints may not both claim one, and one may
+    // not hide a route another endpoint serves under its prefix.
+    val roots = endpoints.flatMap(e => e.rootRoutes.map(r => (r.method, r.template.render) -> e))
+    roots.groupBy(_._1).foreach { case ((method, path), claimed) =>
+      if claimed.sizeIs > 1 then
+        problems += s"root route $method $path is claimed by ${claimed.map(c => s"'${c._2.prefix}'").mkString(" and ")}"
+    }
+    val prefixed = endpoints.flatMap(e =>
+      (e.routes.map(r => (r.method, r.template)) ++ e.streamRoutes.map(r => (r.method, r.template)))
+        .map((method, template) => (method, s"${e.prefix}${template.render}", e))
+    )
+    roots.foreach { case ((method, path), owner) =>
+      prefixed.find((m, p, _) => m == method && normalised(p) == normalised(path)).foreach {
+        (_, _, other) =>
+          problems += s"root route $method $path of '${owner.prefix}' is also served by '${other.prefix}'"
+      }
+    }
+
+    // The sign-in broker's paths are the platform's (feature 054), as `/_ankka/health` is: only an
+    // MCP endpoint's own root routes are there.
+    prefixed.foreach { (method, full, owner) =>
+      val path = normalised(full)
+      if path == "/_ankka/sign-in" || path.startsWith("/_ankka/sign-in/") then
+        problems += s"'${owner.prefix}' serves $method $path, under /_ankka/sign-in, which the platform reserves"
+    }
+
+    endpoints.foreach(endpoint => problems ++= endpoint.problems(mounting))
+
+    // Every authenticator that needs the running service is given it now, so a start that cannot
+    // give it fails here, naming why, instead of at the first request.
+    mounting.service.foreach { service =>
+      endpoints
+        .flatMap(HttpServer.aclsOf)
+        .flatMap(Acl.authenticators)
+        .distinct
+        .collect { case needs: NeedsService => needs }
+        .foreach(needs => needs.bind(service).left.foreach(problems += _))
     }
 
     endpoints.foreach { endpoint =>
@@ -358,7 +424,18 @@ final class HttpServer private (
         found.mkString("invalid ankka http configuration:\n  - ", "\n  - ", "")
       )
 
+  private def normalised(path: String): String =
+    val trimmed = path.split('/').filter(_.nonEmpty).mkString("/")
+    s"/$trimmed"
+
 object HttpServer:
+
+  /**
+   * Every ACL an endpoint states: its own, then each route's, root, plain, streaming and socket.
+   */
+  private[http] def aclsOf(e: HttpEndpoint): Vector[Acl] =
+    e.acl +: (e.rootRoutes.flatMap(_.acl) ++ e.routes.flatMap(_.acl) ++
+      e.streamRoutes.flatMap(_.acl) ++ e.socketRoutes.flatMap(_.acl) ++ e.innerAcls)
 
   /** Serves `factories` on the configured interface and port. */
   def of(factories: (EndpointClients => HttpEndpoint)*): HttpServer =
@@ -381,17 +458,22 @@ private enum Matched:
   case Streaming(route: StreamRoute, args: Vector[String])
   case Socket(route: SocketRoute, args: Vector[String])
 
+  /** A root route (feature 054): its template is the whole path, under no prefix. */
+  case Root(route: Route, args: Vector[String])
+
   /** The route's own ACL, if it declared one; `None` defers to the endpoint's. */
   def acl: Option[Acl] = this match
     case Plain(route, _)     => route.acl
     case Streaming(route, _) => route.acl
     case Socket(route, _)    => route.acl
+    case Root(route, _)      => route.acl
 
   /** The route as its span names it. */
   def describe: String = this match
     case Plain(route, _)     => route.describe
     case Streaming(route, _) => route.describe
     case Socket(route, _)    => route.describe
+    case Root(route, _)      => route.describe
 
   /**
    * What a grant on this route opens, under `prefix`: its method and its whole path as a template.
@@ -401,6 +483,7 @@ private enum Matched:
     case Plain(route, _)     => GrantTarget.Route(route.method, s"$prefix${route.template.render}")
     case Streaming(route, _) => GrantTarget.Route(route.method, s"$prefix${route.template.render}")
     case Socket(route, _)    => GrantTarget.Route("GET", s"$prefix${route.template.render}")
+    case Root(route, _)      => GrantTarget.Route(route.method, route.template.render)
 
 /**
  * What a grant admitted and is still open: a socket or a server-sent event stream (feature 040). A
@@ -435,14 +518,18 @@ private final class Router(
   private def admittedByGrant(acl: Acl, context: RequestContext): Boolean = acl match
     case Acl.AllowCallers(matchers) =>
       matchers.contains(CallerMatcher.Granted) && context.caller != Caller.Local
-    case _ => false
+    case Acl.AnyOf(acls) => acls.exists(admittedByGrant(_, context))
+    case _               => false
 
   private def stillAdmits(acl: Acl, context: RequestContext, target: GrantTarget): () => Boolean =
-    () =>
-      acl match
-        case Acl.AllowCallers(matchers) =>
-          matchers.exists(_.admits(context.caller, callers.self, Some(target), grants))
-        case _ => true
+    def holds(acl: Acl): Boolean = acl match
+      case Acl.AllowCallers(matchers) =>
+        matchers.exists(_.admits(context.caller, callers.self, Some(target), grants))
+      // Still admitted while any member that admitted by grant still does; a member that admitted
+      // otherwise would have been chosen first and is not asked again.
+      case Acl.AnyOf(acls) => acls.filter(admittedByGrant(_, context)).exists(holds)
+      case _               => true
+    () => holds(acl)
 
   // Sorted once at startup: most specific template first, so a literal segment is never
   // shadowed by a parameter that happened to be declared earlier.
@@ -457,6 +544,12 @@ private final class Router(
 
   private val HealthPath = Vector("_ankka", "health")
 
+  /** Every endpoint's root routes, most specific first; `validate` keeps two off one path. */
+  private val rootRoutes: Vector[(HttpEndpoint, Route)] =
+    endpoints
+      .flatMap(e => e.rootRoutes.map(e -> _))
+      .sortBy((_, route) => route.template.specificity)
+
   def handle(request: HttpRequest)(using
       system: ActorSystem[?],
       ec: ExecutionContext
@@ -467,28 +560,48 @@ private final class Router(
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
     else
-      // The longest matching prefix, not the first declared: `/auth/whoami` and `/auth` can then
-      // be two endpoints with two ACLs (one open discovery route beside an authenticated one)
-      // without the answer depending on registration order.
-      endpoints.filter(e => path.startsWith(e.prefixPath)).maxByOption(_.prefixPath.size) match
-        case None =>
-          Future.successful(
-            problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
-          )
-        case Some(endpoint) =>
-          val remaining = path.drop(endpoint.prefixPath.size)
-          val found     = matched(endpoint, request.method.value, remaining)
-
-          // The route is matched before admission because a route's ACL replaces the endpoint's.
-          // Where nothing matched there is no route to ask, so the endpoint's ACL decides — which
-          // is also what keeps a closed endpoint from disclosing which of its paths exist by
-          // answering 404 for some and 403 for the rest.
-          val effective = found.flatMap(_.acl).getOrElse(endpoint.acl)
-
+      // A root route is a whole path (feature 054), so it is matched before any prefix could
+      // claim it: an endpoint at `/` would otherwise answer `/.well-known/…` with its own 404.
+      rootRoutes.iterator
+        .map((endpoint, route) => (endpoint, route, route.template.matches(path)))
+        .collectFirst {
+          case (endpoint, route, Some(args)) if route.method == request.method.value =>
+            (endpoint, route, args)
+        } match
+        case Some((endpoint, route, args)) =>
+          val found = Some(Matched.Root(route, args))
           callers.callerOf(request) match
             case Left(reason) => Future.successful(problem(HttpProblem.forbidden(reason)))
             case Right(caller) =>
-              admitted(endpoint, request, remaining, found, effective, caller)
+              admitted(endpoint, request, path, found, route.acl.getOrElse(endpoint.acl), caller)
+        case None => prefixed(request, path)
+
+  private def prefixed(request: HttpRequest, path: Vector[String])(using
+      system: ActorSystem[?],
+      ec: ExecutionContext
+  ): Future[HttpResponse] =
+    // The longest matching prefix, not the first declared: `/auth/whoami` and `/auth` can then
+    // be two endpoints with two ACLs (one open discovery route beside an authenticated one)
+    // without the answer depending on registration order.
+    endpoints.filter(e => path.startsWith(e.prefixPath)).maxByOption(_.prefixPath.size) match
+      case None =>
+        Future.successful(
+          problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
+        )
+      case Some(endpoint) =>
+        val remaining = path.drop(endpoint.prefixPath.size)
+        val found     = matched(endpoint, request.method.value, remaining)
+
+        // The route is matched before admission because a route's ACL replaces the endpoint's.
+        // Where nothing matched there is no route to ask, so the endpoint's ACL decides — which
+        // is also what keeps a closed endpoint from disclosing which of its paths exist by
+        // answering 404 for some and 403 for the rest.
+        val effective = found.flatMap(_.acl).getOrElse(endpoint.acl)
+
+        callers.callerOf(request) match
+          case Left(reason) => Future.successful(problem(HttpProblem.forbidden(reason)))
+          case Right(caller) =>
+            admitted(endpoint, request, remaining, found, effective, caller)
 
   /** The subprotocol a browser's token arrives in, since a browser cannot set a header. */
   private val BearerProtocol = "ankka.bearer."
@@ -514,7 +627,7 @@ private final class Router(
       case Some(Matched.Socket(_, _)) => forSocket(request, contextFor(request, caller))
       case _                          => contextFor(request, caller)
     val target = found.map(_.grantTarget(endpoint.prefix))
-    admit(effective, context, target) match
+    admit(endpoint, effective, context, target) match
       case Left(refused) =>
         // A refusal is the callee's answer, not its fault: recorded as one (feature 040), so the
         // topology counts it apart from a failure. Nothing matched has no route to name.
@@ -524,6 +637,11 @@ private final class Router(
             case Matched.Plain(route, _)  => originOf(endpoint, route.method, route.template)
             case Matched.Streaming(route, _) =>
               originOf(endpoint, route.method, route.template)
+            case Matched.Root(route, _) =>
+              CallOrigin(
+                ServedRoute.endpointId(endpoint.prefix),
+                s"${route.method} ${route.template.render}"
+              )
           RequestScope.withContext(context)(Tracing.refused(matched.describe, origin))
         }
         request.discardEntityBytes()
@@ -535,7 +653,13 @@ private final class Router(
         found match
           case Some(Matched.Plain(route, args)) =>
             val origin = originOf(endpoint, route.method, route.template)
-            dispatch(route, request, context, args, origin)
+            dispatch(route, request, context, args, origin, target)
+          case Some(Matched.Root(route, args)) =>
+            val origin = CallOrigin(
+              ServedRoute.endpointId(endpoint.prefix),
+              s"${route.method} ${route.template.render}"
+            )
+            dispatch(route, request, context, args, origin, target)
           case Some(Matched.Streaming(route, args)) =>
             val origin = originOf(endpoint, route.method, route.template)
             dispatchStream(route, request, context, args, origin, revoke)
@@ -637,47 +761,41 @@ private final class Router(
       caller = caller
     )
 
+  /** Decides every ACL this server is asked about; see `Admitter`. */
+  private val admitter = Admitter(callers.self, grants)
+
   /**
    * Applies the effective ACL: the context to dispatch with (carrying the principal, if the ACL
-   * established one), or the response that refuses the request.
+   * established one), or the response that refuses the request. A challenge is the endpoint's to
+   * word (`HttpEndpoint.challenge`).
    */
   private def admit(
+      endpoint: HttpEndpoint,
       acl: Acl,
       context: SimpleRequestContext,
       target: Option[GrantTarget]
   ): Either[HttpResponse, RequestContext] =
-    def forbidden(reason: String) = Left(problem(HttpProblem.forbidden(reason)))
-    acl match
-      case Acl.DenyAll  => forbidden("not permitted by this endpoint's acl")
-      case Acl.AllowAll => Right(context)
-      case Acl.AllowIf(predicate) =>
-        if predicate(context) then Right(context)
-        else forbidden("not permitted by this endpoint's acl")
-      case Acl.AllowCallers(matchers) =>
-        // The same refusal text as every other ACL: naming the callers that would have been
-        // admitted tells an unauthorised caller whose certificate to go looking for — and says
-        // nothing of which grants exist.
-        if matchers.exists(_.admits(context.caller, callers.self, target, grants)) then
-          Right(context)
-        else forbidden("not permitted by this endpoint's acl")
-      case Acl.Authenticate(decide) =>
-        decide(context) match
-          case AuthDecision.Allow(principal) => Right(context.copy(principal = Some(principal)))
-          case AuthDecision.Unauthenticated(challenge) =>
-            Left(
-              problem(HttpProblem.unauthorized("authentication required"))
-                .addHeader(headers.RawHeader("WWW-Authenticate", s"Bearer $challenge"))
+    admitter.decide(acl, context, target).left.map {
+      case Refusal.Unauthenticated(challenge) =>
+        problem(HttpProblem.unauthorized("authentication required"))
+          .addHeader(
+            headers.RawHeader(
+              "WWW-Authenticate",
+              s"Bearer ${endpoint.challenge(context, challenge)}"
             )
-          case AuthDecision.Forbidden(reason) => forbidden(reason)
-          case AuthDecision.Unavailable(reason) =>
-            Left(problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5")))
+          )
+      case Refusal.Forbidden(reason) => problem(HttpProblem.forbidden(reason))
+      case Refusal.Unavailable(reason) =>
+        problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5"))
+    }
 
   private def dispatch(
       route: Route,
       request: HttpRequest,
       context: RequestContext,
       args: Vector[String],
-      origin: CallOrigin
+      origin: CallOrigin,
+      target: Option[GrantTarget]
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val bodyBytes =
       if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
@@ -692,12 +810,16 @@ private final class Router(
         // and what makes the request context safe to hold in a ThreadLocal.
         Future(
           RequestScope.withContext(context)(
-            // Traced here, on the handler's own virtual thread, and not around this
-            // Future's creation: a trace set on the caller's thread is invisible to
-            // this one. It is the same reason RequestScope sets its context here. This
-            // is what makes the entity's span a child of the request instead of a root
-            // of its own — the difference between a trace and a list.
-            Tracing.request(route.describe, origin)(route.run(args, bytes))
+            // A handler that decides another ACL for this request (an MCP endpoint's tool)
+            // decides it as this server decided the route's.
+            Admission.within(admitter, target)(
+              // Traced here, on the handler's own virtual thread, and not around this
+              // Future's creation: a trace set on the caller's thread is invisible to
+              // this one. It is the same reason RequestScope sets its context here. This
+              // is what makes the entity's span a child of the request instead of a root
+              // of its own — the difference between a trace and a list.
+              Tracing.request(route.describe, origin)(route.run(args, bytes))
+            )
           )
         )(using AnkkaExecutors.virtual)
       }
@@ -1029,7 +1151,14 @@ private[ankka] object Tracing:
       try Trace.within(span, origin)(body)
       catch case _: SocketClosed => ()
       outcome = SpanOutcome.Ok
-    finally recorder.record(span, continued.fold(0L)(_.spanId), SpanKind.Server, outcome)
+    finally
+      recorder.record(
+        span,
+        continued.fold(0L)(_.spanId),
+        SpanKind.Server,
+        outcome,
+        RequestScope.currentContext.flatMap(_.principal).map(_.subject)
+      )
 
   /**
    * A request its ACL refused: a span of its own, recorded `Refused` at once, so a refusal is
@@ -1075,6 +1204,10 @@ private[ankka] object Tracing:
           SpanKind.Server
         )
       case None => observability.recorder.beginRoot(componentRef, handlerRef, SpanKind.Server)
+    // Who the request was for, once admission said (feature 054): stored on the span, never interned.
+    RequestScope.currentContext
+      .flatMap(_.principal)
+      .foreach(p => observability.recorder.withSubject(span, p.subject))
     var outcome = SpanOutcome.Failed
     try
       val result = Trace.within(span, origin)(body)

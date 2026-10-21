@@ -55,7 +55,69 @@ service Client {
   // failed token, then the stream completes. For an endpoint serving the wait as server-sent
   // events past the runtime's idle timeout. Cancelling the stream ends the wait, not the workflow.
   rpc AwaitEndStream (AwaitEndRequest) returns (stream StreamToken);
+
+  // The service's client keys (protocol 1.20): issued for one of its MCP endpoints, listed and
+  // revoked. The key itself is in an issue's reply and nowhere else. A refusal or a fault is an
+  // Error in the reply, never a gRPC status, as for the secret store; a runtime older than 1.20
+  // answers UNIMPLEMENTED.
+  rpc IssueClientKey  (IssueClientKeyRequest)  returns (IssueClientKeyReply);
+  rpc ListClientKeys  (ListClientKeysRequest)  returns (ListClientKeysReply);
+  rpc RevokeClientKey (RevokeClientKeyRequest) returns (RevokeClientKeyReply);
 }
+
+// 1.20: a client key for `subject`. Exactly one expiry is set.
+message IssueClientKeyRequest {
+  string subject = 1;
+  oneof expiry {
+    int64 after_millis = 2;
+    int64 at_epoch_millis = 3;
+    bool never = 4;
+  }
+  optional string endpoint = 5;          // the MCP endpoint's path; required when the service has several
+  repeated string scope = 6;             // tool names; empty: every tool
+  map<string, string> attributes = 7;    // become the principal's claims
+  optional string label = 8;
+  Metadata metadata = 9;
+}
+
+message IssueClientKeyReply {
+  oneof reply {
+    Issued issued = 1;
+    Error error = 2;
+  }
+  message Issued {
+    string id = 1;
+    string client_key = 2;               // shown here once, kept nowhere
+  }
+}
+
+message ListClientKeysRequest { Metadata metadata = 1; }
+
+message ListClientKeysReply {
+  repeated ClientKeySummary keys = 1;
+  Error error = 2;                       // unset: success
+}
+
+// A client key as listed: never the key, nor anything it could be derived from.
+message ClientKeySummary {
+  string id = 1;
+  string subject = 2;
+  map<string, string> attributes = 3;
+  optional string label = 4;
+  string endpoint = 5;
+  repeated string scope = 6;
+  int64 issued_at_millis = 7;
+  optional int64 expires_at_millis = 8;
+  optional int64 last_used_millis = 9;
+  optional int64 revoked_at_millis = 10;
+}
+
+message RevokeClientKeyRequest {
+  string id = 1;
+  Metadata metadata = 2;
+}
+
+message RevokeClientKeyReply { Error error = 1; }   // unset: revoked, or already
 
 // 1.18: a wait for a workflow's end.
 message AwaitEndRequest {

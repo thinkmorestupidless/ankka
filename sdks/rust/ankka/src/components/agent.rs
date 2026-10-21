@@ -117,6 +117,27 @@ impl Schema {
         self.property(name, "string", description, false)
     }
 
+    /// This schema with a required string property `name` put first: what a reference tool adds
+    /// for the id it is told to read.
+    pub(crate) fn with_leading_string(&self, name: &str, description: &str) -> Schema {
+        let mut properties = Map::new();
+        properties.insert(
+            name.to_string(),
+            json!({ "type": "string", "description": description }),
+        );
+        for (k, v) in &self.properties {
+            if k != name {
+                properties.insert(k.clone(), v.clone());
+            }
+        }
+        let mut required = vec![name.to_string()];
+        required.extend(self.required.iter().filter(|r| *r != name).cloned());
+        Schema {
+            properties,
+            required,
+        }
+    }
+
     /// The schema as JSON.
     pub fn to_json(&self) -> String {
         json!({
@@ -435,6 +456,7 @@ pub(super) fn session_context(
 ) -> Context {
     Context::new(component_id, session_id, 0, Metadata::from_proto(metadata))
         .with_secrets()
+        .with_client_keys()
         .with_services()
 }
 

@@ -13,3 +13,8 @@ Feature: The services the local console lists
     When the service "orders" starts on that machine
     Then the local console lists "orders" beside "cart"
     And the local console was not restarted
+
+  Scenario: the local console lists a service's MCP endpoints and their tools
+    Given a service "cart" running on a developer's machine with an MCP endpoint at "/mcp" whose tools are "get_cart" and "add_item"
+    When a developer reads the service "cart" in the local console
+    Then the local console lists the MCP endpoint "/mcp" with the tools "get_cart" and "add_item" beside the routes of "cart"

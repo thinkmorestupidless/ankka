@@ -19,15 +19,18 @@ paths:
 
 ## Publishing
 
-Eleven modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Ten are libraries a
-*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`,
+Twelve modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Eleven are libraries a
+*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `mcp`, `testkit`,
 `telemetry-otlp`, and `graph-sink`, the graph sink a service registers to keep a `GraphStore` in step
 with a delta topic, with the in-memory reference store (a store over a database, and a deployable
 image, is ankka-contrib's: `neo4j-graph-store` and `ankka-graph-sink-neo4j`);
 `ankka-grpc` names grpc-java directly in its POM and no ScalaPB, which is the developer's build's, and a
 service adds `auth-oidc` only when it has users of its own whose tokens it verifies, which is why it is
 a module and not part of `http` (feature 022), and `telemetry-otlp` is a module so that the
-OpenTelemetry SDK reaches a service only through it (feature 026). The eleventh, `controlplane-api`, is for a *client of the
+OpenTelemetry SDK reaches a service only through it (feature 026). `mcp` is a module because an MCP
+endpoint needs `http` and `agent` and neither may see the other, the direction `grpc` took (feature
+054); it brings `auth-oidc` with it, and the template carries it as a commented line beside
+`auth-oidc`'s. The twelfth, `controlplane-api`, is for a *client of the
 control plane*: the hosted product in `ankka-cloud` provisions organizations through it (feature 011),
 and a client that redefined the wire types by hand would drift from them. It still depends on `core`
 alone, and its POM's compile scope says so. `templateArtifacts` names eight, the template being a
@@ -39,7 +42,7 @@ platform-side jar cannot reach a repository by accident, and "these are not libr
 fact rather than a note.
 
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly eleven artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly twelve artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

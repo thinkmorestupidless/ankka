@@ -44,6 +44,15 @@ pub enum Import {
     /// `await_end`: `AwaitEndRequest` in, `InvokeReply` out (protocol 1.18). Called through
     /// [`call_await`].
     AwaitEnd,
+    /// `issue_client_key`: `IssueClientKeyRequest` in, `IssueClientKeyReply` out (protocol 1.20).
+    /// Called through [`call_client_key`].
+    IssueClientKey,
+    /// `list_client_keys`: `ListClientKeysRequest` in, `ListClientKeysReply` out (protocol 1.20).
+    /// Called through [`call_client_key`].
+    ListClientKeys,
+    /// `revoke_client_key`: `RevokeClientKeyRequest` in, `RevokeClientKeyReply` out (protocol
+    /// 1.20). Called through [`call_client_key`].
+    RevokeClientKey,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -119,6 +128,18 @@ pub fn call_await(request: &[u8]) -> Vec<u8> {
     host::call_await(request)
 }
 
+/// Calls one of the client key imports (protocol 1.20). Each is reached only from its own function
+/// in a link block of its own, so a module that never issues, lists or revokes a key imports none
+/// of them, and runs on a runtime that predates them.
+pub fn call_client_key(import: Import, request: &[u8]) -> Vec<u8> {
+    match import {
+        Import::IssueClientKey => host::issue_client_key(request),
+        Import::ListClientKeys => host::list_client_keys(request),
+        Import::RevokeClientKey => host::revoke_client_key(request),
+        other => panic!("{other:?} is not one of the client key imports"),
+    }
+}
+
 /// Sends a line to the runtime's log, under the module's logger.
 pub fn log(level: Level, text: &str) {
     host::log(level, text)
@@ -183,6 +204,47 @@ mod host {
         fn await_end(ptr: u32, len: u32) -> u64;
     }
 
+    // The client keys (protocol 1.20): each a block of its own, reached only from its own function,
+    // so a module that never issues a key imports none of the three.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "issue_client_key"]
+        fn issue_client_key_import(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "list_client_keys"]
+        fn list_client_keys_import(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "revoke_client_key"]
+        fn revoke_client_key_import(ptr: u32, len: u32) -> u64;
+    }
+
+    fn through(request: &[u8], import: unsafe extern "C" fn(u32, u32) -> u64) -> Vec<u8> {
+        let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
+        // SAFETY: as for `call`.
+        let packed = unsafe { import(ptr, len) };
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn issue_client_key(request: &[u8]) -> Vec<u8> {
+        through(request, issue_client_key_import)
+    }
+
+    pub(super) fn list_client_keys(request: &[u8]) -> Vec<u8> {
+        through(request, list_client_keys_import)
+    }
+
+    pub(super) fn revoke_client_key(request: &[u8]) -> Vec<u8> {
+        through(request, revoke_client_key_import)
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -204,6 +266,9 @@ mod host {
                     panic!("schedule_recurring is called through call_schedule_recurring")
                 }
                 Import::AwaitEnd => panic!("await_end is called through call_await"),
+                Import::IssueClientKey | Import::ListClientKeys | Import::RevokeClientKey => {
+                    panic!("the client key imports are called through call_client_key")
+                }
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -515,11 +580,117 @@ mod native {
                 call_secret(import, request)
             }
             Import::Request => call_request(request),
+            Import::IssueClientKey | Import::ListClientKeys | Import::RevokeClientKey => {
+                client_key(import, request)
+            }
         }
     }
 
     pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
         call(Import::ScheduleRecurring, request)
+    }
+
+    /// A client key a unit test issued with no host installed: the summary, and the key.
+    struct HeldKey {
+        summary: proto::ClientKeySummary,
+    }
+
+    thread_local! {
+        static CLIENT_KEYS: RefCell<Vec<HeldKey>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn client_key(import: Import, request: &[u8]) -> Vec<u8> {
+        if let Some(host) = installed() {
+            return host.call(import, request);
+        }
+        let refused = |message: &str| proto::Error {
+            message: message.to_string(),
+            code: proto::ErrorCode::BadRequest as i32,
+            ..Default::default()
+        };
+        match import {
+            Import::IssueClientKey => {
+                let r = proto::IssueClientKeyRequest::decode(request)
+                    .expect("an IssueClientKeyRequest");
+                if r.subject.trim().is_empty() {
+                    return proto::IssueClientKeyReply {
+                        reply: Some(proto::issue_client_key_reply::Reply::Error(refused(
+                            "a client key needs a subject",
+                        ))),
+                    }
+                    .encode_to_vec();
+                }
+                if r.expiry.is_none() {
+                    return proto::IssueClientKeyReply {
+                        reply: Some(proto::issue_client_key_reply::Reply::Error(refused(
+                            "a client key needs an expiry; say never if it has none",
+                        ))),
+                    }
+                    .encode_to_vec();
+                }
+                let n = CLIENT_KEYS.with(|k| k.borrow().len()) + 1;
+                let id = format!("ck_test_{n}");
+                let summary = proto::ClientKeySummary {
+                    id: id.clone(),
+                    subject: r.subject,
+                    attributes: r.attributes,
+                    label: r.label,
+                    endpoint: r.endpoint.unwrap_or_default(),
+                    scope: r.scope,
+                    issued_at_millis: now(),
+                    ..Default::default()
+                };
+                CLIENT_KEYS.with(|k| k.borrow_mut().push(HeldKey { summary }));
+                proto::IssueClientKeyReply {
+                    reply: Some(proto::issue_client_key_reply::Reply::Issued(
+                        proto::issue_client_key_reply::Issued {
+                            id,
+                            client_key: format!("ak_test_{n}_not_a_real_key"),
+                        },
+                    )),
+                }
+                .encode_to_vec()
+            }
+            Import::ListClientKeys => proto::ListClientKeysReply {
+                keys: CLIENT_KEYS.with(|k| k.borrow().iter().map(|h| h.summary.clone()).collect()),
+                error: None,
+            }
+            .encode_to_vec(),
+            Import::RevokeClientKey => {
+                let r = proto::RevokeClientKeyRequest::decode(request)
+                    .expect("a RevokeClientKeyRequest");
+                let at = now();
+                let found = CLIENT_KEYS.with(|k| {
+                    let mut keys = k.borrow_mut();
+                    match keys.iter_mut().find(|h| h.summary.id == r.id) {
+                        Some(held) => {
+                            held.summary.revoked_at_millis.get_or_insert(at);
+                            true
+                        }
+                        None => false,
+                    }
+                });
+                let error = (!found).then(|| proto::Error {
+                    message: format!("no client key '{}'", r.id),
+                    code: proto::ErrorCode::NotFound as i32,
+                    ..Default::default()
+                });
+                proto::RevokeClientKeyReply { error }.encode_to_vec()
+            }
+            other => panic!("{other:?} is not one of the client key imports"),
+        }
+    }
+
+    pub(super) fn issue_client_key(request: &[u8]) -> Vec<u8> {
+        client_key(Import::IssueClientKey, request)
+    }
+
+    pub(super) fn list_client_keys(request: &[u8]) -> Vec<u8> {
+        client_key(Import::ListClientKeys, request)
+    }
+
+    pub(super) fn revoke_client_key(request: &[u8]) -> Vec<u8> {
+        client_key(Import::RevokeClientKey, request)
     }
 
     pub(super) fn call_await(request: &[u8]) -> Vec<u8> {

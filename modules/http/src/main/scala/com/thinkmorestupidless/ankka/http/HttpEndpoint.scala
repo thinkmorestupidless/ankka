@@ -121,14 +121,75 @@ enum Acl:
    */
   case AllowCallers(matchers: Vector[CallerMatcher])
 
+  /**
+   * Any of several ACLs (feature 054): a request is admitted when one of them admits it, the first
+   * that does in the order given, so one endpoint can admit a workload by its certificate, a person
+   * by a token and an assistant by a client key. Build one with `Acl.anyOf`, which cannot be empty.
+   *
+   * When none admits, the answer is the one a caller can act on: "cannot tell right now" (503) if
+   * any member could not decide, else the challenge of the first member that asked for a credential
+   * — the first that says what was wrong with the one presented, when one does — else the first
+   * refusal.
+   */
+  case AnyOf(acls: Vector[Acl])
+
 object Acl:
   def allowCallers(first: CallerMatcher, rest: CallerMatcher*): Acl =
     AllowCallers(first +: rest.toVector)
 
+  /** An ACL admitting a request any one of `first` and `rest` admits; see `AnyOf`. */
+  def anyOf(first: Acl, rest: Acl*): Acl = AnyOf(first +: rest.toVector)
+
   /** Whether `acl` admits granted callers: what makes a route grantable (feature 040). */
   def namesGranted(acl: Acl): Boolean = acl match
     case AllowCallers(matchers) => matchers.contains(CallerMatcher.Granted)
+    case AnyOf(acls)            => acls.exists(namesGranted)
     case _                      => false
+
+  /** Every ACL in `acl`'s tree, itself first: what a server reads authenticators from. */
+  private[ankka] def flatten(acl: Acl): Vector[Acl] = acl match
+    case AnyOf(acls) => acl +: acls.flatMap(flatten)
+    case other       => Vector(other)
+
+  /** The authenticators in `acl`'s tree, in order. */
+  private[ankka] def authenticators(acl: Acl): Vector[RequestContext => AuthDecision] =
+    flatten(acl).collect { case Authenticate(decide) => decide }
+
+/**
+ * An authenticator that admits tokens an issuer signed (feature 054), and says which issuers: what
+ * an MCP endpoint's resource metadata names as the places a client may sign in. `Oidc.authenticate`
+ * answers one.
+ */
+trait TokenAuthenticator extends (RequestContext => AuthDecision):
+  /** The issuers' URLs, in the order the service lists them. */
+  def authorizationServers: Vector[String]
+
+/**
+ * An authenticator that needs the running service before it can decide (feature 054): a client key
+ * is looked up in an index an extension keeps. The server binds every one it finds in its
+ * endpoints' ACLs when it starts, and a `Left` fails the start with that sentence. Until it is
+ * bound, it decides nothing but "unavailable".
+ */
+trait NeedsService:
+  def bind(service: com.thinkmorestupidless.ankka.runtime.AnkkaService): Either[String, Unit]
+
+/**
+ * What an endpoint is mounted beside (feature 054): the service's components, every endpoint the
+ * server serves, and the service when there is one. What an endpoint that refers to others — an MCP
+ * endpoint's tools — resolves its references against, and refuses a start with.
+ */
+private[ankka] final case class Mounting(
+    registry: com.thinkmorestupidless.ankka.core.ComponentRegistry,
+    endpoints: Vector[HttpEndpoint],
+    service: Option[com.thinkmorestupidless.ankka.runtime.AnkkaService]
+)
+
+/**
+ * An endpoint that says itself what it serves (feature 054), instead of the server reading its
+ * routes: an MCP endpoint is three routes on the wire and one record per tool to every reader.
+ */
+private[ankka] trait ServesRoutes:
+  def served: Vector[com.thinkmorestupidless.ankka.runtime.ServedRoute]
 
 private[ankka] final case class EncodedResponse(
     status: Int,
@@ -278,6 +339,37 @@ abstract class HttpEndpoint(val prefix: String):
   private[ankka] def routes: Vector[Route]             = collected.toVector
   private[ankka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
   private[ankka] def socketRoutes: Vector[SocketRoute] = collectedSockets.toVector
+
+  /**
+   * Routes at a path of their own rather than under this endpoint's prefix (feature 054): their
+   * templates are whole paths. An MCP endpoint at `/mcp` publishes its resource metadata at
+   * `/.well-known/oauth-protected-resource/mcp`, which no prefix of its could reach. Matched before
+   * any prefix, after `/_ankka/health`, and admitted by the route's ACL or else the endpoint's.
+   */
+  private[ankka] def rootRoutes: Vector[Route] = Vector.empty
+
+  /**
+   * ACLs this endpoint decides that belong to no route (feature 054): an MCP endpoint's tools'. The
+   * server binds the authenticators in them at start as it binds the routes'.
+   */
+  private[ankka] def innerAcls: Vector[Acl] = Vector.empty
+
+  /**
+   * What is wrong with this endpoint where it is mounted (feature 054), each a sentence that fails
+   * the start. Asked once every endpoint is built, so an endpoint can refer to the service's
+   * components and its sibling endpoints.
+   */
+  private[ankka] def problems(@scala.annotation.unused mounting: Mounting): Vector[String] =
+    Vector.empty
+
+  /**
+   * The challenge a `401` from this endpoint carries, given the one its ACL answered (feature 054):
+   * an MCP endpoint that admits tokens names its resource metadata here. As it was, by default.
+   */
+  private[ankka] def challenge(
+      @scala.annotation.unused request: RequestContext,
+      answered: String
+  ): String = answered
 
   private val prefixSegments: Vector[String] =
     prefix.split('/').iterator.filter(_.nonEmpty).toVector

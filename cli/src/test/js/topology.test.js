@@ -68,3 +68,23 @@ for (const file of files) {
     }
   });
 }
+
+test('a span row names who it was for when a credential said (feature 054)', () => {
+  assert.equal(topology.spanWho({ component: 'mcp', handler: '/mcp get_cart', subject: 'acme' }), 'mcp#/mcp get_cart · acme');
+  assert.equal(topology.spanWho({ component: 'cart', handler: 'get-cart' }), 'cart#get-cart');
+  assert.equal(topology.spanWho({ component: 'unattributed', handler: '' }), 'unattributed');
+});
+
+test('the local console lists a service\'s MCP endpoints and their tools (feature 054)', () => {
+  const routes = [
+    { method: 'GET', path: '/carts/{cartId}' },
+    { method: 'MCP', path: '/mcp get_cart' },
+    { method: 'MCP', path: '/mcp add_item' },
+    { method: 'MCP', path: '/office/mcp file_invoice' },
+  ];
+  assert.deepEqual(topology.mcpEndpoints(routes), [
+    { path: '/mcp', tools: ['get_cart', 'add_item'] },
+    { path: '/office/mcp', tools: ['file_invoice'] },
+  ]);
+  assert.deepEqual(topology.mcpEndpoints([{ method: 'GET', path: '/carts' }]), []);
+});

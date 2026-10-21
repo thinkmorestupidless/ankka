@@ -595,16 +595,16 @@ def _discover(storage: Buckets, protocol: str) -> discovery_pb2.Spec:
     return spec
 
 
-def test_discovery_declares_the_storage_endpoint_only_for_a_directory_store_and_a_120_sidecar(tmp_path: Path) -> None:
-    declared = [e for e in _discover(DirectoryBuckets(tmp_path), "1.20").endpoints if e.id == STORAGE_ENDPOINT_ID]
+def test_discovery_declares_the_storage_endpoint_only_for_a_directory_store_and_a_121_sidecar(tmp_path: Path) -> None:
+    declared = [e for e in _discover(DirectoryBuckets(tmp_path), "1.21").endpoints if e.id == STORAGE_ENDPOINT_ID]
     assert len(declared) == 1
     assert declared[0].prefix == STORAGE_PATH and declared[0].acl == discovery_pb2.Endpoint.ALLOW_ALL
     assert sorted((r.id, r.method, r.template) for r in declared[0].routes) == [
         ("keep", "PUT", "/{bucket}/{name}"),
         ("read", "GET", "/{bucket}/{name}"),
     ]
-    assert not [e for e in _discover(DirectoryBuckets(tmp_path), "1.19").endpoints if e.id == STORAGE_ENDPOINT_ID]
-    assert not [e for e in _discover(InMemoryBuckets(), "1.20").endpoints if e.id == STORAGE_ENDPOINT_ID]
+    assert not [e for e in _discover(DirectoryBuckets(tmp_path), "1.20").endpoints if e.id == STORAGE_ENDPOINT_ID]
+    assert not [e for e in _discover(InMemoryBuckets(), "1.21").endpoints if e.id == STORAGE_ENDPOINT_ID]
 
 
 def test_the_server_answers_the_storage_endpoint_from_the_directory_store(tmp_path: Path) -> None:

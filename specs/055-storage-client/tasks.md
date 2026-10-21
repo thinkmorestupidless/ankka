@@ -41,7 +41,7 @@ Work on branch `055-storage-client` in the worktree `.claude/worktrees/055-stora
 `-Dankka.cluster.tests=off` except the k3s tasks, which say so. Long suites run under
 `caffeinate -i`. sbt's project ids are `core`, `sdk`, `runtime`, `http`, `agent`, `testkit`,
 `sidecar`, `controlPlaneApi`, `crd`, `controlPlane`, `operator`, `cli`, `storageMover`. munit's `--`
-filter needs a leading `*`. The protocol minor is 1.20 and the ABI 1.20: the branch is on 1.19;
+filter needs a leading `*`. The protocol minor is 1.21 and the ABI 1.21: the branch is on 1.19;
 renumber if anything merges first. The service in the features is `listings`, its buckets `photos`
 (public), `exports` (signed), `documents` (private) and `archive` (supplied); the project is `shop`.
 
@@ -696,16 +696,16 @@ conformance suite checking the rule and the codes.
 **Independent Test**: each SDK's suite; `ConformanceSuite`'s `storage.*` cases against the four
 references; `languages.feature` `ranElsewhere`.
 
-- [X] T055 [US6] Protocol 1.20: in `PROTO/client.proto` add `StorageRequest`, `StorageReply`,
+- [X] T055 [US6] Protocol 1.21: in `PROTO/client.proto` add `StorageRequest`, `StorageReply`,
   `StoredObject`, `ObjectInfo`, `ObjectEntries`, `ObjectEntry` exactly as
-  contracts/runtime-and-protocol.md "Protocol" gives them, each field with a `// 1.20:` comment;
-  `protocol/WASM-ABI.md` lists `storage(ptr, len) -> i64` since 1.20 from the same `CallSite`s as
-  `request` with the 4,000,000-byte bound; `protocol/README.md` `## Version` (`:16`) says 1.20 and a
+  contracts/runtime-and-protocol.md "Protocol" gives them, each field with a `// 1.21:` comment;
+  `protocol/WASM-ABI.md` lists `storage(ptr, len) -> i64` since 1.21 from the same `CallSite`s as
+  `request` with the 4,000,000-byte bound; `protocol/README.md` `## Version` (`:16`) says 1.21 and a
   line what it added. Bump the pins as 051's T007 did: `WireProtocol.Version` in
-  `RT/remote/Conversation.scala`, `ProtocolVersion(1, 20)` in `API/Compatibility.scala:80`,
+  `RT/remote/Conversation.scala`, `ProtocolVersion(1, 21)` in `API/Compatibility.scala:80`,
   `PROTOCOL_VERSION` in `PY/src/ankka/service.py:28`, `TS/src/spec.ts:28`, `RS/ankka/src/service.rs`;
   the test pins in `SCT/ProtocolSuite.scala`, `APIT/HostingSuite.scala`, `APIT/CompatibilitySuite.scala`
-  (1.20 supported, 1.21 not), `TS/test/contracts.test.ts`, `RS/ankka/tests/contracts_discovery.rs`.
+  (1.21 supported, 1.22 not), `TS/test/contracts.test.ts`, `RS/ankka/tests/contracts_discovery.rs`.
   Copy to the three SDKs with their proto scripts; `diff -r`
 - [X] T056 [US6] The sidecar answers the import: `SC/wasm/HostImports.scala` (`:83`) adds
   `bytes("storage")(storage)` and `SC/wasm/ModuleLoader.scala` (`:74`) lists it, an older runtime's
@@ -817,7 +817,7 @@ references; `languages.feature` `ranElsewhere`.
   SDKs, and `sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=…` against each
   reference
 
-**Checkpoint**: one client in four languages; protocol 1.20.
+**Checkpoint**: one client in four languages; protocol 1.21.
 
 ---
 
@@ -890,7 +890,7 @@ written the day they cost time, and every suite once.
   the real CLI against a real control plane on k3s.
 - [X] T073 The pull request: the operational consequences from plan.md's "Complexity Tracking"
   (the component's web listener and the operator setting an installation must take together; ankka-gcp's
-  four amendments before a public or named bucket works on Google; protocol 1.20 and the `storage`
+  four amendments before a public or named bucket works on Google; protocol 1.21 and the `storage`
   import; the limitations lines) in the description, and the two `ranOutside` scenarios named for
   ankka-gcp's suite
 
@@ -968,7 +968,7 @@ Task: "T019–T021 StreamedBody, postStream/putStream, Streamed, max-stream-byte
 3. US4 names buckets in the descriptor and makes, grants, routes and reports them; the cloud
    contract amended for ankka-gcp; the move whole.
 4. US5 runs the service on a laptop and proves the kit across a restart.
-5. US6 ports the settled interface to three languages under protocol 1.20.
+5. US6 ports the settled interface to three languages under protocol 1.21.
 6. Phase 9 writes it down and runs everything.
 
 ### Notes
@@ -981,7 +981,7 @@ Task: "T019–T021 StreamedBody, postStream/putStream, Streamed, max-stream-byte
 - `RenderingUnchangedSuite` is never repinned by this feature (T041).
 - Every new test switch (`-Xmx512m` for `http`, `ankka.conformance.storage`) is forwarded in the
   project's `Test / javaOptions`, or it is a no-op in a forked JVM.
-- The protocol minor is 1.20 until something merges first; then every pin in T055 moves.
+- The protocol minor is 1.21: spec 054 merged first and took 1.20, so every pin in T055 moved on the rebase.
 - No secret value reaches an action, a status, the journal or a log line; the supplied bucket's
   keys are `secretKeyRef`s the pod reads.
 - Commit after each phase at least; never `git stash` bare in this worktree.

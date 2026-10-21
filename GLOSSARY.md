@@ -2198,7 +2198,7 @@ an object is read from a server near the reader and cached there. The installati
 there and to name; the platform provisions none, and a service's code is the same with or
 without one.
 
-Avoid: CDN, cache
+Avoid: CDN
 
 ### directory store
 *Proposed.* Where the storage client keeps a service's objects on a developer's machine: a

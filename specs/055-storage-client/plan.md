@@ -170,7 +170,7 @@ modules/testkit/…/testkit/AnkkaTestKit.scala, StorageBackendChoice.scala (new)
 modules/testkit/src/test/…/StorageComponents.scala (new, the docs' samples), AnkkaTestKitStorageSuite.scala, StorageClientFeatures.scala
 
 protocol/src/main/protobuf/ankka/protocol/v1/client.proto      # StorageRequest, StorageReply
-protocol/WASM-ABI.md, protocol/README.md                       # storage, 1.20
+protocol/WASM-ABI.md, protocol/README.md                       # storage, 1.21
 protocol/fixtures/storage/rules.json                           # new
 sidecar/…/sidecar/ClientLogic.scala, wasm/HostImports.scala, wasm/ModuleLoader.scala   # the import
 sidecar/…/sidecar/Main.scala                                   # the _ankka/storage prefix admitted for a process's endpoint
@@ -284,7 +284,7 @@ with the simpler thing rejected.
 - `ankka-gcp` must implement `name`, `public`, `publicUrl` and `buckets` before a public or named
   bucket works on Google Cloud Storage; until it does, such a bucket's request is `Failed` with
   the provider's reason and the service does not start.
-- The protocol is 1.20 and the ABI gains `storage`; a module built with the new crate and using
+- The protocol is 1.21 and the ABI gains `storage`; a module built with the new crate and using
   the client is refused by an older runtime at load, naming the import.
 - The limitations page says what the client is not: no directories, rename, copy, append or
   partial writes; a put declares its length; a module's object is at most 4,000,000 bytes; a gRPC

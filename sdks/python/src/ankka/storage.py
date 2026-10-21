@@ -74,7 +74,7 @@ STORAGE_PATH = "/_ankka/storage"
 STORAGE_ENDPOINT_ID = "ankka-storage"
 """The endpoint a process declares at ``/_ankka/storage`` when its store is a directory."""
 
-STORAGE_SINCE = (1, 20)
+STORAGE_SINCE = (1, 21)
 """The protocol whose sidecars admit a process's endpoint at ``/_ankka/storage``."""
 
 DEFAULT_SEGMENT = "_default"

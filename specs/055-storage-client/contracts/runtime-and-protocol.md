@@ -69,7 +69,7 @@ signed or public URL on a laptop is `http://<ANKKA_HTTP_INTERFACE or 127.0.0.1>:
 TypeScript register the same endpoint from the SDK when their store is a directory, served
 through the sidecar as any route; the sidecar's `Router` admits the prefix for that endpoint.
 
-## Protocol: the `storage` import (ABI 1.20, protocol 1.20)
+## Protocol: the `storage` import (ABI 1.21, protocol 1.21)
 
 `protocol/src/main/protobuf/ankka/protocol/v1/client.proto` gains:
 
@@ -97,7 +97,7 @@ message ObjectEntries { repeated ObjectEntry entries = 1; optional string next =
 message ObjectEntry { string name = 1; uint64 length = 2; string last_kept = 3; }
 ```
 
-`protocol/WASM-ABI.md` lists `storage(ptr, len) -> i64` since 1.20, permitted from the same
+`protocol/WASM-ABI.md` lists `storage(ptr, len) -> i64` since 1.21, permitted from the same
 `CallSite`s as `request`. `HostImports` answers it from `service.storage` on
 `AnkkaExecutors.virtual`; `ModuleLoader.Imports` lists it; an older runtime refuses a module that
 imports it at load, naming it. A `GET` of an object larger than the bound is `error` with

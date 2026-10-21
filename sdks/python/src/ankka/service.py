@@ -26,7 +26,7 @@ from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
 
-PROTOCOL_VERSION = "1.20"
+PROTOCOL_VERSION = "1.21"
 DEFAULT_PROCESS_PORT = 9010
 
 

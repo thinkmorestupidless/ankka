@@ -15,7 +15,7 @@
 //! until the runtime answers. A module has no socket, so every object goes through the runtime
 //! whole: a body, in or out, is at most [`MAX_BODY_BYTES`], and a larger one is
 //! [`StorageError::TooLarge`]. A module that never reaches a bucket does not import the function,
-//! and so runs on a runtime that predates it (protocol 1.20).
+//! and so runs on a runtime that predates it (protocol 1.21).
 
 use std::fmt;
 

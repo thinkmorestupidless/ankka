@@ -196,7 +196,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.20"
+  val Version: String     = "1.21"
   val MetadataKey: String = "ankka.protocol"
 
 /**

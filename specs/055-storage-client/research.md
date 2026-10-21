@@ -120,7 +120,7 @@ most objects are small; they are the streaming calls underneath.
 
 ## R6. A module reaches its bucket through a host import answered by the runtime's client
 
-**Decision**: The Rust SDK's client calls a new `storage` import in the `ankka1` module (ABI 1.20),
+**Decision**: The Rust SDK's client calls a new `storage` import in the `ankka1` module (ABI 1.21),
 one `StorageRequest` in and one `StorageReply` out as protobuf, for `put`, `get`, `delete`,
 `list`, `stat`, `signed_url` and `url`, bucket by name or unnamed. The sidecar's `HostImports`
 answers it from `service.storage`, the runtime's own client, so a module's objects go through

@@ -102,11 +102,11 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
         spec = self.registry.spec()
         if isinstance(self.storage, DirectoryBuckets):
             # The directory store's signed URLs and public addresses point at the sidecar's port,
-            # under /_ankka/storage: this process answers them there. A sidecar before 1.20 refuses
+            # under /_ankka/storage: this process answers them there. A sidecar before 1.21 refuses
             # that prefix, so it is told nothing, and the URLs go unanswered.
             if start_from.older_than(request.protocol_version, STORAGE_SINCE):
                 log.warning(
-                    "the sidecar speaks protocol %s, and serves no directory store's URLs before 1.20: "
+                    "the sidecar speaks protocol %s, and serves no directory store's URLs before 1.21: "
                     "the URLs this process signs will not be answered",
                     request.protocol_version,
                 )

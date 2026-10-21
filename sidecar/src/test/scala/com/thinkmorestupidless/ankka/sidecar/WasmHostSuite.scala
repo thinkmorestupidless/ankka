@@ -542,7 +542,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   test("a module that never reaches a bucket does not import storage; one that does, does") {
     assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
-    // A module importing it needs a runtime at protocol 1.20; one that keeps no object must not.
+    // A module importing it needs a runtime at protocol 1.21; one that keeps no object must not.
     assert(!importsOf(rustCart.get).contains("storage"), importsOf(rustCart.get).toString)
     assert(importsOf(rustReference.get).contains("storage"), importsOf(rustReference.get).toString)
   }

@@ -162,7 +162,7 @@ is unchanged.
 
 ## Protocol
 
-### `storage` import (ABI 1.20), `StorageRequest` → `StorageReply`
+### `storage` import (ABI 1.21), `StorageRequest` → `StorageReply`
 
 | Field | Meaning |
 |---|---|

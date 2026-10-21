@@ -231,7 +231,7 @@ final class HostImports(
         await(c.deleteSecret(DeleteSecretRequest.parseFrom(request)), commandTimeout).toByteArray
 
   /**
-   * The service's object storage (protocol 1.20), from where a call to another service may be made
+   * The service's object storage (protocol 1.21), from where a call to another service may be made
    * and refused, by throwing, from anywhere else. A refusal of the operation itself (a name, the
    * bound, a bucket the service does not have) is the reply's `Error`.
    */

@@ -34,7 +34,7 @@ final case class CallSite(function: String, purpose: Purpose, instance: GuestIns
   def mayRequest: Either[String, Unit] = may("request", Where)
 
   /**
-   * Whether the service's object storage may be reached from here (protocol 1.20), and why not:
+   * Whether the service's object storage may be reached from here (protocol 1.21), and why not:
    * from the same functions as a call to another service, for the same reason. A put or a get waits
    * on the store, and an entity or a view keeps an object's name, never its bytes.
    */

@@ -13,7 +13,7 @@ import scala.concurrent.Await
 import scala.concurrent.duration.*
 
 /**
- * The service's object storage as a module reaches it (protocol 1.20): `ClientLogic.storage`, which
+ * The service's object storage as a module reaches it (protocol 1.21): `ClientLogic.storage`, which
  * the `storage` import delegates to, against the test kit's store in memory with the unnamed
  * bucket, a public bucket `photos` and a signed bucket `uploads`.
  */

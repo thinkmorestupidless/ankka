@@ -114,7 +114,7 @@ describe("what discovery carries", () => {
   const endpoint = spec.mcpEndpoints[0]!
 
   test("one MCP endpoint, at its path, with the rule's two halves", () => {
-    assert.equal(PROTOCOL_VERSION, "1.20")
+    assert.equal(PROTOCOL_VERSION, "1.21")
     assert.equal(spec.mcpEndpoints.length, 1)
     assert.equal(endpoint.path, "/mcp")
     assert.equal(endpoint.id, "BasketMcp")

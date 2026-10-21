@@ -77,9 +77,9 @@ object Protocol:
    * installation and `at_home` on a command, a reply's `ReplicationChange`, `NOT_HOME`, and
    * `ankka.installation` and `ankka.local` on a consumer's request (feature 051). 1.20 added MCP
    * endpoints: `mcp_endpoints` in discovery, the `Mcp` service the process serves, the client key
-   * rpcs on `Client`, and the `ankka1_mcp_tool` export and its three imports (feature 054).
-   * 1.21 added the service's object storage for a module: the `storage` import and its
-   * `StorageRequest` and `StorageReply` (feature 055).
+   * rpcs on `Client`, and the `ankka1_mcp_tool` export and its three imports (feature 054). 1.21
+   * added the service's object storage for a module: the `storage` import and its `StorageRequest`
+   * and `StorageReply` (feature 055).
    */
   val version: ProtocolVersion = ProtocolVersion(1, 21)
 

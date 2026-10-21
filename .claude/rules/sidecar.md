@@ -120,7 +120,7 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   start.
 
 - **A module's `storage` import carries whole objects, bounded at 4,000,000 bytes** (2026-10-19,
-  protocol 1.20). `ClientLogic.answerStorage` refuses a put above the bound before anything is kept,
+  protocol 1.21). `ClientLogic.answerStorage` refuses a put above the bound before anything is kept,
   and a get after a `stat` before a byte is read; a listing answers pages of 1000 with `next`. A
   Python or TypeScript process never reaches it: it speaks S3 itself from its own variables, so no
   object passes through the sidecar. The import is permitted where `request` is (`CallSite.mayStore`).

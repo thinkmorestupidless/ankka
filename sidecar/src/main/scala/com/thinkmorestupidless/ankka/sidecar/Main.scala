@@ -216,13 +216,13 @@ object Main:
     // runtime, so only a module's sidecar builds a store; one built beside a process would never be
     // asked, could refuse to start over a directory it cannot write, and would hide the process's
     // /_ankka/storage.
-    val builder = Ankka.service
+    val registered = Ankka.service
       .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory ++ mcpDescriptors)
     val stored =
       if imports.isEmpty then
-        builder.withStorage(com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable)
-      else builder
-    stored
+        registered.withStorage(com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable)
+      else registered
+    val builder = stored
       .withConversation(conversation)
       .withExtension(
         SidecarExtension(

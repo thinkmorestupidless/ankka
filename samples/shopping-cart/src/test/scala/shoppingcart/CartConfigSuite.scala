@@ -38,3 +38,14 @@ class CartConfigSuite extends munit.FunSuite:
       "20 s"
     )
   }
+
+  test("a cart whose descriptor sets an idle timeout keeps a waiting connection open that long") {
+    val line = ConfigFactory.parseResources("application.conf")
+    val set = line
+      .withFallback(ConfigFactory.parseString("CART_IDLE_TIMEOUT = 16m"))
+      .withFallback(ConfigFactory.defaultReference())
+      .resolve()
+    assertEquals(set.getString("pekko.http.server.idle-timeout"), "16m")
+    assume(!sys.env.contains("CART_IDLE_TIMEOUT"), "CART_IDLE_TIMEOUT is set here")
+    assertEquals(ClusterConfig.load(Map.empty).getString("pekko.http.server.idle-timeout"), "60 s")
+  }

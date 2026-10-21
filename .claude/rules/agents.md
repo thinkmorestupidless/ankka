@@ -178,8 +178,10 @@ is the Scala form; the sidecar reads the certificate only when an installation m
   agent on a model that answers in minutes (an installation model on a processor) is a 504 after ten
   seconds while the turn goes on, and behind that pekko-http answers any request open past
   `pekko.http.server.request-timeout` (20s) with its own 503 "not able to produce a timely response" —
-  what a second call queued behind the first meets. The cart's stock helper reads `CART_ASK_TIMEOUT` and
-  `CART_REQUEST_TIMEOUT`. Before 2026-10-21 the
+  what a second call queued behind the first meets. Raising that alone moves the cut to
+  `pekko.http.server.idle-timeout` (60s), which resets the connection with no response at all (curl
+  exit 56): the idle timeout must stay above the request timeout. The cart's stock helper reads
+  `CART_ASK_TIMEOUT`, `CART_REQUEST_TIMEOUT` and `CART_IDLE_TIMEOUT`. Before 2026-10-21 the
   await and the transport ran out together and the loser decided the answer: a raw `TimeoutException`
   from the await was a 500 "internal error"; `ComponentClient.await` now throws `Timeout`. (2026-10-21)
 - **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only

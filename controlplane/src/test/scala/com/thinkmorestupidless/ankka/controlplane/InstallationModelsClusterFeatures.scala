@@ -712,9 +712,13 @@ class InstallationModelsClusterFeatures
     val name    = real(logical)
     val timeout = modelTimeout.toVector.map(s => literal("CART_MODEL_TIMEOUT", s.toString))
     // The endpoint's call to the agent waits past the model timeout (ten minutes unless a scenario
-    // says), and within the prober's fifteen: a turn on a processor takes minutes, and the
-    // platform's ten seconds would answer for the model.
-    val waits = Vector(literal("CART_ASK_TIMEOUT", "14m"))
+    // says), and the request is held open past that, within the prober's fifteen: a turn on a
+    // processor takes minutes, and the platform's ten seconds or pekko-http's twenty would answer
+    // for the model. A call queued behind another waits for both.
+    val waits = Vector(
+      literal("CART_ASK_TIMEOUT", "14m"),
+      literal("CART_REQUEST_TIMEOUT", "15m")
+    )
     ok(applyJson(descriptor(name, naming("installation", model) ++ timeout ++ waits)))
     deployed = deployed :+ name
     awaitReady(name)

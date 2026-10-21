@@ -176,7 +176,10 @@ is the Scala form; the sidecar reads the certificate only when an installation m
   fails the build.
 - **A call to an agent waits `ankka.ask-timeout`, not the model timeout.** An endpoint's `invoke` of an
   agent on a model that answers in minutes (an installation model on a processor) is a 504 after ten
-  seconds while the turn goes on. The cart's stock helper reads `CART_ASK_TIMEOUT`. Before 2026-10-21 the
+  seconds while the turn goes on, and behind that pekko-http answers any request open past
+  `pekko.http.server.request-timeout` (20s) with its own 503 "not able to produce a timely response" —
+  what a second call queued behind the first meets. The cart's stock helper reads `CART_ASK_TIMEOUT` and
+  `CART_REQUEST_TIMEOUT`. Before 2026-10-21 the
   await and the transport ran out together and the loser decided the answer: a raw `TimeoutException`
   from the await was a 500 "internal error"; `ComponentClient.await` now throws `Timeout`. (2026-10-21)
 - **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only

@@ -24,3 +24,17 @@ class CartConfigSuite extends munit.FunSuite:
       .resolve()
     assertEquals(set.getString("ankka.ask-timeout"), "14m")
   }
+
+  test("a cart whose descriptor sets a request timeout holds a request open that long") {
+    val line = ConfigFactory.parseResources("application.conf")
+    val set = line
+      .withFallback(ConfigFactory.parseString("CART_REQUEST_TIMEOUT = 15m"))
+      .withFallback(ConfigFactory.defaultReference())
+      .resolve()
+    assertEquals(set.getString("pekko.http.server.request-timeout"), "15m")
+    assume(!sys.env.contains("CART_REQUEST_TIMEOUT"), "CART_REQUEST_TIMEOUT is set here")
+    assertEquals(
+      ClusterConfig.load(Map.empty).getString("pekko.http.server.request-timeout"),
+      "20 s"
+    )
+  }

@@ -1,0 +1,26 @@
+package shoppingcart
+
+import com.thinkmorestupidless.ankka.runtime.ClusterConfig
+import com.typesafe.config.ConfigFactory
+
+/**
+ * The cart's own configuration changes the platform's only where its descriptor says: a call's
+ * timeout is the platform's ten seconds unless `CART_ASK_TIMEOUT` is set.
+ */
+class CartConfigSuite extends munit.FunSuite:
+
+  test("a cart whose descriptor sets no ask timeout waits the platform's ten seconds") {
+    assume(!sys.env.contains("CART_ASK_TIMEOUT"), "CART_ASK_TIMEOUT is set in this environment")
+    assertEquals(ClusterConfig.load(Map.empty).getString("ankka.ask-timeout"), "10s")
+  }
+
+  test("a cart whose descriptor sets an ask timeout waits that long") {
+    // The file's own line, resolved against a variable this test can give: the environment's is
+    // the JVM's, which no test can set.
+    val line = ConfigFactory.parseResources("application.conf")
+    val set = line
+      .withFallback(ConfigFactory.parseString("CART_ASK_TIMEOUT = 14m"))
+      .withFallback(ConfigFactory.defaultReference())
+      .resolve()
+    assertEquals(set.getString("ankka.ask-timeout"), "14m")
+  }

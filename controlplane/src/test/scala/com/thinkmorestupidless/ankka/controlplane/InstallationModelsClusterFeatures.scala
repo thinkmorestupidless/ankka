@@ -711,7 +711,11 @@ class InstallationModelsClusterFeatures
     awaitServed(model)
     val name    = real(logical)
     val timeout = modelTimeout.toVector.map(s => literal("CART_MODEL_TIMEOUT", s.toString))
-    ok(applyJson(descriptor(name, naming("installation", model) ++ timeout)))
+    // The endpoint's call to the agent waits past the model timeout (ten minutes unless a scenario
+    // says), and within the prober's fifteen: a turn on a processor takes minutes, and the
+    // platform's ten seconds would answer for the model.
+    val waits = Vector(literal("CART_ASK_TIMEOUT", "14m"))
+    ok(applyJson(descriptor(name, naming("installation", model) ++ timeout ++ waits)))
     deployed = deployed :+ name
     awaitReady(name)
     InPod.prober(k3s, s"$Prefix-$Project", name): Unit

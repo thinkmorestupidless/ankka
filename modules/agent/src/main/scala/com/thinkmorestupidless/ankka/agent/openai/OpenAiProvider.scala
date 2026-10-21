@@ -12,6 +12,7 @@ import org.apache.pekko.stream.scaladsl.Source
 import org.slf4j.LoggerFactory
 
 import java.util.concurrent.Executors
+import javax.net.ssl.{SSLSocketFactory, X509TrustManager}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
@@ -51,7 +52,8 @@ final class OpenAiProvider private (
     connection match
       case Left(reason) => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing = idsFor(request)
+        val outgoing    = idsFor(request)
+        val traceparent = OpenAiProvider.traceparent
         Future {
           try
             shape match
@@ -59,7 +61,9 @@ final class OpenAiProvider private (
                 ResponsesShape.translate(
                   name,
                   OpenAiProvider.json(
-                    client.responses().create(ResponsesShape.build(name, outgoing, settings))
+                    client
+                      .responses()
+                      .create(ResponsesShape.build(name, outgoing, settings, traceparent))
                   )
                 )
               case Shape.ChatCompletions =>
@@ -68,7 +72,9 @@ final class OpenAiProvider private (
                     client
                       .chat()
                       .completions()
-                      .create(ChatCompletionsShape.build(outgoing, settings, stream = false))
+                      .create(
+                        ChatCompletionsShape.build(outgoing, settings, stream = false, traceparent)
+                      )
                   )
                 )
           catch case NonFatal(failure) => throw OpenAiProvider.failed(name, failure)
@@ -82,7 +88,8 @@ final class OpenAiProvider private (
     connection match
       case Left(reason) => Source.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing = idsFor(request)
+        val outgoing    = idsFor(request)
+        val traceparent = OpenAiProvider.traceparent
         Source
           .unfoldResource[Option[ModelChunk], OpenAiStreaming](
             () =>
@@ -93,7 +100,9 @@ final class OpenAiProvider private (
                       name,
                       client
                         .responses()
-                        .createStreaming(ResponsesShape.build(name, outgoing, settings))
+                        .createStreaming(
+                          ResponsesShape.build(name, outgoing, settings, traceparent)
+                        )
                     )
                   case Shape.ChatCompletions =>
                     ChatCompletionsShape.Streaming(
@@ -101,7 +110,7 @@ final class OpenAiProvider private (
                         .chat()
                         .completions()
                         .createStreaming(
-                          ChatCompletionsShape.build(outgoing, settings, stream = true)
+                          ChatCompletionsShape.build(outgoing, settings, stream = true, traceparent)
                         )
                     )
               catch case NonFatal(failure) => throw OpenAiProvider.failed(name, failure),
@@ -121,6 +130,15 @@ final class OpenAiProvider private (
       case None       => request
 
 object OpenAiProvider:
+
+  /**
+   * The calling thread's trace, as the header that carries it to the endpoint: read before the call
+   * moves to the SDK's thread, which cannot see it, so a server that traces (the installation's
+   * model server does) records its span in the turn's trace.
+   */
+  private def traceparent: Option[String] =
+    com.thinkmorestupidless.ankka.runtime.Trace.currentContext
+      .map(com.thinkmorestupidless.ankka.runtime.Traceparent.render)
 
   /**
    * The current general-purpose OpenAI model, as of October 2026.
@@ -235,20 +253,31 @@ object OpenAiProvider:
       key: Option[String] = None,
       shape: Shape = Shape.ChatCompletions,
       defaults: Defaults = Defaults(),
-      quirks: Quirks = Quirks.compatibleOpenAi
+      quirks: Quirks = Quirks.compatibleOpenAi,
+      tls: Option[ClientTls] = None
   ): OpenAiProvider =
-    new OpenAiProvider(Right(client(address, key)), name, modelName, shape, defaults, quirks)
+    new OpenAiProvider(Right(client(address, key, tls)), name, modelName, shape, defaults, quirks)
+
+  /**
+   * The certificate a call presents and the servers it accepts, for an address that asks for one.
+   */
+  final case class ClientTls(socketFactory: SSLSocketFactory, trustManager: X509TrustManager)
 
   /**
    * Nothing is retried here: a failed call is the provider's failure, as ankka treats every one.
    */
-  private def client(address: String, key: Option[String]): OpenAIClient =
-    OpenAIOkHttpClient
+  private def client(
+      address: String,
+      key: Option[String],
+      tls: Option[ClientTls] = None
+  ): OpenAIClient =
+    val builder = OpenAIOkHttpClient
       .builder()
       .baseUrl(address)
       .apiKey(key.filter(_.nonEmpty).getOrElse(ModelProviders.NoKey))
       .maxRetries(0)
-      .build()
+    tls.foreach(t => builder.sslSocketFactory(t.socketFactory).trustManager(t.trustManager))
+    builder.build()
 
   /** An SDK value as ankka's JSON, through the SDK's own mapper. */
   private[openai] def json(value: AnyRef): Json =

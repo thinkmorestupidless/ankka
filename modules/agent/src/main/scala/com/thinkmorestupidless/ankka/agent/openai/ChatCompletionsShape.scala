@@ -24,7 +24,8 @@ private[openai] object ChatCompletionsShape:
   def build(
       request: ModelRequest,
       settings: OpenAiSettings,
-      stream: Boolean
+      stream: Boolean,
+      traceparent: Option[String] = None
   ): ChatCompletionCreateParams =
     val messages = request.systemMessage
       .map(text => Json.obj("role" -> Json.str("system"), "content" -> Json.str(text)))
@@ -60,6 +61,7 @@ private[openai] object ChatCompletionsShape:
         "tools",
         OpenAiProvider.jsonValue(Json.Arr(request.tools.map(tool)))
       ): Unit
+    traceparent.foreach(t => builder.putAdditionalHeader("traceparent", t): Unit)
     builder.build()
 
   private def tool(spec: ToolSpec): Json =

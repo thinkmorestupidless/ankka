@@ -379,7 +379,8 @@ lazy val authOidc = project
 /** Agents: model providers, session memory, function tools, the tool loop. */
 lazy val agent = project
   .in(file("modules/agent"))
-  .dependsOn(core, sdk, runtime)
+  // The installation model's provider is tested against a stand-in model server behind mutual TLS.
+  .dependsOn(core, sdk, runtime, testPki % Test, testOllama % Test)
   .settings(commonSettings)
   .settings(
     name := "ankka-agent",
@@ -692,7 +693,8 @@ lazy val sidecar = project
     telemetryOtlp % "compile;test->test",
     testkit       % Test,
     operator      % "test->test;test->compile",
-    testPki       % Test
+    testPki       % Test,
+    testOllama    % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)

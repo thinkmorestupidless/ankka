@@ -140,6 +140,75 @@ class ProviderConfigSuite extends munit.FunSuite:
     }
   }
 
+  private val installation =
+    ProviderConfig("local", model = Some("qwen3:0.6b"), preset = Some("installation"))
+
+  private val door = Some("https://models.models-system.svc:8443")
+
+  test("an installation model is the model server's address, in Chat Completions, with no key") {
+    val resolved = installation.resolve(door).toOption.get
+    assertEquals(resolved.url, "https://models.models-system.svc:8443/v1")
+    assertEquals(resolved.protocol, ModelProtocol.OpenAi)
+    assertEquals(resolved.shape, Shape.ChatCompletions)
+    assertEquals(resolved.model, "qwen3:0.6b")
+    assertEquals(resolved.key, None)
+    assert(resolved.installation)
+  }
+
+  test("an installation model takes a model and nothing else") {
+    def refused(config: ProviderConfig) =
+      config.resolve(door).left.map(_.describe(variable(config.name)))
+    assertEquals(
+      refused(installation.copy(url = Some("http://elsewhere:11434/v1"))),
+      Left("ANKKA_MODEL_LOCAL_URL: an installation model takes no address")
+    )
+    assertEquals(
+      refused(installation.copy(key = Some("k"))),
+      Left("ANKKA_MODEL_LOCAL_KEY: an installation model takes no key")
+    )
+    assertEquals(
+      refused(installation.copy(protocol = Some("anthropic"))),
+      Left("ANKKA_MODEL_LOCAL_PROTOCOL: an installation model takes no protocol")
+    )
+    assertEquals(
+      refused(installation.copy(model = None)),
+      Left("ANKKA_MODEL_LOCAL_MODEL: an installation model must be named")
+    )
+  }
+
+  test(
+    "a service run outside an installation that names the preset installation is told there is no model server"
+  ) {
+    assertEquals(
+      installation.resolve(None).left.map(_.describe(variable("local"))),
+      Left(s"model provider 'local': ${ProviderConfig.NoModelServer}")
+    )
+    assert(ProviderConfig.NoModelServer.contains("docs.ankka.cloud/platform/installation-models"))
+    val scala = intercept[IllegalArgumentException](
+      ModelProviders.installation("qwen3:0.6b", env = Map.empty)
+    )
+    assertEquals(
+      scala.getMessage,
+      s"model provider 'installation': ${ProviderConfig.NoModelServer}"
+    )
+  }
+
+  test("a service with no certificate is told so, naming why") {
+    val error = intercept[IllegalArgumentException](
+      ModelProviders.installation(
+        "qwen3:0.6b",
+        name = "local",
+        env = Map("ANKKA_MODELS_ADDRESS" -> "https://models.models-system.svc:8443")
+      )
+    )
+    assert(
+      error.getMessage.startsWith(
+        "model provider 'local': an installation model is reached with the service's certificate"
+      ),
+      error.getMessage
+    )
+  }
+
   test("a Scala service is told the same problem without the sidecar's variables") {
     val error = intercept[IllegalArgumentException](
       ModelProviders.named("local", preset = Some("bedrock"), key = Some("k"))

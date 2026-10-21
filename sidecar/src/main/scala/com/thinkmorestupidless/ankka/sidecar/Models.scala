@@ -1,7 +1,13 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
-import com.thinkmorestupidless.ankka.agent.providers.{ModelProviders, ProviderConfig}
+import com.thinkmorestupidless.ankka.agent.providers.{
+  InstallationModels,
+  ModelProviders,
+  ProviderConfig
+}
+import com.thinkmorestupidless.ankka.core.PlatformVariables
+import com.thinkmorestupidless.ankka.runtime.{ClusterConfig, RotatingTls}
 import com.thinkmorestupidless.ankka.agent.{
   AnthropicProvider,
   ChatMessage,
@@ -29,7 +35,8 @@ import scala.util.Try
  *   - `ANTHROPIC_API_KEY` configures `anthropic` (its model `ANKKA_MODEL_NAME`), and
  *     `OPENAI_API_KEY` configures `openai`: each is that vendor's preset with a key;
  *   - `ANKKA_MODEL_<NAME>_{PROTOCOL,URL,MODEL,KEY,SHAPE,PRESET}` configures any provider by name,
- *     and overrides a shorthand's preset for the same name;
+ *     and overrides a shorthand's preset for the same name; the preset `installation` takes only a
+ *     model, and is reached at the platform's model server with the service's certificate;
  *   - `ANKKA_MODEL_SCRIPT` configures `scripted`, a model answering from a script, for a test.
  *
  * The default is the only real provider when there is one, else the one `ANKKA_MODEL_DEFAULT`
@@ -106,7 +113,12 @@ object Models:
   private def variableOf(name: String)(setting: String): String =
     s"$Prefix${name.toUpperCase}_$setting"
 
-  private def configure(name: String, settings: Map[String, String]): ModelProvider =
+  private def configure(
+      name: String,
+      settings: Map[String, String],
+      modelsAddress: Option[String],
+      serviceTls: => Either[String, RotatingTls]
+  ): ModelProvider =
     def setting(s: String) = settings.get(s).filter(_.nonEmpty)
     ProviderConfig(
       name,
@@ -116,12 +128,25 @@ object Models:
       model = setting("MODEL"),
       key = setting("KEY"),
       preset = setting("PRESET")
-    ).resolve match
-      case Right(resolved) => ModelProviders.configure(resolved)
+    ).resolve(modelsAddress) match
+      case Right(resolved) => ModelProviders.configure(resolved, serviceTls)
       case Left(problem)   => refuse(problem.describe(variableOf(name)))
 
-  def fromEnv(env: Map[String, String] = sys.env): Models =
-    val byName = family(env)
+  /**
+   * @param serviceTls
+   *   the service's certificate, read only when an installation model is configured: the credential
+   *   its model server admits
+   */
+  def fromEnv(
+      env: Map[String, String] = sys.env,
+      serviceTls: Map[String, String] => Either[String, RotatingTls] = env =>
+        InstallationModels.serviceTls(ClusterConfig.load(env))
+  ): Models =
+    val byName        = family(env)
+    val modelsAddress = present(env, PlatformVariables.ModelsAddress)
+    lazy val tls      = serviceTls(env)
+    def configure(name: String, settings: Map[String, String]): ModelProvider =
+      Models.configure(name, settings, modelsAddress, tls)
 
     // `ANKKA_MODEL_NAME` is the Claude model's shorthand: the same setting as the family's.
     (

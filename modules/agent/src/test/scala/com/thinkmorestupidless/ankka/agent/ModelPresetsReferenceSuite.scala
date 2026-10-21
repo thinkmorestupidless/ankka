@@ -49,10 +49,14 @@ object ModelPresetsReferenceSuite:
       "| Preset | Protocol | Shape | Address | Key | Default model | Reasoning efforts | Temperature | Tool call ids | Notes |\n" +
         "|---|---|---|---|---|---|---|---|---|---|\n"
     val rows = Presets.names.map(Presets.all).map { p =>
-      val shape   = if p.protocol == ModelProtocol.Anthropic then "—" else p.shape.wireName
-      val address = p.address.map(a => s"`$a`").getOrElse("required")
-      val key     = if p.keyRequired then "required" else "none"
-      val model   = p.defaultModel.map(m => s"`$m`").getOrElse("required")
+      val shape = if p.protocol == ModelProtocol.Anthropic then "—" else p.shape.wireName
+      val address = p.address
+        .map(a => s"`$a`")
+        .getOrElse(
+          if p.name == Presets.Installation then "the platform's" else "required"
+        )
+      val key   = if p.keyRequired then "required" else "none"
+      val model = p.defaultModel.map(m => s"`$m`").getOrElse("required")
       val efforts =
         if p.protocol == ModelProtocol.Anthropic then
           if p.quirks.sendsThinking then "adaptive thinking and effort" else "—"

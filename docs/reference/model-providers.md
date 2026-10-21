@@ -150,6 +150,7 @@ table says required, the value is given beside the preset.
 | `gemini` | openai | chat-completions | `https://generativelanguage.googleapis.com/v1beta/openai/` | required | `gemini-flash-latest` | low, medium, high | sent | as given |  |
 | `groq` | openai | chat-completions | `https://api.groq.com/openai/v1` | required | `openai/gpt-oss-120b` | as asked | sent | as given |  |
 | `huggingface` | openai | chat-completions | `https://router.huggingface.co/v1` | required | required | as asked | sent | as given |  |
+| `installation` | openai | chat-completions | the platform's | none | required | as asked | sent | as given | the installation's model server; the platform gives the address and the certificate |
 | `llamacpp` | openai | chat-completions | `http://127.0.0.1:9931/v1` | none | required | as asked | sent | as given | older builds listen on `8080` |
 | `lmstudio` | openai | chat-completions | `http://localhost:1234/v1` | none | required | as asked | sent | as given |  |
 | `mistral` | openai | chat-completions | `https://api.mistral.ai/v1` | required | `mistral-large-latest` | as asked | sent | rewritten to 9 letters and digits | tool call ids are rewritten to nine letters and digits |

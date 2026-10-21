@@ -20,6 +20,7 @@ import com.thinkmorestupidless.ankka.crd.AnkkaSerialization
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
+  InPod,
   ModelServerStack,
   Operator,
   PkiStack,
@@ -35,10 +36,11 @@ import org.testcontainers.k3s.K3sContainer
 import org.testcontainers.utility.DockerImageName
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.net.URI
+import java.net.{URI, URLEncoder}
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import java.util.Base64
+import scala.concurrent.{blocking, Await, ExecutionContext, Future}
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
@@ -47,17 +49,14 @@ import scala.jdk.CollectionConverters.*
  * JVM, as `ObjectStorageClusterFeatures` runs them, the model server from its own component with
  * the real Ollama image and real models from Ollama's registry, CloudNativePG and cert-manager
  * beneath, and the shopping cart sample as every service's image. A service names an installation
- * model with the two variables a descriptor gives (`ANKKA_MODEL_LOCAL_PRESET`, `_MODEL`); the
- * sample's runtime never reads them, so what is proved here is the platform's half: what the
- * operator decides, what the installation's status says, and who the door admits.
+ * model with the two variables a descriptor gives (`ANKKA_MODEL_LOCAL_PRESET`, `_MODEL`), and the
+ * sample, reading them, registers its stock helper on that model (`/helper/ask`), which the
+ * scenarios ask from a prober holding the service's certificate: a real tool call answered by the
+ * real model server, two calls at once, a call past the model timeout and a call cut by a restart.
  *
  * The operator reads the status document through a forward to the keeper's status port, and the
  * control plane reads the door through a forward with a certificate cert-manager issued it as
  * `ankka://platform/controlplane`, which is the control plane's own identity in a cluster.
- *
- * An agent's call to an installation model needs feature 052's model providers, which resolve the
- * preset in the agent and the sidecar; those scenarios are listed in `ranOutside` until 052 is
- * built, and shown as ignored with that reason in every run.
  *
  * Disable with `-Dankka.cluster.tests=off`, which also skips building the images.
  */
@@ -77,32 +76,27 @@ class InstallationModelsClusterFeatures
     "a served model stays served while no call comes"                     -> "KeeperSuite",
     "a served model is fetched once and its digest recorded"              -> "KeeperSuite",
     "the model server's metrics reach the installation's telemetry store" -> "KeeperMetricsSuite",
-    "a call to an installation model is a span in the turn's trace"       -> "DoorSuite",
+    "a call to an installation model is a span in the turn's trace" ->
+      "InstallationModelsSuite (the call carries the turn's traceparent) and DoorSuite (the door records its span under it)",
     "the model server is placed and sized by the installation's own settings" -> "RemoteOverlaySuite",
     "a local platform asked for the model server serves one small model on a CPU" ->
       "RemoteOverlaySuite",
-    "a local platform not asked for the model server has none" -> "RemoteOverlaySuite"
+    "a local platform not asked for the model server has none" -> "RemoteOverlaySuite",
+    "a service names an installation model with a preset and a model and no key" ->
+      "ModelsSuite (the sidecar resolves the preset to the model server, reached with the service's certificate) and InstallationModelsSuite (the operator gives the address to a process's sidecar)",
+    "every call to an installation model is a turn or an iteration in a session" ->
+      "RemoteModelsSuite (a process's agent on an installation model has its turn recorded in its session under the provider)",
+    "an agent with tools on a model that cannot call tools is told so at the first call" ->
+      "InstallationModelsSuite (agent): nothing is sent to the model",
+    "effort on a model that cannot think is told so at the first call" ->
+      "InstallationModelsSuite (agent): nothing is sent to the model",
+    "a capability failure is the model provider's failure and the service is unaffected" ->
+      "InstallationModelsSuite (the refusal is the provider's ModelCallFailed) and IterationFailureSuite (a provider's failure is a failed iteration)",
+    "a service run outside an installation that names the preset installation is told there is no model server" ->
+      "ModelsSuite (the sidecar) and ProviderConfigSuite (ModelProviders.installation)"
   )
 
-  private val Providers052 =
-    "waits on feature 052, whose model providers resolve the preset installation in the agent and the sidecar; no suite can run it until then"
-
   override protected def ranOutside: Map[String, String] = Map(
-    "a service names an installation model with a preset and a model and no key" -> Providers052,
-    "an agent on an installation model answers with a tool call and nothing leaves the installation" ->
-      Providers052,
-    "every call to an installation model is a turn or an iteration in a session" -> Providers052,
-    "an agent with tools on a model that cannot call tools is told so at the first call" ->
-      Providers052,
-    "effort on a model that cannot think is told so at the first call" -> Providers052,
-    "a capability failure is the model provider's failure and the service is unaffected" ->
-      Providers052,
-    "an agent on a model with the capabilities it needs is answered" -> Providers052,
-    "a call in flight when the model server restarts is the model provider's failure" -> Providers052,
-    "a call beyond what the model server runs at once waits and is answered"     -> Providers052,
-    "a call that waits past the model timeout is timed out as any model call is" -> Providers052,
-    "a service run outside an installation that names the preset installation is told there is no model server" ->
-      Providers052,
     "a service naming an installation model on a cluster without a model server fails to start saying so" ->
       "waits on feature 050, remote clusters, which has no code; InstallationModelsSuite holds the operator's refusal on a cluster with no server"
   )
@@ -302,6 +296,9 @@ class InstallationModelsClusterFeatures
       podsBefore = Set.empty
       digestBefore = None
       workloadAnswer = (0, "")
+      answers = Vector.empty
+      modelTimeout = None
+      helperService = ""
 
   // ── the CLI, the cluster and the server ───────────────────────────────────
 
@@ -691,4 +688,198 @@ class InstallationModelsClusterFeatures
     // No HTTP answer at all: curl prints 000 and says why. A 403 would mean the door read a request.
     assertEquals(code, 0, err)
     assert(err.toLowerCase.contains("ssl") || err.toLowerCase.contains("alert"), err)
+  }
+
+  // ── an agent on an installation model ─────────────────────────────────────
+
+  /** What the stock helper's callers were answered: the status and the body. */
+  private var answers: Vector[Future[(Int, String)]] = Vector.empty
+  private var completionsBefore: Int                 = 0
+  private var modelTimeout: Option[Int]              = None
+  private var helperService: String                  = ""
+
+  private val asking: ExecutionContext =
+    ExecutionContext.fromExecutor(java.util.concurrent.Executors.newCachedThreadPool())
+
+  /**
+   * The shopping cart with its stock helper on the installation model `model`: the descriptor names
+   * a provider `local` with the preset, as any service does, and the sample registers the agent
+   * when it reads one.
+   */
+  private def deployHelper(logical: String, model: String): Unit =
+    if !declared.contains(model) then declare(declared :+ model)
+    awaitServed(model)
+    val name    = real(logical)
+    val timeout = modelTimeout.toVector.map(s => literal("CART_MODEL_TIMEOUT", s.toString))
+    // The endpoint's call to the agent waits past the model timeout (ten minutes unless a scenario
+    // says), and the request is held open past that, within the prober's fifteen: a turn on a
+    // processor takes minutes, and the platform's ten seconds, pekko-http's twenty or its sixty
+    // idle would answer for the model. A call queued behind another waits for both.
+    val waits = Vector(
+      literal("CART_ASK_TIMEOUT", "14m"),
+      literal("CART_REQUEST_TIMEOUT", "15m"),
+      literal("CART_IDLE_TIMEOUT", "16m")
+    )
+    ok(applyJson(descriptor(name, naming("installation", model) ++ timeout ++ waits)))
+    deployed = deployed :+ name
+    awaitReady(name)
+    InPod.prober(k3s, s"$Prefix-$Project", name): Unit
+    helperService = name
+    podsBefore = pods(name).map(_.getMetadata.getName).toSet
+
+  /** A question to the stock helper, from the prober holding the service's own certificate. */
+  private def ask(question: String): Future[(Int, String)] =
+    val name = helperService
+    val q    = URLEncoder.encode(question, StandardCharsets.UTF_8)
+    Future(
+      blocking(
+        InPod.curl(
+          k3s,
+          s"$Prefix-$Project",
+          "prober",
+          s"https://$name.$Prefix-$Project.svc:9000/helper/ask?question=$q",
+          verifyHost = false,
+          maxSeconds = 900
+        )
+      )
+    )(using asking)
+
+  private def answered(i: Int = 0): (Int, String) =
+    Await.result(answers.lift(i).getOrElse(fail(s"no message $i was sent")), 16.minutes)
+
+  private val ToolQuestion = "Are apples in stock? Use the lookup tool."
+  private val LongQuestion =
+    "Write a story of at least two thousand words about a lighthouse keeper, chapter by chapter."
+
+  Given(
+    "a deployed service {string} with an agent {string} that names the model provider {string}, an installation model"
+  ) { (logical: String, agent: String, provider: String) =>
+    assertEquals((agent, provider), ("helper", "local"), "the sample's agent and provider")
+    deployHelper(logical, Small)
+  }
+
+  Given("a deployed service {string} with an agent {string} on the installation model {string}") {
+    (logical: String, agent: String, model: String) =>
+      assertEquals(agent, "helper", "the sample's agent")
+      deployHelper(logical, model)
+  }
+
+  Given("a deployed service {string} with an agent {string} on an installation model") {
+    (logical: String, agent: String) =>
+      assertEquals(agent, "helper", "the sample's agent")
+      deployHelper(logical, Small)
+  }
+
+  Given("a tool {string} of {string}") { (tool: String, agent: String) =>
+    assertEquals((tool, agent), ("lookup", "helper"), "the sample's tool")
+  }
+
+  Given(
+    "an installation whose model server serves the model {string}, which has the capability {string}"
+  ) { (model: String, _: String) =>
+    declare(Vector(model))
+    awaitServed(model)
+  }
+
+  When("a caller sends a message to {string} that makes the model call {string}") {
+    (_: String, _: String) =>
+      completionsBefore = ModelServerStack.completionsAnswered(k3s)
+      answers = Vector(ask(ToolQuestion))
+  }
+
+  Then("the tool {string} runs") { (_: String) =>
+    val (code, body) = answered()
+    assertEquals(code, 200, body)
+    val runs =
+      body.linesIterator.nextOption().map(_.stripPrefix("lookups=")).flatMap(_.toIntOption)
+    assert(runs.exists(_ > 0), s"the tool did not run: $body")
+  }
+
+  Then("the caller is answered") { () =>
+    val (code, body) = answered()
+    assertEquals(code, 200, body)
+    assert(body.linesIterator.drop(1).mkString.trim.nonEmpty, s"an empty answer: $body")
+  }
+
+  Then(
+    "every call the turn made was answered by the model server of the cluster, and none by anything outside the installation"
+  ) { () =>
+    // A turn with a tool round is two model calls at least, and the service names no address of
+    // its own: the platform gave it the model server's, and the model server answered both.
+    val env = servicePods.environment(Project, helperService)
+    assert(!env.contains("ANKKA_MODEL_LOCAL_URL"), env.keys.toVector.sorted.mkString(", "))
+    assertEquals(env.get("ANKKA_MODELS_ADDRESS"), Some(ModelServerStack.InClusterAddress))
+    val made = ModelServerStack.completionsAnswered(k3s) - completionsBefore
+    assert(made >= 2, s"the model server answered $made completions for a turn with a tool round")
+  }
+
+  // ── a call in flight, calls at once, a call past the timeout ──────────────
+
+  Given("a message to {string} the model server is answering") { (_: String) =>
+    answers = Vector(ask(LongQuestion))
+    // Long enough for the request to reach the model server and the model to start answering.
+    Thread.sleep(5000)
+    assert(!answers.head.isCompleted, s"answered before the restart: ${answers.head.value}")
+  }
+
+  Then("the caller of {string} is told the model provider is unavailable") { (_: String) =>
+    val (code, body) = answered()
+    assertEquals(code, 503, body)
+    assert(body.contains("local"), s"the failure does not name the provider: $body")
+  }
+
+  Then("{string} is unaffected") { (logical: String) =>
+    awaitReady(real(logical))
+    val now = pods(real(logical))
+    assertEquals(now.map(_.getMetadata.getName).toSet, podsBefore)
+    for pod <- now; status <- pod.getStatus.getContainerStatuses.asScala do
+      assertEquals(status.getRestartCount.intValue, 0, pod.getMetadata.getName)
+  }
+
+  Given("an installation whose model server runs one call at once") { () =>
+    assertEquals(ModelServerStack.parallel(k3s), "1")
+    awaitServed(Small)
+  }
+
+  Given("two agents on the installation model {string}") { (model: String) =>
+    deployHelper("support", model)
+  }
+
+  When("each agent is sent a message at the same moment") { () =>
+    answers = Vector(ask(ToolQuestion), ask(ToolQuestion))
+  }
+
+  Then("both messages are answered") { () =>
+    for i <- answers.indices do
+      val (code, body) = answered(i)
+      assertEquals(code, 200, s"message $i: $body")
+  }
+
+  Then("neither caller is told the model provider is unavailable before the model timeout") { () =>
+    for i <- answers.indices do
+      val (code, body) = answered(i)
+      assert(code != 503 && code != 504, s"message $i: $code $body")
+  }
+
+  Given("a model timeout of {string}") { (timeout: String) =>
+    modelTimeout = Some(timeout.stripSuffix(" seconds").trim.toInt)
+  }
+
+  Given(
+    "an agent on the installation model {string} whose message the model server is answering slowly"
+  ) { (model: String) =>
+    deployHelper("support", model)
+    answers = Vector(ask(LongQuestion))
+    Thread.sleep(2000)
+  }
+
+  When("a second agent on the same installation model is sent a message") { () =>
+    answers = answers :+ ask(ToolQuestion)
+  }
+
+  Then("the second caller is told the model provider timed out after {string}") {
+    (timeout: String) =>
+      val (code, body) = answered(1)
+      assertEquals(code, 504, body)
+      assert(body.contains(s"within $timeout"), body)
   }

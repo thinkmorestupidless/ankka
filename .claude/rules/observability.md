@@ -50,7 +50,10 @@ between `VarHandle` fences.
 A trace context crosses services as W3C `traceparent` (`Traceparent`, the one parser and writer): read
 by `HttpServer`'s `Tracing.request`, `grpc`'s `Binding`, and the four topic handlers; written by
 `Observability.calling` for both service clients (a `Client` span under the calling handler's) and by
-`ProjectionSupport.stamped` on every published message, single or several, in process and remote. Logs
+`ProjectionSupport.stamped` on every published message, single or several, in process and remote;
+and by `OpenAiProvider` on every model call, read on the calling thread before the SDK's thread
+takes the call (an installation model's capability lookup carries the scope over with
+`Trace.capture`/`resume`, or the header is lost). Logs
 are never exported: `TraceLogging`, a logback turbo filter, puts `trace_id` and `span_id` in the logging
 context of a line about to be written, or clears them. The operator renders `ANKKA_OTLP_ENDPOINT` as a
 literal on the runtime's container of every hosting but web, and `ANKKA_OTLP_HEADERS` by reference to

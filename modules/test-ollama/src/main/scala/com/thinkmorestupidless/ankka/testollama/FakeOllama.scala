@@ -1,12 +1,19 @@
 package com.thinkmorestupidless.ankka.testollama
 
-import com.sun.net.httpserver.{HttpExchange, HttpServer}
+import com.sun.net.httpserver.{
+  HttpExchange,
+  HttpServer,
+  HttpsConfigurator,
+  HttpsParameters,
+  HttpsServer
+}
 
 import java.io.OutputStream
 import java.net.{InetAddress, InetSocketAddress}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.{Duration, Instant}
 import java.util.concurrent.{ConcurrentHashMap, CopyOnWriteArrayList, CountDownLatch, Executors}
+import javax.net.ssl.SSLContext
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -38,8 +45,10 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
   /** When set, a fetch waits on it after its first status line, as a download of minutes does. */
   @volatile var pullHold: Option[CountDownLatch] = None
 
-  def port: Int   = server.getAddress.getPort
-  def url: String = s"http://127.0.0.1:$port"
+  def port: Int = server.getAddress.getPort
+  def url: String = server match
+    case _: HttpsServer => s"https://localhost:$port"
+    case _              => s"http://127.0.0.1:$port"
 
   /** A fetch of `tag` brings this model. */
   def offer(
@@ -233,8 +242,32 @@ object FakeOllama:
    * long a model a request names stays loaded when the request says nothing; `None` is for ever.
    */
   def start(defaultKeepAlive: Option[Duration] = Some(Duration.ofMinutes(5))): FakeOllama =
-    val server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress, 0), 0)
-    val fake   = new FakeOllama(server, defaultKeepAlive)
+    serve(
+      HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress, 0), 0),
+      defaultKeepAlive
+    )
+
+  /**
+   * Starts behind mutual TLS, as a service meets the model server through its door: `context`
+   * serves the listener's certificate, and a client without a certificate `context` trusts fails
+   * the handshake. `url` is then `https://localhost:<port>`, the name a test certificate carries.
+   */
+  def startTls(
+      context: SSLContext,
+      defaultKeepAlive: Option[Duration] = Some(Duration.ofMinutes(5))
+  ): FakeOllama =
+    val server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress, 0), 0)
+    server.setHttpsConfigurator(
+      new HttpsConfigurator(context):
+        override def configure(parameters: HttpsParameters): Unit =
+          val ssl = context.getDefaultSSLParameters
+          ssl.setNeedClientAuth(true)
+          parameters.setSSLParameters(ssl)
+    )
+    serve(server, defaultKeepAlive)
+
+  private def serve(server: HttpServer, defaultKeepAlive: Option[Duration]): FakeOllama =
+    val fake = new FakeOllama(server, defaultKeepAlive)
     server.createContext("/", exchange => fake.handle(exchange))
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
     server.start()

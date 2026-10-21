@@ -94,9 +94,12 @@ An agent's model can be an **installation model** (feature 053): a provider whos
 names only a model (`ANKKA_MODEL_<X>_PRESET=installation`, `ANKKA_MODEL_<X>_MODEL`) and takes its address
 from `ANKKA_MODELS_ADDRESS`, which the operator renders on the platform's container, and its client
 certificate from the service's own. No address and no key: the operator fails a descriptor that gives
-either, and holds the service until the model is served. Resolving the preset in the agent and the sidecar,
-and the capability check that tells an agent at its first call that its model cannot call tools or think,
-are not built yet.
+either, and holds the service until the model is served. `ProviderConfig.resolve(modelsAddress)` turns the preset
+into a Chat Completions config at `<address>/v1`; `InstallationModels` builds the client from the
+service's `RotatingTls` (`ankka.tls.service-directory`), trusting only `ankka://platform/models`, and
+wraps it in `Checked`, which asks `/api/show` once per model (successes cached, failures not) and refuses
+a request needing tools or an effort the model lacks before it is sent. `ModelProviders.installation`
+is the Scala form; the sidecar reads the certificate only when an installation model is configured.
 
 ## Traps
 
@@ -171,6 +174,16 @@ are not built yet.
   that is no setting is refused at start: a misspelt `_URLS` must not become a provider refused for the
   wrong reason. Build those names from the prefix, never as a literal list, or `PlatformDeclarationSuite`
   fails the build.
+- **A call to an agent waits `ankka.ask-timeout`, not the model timeout.** An endpoint's `invoke` of an
+  agent on a model that answers in minutes (an installation model on a processor) is a 504 after ten
+  seconds while the turn goes on, and behind that pekko-http answers any request open past
+  `pekko.http.server.request-timeout` (20s) with its own 503 "not able to produce a timely response" —
+  what a second call queued behind the first meets. Raising that alone moves the cut to
+  `pekko.http.server.idle-timeout` (60s), which resets the connection with no response at all (curl
+  exit 56): the idle timeout must stay above the request timeout. The cart's stock helper reads
+  `CART_ASK_TIMEOUT`, `CART_REQUEST_TIMEOUT` and `CART_IDLE_TIMEOUT`. Before 2026-10-21 the
+  await and the transport ran out together and the loser decided the answer: a raw `TimeoutException`
+  from the await was a 500 "internal error"; `ComponentClient.await` now throws `Timeout`. (2026-10-21)
 - **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only
   (calls since the last user message), as OpenAI does; an earlier turn's call goes back without its
   reasoning, which was never kept.

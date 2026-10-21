@@ -116,6 +116,27 @@ object ModelServerStack:
   def keeperLog(k3s: K3sContainer): String =
     PkiStack.kubectl(k3s, "-n", Namespace, "logs", s"$Name-0", "-c", "keeper")
 
+  /**
+   * How many chat completions Ollama in the server's current pod has answered: it logs a line for
+   * each request it finished, whoever sent it, and only the keeper's door can send it one.
+   */
+  def completionsAnswered(k3s: K3sContainer): Int =
+    PkiStack
+      .kubectl(k3s, "-n", Namespace, "logs", s"$Name-0", "-c", "ollama")
+      .linesIterator
+      .count(_.contains("\"/v1/chat/completions\""))
+
+  /** How many calls Ollama runs at once, as the server's pod is given it. */
+  def parallel(k3s: K3sContainer): String =
+    PkiStack.jsonPath(
+      k3s,
+      "-n",
+      Namespace,
+      "statefulset",
+      Name,
+      "{.spec.template.spec.containers[?(@.name==\"ollama\")].env[?(@.name==\"OLLAMA_NUM_PARALLEL\")].value}"
+    )
+
   private def awaitReady(k3s: K3sContainer, timeout: FiniteDuration): Unit =
     waitFor(timeout, "the model server is ready", state(k3s)) {
       PkiStack.jsonPath(

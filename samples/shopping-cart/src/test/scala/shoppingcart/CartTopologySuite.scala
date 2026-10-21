@@ -32,6 +32,7 @@ class CartTopologySuite extends munit.FunSuite:
     "CartGraph"          -> CartGraph.descriptor,
     "CartContentsGraph"  -> CartContentsGraph.descriptor,
     "ServiceCaller"      -> ServiceCaller.descriptor,
+    "StockHelper"        -> StockHelper.descriptor,
     "WalletEntity"       -> WalletEntity.descriptor
   )
 

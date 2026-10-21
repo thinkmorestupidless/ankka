@@ -13,8 +13,16 @@
 - **Local platform.** `ANKKA_LOCAL_MODELS=on ./kustomization/deploy-local.sh`, or
   `just deploy-models`, adds the model server with one small model that runs on a processor.
 
-Agents cannot call an installation model in this release: resolving the preset in the agent and the
-sidecar is feature 052's work. The limitations page says so.
+- **Agents call installation models.** A process's agent names the provider through its sidecar's
+  variables (`ANKKA_MODEL_<NAME>_PRESET=installation`, `_MODEL`); a Scala service builds it with
+  `ModelProviders.installation("qwen3:0.6b")`. The platform gives the address, and the call
+  presents the service's own certificate and accepts only the model server's. Outside an
+  installation the provider is refused at start, naming the documentation.
+- **What the model can do is checked at the first call.** An agent with tools on a model that
+  cannot call tools, or asking for an effort of a model that cannot think, is told so before the
+  model is asked, as the provider's failure naming the model; the service is unaffected.
+- **Model calls carry the turn's trace.** The OpenAI provider sends `traceparent` on every call,
+  so a server that traces (the model server's keeper does) records its span in the turn's trace.
 
 ## Before you upgrade
 

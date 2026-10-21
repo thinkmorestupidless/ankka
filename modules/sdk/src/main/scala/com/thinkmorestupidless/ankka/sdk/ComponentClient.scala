@@ -126,9 +126,16 @@ object ComponentClient:
    * releases its carrier, so waiting costs nothing and "write straightforward sequential code" is
    * real rather than aspirational. On a fork-join pool it signals the pool to compensate instead of
    * silently starving it.
+   *
+   * A wait that runs out is a `CommandError` whose code is `Timeout`, as the transport's own
+   * timeout is: the two run out at the same moment, and whichever comes first, the caller is told
+   * the same thing, never an exception no handler expects.
    */
   def await[A](future: Future[A], timeout: FiniteDuration): A =
-    scala.concurrent.blocking(Await.result(future, timeout))
+    try scala.concurrent.blocking(Await.result(future, timeout))
+    catch
+      case _: java.util.concurrent.TimeoutException =>
+        throw CommandError(s"no reply within $timeout", ErrorCode.Timeout)
 
 /** Entry point for calls to event sourced entities. */
 final class EventSourcedEntityCalls private[ankka] (

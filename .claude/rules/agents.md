@@ -174,6 +174,11 @@ is the Scala form; the sidecar reads the certificate only when an installation m
   that is no setting is refused at start: a misspelt `_URLS` must not become a provider refused for the
   wrong reason. Build those names from the prefix, never as a literal list, or `PlatformDeclarationSuite`
   fails the build.
+- **A call to an agent waits `ankka.ask-timeout`, not the model timeout.** An endpoint's `invoke` of an
+  agent on a model that answers in minutes (an installation model on a processor) is a 504 after ten
+  seconds while the turn goes on. The cart's stock helper reads `CART_ASK_TIMEOUT`. Before 2026-10-21 the
+  await and the transport ran out together and the loser decided the answer: a raw `TimeoutException`
+  from the await was a 500 "internal error"; `ComponentClient.await` now throws `Timeout`. (2026-10-21)
 - **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only
   (calls since the last user message), as OpenAI does; an earlier turn's call goes back without its
   reasoning, which was never kept.

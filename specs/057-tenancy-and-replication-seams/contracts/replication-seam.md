@@ -54,7 +54,11 @@ group, naming it: those switches belong to the runtime's own transport.
 ## Naming an installation without a database
 
 `ANKKA_INSTALLATIONS=leipzig,bratislava` adds `ankka.replication.installations."leipzig" {}` and
-`."bratislava" {}`; names are lower-cased and must be DNS labels. A name that also has
+`."bratislava" {}`; names are lower-cased and must be DNS labels. The variable is read through the
+configuration key `ankka.replication.named` (`reference.conf`: `named = ${?ANKKA_INSTALLATIONS}`),
+so a configuration file or a test's settings override may set the key instead, with the same
+expansion and the same check; `ReplicationSettings.installations` stays the one set of names,
+database or not. An installation set to `null` in a configuration above is not named. A name that also has
 `ANKKA_INSTALLATION_<NAME>_DB_*` entries is one installation, with its database. With names and no
 transport on the classpath the service refuses to start as today, and the refusal's hint names
 both forms. `PlatformVariables.Installations` declares the variable; it is the platform's to set.

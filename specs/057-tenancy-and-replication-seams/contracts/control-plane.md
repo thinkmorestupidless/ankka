@@ -80,4 +80,9 @@ Any authenticated caller. The reply gains three optional objects beside `backups
 
 | Variable | Set by | Default |
 |---|---|---|
-| `ANKKA_BROKER_NODES` | the kustomize `broker` component (`1`) and `broker-three-nodes` (`3`) | unset: not stated |
+| `ANKKA_BROKER_NODES` | the kustomize `controlplane` component's Deployment (`1`, the one-node broker the `broker` component ships), overridden by `broker-three-nodes/controlplane-defaults.yaml` (`3`) | unset: not stated |
+
+The one-node value sits in the control plane's own Deployment, not in the `broker` component as
+first planned: that component is listed before `controlplane` in an installation's kustomization,
+so it cannot patch a Deployment that is not yet there. `broker-three-nodes` patches the Deployment
+beside the topic defaults it already sets (accepted 2026-10-22).

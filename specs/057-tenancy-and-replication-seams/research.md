@@ -69,8 +69,12 @@ so the reader never has to infer) and `erasure: Option[InstallationErasure]` (`e
 and the longest retention are what `TopicPolicy` already holds (`ANKKA_TOPIC_DEFAULT_COPIES`,
 `ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC`, `ANKKA_TOPIC_LONGEST_RETENTION`), passed to
 `InstallationEndpoint` as it is passed to the project routes. The node count is a new variable
-`ANKKA_BROKER_NODES`, set by the kustomize `broker` component (`1`) and `broker-three-nodes`
-(`3`) beside the topic defaults they already set; unset, `nodes` is absent ("not stated"). Erasure
+`ANKKA_BROKER_NODES`, set to `1` on the control plane's own Deployment in the kustomize
+`controlplane` component and to `3` by `broker-three-nodes` beside the topic defaults it already
+sets; unset, `nodes` is absent ("not stated"). *Amended in implementation (accepted 2026-10-22)*:
+the plan put the `1` in the `broker` component, but that component is listed before
+`controlplane` and cannot patch a Deployment that does not exist yet, so the value lives with the
+Deployment, as the topic defaults' laptop values already do. Erasure
 is always absent in this release: spec 042 is a draft and nothing in the tree knows a keyring.
 
 **Rationale**: the broker's defaults are configuration the control plane reads once and never
@@ -130,6 +134,17 @@ entries is one installation with a database (the overlay merges). `PlatformVaria
 `Installations = "ANKKA_INSTALLATIONS"` in `PlatformOnly` beside `Installation`;
 `PlatformDeclarationSuite` then sees it declared. The refusal message at
 `ReplicationRuntime.scala:149-160` gains the new form to its hint.
+
+*Amended in implementation (accepted 2026-10-22)*: the variable reaches the settings through a
+configuration key of its own, `ankka.replication.named = ${?ANKKA_INSTALLATIONS}` in
+`reference.conf`, which `ReplicationSettings.withEnvironment` reads beside the environment and
+expands into empty `installations` entries. A separate key rather than writing the empty entries
+directly: HOCON substitutes a variable's value, a string, and cannot turn a comma-separated list
+into object keys, so the list has to be read as a string and expanded in code; and a key lets a
+configuration file and the test kit's settings override name installations exactly as the
+environment does, through the same expansion and the same name check. `installations` remains the
+one set of names, with or without a database, that the rest of the runtime reads. An entry set to
+`null` in a configuration above is not named.
 
 **Rationale**: the request's first form; it is what the private deploy descriptors can write in one
 line. `ANKKA_INSTALLATION_<NAME>=on` would collide with the prefix the sibling-database

@@ -177,7 +177,7 @@ all green.
 - [X] T031 [P] `sdks/python`: proto copy, `service.py` version, `attribution`/`forwarded_from` on
   the command and event contexts, `_conformance.py` case, docs string; `uv run pytest -q && uv run
   mypy && uv run conformance`
-- [ ] T032 [P] `sdks/typescript`: proto copy, `spec.ts` version, `attribution`/`forwardedFrom` on
+- [X] T032 [P] `sdks/typescript`: proto copy, `spec.ts` version, `attribution`/`forwardedFrom` on
   the contexts, `bin/conformance.ts` case; `npm run proto && npm run typecheck && npm test && npm
   run conformance`
 - [ ] T033 [P] `sdks/rust`: proto copy, `service.rs` version, `attribution()`/`forwarded_from()`

@@ -24,6 +24,10 @@ export interface CommandContext {
    * the home, so this is `false` only for a query a follower answers; `true` for an entity not replicated.
    */
   readonly isHome: boolean
+  /** The subject of the principal who made the original call (1.22); absent when none named one. */
+  readonly attribution?: string
+  /** The installation this command was forwarded from to its home (1.22); absent when it was not. */
+  readonly forwardedFrom?: string
 }
 
 export function commandContext(
@@ -34,23 +38,51 @@ export function commandContext(
   now: () => Instant = Instant.now,
   installation: string | null = null,
   isHome = true,
+  attribution?: string,
+  forwardedFrom?: string,
 ): CommandContext {
-  return Object.freeze({ componentId, entityId, sequenceNumber, metadata, now, installation, isHome })
+  return Object.freeze({
+    componentId,
+    entityId,
+    sequenceNumber,
+    metadata,
+    now,
+    installation,
+    isHome,
+    ...(attribution ? { attribution } : {}),
+    ...(forwardedFrom ? { forwardedFrom } : {}),
+  })
 }
 
 /**
  * Where the event `applyEvent` is applying was written (1.19): the installation (`null` when none is
  * named; an event from before replication reads as written at the home), whether that was this
- * installation, and its sequence number. The third argument of `applyEvent`.
+ * installation, and its sequence number; who acted on the command that wrote it and where that
+ * command was forwarded from, as recorded (1.22; absent when nothing was). The third argument of
+ * `applyEvent`.
  */
 export interface EventContext {
   readonly installation: string | null
   readonly isLocal: boolean
   readonly sequence: bigint
+  readonly attribution?: string
+  readonly forwardedFrom?: string
 }
 
-export function eventContext(installation: string | null, isLocal: boolean, sequence: bigint): EventContext {
-  return Object.freeze({ installation, isLocal, sequence })
+export function eventContext(
+  installation: string | null,
+  isLocal: boolean,
+  sequence: bigint,
+  attribution?: string,
+  forwardedFrom?: string,
+): EventContext {
+  return Object.freeze({
+    installation,
+    isLocal,
+    sequence,
+    ...(attribution ? { attribution } : {}),
+    ...(forwardedFrom ? { forwardedFrom } : {}),
+  })
 }
 
 export function metadataFromProto(proto: ProtoMetadata | undefined): Metadata {

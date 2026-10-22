@@ -199,7 +199,7 @@ all green.
 - [X] T036 [P] `docs/concepts/replicated-entities.md`: a transport beside the runtime's own (the
   provider's set, `ReplicationPeer`, `Installations.using`, `ANKKA_INSTALLATIONS`), the forwarded
   write's caller and attribution, admission at the home; `docs/reference/sidecar-protocol.md` 1.22
-- [ ] T037 `docs/reference/limitations.md`: erasure reported as not stated until spec 042;
+- [X] T037 `docs/reference/limitations.md`: erasure reported as not stated until spec 042;
   admission across organizations is ankka-replication's; `just docs-sync && just docs` green;
   `git diff --exit-code` after `just docs-reference` (the pages are committed)
 - [ ] T038 `CHANGELOG.md` or the release notes file the repository keeps: the four answered requests

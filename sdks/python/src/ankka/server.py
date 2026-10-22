@@ -238,7 +238,13 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 state = entity._apply(
                     state,
                     type(entity).event_codec.decode(message.event.payload.data),
-                    EventContext(written, written == here, message.event.sequence),
+                    EventContext(
+                        written,
+                        written == here,
+                        message.event.sequence,
+                        message.event.attribution or None,
+                        message.event.forwarded_from or None,
+                    ),
                 )
                 sequence = message.event.sequence
             elif kind == "command":
@@ -259,6 +265,8 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     client=self.client.with_metadata(metadata),
                     installation=cmd.installation or None,
                     is_home=cmd.at_home,
+                    attribution=cmd.attribution or None,
+                    forwarded_from=cmd.forwarded_from or None,
                 )
                 try:
                     effect = await entity._run(spec, state, cmd.payload.data, ctx)
@@ -273,7 +281,11 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 new_state = state
                 if not isinstance(effect.outcome, Fail):
                     for i, ev in enumerate(effect.events, start=1):
-                        new_state = entity._apply(new_state, ev, EventContext(here, True, sequence + i))
+                        new_state = entity._apply(
+                            new_state,
+                            ev,
+                            EventContext(here, True, sequence + i, ctx.attribution, ctx.forwarded_from),
+                        )
                 reply = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
                 if effect.replication is not None and not isinstance(effect.outcome, Fail):
                     reply.replication.CopyFrom(replication_to_pb(effect.replication))

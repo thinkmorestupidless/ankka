@@ -174,7 +174,7 @@ all green.
 - [X] T030 `sidecar/src/test/.../conformance/ConformanceReference.scala`, `ConformanceSuite`: the
   case "a command carrying attribution and where it was forwarded from persists a record carrying
   both"; `sbt 'sidecar/testOnly *ConformanceSuite'` green
-- [ ] T031 [P] `sdks/python`: proto copy, `service.py` version, `attribution`/`forwarded_from` on
+- [X] T031 [P] `sdks/python`: proto copy, `service.py` version, `attribution`/`forwarded_from` on
   the command and event contexts, `_conformance.py` case, docs string; `uv run pytest -q && uv run
   mypy && uv run conformance`
 - [ ] T032 [P] `sdks/typescript`: proto copy, `spec.ts` version, `attribution`/`forwardedFrom` on

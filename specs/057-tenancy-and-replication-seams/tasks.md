@@ -62,7 +62,7 @@ munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
 **Goal (US2)**: FR-004, FR-005. **Independent test**: the three `administrators.feature` scenarios
 as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `InstallationFactsFeatures`.
 
-- [ ] T009 [US2] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: "a platform
+- [X] T009 [US2] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: "a platform
   administrator creates a deploy token for an organization they are not a member of", "a platform
   administrator accepts a pending grant on an organization's behalf" (over `GrantsHarness` with a
   `platform-admin` token), "an organization's history shows an administrator's act under the role

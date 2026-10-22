@@ -823,3 +823,109 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
       Option.when(!listing.contains(s"\"id\":\"$id\""))(listing)
     }
   }
+
+  // ── a platform administrator acting for an organization (spec 057) ───────
+
+  /** Carol's project token and the grant she accepted, for the history scenario. */
+  private var administrativeTokenId: String = ""
+  private var administrativeGrantId: String = ""
+
+  test(
+    "17. a platform administrator creates a deploy token for an organization they are not a member of"
+  ) {
+    // carol is a platform administrator and no member of acme.
+    assert(!send("GET", "/organizations/acme/members", alice)._2.contains("\"subject\":\"carol\""))
+    val (status, created) = send(
+      "POST",
+      "/organizations/acme/tokens",
+      carol,
+      Some("""{"label":"provisioned","project":"orders"}""")
+    )
+    assertEquals(status, 200, created)
+    administrativeTokenId = field(created, "id")
+    val secret = field(created, "secret")
+    // Shown once, and acts in its project.
+    assert(secret.startsWith("ankka_"), created)
+    assertEquals(send("GET", "/projects/orders", secret)._1, 200)
+    assertEquals(send("GET", "/projects/billing", secret)._1, 404)
+    // The administrator did not become a member to do it.
+    assert(!send("GET", "/organizations/acme/members", alice)._2.contains("\"subject\":\"carol\""))
+    // Nothing for an organization that does not exist, and nothing recorded.
+    val missing =
+      send("POST", "/organizations/nowhere/tokens", carol, Some("""{"label":"provisioned"}"""))
+    assertEquals(missing._1, 404, missing._2)
+  }
+
+  test("18. a platform administrator accepts a pending grant on an organization's behalf") {
+    val (status, offered) =
+      send("POST", "/projects/globex-shop/grants", bob, grantBody("service:orders/cart", "till"))
+    assertEquals(status, 200, offered)
+    administrativeGrantId = field(offered, "id")
+    eventually("the grant is offered to acme") {
+      val (_, body) = send("GET", "/organizations/acme/grants", alice)
+      Option.when(body.contains(administrativeGrantId))(body)
+    }
+    assertEquals(
+      send("POST", s"/organizations/acme/grants/$administrativeGrantId/accept", carol)._1,
+      204
+    )
+    val granted = send("GET", "/projects/globex-shop/grants", bob)._2
+    val line =
+      granted.split("\\},\\{").find(_.contains(administrativeGrantId)).getOrElse(fail(granted))
+    assert(line.contains("\"state\":\"accepted\""), line)
+    // A grant that does not exist is not there to accept, and nothing changes.
+    assertEquals(send("POST", "/organizations/acme/grants/nothing/accept", carol)._1, 404)
+    assertEquals(
+      send("POST", s"/organizations/nowhere/grants/$administrativeGrantId/accept", carol)._1,
+      404
+    )
+  }
+
+  test(
+    "19. an organization's history shows an administrator's act under the role that allowed it"
+  ) {
+    import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+    import com.thinkmorestupidless.ankka.controlplane.api.{
+      DeployTokenSummary,
+      GrantChange,
+      GrantDetail,
+      ReceivedGrantDetail,
+      Wire
+    }
+    val tokens = readFromString[Vector[DeployTokenSummary]](eventually("carol's token is listed") {
+      val (_, body) = send("GET", "/organizations/acme/tokens", alice)
+      Option.when(body.contains(administrativeTokenId))(body)
+    })(using Wire.tokensCodec)
+    val byId = tokens.map(t => t.id -> t).toMap
+    assert(byId(administrativeTokenId).administrative, tokens.toString)
+    assert(tokens.filter(_.id != administrativeTokenId).forall(!_.administrative), tokens.toString)
+
+    val received = readFromString[Vector[ReceivedGrantDetail]](
+      eventually("the acceptance reaches acme's record of the grant") {
+        val (_, body) = send("GET", "/organizations/acme/grants", alice)
+        Option.when(
+          readFromString[Vector[ReceivedGrantDetail]](body)(using Wire.receivedGrantsCodec)
+            .exists(g =>
+              g.id == administrativeGrantId && g.changes.exists(_.change == GrantChange.Accepted)
+            )
+        )(body)
+      }
+    )(using Wire.receivedGrantsCodec)
+    val changes = received.find(_.id == administrativeGrantId).get.changes
+    assert(
+      changes.find(_.change == GrantChange.Accepted).exists(_.administrative),
+      changes.toString
+    )
+    assert(
+      changes.filter(_.change != GrantChange.Accepted).forall(!_.administrative),
+      changes.toString
+    )
+
+    // And the granting project's own listing says the answer was the platform's.
+    val granted = readFromString[Vector[GrantDetail]](
+      send("GET", "/projects/globex-shop/grants", bob)._2
+    )(using Wire.grantDetailsCodec)
+    val grant = granted.find(_.id == administrativeGrantId).getOrElse(fail(granted.toString))
+    assert(grant.answered.exists(_.administrative), grant.toString)
+    assert(!grant.granted.administrative, grant.toString)
+  }

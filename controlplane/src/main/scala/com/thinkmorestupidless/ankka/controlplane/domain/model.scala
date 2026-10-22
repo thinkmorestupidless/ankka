@@ -1516,7 +1516,12 @@ final case class DeployToken(
     /** Absent only when the creator deliberately asked for a token that never expires. */
     expiresAt: Option[Instant] = None,
     lastUsed: Option[java.time.LocalDate] = None,
-    revoked: Boolean = false
+    revoked: Boolean = false,
+    /**
+     * The one project the token is a member of (spec 057); `None` is the whole organization. The
+     * scope never changes; a deleted project leaves the token a member of nothing it can reach.
+     */
+    project: Option[String] = None
 ):
   /** A revoked token is a tombstone: its id is never reused, so this is not `known`. */
   def exists: Boolean = organizationId.nonEmpty && !revoked
@@ -1534,7 +1539,8 @@ final case class DeployToken(
       digest: String,
       expiresAt: Option[Instant],
       actor: Option[Actor],
-      at: Option[Instant]
+      at: Option[Instant],
+      project: Option[String] = None
   ): DeployToken =
     copy(
       organizationId = organizationId,
@@ -1542,7 +1548,8 @@ final case class DeployToken(
       digest = digest,
       createdBy = actor,
       createdAt = at,
-      expiresAt = expiresAt
+      expiresAt = expiresAt,
+      project = project
     )
 
   def onUsed(date: java.time.LocalDate): DeployToken = copy(lastUsed = Some(date))

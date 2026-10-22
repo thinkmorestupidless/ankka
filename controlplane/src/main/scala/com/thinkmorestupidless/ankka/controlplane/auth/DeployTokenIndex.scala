@@ -260,7 +260,7 @@ object DeployTokenIndex:
       event: DeployTokenEvent
   ): Unit =
     event match
-      case DeployTokenCreated(organizationId, label, digest, expiresAt, _, _) =>
+      case DeployTokenCreated(organizationId, label, digest, expiresAt, _, _, _) =>
         if !revoked.contains(id) then
           into.put(id, Live(digest, organizationId, label, expiresAt)): Unit
       case DeployTokenUsed(date) =>

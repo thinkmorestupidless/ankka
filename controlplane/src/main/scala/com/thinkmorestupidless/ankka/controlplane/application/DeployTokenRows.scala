@@ -25,7 +25,11 @@ final case class DeployTokenRow(
     createdBy: Option[String] = None,
     createdAt: Option[Instant] = None,
     expiresAt: Option[Instant] = None,
-    lastUsed: Option[LocalDate] = None
+    lastUsed: Option[LocalDate] = None,
+    /** The one project the token is scoped to; `None` for the whole organization. */
+    project: Option[String] = None,
+    /** True when a platform administrator, acting under that role, created the token. */
+    administrative: Boolean = false
 ):
   def subject: String = DeployToken.subjectOf(id)
 
@@ -34,14 +38,16 @@ final class DeployTokenRowsView extends View[DeployTokenEvent, DeployTokenRow]:
   private def row = rowState.getOrElse(DeployTokenRow(updateContext.subject))
 
   def onChange(event: DeployTokenEvent): Effect = event match
-    case DeployTokenCreated(organizationId, label, _, expiresAt, actor, at) =>
+    case DeployTokenCreated(organizationId, label, _, expiresAt, actor, at, project) =>
       effects.updateRow(
         row.copy(
           organizationId = organizationId,
           label = label,
           createdBy = actor.flatMap(_.display),
           createdAt = at,
-          expiresAt = expiresAt
+          expiresAt = expiresAt,
+          project = project,
+          administrative = actor.exists(_.administrative)
         )
       )
     case DeployTokenUsed(date) => effects.updateRow(row.copy(lastUsed = Some(date)))

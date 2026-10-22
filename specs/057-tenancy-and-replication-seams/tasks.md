@@ -25,7 +25,7 @@ the docs and the release note.
   erasure}` with `InstallationBroker`, `InstallationRetention`, `InstallationErasure`; codecs;
   `DescriptorSuite` cases that each new field is absent-tolerant both ways (an old reply without
   it, a new reply read by the old shape)
-- [ ] T003 `controlplane/.../domain/model.scala`, `events.scala`, `application/DeployTokenEntity.scala`,
+- [X] T003 `controlplane/.../domain/model.scala`, `events.scala`, `application/DeployTokenEntity.scala`,
   `DeployTokenRows.scala`: `DeployToken.project`, `DeployTokenCreated.project`, the row; `DeployTokenRules`
   refuses a project of another organization as `404 no such project`; `TenancyEntitySuite` cases
 - [ ] T004 `controlplane/.../auth/DeployTokenIndex.scala`: `Live.project`, replayed from the event;

@@ -38,6 +38,13 @@ trait WorkflowContext extends ComponentContext:
    */
   def services: ServiceClients
 
+  /**
+   * The service's buckets, for a step (feature 055). A workflow's command handlers share this
+   * context, and a call made from one is refused, as its secret store's is: keeping or reading an
+   * object is a blocking call the workflow's single-writer path must not make.
+   */
+  def storage: ObjectStorage = ObjectStorage.unavailable
+
 /** Context for a view's projection. */
 trait ViewComponentContext extends ComponentContext
 
@@ -51,6 +58,12 @@ trait ConsumerContext extends ComponentContext:
    * that fails has the change delivered again.
    */
   def services: ServiceClients
+
+  /**
+   * The service's buckets (feature 055). A call is made before the change is done with, so a keep
+   * that fails has the change delivered again.
+   */
+  def storage: ObjectStorage = ObjectStorage.unavailable
 
 /**
  * Available for the duration of a single command. Distinct from `EntityContext` because metadata
@@ -112,7 +125,8 @@ private[ankka] final case class SimpleWorkflowContextImpl(
     componentId: ComponentId,
     componentClient: ComponentClient,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    override val storage: ObjectStorage = ObjectStorage.unavailable
 ) extends WorkflowContext
 
 private[ankka] final case class SimpleViewContext(
@@ -124,7 +138,8 @@ private[ankka] final case class SimpleConsumerContext(
     componentId: ComponentId,
     componentClient: ComponentClient,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    override val storage: ObjectStorage = ObjectStorage.unavailable
 ) extends ConsumerContext
 
 private[ankka] final case class SimpleCommandContext(

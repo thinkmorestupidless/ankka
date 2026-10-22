@@ -1018,6 +1018,29 @@ object ConformanceReference:
   given JsonValueCodec[ServiceCallRecord] = Codecs.make[ServiceCallRecord]
 
   /**
+   * What a `/conformance/storage` call did (feature 055), the same in every language. `outcome` is
+   * `ok`, `absent` (a get or a stat found nothing) or `refused`; a refusal's `code` is the
+   * protocol's word for it (`BAD_REQUEST`, `UNAVAILABLE`) and `message` its text. A get answers the
+   * object's `contentType`, `text` and `length`; a stat its `contentType` and `length`; a listing
+   * its `names`; `url` and `signed-url` the address.
+   */
+  final case class StorageRecord(
+      outcome: String,
+      code: String = "",
+      message: String = "",
+      contentType: String = "",
+      text: String = "",
+      length: Long = 0,
+      names: Vector[String] = Vector.empty,
+      url: String = ""
+  )
+  given JsonValueCodec[StorageRecord] = Codecs.make[StorageRecord]
+
+  /** `BadRequest` as the protocol says it: `BAD_REQUEST`. */
+  def codeWord(code: ErrorCode): String =
+    code.toString.replaceAll("([a-z])([A-Z])", "$1_$2").toUpperCase(java.util.Locale.ROOT)
+
+  /**
    * What the socket routes' handlers noticed, for a case to read once a socket has closed: in every
    * language, `closed:<room>` when a `/socket/{room}` handler was told its socket closed, and
    * `private:<subject>` when the authenticated one ran.
@@ -1102,6 +1125,69 @@ object ConformanceReference:
       clients.secrets.delete(query.required[String]("name"))
       Done: Done
     }
+    // docs:start storage
+    // The service's buckets. `bucket` names one (absent: the unnamed bucket) and `name` the object;
+    // `op` is get, stat, list (under `prefix`), url or signed-url (`access` read or keep). A post
+    // keeps its body under `name`; a post with `rules` set to `name` or `prefix` instead tries its
+    // body as an object's name or a listing's prefix, and keeps nothing.
+    postBody("/storage") { (body: String) =>
+      storageCall { bucket =>
+        query.optional[String]("rules") match
+          case Some("prefix") => bucket.list(body).hasNext: Unit
+          case Some(_)        => bucket.stat(body): Unit
+          case None =>
+            bucket.putBytes(
+              query.required[String]("name"),
+              body.getBytes(StandardCharsets.UTF_8),
+              request.header("Content-Type").getOrElse("application/octet-stream")
+            )
+        StorageRecord("ok")
+      }
+    }
+    get("/storage") { () =>
+      storageCall { bucket =>
+        val name = query.optional[String]("name").getOrElse("")
+        query.required[String]("op") match
+          case "get" =>
+            bucket.getBytes(name).fold(StorageRecord("absent")) { (contentType, bytes) =>
+              StorageRecord(
+                "ok",
+                contentType = contentType,
+                text = String(bytes, StandardCharsets.UTF_8),
+                length = bytes.length.toLong
+              )
+            }
+          case "stat" =>
+            bucket
+              .stat(name)
+              .fold(StorageRecord("absent"))(i =>
+                StorageRecord("ok", contentType = i.contentType, length = i.length)
+              )
+          case "list" =>
+            val prefix = query.optional[String]("prefix").getOrElse("")
+            StorageRecord("ok", names = bucket.list(prefix).map(_.name).toVector)
+          case "url" => StorageRecord("ok", url = bucket.url(name).toString)
+          case "signed-url" =>
+            val access =
+              if query.optional[String]("access").contains("keep") then SignedAccess.Keep
+              else SignedAccess.Read
+            StorageRecord("ok", url = bucket.signedUrl(name, access).toString)
+          case other => StorageRecord("refused", "BAD_REQUEST", s"no storage op '$other'")
+      }
+    }
+    delete("/storage") { () =>
+      storageCall { bucket =>
+        bucket.delete(query.required[String]("name"))
+        StorageRecord("ok")
+      }
+    }
+    // docs:end storage
+
+    /** The bucket the request names, and every refusal as a record rather than a status. */
+    private def storageCall(f: Bucket => StorageRecord): StorageRecord =
+      try f(query.optional[String]("bucket").fold(clients.storage.default)(clients.storage.bucket))
+      catch case e: CommandError => StorageRecord("refused", codeWord(e.code), e.message)
+
     get("/echo") { () =>
       Echo(
         query.rawAll("a"),

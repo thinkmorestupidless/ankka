@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.20`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.21`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -74,6 +74,9 @@ principal and the caller, never the credential), and the client key rpcs on `Cli
 three imports of the same names for a module. A sidecar refuses an MCP endpoint from an SDK
 declaring an earlier minor, an SDK declaring one refuses discovery from a runtime that states an
 earlier one, and an earlier runtime answers the client key rpcs `UNIMPLEMENTED`.
+`1.21` added the service's object storage for a module: the `storage` import with `StorageRequest`
+and `StorageReply`. No rpc carries it, since a process reaches its buckets over S3 itself; an
+earlier runtime refuses a module importing `storage` when it loads.
 
 `MAJOR.MINOR`. Within a major:
 

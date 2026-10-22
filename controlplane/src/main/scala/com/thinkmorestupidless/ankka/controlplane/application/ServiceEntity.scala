@@ -124,9 +124,9 @@ final class ServiceEntity(context: EventSourcedEntityContext)
    */
   def reissueStorageCredential: Effect[ServiceStatus] =
     if !currentState.exists then notFound
-    else if !currentState.descriptor.exists(_.service.provisionObjectStorage) then
+    else if !madeAnyBucket then
       effects.error(
-        s"service '${key.name}' has no storage credential to reissue: its descriptor asks for no bucket",
+        s"service '${key.name}' has no storage credential to reissue: no bucket the platform made",
         ErrorCode.Conflict
       )
     else if moving then
@@ -137,6 +137,15 @@ final class ServiceEntity(context: EventSourcedEntityContext)
           StorageCredentialReissued(currentState.storageCredentialGeneration + 1, actor, at)
         )
         .thenReply(_.toStatus)
+
+  /**
+   * Whether the platform made any bucket for the service (feature 055): the unnamed one, or a named
+   * one it was not supplied. A credential and a move cover every such bucket, and only those.
+   */
+  private def madeAnyBucket: Boolean =
+    currentState.descriptor.exists(d =>
+      d.service.provisionObjectStorage || d.service.buckets.exists(_.made)
+    )
 
   /**
    * Whether a move the members asked for has not ended: asked for and not yet reported, or reported
@@ -158,9 +167,9 @@ final class ServiceEntity(context: EventSourcedEntityContext)
   def moveStorage(request: StorageMoveRequest): Effect[ServiceStatus] =
     val bound = request.writePauseBound.getOrElse(MoveRequest.DefaultBound)
     if !currentState.exists then notFound
-    else if !currentState.descriptor.exists(_.service.provisionObjectStorage) then
+    else if !madeAnyBucket then
       effects.error(
-        s"service '${key.name}' has no bucket to move: its descriptor asks for none",
+        s"service '${key.name}' has no bucket to move: no bucket the platform made",
         ErrorCode.Conflict
       )
     else if moving then
@@ -302,7 +311,8 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.objectStorage,
       observation.storage,
       observation.grants,
-      observation.hostnames
+      observation.hostnames,
+      observation.buckets
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)

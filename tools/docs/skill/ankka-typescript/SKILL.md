@@ -7,6 +7,7 @@ pages:
   - get-started/first-service-typescript.md
   - reference/typescript-sdk.md
   - build/graph.md
+  - build/object-storage.md
   - reference/sidecar-protocol.md
   - build/serialization.md
   - build/testing.md

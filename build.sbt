@@ -194,6 +194,9 @@ lazy val commonSettings = Seq(
     // The secret backend the conformance suite's secret cases run on (feature 038): `postgres`, or
     // `secret-manager` against the test kit's Secret Manager fake.
     "ankka.conformance.secrets",
+    // The store the conformance suite's storage cases run on (feature 055): memory by default, or
+    // `garage` against a Garage the suite starts, for the in-process and module targets.
+    "ankka.conformance.storage",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
     "ankka.docs.update",
@@ -318,7 +321,10 @@ lazy val http = project
   .settings(commonSettings)
   .settings(
     name := "ankka-http",
-    libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test)
+    libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test),
+    // StreamedBodySuite passes bodies of 2 GiB through an endpoint (feature 055): with a heap of
+    // 512 MiB, a body held whole anywhere fails the run instead of passing it.
+    Test / javaOptions += "-Xmx512m"
   )
 
 /**
@@ -704,6 +710,10 @@ lazy val sidecar = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.sidecar.Main"),
     dockerExposedPorts  := Seq(9000),
+    // A module's directory store on a developer's machine (feature 055): the working directory,
+    // /opt/docker, is not the image user's to write, and a store it cannot write stops the start. A
+    // mounted ANKKA_STORAGE_DIR replaces it; in a cluster the store is S3 and this is never read.
+    dockerEnvVars := Map("ANKKA_STORAGE_DIR" -> "/tmp/ankka-storage"),
     // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
     // Postgres and copies the DDL out of this image, so a test can never pass against a schema
     // the platform does not have — the same rule as AnkkaTestKit, from the other side.

@@ -2125,6 +2125,90 @@ a service's instances: during a write pause the service runs and reads.
 
 Avoid: freeze, write lock
 
+### storage client
+*Proposed.* What a service keeps and reads objects in its bucket through: offered by the platform
+to an endpoint, a workflow step, a consumer, a timed action and an agent, beside the secret
+store, and to no entity or view. It keeps an object from a stream with its content type, reads
+one back as a stream, deletes one, lists the objects under a prefix, tells what an object is,
+and makes signed URLs and public addresses by computation alone. It offers no directory, no
+rename, no append and no partial write. Behind it stands the installation's object store, an
+object store of the service's own, a directory store on a developer's machine, or memory in a
+test; the service's code is the same on each.
+
+Avoid: storage API, S3 client, file system, filesystem
+
+### content type
+*Proposed.* What kind of thing an object is, as a browser understands it, such as "image/jpeg";
+kept with the object and read back with it. The one thing the storage client keeps about an
+object beside the object itself.
+
+Avoid: MIME type, media type
+
+### prefix
+*Proposed.* The start of an object's name, up to and including a slash, under which a service
+lists objects: "listings/42/" lists every object whose name starts so. A prefix is not a
+directory: nothing makes one, nothing removes one, and one with no objects under it is nothing.
+
+Avoid: folder
+
+### named bucket
+*Proposed.* A bucket a service's descriptor names beside the one it asks for with
+"provisionObjectStorage", with a name the storage client reaches it by. The platform makes it
+with an exposure, or the user supplies it. The platform never deletes one, and moves a service's
+buckets together. The bucket "provisionObjectStorage" asks for has no name and is reached without
+one.
+
+Avoid: extra bucket, secondary bucket, additional bucket
+
+### exposure
+*Proposed.* How a bucket the platform made is reached: private, from inside the installation
+only; signed, from the internet through signed URLs, from the origins the descriptor names; or
+public, every object readable from the internet without a signed URL. A supplied bucket has none:
+it is reached however the user configured it.
+
+Avoid: visibility, access level
+
+### public bucket
+*Proposed.* A named bucket whose exposure is public: every object in it is read from the
+internet without a signed URL, at its public address. Nothing in a private or signed bucket is
+read that way.
+
+Avoid: public prefix, public folder, CDN bucket
+
+### supplied bucket
+*Proposed.* A named bucket the user made and configured themselves, in any object store, whose
+entry in the descriptor says where it is and which project secret holds its credential. The
+platform makes no bucket and no storage credential for it, reports it as supplied, and cannot
+tell before the service's first call whether it works.
+
+Avoid: external bucket, bring-your-own bucket, BYO bucket
+
+### public address
+*Proposed.* The address anyone on the internet reads an object in a public bucket at, which the
+storage client answers from the base the platform gives the service and the object's name,
+without a request to the object store. The platform derives the base: a route under the object
+store's hostname on Garage, Google's address on Google Cloud Storage, or a content delivery
+network's when the installation puts one in front. The service never knows which.
+
+Avoid: public URL, CDN URL
+
+### content delivery network
+*Proposed.* A network of servers an installation may put in front of its public buckets so that
+an object is read from a server near the reader and cached there. The installation's to put
+there and to name; the platform provisions none, and a service's code is the same with or
+without one.
+
+Avoid: CDN
+
+### directory store
+*Proposed.* Where the storage client keeps a service's objects on a developer's machine: a
+directory under the working directory, one part per bucket, holding each object with its
+content type and when it was kept. A service with no variable of an object store is given one; a
+service with such variables is given none. The service serves signed URLs and public addresses
+itself while its store is a directory, and nowhere else.
+
+Avoid: local bucket, fake store, file store
+
 ### write pause bound
 *Proposed.* How long a write pause may last: "10 minutes" unless the member asking for the move
 names another. A write pause that reaches its bound fails the move, and the service is given a
@@ -2984,7 +3068,7 @@ reloaded, audited, visible, keyboard, brightest, point, least, brighter, shipped
 blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, controls, prefers,
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
-quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
+quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep, directory,
 access, acknowledges, age, ago, authority, became, bring, brings, brought,
 certificate, comment, compacts, decrypt, decrypted, decrypts, defaults, derived, destroy, destroyed,
 destroys, differently, entries, equal, fast, filed, filled, final, fulfil, fulfilled, fulfils,

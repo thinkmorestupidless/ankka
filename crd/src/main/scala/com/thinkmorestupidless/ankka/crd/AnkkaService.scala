@@ -217,6 +217,11 @@ final case class AnkkaServiceSpec(
     /** A member's request to move this service's bucket from Garage (feature 039). */
     objectStorageMove: Option[ObjectStorageMoveRequest] = None,
     /**
+     * The service's named buckets (feature 055), beside the unnamed one. A made bucket's name in
+     * the store is derived (`Buckets.named`), never carried; a supplied one's is the developer's.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY) buckets: List[BucketSpec] = Nil,
+    /**
      * Feature 041: the project database cluster this service is switched to — a restore, or one it
      * left. Absent is the project database, `ankka-db`. A change rolls the service: the operator
      * renders the cluster's address as a literal on the pod template, never into the credential
@@ -255,6 +260,37 @@ final case class HostnameStatus(
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class ObjectStorageMoveRequest(generation: Int = 0, writePauseBound: String = "10m")
+
+/**
+ * A bucket the developer made, named in the descriptor (feature 055): where it is, and the project
+ * secret whose entries `access-key` and `secret-key` the program is given by reference.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class SuppliedBucket(
+    endpoint: String = "",
+    region: String = "",
+    bucket: String = "",
+    credential: String = ""
+)
+
+/**
+ * One of a service's named buckets (feature 055).
+ *
+ * @param exposure
+ *   `private`, `signed` or `public`: how a bucket the platform makes is reached
+ * @param origins
+ *   the origins a browser may send from to a `signed` bucket
+ * @param supplied
+ *   present for a bucket the developer made, which the platform makes nothing for
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class BucketSpec(
+    name: String = "",
+    exposure: String = "private",
+    origins: List[String] = Nil,
+    supplied: Option[SuppliedBucket] = None
+):
+  def made: Boolean = supplied.isEmpty
 
 /** One mount of a web-hosted service: a path, and the service of its project that answers it. */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -318,8 +354,11 @@ final case class DatabaseStatus(
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class ObjectStorageStatus(
-    /** "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed". */
-    phase: String = "",
+    /**
+     * "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed"; left out for a service with
+     * named buckets only (feature 055), which the schema's enum would refuse as an empty word.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY) phase: String = "",
     /** The bucket's name; empty when the service has an object store of its own. */
     bucket: String = "",
     /** Where the bucket is on the internet, when its descriptor asked that it be reachable. */
@@ -346,7 +385,32 @@ final case class ObjectStorageStatus(
      */
     credentialGeneration: Int = 0,
     /** The service's move from Garage, while one exists (feature 039). */
-    move: Option[MoveStatus] = None
+    move: Option[MoveStatus] = None,
+    /**
+     * Each named bucket (feature 055): the spec's, then each the descriptor stopped naming, which
+     * the platform keeps (`Kept`) with its last store, name and address.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY) buckets: List[BucketStatus] = Nil
+)
+
+/** What the platform did about one named bucket (feature 055). */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class BucketStatus(
+    name: String = "",
+    /** "Waiting", "Provisioned", "Recovered", "Supplied", "Failed" or "Kept". */
+    phase: String = "",
+    /** "garage" or "gcs"; empty for a supplied bucket. */
+    store: String = "",
+    /** Its name in the store. */
+    bucket: String = "",
+    /** "private", "signed", "public" or "supplied". */
+    exposure: String = "private",
+    /** Where a public or signed bucket is on the internet. */
+    publicAddress: Option[String] = None,
+    /** True for a bucket the descriptor stopped naming; the platform never deletes one. */
+    kept: Boolean = false,
+    /** Why it is waiting or failed. Never contains a secret. */
+    detail: Option[String] = None
 )
 
 /**

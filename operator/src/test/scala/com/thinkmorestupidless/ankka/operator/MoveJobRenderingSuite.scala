@@ -115,10 +115,15 @@ class MoveJobRenderingSuite extends munit.FunSuite:
     val e = env(job(MovePhase.Verify))
     assertEquals(e("MOVER_SOURCE_ENDPOINT"), "http://garage.garage-system.svc.cluster.local:3900")
     assertEquals(e("MOVER_SOURCE_REGION"), "garage")
-    assertEquals(e("MOVER_SOURCE_BUCKET"), "casino.kyc")
+    assertEquals(e("MOVER_SOURCE_BUCKETS"), "casino.kyc")
     assertEquals(e("MOVER_TARGET_ENDPOINT"), "https://storage.googleapis.com")
     assertEquals(e("MOVER_TARGET_REGION"), "auto")
-    assertEquals(e("MOVER_TARGET_BUCKET"), "t-casino-kyc-1")
+    assertEquals(e("MOVER_TARGET_BUCKETS"), "t-casino-kyc-1")
+    // A service with one bucket is told it in the lists, and by nothing else.
+    assert(
+      !e.contains("MOVER_SOURCE_BUCKET") && !e.contains("MOVER_TARGET_BUCKET"),
+      e.keySet.toString
+    )
   }
 
   test("it runs as the service, so the policies that let the service reach both stores let it") {
@@ -142,7 +147,7 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       settings,
       2,
       acts.toVector,
-      Some(target),
+      Vector(target),
       asked,
       keyGeneration = 3
     )
@@ -155,14 +160,15 @@ class MoveJobRenderingSuite extends munit.FunSuite:
   }
 
   test("a move asks for its target, then runs the copy into it") {
-    val actions = acted(StorageMove.Act.AskForBucket, StorageMove.Act.Copy(target.bucket))
+    val actions = acted(StorageMove.Act.AskForBucket, StorageMove.Act.Copy(Vector(target.bucket)))
     assertEquals(actions.count(_.isInstanceOf[Action.EnsureCloudResource]), 1)
     val jobs = actions.collect { case Action.EnsureMoveJob(j) => j.getMetadata.getName }
     assertEquals(jobs, Vector(Names.moveJob("kyc", 2, MovePhase.Copy)))
   }
 
   test("the write pause is on the key in place, and the verify runs within what is left of it") {
-    val actions = acted(StorageMove.Act.PauseWrites, StorageMove.Act.Verify(target.bucket, 120L))
+    val actions =
+      acted(StorageMove.Act.PauseWrites, StorageMove.Act.Verify(Vector(target.bucket), 120L))
     assert(actions.contains(Action.PauseWrites("casino.kyc", 3)), actions.toString)
     val verify = actions.collectFirst { case Action.EnsureMoveJob(j) => j }.get
     assertEquals(verify.getMetadata.getName, Names.moveJob("kyc", 2, MovePhase.Verify))
@@ -171,7 +177,7 @@ class MoveJobRenderingSuite extends munit.FunSuite:
 
   test("a failed move gives the key its writes back, and a switch acts on nothing here") {
     assertEquals(acted(StorageMove.Act.ResumeWrites), Vector(Action.ResumeWrites("casino.kyc", 3)))
-    assertEquals(acted(StorageMove.Act.Switch(target.bucket)), Vector.empty[Action])
+    assertEquals(acted(StorageMove.Act.Switch(Vector(target.bucket))), Vector.empty[Action])
   }
 
   test("no Job is run before the target bucket is answered") {
@@ -181,10 +187,73 @@ class MoveJobRenderingSuite extends munit.FunSuite:
       "ankka-casino",
       settings,
       2,
-      Vector(StorageMove.Act.Copy("x")),
-      None,
+      Vector(StorageMove.Act.Copy(Vector("x"))),
+      Vector.empty,
       Vector.empty,
       keyGeneration = 0
+    )
+    assertEquals(actions, Vector.empty[Action])
+  }
+
+  // Feature 055: a move takes every bucket the platform made, as one move.
+
+  private val photos =
+    CloudBucket("t-casino-kyc-photos-2", "https://storage.googleapis.com", "auto", 1L)
+  private val uploads =
+    CloudBucket("t-casino-kyc-uploads-3", "https://storage.googleapis.com", "auto", 1L)
+
+  private def actedOnThree(acts: StorageMove.Act*): Vector[Action] =
+    Rendering.moveActions(
+      resource,
+      spec,
+      "ankka-casino",
+      settings,
+      2,
+      acts.toVector,
+      Vector(target, photos, uploads),
+      asked,
+      keyGeneration = 3,
+      moved = Vector("photos", "uploads")
+    )
+
+  test("055: the mover is given the two lists, parallel, the unnamed bucket first") {
+    val names = Vector(target, photos, uploads).map(_.bucket)
+    val copy = actedOnThree(StorageMove.Act.Copy(names)).collectFirst {
+      case Action.EnsureMoveJob(j) => j
+    }.get
+    val e = env(copy)
+    assertEquals(e("MOVER_SOURCE_BUCKETS"), "casino.kyc,casino.kyc.photos,casino.kyc.uploads")
+    assertEquals(e("MOVER_TARGET_BUCKETS"), names.mkString(","))
+    // One endpoint and one credential a side: the buckets of one service share them.
+    assertEquals(e("MOVER_TARGET_ENDPOINT"), "https://storage.googleapis.com")
+    assertEquals(secretRefs(copy).size, 4)
+  }
+
+  test("055: the write pause and its end are on every bucket the move takes") {
+    val names = Vector(target, photos, uploads).map(_.bucket)
+    val both  = List("casino.kyc.photos", "casino.kyc.uploads")
+    assert(
+      actedOnThree(StorageMove.Act.PauseWrites, StorageMove.Act.Verify(names, 60L))
+        .contains(Action.PauseWrites("casino.kyc", 3, both))
+    )
+    assertEquals(
+      actedOnThree(StorageMove.Act.ResumeWrites),
+      Vector(Action.ResumeWrites("casino.kyc", 3, both))
+    )
+  }
+
+  test("055: no Job runs until every target is answered") {
+    val actions = Rendering.moveActions(
+      resource,
+      spec,
+      "ankka-casino",
+      settings,
+      2,
+      Vector(StorageMove.Act.Copy(Vector(target.bucket))),
+      Vector(target, photos),
+      Vector.empty,
+      keyGeneration = 0,
+      moved = Vector("photos", "uploads")
     )
     assertEquals(actions, Vector.empty[Action])
   }

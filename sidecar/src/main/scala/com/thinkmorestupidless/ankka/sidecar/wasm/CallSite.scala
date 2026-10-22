@@ -31,7 +31,16 @@ final case class CallSite(function: String, purpose: Purpose, instance: GuestIns
    * the host runs on an instance of its own that nothing else waits for, and only while the host is
    * still waiting for that call's answer.
    */
-  def mayRequest: Either[String, Unit] =
+  def mayRequest: Either[String, Unit] = may("request", Where)
+
+  /**
+   * Whether the service's object storage may be reached from here (protocol 1.21), and why not:
+   * from the same functions as a call to another service, for the same reason. A put or a get waits
+   * on the store, and an entity or a view keeps an object's name, never its bytes.
+   */
+  def mayStore: Either[String, Unit] = may("storage", StoreWhere)
+
+  private def may(importName: String, where: String): Either[String, Unit] =
     val component = purpose.componentId
     if !Permitted.contains(function) then
       val from = function.stripPrefix(Abi.Prefix) match
@@ -39,10 +48,10 @@ final case class CallSite(function: String, purpose: Purpose, instance: GuestIns
         case "fold"   => s"while $component reads an event"
         case "view"   => s"from the view $component"
         case _        => s"from $function"
-      Left(s"request may not be called $from: $Where")
+      Left(s"$importName may not be called $from: $where")
     else if instance.broken then
       Left(
-        s"request may not be called from a call the runtime has abandoned ($function, $component)"
+        s"$importName may not be called from a call the runtime has abandoned ($function, $component)"
       )
     else Right(())
 
@@ -69,6 +78,10 @@ object CallSite:
   private val Where =
     "a module calls another service from a workflow step, a consumer, a timed action, an agent, " +
       "a tool, a guardrail, a result check or a route"
+
+  private val StoreWhere =
+    "a module keeps and reads objects from a workflow step, a consumer, a timed action, an agent, " +
+      "a tool, a guardrail, a result check or a route; an entity or a view keeps an object's name"
 
   private val held = new ThreadLocal[CallSite]
 

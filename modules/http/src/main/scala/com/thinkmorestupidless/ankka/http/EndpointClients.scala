@@ -3,7 +3,13 @@ package com.thinkmorestupidless.ankka.http
 import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode, Metadata}
 import com.thinkmorestupidless.ankka.runtime.ViewClient
 import com.thinkmorestupidless.ankka.runtime.remote.{Payload, PayloadKeys}
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients, Workflow}
+import com.thinkmorestupidless.ankka.sdk.{
+  ComponentClient,
+  ObjectStorage,
+  SecretStore,
+  ServiceClients,
+  Workflow
+}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
 
@@ -45,7 +51,13 @@ final class EndpointClients private[ankka] (
      * `clients.clientKeys.issue(...)`. Refuses every call, saying why, when the service registers
      * no `McpRuntime()`.
      */
-    val clientKeys: ClientKeys = ClientKeys.unavailable
+    val clientKeys: ClientKeys = ClientKeys.unavailable,
+    /**
+     * The service's buckets (feature 055): `clients.storage.default.put(name, body, length, type)`,
+     * `clients.storage.bucket("photos").url(name)`. A put streams its body to the store once, so a
+     * request's body can be kept without being held in memory.
+     */
+    val storage: ObjectStorage = ObjectStorage.unavailable
 ):
 
   /**

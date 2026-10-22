@@ -99,6 +99,19 @@ class MoverSuite extends munit.FunSuite:
       ): Unit
       Store(s3Endpoint, "garage", name, access, field(key, "secretAccessKey"))
 
+    /** Buckets reached by one key, as a service's are (feature 055). */
+    def familyOf(names: Vector[String]): Vector[Store] =
+      val first = bucket(names.head)
+      first +: names.tail.map { n =>
+        val id = field(admin("/v2/CreateBucket", s"""{"globalAlias":"$n"}"""), "id")
+        admin(
+          "/v2/AllowBucketKey",
+          s"""{"bucketId":"$id","accessKeyId":"${first.accessKey}",""" +
+            s""""permissions":{"read":true,"write":true,"owner":true}}"""
+        ): Unit
+        first.copy(bucket = n)
+      }
+
     /** A second key on an existing bucket, as a `Store`. */
     def key(bucket: String, name: String, write: Boolean): Store =
       val id = field(
@@ -315,6 +328,50 @@ class MoverSuite extends munit.FunSuite:
     val (code, last, _) = main("delete")(Map.empty)
     assertEquals(code, 2)
     assert(last.contains("mode must be copy or verify"), last)
+  }
+
+  // Feature 055: one move takes every bucket of a service, pair by pair.
+
+  private def lists(sources: Vector[Store], targets: Vector[Store]): Map[String, String] =
+    (env(sources.head, targets.head) - "MOVER_SOURCE_BUCKET" - "MOVER_TARGET_BUCKET") ++ Map(
+      "MOVER_SOURCE_BUCKETS" -> sources.map(_.bucket).mkString(","),
+      "MOVER_TARGET_BUCKETS" -> targets.map(_.bucket).mkString(",")
+    )
+
+  test("055: a run given parallel lists copies and verifies every pair, under one key a side") {
+    val sources =
+      garage.familyOf(Vector("casino.kyc11", "casino.kyc11.photos", "casino.kyc11.uploads"))
+    val targets =
+      gcs.familyOf(Vector("t-casino-kyc11", "t-casino-kyc11-photos", "t-casino-kyc11-uploads"))
+    sources.zipWithIndex.foreach((s, i) => (0 to i).foreach(n => put(s, s"o$n", bytes(10 + n, i))))
+    val (copied, last, _) = main("copy")(lists(sources, targets))
+    assertEquals(copied, 0, last)
+    assert(last.contains("\"counted\":6,\"copied\":6,"), last)
+    val (code, verified, _) = main("verify")(lists(sources, targets))
+    assertEquals(code, 0, verified)
+    assert(verified.contains("\"counted\":6,\"copied\":0,\"verified\":6,"), verified)
+    sources.zip(targets).zipWithIndex.foreach { case ((s, t), i) =>
+      (0 to i).foreach(n => assertEquals(read(t, s"o$n").toSeq, read(s, s"o$n").toSeq))
+    }
+  }
+
+  test("055: a pair whose target cannot be reached ends the run, naming the pair") {
+    val sources = garage.familyOf(Vector("casino.kyc12", "casino.kyc12.photos"))
+    val targets = gcs.familyOf(Vector("t-casino-kyc12"))
+    put(sources(1), "a", bytes(10, 1))
+    val missing         = targets :+ targets.head.copy(bucket = "t-casino-kyc12-nowhere")
+    val (code, last, _) = main("copy")(lists(sources, missing))
+    assertEquals(code, 1, last)
+    assert(last.contains("casino.kyc12.photos -> t-casino-kyc12-nowhere: "), last)
+  }
+
+  test("055: lists of different lengths are a run that could not proceed") {
+    val (code, last, _) = main("copy")(
+      env(garage.bucket("casino.kyc13"), gcs.bucket("t-casino-kyc13")) ++
+        Map("MOVER_SOURCE_BUCKETS" -> "a,b", "MOVER_TARGET_BUCKETS" -> "c")
+    )
+    assertEquals(code, 2)
+    assert(last.contains("MOVER_SOURCE_BUCKETS names 2 buckets and MOVER_TARGET_BUCKETS 1"), last)
   }
 
   test("a report escapes what it quotes") {

@@ -1,0 +1,43 @@
+{
+  "about": "The rules for the storage client's object names, prefixes and bucket names, and the bound on a signed URL. Each row builds its text as `unit` repeated `repeat` times, so a long one need not be written out. An object's name is 1 to 1024 bytes as UTF-8, its segments separated by '/', with no leading '/', no empty segment, no segment '.' or '..', and no control character. A prefix is empty or follows the same rule, except that it may end in '/'. A bucket's name is 1 to 32 characters, each a lower-case letter, a digit or '-'. Every SDK's client and every test double gives each row's verdict, and a refusal contains the row's `says`.",
+  "objectNames": [
+    {"unit": "front.jpg", "repeat": 1, "accepted": true, "why": "one segment"},
+    {"unit": "listings/42/photos/front.jpg", "repeat": 1, "accepted": true, "why": "segments separated by a slash"},
+    {"unit": "a b+c=d,e&f", "repeat": 1, "accepted": true, "why": "spaces and punctuation are kept as they are"},
+    {"unit": "café/menü.pdf", "repeat": 1, "accepted": true, "why": "letters outside ASCII"},
+    {"unit": "...", "repeat": 1, "accepted": true, "why": "three dots is a name, not a dot segment"},
+    {"unit": "a", "repeat": 1024, "accepted": true, "why": "the longest name"},
+    {"unit": "é", "repeat": 512, "accepted": true, "why": "512 characters of two bytes each: exactly the limit"},
+    {"unit": "", "repeat": 1, "accepted": false, "why": "empty", "says": "must not be empty"},
+    {"unit": "a", "repeat": 1025, "accepted": false, "why": "longer than 1024 bytes", "says": "at most 1024 bytes"},
+    {"unit": "é", "repeat": 513, "accepted": false, "why": "513 characters of two bytes each: the limit is in bytes, not characters", "says": "at most 1024 bytes"},
+    {"unit": "/front.jpg", "repeat": 1, "accepted": false, "why": "a leading slash", "says": "must not begin with '/'"},
+    {"unit": "listings//front.jpg", "repeat": 1, "accepted": false, "why": "an empty segment", "says": "empty segment"},
+    {"unit": "listings/", "repeat": 1, "accepted": false, "why": "a trailing slash leaves an empty segment", "says": "empty segment"},
+    {"unit": "listings/./front.jpg", "repeat": 1, "accepted": false, "why": "a segment '.'", "says": "segment '.' or '..'"},
+    {"unit": "listings/../secrets", "repeat": 1, "accepted": false, "why": "a segment '..'", "says": "segment '.' or '..'"},
+    {"unit": "..", "repeat": 1, "accepted": false, "why": "the whole name '..'", "says": "segment '.' or '..'"},
+    {"unit": "front\njpg", "repeat": 1, "accepted": false, "why": "a newline", "says": "control character"},
+    {"unit": "front\u0000jpg", "repeat": 1, "accepted": false, "why": "a NUL", "says": "control character"}
+  ],
+  "prefixes": [
+    {"unit": "", "repeat": 1, "accepted": true, "why": "everything in the bucket"},
+    {"unit": "listings/42/", "repeat": 1, "accepted": true, "why": "a prefix may end in a slash"},
+    {"unit": "listings/4", "repeat": 1, "accepted": true, "why": "a prefix need not end at a segment"},
+    {"unit": "/listings", "repeat": 1, "accepted": false, "why": "a leading slash", "says": "must not begin with '/'"},
+    {"unit": "listings//", "repeat": 1, "accepted": false, "why": "an empty segment", "says": "empty segment"},
+    {"unit": "../", "repeat": 1, "accepted": false, "why": "a segment '..'", "says": "segment '.' or '..'"},
+    {"unit": "a", "repeat": 1025, "accepted": false, "why": "longer than 1024 bytes", "says": "at most 1024 bytes"}
+  ],
+  "bucketNames": [
+    {"unit": "photos", "repeat": 1, "accepted": true, "why": "lower-case letters"},
+    {"unit": "old-photos-2", "repeat": 1, "accepted": true, "why": "letters, digits and '-'"},
+    {"unit": "a", "repeat": 32, "accepted": true, "why": "the longest name"},
+    {"unit": "a", "repeat": 33, "accepted": false, "why": "longer than 32 characters", "says": "lower-case letters, digits and '-', 1 to 32 characters"},
+    {"unit": "", "repeat": 1, "accepted": false, "why": "empty", "says": "lower-case letters, digits and '-', 1 to 32 characters"},
+    {"unit": "Photos", "repeat": 1, "accepted": false, "why": "an upper-case letter", "says": "lower-case letters, digits and '-', 1 to 32 characters"},
+    {"unit": "old_photos", "repeat": 1, "accepted": false, "why": "an underscore", "says": "lower-case letters, digits and '-', 1 to 32 characters"},
+    {"unit": "old.photos", "repeat": 1, "accepted": false, "why": "a dot", "says": "lower-case letters, digits and '-', 1 to 32 characters"}
+  ],
+  "signedUrl": {"maxSeconds": 604800, "defaultSeconds": 900}
+}

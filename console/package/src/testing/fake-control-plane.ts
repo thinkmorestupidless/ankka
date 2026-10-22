@@ -264,6 +264,17 @@ function fakeFingerprint(schema: unknown): string {
   return `sha256:${hex}`;
 }
 
+/** A named bucket as the operator reports it (feature 055). */
+export interface BucketRecord {
+  name: string;
+  phase: string;
+  store?: string;
+  bucket?: string;
+  exposure: string;
+  publicAddress?: string;
+  kept?: boolean;
+}
+
 interface Service {
   name: string;
   projectId: string;
@@ -322,6 +333,8 @@ interface Service {
   bucketLocation?: string;
   /** Where a move of its bucket from Garage is, as the control plane phrases it. */
   storageMove?: string;
+  /** Its named buckets as the operator would report them (feature 055), kept ones last. */
+  buckets?: BucketRecord[];
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -496,6 +509,8 @@ export interface FakeSeed {
     /** The store its bucket is in, `garage` or `gcs`. */
     objectStore?: string;
     bucketLocation?: string;
+    /** Its named buckets as the operator reports them (feature 055). */
+    buckets?: BucketRecord[];
   }[];
   /** Project secrets, by name and entry: a value each, never listed. */
   secrets?: { projectId: string; name: string; entries: Record<string, string> }[];
@@ -571,6 +586,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         provisionObjectStorage?: boolean;
         exposeObjectStorage?: boolean;
         env?: { name: string }[];
+        buckets?: { name: string; exposure?: string; supplied?: { bucket?: string } }[];
       };
     };
     s.generation += 1;
@@ -579,6 +595,24 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     s.provisionObjectStorage = d.service?.provisionObjectStorage ?? false;
     s.exposeObjectStorage = d.service?.exposeObjectStorage ?? false;
     s.ownObjectStore = (d.service?.env ?? []).some((e) => e.name.startsWith("ANKKA_S3_"));
+    // Named buckets (feature 055): one report each, and one the descriptor stopped naming is kept.
+    const named = (d.service?.buckets ?? []).map((b): BucketRecord => {
+      if (b.supplied) return { name: b.name, phase: "Supplied", bucket: b.supplied.bucket, exposure: "supplied" };
+      const exposure = b.exposure ?? "private";
+      const bucket = `${s.projectId}.${s.name}.${b.name}`;
+      return {
+        name: b.name,
+        phase: "Provisioned",
+        store: "garage",
+        bucket,
+        exposure,
+        ...(exposure === "private" ? {} : { publicAddress: `https://storage.${options.baseDomain ?? "example.test"}/${bucket}` }),
+      };
+    });
+    const dropped = (s.buckets ?? [])
+      .filter((b) => b.phase !== "Supplied" && !named.some((n) => n.name === b.name))
+      .map((b): BucketRecord => ({ ...b, phase: "Kept", kept: true }));
+    s.buckets = [...named, ...dropped];
     if (s.provisionObjectStorage && !s.objectStore) {
       s.objectStore = objectStore;
       if (objectStore === "gcs") s.bucketLocation = projects.get(s.projectId)?.location ?? "europe-west2";
@@ -637,6 +671,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       bucketLocation: s.provisionObjectStorage && s.objectStore === "gcs" ? (s.bucketLocation ?? null) : null,
       softDeleteDays: s.provisionObjectStorage && s.objectStore === "gcs" ? 7 : null,
       storageMove: s.storageMove ?? null,
+      ...(s.buckets && s.buckets.length > 0 ? { buckets: s.buckets } : {}),
       customHostnames: (s.customHostnames ?? []).map((hostname) => ({
         hostname,
         // The fake has no authority to wait for: an exposed service's hostnames serve at once.
@@ -2227,6 +2262,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           ownObjectStore: s.ownObjectStore,
           objectStore: s.objectStore,
           bucketLocation: s.bucketLocation,
+          buckets: s.buckets,
         });
       }
       for (const sec of seed.secrets ?? []) {

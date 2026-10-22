@@ -355,3 +355,82 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     )
     assert(ServiceProjection.project(service(d = declines), gcs).isRight)
   }
+
+  // Feature 055: named buckets.
+
+  private val supplied =
+    SuppliedBucket("https://s3.example", "eu-west-1", "their-bucket", "their-creds")
+
+  private def withBuckets(buckets: BucketSpec*) =
+    descriptor().copy(service = descriptor().service.copy(buckets = buckets.toVector))
+
+  test("named buckets are projected in order, each with its exposure, origins and supply") {
+    val d = withBuckets(
+      BucketSpec("photos", Exposure.Public),
+      BucketSpec("uploads", Exposure.Signed, Vector("https://app.example")),
+      BucketSpec("ledger"),
+      BucketSpec("archive", supplied = Some(supplied))
+    )
+    val Right(spec) = ServiceProjection.project(service(d = d), config): @unchecked
+    assertEquals(spec.buckets.map(_.name), List("photos", "uploads", "ledger", "archive"))
+    assertEquals(spec.buckets.map(_.exposure), List("public", "signed", "private", "private"))
+    assertEquals(spec.buckets(1).origins, List("https://app.example"))
+    assertEquals(spec.buckets.map(_.made), List(true, true, true, false))
+    assertEquals(
+      spec.buckets(3).supplied.map(s => (s.endpoint, s.region, s.bucket, s.credential)),
+      Some(("https://s3.example", "eu-west-1", "their-bucket", "their-creds"))
+    )
+    assertEquals(spec.provisionObjectStorage, false)
+  }
+
+  test("a service with no named bucket projects none") {
+    val Right(spec) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(spec.buckets, Nil)
+  }
+
+  test("a named bucket whose store name would be over 63 characters is not projected") {
+    val name = "a" * 20
+    val d    = withBuckets(BucketSpec(name))
+    val Left(problems) =
+      ServiceProjection.project(service(projectId = "p" * 40, d = d), config): @unchecked
+    assertEquals(problems.size, 1, problems)
+    assert(problems.head.contains(s"'$name'"), problems)
+    assert(problems.head.contains("63"), problems)
+  }
+
+  test("only supplied buckets need nothing of the installation's store") {
+    val d = withBuckets(BucketSpec("a" * 20, supplied = Some(supplied)))
+    val Right(spec) =
+      ServiceProjection.project(service(projectId = "p" * 40, d = d), config): @unchecked
+    assertEquals(spec.buckets.map(_.name), List("a" * 20))
+  }
+
+  // Feature 055: a supplied bucket's credential is checked by the project's record of names alone.
+
+  private def summary(name: String, entries: String*) =
+    ProjectSecretSummary(name, entries.toVector)
+
+  test("a supplied bucket's credential must exist with both entries") {
+    val archive = BucketSpec("archive", supplied = Some(supplied))
+    assertEquals(
+      api.ServiceEndpoint.suppliedCredentialProblems(
+        Vector(archive),
+        Vector(summary("their-creds", "access-key", "secret-key"))
+      ),
+      Vector.empty
+    )
+    assertEquals(
+      api.ServiceEndpoint.suppliedCredentialProblems(Vector(archive), Vector.empty),
+      Vector(
+        "buckets: 'archive': project secret 'their-creds' does not exist; set it with the entries " +
+          "access-key and secret-key"
+      )
+    )
+    assertEquals(
+      api.ServiceEndpoint.suppliedCredentialProblems(
+        Vector(archive),
+        Vector(summary("their-creds", "access-key"))
+      ),
+      Vector("buckets: 'archive': project secret 'their-creds' has no entry 'secret-key'")
+    )
+  }

@@ -14,6 +14,7 @@ from ankka.effects.timed_action import Done, Failed, TimedActionEffect, TimedAct
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers, command
 from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
+from ankka.storage import HasStorage
 from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
@@ -28,7 +29,7 @@ def action(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return command(name)
 
 
-class TimedAction(HasSecrets, HasServices, HasClientKeys):
+class TimedAction(HasSecrets, HasStorage, HasServices, HasClientKeys):
     component_id: ClassVar[str]
     _handlers: ClassVar[dict[str, HandlerSpec]]
 

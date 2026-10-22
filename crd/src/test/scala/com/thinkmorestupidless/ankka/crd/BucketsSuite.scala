@@ -68,3 +68,23 @@ class BucketsSuite extends munit.FunSuite:
     assert(!Hostnames.StorageLabel.contains("-"))
     assertEquals(Hostnames.storage("example.com"), "storage.example.com")
   }
+
+  test("a named bucket's name in the store is the service's, then its own, joined by dots") {
+    assertEquals(Buckets.named("shop", "listings", "photos"), "shop.listings.photos")
+    assertEquals(Buckets.keyName("shop", "listings"), Buckets.name("shop", "listings"))
+    assert(Buckets.named("a", "b-c", "d") != Buckets.named("a-b", "c", "d"))
+  }
+
+  test("a named bucket whose name in the store is over 63 characters is refused, naming it") {
+    val bucket = "p" * 32
+    val long   = Buckets.problems("project-with-a-long-id", "listings", bucket)
+    assertEquals(long.size, 1)
+    assert(
+      long.head.startsWith(
+        s"buckets: '$bucket': bucket name 'project-with-a-long-id.listings.$bucket'"
+      ),
+      long.head
+    )
+    assert(long.head.contains("63 character limit"), long.head)
+    assertEquals(Buckets.problems("shop", "listings", "photos"), Vector.empty)
+  }

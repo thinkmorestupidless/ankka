@@ -22,6 +22,32 @@ class ConsumerTestKitSuite extends munit.FunSuite:
     assertEquals(refused.code, com.thinkmorestupidless.ankka.core.ErrorCode.BadRequest)
   }
 
+  test("a consumer's storage client is the kit's, in memory, and a test reads back what it kept") {
+    import com.thinkmorestupidless.ankka.testkit.storage.{
+      KeepObject,
+      KeepRequested,
+      KeepingConsumer
+    }
+    val kit = ConsumerTestKit.of(KeepingConsumer)
+    kit.onMessage(
+      KeepRequested(KeepObject(None, "listings/42/a.txt", "text/plain", "a")),
+      "r1"
+    ): Unit
+    assertEquals(
+      kit.storage.default.getBytes("listings/42/a.txt").map((ct, b) => (ct, String(b, "UTF-8"))),
+      Some(("text/plain", "a"))
+    )
+    // A store the test hands over is the one the consumer keeps in.
+    val photos =
+      InMemoryObjectStorage("photos" -> com.thinkmorestupidless.ankka.sdk.BucketExposure.Public)
+    val named = ConsumerTestKit.of(KeepingConsumer, storage = photos)
+    named.onMessage(
+      KeepRequested(KeepObject(Some("photos"), "p.png", "image/png", "p")),
+      "r2"
+    ): Unit
+    assertEquals(photos.bucket("photos").stat("p.png").map(_.contentType), Some("image/png"))
+  }
+
   test("several messages are read back in order, each with the key it named") {
     val kit    = ConsumerTestKit.of(LedgerFanout)
     val result = kit.onMessage(LedgerEvent.Added(7), subject = "l1", sequenceNumber = 5)

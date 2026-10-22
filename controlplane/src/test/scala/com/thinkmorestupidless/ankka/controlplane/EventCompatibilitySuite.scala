@@ -738,6 +738,16 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       case other                           => fail(s"decoded as $other")
   }
 
+  test("an observation from before named buckets reports none") {
+    val observed = ServiceEntity.eventSerializer.fromBytes(
+      """{"type":"ServiceObserved","generation":1,"lifecycle":"Ready","readyInstances":1,"desiredInstances":1}"""
+        .getBytes("UTF-8")
+    )
+    observed match
+      case o: ServiceEvent.ServiceObserved => assertEquals(o.buckets, Vector.empty)
+      case other                           => fail(s"decoded as $other")
+  }
+
 /** `ServiceApplied` as the build before feature 033 declared it: five fields. */
 private object PreRollback:
   import com.thinkmorestupidless.ankka.controlplane.api.Wire.given

@@ -50,6 +50,9 @@ trait TimedActionContext extends ComponentContext:
   /** Other services, called as this one. */
   def services: ServiceClients
 
+  /** The service's buckets (feature 055). */
+  def storage: ObjectStorage = ObjectStorage.unavailable
+
   /** The service's timers, so a handler can schedule what comes next under another name. */
   def timers: TimerScheduler
 
@@ -68,7 +71,8 @@ private[ankka] final case class SimpleTimedActionContext(
     secrets: SecretStore,
     services: ServiceClients,
     timers: TimerScheduler,
-    clock: java.time.Clock
+    clock: java.time.Clock,
+    override val storage: ObjectStorage = ObjectStorage.unavailable
 ) extends TimedActionContext
 
 /**

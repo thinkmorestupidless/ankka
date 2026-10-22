@@ -98,6 +98,22 @@ export class HttpProblem extends Error {
   }
 }
 
+/**
+ * @internal An answer whose status and content type the handler chooses, its body as given: the
+ * directory store's objects, served under the content type each was kept with.
+ */
+export class RawReply {
+  readonly status: number
+  readonly contentType: string
+  readonly body: Uint8Array
+  constructor(status: number, contentType: string, body: Uint8Array) {
+    this.status = status
+    this.contentType = contentType
+    this.body = body
+    Object.freeze(this)
+  }
+}
+
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
 
 type MaybePromise<T> = T | Promise<T>

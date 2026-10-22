@@ -3,6 +3,10 @@
   "service": {
     "image": "sample-shopping-cart-typescript:latest",
     "hosting": "process",
-    "protocol": "1.0"
+    "protocol": "1.0",
+    "provisionObjectStorage": true,
+    "buckets": [
+      { "name": "photos", "exposure": "public" }
+    ]
   }
 }

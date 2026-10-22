@@ -2,3 +2,5 @@ target/
 .bsp/
 .metals/
 .idea/
+# The directory store a service keeps its objects in on this machine (ankka local).
+.ankka/

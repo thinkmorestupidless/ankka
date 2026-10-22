@@ -149,7 +149,14 @@ enum Action:
    * when absent, never deleted. When the bucket shows no key allowed — a bucket the service deleted
    * and the operator made again — the keys named for the service are allowed on it once more.
    */
-  case EnsureBucket(bucket: String)
+  case EnsureBucket(
+      bucket: String,
+      /**
+       * The service's key, which is allowed on the bucket when it is not (feature 055): a named
+       * bucket made after the credential was issued. `None` for the unnamed bucket, as before.
+       */
+      keyName: Option[String] = None
+  )
 
   /**
    * Ensures a service's storage credential: a key issued by the store, allowed on `bucket` alone
@@ -162,7 +169,13 @@ enum Action:
       labels: Map[String, String],
       bucket: String,
       /** The generation in place (feature 039), whose key the Secret holds. */
-      generation: Int = 0
+      generation: Int = 0,
+      /**
+       * Every bucket the key is allowed on (feature 055), when it is not `bucket` alone: a
+       * service's named buckets the platform made, beside its unnamed one if it has one. `bucket`
+       * then names the key, as it always did.
+       */
+      buckets: List[String] = Nil
   )
 
   /**
@@ -174,7 +187,9 @@ enum Action:
       namespace: String,
       secretName: String,
       bucket: String,
-      generation: Int
+      generation: Int,
+      /** Every bucket the new key is allowed on, when it is not `bucket` alone (feature 055). */
+      buckets: List[String] = Nil
   )
 
   /** Deletes the keys of a service's bucket the store says have expired (feature 039). */
@@ -186,11 +201,20 @@ enum Action:
    */
   case SetBucketCors(bucket: String, origins: List[String])
 
-  /** Takes write from the key in place of a service's bucket in Garage: a move's pause. */
-  case PauseWrites(bucket: String, generation: Int)
+  /**
+   * Serves a bucket at the store's web endpoint with no signature, or stops (feature 055): on for a
+   * `public` named bucket, off for every other named bucket. Written only when the store differs.
+   */
+  case SetWebsiteAccess(bucket: String, enabled: Boolean)
+
+  /**
+   * Takes write from the key in place of a service's bucket in Garage: a move's pause. On every
+   * bucket in `buckets` when it is given (feature 055); `bucket` names the key.
+   */
+  case PauseWrites(bucket: String, generation: Int, buckets: List[String] = Nil)
 
   /** Gives that key its writes back: a move that failed while paused. */
-  case ResumeWrites(bucket: String, generation: Int)
+  case ResumeWrites(bucket: String, generation: Int, buckets: List[String] = Nil)
 
   /** Applies one phase's Job of a move (feature 039); it names its Secrets and holds no value. */
   case EnsureMoveJob(job: io.fabric8.kubernetes.api.model.batch.v1.Job)
@@ -344,20 +368,24 @@ enum Action:
       s"ensure credentials ${s.getMetadata.getNamespace}/${s.getMetadata.getName} (create-if-absent)"
     case EnsureSecretKey(ns, name, _)          => s"ensure secret key $ns/$name (create-if-absent)"
     case EnsureTelemetrySecret(ns, name, _, _) => s"ensure telemetry secret $ns/$name"
-    case EnsureBucket(bucket)                  => s"ensure bucket $bucket"
-    case EnsureStorageCredential(ns, name, _, bucket, generation) =>
+    case EnsureBucket(bucket, None)            => s"ensure bucket $bucket"
+    case EnsureBucket(bucket, Some(key))       => s"ensure bucket $bucket, allowing key $key"
+    case EnsureStorageCredential(ns, name, _, bucket, generation, buckets) =>
       val at = if generation == 0 then "" else s" at generation $generation"
-      s"ensure storage credential $ns/$name for bucket $bucket$at (create-if-absent)"
-    case ReissueStorageCredential(ns, name, bucket, generation) =>
-      s"issue storage credential $ns/$name for bucket $bucket again, at generation $generation"
+      s"ensure storage credential $ns/$name for ${Action.bucketsPhrase(bucket, buckets)}$at (create-if-absent)"
+    case ReissueStorageCredential(ns, name, bucket, generation, buckets) =>
+      s"issue storage credential $ns/$name for ${Action.bucketsPhrase(bucket, buckets)} again, at generation $generation"
+    case SetWebsiteAccess(bucket, enabled) =>
+      if enabled then s"serve bucket $bucket at the store's web endpoint"
+      else s"do not serve bucket $bucket at the store's web endpoint"
     case DeleteExpiredKeys(bucket) => s"delete expired keys of bucket $bucket"
     case SetBucketCors(bucket, origins) =>
       if origins.isEmpty then s"set no cors rule on bucket $bucket"
       else s"set cors rule on bucket $bucket admitting ${origins.mkString(", ")}"
-    case PauseWrites(bucket, generation) =>
-      s"pause writes to bucket $bucket (key of generation $generation)"
-    case ResumeWrites(bucket, generation) =>
-      s"resume writes to bucket $bucket (key of generation $generation)"
+    case PauseWrites(bucket, generation, buckets) =>
+      s"pause writes to ${Action.bucketsPhrase(bucket, buckets)} (key of generation $generation)"
+    case ResumeWrites(bucket, generation, buckets) =>
+      s"resume writes to ${Action.bucketsPhrase(bucket, buckets)} (key of generation $generation)"
     case EnsureMoveJob(job) =>
       s"ensure move job ${job.getMetadata.getNamespace}/${job.getMetadata.getName}"
     case EnsureReferenceGrant(g) =>
@@ -403,3 +431,14 @@ enum Action:
     case PruneHostnameCertificates(ns, _, keep) =>
       s"prune hostname certificates in $ns" +
         (if keep.isEmpty then "" else s" except ${keep.mkString(", ")}")
+
+object Action:
+
+  /**
+   * `bucket <name>` as every line said before feature 055, or the list when a key reaches several
+   * buckets, its name given when it is no bucket of the list.
+   */
+  def bucketsPhrase(bucket: String, buckets: List[String]): String =
+    if buckets.isEmpty || buckets == List(bucket) then s"bucket $bucket"
+    else if buckets.contains(bucket) then s"buckets ${buckets.mkString(", ")}"
+    else s"buckets ${buckets.mkString(", ")} (key $bucket)"

@@ -13,6 +13,7 @@ import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import { CommandError } from "./effects/common.ts"
 import { StepEffects, WorkflowEffects, type WorkflowSettings } from "./effects/workflow.ts"
 import { servicesFor, type Services } from "./services.ts"
+import { processStorage, StorageRefusals, type Buckets } from "./storage.ts"
 
 export abstract class Workflow<S> {
   /** Inside a command handler. */
@@ -63,6 +64,22 @@ export abstract class Workflow<S> {
   /** A unit test's store in place of the runtime's. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #storage: Buckets | undefined
+
+  /**
+   * The service's buckets, in a step. A command handler is refused: a wait on a store would hold the
+   * workflow's other commands behind it.
+   */
+  get storage(): Buckets {
+    if (!this.#inStep) throw StorageRefusals.stepsOnly()
+    return this.#storage ?? processStorage()
+  }
+
+  /** A unit test's store in place of the runtime's. */
+  set storage(buckets: Buckets) {
+    this.#storage = buckets
   }
 
   #services: Services | undefined

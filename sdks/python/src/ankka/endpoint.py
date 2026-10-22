@@ -23,6 +23,7 @@ from ankka.context import RequestContext
 from ankka.event_sourced_entity import RegistrationError
 from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
+from ankka.storage import HasStorage
 from ankka.services import HasServices
 
 
@@ -350,7 +351,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
 _current: ContextVar[RequestContext | None] = ContextVar("ankka_request", default=None)
 
 
-class Endpoint(HasSecrets, HasServices, HasClientKeys):
+class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
     """Subclass this. Class attributes: ``prefix`` and ``acl``. Routes are decorated methods."""
 
     prefix: ClassVar[str]

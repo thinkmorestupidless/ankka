@@ -7,6 +7,7 @@ pages:
   - get-started/first-service-python.md
   - reference/python-sdk.md
   - build/graph.md
+  - build/object-storage.md
   - build/autonomous-agents.md
   - reference/sidecar-protocol.md
   - build/serialization.md

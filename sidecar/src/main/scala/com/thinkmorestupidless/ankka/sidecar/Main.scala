@@ -211,8 +211,18 @@ object Main:
     // projection or a route that reaches the process before the callback server is bound hands it a
     // call it cannot make. A consumer redelivered at a restart was refused on the callback port and
     // left the process's channel backing off for a second, failing every call behind it.
-    val builder = Ankka.service
+    // A process keeps its own objects (feature 055): its SDK speaks S3 itself, or keeps a directory
+    // store whose addresses it serves at /_ankka/storage. Only a module reaches a bucket through the
+    // runtime, so only a module's sidecar builds a store; one built beside a process would never be
+    // asked, could refuse to start over a directory it cannot write, and would hide the process's
+    // /_ankka/storage.
+    val registered = Ankka.service
       .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory ++ mcpDescriptors)
+    val stored =
+      if imports.isEmpty then
+        registered.withStorage(com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable)
+      else registered
+    val builder = stored
       .withConversation(conversation)
       .withExtension(
         SidecarExtension(

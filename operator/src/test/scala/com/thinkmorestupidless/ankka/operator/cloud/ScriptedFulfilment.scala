@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.crd.{
   CloudSubject
 }
 import com.thinkmorestupidless.ankka.operator.CloudRequests.{Keys, Purpose}
-import com.thinkmorestupidless.ankka.operator.{ObjectStore, StorageCredential}
+import com.thinkmorestupidless.ankka.operator.{CloudRequests, ObjectStore, StorageCredential}
 
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -44,22 +44,56 @@ final class ScriptedMemory:
  * for real and a replaced credential is refused once its grace has passed.
  */
 trait ScriptedStore:
-  /** Make the bucket or find it, set its origins, and say where it is reached: endpoint, region. */
-  def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String)
+  /**
+   * Make the bucket or find it, set its origins, open it to anyone when it is public (feature 055),
+   * and say where it is reached: endpoint, region.
+   */
+  def bucket(
+      name: String,
+      location: String,
+      corsOrigins: Vector[String],
+      public: Boolean = false
+  ): (String, String)
 
-  /** A new credential allowed on one bucket: its key id, and the two entries its Secret holds. */
-  def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String])
+  /** Where anyone reads an object of a public bucket, without a signature (feature 055). */
+  def publicUrl(bucket: String): String
+
+  /** A new credential allowed on every bucket given: its key id, and its Secret's two entries. */
+  def mint(
+      buckets: Vector[String],
+      secretName: String,
+      generation: Long
+  ): (String, Map[String, String])
 
   /** End a credential at `at`, by the store's own clock. */
   def end(keyId: String, at: Instant): Unit
 
+  /**
+   * Allow a credential already issued on every bucket given (feature 055): a bucket named after the
+   * credential was issued is granted to it in place, at the same generation, with nothing new to
+   * write into its Secret.
+   */
+  def grant(keyId: String, buckets: Vector[String]): Unit
+
 object ScriptedStore:
 
   object MadeUp extends ScriptedStore:
-    def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String) =
+    def bucket(
+        name: String,
+        location: String,
+        corsOrigins: Vector[String],
+        public: Boolean
+    ): (String, String) =
       "https://storage.scripted.invalid" -> location
 
-    def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String]) =
+    /** Google's own address for a public bucket, as a provider with no content delivery network. */
+    def publicUrl(bucket: String): String = s"https://storage.googleapis.com/$bucket"
+
+    def mint(
+        buckets: Vector[String],
+        secretName: String,
+        generation: Long
+    ): (String, Map[String, String]) =
       val id = s"scripted-$secretName-$generation"
       id -> Map(
         StorageCredential.AccessKeyEntry -> id,
@@ -69,28 +103,55 @@ object ScriptedStore:
 
     def end(keyId: String, at: Instant): Unit = ()
 
+    def grant(keyId: String, buckets: Vector[String]): Unit = ()
+
   /**
    * A Garage as the cloud: its buckets under the contract's names, its keys as the credentials, its
    * S3 port as the endpoint, and its own key expiry as the end of a replaced credential.
    */
-  final class InGarage(store: ObjectStore, endpoint: String, region: String) extends ScriptedStore:
-    def bucket(name: String, location: String, corsOrigins: Vector[String]): (String, String) =
+  final class InGarage(
+      store: ObjectStore,
+      endpoint: String,
+      region: String,
+      /** Where the store's web endpoint is reached, which serves a public bucket's objects. */
+      publicBase: String = ""
+  ) extends ScriptedStore:
+    def bucket(
+        name: String,
+        location: String,
+        corsOrigins: Vector[String],
+        public: Boolean
+    ): (String, String) =
       val made = store.bucket(name).getOrElse(store.createBucket(name))
       store.setCors(made.id, corsOrigins)
+      if public then store.setWebsite(made.id, enabled = true)
       endpoint -> region
 
-    def mint(bucket: String, secretName: String, generation: Long): (String, Map[String, String]) =
-      val made = store
-        .bucket(bucket)
-        .getOrElse(throw IllegalStateException(s"no bucket $bucket to grant a credential on"))
+    def publicUrl(bucket: String): String =
+      s"${if publicBase.nonEmpty then publicBase else endpoint}/$bucket"
+
+    def mint(
+        buckets: Vector[String],
+        secretName: String,
+        generation: Long
+    ): (String, Map[String, String]) =
+      val made = buckets.map(bucket =>
+        store
+          .bucket(bucket)
+          .getOrElse(throw IllegalStateException(s"no bucket $bucket to grant a credential on"))
+      )
+      // One key, granted on each: a service reaches every bucket of its own with one credential.
       val key = store.createKey(s"$secretName#$generation")
-      store.allow(made.id, key.accessKeyId)
+      made.foreach(b => store.allow(b.id, key.accessKeyId))
       key.accessKeyId -> Map(
         StorageCredential.AccessKeyEntry -> key.accessKeyId,
         StorageCredential.SecretKeyEntry -> key.secretAccessKey
       )
 
     def end(keyId: String, at: Instant): Unit = store.expire(keyId, at)
+
+    def grant(keyId: String, buckets: Vector[String]): Unit =
+      buckets.flatMap(store.bucket).foreach(b => store.allow(b.id, keyId))
 
 /** A credential issued, for which Secret and generation, and when. */
 final case class Issued(secretName: String, generation: Long, at: Instant)
@@ -188,7 +249,7 @@ final class ScriptedFulfilment(
       case None if !CloudKinds.all.contains(spec.kind) =>
         failed(s"kind ${spec.kind} is not implemented by $version")
       case None =>
-        val key      = (spec.kind, spec.subject)
+        val key      = (ScriptedFulfilment.memoryKind(spec), spec.subject)
         val existing = memory.made.get(key)
         existing match
           case Some(m)
@@ -258,13 +319,15 @@ final class ScriptedFulfilment(
       case CloudKinds.Bucket =>
         val bucket  = before.flatMap(_.get(Keys.Bucket)).getOrElse(bucketName(spec))
         val origins = p.get(Keys.CorsOrigins).toVector.flatMap(_.split(',')).filter(_.nonEmpty)
-        val (endpoint, region) = store.bucket(bucket, p.getOrElse(Keys.Location, location), origins)
+        val public  = p.get(Keys.Public).contains("true")
+        val (endpoint, region) =
+          store.bucket(bucket, p.getOrElse(Keys.Location, location), origins, public)
         Right(
           Map(
             Keys.Bucket   -> bucket,
             Keys.Endpoint -> endpoint,
             Keys.Region   -> region
-          ) -> None
+          ) ++ Option.when(public)(Keys.PublicUrl -> store.publicUrl(bucket)) -> None
         )
       case CloudKinds.BucketCredential => credential(namespace, spec, now, previous, secrets)
       case CloudKinds.WrappingKey =>
@@ -277,14 +340,14 @@ final class ScriptedFulfilment(
    * name can.
    */
   private def bucketName(spec: CloudResourceSpec): String =
+    val prefix = spec.parameters.get(Keys.NamePrefix).filter(_.nonEmpty).getOrElse(account)
     if spec.parameters.get(Keys.Purpose).contains(Purpose.Backup) then
       s"$account-${spec.subject.project}--backup"
     else
-      BucketNames.name(
-        spec.parameters.get(Keys.NamePrefix).filter(_.nonEmpty).getOrElse(account),
-        spec.subject.project,
-        spec.subject.service
-      )
+      spec.parameters.get(Keys.Name).filter(_.nonEmpty) match
+        case Some(named) =>
+          BucketNames.named(prefix, spec.subject.project, spec.subject.service, named)
+        case None => BucketNames.name(prefix, spec.subject.project, spec.subject.service)
 
   private def isBackupBucket(bucket: String): Boolean = bucket.endsWith("--backup")
 
@@ -302,17 +365,20 @@ final class ScriptedFulfilment(
       secrets: SecretWrites
   ): Either[String, (Map[String, String], Option[(Long, Instant)])] =
     val p          = spec.parameters
+    val buckets    = CloudRequests.bucketsOf(p)
     val secretName = p(Keys.SecretName)
     val wanted     = math.max(spec.credentialGeneration, 1L)
     val inPlace    = previous.flatMap(_.credentialGeneration)
     val outputs    = Map(Keys.SecretName -> secretName)
-    if isBackupBucket(p(Keys.Bucket)) && !databaseIdentity(spec.subject.project)
+    if buckets.exists(isBackupBucket) && !databaseIdentity(spec.subject.project)
         .contains(p(Keys.Identity))
     then Left("a backup bucket is granted only to its project's database")
     else
       inPlace match
         case Some(generation) if generation >= wanted =>
-          // Already answered at this generation: issue nothing.
+          // Already answered at this generation: issue nothing, and grant the key in place on any
+          // bucket the request names that it does not reach yet (feature 055).
+          keys.get(secretName -> generation).foreach(store.grant(_, buckets))
           Right(
             outputs -> previous.flatMap(s =>
               s.credentialReportedAt.map(at => generation -> Instant.parse(at))
@@ -320,7 +386,7 @@ final class ScriptedFulfilment(
           )
         case Some(older) =>
           issuedLog += Issued(secretName, wanted, now)
-          secrets.patch(namespace, secretName, mint(p(Keys.Bucket), secretName, wanted))
+          secrets.patch(namespace, secretName, mint(buckets, secretName, wanted))
           val endsAt = now.plusMillis(grace.toMillis)
           // The store ends the old key by its own clock, as a cloud's would; the record is the
           // provider's, kept when the grace has passed.
@@ -329,7 +395,7 @@ final class ScriptedFulfilment(
           Right(outputs -> Some(wanted -> now))
         case None =>
           issuedLog += Issued(secretName, wanted, now)
-          secrets.create(namespace, secretName, mint(p(Keys.Bucket), secretName, wanted)) match
+          secrets.create(namespace, secretName, mint(buckets, secretName, wanted)) match
             case SecretWrites.Outcome.Created =>
               Right(outputs -> Some(wanted -> now))
             case SecretWrites.Outcome.Exists =>
@@ -339,7 +405,22 @@ final class ScriptedFulfilment(
               endedLog += Ended(secretName, wanted, now, "conflict")
               Right(outputs -> Some(wanted -> now))
 
-  private def mint(bucket: String, secretName: String, generation: Long): Map[String, String] =
-    val (id, entries) = store.mint(bucket, secretName, generation)
+  private def mint(
+      buckets: Vector[String],
+      secretName: String,
+      generation: Long
+  ): Map[String, String] =
+    val (id, entries) = store.mint(buckets, secretName, generation)
     keys(secretName -> generation) = id
     entries
+
+object ScriptedFulfilment:
+
+  /**
+   * What the memory keys a request's answer by, beside its subject: its kind, and a named bucket's
+   * name (feature 055), since one service has a bucket request per bucket.
+   */
+  def memoryKind(spec: CloudResourceSpec): String =
+    spec.parameters.get(Keys.Name).filter(_.nonEmpty) match
+      case Some(name) if spec.kind == CloudKinds.Bucket => s"${spec.kind}/$name"
+      case _                                            => spec.kind

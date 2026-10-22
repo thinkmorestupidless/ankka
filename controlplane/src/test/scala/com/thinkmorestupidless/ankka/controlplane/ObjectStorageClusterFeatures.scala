@@ -572,7 +572,14 @@ class ObjectStorageClusterFeatures
     "a descriptor for a service {string} that gives the variables {string}, {string}, {string}, {string} and {string}"
   ) { (logical: String, a: String, b: String, c: String, d: String, e: String) =>
     pendingName = real(logical)
-    val own = Vector(a, b, c, d, e).map(v => literal(v, s"own-${v.toLowerCase}"))
+    // Values a service could run with: the runtime reads its own store's variables at start, and
+    // refuses an endpoint that is not an address (feature 055).
+    val own = Vector(a, b, c, d, e).map(v =>
+      literal(
+        v,
+        if v.endsWith("ENDPOINT") then "https://own-store.example.test" else s"own-${v.toLowerCase}"
+      )
+    )
     pending = Some("shop" -> descriptor(pendingName, env = own))
   }
 

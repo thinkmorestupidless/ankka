@@ -216,6 +216,7 @@ final class AgentRuntime private (
               judgments,
               service.secrets,
               service.services,
+              service.storage,
               timers,
               mcpTools
             )
@@ -265,11 +266,12 @@ final class AgentRuntime private (
   )(using system: ActorSystem[?]): Unit =
     blueprintsBuilder.foreach { build =>
       val context = new blueprint.BlueprintContext:
-        def componentClient = service.componentClient
-        def viewClient      = service.viewClient
-        def services        = service.services
-        def secrets         = service.secrets
-        def hasTimers       = timers.isDefined
+        def componentClient  = service.componentClient
+        def viewClient       = service.viewClient
+        def services         = service.services
+        def secrets          = service.secrets
+        override def storage = service.storage
+        def hasTimers        = timers.isDefined
       val declared = build(context).withTimers(timers.isDefined)
       val mcpTools = connectMcp(ComponentId("ankka-blueprints"), declared.servers, service, timers)
       val registry = declared.withMcpTools(mcpTools)
@@ -394,7 +396,8 @@ final class AgentRuntime private (
             client,
             defaultModel,
             service.secrets,
-            service.services
+            service.services,
+            service.storage
           )
         )
         val mcpTools =
@@ -443,6 +446,7 @@ final class AgentRuntime private (
               judgments,
               service.secrets,
               service.services,
+              service.storage,
               timers,
               mcpTools,
               perTask
@@ -562,6 +566,7 @@ private[agent] object AgentHost:
       judgments: Judgments,
       secrets: SecretStore,
       services: ServiceClients,
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
       timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
       mcpTools: Vector[FunctionTool] = Vector.empty
   ): Behavior[EntityProtocol.Command] =
@@ -573,7 +578,8 @@ private[agent] object AgentHost:
           componentClient,
           defaultModel,
           secrets,
-          services
+          services,
+          storage
         )
 
         val loop = new AgentLoop(

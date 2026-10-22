@@ -265,3 +265,18 @@ one other installation, or it does not replicate at all: an unreplicated service
   `inline given` re-evaluates. A watch on a peer runs on the peer's own materializer, or restarting the
   first instance kills it.
 
+- **An S3 put streams with its declared length, and an empty one has no publisher** (2026-10-19,
+  feature 055). `S3Bucket.put` wraps the stream in `BodyPublishers.fromPublisher(ofInputStream(…),
+  length)` so the request carries a `Content-Length`, signed `UNSIGNED-PAYLOAD`, which Garage accepts
+  (`S3BucketSuite`'s first three cases, R3); hashing the payload would read the stream twice. The JDK
+  refuses `fromPublisher` with a length of zero, so an empty object is `noBody()`. A stream that ends
+  before its length is `shortBody` and nothing is kept.
+- **A response body read as an `InputStream` holds its connection until it is read to the end or
+  closed.** A 404 or a refusal from the store is closed or read (at most 4096 bytes, for the detail)
+  before the client answers; a `StoredObject` handed to the caller holds the connection until the
+  caller closes it, which is why it is `AutoCloseable` and the getBytes form uses `Using`.
+- **The directory store's URLs need the port the service bound, which may be `0` until it starts.**
+  `Ankka` gives the store an address function that reads the started service's `boundAddresses`
+  when a URL is made, never at build time; a service that serves no HTTP is answered `Unavailable`
+  naming it. The runtime serves `/_ankka/storage` only for its own directory store; otherwise the
+  path is 404 unless a process declared it (`sidecar.md`).

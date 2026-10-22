@@ -9,6 +9,7 @@ pages:
   - build/mcp-endpoints.md
   - build/component-client.md
   - build/streaming.md
+  - build/object-storage.md
   - build/views.md
   - concepts/tenancy-and-access.md
   - deploy/expose.md

@@ -30,12 +30,20 @@ final class ConsumerTestKit[Src, Out] private (
      */
     val secrets: InMemorySecretStore,
     /** Other services, as the test scripted them; a test reads back what the consumer asked. */
-    val services: ScriptedServices
+    val services: ScriptedServices,
+    /**
+     * The consumer's storage client (feature 055): a store in memory with the unnamed bucket,
+     * unless the test gave one. A test keeps an object here first, or reads back what the consumer
+     * kept.
+     */
+    val storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
 ):
   import ConsumerTestKit.*
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
+    descriptor.create(
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+    )
 
   /**
    * Hands the consumer one change of `subject` at `sequenceNumber`. `standing` is a workflow's, for
@@ -124,18 +132,22 @@ object ConsumerTestKit:
       companion: Consumer.Companion[C, Src, Out],
       client: ComponentClient = TestTransport.unroutedClient,
       secrets: InMemorySecretStore = InMemorySecretStore(),
-      services: ScriptedServices = ScriptedServices()
+      services: ScriptedServices = ScriptedServices(),
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage = InMemoryObjectStorage()
   ): ConsumerTestKit[Src, Out] =
-    new ConsumerTestKit(companion.descriptor, client, secrets, services)
+    new ConsumerTestKit(companion.descriptor, client, secrets, services, storage)
 
   /** A kit for a graph consumer: what it reads back are the deltas, not messages. */
   def graph[C <: GraphConsumer[Src], Src](
       companion: GraphConsumer.Companion[C, Src],
       client: ComponentClient = TestTransport.unroutedClient,
       secrets: InMemorySecretStore = InMemorySecretStore(),
-      services: ScriptedServices = ScriptedServices()
+      services: ScriptedServices = ScriptedServices(),
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage = InMemoryObjectStorage()
   ): GraphConsumerTestKit[Src] =
-    new GraphConsumerTestKit(new ConsumerTestKit(companion.descriptor, client, secrets, services))
+    new GraphConsumerTestKit(
+      new ConsumerTestKit(companion.descriptor, client, secrets, services, storage)
+    )
 
 /**
  * Drives a graph consumer in memory: hand it a change, read back the deltas it publishes.

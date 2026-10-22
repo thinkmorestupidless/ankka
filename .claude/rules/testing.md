@@ -82,3 +82,12 @@ appenders.
 - **A socket suite's unread bound is a limit the suite can trip.** With the bound at 4 a case that sends
   ten frames at once passed alone and, under a loaded machine, was closed "unread" after three — correct
   behaviour, wrong test. The socket suites hold 16, and only the unread cases send more.
+
+- **`StreamedBodySuite` proves nothing on a large heap** (2026-10-19, feature 055). It sends bodies of
+  2 GiB through stream routes and the storage client, which only shows they were never held whole
+  when the heap is smaller than they are; `http / Test / javaOptions` holds it at 512 MiB, and the
+  suite's `beforeAll` fails on a heap over 1 GiB rather than passing on one that could hold them.
+- **`GherkinSuite` reads `ranElsewhere` and `ranOutside` in its constructor**, before a subclass's
+  fields are set. A map that names a `val` of the subclass sees it `null` there, and the suite fails
+  at construction on every runner (`StorageClientClusterFeatures`, the first cluster run of feature
+  055). Fields those maps read are `lazy val`s.

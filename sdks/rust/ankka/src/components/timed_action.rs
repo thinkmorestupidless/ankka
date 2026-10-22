@@ -159,6 +159,7 @@ impl<C: TimedAction> Registered for Registration<C> {
         let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref())
             .with_secrets()
             .with_client_keys()
+            .with_storage()
             .with_services();
         let result = match self.actions.entries.iter().find(|e| e.name == request.name) {
             None => Err(CommandError::new(

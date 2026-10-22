@@ -203,6 +203,7 @@ impl<C: Consumer> Registered for Registration<C> {
         let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref())
             .with_secrets()
             .with_client_keys()
+            .with_storage()
             .with_services()
             .with_standing(
                 request

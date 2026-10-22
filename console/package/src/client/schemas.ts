@@ -207,6 +207,26 @@ export const dnsRecordSchema = z.object({
 });
 export type DnsRecord = z.infer<typeof dnsRecordSchema>;
 
+/**
+ * One named bucket of a service, as the operator reported it (feature 055): kept ones are those the
+ * descriptor no longer names, which the platform never deletes.
+ */
+export const bucketReportSchema = z.object({
+  name: z.string(),
+  phase: z.string(),
+  /** `garage` or `gcs`; absent for a supplied bucket. */
+  store: optional(z.string()),
+  /** Its name in the store. */
+  bucket: optional(z.string()),
+  /** `private`, `signed`, `public` or `supplied`. */
+  exposure: z.string().default("private"),
+  /** Where a public or signed bucket is on the internet. */
+  publicAddress: optional(z.string()),
+  kept: z.boolean().default(false),
+  detail: optional(z.string()),
+});
+export type BucketReport = z.infer<typeof bucketReportSchema>;
+
 /** One custom hostname of a service: where it stands, and the record that points it at the installation. */
 export const customHostnameSchema = z.object({
   hostname: z.string(),
@@ -259,6 +279,8 @@ export const serviceStatusSchema = z.object({
   softDeleteDays: optional(z.number().int()),
   /** Where a move of the bucket from Garage is, as a phrase; its detail is in `detail`. */
   storageMove: optional(z.string()),
+  /** Each named bucket, in the descriptor's order, then the kept ones (feature 055); absent when none. */
+  buckets: optional(z.array(bucketReportSchema)),
   /** The project database cluster the service is on, when a member switched it to a restore. */
   databaseCluster: optional(z.string()),
   /** `mounted` when the service's instances read their project's grants (feature 040). */

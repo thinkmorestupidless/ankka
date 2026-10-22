@@ -58,7 +58,8 @@ object StatusIngest:
         objectStorage = service.objectStorage,
         storage = service.storage,
         grants = service.grants,
-        hostnames = service.hostnameReports
+        hostnames = service.hostnameReports,
+        buckets = service.buckets
       )
 
     case ClusterView.Refused(reason) =>
@@ -74,7 +75,8 @@ object StatusIngest:
         objectStorage = service.objectStorage,
         storage = service.storage,
         grants = service.grants,
-        hostnames = service.hostnameReports
+        hostnames = service.hostnameReports,
+        buckets = service.buckets
       )
 
     case ClusterView.NoReport =>
@@ -90,7 +92,8 @@ object StatusIngest:
         objectStorage = service.objectStorage,
         storage = service.storage,
         grants = service.grants,
-        hostnames = service.hostnameReports
+        hostnames = service.hostnameReports,
+        buckets = service.buckets
       )
 
     case ClusterView.Reported(status) =>
@@ -108,13 +111,29 @@ object StatusIngest:
         confirmed = true,
         database = status.database.map(_.phase),
         broker = status.broker.map(_.phase),
-        objectStorage = status.objectStorage.map(_.phase),
+        // A service with only named buckets reports no phase of an unnamed one (feature 055).
+        objectStorage = status.objectStorage.map(_.phase).filter(_.nonEmpty),
         storage = status.objectStorage.flatMap(report),
         grants = status.grants,
         // Verbatim, in the spec's order (feature 045): the words are the authority's and the
         // gateway's, and only the operator read them.
         hostnames =
-          status.hostnames.toVector.map(h => HostnameReport(h.hostname, h.state, h.reason))
+          status.hostnames.toVector.map(h => HostnameReport(h.hostname, h.state, h.reason)),
+        // Verbatim too (feature 055): each named bucket in the spec's order, then the kept ones.
+        buckets = status.objectStorage.toVector
+          .flatMap(_.buckets)
+          .map(b =>
+            com.thinkmorestupidless.ankka.controlplane.api.BucketReport(
+              b.name,
+              b.phase,
+              Option(b.store).filter(_.nonEmpty),
+              Option(b.bucket).filter(_.nonEmpty),
+              b.exposure,
+              b.publicAddress,
+              b.kept,
+              b.detail
+            )
+          )
       )
 
   /**

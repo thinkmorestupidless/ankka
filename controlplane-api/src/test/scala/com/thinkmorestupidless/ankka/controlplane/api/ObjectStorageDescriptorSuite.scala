@@ -214,3 +214,166 @@ class ObjectStorageDescriptorSuite extends munit.FunSuite:
         spec.hosting
       )
   }
+
+  // ── named buckets (feature 055) ───────────────────────────────────────────
+
+  private val fourBuckets = """{"image":"listings:1","provisionObjectStorage":true,"buckets":[
+    {"name":"photos","exposure":"public"},
+    {"name":"exports","exposure":"signed","origins":["https://app.example.com"]},
+    {"name":"documents"},
+    {"name":"archive","supplied":{"endpoint":"https://s3.eu-west-2.amazonaws.com",
+      "region":"eu-west-2","bucket":"acme-archive","credential":"archive-store"}}]}"""
+
+  test("the contract's four-bucket descriptor is accepted, and round-trips") {
+    val spec = decode(fourBuckets)
+    assertEquals(problems(spec), Vector.empty)
+    assertEquals(
+      spec.buckets.map(b => b.name -> b.exposure).take(3),
+      Vector(
+        "photos"    -> Exposure.Public,
+        "exports"   -> Exposure.Signed,
+        "documents" -> Exposure.Private
+      )
+    )
+    assertEquals(spec.buckets(3).supplied.map(_.credential), Some("archive-store"))
+    val descriptor = ServiceDescriptor("listings", spec)
+    assertEquals(readFromString[ServiceDescriptor](writeToString(descriptor)), descriptor)
+  }
+
+  test("a bucket's defaults are omitted from the wire, and no buckets is no field") {
+    val wire = writeToString(
+      ServiceDescriptor("listings", base.copy(buckets = Vector(BucketSpec("documents"))))
+    )
+    assert(wire.contains("""{"name":"documents"}"""), wire)
+    assert(!writeToString(ServiceDescriptor("listings", base)).contains("buckets"))
+  }
+
+  test("named buckets are accepted without provisionObjectStorage") {
+    Hostings.foreach { h =>
+      assertEquals(
+        problems(h.copy(buckets = Vector(BucketSpec("photos", Exposure.Public)))),
+        Vector.empty
+      )
+    }
+  }
+
+  test("each refusal of a bucket is in the contract's words") {
+    def refused(buckets: BucketSpec*) = problems(base.copy(buckets = buckets.toVector))
+    assertEquals(
+      refused(BucketSpec("photos"), BucketSpec("photos", Exposure.Public)),
+      Vector("buckets: 'photos' is named twice")
+    )
+    assertEquals(
+      refused(BucketSpec("Photos")),
+      Vector(
+        "buckets: 'Photos' is not a bucket name: lower-case letters, digits and '-', 1 to 32 characters"
+      )
+    )
+    assertEquals(
+      refused(BucketSpec("photos", Exposure.Public, origins = Vector("https://app.example.com"))),
+      Vector("buckets: 'photos' names origins but is not signed")
+    )
+    val archive =
+      SuppliedBucket("https://s3.example.com", "eu-west-2", "acme-archive", "archive-store")
+    assertEquals(
+      refused(BucketSpec("archive", Exposure.Public, supplied = Some(archive))),
+      Vector("buckets: 'archive' is supplied; its exposure is the store's")
+    )
+    assertEquals(
+      refused(BucketSpec("archive", supplied = Some(archive.copy(region = "")))),
+      Vector("buckets: 'archive' needs endpoint, region, bucket and credential")
+    )
+    val reserved =
+      refused(BucketSpec("archive", supplied = Some(archive.copy(credential = "archive-storage"))))
+    assertEquals(
+      reserved,
+      ProjectSecrets.nameProblems("archive-storage").map(p => s"buckets: 'archive': $p")
+    )
+    assert(reserved.nonEmpty)
+    assertEquals(
+      refused(BucketSpec("exports", Exposure.Signed, origins = Vector("app.example.com"))),
+      Vector("buckets: 'exports': 'app.example.com' is not an origin")
+    )
+  }
+
+  test("a supplied bucket missing a field in the descriptor is refused, not a decode error") {
+    val spec = decode(
+      """{"image":"a:1","buckets":[{"name":"archive","supplied":{"endpoint":"https://s3.example.com"}}]}"""
+    )
+    assertEquals(
+      problems(spec),
+      Vector("buckets: 'archive' needs endpoint, region, bucket and credential")
+    )
+  }
+
+  test("a named bucket beside a variable of a store of the service's own is refused") {
+    val own = base.copy(
+      buckets = Vector(BucketSpec("photos")),
+      env = Vector(EnvVar("ANKKA_S3_ENDPOINT", value = Some("https://s3.example.com")))
+    )
+    assertEquals(
+      problems(own),
+      Vector(
+        "buckets cannot be combined with env var 'ANKKA_S3_ENDPOINT', which supplies an object " +
+          "store of the service's own"
+      )
+    )
+  }
+
+  test("an exposure the platform does not know is a decode error naming the three") {
+    val refused = intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException](
+      decode("""{"image":"a:1","buckets":[{"name":"photos","exposure":"open"}]}""")
+    )
+    assert(refused.getMessage.contains("private, signed or public"), refused.getMessage)
+  }
+
+  test("the bucket name rule is the storage client's, held to the shared fixture") {
+    val fixture = java.nio.file.Files.readString(
+      java.nio.file.Paths.get("../protocol/fixtures/storage/rules.json")
+    )
+    val rows = "\\{\"unit\": \"([^\"]*)\", \"repeat\": (\\d+), \"accepted\": (true|false)".r
+      .findAllMatchIn(fixture.substring(fixture.indexOf("\"bucketNames\"")))
+      .takeWhile(_ => true)
+      .toVector
+    val names = rows.takeWhile(m => !m.matched.isEmpty).take(8)
+    assertEquals(names.size, 8, fixture)
+    names.foreach { m =>
+      val name     = m.group(1) * m.group(2).toInt
+      val accepted = m.group(3) == "true"
+      assertEquals(BucketSpec.nameProblem(name).isEmpty, accepted, s"'$name'")
+      if !accepted then
+        assert(BucketSpec.nameProblem(name).exists(_.endsWith(BucketSpec.NameRule)), name)
+    }
+  }
+
+  test("a status's bucket reports round-trip, kept and supplied among them") {
+    val status = ServiceStatus(
+      "listings",
+      "shop",
+      ServiceLifecycle.Ready,
+      1,
+      "listings:1",
+      1,
+      1,
+      buckets = Vector(
+        BucketReport(
+          "photos",
+          "Provisioned",
+          Some("garage"),
+          Some("shop.listings.photos"),
+          "public",
+          Some("https://storage.example.com/shop.listings.photos")
+        ),
+        BucketReport("archive", "Supplied", None, Some("acme-archive"), "supplied"),
+        BucketReport(
+          "old-photos",
+          "Kept",
+          Some("garage"),
+          Some("shop.listings.old-photos"),
+          kept = true
+        )
+      )
+    )
+    assertEquals(readFromString[ServiceStatus](writeToString(status)), status)
+    assert(!writeToString(status.copy(buckets = Vector.empty)).contains("buckets"))
+  }

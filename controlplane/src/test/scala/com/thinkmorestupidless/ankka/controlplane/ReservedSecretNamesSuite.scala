@@ -88,3 +88,20 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
         name
       )
   }
+
+  // Feature 055: a supplied bucket's credential is a project secret, so its name follows their rule.
+
+  test("a supplied bucket's credential may not name a Secret the platform makes for a service") {
+    for
+      service <- services
+      name    <- platformNames(service)
+    do
+      val bucket = com.thinkmorestupidless.ankka.controlplane.api.BucketSpec(
+        "archive",
+        supplied = Some(
+          com.thinkmorestupidless.ankka.controlplane.api
+            .SuppliedBucket("https://s3.example", "eu-west-1", "theirs", name)
+        )
+      )
+      assert(bucket.problems.nonEmpty, s"'$name' must be refused as a supplied credential")
+  }

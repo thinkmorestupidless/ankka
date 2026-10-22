@@ -21,6 +21,7 @@ from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_h
 from ankka.effects.common import Error, ErrorCode
 from ankka.secrets import Secrets
 from ankka.services import Services
+from ankka.storage import Buckets, StorageRefusals
 
 S = TypeVar("S")
 
@@ -156,6 +157,7 @@ class Workflow(Generic[S]):
         self._in_step = False
         self._secrets_store: Secrets | None = None
         self._services: Services | None = None
+        self._storage: Buckets | None = None
 
     def empty_state(self) -> S:
         raise NotImplementedError
@@ -196,6 +198,23 @@ class Workflow(Generic[S]):
     @secrets.setter
     def secrets(self, store: Secrets) -> None:
         self._secrets_store = store
+
+    @property
+    def storage(self) -> Buckets:
+        """The service's buckets, in a step. A command handler is refused, as for the secret store:
+        it would hold the workflow's other commands behind a call to the store."""
+        if not self._in_step:
+            raise StorageRefusals.steps_only()
+        if self._storage is None:
+            raise RuntimeError(
+                f"{type(self).__name__} has no storage: it is given the service's buckets when the runtime runs "
+                "a step, and a unit test assigns them (InMemoryBuckets)"
+            )
+        return self._storage
+
+    @storage.setter
+    def storage(self, buckets: Buckets) -> None:
+        self._storage = buckets
 
     @property
     def services(self) -> Services:

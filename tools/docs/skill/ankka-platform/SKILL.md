@@ -86,7 +86,15 @@ shared by every installation and one overlay per cluster carrying only what diff
    joined the service's cluster and bound its HTTP port; the probe is on the management port by its
    *name*. Rolling updates surge one pod that joins the existing cluster before an old one stops, and a
    `preStop` sleep keeps the old pod serving while endpoints propagate. Never `Recreate`.
-10. **Platform administrators are a realm role, not a member.** They may operate any organization; the
+10. **A service's buckets share one credential, and none is ever deleted.** `provisionObjectStorage`
+    gives the unnamed bucket; each `buckets` entry a named one, `private`, `signed` or `public`, made in
+    the same store and reached with the same key, or `supplied` by the service. A public bucket is read
+    with no signature through the store's web listener (Garage needs `ANKKA_OBJECT_STORE_WEB_SERVICE`,
+    or a public bucket is refused) or Google's public access, at the address in
+    `ANKKA_S3_PUBLIC_URL_<NAME>`. A bucket the descriptor stops naming is `kept`, its route removed and
+    its objects untouched. Services reach their buckets through the SDK's storage client
+    (`references/platform/object-storage.md`, "Named buckets" and "A public bucket").
+11. **Platform administrators are a realm role, not a member.** They may operate any organization; the
     CLI's tenancy administration (create, invite, disable, delete) stays on the command line and is
     absent from `ankka mcp` on purpose.
 11. **The installation's model server serves what its administrator declared, to its services only.**

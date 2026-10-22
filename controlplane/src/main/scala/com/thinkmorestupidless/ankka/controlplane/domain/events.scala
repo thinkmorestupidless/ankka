@@ -533,7 +533,12 @@ enum ServiceEvent:
        * Where each custom hostname stands, as the operator reported it (feature 045). Empty for a
        * service with none and for events from before they existed.
        */
-      hostnames: Vector[HostnameReport] = Vector.empty
+      hostnames: Vector[HostnameReport] = Vector.empty,
+      /**
+       * Each named bucket, as the operator reported it (feature 055). Empty for a service with none
+       * and for events from before they existed.
+       */
+      buckets: Vector[BucketReport] = Vector.empty
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -606,7 +611,8 @@ final case class ServiceObservation(
     objectStorage: Option[String] = None,
     storage: Option[StorageReport] = None,
     grants: Option[String] = None,
-    hostnames: Vector[HostnameReport] = Vector.empty
+    hostnames: Vector[HostnameReport] = Vector.empty,
+    buckets: Vector[BucketReport] = Vector.empty
 )
 
 /**

@@ -34,6 +34,7 @@ pub mod service;
 pub mod services;
 pub mod standing;
 pub mod start_from;
+pub mod storage;
 pub mod testkit;
 
 pub use client::Client;
@@ -49,6 +50,10 @@ pub use service::{Problem, Service};
 pub use services::{RequestOptions, ServiceClient, ServiceError, ServiceResponse, Services};
 pub use standing::Standing;
 pub use start_from::StartFrom;
+pub use storage::{
+    Bucket, BucketExposure, ObjectEntry, ObjectInfo, SignedAccess, Storage, StorageError,
+    StoredObject,
+};
 
 /// serde, as this library uses it: the derives a service's types need.
 pub use serde;

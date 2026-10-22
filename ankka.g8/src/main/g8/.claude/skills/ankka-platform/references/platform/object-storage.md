@@ -6,8 +6,8 @@ Source: https://docs.ankka.cloud/platform/object-storage/
 A deployed service can ask the platform for a bucket. The platform makes the service one bucket in the
 installation's object store and one storage credential that reaches that bucket and no other, and gives
 the service's program the variables that say where the bucket is and how to sign for it. The service keeps
-and reads its objects with whatever S3 client its language has: the platform offers no storage API of its
-own, and the SDKs wrap nothing.
+and reads its objects through the storage client every SDK offers, described in
+[Objects a service keeps](../build/object-storage.md), or with any S3 client its language has.
 
 ```json title="service.json"
 {
@@ -53,7 +53,8 @@ Secret it reads is there.
 
 ## Configuring an S3 client
 
-Any S3 client works, configured three ways:
+The SDK's storage client does everything in this section from the variables, for every bucket a service
+has. What follows is for a client of your own. Any S3 client works, configured three ways:
 
 - **Path-style addressing.** The store has one address and the bucket is in the path,
   `<endpoint>/<bucket>/<object>`. A client that puts the bucket in the hostname reaches nothing.
@@ -166,6 +167,79 @@ that lets whoever holds it read or upload that object until it expires, without 
 Only a bucket the platform made can be made reachable: `exposeObjectStorage` without
 `provisionObjectStorage` is refused.
 
+## Named buckets
+
+A service can have more buckets than one, each reached by a name and each exposed in its own way. The
+descriptor lists them under `buckets`, beside or instead of the unnamed bucket `provisionObjectStorage`
+asks for:
+
+```json title="service.json"
+{
+  "name": "listings",
+  "service": {
+    "image": "registry.example.com/acme/listings:1.0.0",
+    "provisionObjectStorage": true,
+    "buckets": [
+      { "name": "photos", "exposure": "public" },
+      { "name": "exports", "exposure": "signed", "origins": ["https://app.example.com"] },
+      { "name": "documents" }
+    ]
+  }
+}
+```
+
+A bucket's name is 1 to 32 lower-case letters, digits and `-`. Its exposure is `private` (the default),
+`signed` or `public`; `origins` belongs to a signed bucket and means what `objectStorageOrigins` means for
+the unnamed one. In the installation's store a named bucket is `<project>.<service>.<name>`, at most 63
+characters like every bucket. [The service descriptor](../reference/service-descriptor.md#buckets) lists
+every field and every refusal.
+
+Every bucket the platform makes for a service is reached with **one credential**: the service's key is
+allowed on each of them and on nothing else, and `services storage reissue` issues it again for all of
+them at once. The service's program is given the unnamed bucket's variables as before, and for each named
+bucket:
+
+| Variable | Value |
+|---|---|
+| `ANKKA_S3_BUCKET_<NAME>` | the bucket's name in the store |
+| `ANKKA_S3_EXPOSURE_<NAME>` | `private`, `signed` or `public` |
+| `ANKKA_S3_PUBLIC_URL_<NAME>` | a public bucket's address |
+
+`<NAME>` is the bucket's name upper-cased, with `-` as `_`. The endpoint, the region and the key are the
+unnamed bucket's variables, `ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION`, `ANKKA_S3_ACCESS_KEY` and
+`ANKKA_S3_SECRET_KEY`, given to a service with only named buckets too. A signed bucket also gives the
+service `ANKKA_S3_PUBLIC_ENDPOINT`.
+
+`services get` shows a line for each named bucket after the unnamed bucket's: its name, its exposure, its
+name in the store and, when it is reachable from outside, its address. A bucket the descriptor no longer
+names is not deleted. It is shown as `kept`, `(no longer named)`; its route is removed and its variables
+are no longer given, and naming it again gives the service the same bucket with everything it held.
+
+A bucket the service brings has `supplied` in place of an exposure, naming where it is and the project
+secret holding its key; see [Bring your own object store](#bring-your-own-object-store).
+
+## A public bucket
+
+A public bucket is read by anyone, at its address, with no signature: a listing's photos, a product's
+images, anything a page shows to every visitor and a browser or a cache may keep. Only reads are open. A
+write still needs the service's credential, and a listing of the bucket is refused.
+
+On the installation's store, the store's **web listener** serves the bucket's objects, and the platform
+writes a route for the bucket at the store's hostname, with the bucket in the path:
+`https://storage.<base domain>/<project>.<service>.<name>/<object>`. That is the bucket's
+`ANKKA_S3_PUBLIC_URL_<NAME>`, and `url(name)` in the storage client answers it with the object's name
+after it. An installation whose store has no web listener, or that names no base domain, refuses a
+public bucket: the bucket is made, its phase is `Failed` with the reason, and `services get` says so. The
+service is not given a bucket it could not hand an address for.
+
+On Google Cloud Storage the cloud provider makes the bucket readable by everyone and answers its address,
+`https://storage.googleapis.com/<bucket>`, or the base of a content delivery network when the installation
+puts one in front of its public buckets. The service never needs to know which: it reads the address
+from its variable, and every other bucket stays closed to the internet.
+
+Making a bucket public is a change to the descriptor. Applying it as `private` or `signed` again removes
+the public route, and an address given out before stops answering.
+
 ## Bring your own object store
 
 A descriptor that declares any `ANKKA_S3_` variable in its `env` has an object store of its own, and the
@@ -190,6 +264,32 @@ service's program as declared, by the same rule as any other variable:
 
 The check is by name, so a value taken from a project secret counts. A descriptor that both asks for a
 bucket and declares an `ANKKA_S3_` variable is refused, naming the variable.
+
+A service that has buckets the platform makes can bring another beside them as a named bucket with
+`supplied`: where the bucket is, and the project secret holding its key in the entries `access-key` and
+`secret-key`. The platform makes nothing for it, gives the service the bucket's own variables with the key
+taken from the project secret, and `services get` shows it as `supplied`. The storage client reaches it by
+its name, as any other bucket.
+
+```json title="service.json"
+{
+  "name": "listings",
+  "service": {
+    "image": "registry.example.com/acme/listings:1.0.0",
+    "buckets": [
+      {
+        "name": "archive",
+        "supplied": {
+          "endpoint": "https://s3.eu-west-2.amazonaws.com",
+          "region": "eu-west-2",
+          "bucket": "acme-archive",
+          "credential": "archive-store"
+        }
+      }
+    ]
+  }
+}
+```
 
 No descriptor may take a variable from a Secret named `<service>-storage` or `<service>-cloud-storage`, its
 own service's included, and no project secret may be given such a name: a storage credential reaches its

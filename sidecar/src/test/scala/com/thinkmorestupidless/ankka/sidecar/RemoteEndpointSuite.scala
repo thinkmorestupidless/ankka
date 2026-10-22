@@ -134,6 +134,27 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     acl = EndpointSpec.Acl.AUTHENTICATED
   )
 
+  /** A process's directory store, as the Python and TypeScript SDKs declare it on a laptop. */
+  private val storage = ProcessDouble.Endpoint(
+    "ankka-storage",
+    "/_ankka/storage",
+    Vector(
+      ProcessDouble.Route(
+        "object",
+        "GET",
+        "/{bucket}/{name}",
+        handler = r =>
+          Right(
+            HttpResponse(
+              200,
+              "text/plain",
+              ByteString.copyFromUtf8(s"${r.pathArgs.head}:${r.pathArgs(1)}")
+            )
+          )
+      )
+    )
+  )
+
   /** Answers with the caller the sidecar forwarded, as the process sees it. */
   private val whoami = ProcessDouble.Endpoint(
     "whoami",
@@ -171,7 +192,7 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     double = new ProcessDouble(
       ProcessDouble.DoubleSpec(
         entities = Vector(ProcessDouble.recorder()),
-        endpoints = Vector(carts, denied, authed, whoami, sockets),
+        endpoints = Vector(carts, denied, authed, whoami, sockets, storage),
         protocolVersion = "1.9"
       )
     )
@@ -216,6 +237,30 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     val r = get("/carts/c1")
     assertEquals(r.statusCode, 200)
     assertEquals(r.body, """{"id":"c1"}""")
+  }
+
+  test("a process's directory store is served at /_ankka/storage") {
+    val r = get("/_ankka/storage/photos/front.jpg")
+    assertEquals(r.statusCode, 200, r.body)
+    assertEquals(r.body, "photos:front.jpg")
+  }
+
+  test("any other /_ankka prefix a process declares is refused, naming it") {
+    val other = ankka.protocol.v1.discovery.Endpoint(
+      "other",
+      "/_ankka/other",
+      routes = Vector(ankka.protocol.v1.discovery.Route("r", "GET", "/"))
+    )
+    val spec = double.toSpec.copy(endpoints = double.toSpec.endpoints :+ other)
+    val problems =
+      Discovery.validate(spec, Discovery.ProtocolVersion, authConfigured = true).left.toOption
+    assert(
+      problems.exists(_.exists(_.contains("'/_ankka/other' is under /_ankka"))),
+      problems.toString
+    )
+    assert(
+      Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
+    )
   }
 
   test("a literal segment beats a parameter") {

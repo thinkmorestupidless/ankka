@@ -40,6 +40,10 @@ pub const HTTP_PORT: u16 = 9000;
 /// Where the runtime loads the module from inside its container.
 pub const MODULE_PATH: &str = "/module/service.wasm";
 
+/// Where the runtime keeps the service's buckets inside its container: a directory of the host's,
+/// which [`AnkkaTestKit::storage`] reads and seeds.
+pub const STORAGE_PATH: &str = "/storage";
+
 const PUBLISHED_RUNTIME: &str = "ghcr.io/thinkmorestupidless/ankka-sidecar";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -244,6 +248,7 @@ pub struct AnkkaTestKit {
     database: String,
     env: Vec<(String, String)>,
     ddl: PathBuf,
+    storage: PathBuf,
     postgres: Option<Container<GenericImage>>,
     runtime: Option<Beside>,
 }
@@ -265,6 +270,10 @@ impl AnkkaTestKit {
         // Postgres reads the directory as its own user, so it must be readable by others: on Linux
         // a bind mount keeps the host's permissions.
         set_readable(&ddl)?;
+        // The runtime writes the directory store as its own user, which on Linux is not the test's.
+        let storage = std::env::temp_dir().join(unique("ankka-storage"));
+        std::fs::create_dir_all(&storage).map_err(error)?;
+        set_writable(&storage)?;
         let mut kit = AnkkaTestKit {
             image,
             module,
@@ -272,6 +281,7 @@ impl AnkkaTestKit {
             database: unique("ankka-postgres"),
             env,
             ddl,
+            storage,
             postgres: None,
             runtime: None,
         };
@@ -369,6 +379,17 @@ impl AnkkaTestKit {
                     Mount::bind_mount(module.path().display().to_string(), MODULE_PATH)
                         .with_access_mode(AccessMode::ReadOnly),
                 );
+            // The directory store, on the host, so a test reads and seeds the service's buckets
+            // and a restart keeps them. The caller's `env` may name another store.
+            if !self.env.iter().any(|(k, _)| k == "ANKKA_STORAGE_BACKEND") {
+                request = request
+                    .with_env_var("ANKKA_STORAGE_BACKEND", "directory")
+                    .with_env_var("ANKKA_STORAGE_DIR", STORAGE_PATH)
+                    .with_mount(Mount::bind_mount(
+                        self.storage.display().to_string(),
+                        STORAGE_PATH,
+                    ));
+            }
         }
         let container = request
             .start()
@@ -435,6 +456,15 @@ impl AnkkaTestKit {
     pub fn runtime_logs(&self) -> String {
         self.runtime.as_ref().map(Beside::logs).unwrap_or_default()
     }
+
+    /// The service's buckets, as the runtime's directory store keeps them on the host: what a
+    /// handler kept is read here, and what a test seeds here a handler reads. They outlive a
+    /// [`restart`](Self::restart).
+    pub fn storage(&self) -> DirectoryStore {
+        DirectoryStore {
+            root: self.storage.clone(),
+        }
+    }
 }
 
 impl Drop for AnkkaTestKit {
@@ -442,6 +472,104 @@ impl Drop for AnkkaTestKit {
         self.runtime = None;
         self.postgres = None;
         let _ = std::fs::remove_dir_all(&self.ddl);
+        let _ = std::fs::remove_dir_all(&self.storage);
+    }
+}
+
+// ── The directory store ──────────────────────────────────────────────────────
+
+/// The runtime's directory store, read and written in its own layout: a directory per bucket
+/// (`_default` for the unnamed one), each object a file under `objects/` named by its encoded
+/// name, and beside it under `meta/` its name, content type, length and when it was kept.
+#[derive(Debug, Clone)]
+pub struct DirectoryStore {
+    root: PathBuf,
+}
+
+/// An object's record under `meta/`, as the runtime writes it.
+#[derive(Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Meta {
+    name: String,
+    content_type: String,
+    length: u64,
+    last_kept: String,
+}
+
+impl DirectoryStore {
+    /// The store's directory on the host.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn bucket(&self, bucket: Option<&str>) -> PathBuf {
+        self.root.join(bucket.unwrap_or("_default"))
+    }
+
+    /// The file an object's name is kept under: its encoded name, or its hash when that is too
+    /// long for a file name.
+    fn file(name: &str) -> String {
+        use sha2::Digest;
+        let encoded = crate::storage::percent_encode(name, true);
+        if encoded.len() <= 200 {
+            encoded
+        } else {
+            let hash = sha2::Sha256::digest(name.as_bytes());
+            let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+            format!("h-{hex}")
+        }
+    }
+
+    /// The object under `name` in `bucket` (`None`: the unnamed one), with its content type, or
+    /// `None` when there is none.
+    pub fn get(&self, bucket: Option<&str>, name: &str) -> Option<(String, Vec<u8>)> {
+        let dir = self.bucket(bucket);
+        let file = DirectoryStore::file(name);
+        let meta = std::fs::read(dir.join("meta").join(format!("{file}.json"))).ok()?;
+        let meta: Meta = serde_json::from_slice(&meta).ok()?;
+        let body = std::fs::read(dir.join("objects").join(file)).ok()?;
+        Some((meta.content_type, body))
+    }
+
+    /// Keeps `body` under `name` in `bucket` with `content_type`, as the runtime would have.
+    pub fn put(
+        &self,
+        bucket: Option<&str>,
+        name: &str,
+        body: &[u8],
+        content_type: &str,
+    ) -> Result<(), TestkitError> {
+        let dir = self.bucket(bucket);
+        let (objects, metas) = (dir.join("objects"), dir.join("meta"));
+        for d in [&dir, &objects, &metas] {
+            std::fs::create_dir_all(d).map_err(error)?;
+            set_writable(d)?;
+        }
+        let file = DirectoryStore::file(name);
+        let meta = Meta {
+            name: name.to_string(),
+            content_type: content_type.to_string(),
+            length: body.len() as u64,
+            last_kept: crate::codec::time::Instant::from(SystemTime::now()).to_string(),
+        };
+        std::fs::write(objects.join(&file), body).map_err(error)?;
+        let meta = serde_json::to_vec(&meta).map_err(error)?;
+        std::fs::write(metas.join(format!("{file}.json")), meta).map_err(error)
+    }
+
+    /// Every name kept in `bucket`, in order.
+    pub fn names(&self, bucket: Option<&str>) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(self.bucket(bucket).join("meta")) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(Result::ok)
+            .filter_map(|e| std::fs::read(e.path()).ok())
+            .filter_map(|bytes| serde_json::from_slice::<Meta>(&bytes).ok())
+            .map(|m| m.name)
+            .collect();
+        names.sort();
+        names
     }
 }
 
@@ -453,6 +581,17 @@ fn set_readable(dir: &Path) -> Result<(), TestkitError> {
 
 #[cfg(not(unix))]
 fn set_readable(_: &Path) -> Result<(), TestkitError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_writable(dir: &Path) -> Result<(), TestkitError> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o777)).map_err(error)
+}
+
+#[cfg(not(unix))]
+fn set_writable(_: &Path) -> Result<(), TestkitError> {
     Ok(())
 }
 
@@ -532,6 +671,12 @@ impl HttpRequest<'_> {
     pub fn text(mut self, text: &str) -> Self {
         self.body = text.as_bytes().to_vec();
         self.header("content-type", "text/plain")
+    }
+
+    /// A body of `bytes` under `content_type`.
+    pub fn bytes(mut self, bytes: &[u8], content_type: &str) -> Self {
+        self.body = bytes.to_vec();
+        self.header("content-type", content_type)
     }
 
     /// A header.

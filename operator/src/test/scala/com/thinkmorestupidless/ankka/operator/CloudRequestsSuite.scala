@@ -46,7 +46,15 @@ class CloudRequestsSuite extends munit.FunSuite:
   private def keys(r: CloudResource): Set[String] = r.getSpec.parameters.keySet
 
   private def holdsTheContract(r: CloudResource): Unit =
-    assertEquals(keys(r), Keys.parameters(r.getSpec.kind), s"${r.getSpec.kind}'s keys")
+    val kind = r.getSpec.kind
+    assert(Keys.required(kind).subsetOf(keys(r)), s"$kind's keys ${keys(r)} lack a required one")
+    assert(
+      keys(r).subsetOf(Keys.parameters(kind)),
+      s"$kind's keys ${keys(r)} are not the contract's"
+    )
+    // A credential names its buckets one way or the other, never both and never neither.
+    if kind == CloudKinds.BucketCredential then
+      assertEquals(keys(r).intersect(Set("bucket", "buckets")).size, 1, keys(r).toString)
     assertEquals(r.getSpec.provider, "gcp")
 
   private def ownedBy(r: CloudResource, kind: String, uid: String): Unit =
@@ -247,6 +255,100 @@ class CloudRequestsSuite extends munit.FunSuite:
     holdsTheContract(r)
   }
 
+  // Feature 055: named buckets, a public one, one credential over several.
+
+  test("a named public bucket's request is <service>-bucket-<name>, naming it and its exposure") {
+    val r = bucket(
+      cloud,
+      byService,
+      Purpose.Service,
+      cloud.location,
+      BucketAsk(versioning = true, softDeleteDays = 7),
+      named = Some(NamedAsk("photos", public = true))
+    )
+    assertEquals(r.getMetadata.getName, "reports-bucket-photos")
+    assertEquals(r.getSpec.kind, CloudKinds.Bucket)
+    assertEquals(r.getSpec.subject, CloudSubject("shop", "reports"))
+    assertEquals(
+      r.getSpec.parameters,
+      Map(
+        "name"                  -> "photos",
+        "public"                -> "true",
+        "purpose"               -> "service",
+        "location"              -> "europe-west2",
+        "versioning"            -> "true",
+        "softDeleteDays"        -> "7",
+        "corsOrigins"           -> "",
+        "kmsKey"                -> "keys/ankka",
+        "namePrefix"            -> "",
+        "noncurrentVersionDays" -> ""
+      )
+    )
+    ownedBy(r, "AnkkaService", "service-uid")
+    holdsTheContract(r)
+    val signed = bucket(
+      cloud,
+      byService,
+      Purpose.Service,
+      cloud.location,
+      BucketAsk(),
+      named = Some(NamedAsk("uploads", public = false))
+    )
+    assertEquals(signed.getSpec.parameters("public"), "false")
+    assertEquals(signed.getMetadata.getName, "reports-bucket-uploads")
+  }
+
+  test("a credential over three buckets names them all, in order, by buckets") {
+    val r = bucketCredential(
+      cloud,
+      byService,
+      Purpose.Service,
+      Vector("acme-shop-reports-1", "acme-shop-reports-photos-2", "acme-shop-reports-uploads-3"),
+      "reports@my-account.scripted",
+      "reports-cloud-storage",
+      generation = 1L
+    )
+    assertEquals(r.getMetadata.getName, "reports-storage-credential")
+    assertEquals(
+      r.getSpec.parameters,
+      Map(
+        "buckets"  -> "acme-shop-reports-1,acme-shop-reports-photos-2,acme-shop-reports-uploads-3",
+        "identity" -> "reports@my-account.scripted",
+        "secretName" -> "reports-cloud-storage"
+      )
+    )
+    assertEquals(bucketsOf(r.getSpec.parameters).size, 3)
+    holdsTheContract(r)
+  }
+
+  test("the unnamed bucket's request and a one-bucket credential are as they were, byte for byte") {
+    // What a provider from before named buckets reads, and what an existing service's requests
+    // already say: neither changes, so nothing is asked again of a provider on upgrade.
+    val before = Map(
+      "purpose"               -> "service",
+      "location"              -> "europe-west2",
+      "versioning"            -> "false",
+      "softDeleteDays"        -> "0",
+      "corsOrigins"           -> "",
+      "kmsKey"                -> "keys/ankka",
+      "namePrefix"            -> "",
+      "noncurrentVersionDays" -> ""
+    )
+    val r = bucket(cloud, byService, Purpose.Service, cloud.location, BucketAsk())
+    assertEquals(r.getSpec.parameters, before)
+    assertEquals(r.getMetadata.getName, "reports-bucket")
+    val c = bucketCredential(cloud, byService, Purpose.Service, Vector("b"), "i", "s", 1L)
+    assertEquals(c.getSpec.parameters, Map("bucket" -> "b", "identity" -> "i", "secretName" -> "s"))
+    assertEquals(bucketsOf(c.getSpec.parameters), Vector("b"))
+  }
+
+  test("a public bucket answers its public address beside its bucket, endpoint and region") {
+    assertEquals(
+      Keys.outputs(CloudKinds.Bucket),
+      Set("bucket", "endpoint", "region", "publicUrl")
+    )
+  }
+
   private def everyRequest: Vector[CloudResource] = Vector(
     identity(cloud, byService, "reports"),
     secretAccess(cloud, byService, "i", Vector("a"), Vector("b")),
@@ -286,7 +388,8 @@ class CloudRequestsSuite extends munit.FunSuite:
   test("the contract's outputs are named for every kind") {
     assertEquals(Keys.outputs.keySet, CloudKinds.all.toSet)
     assertEquals(Keys.parameters.keySet, CloudKinds.all.toSet)
-    assertEquals(Keys.outputs(CloudKinds.Bucket), Set("bucket", "endpoint", "region"))
+    assertEquals(Keys.outputs(CloudKinds.Bucket), Set("bucket", "endpoint", "region", "publicUrl"))
+    assert(Keys.optional.keySet.subsetOf(CloudKinds.all.toSet))
   }
 
   test("a project's request is labelled with its project and owned by its resource") {

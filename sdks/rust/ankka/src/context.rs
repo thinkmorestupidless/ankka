@@ -109,6 +109,7 @@ pub struct Context {
     sequence: i64,
     metadata: Metadata,
     secrets: bool,
+    storage: bool,
     services: bool,
     client_keys: bool,
     rows_of: Option<String>,
@@ -169,6 +170,7 @@ impl Context {
             sequence,
             metadata,
             secrets: false,
+            storage: false,
             services: false,
             client_keys: false,
             rows_of: None,
@@ -254,6 +256,13 @@ impl Context {
         self
     }
 
+    /// This context with the service's buckets: what the runtime builds for the handlers that
+    /// have the secret store, and a test builds for one of those.
+    pub fn with_storage(mut self) -> Context {
+        self.storage = true;
+        self
+    }
+
     /// This context with the clients for other services: what the runtime builds for the same
     /// handlers that have the secret store, and a test builds for one of those.
     pub fn with_services(mut self) -> Context {
@@ -289,6 +298,13 @@ impl Context {
     /// one line away from an event or a state.
     pub fn secrets(&self) -> Option<crate::secrets::Secrets> {
         self.secrets.then(crate::secrets::Secrets::new)
+    }
+
+    /// The service's buckets, or `None` in an entity, a view and a workflow's command handler. A
+    /// call waits for the store, and a command that waited would hold every other command to the
+    /// same entity behind it; an entity keeps an object's name, and the bucket keeps the bytes.
+    pub fn storage(&self) -> Option<crate::storage::Storage> {
+        self.storage.then(crate::storage::Storage::new)
     }
 
     /// The component handling the call.

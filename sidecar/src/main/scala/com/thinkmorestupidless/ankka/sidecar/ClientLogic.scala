@@ -753,6 +753,94 @@ final class ClientLogic(
       RevokeClientKeyReply(Some(e))
     )
 
+  // ── Object storage, for a module (protocol 1.21) ────────────────────────────
+  //
+  // A process speaks S3 itself; only a module's `storage` import reaches this. One operation a
+  // call, on the service's own storage client, with every body bounded as a call's is: a put above
+  // the bound is refused before anything is kept, and a get above it before a byte is read.
+
+  def storage(request: StorageRequest): Future[StorageReply] =
+    onStore(answerStorage(request))(e => StorageReply(StorageReply.Reply.Error(e)))
+
+  private def answerStorage(r: StorageRequest): StorageReply =
+    import StorageReply.Reply
+    val bound  = ClientLogic.MaxBodyBytes
+    val bucket = r.bucket.fold(service.storage.default)(service.storage.bucket)
+    def tooLarge(length: Long, what: String) =
+      CommandError(
+        s"$what through the storage import is at most $bound bytes; this one is $length",
+        ErrorCode.BadRequest
+      )
+    def stamp(at: java.time.Instant) = at.toString
+    r.op match
+      case StorageRequest.Op.PUT =>
+        val body = r.body.getOrElse(com.google.protobuf.ByteString.EMPTY)
+        if body.size > bound then throw tooLarge(body.size.toLong, "an object kept")
+        bucket.putBytes(r.name, body.toByteArray, r.contentType)
+        StorageReply(Reply.Done(pb.Empty()))
+      case StorageRequest.Op.GET =>
+        bucket.stat(r.name) match
+          case None                              => StorageReply(Reply.Done(pb.Empty()))
+          case Some(info) if info.length > bound => throw tooLarge(info.length, "an object read")
+          case Some(_) =>
+            bucket.get(r.name) match
+              case None => StorageReply(Reply.Done(pb.Empty()))
+              case Some(found) =>
+                scala.util.Using.resource(found) { o =>
+                  // Replaced between the stat and the read: still never more than the bound.
+                  val bytes = o.body.readNBytes(bound + 1)
+                  if bytes.length > bound then throw tooLarge(o.length, "an object read")
+                  StorageReply(
+                    Reply.Object(
+                      StoredObject(
+                        o.contentType,
+                        com.google.protobuf.ByteString.copyFrom(bytes),
+                        bytes.length.toLong,
+                        stamp(o.lastKept)
+                      )
+                    )
+                  )
+                }
+      case StorageRequest.Op.DELETE =>
+        bucket.delete(r.name)
+        StorageReply(Reply.Done(pb.Empty()))
+      case StorageRequest.Op.LIST =>
+        val after = r.continuation.getOrElse("")
+        val page = bucket
+          .list(r.name)
+          .dropWhile(e => after.nonEmpty && e.name <= after)
+          .take(ClientLogic.ListPage + 1)
+          .toVector
+        val shown = page.take(ClientLogic.ListPage)
+        StorageReply(
+          Reply.Entries(
+            ObjectEntries(
+              shown.map(e => ObjectEntry(e.name, e.length, stamp(e.lastKept))),
+              Option.when(page.size > ClientLogic.ListPage)(shown.last.name)
+            )
+          )
+        )
+      case StorageRequest.Op.STAT =>
+        bucket.stat(r.name) match
+          case None => StorageReply(Reply.Done(pb.Empty()))
+          case Some(i) =>
+            StorageReply(Reply.Info(ObjectInfo(i.name, i.contentType, i.length, stamp(i.lastKept))))
+      case StorageRequest.Op.SIGNED_URL =>
+        val access =
+          if r.access == StorageRequest.Access.KEEP then sdk.SignedAccess.Keep
+          else sdk.SignedAccess.Read
+        val span =
+          if r.expiresSeconds == 0 then sdk.ObjectRules.DefaultSignedUrl
+          else (r.expiresSeconds.toLong & 0xffffffffL).seconds
+        StorageReply(Reply.Url(bucket.signedUrl(r.name, access, span).toString))
+      case StorageRequest.Op.URL =>
+        StorageReply(Reply.Url(bucket.url(r.name).toString))
+      case StorageRequest.Op.Unrecognized(n) =>
+        throw CommandError(
+          s"storage operation $n is not one this runtime knows",
+          ErrorCode.BadRequest
+        )
+
   // ── Calls to other services (protocol 1.8) ──────────────────────────────────
   //
   // Made by the runtime's one client for other services, as this service: the resolution, the
@@ -871,6 +959,9 @@ object ClientLogic:
 
   /** The largest body, either way, a call through the sidecar carries: under gRPC's 4 MiB. */
   val MaxBodyBytes: Int = 4_000_000
+
+  /** The most entries one `LIST` through the storage import answers; `next` says where to go on. */
+  val ListPage: Int = 1000
 
   private val NamePattern = "[A-Za-z0-9._-]+".r
 

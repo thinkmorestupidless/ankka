@@ -2,11 +2,23 @@ package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import com.thinkmorestupidless.ankka.sdk.{
+  Bucket,
+  BucketExposure,
+  ObjectEntry,
+  ObjectInfo,
+  ObjectStorage,
   SecretStore,
   ServiceClient,
   ServiceClients,
-  ServiceResponse
+  ServiceResponse,
+  SignedAccess,
+  StorageRefusals,
+  StoredObject
 }
+
+import java.io.InputStream
+import java.net.URI
+import scala.concurrent.duration.FiniteDuration
 
 /**
  * Whether the calling thread is running a workflow's step.
@@ -61,3 +73,29 @@ private[ankka] object StepScope:
             ErrorCode.BadRequest
           )
         client.request(method, path, body, contentType, headers)
+
+  /**
+   * A storage client whose buckets answer only from inside a step (feature 055). Naming a bucket
+   * anywhere is harmless; every operation outside a step is refused, a signed URL and an address
+   * included, for the reason a secret is: a workflow's command handler is its single-writer path.
+   */
+  def stepsOnly(underlying: ObjectStorage): ObjectStorage = new ObjectStorage:
+    def default: Bucket              = guarded(underlying.default)
+    def bucket(name: String): Bucket = guarded(underlying.bucket(name))
+    def buckets: Vector[Bucket]      = underlying.buckets.map(guarded)
+
+    private def guarded(b: Bucket): Bucket = new Bucket:
+      private def require(): Unit  = if !active then throw StorageRefusals.stepsOnly()
+      def name: Option[String]     = b.name
+      def exposure: BucketExposure = b.exposure
+      def put(name: String, body: InputStream, length: Long, contentType: String): Unit =
+        require()
+        b.put(name, body, length, contentType)
+      def get(name: String): Option[StoredObject]     = { require(); b.get(name) }
+      def delete(name: String): Unit                  = { require(); b.delete(name) }
+      def list(prefix: String): Iterator[ObjectEntry] = { require(); b.list(prefix) }
+      def stat(name: String): Option[ObjectInfo]      = { require(); b.stat(name) }
+      def signedUrl(name: String, access: SignedAccess, span: FiniteDuration): URI =
+        require()
+        b.signedUrl(name, access, span)
+      def url(name: String): URI = { require(); b.url(name) }

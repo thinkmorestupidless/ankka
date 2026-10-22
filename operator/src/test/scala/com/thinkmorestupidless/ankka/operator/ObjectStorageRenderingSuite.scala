@@ -93,7 +93,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
               "reports-storage",
               _,
               "shop.reports",
-              0
+              0,
+              Nil
             ) =>
           true
         case _ => false
@@ -345,8 +346,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     val actions =
       renderOn(withStatus(asks.copy(storageCredentialGeneration = 2), inPlace = 1), ready)
     val reissue = actions.indexWhere {
-      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2) => true
-      case _                                                                        => false
+      case Action.ReissueStorageCredential(_, "reports-storage", "shop.reports", 2, Nil) => true
+      case _                                                                             => false
     }
     assert(reissue >= 0, actions.toString)
     assert(reissue < actions.indexWhere(_.isInstanceOf[Action.ApplyDeployment]), actions.toString)
@@ -818,4 +819,353 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
     val actions  = renderCloud(exposing, cloudReady)
     assert(!actions.exists(_.isInstanceOf[Action.EnsureHttpRoute]))
     assert(!actions.exists(_.isInstanceOf[Action.EnsureReferenceGrant]))
+  }
+
+  // Feature 055: named buckets.
+  private object Named:
+    import com.thinkmorestupidless.ankka.crd.{
+      AnkkaServiceStatus,
+      BucketSpec,
+      BucketStatus,
+      Buckets,
+      ObjectStorageStatus,
+      SuppliedBucket
+    }
+
+    val web = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
+    val served = settings.copy(
+      objectStore = Some(store.copy(webService = Some(web))),
+      baseDomain = Some("example.test"),
+      httpsPort = 443
+    )
+    val four = AnkkaServiceSpec(
+      projectId = "shop",
+      serviceName = "listings",
+      generation = 1L,
+      image = "listings:1",
+      port = Some(9000),
+      provisionObjectStorage = true,
+      buckets = List(
+        BucketSpec("photos", exposure = "public"),
+        BucketSpec("uploads", exposure = "signed", origins = List("https://shop.example.com")),
+        BucketSpec("documents"),
+        BucketSpec(
+          "archive",
+          supplied = Some(
+            SuppliedBucket("https://s3.example.com", "eu-west-1", "acme-archive", "archive-store")
+          )
+        )
+      )
+    )
+    val ready = ObjectStorageObservation(
+      bucketCreated = Some(java.time.Instant.parse("2026-10-19T10:00:00Z")),
+      keyAllowed = true
+    )
+    def observed(spec: AnkkaServiceSpec) =
+      spec.buckets.filter(_.made).map(b => Buckets.named("shop", "listings", b.name) -> ready).toMap
+
+    def resourceOf(spec: AnkkaServiceSpec, status: Option[ObjectStorageStatus] = None) =
+      val r = new AnkkaService
+      r.setMetadata(
+        new ObjectMetaBuilder()
+          .withNamespace("ankka-shop")
+          .withName("listings")
+          .withUid("u")
+          .build()
+      )
+      r.setSpec(spec)
+      status.foreach(s => r.setStatus(AnkkaServiceStatus(objectStorage = Some(s))))
+      r
+
+    def render(
+        spec: AnkkaServiceSpec,
+        s: Settings = served,
+        seen: Map[String, ObjectStorageObservation] = Map.empty,
+        status: Option[ObjectStorageStatus] = None,
+        plan: ObjectStoragePlan = ObjectStoragePlan.Ready(recovered = false)
+    ): Vector[Action] =
+      val resource = resourceOf(spec, status)
+      val named = ObjectStorage.decideBuckets(
+        spec,
+        s,
+        if seen.isEmpty then observed(spec) else seen,
+        status
+      )
+      Rendering
+        .render(
+          resource,
+          s,
+          ProvisioningPlan.Supplied,
+          objectStoragePlan =
+            if spec.provisionObjectStorage then plan else ObjectStoragePlan.NotAsked,
+          namedBuckets = named
+        )
+        .fold(p => fail(p.mkString("; ")), identity)
+
+    def storeActions(actions: Vector[Action]): Vector[Action] = actions.collect {
+      case a: Action.EnsureBucket             => a
+      case a: Action.SetWebsiteAccess         => a
+      case a: Action.SetBucketCors            => a
+      case a: Action.EnsureStorageCredential  => a
+      case a: Action.ReissueStorageCredential => a
+      case a: Action.DeleteExpiredKeys        => a
+    }
+
+    def routes(actions: Vector[Action]) =
+      actions.collect { case Action.EnsureHttpRoute(r) => r }
+
+    def env(actions: Vector[Action]) =
+      containers(actions).head.getEnv.asScala.filter(_.getName.startsWith("ANKKA_S3_")).toVector
+
+    def kept: ObjectStorageStatus = ObjectStorageStatus(
+      phase = "Provisioned",
+      bucket = "shop.listings",
+      store = "garage",
+      buckets = List(
+        BucketStatus("photos", "Provisioned", "garage", "shop.listings.photos", "public"),
+        BucketStatus("uploads", "Provisioned", "garage", "shop.listings.uploads", "signed")
+      )
+    )
+
+  test("055: the four-bucket service's store actions: each made bucket, then one key over all") {
+    val labels = Labels.identity("shop", "listings")
+    assertEquals(
+      Named.storeActions(Named.render(Named.four)),
+      Vector(
+        Action.EnsureBucket("shop.listings"),
+        Action.EnsureBucket("shop.listings.photos", Some("shop.listings")),
+        Action.SetWebsiteAccess("shop.listings.photos", true),
+        Action.EnsureBucket("shop.listings.uploads", Some("shop.listings")),
+        Action.SetWebsiteAccess("shop.listings.uploads", false),
+        Action.SetBucketCors("shop.listings.uploads", List("https://shop.example.com")),
+        Action.EnsureBucket("shop.listings.documents", Some("shop.listings")),
+        Action.SetWebsiteAccess("shop.listings.documents", false),
+        Action.EnsureStorageCredential(
+          "ankka-shop",
+          "listings-storage",
+          labels,
+          "shop.listings",
+          0,
+          List(
+            "shop.listings",
+            "shop.listings.photos",
+            "shop.listings.uploads",
+            "shop.listings.documents"
+          )
+        )
+      )
+    )
+  }
+
+  test("055: the four-bucket service's variables, exactly") {
+    val env = Named.env(Named.render(Named.four))
+    assertEquals(
+      env.filter(_.getValue != null).map(e => e.getName -> e.getValue).toMap,
+      Map(
+        "ANKKA_S3_ENDPOINT"           -> store.endpoint,
+        "ANKKA_S3_REGION"             -> "garage",
+        "ANKKA_S3_BUCKET"             -> "shop.listings",
+        "ANKKA_S3_BUCKET_PHOTOS"      -> "shop.listings.photos",
+        "ANKKA_S3_EXPOSURE_PHOTOS"    -> "public",
+        "ANKKA_S3_PUBLIC_URL_PHOTOS"  -> "https://storage.example.test/shop.listings.photos",
+        "ANKKA_S3_BUCKET_UPLOADS"     -> "shop.listings.uploads",
+        "ANKKA_S3_EXPOSURE_UPLOADS"   -> "signed",
+        "ANKKA_S3_BUCKET_DOCUMENTS"   -> "shop.listings.documents",
+        "ANKKA_S3_EXPOSURE_DOCUMENTS" -> "private",
+        "ANKKA_S3_ENDPOINT_ARCHIVE"   -> "https://s3.example.com",
+        "ANKKA_S3_REGION_ARCHIVE"     -> "eu-west-1",
+        "ANKKA_S3_BUCKET_ARCHIVE"     -> "acme-archive",
+        "ANKKA_S3_PUBLIC_ENDPOINT"    -> "https://storage.example.test"
+      )
+    )
+    // Each name once.
+    assertEquals(env.map(_.getName).distinct.size, env.size)
+  }
+
+  test(
+    "055: a supplied bucket's keys are references to the project secret it names, never values"
+  ) {
+    val refs = Named
+      .env(Named.render(Named.four))
+      .filter(_.getValueFrom != null)
+      .map(e =>
+        (e.getName, e.getValueFrom.getSecretKeyRef.getName, e.getValueFrom.getSecretKeyRef.getKey)
+      )
+    assertEquals(
+      refs,
+      Vector(
+        ("ANKKA_S3_ACCESS_KEY_ARCHIVE", "archive-store", "access-key"),
+        ("ANKKA_S3_SECRET_KEY_ARCHIVE", "archive-store", "secret-key")
+      )
+    )
+  }
+
+  test(
+    "055: the public route rewrites to the bucket's host at the store's web port, field for field"
+  ) {
+    val route = Named
+      .routes(Named.render(Named.four))
+      .find(_.getMetadata.getName == "listings-storage-photos")
+      .get
+    assertEquals(route.getMetadata.getNamespace, "ankka-shop")
+    assertEquals(route.getMetadata.getOwnerReferences.asScala.map(_.getUid).toList, List("u"))
+    assertEquals(route.getSpec.getHostnames.asScala.toList, List("storage.example.test"))
+    val rule = route.getSpec.getRules.asScala.toList match
+      case List(only) => only
+      case other      => fail(s"one rule, not $other")
+    val path = rule.getMatches.asScala.head.getPath
+    assertEquals((path.getType, path.getValue), ("PathPrefix", "/shop.listings.photos/"))
+    val filter = rule.getFilters.asScala.toList match
+      case List(only) => only
+      case other      => fail(s"one filter, not $other")
+    assertEquals(filter.getType, "URLRewrite")
+    assertEquals(filter.getUrlRewrite.getHostname, "shop.listings.photos")
+    assertEquals(filter.getUrlRewrite.getPath.getType, "ReplacePrefixMatch")
+    assertEquals(filter.getUrlRewrite.getPath.getReplacePrefixMatch, "/")
+    val backend = rule.getBackendRefs.asScala.toList match
+      case List(only) => only
+      case other      => fail(s"one backend, not $other")
+    assertEquals(
+      (backend.getNamespace, backend.getName, backend.getPort.intValue),
+      ("garage-system", "garage", 3902)
+    )
+    assertEquals(rule.getTimeouts.getRequest, "0s")
+  }
+
+  test(
+    "055: the signed bucket's route is the unnamed one's shape, named for the bucket, unrewritten"
+  ) {
+    val routes = Named.routes(Named.render(Named.four))
+    assertEquals(
+      routes.map(_.getMetadata.getName).toSet,
+      Set("listings-storage-photos", "listings-storage-uploads")
+    )
+    val signed = routes.find(_.getMetadata.getName == "listings-storage-uploads").get
+    val rule   = signed.getSpec.getRules.asScala.head
+    assertEquals(rule.getMatches.asScala.head.getPath.getValue, "/shop.listings.uploads")
+    assert(Option(rule.getFilters).forall(_.isEmpty), rule.getFilters)
+    assertEquals(rule.getBackendRefs.asScala.head.getPort.intValue, 3900)
+  }
+
+  test("055: a private named bucket is not served at the web endpoint and has no route") {
+    val docs =
+      Named.four.copy(buckets = List(com.thinkmorestupidless.ankka.crd.BucketSpec("documents")))
+    val actions = Named.render(docs)
+    assert(actions.contains(Action.SetWebsiteAccess("shop.listings.documents", false)))
+    assertEquals(Named.routes(actions), Vector.empty)
+    assert(!actions.exists {
+      case Action.RemoveHttpRoute(_, name, _) => name.startsWith("listings-storage-")
+      case _                                  => false
+    })
+  }
+
+  test("055: a bucket the descriptor stopped naming has its route removed, and nothing else") {
+    val fewer   = Named.four.copy(buckets = Named.four.buckets.filterNot(_.name == "photos"))
+    val actions = Named.render(fewer, status = Some(Named.kept))
+    assert(actions.contains(Action.RemoveHttpRoute("ankka-shop", "listings-storage-photos", "u")))
+    assert(!actions.contains(Action.RemoveHttpRoute("ankka-shop", "listings-storage-uploads", "u")))
+    assert(!Named.storeActions(actions).exists {
+      case Action.EnsureBucket(b, _) => b == "shop.listings.photos"
+      case _                         => false
+    })
+    assert(!Named.env(actions).exists(_.getName.endsWith("_PHOTOS")))
+  }
+
+  test("055: an exposure lowered to private removes the route the bucket had") {
+    val lowered = Named.four.copy(buckets =
+      Named.four.buckets.map(b =>
+        if b.name == "uploads" then b.copy(exposure = "private", origins = Nil) else b
+      )
+    )
+    val actions = Named.render(lowered, status = Some(Named.kept))
+    assert(actions.contains(Action.RemoveHttpRoute("ankka-shop", "listings-storage-uploads", "u")))
+    assert(actions.contains(Action.SetWebsiteAccess("shop.listings.uploads", false)))
+  }
+
+  test("055: the Deployment is withheld while a named bucket is being made") {
+    val waiting =
+      Named.observed(Named.four).updated("shop.listings.photos", ObjectStorageObservation.empty)
+    val actions = Named.render(Named.four, seen = waiting)
+    assert(!actions.exists(_.isInstanceOf[Action.ApplyDeployment]))
+    // The bucket is made all the same, so the next pass can apply it.
+    assert(actions.contains(Action.EnsureBucket("shop.listings.photos", Some("shop.listings"))))
+  }
+
+  test(
+    "055: a public bucket with no web endpoint is made with its key, has no route, and is not told"
+  ) {
+    val noWeb   = Named.served.copy(objectStore = Some(store))
+    val actions = Named.render(Named.four, s = noWeb)
+    assert(actions.contains(Action.EnsureBucket("shop.listings.photos", Some("shop.listings"))))
+    assert(!Named.routes(actions).exists(_.getMetadata.getName == "listings-storage-photos"))
+    assert(!Named.env(actions).exists(_.getName.endsWith("_PHOTOS")))
+    val credential = actions.collectFirst { case c: Action.EnsureStorageCredential => c }.get
+    assert(credential.buckets.contains("shop.listings.photos"), credential)
+  }
+
+  test(
+    "055: a service with only named buckets is given the store, the key's Secret and a credential over them"
+  ) {
+    val namedOnly = Named.four.copy(
+      provisionObjectStorage = false,
+      buckets = List(com.thinkmorestupidless.ankka.crd.BucketSpec("documents"))
+    )
+    val actions = Named.render(namedOnly)
+    assertEquals(
+      Named.storeActions(actions),
+      Vector(
+        Action.EnsureBucket("shop.listings.documents", Some("shop.listings")),
+        Action.SetWebsiteAccess("shop.listings.documents", false),
+        Action.EnsureStorageCredential(
+          "ankka-shop",
+          "listings-storage",
+          Labels.identity("shop", "listings"),
+          "shop.listings",
+          0,
+          List("shop.listings.documents")
+        )
+      )
+    )
+    val c = containers(actions).head
+    assertEquals(
+      storageVariables(c),
+      Map(
+        "ANKKA_S3_ENDPOINT"           -> store.endpoint,
+        "ANKKA_S3_REGION"             -> "garage",
+        "ANKKA_S3_BUCKET_DOCUMENTS"   -> "shop.listings.documents",
+        "ANKKA_S3_EXPOSURE_DOCUMENTS" -> "private"
+      )
+    )
+    assertEquals(storageSecrets(c), Vector("listings-storage"))
+  }
+
+  test("055: a service with only a supplied bucket asks the store nothing and is given no key") {
+    val suppliedOnly =
+      Named.four.copy(provisionObjectStorage = false, buckets = List(Named.four.buckets.last))
+    val actions = Named.render(suppliedOnly, s = settings)
+    assertEquals(Named.storeActions(actions), Vector.empty)
+    val c = containers(actions).head
+    assertEquals(storageSecrets(c), Vector.empty)
+    assertEquals(
+      storageVariables(c).keySet,
+      Set(
+        "ANKKA_S3_ENDPOINT_ARCHIVE",
+        "ANKKA_S3_REGION_ARCHIVE",
+        "ANKKA_S3_BUCKET_ARCHIVE",
+        "ANKKA_S3_ACCESS_KEY_ARCHIVE",
+        "ANKKA_S3_SECRET_KEY_ARCHIVE"
+      )
+    )
+  }
+
+  test("055: a credential issued again covers every bucket the platform made") {
+    val again = Named.four.copy(storageCredentialGeneration = 1)
+    val reissue =
+      Named.render(again).collectFirst { case r: Action.ReissueStorageCredential => r }.get
+    assertEquals(reissue.buckets.size, 4)
+    assert(
+      Named
+        .render(again)
+        .contains(Action.EnsureBucket("shop.listings.photos", Some("shop.listings#1")))
+    )
   }

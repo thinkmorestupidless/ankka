@@ -77,6 +77,15 @@ trait Executor:
     ObjectStorageObservation.empty
 
   /**
+   * One observation per named bucket (feature 055), whose `keyAllowed` says the service's own key,
+   * `keyName`, is allowed on it. An executor with no store has nothing to say.
+   */
+  def observeBuckets(
+      @scala.annotation.unused buckets: Vector[String],
+      @scala.annotation.unused keyName: String
+  ): Map[String, ObjectStorageObservation] = Map.empty
+
+  /**
    * How one phase's Job of a move ended, if it has (feature 039): its counts, and the mover's
    * report from its pod's termination message. A Job its time-to-live removed is `Absent`, which is
    * why the move's state is kept in the status rather than read back from the Job.
@@ -611,17 +620,13 @@ final class Fabric8Executor(
         database.getMetadata.getName
       )
 
-    case Action.EnsureBucket(bucket) =>
-      val s = requireStore()
-      s.bucket(bucket) match
-        case None =>
-          s.createBucket(bucket): Unit
-          log.info("made bucket {}", bucket)
-        case Some(info) if info.allowedKeys.isEmpty =>
-          // Made again after its service deleted it: the service's keys reach it once more, of
-          // whatever generation (feature 039), unless they have ended.
-          s.keysOf(bucket).filterNot(_.expired).foreach(k => s.allow(info.id, k.accessKeyId))
-        case Some(_) => ()
+    case Action.EnsureBucket(bucket, keyName) =>
+      // Made again after its service deleted it: the service's keys reach it once more, of
+      // whatever generation (feature 039), unless they have ended; a named bucket, the key named.
+      StoreActions.ensureBucket(requireStore(), bucket, keyName)
+
+    case Action.SetWebsiteAccess(bucket, enabled) =>
+      StoreActions.setWebsite(requireStore(), bucket, enabled)
 
     case Action.EnsureObjectStore(store) =>
       client.resource(store).fieldManager(FieldManager).forceConflicts().serverSideApply(): Unit
@@ -680,9 +685,16 @@ final class Fabric8Executor(
           case StorageCredential.Result.Unchanged => ()
       backupGenerations.put((namespace, keyName), generation): Unit
 
-    case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation) =>
+    case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation, buckets) =>
       requireStore(): Unit
-      storageCredentials.get.ensure(namespace, name, labels, bucket, generation) match
+      storageCredentials.get.ensure(
+        namespace,
+        name,
+        labels,
+        bucket,
+        generation,
+        buckets = buckets
+      ) match
         case StorageCredential.Result.Created =>
           log.info("issued the storage credential {}/{}", namespace, name)
         case StorageCredential.Result.Replaced =>
@@ -694,14 +706,15 @@ final class Fabric8Executor(
           )
         case StorageCredential.Result.Unchanged => ()
 
-    case Action.ReissueStorageCredential(namespace, name, bucket, generation) =>
+    case Action.ReissueStorageCredential(namespace, name, bucket, generation, buckets) =>
       requireStore(): Unit
       storageCredentials.get.reissue(
         namespace,
         name,
         bucket,
         generation,
-        java.time.Instant.now().plusSeconds(rotationGrace.toSeconds)
+        java.time.Instant.now().plusSeconds(rotationGrace.toSeconds),
+        buckets
       )
       log.info(
         "issued the storage credential {}/{} again, at generation {}; the old one ends in {}",
@@ -715,15 +728,15 @@ final class Fabric8Executor(
       requireStore(): Unit
       storageCredentials.get.deleteExpired(bucket)
 
-    case Action.PauseWrites(bucket, generation) =>
+    case Action.PauseWrites(bucket, generation, buckets) =>
       requireStore(): Unit
-      storageCredentials.get.pauseWrites(bucket, generation)
-      log.info("paused writes to bucket {}", bucket)
+      storageCredentials.get.pauseWrites(bucket, generation, buckets)
+      log.info("paused writes to {}", Action.bucketsPhrase(bucket, buckets))
 
-    case Action.ResumeWrites(bucket, generation) =>
+    case Action.ResumeWrites(bucket, generation, buckets) =>
       requireStore(): Unit
-      storageCredentials.get.resumeWrites(bucket, generation)
-      log.info("resumed writes to bucket {}", bucket)
+      storageCredentials.get.resumeWrites(bucket, generation, buckets)
+      log.info("resumed writes to {}", Action.bucketsPhrase(bucket, buckets))
 
     case Action.EnsureMoveJob(job) =>
       // A Job's template is immutable once it exists, and the one a pass renders is the same one
@@ -1422,6 +1435,14 @@ final class Fabric8Executor(
         case e: ObjectStoreUnavailable =>
           ObjectStorageObservation(unreachable = Some(e.getMessage))
     }
+
+  override def observeBuckets(
+      buckets: Vector[String],
+      keyName: String
+  ): Map[String, ObjectStorageObservation] =
+    store.fold(Map.empty[String, ObjectStorageObservation])(
+      StoreActions.observe(_, buckets, keyName)
+    )
 
   override def observeMoveJob(namespace: String, name: String): StorageMove.JobOutcome =
     Option(client.batch().v1().jobs().inNamespace(namespace).withName(name).get()) match

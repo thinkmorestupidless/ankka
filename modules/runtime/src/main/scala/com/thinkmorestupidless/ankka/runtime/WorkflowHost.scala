@@ -67,7 +67,8 @@ private[ankka] object WorkflowHost:
       workflowId: EntityId,
       componentClient: ComponentClient,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -76,7 +77,8 @@ private[ankka] object WorkflowHost:
           descriptor.componentId,
           componentClient,
           StepScope.stepsOnly(secrets),
-          StepScope.stepsOnly(services)
+          StepScope.stepsOnly(services),
+          StepScope.stepsOnly(storage)
         )
 
         // One instance for settings and the empty state. Command handling and step

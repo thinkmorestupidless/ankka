@@ -34,6 +34,7 @@ from ankka.event_sourced_entity import RegistrationError
 from ankka.mcp import McpServer, ResultGuardrail
 from ankka.mcp import problems as mcp_problems
 from ankka.secrets import HasSecrets
+from ankka.storage import HasStorage
 from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
@@ -140,7 +141,7 @@ class AutonomousSettings:
         return pb
 
 
-class AutonomousAgent(HasSecrets, HasServices):
+class AutonomousAgent(HasSecrets, HasStorage, HasServices):
     """Subclass this: ``component_id``, ``description``, optionally ``instructions``, ``tools =
     {name: Tool(...)}``, ``guardrails = {name: Guardrail(...)}``, ``accepts = [TaskAcceptance(...)]``
     and ``settings``. A tool's ``run`` receives the agent instance first, as for an ``Agent``, and

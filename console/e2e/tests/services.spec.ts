@@ -314,6 +314,36 @@ for (const [state, seed, shown] of [
   });
 }
 
+test("a service's named buckets are listed with their exposure, and a kept one says so", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "named buckets are seeded on the fake");
+  const org = unique("named-org");
+  const project = unique("named-proj");
+  seedTenancy(target, { org, project });
+  const at = (b: string) => `https://storage.example.test/${project}.listings.${b}`;
+  target.controlPlane!.seed({
+    services: [
+      {
+        projectId: project,
+        name: "listings",
+        buckets: [
+          { name: "photos", phase: "Provisioned", store: "garage", bucket: `${project}.listings.photos`, exposure: "public", publicAddress: at("photos") },
+          { name: "exports", phase: "Provisioned", store: "garage", bucket: `${project}.listings.exports`, exposure: "signed", publicAddress: at("exports") },
+          { name: "documents", phase: "Provisioned", store: "garage", bucket: `${project}.listings.documents`, exposure: "private" },
+          { name: "archive", phase: "Supplied", bucket: "acme-archive", exposure: "supplied" },
+          { name: "old-photos", phase: "Kept", store: "garage", bucket: `${project}.listings.old-photos`, exposure: "public", kept: true },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/listings`);
+  const table = page.locator("[data-buckets]");
+  await expect(table.locator("[data-bucket]")).toHaveCount(5);
+  await expect(table.locator("[data-bucket-exposure]")).toHaveText(["public", "signed", "private", "supplied", "kept"]);
+  await expect(table.locator('[data-bucket="photos"] a')).toHaveAttribute("href", at("photos"));
+  await expect(table.locator('[data-bucket="old-photos"] [data-bucket-note]')).toHaveText("kept, no longer named");
+  await audit(page);
+});
+
 test("a bucket reachable from the internet shows its address beneath its name", async ({ page, target, signIn, unique, audit }) => {
   test.skip(target.kind !== "fake", "object storage is seeded on the fake");
   const org = unique("store-org");

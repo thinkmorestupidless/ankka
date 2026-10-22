@@ -228,7 +228,9 @@ final class ProjectionRuntime private (
         java.util.concurrent.TimeUnit.MILLISECONDS
       )
       keyed.foreach(startKeyedView(_, client, askTimeout))
-      consumers.foreach(startConsumer(_, client, service.secrets, service.services))
+      consumers.foreach(
+        startConsumer(_, client, service.secrets, service.services, service.storage)
+      )
 
       if remoteViews.nonEmpty || remoteKeyed.nonEmpty || remoteConsumers.nonEmpty then
         // `validate` refused a registry holding remote descriptors without a conversation.
@@ -921,7 +923,8 @@ final class ProjectionRuntime private (
       descriptor: ConsumerDescriptor[?, ?, ?],
       client: ComponentClient,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
   )(using system: ActorSystem[?]): Unit =
     type AnyConsumer = Consumer[Any, Any]
     val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
@@ -949,6 +952,7 @@ final class ProjectionRuntime private (
                 Observability(system),
                 secrets,
                 services,
+                storage,
                 HistoryLines(system),
                 journalOf(sourceId)
               )
@@ -970,6 +974,7 @@ final class ProjectionRuntime private (
                 Observability(system),
                 secrets,
                 services,
+                storage,
                 HistoryLines(system)
               )
           )
@@ -990,6 +995,7 @@ final class ProjectionRuntime private (
                 Observability(system),
                 secrets,
                 services,
+                storage,
                 HistoryLines(system),
                 ChangeReader.workflow(decoder.manifest)
               )
@@ -1001,7 +1007,15 @@ final class ProjectionRuntime private (
         val topic = TopicAddress.of(name, options.project)
         subscriberFor(options.broker).foreach { broker =>
           def handler =
-            ConsumerTopicHandler(typed, target, client, Observability(system), secrets, services)
+            ConsumerTopicHandler(
+              typed,
+              target,
+              client,
+              Observability(system),
+              secrets,
+              services,
+              storage
+            )
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
           val version = typed.version.getOrElse(1)
@@ -1580,6 +1594,7 @@ private final class ConsumerEventHandler[A](
     observability: Observability,
     secrets: SecretStore,
     services: ServiceClients,
+    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
     lines: HistoryLines,
     reader: ChangeReader[A]
 ) extends Handler[EventEnvelope[A]]:
@@ -1587,7 +1602,9 @@ private final class ConsumerEventHandler[A](
   private val id = descriptor.componentId.toString
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
+    descriptor.create(
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+    )
 
   /**
    * Whether this consumer publishes, to a topic or as graph deltas, and so is given a replicated
@@ -1646,13 +1663,16 @@ private final class ConsumerStateHandler(
     observability: Observability,
     secrets: SecretStore,
     services: ServiceClients,
+    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
     lines: HistoryLines
 ) extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
+    descriptor.create(
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+    )
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)

@@ -25,6 +25,7 @@ from ankka.mcp import McpServer, ResultGuardrail
 from ankka.mcp import problems as mcp_problems
 from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
+from ankka.storage import HasStorage
 from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
@@ -110,7 +111,7 @@ def _schema_for(tp: Any) -> dict[str, Any]:
     return {}
 
 
-class Agent(HasSecrets, HasServices, HasClientKeys):
+class Agent(HasSecrets, HasStorage, HasServices, HasClientKeys):
     """Subclass this: ``component_id``, ``tools = {name: Tool(...)}``, ``guardrails = {name:
     Guardrail(...)}``, and handlers decorated ``@command`` or ``@stream`` that return an
     ``AgentEffect`` built from ``self.effects``. ``mcp_servers = {name: McpServer(...)}`` lists the

@@ -457,6 +457,7 @@ pub(super) fn session_context(
     Context::new(component_id, session_id, 0, Metadata::from_proto(metadata))
         .with_secrets()
         .with_client_keys()
+        .with_storage()
         .with_services()
 }
 

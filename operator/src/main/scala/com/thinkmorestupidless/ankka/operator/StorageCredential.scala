@@ -61,6 +61,9 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
    * @param entries
    *   what the Secret holds, from the key: the S3 variables for a service, barman's three for a
    *   database's archiver
+   * @param buckets
+   *   every bucket the key is allowed on, when it is not `bucket` alone (feature 055): `bucket`
+   *   then names the key and need not be a bucket at all
    */
   def ensure(
       namespace: String,
@@ -70,26 +73,29 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       generation: Int = 0,
       keyName: Option[String] = None,
       permission: BucketPermission = BucketPermission.Owner,
-      entries: IssuedKey => Map[String, String] = StorageCredential.entries
+      entries: IssuedKey => Map[String, String] = StorageCredential.entries,
+      buckets: Seq[String] = Nil
   ): StorageCredential.Result =
-    val info = existing(bucket)
-    val name = keyName.getOrElse(StorageCredential.keyName(bucket, generation))
+    val infos = on(bucket, buckets).map(existing)
+    val name  = keyName.getOrElse(StorageCredential.keyName(bucket, generation))
     if ensured.contains((namespace, secretName)) then
-      reallow(info, name, permission)
+      infos.foreach(reallow(_, name, permission))
       StorageCredential.Result.Unchanged
     else
       val earlier = store.keysNamed(name)
       val issued  = store.createKey(name)
-      store.allowAs(info.id, issued.accessKeyId, permission)
+      infos.foreach(info => store.allowAs(info.id, issued.accessKeyId, permission))
       val result = secrets.create(secret(namespace, secretName, labels, entries(issued))) match
         case SecretWriter.Outcome.Created =>
           earlier.foreach(store.deleteKey)
           StorageCredential.Result.Created
         case SecretWriter.Outcome.Exists if earlier.nonEmpty =>
           store.deleteKey(issued.accessKeyId)
-          earlier.foreach(id =>
-            if !info.allowedKeys.contains(id) then store.allowAs(info.id, id, permission)
-          )
+          for
+            info <- infos
+            id   <- earlier
+            if !info.allowedKeys.contains(id)
+          do store.allowAs(info.id, id, permission)
           StorageCredential.Result.Unchanged
         case SecretWriter.Outcome.Exists =>
           secrets.patch(namespace, secretName, entries(issued))
@@ -103,6 +109,10 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
   private def reallow(info: BucketInfo, keyName: String, permission: BucketPermission): Unit =
     if info.allowedKeys.isEmpty then
       store.keysNamed(keyName).foreach(store.allowAs(info.id, _, permission))
+
+  /** The buckets a key is allowed on: the list when it is given, else the one it is named for. */
+  private def on(bucket: String, buckets: Seq[String]): Seq[String] =
+    if buckets.isEmpty then Seq(bucket) else buckets
 
   private def existing(bucket: String): BucketInfo =
     store
@@ -123,13 +133,14 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
       secretName: String,
       bucket: String,
       generation: Int,
-      expireAt: Instant
+      expireAt: Instant,
+      buckets: Seq[String] = Nil
   ): Unit =
-    val info = existing(bucket)
-    val name = StorageCredential.keyName(bucket, generation)
+    val infos = on(bucket, buckets).map(existing)
+    val name  = StorageCredential.keyName(bucket, generation)
     store.keysNamed(name).foreach(store.deleteKey)
     val issued = store.createKey(name)
-    store.allow(info.id, issued.accessKeyId)
+    infos.foreach(info => store.allow(info.id, issued.accessKeyId))
     secrets.patch(namespace, secretName, StorageCredential.entries(issued))
     store
       .keysOf(bucket)
@@ -167,14 +178,14 @@ final class StorageCredential(store: ObjectStore, secrets: SecretWriter):
    * A move's write pause (feature 039): the key in place keeps reading and may no longer write,
    * from now, for every instance at once. Nothing is rewritten, so nothing rolls.
    */
-  def pauseWrites(bucket: String, generation: Int): Unit =
-    val info = existing(bucket)
-    store.keysNamed(StorageCredential.keyName(bucket, generation)).foreach(store.deny(info.id, _))
+  def pauseWrites(bucket: String, generation: Int, buckets: Seq[String] = Nil): Unit =
+    val keys = store.keysNamed(StorageCredential.keyName(bucket, generation))
+    on(bucket, buckets).map(existing).foreach(info => keys.foreach(store.deny(info.id, _)))
 
-  /** Ends a write pause on Garage: the key in place writes again. */
-  def resumeWrites(bucket: String, generation: Int): Unit =
-    val info = existing(bucket)
-    store.keysNamed(StorageCredential.keyName(bucket, generation)).foreach(store.allow(info.id, _))
+  /** Ends a write pause on Garage: the key in place writes again, on every bucket. */
+  def resumeWrites(bucket: String, generation: Int, buckets: Seq[String] = Nil): Unit =
+    val keys = store.keysNamed(StorageCredential.keyName(bucket, generation))
+    on(bucket, buckets).map(existing).foreach(info => keys.foreach(store.allow(info.id, _)))
 
   private def secret(
       namespace: String,

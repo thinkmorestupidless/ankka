@@ -25,3 +25,5 @@ spec:
               value: "garage"
             - name: ANKKA_OBJECT_STORE_SERVICE
               value: "garage-system/garage:3900"
+            - name: ANKKA_OBJECT_STORE_WEB_SERVICE
+              value: "garage-system/garage:3902"

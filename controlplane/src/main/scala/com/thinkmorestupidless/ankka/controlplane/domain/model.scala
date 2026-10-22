@@ -906,7 +906,9 @@ final case class Service(
      */
     customHostnames: Vector[String] = Vector.empty,
     /** The operator's last word on each of them. */
-    hostnameReports: Vector[HostnameReport] = Vector.empty
+    hostnameReports: Vector[HostnameReport] = Vector.empty,
+    /** The operator's last word on each named bucket, kept ones included (feature 055). */
+    buckets: Vector[BucketReport] = Vector.empty
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -1120,7 +1122,8 @@ final case class Service(
         objectStorage = event.objectStorage,
         storage = event.storage,
         grants = event.grants,
-        hostnameReports = event.hostnames
+        hostnameReports = event.hostnames,
+        buckets = event.buckets
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -1181,6 +1184,8 @@ final case class Service(
       // And holds no hostname: the names are free for any service to claim (feature 045).
       customHostnames = Vector.empty,
       hostnameReports = Vector.empty,
+      // The buckets themselves are kept; a re-applied service is told of them again.
+      buckets = Vector.empty,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0
@@ -1233,6 +1238,7 @@ final case class Service(
       bucketLocation = storage.flatMap(_.location),
       softDeleteDays = storage.flatMap(_.softDeleteDays),
       storageMove = Service.moveStatus(storageMove, storage),
+      buckets = buckets,
       databaseCluster = databaseCluster,
       grants = grants,
       // The records to create are the endpoint's to add: they need the installation's settings.

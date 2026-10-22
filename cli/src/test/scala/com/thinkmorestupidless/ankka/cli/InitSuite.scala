@@ -141,6 +141,17 @@ class InitSuite extends munit.FunSuite:
     assert(Init.problems(ts).exists(_.contains("--package applies to scala and python only")))
   }
 
+  test("every template of a service ignores the directory store a laptop keeps objects in") {
+    for language <- Seq(Language.Python, Language.TypeScript, Language.Rust) do
+      val request =
+        Init.Request("probe", directory = Files.createTempDirectory("init"), language = language)
+      val ignored = Files.readAllLines(Scaffold.render(request, "9.9.9").resolve(".gitignore"))
+      assert(ignored.contains(".ankka/"), s"$language: $ignored")
+    // The Scala template is ankka.g8, rendered by sbt new rather than by the CLI.
+    val g8 = Files.readAllLines(java.nio.file.Paths.get("../ankka.g8/src/main/g8/.gitignore"))
+    assert(g8.contains(".ankka/"), g8.toString)
+  }
+
   test("each template renders every token, keeps GitHub's expressions, and carries its dotfiles") {
     for language <- Seq(Language.Python, Language.TypeScript, Language.Web) do
       val dir     = Files.createTempDirectory("init")

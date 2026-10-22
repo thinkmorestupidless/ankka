@@ -473,6 +473,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
       service.componentClient,
       service.secrets,
       service.services,
+      service.storage,
       None,
       service.system.executionContext,
       Observability(service.system),

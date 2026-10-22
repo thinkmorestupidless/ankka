@@ -37,3 +37,26 @@ object BucketNames:
     val service = serviceName.take(math.max(1, room - math.min(projectId.length, room - 1)))
     val project = projectId.take(math.max(1, room - service.length))
     s"$prefix-$project-$service-$d"
+
+  /**
+   * A named bucket's (feature 055): the unnamed one's rule with `-<name>` appended, the digest over
+   * `<project>.<service>.<name>` (055's name in Garage, unique per triple for the same reason). The
+   * bucket's name is kept whole while anything else can give way: the service is shortened first,
+   * then the project, then the bucket's name, each keeping at least one character.
+   */
+  def named(prefix: String, projectId: String, serviceName: String, bucket: String): String =
+    val d = HexFormat
+      .of()
+      .formatHex(
+        MessageDigest
+          .getInstance("SHA-256")
+          .digest(s"$projectId.$serviceName.$bucket".getBytes(UTF_8))
+      )
+      .take(8)
+    val fixed   = prefix.length + d.length + 4 // the four hyphens
+    val room    = MaxLength - fixed
+    val name    = bucket.take(math.max(1, room - 2))
+    val left    = room - name.length
+    val service = serviceName.take(math.max(1, left - math.min(projectId.length, left - 1)))
+    val project = projectId.take(math.max(1, left - service.length))
+    s"$prefix-$project-$service-$d-$name"

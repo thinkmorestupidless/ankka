@@ -6,6 +6,7 @@ pages:
   - get-started/first-service-rust.md
   - reference/rust-sdk.md
   - build/graph.md
+  - build/object-storage.md
   - reference/wasm-abi.md
   - build/serialization.md
   - build/testing.md

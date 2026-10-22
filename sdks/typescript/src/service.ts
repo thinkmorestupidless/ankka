@@ -821,6 +821,9 @@ function registerEndpoint(cls: EndpointClass<any>, problems: string[]): Register
   const name = nameOf(cls)
   if (typeof cls.prefix !== "string" || !cls.prefix.startsWith("/") || (cls.prefix.length > 1 && cls.prefix.endsWith("/"))) {
     fail(`needs a static prefix starting with "/" and not ending with one, not ${JSON.stringify(cls.prefix)}`)
+  } else if ((cls.prefix === "/_ankka" || cls.prefix.startsWith("/_ankka/")) && (cls as { readonly _sdkReserved?: unknown })._sdkReserved !== true) {
+    // The SDK's own directory-store endpoint is the one exception, as the sidecar admits it alone.
+    fail(`prefix '${cls.prefix}' is under /_ankka, which is the runtime's`)
   }
   if (!isAcl(cls.acl)) {
     fail(`needs a static acl — Acl.allowAll, Acl.denyAll, Acl.authenticated or Acl.allowCallers(...). An unstated access rule is a decision nobody made`)

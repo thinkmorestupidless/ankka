@@ -19,6 +19,7 @@ import type { StartFrom } from "./startFrom.ts"
 import { JSON_CONTENT, type Codec, type Shape } from "./codec.ts"
 import type { EffectLike, Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
+import { processStorage, type Buckets } from "./storage.ts"
 import { sequenceNumberOf } from "./consumer.ts"
 import { renderDouble, reviver } from "./json.ts"
 import { servicesFor, type Services } from "./services.ts"
@@ -464,6 +465,18 @@ export abstract class GraphConsumer<M> {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #storage: Buckets | undefined
+
+  /** The service's buckets: `this.storage.default`, or `this.storage.bucket("photos")`. */
+  get storage(): Buckets {
+    return this.#storage ?? processStorage()
+  }
+
+  /** A unit test's store in place of the runtime's: `component.storage = new InMemoryBuckets()`. */
+  set storage(buckets: Buckets) {
+    this.#storage = buckets
   }
 
   #services: Services | undefined

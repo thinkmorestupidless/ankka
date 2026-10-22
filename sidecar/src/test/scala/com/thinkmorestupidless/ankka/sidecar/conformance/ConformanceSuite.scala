@@ -41,12 +41,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     target = ConformanceTarget.fromProperty(model)
     println(
       s"conformance target: ${target.name}, secrets on " +
-        ConformanceTarget.secretManager.fold("postgres")(_ => "secret-manager")
+        ConformanceTarget.secretManager.fold("postgres")(_ => "secret-manager") +
+        ", storage on " + ConformanceTarget.garage.fold("memory")(_ => "garage")
     )
 
   override def afterAll(): Unit =
     if target != null then target.stop()
     ConformanceTarget.secretManager.foreach(_.stop())
+    ConformanceTarget.garage.foreach(_.stop())
 
   override def beforeEach(context: BeforeEach): Unit = model.reset()
 
@@ -1766,6 +1768,144 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test("secret.name-with-slash") {
     assertEquals(post(secretPath("provider/initech"), "sk-initech").status, 204)
     assertEquals(get(secretPath("provider/initech")).body, "sk-initech")
+  }
+
+  // ── Storage (feature 055) ──────────────────────────────────────────────────
+  //
+  // Every answer of `/conformance/storage` is a record, refusals included, so a case reads the
+  // client's outcome rather than how a language's server turned an error into a status.
+
+  private def encoded(value: String) =
+    java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+  private def storagePath(params: (String, String)*) =
+    params.map((k, v) => s"$k=${encoded(v)}").mkString("/conformance/storage?", "&", "")
+
+  private def storage(reply: Reply): Json =
+    assertEquals(reply.status, 200, reply.body)
+    reply.json
+
+  private def word(json: Json, field: String): String =
+    json(field).flatMap(_.asString).getOrElse("")
+
+  private def keep(name: String, body: String, contentType: String, bucket: Option[String] = None) =
+    storage(
+      post(storagePath((bucket.map("bucket" -> _).toSeq :+ ("name" -> name))*), body, contentType)
+    )
+
+  private def ask(op: String, params: (String, String)*): Json =
+    storage(get(storagePath((("op" -> op) +: params)*)))
+
+  private def names(json: Json): Vector[String] =
+    json("names").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
+
+  test("storage.round-trip: an object kept is read back with its content type and length") {
+    assertEquals(word(keep("notes/a.jpg", "hello", "image/jpeg"), "outcome"), "ok")
+    val got = ask("get", "name" -> "notes/a.jpg")
+    assertEquals(
+      (word(got, "outcome"), word(got, "contentType"), word(got, "text")),
+      ("ok", "image/jpeg", "hello")
+    )
+    assertEquals(got("length").flatMap(_.asDouble), Some(5.0))
+  }
+
+  test("storage.list: a listing answers the names under a prefix, in order") {
+    for n <- Vector("listed/b", "listed/a", "elsewhere/c") do keep(n, "x", "image/jpeg"): Unit
+    assertEquals(names(ask("list", "prefix" -> "listed/")), Vector("listed/a", "listed/b"))
+  }
+
+  test("storage.stat: a stat answers the length and content type, and nothing for no object") {
+    keep("stat/one", "four", "image/png"): Unit
+    val info = ask("stat", "name" -> "stat/one")
+    assertEquals(word(info, "contentType"), "image/png")
+    assertEquals(info("length").flatMap(_.asDouble), Some(4.0))
+    assertEquals(word(ask("stat", "name" -> "stat/never"), "outcome"), "absent")
+  }
+
+  test("storage.delete-twice: a second deletion removes nothing and is not an error") {
+    keep("gone/one", "x", "image/jpeg"): Unit
+    assertEquals(word(storage(delete(storagePath("name" -> "gone/one"))), "outcome"), "ok")
+    assertEquals(word(storage(delete(storagePath("name" -> "gone/one"))), "outcome"), "ok")
+    assertEquals(word(ask("get", "name" -> "gone/one"), "outcome"), "absent")
+  }
+
+  test("storage.rules: every SDK refuses the same object names and prefixes for the same reasons") {
+    val fixture = Json
+      .parse(
+        String(
+          java.nio.file.Files.readAllBytes(
+            java.nio.file.Path.of("../protocol/fixtures/storage/rules.json")
+          ),
+          java.nio.charset.StandardCharsets.UTF_8
+        )
+      )
+      .fold(p => fail(p), identity)
+    def rows(field: String) = fixture(field).flatMap(_.asArray).getOrElse(fail(s"no $field"))
+    def text(row: Json) =
+      word(row, "unit") * row("repeat").flatMap(_.asDouble).fold(1)(_.toInt)
+    val checked = for
+      (field, rule) <- Vector("objectNames" -> "name", "prefixes" -> "prefix")
+      row           <- rows(field)
+    yield
+      val answer   = storage(post(storagePath("rules" -> rule), text(row)))
+      val why      = word(row, "why")
+      val accepted = row("accepted").flatMap(_.asBoolean).contains(true)
+      if accepted then
+        assertEquals(word(answer, "outcome"), "ok", s"$field: $why: ${answer.render}")
+      else
+        assertEquals(
+          (word(answer, "outcome"), word(answer, "code")),
+          ("refused", "BAD_REQUEST"),
+          s"$field: $why: ${answer.render}"
+        )
+        assert(
+          word(answer, "message").contains(word(row, "says")),
+          s"$field: $why: ${answer.render}"
+        )
+      why
+    assertEquals(checked.size, rows("objectNames").size + rows("prefixes").size)
+  }
+
+  test(
+    "storage.unknown-bucket: a bucket the service does not have is unavailable, naming its own"
+  ) {
+    val r = ask("get", "bucket" -> "videos", "name" -> "x")
+    assertEquals((word(r, "outcome"), word(r, "code")), ("refused", "UNAVAILABLE"), r.render)
+    assert(word(r, "message").contains("'videos'"), r.render)
+    assert(word(r, "message").contains("'photos'"), r.render)
+  }
+
+  test("storage.public-url: a public bucket answers an address; the unnamed bucket refuses one") {
+    val url = ask("url", "bucket" -> "photos", "name" -> "listings/42/front.jpg")
+    assertEquals(word(url, "outcome"), "ok", url.render)
+    assert(word(url, "url").endsWith("/listings/42/front.jpg"), url.render)
+    val refused = ask("url", "name" -> "front.jpg")
+    assertEquals((word(refused, "outcome"), word(refused, "code")), ("refused", "BAD_REQUEST"))
+  }
+
+  test("storage.named-bucket: a named bucket keeps its own objects") {
+    keep("front.jpg", "named", "image/jpeg", bucket = Some("photos")): Unit
+    assertEquals(word(ask("get", "bucket" -> "photos", "name" -> "front.jpg"), "text"), "named")
+    assertEquals(word(ask("get", "name" -> "front.jpg"), "outcome"), "absent")
+  }
+
+  // `features/storage-client/languages.feature`, "no object passes through the platform's own
+  // program": an object above the storage import's bound is kept by a process, which speaks to the
+  // store itself, and refused to a module, whose objects do pass through the runtime. The Scala
+  // reference keeps it too. No rpc on `Client` carries storage (`client.proto`), so a process has
+  // no other way to hand an object to the sidecar.
+  test(
+    "storage.large: an object above the import's bound is kept by a process, refused to a module"
+  ) {
+    val size = 5_000_000
+    val kept = keep("large/five-megabytes", "x" * size, "application/octet-stream")
+    if target.isModule then
+      assertEquals((word(kept, "outcome"), word(kept, "code")), ("refused", "BAD_REQUEST"))
+      assert(word(kept, "message").contains("4000000"), kept.render)
+    else
+      assertEquals(word(kept, "outcome"), "ok", kept.render)
+      val stat = ask("stat", "name" -> "large/five-megabytes")
+      assertEquals(stat("length").flatMap(_.asDouble), Some(size.toDouble), stat.render)
   }
 
   // ── SC-003: one request through the endpoint, entity and journal, both hosting modes ──

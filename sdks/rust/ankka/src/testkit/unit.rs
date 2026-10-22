@@ -710,3 +710,285 @@ pub fn with_config<T>(variables: &[(&str, &str)], f: impl FnOnce() -> T) -> T {
         .collect();
     with_native_host(Configured(variables), f)
 }
+
+// ── Storage ──────────────────────────────────────────────────────────────────
+
+/// What one object is kept as in the unit test's store.
+#[derive(Debug, Clone)]
+struct Kept {
+    content_type: String,
+    body: Vec<u8>,
+    last_kept: crate::codec::time::Instant,
+}
+
+#[derive(Debug, Default)]
+struct Buckets {
+    /// The named buckets the service declares, and how each is reached.
+    declared: HashMap<String, crate::storage::BucketExposure>,
+    /// Every object, by bucket (`""` for the unnamed one: no bucket name is empty) and name.
+    objects: HashMap<(String, String), Kept>,
+}
+
+/// The service's buckets in memory, answering the `storage` import as the runtime does: a unit
+/// test's store. It applies the runtime's rules in the runtime's words — names and prefixes, the
+/// bound on a body, a signed URL only from a signed bucket and an address only from a public one,
+/// a bucket the service does not declare refused naming those it does — and answers a listing in
+/// pages of 1000, as the runtime does.
+///
+/// The unnamed bucket is always there, and signed, as a service that sets `exposeObjectStorage`'s
+/// is. Named buckets are declared: `InMemoryStorage::new().declare("photos", BucketExposure::Public)`.
+/// A signed URL is computed (`http://memory/…`) and reaches nothing; a public bucket's address is
+/// `http://memory/public/<bucket>/<name>`.
+///
+/// A handler reaches it through [`with_storage`]; with none given, a test's handlers reach a store
+/// of this kind that belongs to the test's thread. Clones share the objects.
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryStorage {
+    buckets: Rc<RefCell<Buckets>>,
+}
+
+/// The most entries one page of a listing holds, as the runtime pages them.
+const LIST_PAGE: usize = 1000;
+
+impl InMemoryStorage {
+    /// A store with the unnamed bucket and no named one.
+    pub fn new() -> InMemoryStorage {
+        InMemoryStorage::default()
+    }
+
+    /// This store with a named bucket `name`, reached as `exposure` says.
+    ///
+    /// # Panics
+    ///
+    /// When `name` is not a bucket name.
+    pub fn declare(self, name: &str, exposure: crate::storage::BucketExposure) -> InMemoryStorage {
+        if let Some(problem) = crate::storage::bucket_name_problem(name) {
+            panic!("{problem}");
+        }
+        self.buckets
+            .borrow_mut()
+            .declared
+            .insert(name.to_string(), exposure);
+        self
+    }
+
+    /// Keeps `body` under `name` in `bucket` (`None`: the unnamed one) as a test sets the scene,
+    /// with no rule applied and no bound: how a test puts an object larger than the import carries.
+    pub fn seed(&self, bucket: Option<&str>, name: &str, body: &[u8], content_type: &str) {
+        let kept = Kept {
+            content_type: content_type.to_string(),
+            body: body.to_vec(),
+            last_kept: crate::codec::time::Instant::from_epoch_millis(crate::abi::imports::now()),
+        };
+        self.buckets.borrow_mut().objects.insert(
+            (bucket.unwrap_or_default().to_string(), name.to_string()),
+            kept,
+        );
+    }
+
+    /// The object under `name` in `bucket`, with its content type, or `None`.
+    pub fn get(&self, bucket: Option<&str>, name: &str) -> Option<(String, Vec<u8>)> {
+        self.buckets
+            .borrow()
+            .objects
+            .get(&(bucket.unwrap_or_default().to_string(), name.to_string()))
+            .map(|k| (k.content_type.clone(), k.body.clone()))
+    }
+
+    /// Every name kept in `bucket`, in order.
+    pub fn names(&self, bucket: Option<&str>) -> Vec<String> {
+        let bucket = bucket.unwrap_or_default();
+        let mut names: Vec<String> = self
+            .buckets
+            .borrow()
+            .objects
+            .keys()
+            .filter(|(b, _)| b == bucket)
+            .map(|(_, n)| n.clone())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Forgets every object; the declared buckets stay.
+    pub fn clear(&self) {
+        self.buckets.borrow_mut().objects.clear();
+    }
+
+    /// Answers one request as the runtime's `storage` import does.
+    pub fn answer(&self, request: proto::StorageRequest) -> proto::StorageReply {
+        use proto::storage_reply::Reply;
+        let reply = self.respond(request).unwrap_or_else(|(code, message)| {
+            Reply::Error(CommandError::new(code, message).to_proto())
+        });
+        proto::StorageReply { reply: Some(reply) }
+    }
+
+    fn respond(
+        &self,
+        r: proto::StorageRequest,
+    ) -> Result<proto::storage_reply::Reply, (ErrorCode, String)> {
+        use crate::storage::{
+            BucketExposure, DEFAULT_SIGNED_URL_SECONDS, MAX_BODY_BYTES, name_problem,
+            percent_encode, prefix_problem, refusals, span_problem,
+        };
+        use proto::storage_reply::Reply;
+        use proto::storage_request::{Access, Op};
+        let bad = |message: String| (ErrorCode::BadRequest, message);
+        let done = || Reply::Done(proto::Empty {});
+        let exposure = match &r.bucket {
+            None => BucketExposure::Signed,
+            Some(name) => {
+                let buckets = self.buckets.borrow();
+                *buckets.declared.get(name).ok_or_else(|| {
+                    (
+                        ErrorCode::Unavailable,
+                        refusals::unknown(name, buckets.declared.keys()),
+                    )
+                })?
+            }
+        };
+        let bucket = r.bucket.clone().unwrap_or_default();
+        let key = (bucket.clone(), r.name.clone());
+        let op = Op::try_from(r.op).map_err(|_| {
+            bad(format!(
+                "storage operation {} is not one this runtime knows",
+                r.op
+            ))
+        })?;
+        if op != Op::List
+            && let Some(problem) = name_problem(&r.name)
+        {
+            return Err(bad(problem));
+        }
+        match op {
+            Op::Put => {
+                let body = r.body.unwrap_or_default();
+                if body.len() > MAX_BODY_BYTES {
+                    return Err(bad(refusals::too_large(
+                        "an object kept",
+                        body.len() as u64,
+                    )));
+                }
+                self.seed(r.bucket.as_deref(), &r.name, &body, &r.content_type);
+                Ok(done())
+            }
+            Op::Get => match self.buckets.borrow().objects.get(&key) {
+                None => Ok(done()),
+                Some(k) if k.body.len() > MAX_BODY_BYTES => Err(bad(refusals::too_large(
+                    "an object read",
+                    k.body.len() as u64,
+                ))),
+                Some(k) => Ok(Reply::Object(proto::StoredObject {
+                    content_type: k.content_type.clone(),
+                    body: k.body.clone(),
+                    length: k.body.len() as u64,
+                    last_kept: k.last_kept.to_string(),
+                })),
+            },
+            Op::Delete => {
+                self.buckets.borrow_mut().objects.remove(&key);
+                Ok(done())
+            }
+            Op::List => {
+                if let Some(problem) = prefix_problem(&r.name) {
+                    return Err(bad(problem));
+                }
+                let after = r.continuation.unwrap_or_default();
+                let buckets = self.buckets.borrow();
+                let mut found: Vec<(&String, &Kept)> = buckets
+                    .objects
+                    .iter()
+                    .filter(|((b, n), _)| {
+                        *b == bucket && n.starts_with(&r.name) && (after.is_empty() || *n > after)
+                    })
+                    .map(|((_, n), k)| (n, k))
+                    .collect();
+                found.sort_by(|a, b| a.0.cmp(b.0));
+                let more = found.len() > LIST_PAGE;
+                found.truncate(LIST_PAGE);
+                Ok(Reply::Entries(proto::ObjectEntries {
+                    next: more
+                        .then(|| found.last().map(|(n, _)| (*n).clone()))
+                        .flatten(),
+                    entries: found
+                        .into_iter()
+                        .map(|(n, k)| proto::ObjectEntry {
+                            name: n.clone(),
+                            length: k.body.len() as u64,
+                            last_kept: k.last_kept.to_string(),
+                        })
+                        .collect(),
+                }))
+            }
+            Op::Stat => Ok(match self.buckets.borrow().objects.get(&key) {
+                None => done(),
+                Some(k) => Reply::Info(proto::ObjectInfo {
+                    name: r.name.clone(),
+                    content_type: k.content_type.clone(),
+                    length: k.body.len() as u64,
+                    last_kept: k.last_kept.to_string(),
+                }),
+            }),
+            Op::SignedUrl => {
+                if exposure != BucketExposure::Signed {
+                    return Err(bad(match &r.bucket {
+                        None => refusals::not_exposed(),
+                        Some(b) => refusals::not_signed(b, exposure),
+                    }));
+                }
+                let span = match i64::from(r.expires_seconds) {
+                    0 => DEFAULT_SIGNED_URL_SECONDS,
+                    s => s,
+                };
+                if let Some(problem) = span_problem(span) {
+                    return Err(bad(problem));
+                }
+                let expires = crate::abi::imports::now() / 1000 + span;
+                let access = if r.access == Access::Keep as i32 {
+                    "keep"
+                } else {
+                    "read"
+                };
+                Ok(Reply::Url(format!(
+                    "http://memory/{}/{}?access={access}&expires={expires}",
+                    r.bucket.as_deref().unwrap_or("default"),
+                    percent_encode(&r.name, false)
+                )))
+            }
+            Op::Url => match (&r.bucket, exposure) {
+                (Some(b), BucketExposure::Public) => Ok(Reply::Url(format!(
+                    "http://memory/public/{b}/{}",
+                    percent_encode(&r.name, false)
+                ))),
+                (b, exposure) => Err(bad(refusals::not_public(b.as_deref(), exposure))),
+            },
+        }
+    }
+}
+
+impl NativeHost for InMemoryStorage {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        match import {
+            Import::Storage => {
+                let request = proto::StorageRequest::decode(request)
+                    .unwrap_or_else(|e| panic!("a storage request that does not decode: {e}"));
+                self.answer(request).encode_to_vec()
+            }
+            other => panic!("the storage double answers only storage, not {other:?}"),
+        }
+    }
+}
+
+/// Runs `f` with `store` answering every storage call its handlers make on this thread, beside
+/// whatever else the kit answers: how a test seeds the objects a handler reads and reads what it
+/// kept.
+///
+/// ```ignore
+/// let store = InMemoryStorage::new().declare("photos", BucketExposure::Public);
+/// with_storage(&store, || kit.post("/photos/front.jpg", &body));
+/// assert_eq!(store.get(Some("photos"), "front.jpg").unwrap().0, "image/jpeg");
+/// ```
+pub fn with_storage<T>(store: &InMemoryStorage, f: impl FnOnce() -> T) -> T {
+    crate::abi::imports::with_native_storage(store.clone(), f)
+}

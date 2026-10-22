@@ -1,6 +1,8 @@
-# No [s3_web] section: with no web listener, a bucket is served to nobody without a signature,
-# whatever its owner sets. No root_domain: buckets are addressed by path only, which is what one
-# hostname with the bucket in the path needs.
+# Buckets are addressed by path on the S3 port, which is what one hostname with the bucket in the
+# path needs. The web listener on 3902 serves a bucket unsigned only once the operator turns its
+# website access on, which it does for a public bucket alone (feature 055); only the gateway's
+# proxies may reach it. Its root domain matches no name anything sends, so a `Host` is read whole as
+# the bucket's name, dots and all: the gateway's route rewrites the `Host` to the bucket.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,6 +19,11 @@ data:
     [s3_api]
     s3_region = "garage"
     api_bind_addr = "[::]:3900"
+
+    [s3_web]
+    bind_addr = "[::]:3902"
+    root_domain = ".web.ankka.invalid"
+    index = "index.html"
 
     [admin]
     api_bind_addr = "[::]:3903"

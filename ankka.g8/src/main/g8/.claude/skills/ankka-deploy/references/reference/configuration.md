@@ -55,6 +55,8 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_DB_LINE` | `ankka.history-line` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
+| `ANKKA_STORAGE_BACKEND` | `ankka.storage.backend` | `""` | every service |
+| `ANKKA_STORAGE_DIR` | `ankka.storage.directory` | `".ankka/storage"` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
@@ -66,6 +68,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DB_SSL_KEY` | `pekko.persistence.r2dbc.connection-factory.ssl.key` | `""` | every service |
 | `ANKKA_HTTP_INTERFACE` | `ankka.http.interface` | `"0.0.0.0"` | every service |
 | `ANKKA_HTTP_PORT` | `ankka.http.port` | `9000` | every service |
+| `ANKKA_HTTP_MAX_STREAM_BYTES` | `ankka.http.max-stream-bytes` | `5g` | every service |
 | `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
 | `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
 | `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
@@ -106,6 +109,10 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.secrets.secret-manager.endpoint` | `"https://secretmanager.googleapis.com"` | every service |
 | `ankka.secrets.secret-manager.token` | `""` | every service |
 | `ankka.secrets.secret-manager.identity` | `""` | every service |
+| `ankka.storage.descriptor-directory` | `""` | every service |
+| `ankka.storage.timeout` | `30s` | every service |
+| `ankka.storage.max-signed-url` | `7d` | every service |
+| `ankka.storage.default-signed-url` | `15m` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |
@@ -179,6 +186,11 @@ Settings with no environment variable, overridable in the service's own `applica
   so a quiet stream — a watch of a view that writes nothing for a minute, say — is never ended by it.
   A wait for a workflow's end served as a stream sends its `heartbeat` events at the same interval, from
   the service and from the sidecar beside a process alike.
+- `ANKKA_HTTP_MAX_STREAM_BYTES` (`ankka.http.max-stream-bytes`) is the largest body a stream route
+  (`postStream`, `putStream`) reads, `5g` by default. A request declaring a larger one is answered `413`
+  and the handler never runs. A route that reads its body whole keeps
+  `pekko.http.server.parsing.max-content-length`. See
+  [HTTP endpoints](../build/http-endpoints.md#streamed-bodies).
 
 ### gRPC
 
@@ -278,6 +290,27 @@ service, so two services sharing a database delete each other's timers and overw
   Google Cloud project the secrets are kept in, and the region they are kept in, automatic when empty.
 
 See [Secrets on the platform](../platform/secrets.md#choosing-a-backend).
+
+### Storage client
+
+- `ANKKA_STORAGE_BACKEND` (`ankka.storage.backend`) is what stands behind every bucket the storage client
+  reaches: `s3`, `directory` or `memory`. Empty, the default, chooses `s3` when the service is given a
+  store's variables (`ANKKA_S3_ENDPOINT`, or a supplied bucket's), `directory` when it runs on a
+  developer's machine, and otherwise no store, so every call is refused naming `provisionObjectStorage`.
+  `memory` is what the test kits use.
+- `ANKKA_STORAGE_DIR` (`ankka.storage.directory`) is where the directory store keeps its objects, one
+  directory per bucket, `.ankka/storage` under the working directory by default.
+- `ankka.storage.descriptor-directory` is where the service's own `service.json` is read from for the
+  buckets it declares, on a developer's machine and in a test; empty, the default, is the working
+  directory.
+- `ankka.storage.timeout` is how long one request to the store waits for its answer before failing as
+  `Unavailable`, `30s` by default.
+- `ankka.storage.max-signed-url` is the longest span a signed URL may be made for, `7d`, and
+  `ankka.storage.default-signed-url` the span one is made for when the caller gives none, `15m`.
+
+The buckets themselves come from the `ANKKA_S3_*` variables the platform gives a service, described in
+[Object storage on the platform](../platform/object-storage.md). See
+[Objects a service keeps](../build/object-storage.md).
 
 ### Replication
 

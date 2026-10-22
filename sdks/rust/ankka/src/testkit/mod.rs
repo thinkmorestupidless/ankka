@@ -15,7 +15,7 @@ pub mod services;
 pub mod unit;
 
 #[cfg(all(feature = "testkit", not(target_arch = "wasm32")))]
-pub use integration::{AnkkaTestKit, Http, Module, TestkitError};
+pub use integration::{AnkkaTestKit, DirectoryStore, Http, Module, TestkitError};
 #[cfg(not(target_arch = "wasm32"))]
 pub use kinds::{
     AgentReply, AgentTestKit, Answered, AutonomousAgentTestKit, ConsumerTestKit,
@@ -26,7 +26,8 @@ pub use kinds::{
 pub use services::{ScriptedRequest, ScriptedServices, with_clock, with_random};
 #[cfg(not(target_arch = "wasm32"))]
 pub use unit::{
-    CommandOutcome, EndpointTestKit, EventSourcedTestKit, ReplicationMode, with_config,
+    CommandOutcome, EndpointTestKit, EventSourcedTestKit, InMemoryStorage, ReplicationMode,
+    with_config, with_storage,
 };
 
 use serde::de::DeserializeOwned;

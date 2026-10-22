@@ -116,6 +116,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Build
 
 - `references/build/views.md` — Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
+- `references/build/object-storage.md` — Keep photos, documents and exports in a service's buckets — put, get, list, stat and delete by name, sign a URL a browser uploads or downloads with, give a public address, and run the same code with no object store.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/mcp-endpoints.md` — Serve a service's commands, queries and routes as tools to any MCP client — declaring tools in each language, who may call them, client keys issued by the service, what a client that signs in is told, and brokered sign-in.
 - `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.

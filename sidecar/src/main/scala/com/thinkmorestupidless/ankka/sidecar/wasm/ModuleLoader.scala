@@ -60,8 +60,8 @@ object ModuleLoader:
    * `HostImports.values` provides, which `WasmHostSuite` holds. The secret store's three arrived
    * with protocol 1.6; a module that does not use the store does not import them. `request`, `now`
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
-   * module that calls it, as is `await_end`, which arrived with 1.18, and the three client key
-   * imports, which arrived with 1.20.
+   * module that calls it, as is `await_end`, which arrived with 1.18, the three client key imports,
+   * which arrived with 1.20, and `storage`, which arrived with 1.21.
    */
   val Imports: Set[String] =
     Set(
@@ -83,7 +83,8 @@ object ModuleLoader:
       "await_end",
       "issue_client_key",
       "list_client_keys",
-      "revoke_client_key"
+      "revoke_client_key",
+      "storage"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

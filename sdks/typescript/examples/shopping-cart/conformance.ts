@@ -60,6 +60,7 @@ import {
   Expiry,
   McpEndpoint,
   tools,
+  type Bucket,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
@@ -705,6 +706,37 @@ const ServiceCallRecord = s.record("service-call-record", {
   message: s.string,
 })
 type ServiceCallRecordValue = Infer<typeof ServiceCallRecord>
+/**
+ * What a `/conformance/storage` call did, the same in every language: `outcome` is `ok`, `absent` (a get
+ * or a stat found nothing) or `refused`, a refusal's `code` the protocol's word and `message` its text.
+ */
+const StorageRecord = s.record("storage-record", {
+  outcome: s.string,
+  code: s.string,
+  message: s.string,
+  contentType: s.string,
+  text: s.string,
+  length: s.long,
+  names: s.list(s.string),
+  url: s.string,
+})
+type StorageRecordValue = Infer<typeof StorageRecord>
+
+const storageRecord = (outcome: string, fields: Partial<StorageRecordValue> = {}): StorageRecordValue => ({
+  outcome, code: "", message: "", contentType: "", text: "", length: 0n, names: [], url: "", ...fields,
+})
+
+/** The bucket the request names, and every refusal as a record rather than a status. */
+async function storageCall(ep: ConformanceEndpoint, f: (bucket: Bucket) => Promise<StorageRecordValue>): Promise<StorageRecordValue> {
+  try {
+    const named = ep.request.query.get("bucket")
+    return await f(named === null ? ep.storage.default : ep.storage.bucket(named))
+  } catch (e) {
+    if (e instanceof CommandError) return storageRecord("refused", { code: e.code, message: e.message })
+    throw e
+  }
+}
+
 /** What the socket handlers noticed, for a case to read once a socket has closed. */
 const socketLog: string[] = []
 
@@ -734,6 +766,62 @@ export class ConformanceEndpoint extends Endpoint {
       return done
     }),
     // docs:end secrets
+    // docs:start storage
+    // The service's buckets. `bucket` names one (absent: the unnamed bucket) and `name` the object; `op`
+    // is get, stat, list (under `prefix`), url or signed-url (`access` read or keep). A post keeps its body
+    // under `name`; a post with `rules` set to `name` or `prefix` instead tries its body as an object's
+    // name or a listing's prefix, and keeps nothing.
+    keepObject: post("/storage", s.string, StorageRecord, (ep: ConformanceEndpoint, req, body) =>
+      storageCall(ep, async (bucket) => {
+        const rule = req.query.get("rules")
+        if (rule === "prefix") {
+          for await (const _ of bucket.list(body)) break
+        } else if (rule !== null) {
+          await bucket.stat(body)
+        } else {
+          await bucket.put(req.query.get("name") ?? "", new TextEncoder().encode(body), {
+            contentType: req.headers.get("content-type") ?? "application/octet-stream",
+          })
+        }
+        return storageRecord("ok")
+      }),
+    ),
+    readObject: get("/storage", StorageRecord, (ep: ConformanceEndpoint, req) =>
+      storageCall(ep, async (bucket) => {
+        const name = req.query.get("name") ?? ""
+        const op = req.query.get("op") ?? ""
+        switch (op) {
+          case "get": {
+            const object = await bucket.get(name)
+            if (!object) return storageRecord("absent")
+            const bytes = await object.bytes()
+            return storageRecord("ok", { contentType: object.contentType, text: new TextDecoder().decode(bytes), length: BigInt(bytes.length) })
+          }
+          case "stat": {
+            const info = await bucket.stat(name)
+            return info ? storageRecord("ok", { contentType: info.contentType, length: BigInt(info.length) }) : storageRecord("absent")
+          }
+          case "list": {
+            const names: string[] = []
+            for await (const entry of bucket.list(req.query.get("prefix") ?? "")) names.push(entry.name)
+            return storageRecord("ok", { names })
+          }
+          case "url":
+            return storageRecord("ok", { url: bucket.url(name) })
+          case "signed-url":
+            return storageRecord("ok", { url: bucket.signedUrl(name, req.query.get("access") === "keep" ? "keep" : "read") })
+          default:
+            return storageRecord("refused", { code: ErrorCode.BadRequest, message: `no storage op '${op}'` })
+        }
+      }),
+    ),
+    removeObject: del("/storage", StorageRecord, (ep: ConformanceEndpoint, req) =>
+      storageCall(ep, async (bucket) => {
+        await bucket.delete(req.query.get("name") ?? "")
+        return storageRecord("ok")
+      }),
+    ),
+    // docs:end storage
     // docs:start service-call
     // A call to another service, as the case asks for it: the body and every `X-Conformance-*` header
     // sent on, and two headers no handler may send added, to show they never arrive.

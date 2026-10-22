@@ -32,9 +32,10 @@ import com.thinkmorestupidless.ankka.operator.{
   GcsSettings,
   Names,
   ObjectStoreBackend,
+  ObjectStoreSettings,
+  GatewayStack,
   ObjectStoreStack,
   Operator,
-  PkiStack,
   ServiceReconciler,
   Settings as OperatorSettings
 }
@@ -136,7 +137,9 @@ class ObjectStorageGcsClusterFeatures
   private val MoverImage  = s"ankka-storage-mover:$Tag"
   private val Prefix      = "ankka"
   private val NamePrefix  = "t"
-  private val Projects    = Vector("shop", "shop-a", "casino", "bank")
+  // The base domain a public bucket in Garage is addressed under, through the gateway.
+  private val StoreBaseDomain = "store.example.test"
+  private val Projects        = Vector("shop", "shop-a", "casino", "bank")
   private val WrappingKey =
     "projects/scripted-account/locations/europe-west2/keyRings/ankka/cryptoKeys/buckets"
   private val Grace = 20.seconds
@@ -203,7 +206,9 @@ class ObjectStorageGcsClusterFeatures
             .get()
         ).flatMap(d => Option(d.getStatus)).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
       }
-      PkiStack.install(k3s, k8s)
+      // The authorities, and the gateway a public bucket in Garage is served through: the
+      // moved-together scenario starts with one (feature 055).
+      GatewayStack.install(k3s, k8s, repoRoot, StoreBaseDomain)
       store = ObjectStoreStack.install(k3s, k8s, repoRoot)
       admin = GarageStore(store.settings.adminUrl, store.settings.adminToken)
       // The store's S3 port from the host, where a browser and an old credential are tried.
@@ -225,7 +230,18 @@ class ObjectStorageGcsClusterFeatures
 
       operatorSettings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
-        objectStore = Some(store.settings),
+        // The store's web endpoint, which a public bucket made while the backend is Garage needs.
+        objectStore = Some(
+          store.settings.copy(webService =
+            Some(
+              ObjectStoreSettings.ServiceRef(
+                store.settings.service.namespace,
+                store.settings.service.name,
+                3902
+              )
+            )
+          )
+        ),
         objectStoreBackend = Some(ObjectStoreBackend.Gcs),
         gcs = Some(GcsSettings(NamePrefix, GcsSettings.DefaultSoftDeleteDays)),
         cloud = Some(cloud),
@@ -505,12 +521,25 @@ class ObjectStorageGcsClusterFeatures
       assertEquals(put, 200, s"the signed PUT from $origin")
 
   private def awaitReady(project: String, name: String): Unit =
-    waitFor(360.seconds, s"$project/$name being Ready") {
-      statusOf(name, project).exists(s =>
-        s.lifecycle == ServiceLifecycle.Ready && s.confirmed &&
-          s.objectStorage.exists(p => p == "provisioned" || p.startsWith("recovered"))
-      ) && pods(project, name).exists(ServicePods.running)
-    }
+    // The last status read is kept for the failure message, since which of the four did not
+    // happen is the first thing a red run needs to say.
+    var seen: Option[ServiceStatus] = None
+    try
+      waitFor(360.seconds, s"$project/$name being Ready") {
+        seen = statusOf(name, project)
+        seen.exists(s =>
+          s.lifecycle == ServiceLifecycle.Ready && s.confirmed &&
+            s.objectStorage.exists(p => p == "provisioned" || p.startsWith("recovered"))
+        ) && pods(project, name).exists(ServicePods.running)
+      }
+    catch
+      case e: munit.FailException =>
+        fail(
+          s"${e.getMessage}; last reported: " + seen.fold("nothing")(s =>
+            s"${s.lifecycle} (confirmed ${s.confirmed}), detail ${s.detail}, object storage " +
+              s"${s.objectStorage}, buckets ${s.buckets}"
+          )
+        )
 
   private def deploy(project: String, logical: String): String =
     val name = apply(project, logical)
@@ -1221,4 +1250,88 @@ class ObjectStorageGcsClusterFeatures
       objectIn(bucket, "passport.pdf", secretKey(Buckets.secret(real(logical)))),
       Some("contents of passport.pdf")
     )
+  }
+
+  // ── Feature 055: a service's buckets are moved together (buckets.feature) ──
+
+  /**
+   * `features/storage-client/buckets.feature`'s "a service's buckets are moved together", run here
+   * because this suite has the scripted provider in its Garage-backed mode and a mover image: a
+   * service with its bucket and a public bucket "photos", both made in Garage, moved as one move.
+   */
+  test("a service's buckets are moved together") {
+    val logical = "listings"
+    val name    = real(logical)
+    val json =
+      s"""{"name":"$name","service":{"image":"$SampleImage","provisionObjectStorage":true,""" +
+        s""""buckets":[{"name":"photos","exposure":"public"}]}}"""
+    def photos = statusOf(name).flatMap(_.buckets.find(_.name == "photos"))
+
+    // Given a deployed service "listings" with a bucket and a public bucket "photos", both in Garage
+    // A public bucket in Garage has its address at storage.<base>, so the operator names a base.
+    startOperator(
+      operatorSettings.copy(
+        objectStoreBackend = Some(ObjectStoreBackend.Garage),
+        baseDomain = Some(StoreBaseDomain)
+      )
+    )
+    try
+      apply("shop", logical, Some(json)): Unit
+      awaitReady("shop", name)
+      // The last status read is kept for the failure message: which half did not happen is the
+      // first thing a red run needs to say.
+      var seen: Option[ServiceStatus] = None
+      try
+        waitFor(60.seconds, s"$name and its photos reported in Garage") {
+          seen = statusOf(name)
+          seen.flatMap(_.objectStore).contains("garage") &&
+          seen
+            .flatMap(_.buckets.find(_.name == "photos"))
+            .exists(b => b.phase == "Provisioned" && b.store.contains("garage"))
+        }
+      catch
+        case e: munit.FailException =>
+          fail(
+            s"${e.getMessage}; last reported: object store ${seen.flatMap(_.objectStore)}, " +
+              s"buckets ${seen.map(_.buckets)}"
+          )
+    // The rest runs with the installation's backend Google's again, and a base domain still named:
+    // without one a public bucket in Garage is Failed, and a move takes only the made buckets it
+    // finds reported Provisioned.
+    finally startOperator(operatorSettings.copy(baseDomain = Some(StoreBaseDomain)))
+    try
+      val inGarage = Buckets.named("shop", name, "photos")
+      keepIn(logical, "listing.json")
+      val (code, body) =
+        servicePods.s3("shop", name, "PUT", s"/$inGarage/front.jpg", Some("contents of front.jpg"))
+      assertEquals(code, 200, body)
+
+      // When a member moves the buckets of "listings" to Google Cloud Storage
+      move(logical, None)
+      awaitMoved(logical)
+
+      // Then the bucket of "listings" and the bucket "photos" are in Google Cloud Storage with their
+      // objects
+      waitFor(120.seconds, s"$name and its photos reported in Google Cloud Storage") {
+        statusOf(name).flatMap(_.objectStore).contains("gcs") &&
+        photos.exists(_.store.contains("gcs"))
+      }
+      val key    = secretKey(Buckets.cloudSecret(name))
+      val target = photos.flatMap(_.bucket).getOrElse(fail("no bucket reported for photos"))
+      assertNotEquals(target, inGarage)
+      assertEquals(
+        objectIn(reportedBucket(logical), "listing.json", key),
+        Some("contents of listing.json")
+      )
+      assertEquals(objectIn(target, "front.jpg", key), Some("contents of front.jpg"))
+      waitFor(300.seconds, s"$name's instances on both buckets in Google Cloud Storage") {
+        val env = servicePods.environment("shop", name)
+        env.get("ANKKA_S3_BUCKET").contains(reportedBucket(logical)) && env.values.exists(
+          _ == target
+        )
+      }
+
+      // And the status names the public address of "photos" in Google Cloud Storage
+      assertEquals(photos.flatMap(_.publicAddress), Some(s"${store.settings.endpoint}/$target"))
+    finally startOperator(operatorSettings)
   }

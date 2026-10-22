@@ -45,6 +45,11 @@ object CloudRequests:
     val NamePrefix: String                = "namePrefix"
     val NoncurrentVersionDays: String     = "noncurrentVersionDays"
     val ServiceAccountAnnotations: String = "serviceAccountAnnotations"
+    // Feature 055 (research R10): a named bucket, a public one, and one credential over several.
+    val Name: String      = "name"
+    val Public: String    = "public"
+    val Buckets: String   = "buckets"
+    val PublicUrl: String = "publicUrl"
 
     /** What each kind asks: exactly these keys, no more and no fewer. */
     val parameters: Map[String, Set[String]] = Map(
@@ -59,9 +64,11 @@ object CloudRequests:
         CorsOrigins,
         KmsKey,
         NamePrefix,
-        NoncurrentVersionDays
+        NoncurrentVersionDays,
+        Name,
+        Public
       ),
-      CloudKinds.BucketCredential -> Set(Bucket, Identity, SecretName),
+      CloudKinds.BucketCredential -> Set(Bucket, Buckets, Identity, SecretName),
       CloudKinds.WrappingKey      -> Set(Identity, Key)
     )
 
@@ -70,10 +77,30 @@ object CloudRequests:
       CloudKinds.Identity         -> Set(Identity, ServiceAccountAnnotations),
       CloudKinds.SecretAccess     -> Set.empty,
       CloudKinds.SecretSync       -> Set(EntryGeneration),
-      CloudKinds.Bucket           -> Set(Bucket, Endpoint, Region),
+      CloudKinds.Bucket           -> Set(Bucket, Endpoint, Region, PublicUrl),
       CloudKinds.BucketCredential -> Set(SecretName),
       CloudKinds.WrappingKey      -> Set(Key)
     )
+
+    /**
+     * The keys a request of a kind may leave out (feature 055): the unnamed bucket's request names
+     * no bucket and is never public, so it reads byte for byte as it did; a credential names
+     * `bucket` when it reaches one, as it always has, and `buckets` when it reaches several, never
+     * both.
+     */
+    val optional: Map[String, Set[String]] = Map(
+      CloudKinds.Bucket           -> Set(Name, Public),
+      CloudKinds.BucketCredential -> Set(Bucket, Buckets)
+    )
+
+    /**
+     * The outputs an answer may leave out: `publicUrl` is a public bucket's alone (feature 055).
+     */
+    val optionalOutputs: Map[String, Set[String]] = Map(CloudKinds.Bucket -> Set(PublicUrl))
+
+    /** What every request of a kind carries. */
+    def required(kind: String): Set[String] =
+      parameters.getOrElse(kind, Set.empty) -- optional.getOrElse(kind, Set.empty)
 
   /** What a `bucket` request's `purpose` may be. */
   object Purpose:
@@ -138,6 +165,9 @@ object CloudRequests:
       kmsKey: Option[String] = None
   )
 
+  /** What a named bucket's request asks beyond the unnamed one's (feature 055). */
+  final case class NamedAsk(name: String, public: Boolean)
+
   /** A cloud identity for a Kubernetes ServiceAccount in the request's namespace. */
   def identity(cloud: CloudSettings, by: Requester, serviceAccount: String): CloudResource =
     request(
@@ -200,15 +230,18 @@ object CloudRequests:
       purpose: String,
       location: String,
       ask: BucketAsk,
-      annotations: Map[String, String] = Map.empty
+      annotations: Map[String, String] = Map.empty,
+      named: Option[NamedAsk] = None
   ): CloudResource =
     request(
       cloud,
       by,
       CloudKinds.Bucket,
       if purpose == Purpose.Backup then Names.CloudRequest.BackupBucketSuffix
-      else Names.CloudRequest.BucketSuffix,
-      Map(
+      else named.fold(Names.CloudRequest.BucketSuffix)(n => Names.CloudRequest.namedBucket(n.name)),
+      named.fold(Map.empty[String, String])(n =>
+        Map(Keys.Name -> n.name, Keys.Public -> n.public.toString)
+      ) ++ Map(
         Keys.Purpose               -> purpose,
         Keys.Location              -> location,
         Keys.Versioning            -> ask.versioning.toString,
@@ -234,15 +267,44 @@ object CloudRequests:
       secretName: String,
       generation: Long
   ): CloudResource =
+    bucketCredential(cloud, by, purpose, Vector(bucket), identity, secretName, generation)
+
+  /**
+   * One credential by which one cloud identity reaches every bucket of a service's (feature 055):
+   * one key, granted on each. A credential over one bucket is asked as it always was, by `bucket`,
+   * so a provider from before named buckets answers it unchanged; over several, by `buckets`.
+   */
+  def bucketCredential(
+      cloud: CloudSettings,
+      by: Requester,
+      purpose: String,
+      buckets: Vector[String],
+      identity: String,
+      secretName: String,
+      generation: Long
+  ): CloudResource =
     request(
       cloud,
       by,
       CloudKinds.BucketCredential,
       if purpose == Purpose.Backup then Names.CloudRequest.BackupCredentialSuffix
       else Names.CloudRequest.StorageCredentialSuffix,
-      Map(Keys.Bucket -> bucket, Keys.Identity -> identity, Keys.SecretName -> secretName),
+      Map(
+        (if buckets.size == 1 then Keys.Bucket else Keys.Buckets) -> list(buckets),
+        Keys.Identity                                             -> identity,
+        Keys.SecretName                                           -> secretName
+      ),
       credentialGeneration = generation
     )
+
+  /** The buckets a credential request reaches, whichever key it names them by. */
+  def bucketsOf(parameters: Map[String, String]): Vector[String] =
+    parameters
+      .get(Keys.Buckets)
+      .orElse(parameters.get(Keys.Bucket))
+      .toVector
+      .flatMap(_.split(','))
+      .filter(_.nonEmpty)
 
   /** That a cloud identity may wrap with the installation's wrapping key. */
   def wrappingKey(

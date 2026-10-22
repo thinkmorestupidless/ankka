@@ -297,3 +297,32 @@ class CrdSchemaSuite extends munit.FunSuite:
     assertEquals(cloudCrd.getSpec.getScope, "Namespaced")
     assertEquals(cloudCrd.getSpec.getNames.getPlural, "cloudresources")
   }
+
+  test("named buckets and their reports are declared field for field, in both directions") {
+    // Feature 055: two arrays of nested objects, and one object inside the spec's.
+    import com.thinkmorestupidless.ankka.crd.{BucketSpec, BucketStatus, SuppliedBucket}
+    assertEquals(declared("spec", "buckets", "items"), fieldsOf(classOf[BucketSpec]))
+    assertEquals(
+      declared("spec", "buckets", "items", "supplied"),
+      fieldsOf(classOf[SuppliedBucket])
+    )
+    assertEquals(
+      declared("status", "objectStorage", "buckets", "items"),
+      fieldsOf(classOf[BucketStatus])
+    )
+    val phases = crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+      .get("status")
+      .getProperties
+      .get("objectStorage")
+      .getProperties
+      .get("buckets")
+      .getItems
+      .getSchema
+      .getProperties
+      .get("phase")
+      .getEnum
+      .asScala
+      .map(_.asText)
+      .toSet
+    assertEquals(phases, Set("Waiting", "Provisioned", "Recovered", "Supplied", "Failed", "Kept"))
+  }

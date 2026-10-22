@@ -111,6 +111,9 @@ final class HttpServer private (
 
   def name: String = "http-server"
 
+  /** The largest body a stream route reads (`ankka.http.max-stream-bytes`), set when it starts. */
+  @volatile private var maxStreamBytes: Long = Router.DefaultMaxStreamBytes
+
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
 
@@ -129,9 +132,17 @@ final class HttpServer private (
         service.services,
         service.secrets,
         Heartbeat.interval(config),
-        service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys)
+        service.extension[ClientKeysProvider].fold(ClientKeys.unavailable)(_.clientKeys),
+        service.storage
       )
-    serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout, Some(service))
+    serve(
+      factories.map(_(clients)).toVector,
+      host,
+      bindPort,
+      bodyTimeout,
+      Some(service),
+      directoryStorage = service.directoryStorage
+    )
 
   /**
    * Validates, logs and binds `endpoints` — everything `start` does once the endpoints exist. Split
@@ -142,8 +153,17 @@ final class HttpServer private (
       host: String,
       bindPort: Int,
       bodyTimeout: FiniteDuration,
-      service: Option[AnkkaService] = None
+      service: Option[AnkkaService] = None,
+      /** `ankka.http.max-stream-bytes` unless a suite names another. */
+      maxStream: Option[Long] = None,
+      /** The directory store whose URLs this server answers at `/_ankka/storage`, on a laptop. */
+      directoryStorage: Option[
+        com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+      ] = None
   )(using system: ActorSystem[?]): Unit =
+    maxStreamBytes = maxStream.getOrElse(
+      system.settings.config.getBytes("ankka.http.max-stream-bytes").longValue
+    )
     val mounting = Mounting(
       service.map(_.registry).getOrElse(com.thinkmorestupidless.ankka.core.ComponentRegistry.empty),
       endpoints,
@@ -156,7 +176,7 @@ final class HttpServer private (
       case endpoint                => describedRoutes(endpoint)
     }
     logRoutes(endpoints)
-    bindAndListen(endpoints, host, bindPort, bodyTimeout)
+    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage)
 
   /** What the server reads from an endpoint's routes when the endpoint does not say itself. */
   private def describedRoutes(endpoint: HttpEndpoint): Vector[ServedRoute] =
@@ -224,7 +244,8 @@ final class HttpServer private (
       endpoints: Vector[HttpEndpoint],
       host: String,
       bindPort: Int,
-      bodyTimeout: FiniteDuration
+      bodyTimeout: FiniteDuration,
+      directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage]
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
     val config             = system.settings.config
@@ -253,7 +274,16 @@ final class HttpServer private (
         grantsCheck = Some(system.scheduler.scheduleAtFixedRate(every, every)(() => file.check()))
       case _ => ()
     val handler =
-      Router(endpoints, bodyTimeout, callers, Some(upgrades), grants, Some(heartbeat)).handle
+      Router(
+        endpoints,
+        bodyTimeout,
+        callers,
+        Some(upgrades),
+        grants,
+        Some(heartbeat),
+        maxStreamBytes,
+        directoryStorage
+      ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(
@@ -405,6 +435,13 @@ final class HttpServer private (
         .foreach(needs => needs.bind(service).left.foreach(problems += _))
     }
 
+    endpoints
+      .filter(_.prefixPath.headOption.contains(Router.Reserved))
+      .filterNot(e => e.servesReservedStorage && e.prefixPath == Router.StoragePath)
+      .foreach { endpoint =>
+        problems += s"'${endpoint.prefix}': the /${Router.Reserved} prefix is the runtime's"
+      }
+
     endpoints.foreach { endpoint =>
       // A socket route is a GET: one on the template of a GET or an SSE route would make which
       // one answers depend on whether the request asked to upgrade.
@@ -498,7 +535,10 @@ private final class Router(
     callers: CallerSource = CallerSource.local,
     configuredUpgrades: Option[SocketUpgrades] = None,
     grants: Grants = Grants.none,
-    heartbeat: Option[FiniteDuration] = None
+    heartbeat: Option[FiniteDuration] = None,
+    maxStreamBytes: Long = Router.DefaultMaxStreamBytes,
+    directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage] =
+      None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -542,7 +582,19 @@ private final class Router(
   private val socketRoutesByEndpoint: Map[String, Vector[SocketRoute]] =
     endpoints.map(e => e.prefix -> e.socketRoutes.sortBy(_.template.specificity)).toMap
 
-  private val HealthPath = Vector("_ankka", "health")
+  private val HealthPath = Vector(Router.Reserved, "health")
+
+  private val StoragePath = Router.StoragePath
+
+  /**
+   * A process's directory store, which the sidecar serves where the runtime would serve its own.
+   */
+  private val processStorage: Boolean = endpoints.exists(_.servesReservedStorage)
+
+  // Only on a developer's machine, where the service's store is a directory (feature 055).
+  private lazy val storageEndpoint = directoryStorage.map(store =>
+    DirectoryStorageEndpoint(store, maxStreamBytes, bodyTimeout, problem)
+  )
 
   /** Every endpoint's root routes, most specific first; `validate` keeps two off one path. */
   private val rootRoutes: Vector[(HttpEndpoint, Route)] =
@@ -559,6 +611,18 @@ private final class Router(
     // Exempt from ACLs because it reveals nothing: liveness probes need to work before
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
+    else if path.startsWith(StoragePath) && !(processStorage && storageEndpoint.isEmpty) then
+      // The runtime's: no endpoint is given a path under it but a process's directory store, so
+      // nothing else here is an endpoint's. Only this part of `/_ankka` is taken here; an MCP
+      // endpoint's sign-in routes are root routes.
+      storageEndpoint match
+        case Some(storage) =>
+          storage.handle(request, Router.decoded(request.uri.path).drop(StoragePath.size))
+        case None =>
+          request.discardEntityBytes(): Unit
+          Future.successful(
+            problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
+          )
     else
       // A root route is a whole path (feature 054), so it is matched before any prefix could
       // claim it: an endpoint at `/` would otherwise answer `/.well-known/…` with its own 404.
@@ -797,32 +861,92 @@ private final class Router(
       origin: CallOrigin,
       target: Option[GrantTarget]
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
-    val bodyBytes =
-      if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
-      else
-        request.discardEntityBytes()
-        Future.successful(Array.emptyByteArray)
+    route.streamedBody match
+      case Some(runStreamed) =>
+        dispatchStreamedBody(route, runStreamed, request, context, args, origin, target)
+      case None =>
+        val bodyBytes =
+          if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
+          else
+            request.discardEntityBytes()
+            Future.successful(Array.emptyByteArray)
+        answer(
+          route,
+          bodyBytes.flatMap { bytes =>
+            // Handlers run on a virtual thread, which is what makes the blocking
+            // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
+            // and what makes the request context safe to hold in a ThreadLocal.
+            Future(
+              RequestScope.withContext(context)(
+                // A handler that decides another ACL for this request (an MCP endpoint's tool)
+                // decides it as this server decided the route's.
+                Admission.within(admitter, target)(
+                  // Traced here, on the handler's own virtual thread, and not around this
+                  // Future's creation: a trace set on the caller's thread is invisible to
+                  // this one. It is the same reason RequestScope sets its context here. This
+                  // is what makes the entity's span a child of the request instead of a root
+                  // of its own — the difference between a trace and a list.
+                  Tracing.request(route.describe, origin)(route.run(args, bytes))
+                )
+              )
+            )(using AnkkaExecutors.virtual)
+          }
+        )
 
-    bodyBytes
-      .flatMap { bytes =>
-        // Handlers run on a virtual thread, which is what makes the blocking
-        // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
-        // and what makes the request context safe to hold in a ThreadLocal.
-        Future(
-          RequestScope.withContext(context)(
-            // A handler that decides another ACL for this request (an MCP endpoint's tool)
-            // decides it as this server decided the route's.
-            Admission.within(admitter, target)(
-              // Traced here, on the handler's own virtual thread, and not around this
-              // Future's creation: a trace set on the caller's thread is invisible to
-              // this one. It is the same reason RequestScope sets its context here. This
-              // is what makes the entity's span a child of the request instead of a root
-              // of its own — the difference between a trace and a list.
-              Tracing.request(route.describe, origin)(route.run(args, bytes))
+  /**
+   * A stream route (feature 055): the body is handed to the handler as an `InputStream` over the
+   * entity's bytes, read on the handler's virtual thread as it arrives, never made strict. A
+   * declared length above `max-stream-bytes` is refused before the handler runs; an undeclared one
+   * that grows past it fails the handler's read, and is answered `413` the same.
+   */
+  private def dispatchStreamedBody(
+      route: Route,
+      runStreamed: (Vector[String], StreamedBody) => EncodedResponse,
+      request: HttpRequest,
+      context: RequestContext,
+      args: Vector[String],
+      origin: CallOrigin,
+      target: Option[GrantTarget]
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
+    val entity = request.entity
+    entity.contentLengthOption match
+      case Some(declared) if declared > maxStreamBytes =>
+        request.discardEntityBytes()
+        Future.successful(problem(tooLarge(declared)))
+      case declared =>
+        val input = entity
+          .withSizeLimit(maxStreamBytes)
+          .dataBytes
+          .runWith(org.apache.pekko.stream.scaladsl.StreamConverters.asInputStream(bodyTimeout))
+        val body = StreamedBody(entity.contentType.value, declared, input)
+        answer(
+          route,
+          Future(
+            RequestScope.withContext(context)(
+              Admission.within(admitter, target)(
+                Tracing.request(route.describe, origin)(
+                  try runStreamed(args, body)
+                  finally input.close()
+                )
+              )
             )
-          )
-        )(using AnkkaExecutors.virtual)
-      }
+          )(using AnkkaExecutors.virtual).recoverWith {
+            case failure if Router.causedBySize(failure) => Future.failed(tooLarge(maxStreamBytes))
+          }
+        )
+
+  private def tooLarge(length: Long): HttpProblem =
+    HttpProblem(
+      413,
+      s"the body is $length bytes or more; a stream route reads at most $maxStreamBytes"
+    )
+
+  /** A handler's encoded answer as the response, or its failure as the problem it is. */
+  private def answer(route: Route, encoded: Future[EncodedResponse])(using
+      system: ActorSystem[?],
+      ec: ExecutionContext
+  ): Future[HttpResponse] =
+    encoded
       .map { encoded =>
         HttpResponse(
           status = StatusCode.int2StatusCode(encoded.status),
@@ -830,13 +954,15 @@ private final class Router(
           // headers, so `Content-Type` and `Content-Length` — Pekko models those on the
           // entity — are not the handler's to set here.
           headers = encoded.headers.map((name, value) => headers.RawHeader(name, value)),
-          entity =
-            if encoded.body.isEmpty then HttpEntity.Empty
-            else
-              ContentType.parse(encoded.contentType) match
-                case Right(contentType) => HttpEntity(contentType, encoded.body)
-                case Left(_) =>
-                  HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
+          entity = encoded.streamed match
+            case Some(streamed) => Router.streamedEntity(streamed)
+            case None =>
+              if encoded.body.isEmpty then HttpEntity.Empty
+              else
+                ContentType.parse(encoded.contentType) match
+                  case Right(contentType) => HttpEntity(contentType, encoded.body)
+                  case Left(_) =>
+                    HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
         )
       }
       .recover {
@@ -1021,6 +1147,57 @@ private final class Router(
           )}}"""
       )
     )
+
+private object Router:
+
+  /** The first segment of every path the runtime serves itself, and no endpoint may. */
+  val Reserved: String = "_ankka"
+
+  /** Where a directory store's signed and public URLs point, on a developer's machine. */
+  val StoragePath: Vector[String] = Vector(Reserved, "storage")
+
+  /** A path's segments decoded, so a name with an encoded character reads as it was written. */
+  def decoded(path: Uri.Path): Vector[String] =
+    val out  = Vector.newBuilder[String]
+    var rest = path
+    while !rest.isEmpty do
+      rest match
+        case Uri.Path.Segment(head, tail) =>
+          out += head
+          rest = tail
+        case Uri.Path.Slash(tail) => rest = tail
+        case _                    => rest = Uri.Path.Empty
+    out.result()
+
+  /**
+   * Five gigabytes: S3's largest single put, and so the largest object an upload can keep whole.
+   */
+  val DefaultMaxStreamBytes: Long = 5L * 1024 * 1024 * 1024
+
+  /** Whether a failure is, somewhere in its causes, a body that grew past its limit. */
+  def causedBySize(failure: Throwable): Boolean =
+    Iterator
+      .iterate(failure)(_.getCause)
+      .takeWhile(_ != null)
+      .take(16)
+      .exists(_.isInstanceOf[org.apache.pekko.http.scaladsl.model.EntityStreamSizeException])
+
+  /**
+   * A streamed body as the entity pekko-http writes: with its length when known, chunked otherwise.
+   * The stream is closed when the response completes, fails or the client goes away: the source
+   * closes it as it stops.
+   */
+  def streamedEntity(streamed: Streamed): ResponseEntity =
+    val contentType =
+      ContentType.parse(streamed.contentType).getOrElse(ContentTypes.`application/octet-stream`)
+    val source =
+      org.apache.pekko.stream.scaladsl.StreamConverters.fromInputStream(() => streamed.body)
+    streamed.length match
+      case Some(0L) =>
+        streamed.body.close()
+        HttpEntity.empty(contentType)
+      case Some(length) => HttpEntity.Default(contentType, length, source)
+      case None         => HttpEntity.Chunked.fromData(contentType, source)
 
 /**
  * A modelled rejection, thrown as itself or carried as the cause of a transport's exception — a

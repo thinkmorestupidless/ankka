@@ -313,3 +313,69 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
     assertEquals(status.toStatus.grantsPhrase, Some("mounted"))
     assertEquals(status.copy(grants = None).toStatus.grantsPhrase, Some("rollout needed"))
   }
+
+  // Feature 055: named buckets, kept ones included, verbatim and in order.
+
+  test("each named bucket's report is carried, a kept one too") {
+    val observed = reported(
+      com.thinkmorestupidless.ankka.crd.ObjectStorageStatus(
+        phase = "Provisioned",
+        bucket = "checkout.cart",
+        buckets = List(
+          com.thinkmorestupidless.ankka.crd.BucketStatus(
+            name = "photos",
+            phase = "Provisioned",
+            store = "garage",
+            bucket = "checkout.cart.photos",
+            exposure = "public",
+            publicAddress = Some("https://storage.example/checkout.cart.photos")
+          ),
+          com.thinkmorestupidless.ankka.crd.BucketStatus(
+            name = "old",
+            phase = "Kept",
+            store = "garage",
+            bucket = "checkout.cart.old",
+            kept = true
+          ),
+          com.thinkmorestupidless.ankka.crd.BucketStatus(
+            name = "archive",
+            phase = "Supplied",
+            exposure = "supplied"
+          )
+        )
+      )
+    )
+    assertEquals(observed.buckets.map(_.name), Vector("photos", "old", "archive"))
+    assertEquals(observed.buckets.map(_.phase), Vector("Provisioned", "Kept", "Supplied"))
+    assertEquals(observed.buckets(1).kept, true)
+    assertEquals(observed.buckets(0).store, Some("garage"))
+    assertEquals(observed.buckets(2).store, None, "a supplied bucket has no store of ours")
+    assertEquals(
+      observed.buckets(0).publicAddress,
+      Some("https://storage.example/checkout.cart.photos")
+    )
+  }
+
+  test("a service's named buckets reach its status, and a lost cluster restates them") {
+    val first = reported(
+      com.thinkmorestupidless.ankka.crd.ObjectStorageStatus(
+        buckets = List(com.thinkmorestupidless.ankka.crd.BucketStatus("photos", "Provisioned"))
+      )
+    )
+    val known = service().onObserved(
+      com.thinkmorestupidless.ankka.controlplane.domain.ServiceEvent.ServiceObserved(
+        first.generation,
+        first.lifecycle,
+        first.readyInstances,
+        first.desiredInstances,
+        None,
+        confirmed = true,
+        buckets = first.buckets
+      )
+    )
+    assertEquals(known.toStatus.buckets.map(_.name), Vector("photos"))
+    // Only named buckets: the operator reports no phase of an unnamed one, and none is recorded.
+    assertEquals(first.objectStorage, None)
+    val restated = StatusIngest.observe(known, ClusterView.Unreachable("down"))
+    assertEquals(restated.buckets.map(_.name), Vector("photos"))
+  }

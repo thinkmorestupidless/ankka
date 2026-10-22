@@ -487,6 +487,7 @@ impl<C: Workflow> Registered for Registration<C> {
         )
         .with_secrets()
         .with_client_keys()
+        .with_storage()
         .with_services();
         let effect = match (entry.run)(&state, run_step.input.as_ref(), &ctx) {
             Ok(effect) => effect,

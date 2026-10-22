@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import traceback
 from collections.abc import AsyncIterator
 from types import MappingProxyType
@@ -51,6 +52,7 @@ from ankka.effects import keyed_view as keyed_effects
 from ankka.client_keys import ClientKeys
 from ankka.mcp_endpoint import MCP_SINCE, RouteRefused, answer_of
 from ankka.secrets import Secrets
+from ankka.storage import STORAGE_ENDPOINT_ID, STORAGE_SINCE, Buckets, DirectoryBuckets, from_environment, storage_endpoint
 from ankka.services import Services
 from ankka.context import Caller, CommandContext, EventContext, Gateway, LocalCaller, MachineCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.effects.event_sourced import HandOver, SetChange
@@ -80,8 +82,9 @@ def _failure(command_id: int, message: str, code: Any = payload_pb2.INTERNAL) ->
 
 
 class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: Registry, storage: Buckets | None = None) -> None:
         self.registry = registry
+        self.storage = storage
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
@@ -96,7 +99,20 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             log.error(refusal)
             PROBLEMS.append(refusal)
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
-        return self.registry.spec()
+        spec = self.registry.spec()
+        if isinstance(self.storage, DirectoryBuckets):
+            # The directory store's signed URLs and public addresses point at the sidecar's port,
+            # under /_ankka/storage: this process answers them there. A sidecar before 1.21 refuses
+            # that prefix, so it is told nothing, and the URLs go unanswered.
+            if start_from.older_than(request.protocol_version, STORAGE_SINCE):
+                log.warning(
+                    "the sidecar speaks protocol %s, and serves no directory store's URLs before 1.21: "
+                    "the URLs this process signs will not be answered",
+                    request.protocol_version,
+                )
+            else:
+                spec.endpoints.append(storage_endpoint())
+        return spec
 
     def refusal(self, sidecar_protocol: str) -> str | None:
         """A sidecar older than 1.7 would ignore where a topic source starts and its version: a
@@ -381,10 +397,13 @@ class _WorkflowStream:
     arriving while a step runs is answered from the state before the step; the step's new state
     applies when it replies, as the sidecar's engine journals it."""
 
-    def __init__(self, workflow: Workflow[Any], state: Any, client: ComponentClient) -> None:
+    def __init__(self, workflow: Workflow[Any], state: Any, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.workflow = workflow
         self.state = state
         self.client = client
+        self.storage = storage
+        if storage is not None:
+            workflow.storage = storage
         self.step_task: asyncio.Task[None] | None = None
 
     async def command(self, cmd: workflow_pb2.WorkflowIn.Command) -> workflow_pb2.WorkflowOut:
@@ -423,6 +442,8 @@ class _WorkflowStream:
         # keep arriving on the stream's instance, and the two must not share a context slot.
         workflow = type(self.workflow)()
         workflow._bind(self.workflow.entity_id)
+        if self.storage is not None:
+            workflow.storage = self.storage
         step_spec = type(workflow).steps().get(run.step)
         if step_spec is None:
             return workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
@@ -457,9 +478,10 @@ class _WorkflowStream:
 
 
 class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
-    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.registry = registry
         self.client = client
+        self.storage = storage
 
     async def Handle(
         self, request_iterator: AsyncIterator[workflow_pb2.WorkflowIn], context: Any
@@ -486,7 +508,7 @@ class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
                         workflow = cls()
                         workflow._bind(message.init.entity_id)
                         state = cls.state_codec.decode(message.init.state.data) if message.init.HasField("state") else workflow.empty_state()
-                        stream = _WorkflowStream(workflow, state, self.client)
+                        stream = _WorkflowStream(workflow, state, self.client, self.storage)
                     elif kind == "command":
                         assert stream is not None
                         await out.put(await stream.command(message.command))
@@ -564,9 +586,10 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
 
 
 class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
-    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.registry = registry
         self.client = client
+        self.storage = storage
 
     async def Handle(self, request: consumer_pb2.ConsumerRequest, context: Any) -> consumer_pb2.ConsumerEffect:
         cls = self.registry.consumers.get(request.component_id)
@@ -575,6 +598,8 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
+        if self.storage is not None:
+            consumer.storage = self.storage
         effect = await consumer._handle(
             None if request.deleted else request.message.data,
             metadata,
@@ -763,9 +788,10 @@ def consumer_effect_pb(effect: consumer_effects.ConsumerEffect, out_codec: Any) 
 
 
 class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):
-    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.registry = registry
         self.client = client
+        self.storage = storage
 
     async def Invoke(self, request: timed_action_pb2.TimedActionRequest, context: Any) -> timed_action_pb2.TimedActionEffect:
         cls = self.registry.timed_actions.get(request.component_id)
@@ -775,6 +801,8 @@ class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):
         assert cls is not None and spec is not None
         metadata = Metadata.from_pb(request.metadata)
         action = cls(self.client.with_metadata(metadata))
+        if self.storage is not None:
+            action.storage = self.storage
         try:
             effect = await action._run(spec, request.payload.data, metadata)
         except Exception as e:
@@ -788,16 +816,20 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
     """The three things the sidecar's loop asks a process for: a plan, a tool's result, a
     guardrail's verdict. The loop, the model and the memory are the sidecar's."""
 
-    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.registry = registry
         self.client = client
+        self.storage = storage
 
     def _agent(self, component_id: str, session_id: str, metadata: Metadata | None = None) -> Agent | AutonomousAgent | None:
         cls: type[Agent] | type[AutonomousAgent] | None = self.registry.agents.get(component_id) or self.registry.autonomous.get(component_id)
         if cls is None:
             return None
         scoped = self.client.with_metadata(metadata) if metadata is not None else self.client
-        return cls(scoped)
+        agent = cls(scoped)
+        if self.storage is not None:
+            agent.storage = self.storage
+        return agent
 
     async def Plan(self, request: agent_pb2.PlanRequest, context: Any) -> agent_pb2.PlanReply:
         metadata = Metadata.from_pb(request.metadata)
@@ -859,7 +891,10 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
             # What the sidecar says about the check: its trace, and the agent's handler as the caller of
             # whatever a rule calls. A sidecar before 1.3 sends none.
             scoped = self.client.with_metadata(Metadata.from_pb(request.metadata)) if request.HasField("metadata") else self.client
-            verdict = await cls(scoped)._check_result(request.task_type, request.result_json, request.task_id)
+            checking = cls(scoped)
+            if self.storage is not None:
+                checking.storage = self.storage
+            verdict = await checking._check_result(request.task_type, request.result_json, request.task_id)
         except LookupError as e:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(e))
             raise
@@ -886,9 +921,10 @@ def _request_metadata() -> Metadata:
 
 
 class HttpServicer(endpoint_pb2_grpc.HttpServicer):
-    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient, storage: Buckets | None = None) -> None:
         self.registry = registry
         self.client = client
+        self.storage = storage
         self.instances: dict[str, Any] = {}
 
     def _instance(self, endpoint_id: str) -> Any:
@@ -898,6 +934,8 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
             # Every endpoint has the store, whether or not it takes the client: it is reached
             # through the same sidecar.
             instance.secrets = Secrets(self.client)
+            if self.storage is not None:
+                instance.storage = self.storage
             # And the client for other services, carrying the request's own metadata: an endpoint is
             # built once with the unscoped client, so each call reads the request it is part of.
             instance.services = Services(self.client, _request_metadata)
@@ -916,6 +954,18 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
         )
 
     async def Handle(self, request: endpoint_pb2.HttpRequest, context: Any) -> endpoint_pb2.HttpReply:
+        if request.endpoint_id == STORAGE_ENDPOINT_ID and isinstance(self.storage, DirectoryBuckets):
+            # The directory store's URLs: answered with the object's own content type, which no
+            # declared route's codec could give. The route says the method: `read` or `keep`.
+            headers = {h.name.lower(): h.value for h in request.headers}
+            status, content_type, body = await self.storage.answer(
+                {"read": "GET", "keep": "PUT"}.get(request.route_id, request.route_id),
+                list(request.path_args),
+                [(q.name, q.value) for q in request.query],
+                request.content_type or headers.get("content-type"),
+                request.body,
+            )
+            return endpoint_pb2.HttpReply(response=endpoint_pb2.HttpResponse(status=status, content_type=content_type, body=body))
         cls = self.registry.endpoints.get(request.endpoint_id)
         spec = cls.routes().get(request.route_id) if cls else None
         if cls is None or spec is None:
@@ -1120,29 +1170,44 @@ def _takes_client(cls: type) -> bool:
 class Server:
     """The process's gRPC server. ``start`` binds loopback; ``wait`` runs until stopped."""
 
-    def __init__(self, registry: Registry, client: ComponentClient | None = None) -> None:
+    def __init__(
+        self,
+        registry: Registry,
+        client: ComponentClient | None = None,
+        storage: Buckets | None = None,
+        *,
+        descriptor_directory: str | os.PathLike[str] | None = None,
+    ) -> None:
+        """``storage`` is the service's buckets; omitted, they are chosen from the environment
+        (``ankka.storage.from_environment``), reading the ``service.json`` in
+        ``descriptor_directory`` (the working directory) for the buckets a directory or memory store
+        holds. A setting the client cannot use fails here, naming it."""
         self.registry = registry
         self.client = client or ComponentClient()
+        self.storage: Buckets = storage if storage is not None else from_environment(descriptor_directory=descriptor_directory)
         self._server: grpc.aio.Server | None = None
         self.port = 0
 
     def add_servicers(self, server: grpc.aio.Server) -> None:
-        discovery_pb2_grpc.add_DiscoveryServicer_to_server(DiscoveryServicer(self.registry), server)  # type: ignore[no-untyped-call]
+        discovery_pb2_grpc.add_DiscoveryServicer_to_server(DiscoveryServicer(self.registry, self.storage), server)  # type: ignore[no-untyped-call]
         event_sourced_pb2_grpc.add_EventSourcedServicer_to_server(EventSourcedServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         key_value_pb2_grpc.add_KeyValueServicer_to_server(KeyValueServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        workflow_pb2_grpc.add_WorkflowServicer_to_server(WorkflowServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        workflow_pb2_grpc.add_WorkflowServicer_to_server(WorkflowServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
         view_pb2_grpc.add_ViewServicer_to_server(ViewServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        http = HttpServicer(self.registry, self.client)
+        consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
+        timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
+        http = HttpServicer(self.registry, self.client, self.storage)
         endpoint_pb2_grpc.add_HttpServicer_to_server(http, server)  # type: ignore[no-untyped-call]
         mcp_pb2_grpc.add_McpServicer_to_server(McpServicer(self.registry, self.client, http), server)  # type: ignore[no-untyped-call]
-        agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:
         if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
             raise ValueError("the process server binds loopback only")
-        server = grpc.aio.server()
+        # A request is as large as the sidecar admitted it: a route's body up to its HTTP bound,
+        # which a body to keep in a bucket may exceed gRPC's default of 4 MiB. The sidecar is the
+        # one caller and holds the bound, so this server sets none of its own.
+        server = grpc.aio.server(options=[("grpc.max_receive_message_length", -1)])
         self.add_servicers(server)
         self.port = server.add_insecure_port(f"{host}:{port}")
         await server.start()

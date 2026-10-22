@@ -13,6 +13,9 @@ object Names:
   /** A service's bucket's route, for a bucket reachable from the internet (feature 034). */
   def bucketRoute(serviceName: String): String = s"$serviceName-storage"
 
+  /** A named bucket's route (feature 055), beside the unnamed one's. */
+  def bucketRoute(serviceName: String, bucket: String): String = s"$serviceName-storage-$bucket"
+
   /** The mover's Job for one phase of one move of a service's bucket (feature 039). */
   def moveJob(serviceName: String, move: Int, phase: MovePhase): String =
     s"$serviceName-move-$move-${phase.mode}"
@@ -47,6 +50,11 @@ object Names:
     val BackupBucketSuffix: String      = "backup-bucket"
     val BackupCredentialSuffix: String  = "backup-credential"
     val WrappingKeySuffix: String       = "wrapping-key"
+
+    /**
+     * A named bucket's request suffix (feature 055): the service's is `<service>-bucket-<name>`.
+     */
+    def namedBucket(name: String): String = s"$BucketSuffix-$name"
 
     def ofService(serviceName: String, suffix: String): String = s"$serviceName-$suffix"
     def ofProject(projectId: String, suffix: String): String   = s"$projectId.$suffix"

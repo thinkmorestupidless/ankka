@@ -42,6 +42,7 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_INSTALLATION` | `ankka.replication.installation` | `""` | every service |
+| `ANKKA_INSTALLATIONS` | `ankka.replication.named` | `""` | every service |
 | `ANKKA_VIEW_WATCH_BOUND` | `ankka.view.watch-bound` | `1000` | every service |
 | `ANKKA_VIEW_UNREAD_BOUND` | `ankka.view.unread-bound` | `256` | every service |
 | `ANKKA_VIEW_FETCH_SIZE` | `ankka.view.fetch-size` | `256` | every service |
@@ -326,7 +327,16 @@ installations replicates nothing, and its replicated entities behave as any even
   variables `ANKKA_INSTALLATION_<NAME>_DB_HOST`, `_DB_PORT`, `_DB_NAME`, `_DB_USER` and `_DB_PASSWORD` add
   an installation and its database from the environment, the name lower-cased with `_` read as `-`.
   They reach the runtime alone, never a process beside it. A replication transport supplied on the
-  classpath, such as `ankka-replication`, needs only the names.
+  classpath, such as `ankka-replication`, needs only the names. An installation set to `null` in a
+  configuration file above another is not named, which is how a later file takes one out.
+- `ANKKA_INSTALLATIONS` (`ankka.replication.named`) names installations by name alone, comma-separated
+  (`leipzig,bratislava`), for a transport supplied on the classpath, which needs no database. Each name
+  is lower-cased and must be a DNS label of at most 63 characters, or the service refuses to start
+  naming it. Each is added to `ankka.replication.installations` with no database; a name that also has
+  a database, in the configuration or from `ANKKA_INSTALLATION_<NAME>_DB_*`, is one installation with
+  that database. It is the platform's to set, so a descriptor that sets it is refused. With names and
+  neither a database for each nor a transport on the classpath, the service refuses to start, naming
+  the installation and both ways of reaching it.
 - `ankka.replication.poll`, `1s`, is how often the runtime's own transport looks for records a follower
   has not yet copied. A read at a follower may be this far behind its home.
 - `ankka.replication.handover.hold-writes`, `off` by default, decides what the old home does while a
@@ -498,6 +508,10 @@ as the descriptor says. See [The installation's broker](../platform/broker.md).
   retention below which a view reading a topic is warned. They are read once when the control plane starts
   and are set on its Deployment; a value it cannot read stops it. Their shipped values and meanings are on
   [The installation's broker](../platform/broker.md#topics).
+- `ANKKA_BROKER_NODES` is the control plane's too: how many nodes the installation's broker has, which
+  `GET /installation` reports as `broker.nodes`. The control plane's Deployment sets `1`, for the
+  one-node broker it ships with, and the three-node broker's configuration sets `3`. Unset, the
+  installation reports the node count as not stated rather than guessing it.
 - `ANKKA_SERVICE_NAME`, or `ankka.service.name`, is a service's name when it runs on a developer's
   machine. Each view or consumer that reads a topic reads under a consumer group named for it, so two
   services on one broker never share one; with no name stated, a group is named for its component alone.

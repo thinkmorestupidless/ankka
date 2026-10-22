@@ -49,6 +49,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_MACHINE_JWKS_URL",
         "ANKKA_MACHINE_JWKS_CA",
         "ANKKA_INSTALLATION",
+        "ANKKA_INSTALLATIONS",
         // Where the installation's model server is (feature 053).
         "ANKKA_MODELS_ADDRESS"
       )
@@ -142,6 +143,13 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(withheldFromModule("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
   }
 
+  test("which installations this one replicates with is the platform's to name (spec 057)") {
+    assertEquals(Installations, "ANKKA_INSTALLATIONS")
+    assert(platformOnly(Installations))
+    assert(!runtimeOnly(Installations), "not under the sibling databases' prefix")
+    assert(withheldFromModule(Installations))
+  }
+
   test("how long a call to another service waits is the platform's program's to know") {
     // The platform's program makes the call, for a process as for itself, so a descriptor may give
     // the setting and it goes there: never to the process, and a module is told it is not set.
@@ -224,6 +232,12 @@ class PlatformVariablesSuite extends munit.FunSuite:
       assert(platformOnly(name), name)
       assert(withheldFromModule(name), name)
     assert(!platformOnly(MachineTokenRate), "the control plane's own setting, never a service's")
+  }
+
+  test("the broker's node count is the control plane's own setting, never a service's") {
+    assertEquals(BrokerNodes, "ANKKA_BROKER_NODES")
+    assert(!platformOnly(BrokerNodes))
+    assert(!runtimeOnly(BrokerNodes))
   }
 
   test("the object store's variables are the developer's program's, by prefix") {

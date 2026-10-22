@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime.replication
 
 import com.thinkmorestupidless.ankka.core.PlatformVariables
-import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
+import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory, ConfigValueType}
 
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
@@ -52,9 +52,10 @@ object ReplicationSettings:
       )
 
   /**
-   * Reads the settings, with `ANKKA_INSTALLATION_<NAME>_DB_*` from `env` added over the
-   * configuration's `installations`. Throws `IllegalArgumentException` naming the setting when a
-   * name is not one an installation may have.
+   * Reads the settings, with `ANKKA_INSTALLATIONS` (names alone, comma-separated) and
+   * `ANKKA_INSTALLATION_<NAME>_DB_*` from `env` added over the configuration's `installations`; a
+   * name in the list that also has a database is one installation, with that database. Throws
+   * `IllegalArgumentException` naming the setting when a name is not one an installation may have.
    */
   def from(config: Config, env: Map[String, String] = sys.env): ReplicationSettings =
     val c    = withEnvironment(config, env).getConfig("ankka.replication")
@@ -63,7 +64,10 @@ object ReplicationSettings:
       throw IllegalArgumentException(s"ankka.replication.installation: $p")
     }
     val section = c.getConfig("installations")
-    val names   = section.root.keySet.asScala.toSet
+    // A name set to null is not named: how a configuration above another takes one out.
+    val names = section.root.asScala.collect {
+      case (name, value) if value.valueType != ConfigValueType.NULL => name
+    }.toSet
     names.flatMap(nameProblem).headOption.foreach { p =>
       throw IllegalArgumentException(s"ankka.replication.installations: $p")
     }
@@ -99,8 +103,31 @@ object ReplicationSettings:
     "_DB_PASSWORD" -> "password"
   )
 
-  /** `ANKKA_INSTALLATION_<NAME>_DB_*` as `ankka.replication.installations.<name>.db.*`. */
+  /**
+   * `ANKKA_INSTALLATIONS=a,b` as `ankka.replication.installations."a" {}` and `."b" {}` (spec 057),
+   * and `ANKKA_INSTALLATION_<NAME>_DB_*` as `ankka.replication.installations.<name>.db.*`.
+   */
   private def withEnvironment(config: Config, env: Map[String, String]): Config =
+    val configured =
+      if config.hasPath("ankka.replication.named") then
+        Some(config.getString("ankka.replication.named"))
+      else None
+    val listed = (env.get(PlatformVariables.Installations).toVector ++ configured)
+      .flatMap(_.split(',').toVector)
+      .map(_.trim.toLowerCase)
+      .filter(_.nonEmpty)
+    listed.distinct.flatMap(nameProblem).headOption.foreach { p =>
+      throw IllegalArgumentException(s"${PlatformVariables.Installations}: $p")
+    }
+    val named = listed.foldLeft(ConfigFactory.empty) { (acc, name) =>
+      acc.withValue(
+        s"ankka.replication.installations.${quoted(name)}",
+        ConfigValueFactory.fromMap(java.util.Map.of[String, AnyRef]())
+      )
+    }
+    withDatabases(env).withFallback(named).withFallback(config)
+
+  private def withDatabases(env: Map[String, String]): Config =
     val entries = env.toVector.flatMap { (key, value) =>
       if !key.startsWith(PlatformVariables.InstallationPrefix) then None
       else
@@ -115,4 +142,3 @@ object ReplicationSettings:
       .foldLeft(ConfigFactory.empty) { case (acc, (path, value)) =>
         acc.withValue(path, ConfigValueFactory.fromAnyRef(value))
       }
-      .withFallback(config)

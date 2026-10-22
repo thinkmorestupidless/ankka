@@ -825,6 +825,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
       // Feature 038: where secrets are kept, as an installation that has said nothing answers.
       secrets: { backend: "postgres", recordRetention: "365d", auditLog: "unknown" },
+      // Spec 057: a one-node broker and no bound on retention, as the shipped settings say; no
+      // erasure, which the platform does not have yet.
+      broker: { nodes: 1, defaultCopies: 1, minInSync: 1 },
+      retention: { unbounded: true },
       // Feature 041: where the backups go, as an installation with Garage and no copy says it.
       backups: {
         backupTarget: "object-store",

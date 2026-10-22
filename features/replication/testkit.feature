@@ -13,3 +13,8 @@ Feature: The test kit and replicated entities
     When the test sends a persisting command
     Then the command is refused as not at the home
     And a query is answered from the state the test gave the follower
+
+  Scenario: the test kit starts several installations over a transport the test supplies
+    Given a test that supplies its own replication transport to the test kit's installations group
+    When the test starts "fleet" at "leipzig" and "bratislava"
+    Then every installation of the group replicates over the transport the test supplied

@@ -30,14 +30,28 @@ class AclSuite extends munit.FunSuite:
       case Some("later")  => AuthDecision.Unavailable("keys unavailable")
       case Some(subject)  => AuthDecision.Allow(Principal(subject, email = Some(s"$subject@x")))
 
+  /**
+   * What a component call made from the handler would carry as `ankka-attribution`: the metadata
+   * the runtime stamps every outgoing call with, read back (spec 057).
+   */
+  private def attributionOfACall(): String =
+    com.thinkmorestupidless.ankka.runtime.Attribution
+      .from(
+        com.thinkmorestupidless.ankka.runtime.Trace
+          .outbound(com.thinkmorestupidless.ankka.core.Metadata.empty)
+      )
+      .getOrElse("none")
+
   private final class Authenticated extends HttpEndpoint("/secure"):
     val acl: Acl = Acl.Authenticate(decide)
     get("/me")(() => s"${principal.subject}:${principal.email.getOrElse("")}")
+    get("/calls")(() => attributionOfACall())
 
   private final class Open extends HttpEndpoint("/open"):
     val acl: Acl = Acl.AllowAll
     get("/present")(() => request.principal.isDefined.toString)
     get("/asks")(() => principal.subject)
+    get("/calls")(() => attributionOfACall())
 
   private final class Predicate extends HttpEndpoint("/pred"):
     val acl: Acl = Acl.AllowIf(_.header("x-ok").contains("yes"))
@@ -105,4 +119,13 @@ class AclSuite extends munit.FunSuite:
   test("the health route stays exempt") {
     val (status, body, _) = call("/_ankka/health")
     assertEquals((status, body), (200, "ok"))
+  }
+
+  test(
+    "a component call from an authenticated handler carries who acted, and from an open one no one"
+  ) {
+    assertEquals(call("/secure/calls", "x-who" -> "ada")._2, "ada")
+    assertEquals(call("/open/calls")._2, "none")
+    // Nor does the thread keep it once the handler has answered.
+    assertEquals(attributionOfACall(), "none")
   }

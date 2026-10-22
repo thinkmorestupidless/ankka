@@ -5,7 +5,9 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   CloudInstallation,
   ClusterModels,
   Installation,
+  InstallationBroker,
   InstallationModels,
+  InstallationRetention,
   ModelLine
 }
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
@@ -23,6 +25,7 @@ import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.time.Duration
 import scala.concurrent.duration.DurationInt
+import scala.util.chaining.scalaUtilChainingOps
 
 /**
  * `GET /installation` (feature 044): the installation's version and cloud for any member, the
@@ -44,6 +47,19 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
   private var withoutCloud: String  = ""
   private var withModels: String    = ""
   private var failingModels: String = ""
+  private var stated: String        = ""
+
+  /** An installation of three broker nodes, three copies with two in sync, and a 30-day bound. */
+  private val threeNodes = com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default
+    .pipe(p =>
+      p.copy(
+        defaults = p.defaults.copy(copies = 3, minInSync = 2),
+        bounds = p.bounds.copy(
+          longestRetention =
+            com.thinkmorestupidless.ankka.controlplane.api.RetentionTime.Bounded(30L * 86400000L)
+        )
+      )
+    )
 
   private val served = InstallationModels(
     Vector(
@@ -61,7 +77,11 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     def server(
         c: Option[CloudConfig],
-        models: InstallationModelsReader = InstallationModelsReader.none
+        models: InstallationModelsReader = InstallationModelsReader.none,
+        policy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
+          com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
+        facts: com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts =
+          com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated
     ) =
       HttpServer.at("127.0.0.1", 0)(
         ControlPlane.endpoints(
@@ -69,18 +89,26 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
           DeployConfig.default,
           auth = Some(identity.config()),
           cloud = c,
-          installationModels = models
+          installationModels = models,
+          topicPolicy = policy,
+          brokerFacts = facts
         )*
       )
     val a = server(Some(cloud))
     val b = server(None)
     val m = server(None, () => Some(served))
     val f = server(None, () => throw IllegalStateException("the reader broke"))
-    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), a, b, m, f))
+    val s = server(
+      None,
+      policy = threeNodes,
+      facts = com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts(Some(3))
+    )
+    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), a, b, m, f, s))
     withCloud = s"http://127.0.0.1:${a.boundPort.getOrElse(fail("no port"))}"
     withoutCloud = s"http://127.0.0.1:${b.boundPort.getOrElse(fail("no port"))}"
     withModels = s"http://127.0.0.1:${m.boundPort.getOrElse(fail("no port"))}"
     failingModels = s"http://127.0.0.1:${f.boundPort.getOrElse(fail("no port"))}"
+    stated = s"http://127.0.0.1:${s.boundPort.getOrElse(fail("no port"))}"
     // An organization the owner owns; the stranger is a member of nothing.
     val created = send(withCloud, "POST", "/organizations/acme", Some(owner), """{"name":"Acme"}""")
     assert(created.statusCode / 100 == 2, created.body)
@@ -169,6 +197,41 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
     assertEquals(read("gcp"), Some(CloudConfig("gcp", "a", "l", None)))
     val e = intercept[IllegalStateException](read("aws"))
     assert(e.getMessage.contains("gcp"), e.getMessage)
+  }
+
+  test(
+    "the installation reports its broker's nodes and topic defaults, and its longest retention"
+  ) {
+    val seen = installation(stated, stranger)
+    assertEquals(seen.broker, Some(InstallationBroker(Some(3), 3, 2)))
+    assertEquals(seen.retention, Some(InstallationRetention(Some("30d"), unbounded = false)))
+    assertEquals(seen.erasure, None)
+    assert(seen.backups.nonEmpty, "beside its backups")
+  }
+
+  test("an unset node count is not stated, and an unbounded retention says so") {
+    val seen = installation(withoutCloud, stranger)
+    assertEquals(seen.broker, Some(InstallationBroker(None, 1, 1)))
+    assertEquals(seen.retention, Some(InstallationRetention(None, unbounded = true)))
+    val raw = send(withoutCloud, "GET", "/installation", Some(stranger)).body
+    assert(!raw.contains("\"nodes\""), raw)
+    assert(!raw.contains("\"erasure\""), raw)
+  }
+
+  test("the broker's node count: unset is not stated, a count is read, anything else refuses") {
+    import com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts
+    def read(nodes: Option[String]) = BrokerFacts.from(
+      nodes
+        .fold(ConfigFactory.empty())(n =>
+          ConfigFactory.parseString(s"""ankka.controlplane.broker.nodes = "$n" """)
+        )
+        .withFallback(ConfigFactory.load())
+    )
+    assertEquals(read(None), BrokerFacts(None))
+    assertEquals(read(Some("3")), BrokerFacts(Some(3)))
+    for bad <- Vector("0", "three", "-1") do
+      val e = intercept[IllegalArgumentException](read(Some(bad)))
+      assert(e.getMessage.contains("ANKKA_BROKER_NODES"), e.getMessage)
   }
 
   test("the shipped default is an installation with no cloud provider") {

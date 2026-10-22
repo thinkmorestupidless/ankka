@@ -3021,7 +3021,7 @@ token, and the means to refresh it when it has run out.
 
 ## Everyday words
 
-exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path,
+exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,
@@ -3097,3 +3097,14 @@ newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, pass
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
 withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years
+
+### project token
+A deploy token scoped to one project of its organization: a member of that project
+and of no other, told there is no such project for any other, able to do in its project what a
+deploy token can and to make and end the project's grants. Avoid: project credential, scoped token.
+
+### attribution
+The principal who made the original call, carried with a command the runtime forwards
+to an entity's home, read by the handler there and recorded with the events the command persists.
+The home authorizes the forwarding installation, never the attribution. Avoid: on-behalf-of,
+impersonation.

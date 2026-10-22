@@ -1,5 +1,6 @@
 # What the control plane gives a topic's first declaration that states no copies: three, two of
-# which must hold a message before it is acknowledged.
+# which must hold a message before it is acknowledged; and how many nodes the broker has, as
+# GET /installation reports it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,3 +16,5 @@ spec:
               value: "3"
             - name: ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC
               value: "2"
+            - name: ANKKA_BROKER_NODES
+              value: "3"

@@ -12,6 +12,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   ServiceIdentity
 }
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
+import com.thinkmorestupidless.ankka.runtime.replication.ReplicationTransportFactory
 import com.thinkmorestupidless.ankka.runtime.storage.MemoryObjectStorage
 import com.thinkmorestupidless.ankka.sdk.{
   BucketExposure,
@@ -469,8 +470,12 @@ object AnkkaTestKit:
    * }}}
    *
    * What it proves is the runtime's replication over its own transport, in one JVM. Several kits in
-   * one JVM are not installations on a network: a transport between installations is tested where
-   * it is written.
+   * one JVM are not installations on a network. A transport between installations is tested where
+   * it is written, and `using` runs a group over it (spec 057):
+   *
+   * {{{
+   * val group = AnkkaTestKit.installations("leipzig", "bratislava").using(factory)
+   * }}}
    */
   def installations(names: String*): Installations =
     require(names.nonEmpty, "name at least one installation")
@@ -483,10 +488,25 @@ object AnkkaTestKit:
   /** A group of installations of one service; see `AnkkaTestKit.installations`. */
   final class Installations private[AnkkaTestKit] (
       val names: Vector[String],
-      databases: Map[String, TestDatabase]
+      databases: Map[String, TestDatabase],
+      supplied: Option[ReplicationTransportFactory] = None
   ):
-    /** What carries records between the group's installations, which a test pauses and blocks. */
-    val transport: TestReplicationTransport = TestReplicationTransport(names)
+    /**
+     * What carries records between the group's installations, which a test pauses and blocks. On a
+     * group made by `using`, whose transport is the test's, its switches throw.
+     */
+    val transport: TestReplicationTransport =
+      TestReplicationTransport(names, supplied = supplied.isDefined)
+
+    /**
+     * The same installations, on the same databases, each started and restarted over the transport
+     * `factory` makes, given the installation's actor system, its settings (which name it) and the
+     * components it replicates (spec 057). This group takes the databases over: use the one this
+     * returns, not this one.
+     */
+    def using(factory: ReplicationTransportFactory): Installations =
+      require(started.isEmpty, "choose the transport before starting an installation of the group")
+      Installations(names, databases, Some(factory))
 
     private val started = scala.collection.concurrent.TrieMap.empty[String, AnkkaTestKit]
 
@@ -541,7 +561,10 @@ object AnkkaTestKit:
         descriptors,
         extensions,
         readyTimeout,
-        builder => configure(builder.withReplicationTransport(transport.factory(name))),
+        builder =>
+          configure(
+            builder.withReplicationTransport(supplied.getOrElse(transport.factory(name)))
+          ),
         Some(generateSecretKey()),
         ServiceIdentity.unnamed,
         Map.empty,

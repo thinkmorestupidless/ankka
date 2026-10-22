@@ -704,7 +704,7 @@ Options and flags:
 ### `ankka organizations tokens create`
 
 ```text
-Usage: ankka organizations tokens create --label <string> [--expires-in <string>] [--never-expires] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization>
+Usage: ankka organizations tokens create --label <string> [--expires-in <string>] [--never-expires] [--project <string>] [--url <string>] [--token <string>] [--output <string>] <organization>
 
 Create a deploy token. The secret is shown once and cannot be recovered.
 
@@ -717,12 +717,12 @@ Options and flags:
         How long it lives: 30d, 12h. Defaults to 90d; at most 365d.
     --never-expires
         Create a token with no expiry. Prefer a lifetime.
+    --project <string>
+        Scope the token to one project of the organization: a member of that project only, which may also make and end the project's grants.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>
         Bearer token. Prefer ANKKA_TOKEN or the config file.
-    --project <string>, -p <string>
-        Project id. Defaults to the configured project.
     --output <string>, -o <string>
         Output format: table or json.
 ```

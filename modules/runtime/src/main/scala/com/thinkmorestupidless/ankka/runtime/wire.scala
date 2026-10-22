@@ -246,6 +246,11 @@ object EntityProtocol:
  * `installation` names the installation whose home wrote the record. It is absent on every record
  * written before replication and on every record of an entity that is not replicated, which is then
  * byte for byte what the release before wrote.
+ *
+ * `attribution` names who acted, when the command that persisted the record carried one: the
+ * subject of the person or machine whose call reached a handler, kept across a forwarded write
+ * (spec 057). `forwardedFrom` names the installation that forwarded the write to its home. Each is
+ * absent when not known, so a record with neither is the release before's form.
  */
 final case class JournalRecord(
     kind: Int,
@@ -254,7 +259,12 @@ final case class JournalRecord(
     expiryMillis: Long,
     // Left out when absent, so a record that names no installation is the release before's form.
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    installation: Option[String] = None
+    installation: Option[String] = None,
+    // Who acted, and which installation forwarded the write (spec 057); left out when absent.
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    attribution: Option[String] = None,
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
+    forwardedFrom: Option[String] = None
 ) extends AnkkaSerializable:
 
   /** The same record, written at `at`. */

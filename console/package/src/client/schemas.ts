@@ -99,8 +99,34 @@ export const installationModelsSchema = z.object({
 export type InstallationModels = z.infer<typeof installationModelsSchema>;
 
 /**
+ * The installation's broker (spec 057): how many nodes, absent when the control plane was not told,
+ * and the copies a topic is given by default, with how many must hold a message.
+ */
+export const installationBrokerSchema = z.object({
+  nodes: optional(z.number().int()),
+  defaultCopies: z.number().int(),
+  minInSync: z.number().int(),
+});
+export type InstallationBroker = z.infer<typeof installationBrokerSchema>;
+
+/** The longest retention a topic may be given (spec 057): a duration, or unbounded. */
+export const installationRetentionSchema = z.object({
+  longest: optional(z.string()),
+  unbounded: z.boolean().default(false),
+});
+export type InstallationRetention = z.infer<typeof installationRetentionSchema>;
+
+/** Erasure and its keyring (spec 057, built by spec 042); absent until the platform has erasure. */
+export const installationErasureSchema = z.object({
+  enabled: z.boolean(),
+  keyringInstances: z.number().int(),
+});
+export type InstallationErasure = z.infer<typeof installationErasureSchema>;
+
+/**
  * `GET /installation`: the platform's version, and its cloud when it names a provider; and its
- * backups (feature 041); where it keeps its secrets (feature 038); and its model server (feature 053).
+ * backups (feature 041); where it keeps its secrets (feature 038); its model server (feature 053);
+ * and its broker, longest retention and erasure (spec 057), each absent when not stated.
  */
 export const installationSchema = z.object({
   platformVersion: z.string(),
@@ -109,6 +135,9 @@ export const installationSchema = z.object({
   backups: optional(z.lazy(() => installationStatusSchema)),
   secrets: optional(installationSecretsSchema),
   models: optional(installationModelsSchema),
+  broker: optional(installationBrokerSchema),
+  retention: optional(installationRetentionSchema),
+  erasure: optional(installationErasureSchema),
 });
 export type Installation = z.infer<typeof installationSchema>;
 

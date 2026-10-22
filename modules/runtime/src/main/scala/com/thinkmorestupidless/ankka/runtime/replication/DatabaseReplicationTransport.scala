@@ -227,10 +227,7 @@ final class DatabaseReplicationTransport(
     noted(installation) {
       LocalInstallations.lookup(installation).filter(_ => inJvm) match
         case Some(local) =>
-          ClusterSharding(local.system)
-            .entityRefFor(EntityKeys.forComponent(componentId), entityId)
-            .tell(EntityProtocol.Reported(self, position))
-          Future.successful(Done)
+          ReplicationPeer.reported(local.system, componentId, entityId, self, position)
         case None => loopback.report(installation, componentId, entityId, self, position)
     }
 

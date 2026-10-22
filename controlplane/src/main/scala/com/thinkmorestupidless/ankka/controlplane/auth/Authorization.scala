@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane.auth
 
-import com.thinkmorestupidless.ankka.controlplane.api.Role
+import com.thinkmorestupidless.ankka.controlplane.api.{ControlPlaneAcl, Role}
 import com.thinkmorestupidless.ankka.controlplane.application.{OrganizationEntity, ProjectEntity}
 import com.thinkmorestupidless.ankka.controlplane.domain.{Actor, Attribution}
 import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode, Metadata}
@@ -27,8 +27,18 @@ final class Authorization(clients: EndpointClients, clock: Clock):
 
   def isAdmin(principal: Principal): Boolean = Principals.isPlatformAdmin(principal)
 
-  /** Anyone logged in. What an organization's creator or a listing needs. */
-  def anyone(principal: Principal): Metadata = attribution(principal, administrative = false)
+  /**
+   * Anyone logged in. What an organization's creator needs. A deploy token scoped to one project
+   * creates nothing above its project, so it is refused here too.
+   */
+  def anyone(principal: Principal): Metadata =
+    scopedTo(principal).foreach { scope =>
+      throw CommandError(
+        s"a deploy token scoped to project '$scope' may not create an organization",
+        ErrorCode.Forbidden
+      )
+    }
+    attribution(principal, administrative = false)
 
   /**
    * A platform administrator acting on nothing in particular yet — creating an organization for
@@ -40,10 +50,26 @@ final class Authorization(clients: EndpointClients, clock: Clock):
       throw CommandError("platform administrator role required", ErrorCode.Forbidden)
     attribution(principal, administrative = true)
 
+  /**
+   * The one project a deploy token is scoped to (spec 057), from the claim its principal carries;
+   * `None` for every other principal. Only a deploy token's claim is read: a person's or a
+   * machine's token from an issuer never narrows, and never widens, through this.
+   */
+  def scopedTo(principal: Principal): Option[String] =
+    if principal.claims.get("kind").contains("deploy-token") then
+      principal.claims.get(ControlPlaneAcl.ProjectClaim)
+    else None
+
+  /**
+   * A route on the organization itself. A deploy token scoped to one project acts on nothing above
+   * its project, so it is refused here whatever the route asks, as beyond what it may do.
+   */
   def requireMember(principal: Principal, organizationId: String, write: Boolean): Authorized =
+    refuseScoped(principal, organizationId)
     require(principal, organizationId, Role.Member, write)
 
   def requireOwner(principal: Principal, organizationId: String, write: Boolean): Authorized =
+    refuseScoped(principal, organizationId)
     require(principal, organizationId, Role.Owner, write)
 
   /** Platform administrators only. The organization need not be visible to them as a member. */
@@ -61,8 +87,9 @@ final class Authorization(clients: EndpointClients, clock: Clock):
    * learn either.
    */
   def project(principal: Principal, projectId: String, write: Boolean): Authorized =
+    outsideScope(principal, projectId)
     val organizationId = organizationOf(projectId).getOrElse(throw noSuchProject(projectId))
-    try requireMember(principal, organizationId, write)
+    try require(principal, organizationId, Role.Member, write)
     catch
       case failure: CommandError if failure.code == ErrorCode.NotFound =>
         throw noSuchProject(projectId)
@@ -73,11 +100,33 @@ final class Authorization(clients: EndpointClients, clock: Clock):
    * owner is refused as member management refuses one; a non-member sees the project as missing.
    */
   def projectOwner(principal: Principal, projectId: String, write: Boolean = true): Authorized =
+    outsideScope(principal, projectId)
     val organizationId = organizationOf(projectId).getOrElse(throw noSuchProject(projectId))
-    try requireOwner(principal, organizationId, write)
+    try require(principal, organizationId, Role.Owner, write)
     catch
       case failure: CommandError if failure.code == ErrorCode.NotFound =>
         throw noSuchProject(projectId)
+
+  /**
+   * Making and ending a project's own grants (spec 057): an owner of the project's organization, as
+   * `projectOwner`, or a deploy token scoped to this project, which a module's agent needs to open
+   * what the module declares. The answers on the grantee's side stay an owner's.
+   */
+  def projectGrants(principal: Principal, projectId: String): Authorized =
+    if scopedTo(principal).contains(projectId) then project(principal, projectId, write = true)
+    else projectOwner(principal, projectId, write = true)
+
+  /** A scoped token asking for another project is told it does not exist, as a stranger is. */
+  private def outsideScope(principal: Principal, projectId: String): Unit =
+    if scopedTo(principal).exists(_ != projectId) then throw noSuchProject(projectId)
+
+  private def refuseScoped(principal: Principal, organizationId: String): Unit =
+    scopedTo(principal).foreach { scope =>
+      throw CommandError(
+        s"a deploy token scoped to project '$scope' may not act on organization '$organizationId'",
+        ErrorCode.Forbidden
+      )
+    }
 
   def organizationOf(projectId: String): Option[String] =
     try

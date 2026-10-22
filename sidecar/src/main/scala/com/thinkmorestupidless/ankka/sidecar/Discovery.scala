@@ -66,7 +66,10 @@ object Discovery:
    * a declared query's `watched` (feature 047). 1.18: waiting for a workflow's end (feature 048).
    * 1.19: replicated entities (feature 051). 1.20: MCP endpoints, `Spec.mcp_endpoints`, the `Mcp`
    * service the process serves and the client key rpcs on `Client` (feature 054); refused from a
-   * process that declares an earlier minor.
+   * process that declares an earlier minor. 1.21: the storage client on `Client` (spec 055). 1.22:
+   * who acted and the installation a command was forwarded from, on an event sourced entity's
+   * command and event (spec 057); empty when there is nothing to say, so a process that ignores
+   * them reads 1.22 as 1.21.
    */
   val ProtocolVersion: String = WireProtocol.Version
 

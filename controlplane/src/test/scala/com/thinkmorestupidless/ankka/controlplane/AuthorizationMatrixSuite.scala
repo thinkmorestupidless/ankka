@@ -507,3 +507,425 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
     assertEquals(send("DELETE", "/organizations/acme/quota", carol)._1, 204)
     assert(!send("GET", "/organizations/acme", alice)._2.contains("\"quota\""), "cleared")
   }
+
+  // ── a deploy token scoped to one project (spec 057) ──────────────────────
+
+  private def field(body: String, name: String): String =
+    val marker = s"\"$name\":\""
+    val from   = body.indexOf(marker)
+    if from < 0 then fail(s"no $name in $body")
+    body.substring(from + marker.length, body.indexOf('"', from + marker.length))
+
+  /** The project token for `orders` of `acme`: made by test 12, used by the rest. */
+  private var projectToken: String = ""
+
+  private def createProject(id: String, organization: String, as: String): Unit =
+    val (status, body) =
+      send(
+        "POST",
+        s"/projects/$id",
+        as,
+        Some(s"""{"name":"$id","organizationId":"$organization"}""")
+      )
+    assertEquals(status, 204, body)
+
+  private def grantBody(grantee: String, service: String) =
+    Some(
+      s"""{"grantee":"$grantee","target":{"kind":"route","service":"$service","method":"POST","path":"/v1/orders"}}"""
+    )
+
+  test(
+    "12. a deploy token scoped to one project acts in that project and is told there is no other"
+  ) {
+    createProject("orders", "acme", alice)
+    createProject("payments", "acme", alice)
+    createProject("billing", "acme", alice)
+    createProject("globex-shop", "globex", bob)
+
+    // The project must be one of this organization's; any other is answered as a stranger is.
+    val elsewhere = send(
+      "POST",
+      "/organizations/acme/tokens",
+      alice,
+      Some("""{"label":"agent","project":"globex-shop"}""")
+    )
+    assertEquals(elsewhere._1, 404, elsewhere._2)
+    assert(elsewhere._2.contains("no such project 'globex-shop'"), elsewhere._2)
+    assertEquals(
+      send(
+        "POST",
+        "/organizations/acme/tokens",
+        alice,
+        Some("""{"label":"a","project":"never"}""")
+      )._1,
+      404
+    )
+
+    val (status, created) = send(
+      "POST",
+      "/organizations/acme/tokens",
+      alice,
+      Some("""{"label":"agent","project":"orders"}""")
+    )
+    assertEquals(status, 200, created)
+    assert(created.contains("\"project\":\"orders\""), created)
+    projectToken = field(created, "secret")
+
+    // Its project: a service applied, attributed to the token.
+    val applied = send("PUT", "/services/orders/cart", projectToken, Some(descriptor("cart")))
+    assertEquals(applied._1, 200, applied._2)
+    val history = send("GET", "/services/orders/cart/history", alice)
+    assertEquals(history._1, 200, history._2)
+    assert(history._2.contains("agent"), history._2)
+    assert(!history._2.contains("alice"), history._2)
+
+    // Another project of the same organization does not exist for it.
+    for (method, path) <- Vector(
+        "GET"    -> "/projects/billing",
+        "GET"    -> "/services/billing",
+        "GET"    -> "/projects/billing/grants",
+        "DELETE" -> "/projects/billing"
+      )
+    do
+      val (code, body) = send(method, path, projectToken)
+      assertEquals(code, 404, s"$method $path: $body")
+      assert(body.contains("no such project 'billing'"), body)
+    assertEquals(
+      send("PUT", "/services/billing/cart", projectToken, Some(descriptor("cart")))._1,
+      404
+    )
+
+    // Its listing of projects is its one project.
+    val listed = eventually("the token's listing shows orders") {
+      val (_, body) = send("GET", "/projects", projectToken)
+      Option.when(body.contains("\"id\":\"orders\""))(body)
+    }
+    assert(!listed.contains("billing"), listed)
+    assert(!listed.contains("payments"), listed)
+  }
+
+  test("13. a project-scoped deploy token makes and ends its project's grants") {
+    val (status, made) =
+      send(
+        "POST",
+        "/projects/orders/grants",
+        projectToken,
+        grantBody("service:payments/merchant", "cart")
+      )
+    assertEquals(status, 200, made)
+    assert(made.contains("\"state\":\"accepted\""), made)
+    assert(made.contains("\"by\":\"agent\""), made)
+    val grantId = field(made, "id")
+    assertEquals(send("DELETE", s"/projects/orders/grants/$grantId", projectToken)._1, 204)
+    val ended = send("GET", "/projects/orders/grants", alice)._2
+    assert(ended.contains("\"state\":\"revoked\""), ended)
+
+    // A grant to another organization waits for an owner there, as any such grant does.
+    val pending =
+      send(
+        "POST",
+        "/projects/orders/grants",
+        projectToken,
+        grantBody("service:globex-shop/x", "cart")
+      )
+    assertEquals(pending._1, 200, pending._2)
+    assert(pending._2.contains("\"state\":\"pending\""), pending._2)
+
+    // Not another project's grants; and a deploy token of the whole organization makes none.
+    assertEquals(
+      send(
+        "POST",
+        "/projects/billing/grants",
+        projectToken,
+        grantBody("service:payments/m", "cart")
+      )._1,
+      404
+    )
+    val wide = field(
+      send("POST", "/organizations/acme/tokens", alice, Some("""{"label":"wide"}"""))._2,
+      "secret"
+    )
+    assertEquals(
+      send(
+        "POST",
+        "/projects/orders/grants",
+        wide,
+        grantBody("service:payments/merchant", "cart")
+      )._1,
+      403
+    )
+  }
+
+  test("14. a project-scoped deploy token may not do what only an owner may") {
+    // A grant offered to acme by globex: the token may not accept it, an owner of acme may.
+    val (status, offered) =
+      send("POST", "/projects/globex-shop/grants", bob, grantBody("service:orders/cart", "shop"))
+    assertEquals(status, 200, offered)
+    val grantId = field(offered, "id")
+    eventually("the grant is offered to acme") {
+      val (_, body) = send("GET", "/organizations/acme/grants", alice)
+      Option.when(body.contains(grantId))(body)
+    }
+    val refusals = Vector(
+      ("POST", "/organizations/acme/tokens", Some("""{"label":"x"}""")),
+      ("POST", "/organizations/acme/members", Some("""{"email":"x@example.test"}""")),
+      ("POST", s"/organizations/acme/grants/$grantId/accept", None),
+      ("POST", "/projects/sideways", Some("""{"name":"S","organizationId":"acme"}""")),
+      ("POST", "/organizations/token-made", Some("""{"name":"T"}""")),
+      ("GET", "/organizations/acme", None),
+      ("GET", "/organizations/acme/members", None)
+    )
+    for (method, path, body) <- refusals do
+      val (code, answer) = send(method, path, projectToken, body)
+      assertEquals(code, 403, s"$method $path: $answer")
+    assertEquals(send("POST", s"/organizations/acme/grants/$grantId/accept", alice)._1, 204)
+  }
+
+  /** Every route of the control plane API, as `ControlPlaneRoutesReferenceSuite` lists them. */
+  private def routeTable: Vector[(String, String)] =
+    import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
+    val unused = new com.thinkmorestupidless.ankka.sdk.CallTransport:
+      def ask(c: ComponentId, e: EntityId, m: MethodName, p: Array[Byte], md: Metadata) =
+        scala.concurrent.Future.failed(IllegalStateException("not called while listing routes"))
+      def tell(c: ComponentId, e: EntityId, message: Any): Unit = ()
+      def askTimeout                                            = 1.second
+    val clients = new com.thinkmorestupidless.ankka.http.EndpointClients(
+      com.thinkmorestupidless.ankka.sdk.ComponentClient(unused),
+      new com.thinkmorestupidless.ankka.runtime.ViewClient(null, 1.second)(using null)
+    )
+    ControlPlane
+      .endpoints(com.thinkmorestupidless.ankka.http.Acl.DenyAll, auth = Some(identity.config()))
+      .map(_(clients))
+      .toVector
+      .flatMap(e =>
+        e.routes.map(r => (r.method, e.prefix + r.template.render)) ++
+          e.streamRoutes.map(r => (r.method, e.prefix + r.template.render))
+      )
+
+  /** A body each body-carrying route decodes, so the walk reaches the check, not the decoder. */
+  private val bodies: Map[(String, String), String] = Map(
+    ("POST", "/organizations/{organizationId}")         -> """{"name":"X"}""",
+    ("PUT", "/organizations/{organizationId}/name")     -> """{"name":"Acme"}""",
+    ("POST", "/organizations/{organizationId}/members") -> """{"email":"x@example.test"}""",
+    ("PUT", "/organizations/{organizationId}/members/{subject}/role")    -> """{"role":"owner"}""",
+    ("POST", "/organizations/{organizationId}/members/{subject}/repair") -> "{}",
+    ("POST", "/organizations/{organizationId}/machines")                 -> """{"name":"walker"}""",
+    ("PUT", "/organizations/{organizationId}/machines/{name}/byte-rates") ->
+      """{"produceBytesPerSecond":1,"consumeBytesPerSecond":1,"requestPercentage":1}""",
+    ("POST", "/organizations/{organizationId}/tokens") -> """{"label":"walker"}""",
+    ("PUT", "/organizations/{organizationId}/quota")   -> """{"projects":9}""",
+    ("POST", "/projects/{projectId}")     -> """{"name":"X","organizationId":"acme"}""",
+    ("PUT", "/projects/{projectId}/name") -> """{"name":"Orders"}""",
+    ("PUT", "/projects/{projectId}/registry") ->
+      """{"server":"ghcr.io","username":"walker","password":"walker"}""",
+    ("PUT", "/projects/{projectId}/secrets/{name}") -> """{"entries":{"k":"v"}}""",
+    ("PUT", "/projects/{projectId}/topics/{name}")  -> "{}",
+    ("PUT", "/projects/{projectId}/brokers/{name}") ->
+      """{"bootstrap":"broker:9092","shape":"plain","secret":"nothing"}""",
+    ("PUT", "/projects/{projectId}/location")             -> """{"location":"nothing"}""",
+    ("POST", "/services/{projectId}/{name}/storage/move") -> "{}",
+    ("POST", "/projects/{projectId}/grants") ->
+      """{"grantee":"service:payments/merchant","target":{"kind":"erasure"}}""",
+    ("PUT", "/services/{projectId}/{name}")           -> descriptor("nothing"),
+    ("POST", "/projects/{projectId}/restores")        -> """{"moment":"2026-01-01T00:00:00Z"}""",
+    ("POST", "/projects/{projectId}/rehearsals")      -> "{}",
+    ("PUT", "/projects/{projectId}/database")         -> """{"cluster":"nothing"}""",
+    ("POST", "/services/{projectId}/{name}/switch")   -> """{"cluster":"nothing"}""",
+    ("POST", "/services/{projectId}/{name}/rollback") -> "{}"
+  )
+
+  private def walk(token: String, project: String): Vector[(String, String, Int, String)] =
+    routeTable
+      .filterNot(_ == ("DELETE", "/projects/{projectId}"))
+      .map { (method, template) =>
+        val path = template
+          .replace("{projectId}", project)
+          .replace("{organizationId}", "acme")
+          .replaceAll("\\{[A-Za-z]+\\}", "nothing")
+        val (code, body) = send(method, path, token, bodies.get((method, template)))
+        (method, template, code, body)
+      }
+
+  private def refused(code: Int, body: String): Boolean =
+    code == 403 ||
+      (code == 404 && (body.contains("no such project") || body.contains("no such organization")))
+
+  test(
+    "15. walking every route, a project token reaches its project's routes and its grant routes, and no other"
+  ) {
+    // An organization-wide token is the member a project token is compared with, route by route.
+    val member = field(
+      send("POST", "/organizations/acme/tokens", alice, Some("""{"label":"member"}"""))._2,
+      "secret"
+    )
+    val grantRoutes = Set(
+      ("POST", "/projects/{projectId}/grants"),
+      ("DELETE", "/projects/{projectId}/grants/{grantId}")
+    )
+    def aboveTheProject(method: String, template: String) =
+      template.startsWith("/organizations/{organizationId}") ||
+        (method == "POST" && template == "/projects/{projectId}")
+
+    val asMember = walk(member, "orders").map(r => (r._1, r._2) -> r).toMap
+    val wrong = walk(projectToken, "orders").flatMap { (method, template, code, body) =>
+      val (_, _, memberCode, memberBody) = asMember((method, template))
+      val expected =
+        if grantRoutes((method, template)) then false
+        else if aboveTheProject(method, template) then true
+        else refused(memberCode, memberBody)
+      Option.when(refused(code, body) != expected)(
+        s"$method $template: $code ${body.take(160)} (expected refused=$expected; member $memberCode)"
+      )
+    }
+    assert(wrong.isEmpty, wrong.mkString("\n"))
+    assert(grantRoutes.forall(asMember.contains), "the walk covers both grant routes")
+
+    // Another project of the organization: every route under it is refused.
+    val leaked = walk(projectToken, "billing").flatMap { (method, template, code, body) =>
+      val underAProject = template.startsWith("/projects/{projectId}") ||
+        template.startsWith("/services/{projectId}")
+      Option.when(underAProject && !refused(code, body))(
+        s"$method $template: $code ${body.take(160)}"
+      )
+    }
+    assert(leaked.isEmpty, leaked.mkString("\n"))
+  }
+
+  test(
+    "16. a project token whose project was deleted reaches nothing, and stays listed until revoked"
+  ) {
+    createProject("scratch", "acme", alice)
+    val created = send(
+      "POST",
+      "/organizations/acme/tokens",
+      alice,
+      Some("""{"label":"scratcher","project":"scratch"}""")
+    )._2
+    val secret = field(created, "secret")
+    val id     = field(created, "id")
+    assertEquals(send("GET", "/projects/scratch", secret)._1, 200)
+    assertEquals(send("DELETE", "/projects/scratch", alice)._1, 204)
+    val (code, body) = send("GET", "/projects/scratch", secret)
+    assertEquals(code, 404, body)
+    assert(body.contains("no such project 'scratch'"), body)
+    assertEquals(send("PUT", "/services/scratch/cart", secret, Some(descriptor("cart")))._1, 404)
+    eventually("the token is listed with the project it was scoped to") {
+      val (_, listing) = send("GET", "/organizations/acme/tokens", alice)
+      Option.when(
+        listing.contains(s"\"id\":\"$id\"") && listing.contains("\"project\":\"scratch\"")
+      )(
+        listing
+      )
+    }
+    assertEquals(send("DELETE", s"/organizations/acme/tokens/$id", alice)._1, 204)
+    eventually("a revoked token leaves the listing") {
+      val (_, listing) = send("GET", "/organizations/acme/tokens", alice)
+      Option.when(!listing.contains(s"\"id\":\"$id\""))(listing)
+    }
+  }
+
+  // ── a platform administrator acting for an organization (spec 057) ───────
+
+  /** Carol's project token and the grant she accepted, for the history scenario. */
+  private var administrativeTokenId: String = ""
+  private var administrativeGrantId: String = ""
+
+  test(
+    "17. a platform administrator creates a deploy token for an organization they are not a member of"
+  ) {
+    // carol is a platform administrator and no member of acme.
+    assert(!send("GET", "/organizations/acme/members", alice)._2.contains("\"subject\":\"carol\""))
+    val (status, created) = send(
+      "POST",
+      "/organizations/acme/tokens",
+      carol,
+      Some("""{"label":"provisioned","project":"orders"}""")
+    )
+    assertEquals(status, 200, created)
+    administrativeTokenId = field(created, "id")
+    val secret = field(created, "secret")
+    // Shown once, and acts in its project.
+    assert(secret.startsWith("ankka_"), created)
+    assertEquals(send("GET", "/projects/orders", secret)._1, 200)
+    assertEquals(send("GET", "/projects/billing", secret)._1, 404)
+    // The administrator did not become a member to do it.
+    assert(!send("GET", "/organizations/acme/members", alice)._2.contains("\"subject\":\"carol\""))
+    // Nothing for an organization that does not exist, and nothing recorded.
+    val missing =
+      send("POST", "/organizations/nowhere/tokens", carol, Some("""{"label":"provisioned"}"""))
+    assertEquals(missing._1, 404, missing._2)
+  }
+
+  test("18. a platform administrator accepts a pending grant on an organization's behalf") {
+    val (status, offered) =
+      send("POST", "/projects/globex-shop/grants", bob, grantBody("service:orders/cart", "till"))
+    assertEquals(status, 200, offered)
+    administrativeGrantId = field(offered, "id")
+    eventually("the grant is offered to acme") {
+      val (_, body) = send("GET", "/organizations/acme/grants", alice)
+      Option.when(body.contains(administrativeGrantId))(body)
+    }
+    assertEquals(
+      send("POST", s"/organizations/acme/grants/$administrativeGrantId/accept", carol)._1,
+      204
+    )
+    val granted = send("GET", "/projects/globex-shop/grants", bob)._2
+    val line =
+      granted.split("\\},\\{").find(_.contains(administrativeGrantId)).getOrElse(fail(granted))
+    assert(line.contains("\"state\":\"accepted\""), line)
+    // A grant that does not exist is not there to accept, and nothing changes.
+    assertEquals(send("POST", "/organizations/acme/grants/nothing/accept", carol)._1, 404)
+    assertEquals(
+      send("POST", s"/organizations/nowhere/grants/$administrativeGrantId/accept", carol)._1,
+      404
+    )
+  }
+
+  test(
+    "19. an organization's history shows an administrator's act under the role that allowed it"
+  ) {
+    import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+    import com.thinkmorestupidless.ankka.controlplane.api.{
+      DeployTokenSummary,
+      GrantChange,
+      GrantDetail,
+      ReceivedGrantDetail,
+      Wire
+    }
+    val tokens = readFromString[Vector[DeployTokenSummary]](eventually("carol's token is listed") {
+      val (_, body) = send("GET", "/organizations/acme/tokens", alice)
+      Option.when(body.contains(administrativeTokenId))(body)
+    })(using Wire.tokensCodec)
+    val byId = tokens.map(t => t.id -> t).toMap
+    assert(byId(administrativeTokenId).administrative, tokens.toString)
+    assert(tokens.filter(_.id != administrativeTokenId).forall(!_.administrative), tokens.toString)
+
+    val received = readFromString[Vector[ReceivedGrantDetail]](
+      eventually("the acceptance reaches acme's record of the grant") {
+        val (_, body) = send("GET", "/organizations/acme/grants", alice)
+        Option.when(
+          readFromString[Vector[ReceivedGrantDetail]](body)(using Wire.receivedGrantsCodec)
+            .exists(g =>
+              g.id == administrativeGrantId && g.changes.exists(_.change == GrantChange.Accepted)
+            )
+        )(body)
+      }
+    )(using Wire.receivedGrantsCodec)
+    val changes = received.find(_.id == administrativeGrantId).get.changes
+    assert(
+      changes.find(_.change == GrantChange.Accepted).exists(_.administrative),
+      changes.toString
+    )
+    assert(
+      changes.filter(_.change != GrantChange.Accepted).forall(!_.administrative),
+      changes.toString
+    )
+
+    // And the granting project's own listing says the answer was the platform's.
+    val granted = readFromString[Vector[GrantDetail]](
+      send("GET", "/projects/globex-shop/grants", bob)._2
+    )(using Wire.grantDetailsCodec)
+    val grant = granted.find(_.id == administrativeGrantId).getOrElse(fail(granted.toString))
+    assert(grant.answered.exists(_.administrative), grant.toString)
+    assert(!grant.granted.administrative, grant.toString)
+  }

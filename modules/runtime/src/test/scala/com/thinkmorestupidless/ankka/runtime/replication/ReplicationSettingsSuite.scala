@@ -56,6 +56,54 @@ class ReplicationSettingsSuite extends munit.FunSuite:
     assertEquals(s.databases("b").port, 5433)
   }
 
+  test("ANKKA_INSTALLATIONS names installations with no database (spec 057)") {
+    val s = read(
+      "ankka.replication.installation = leipzig",
+      Map("ANKKA_INSTALLATIONS" -> " Bratislava, vienna ,,leipzig")
+    )
+    assertEquals(s.installations, Set("bratislava", "vienna"))
+    assertEquals(s.databases, Map.empty[String, InstallationDatabase])
+    assert(s.enabled)
+  }
+
+  test("a name in ANKKA_INSTALLATIONS that also has a database is one installation, with it") {
+    val s = read(
+      "ankka.replication.installation = leipzig",
+      Map(
+        "ANKKA_INSTALLATIONS"               -> "bratislava,vienna",
+        "ANKKA_INSTALLATION_VIENNA_DB_HOST" -> "db-v",
+        "ANKKA_INSTALLATION_VIENNA_DB_NAME" -> "fleet_v"
+      )
+    )
+    assertEquals(s.installations, Set("bratislava", "vienna"))
+    assertEquals(s.databases.keySet, Set("vienna"))
+    assertEquals(s.databases("vienna").host, "db-v")
+  }
+
+  test("ankka.replication.named, which ANKKA_INSTALLATIONS sets, names them as the variable does") {
+    val s = read("""
+      ankka.replication.installation = leipzig
+      ankka.replication.named = "bratislava,vienna"
+    """)
+    assertEquals(s.installations, Set("bratislava", "vienna"))
+  }
+
+  test("a name in ANKKA_INSTALLATIONS that is not a DNS label is refused, naming the variable") {
+    val e = intercept[IllegalArgumentException](
+      read("ankka.replication.installation = leipzig", Map("ANKKA_INSTALLATIONS" -> "vienna,a|b"))
+    )
+    assert(e.getMessage.startsWith("ANKKA_INSTALLATIONS:"), e.getMessage)
+    assert(e.getMessage.contains("'a|b'"), e.getMessage)
+  }
+
+  test("an installation set to null by a configuration above is not named") {
+    val s = read("""
+      ankka.replication.installation = leipzig
+      ankka.replication.installations { bratislava {}, vienna = null }
+    """)
+    assertEquals(s.installations, Set("bratislava"))
+  }
+
   test("an empty installation name is no installation") {
     assertEquals(read("ankka.replication.installation = \"  \"").installation, None)
   }

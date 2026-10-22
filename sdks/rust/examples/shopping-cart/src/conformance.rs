@@ -323,13 +323,21 @@ pub struct VehicleRecord {
     pub steps: Vec<String>,
     pub written_at: Vec<String>,
     pub local: Vec<bool>,
+    /// Protocol 1.22: who acted on the command that wrote each step, and where it was forwarded
+    /// from ("" when none).
+    pub acted_by: Vec<String>,
+    pub forwarded_from: Vec<String>,
 }
 
-/// Where a command ran: the installation ("" when none is named) and whether it is the home.
+/// Where a command ran: the installation ("" when none is named) and whether it is the home; who
+/// acted and where the command was forwarded from ("" when none, protocol 1.22).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VehiclePlacement {
     pub installation: String,
     pub home: bool,
+    pub attribution: String,
+    pub forwarded_from: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,6 +356,8 @@ impl ReplicatedVehicle {
         let placement = VehiclePlacement {
             installation: ctx.installation().unwrap_or_default().to_string(),
             home: ctx.is_home(),
+            attribution: ctx.attribution().unwrap_or_default().to_string(),
+            forwarded_from: ctx.forwarded_from().unwrap_or_default().to_string(),
         };
         effects::persist(StepAdded { step }).then_reply_value(placement)
     }
@@ -395,6 +405,12 @@ impl EventSourcedEntity for ReplicatedVehicle {
             .written_at
             .push(ctx.installation().unwrap_or_default().to_string());
         state.local.push(ctx.is_local());
+        state
+            .acted_by
+            .push(ctx.attribution().unwrap_or_default().to_string());
+        state
+            .forwarded_from
+            .push(ctx.forwarded_from().unwrap_or_default().to_string());
         state
     }
 

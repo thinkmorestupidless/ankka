@@ -159,6 +159,8 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     sequence: self.sequence,
                     installation: written.clone().unwrap_or_default(),
                     mirrored,
+                    // History the copy already holds was written by nobody the kit names.
+                    ..Default::default()
                 },
                 &mut self.held,
             );
@@ -233,6 +235,9 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     snapshot_requested: false,
                     installation: self.here().unwrap_or_default(),
                     at_home: !matches!(self.mode, ReplicationMode::Follower { .. }),
+                    // The unit kit's calls are made by nobody and forwarded from nowhere.
+                    attribution: String::new(),
+                    forwarded_from: String::new(),
                 },
             )),
         };

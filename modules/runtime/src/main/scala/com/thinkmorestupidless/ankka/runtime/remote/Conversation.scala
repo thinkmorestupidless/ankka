@@ -72,7 +72,10 @@ final case class Command(
     /** The installation handling the command, for a replicated entity (feature 051). */
     installation: Option[String] = None,
     /** Whether that installation is the entity's home; true for an entity not replicated. */
-    atHome: Boolean = true
+    atHome: Boolean = true,
+    /** Who acted, and the installation the command was forwarded from (spec 057; protocol 1.22). */
+    attribution: Option[String] = None,
+    forwardedFrom: Option[String] = None
 )
 
 /** The three cases of `core.effect.Outcome`, with the reply already encoded. */
@@ -119,6 +122,22 @@ trait InstanceSession:
   def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
     val _ = installation
     event(sequence, payload)
+
+  /**
+   * Replays one journaled event with who acted on the command that wrote it and where that command
+   * was forwarded from (spec 057; protocol 1.22). A conversation that carries neither sends the
+   * event as above.
+   */
+  def event(
+      sequence: Long,
+      payload: Payload,
+      installation: Option[String],
+      attribution: Option[String],
+      forwardedFrom: Option[String]
+  ): Unit =
+    val _ = (attribution, forwardedFrom)
+    if installation.isEmpty then event(sequence, payload)
+    else event(sequence, payload, installation)
 
   /** Exactly one in flight per session; the host enforces that, the transport relies on it. */
   def command(cmd: Command): Future[Either[ProcessFailure, Reply]]
@@ -196,7 +215,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.21"
+  val Version: String     = "1.22"
   val MetadataKey: String = "ankka.protocol"
 
 /**

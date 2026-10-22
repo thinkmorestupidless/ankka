@@ -94,7 +94,8 @@ final class BrokerShapeSuite extends FunSuite with LogCapturing:
     val env = controlPlaneEnv(three)
     for (name, value) <- Seq(
         "ANKKA_TOPIC_DEFAULT_COPIES"      -> "3",
-        "ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC" -> "2"
+        "ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC" -> "2",
+        "ANKKA_BROKER_NODES"              -> "3"
       )
     do
       assertEquals(env.filter(_._1 == name), Vector(name -> value), s"$name is set once, to $value")
@@ -114,5 +115,10 @@ final class BrokerShapeSuite extends FunSuite with LogCapturing:
     assertEquals(
       env.filter(_._1 == "ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC"),
       Vector("ANKKA_TOPIC_DEFAULT_MIN_IN_SYNC" -> "1")
+    )
+    assertEquals(
+      env.filter(_._1 == "ANKKA_BROKER_NODES"),
+      Vector("ANKKA_BROKER_NODES" -> "1"),
+      "GET /installation states the broker's one node"
     )
   }

@@ -135,6 +135,23 @@ final class TraceSuite extends FunSuite:
     assertEquals(Trace.traceIdOf(out), Some(5L))
   }
 
+  test("a call made as someone's work carries who acted, through every span inside it (spec 057)") {
+    val out = Attribution.within("person-1") {
+      Trace.within(1L, 2L, CallOrigin("checkout", "reserve"))(Trace.outbound(Metadata.empty))
+    }
+    assertEquals(Attribution.from(out), Some("person-1"))
+    assertEquals(CallOrigin.from(out), Some(CallOrigin("checkout", "reserve")))
+    // And nothing once the scope has ended.
+    assertEquals(Attribution.current, None)
+    assertEquals(Attribution.from(Trace.outbound(Metadata.empty)), None)
+  }
+
+  test("a call chain keeps the first attribution it was given") {
+    val forwarded = Metadata.empty.set(Attribution.MetadataKey, "first")
+    val out       = Attribution.within("second")(Trace.outbound(forwarded))
+    assertEquals(Attribution.from(out), Some("first"))
+  }
+
   test("metadata without a trace reads as absent, not as zero") {
     assertEquals(Trace.traceIdOf(Metadata.empty), None)
     assertEquals(Trace.parentSpanIdOf(Metadata.empty), None)

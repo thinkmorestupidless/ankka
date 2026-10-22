@@ -49,6 +49,7 @@ final class ReplicationRuntime private[ankka] (val replication: Replication)
     val here = LocalInstallations.Local(system, askTimeout)
     LocalInstallations.register(replication.self, here)
     local = Some(here)
+    ReplicationPeer.started(system, replication)
     feed = Some(wake(system))
     system.log.info(
       "replication: installation '{}' with {} through {}",
@@ -104,7 +105,10 @@ final class ReplicationRuntime private[ankka] (val replication: Replication)
   override def stop(): Unit =
     feed.foreach(_.shutdown())
     feed = None
-    local.foreach(LocalInstallations.unregister(replication.self, _))
+    local.foreach { l =>
+      LocalInstallations.unregister(replication.self, l)
+      ReplicationPeer.stopped(l.system, replication)
+    }
     local = None
     try replication.transport.stop()
     catch case NonFatal(_) => ()
@@ -140,7 +144,11 @@ object ReplicationRuntime:
         .toVector
       val transport = supplied
         .map(_(system, settings, replicated))
-        .orElse(provided.iterator.flatMap(_.transport(system, config, settings)).nextOption())
+        .orElse(
+          provided.iterator
+            .flatMap(_.transport(system, config, settings, replicated))
+            .nextOption()
+        )
         .orElse(
           Option.when(settings.installations.forall(settings.databases.contains))(
             DatabaseReplicationTransport(settings, replicated, loopback)(using system)
@@ -154,7 +162,9 @@ object ReplicationRuntime:
               "classpath supplies one, and the runtime's own replication transport needs the " +
               s"database of each, which ${missing.mkString(", ")} does not name. Add " +
               "ankka-replication, or name each installation's database " +
-              "(ANKKA_INSTALLATION_<NAME>_DB_HOST and the rest)",
+              "(ANKKA_INSTALLATION_<NAME>_DB_HOST and the rest). An installation is named with " +
+              "its database that way, or by name alone in ANKKA_INSTALLATIONS=<name>,<name> " +
+              "for a transport beside the runtime's own",
             IllegalStateException(_)
           )
         }

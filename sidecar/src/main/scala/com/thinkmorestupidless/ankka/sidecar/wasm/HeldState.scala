@@ -23,24 +23,25 @@ final class HeldState(
     initialSequence: Long
 ):
 
-  private var current: Option[pb.Payload]                          = initial
-  private var seq: Long                                            = initialSequence
-  private var unfolded: Vector[(Long, pb.Payload, Option[String])] = Vector.empty
+  private var current: Option[pb.Payload]          = initial
+  private var seq: Long                            = initialSequence
+  private var unfolded: Vector[HeldState.Replayed] = Vector.empty
 
   def state: Option[pb.Payload] = synchronized(current)
   def sequence: Long            = synchronized(seq)
 
   /** A replayed event, folded before the next call is made. */
-  def replayed(sequence: Long, event: pb.Payload, installation: Option[String] = None): Unit =
+  def replayed(event: HeldState.Replayed): Unit =
     synchronized {
-      unfolded :+= ((sequence, event, installation))
+      unfolded :+= event
     }
 
   /**
    * The replayed events not yet folded, which the caller is now folding: taken, not peeked. Each
-   * with the installation that wrote it, for a replicated entity (feature 051).
+   * with the installation that wrote it, for a replicated entity (feature 051), and who acted on
+   * the command that wrote it and where that command was forwarded from (protocol 1.22).
    */
-  def takeUnfolded(): Vector[(Long, pb.Payload, Option[String])] = synchronized {
+  def takeUnfolded(): Vector[HeldState.Replayed] = synchronized {
     val taken = unfolded
     unfolded = Vector.empty
     taken
@@ -57,3 +58,14 @@ final class HeldState(
    */
   def toSend(resident: Boolean): Option[pb.Payload] =
     if shape == Shape.Stateless || !resident then state else None
+
+object HeldState:
+
+  /** One replayed event and what its journal record says about where and by whom it was written. */
+  final case class Replayed(
+      sequence: Long,
+      event: pb.Payload,
+      installation: Option[String] = None,
+      attribution: Option[String] = None,
+      forwardedFrom: Option[String] = None
+  )

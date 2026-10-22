@@ -361,6 +361,9 @@ final class ServiceEndpoint(
    * cross-entity or platform-level, which an entity cannot see. The entity records the answer.
    */
   post("/{projectId}/{name}/expose") { (projectId: String, name: String) =>
+    // Who may ask is decided before anything about the service is read, so a caller outside the
+    // project learns nothing of what it holds.
+    val metadata = access(projectId, write = true)
     val current = entity(projectId, name)
       .call(ServiceEntity.desiredState)
       .invoke()
@@ -373,7 +376,7 @@ final class ServiceEndpoint(
     withHostname(
       entity(projectId, name)
         .call(ServiceEntity.expose)
-        .withMetadata(access(projectId, write = true))
+        .withMetadata(metadata)
         .invoke()
     )
   }

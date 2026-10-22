@@ -123,10 +123,12 @@ private[ankka] final class LoopbackRoutes(service: AnkkaService):
         read(exchange, classOf[LoopbackReport]) match
           case None => respond(exchange, 400, "not a report".getBytes(UTF_8))
           case Some(report) =>
-            ClusterSharding(system)
-              .entityRefFor(EntityKeys.forComponent(componentId), entityId)
-              .tell(EntityProtocol.Reported(report.installation, report.position))
-            respond(exchange, 204, Array.emptyByteArray)
+            ReplicationPeer
+              .reported(system, componentId, entityId, report.installation, report.position)
+              .value match
+              case Some(scala.util.Failure(e)) =>
+                respond(exchange, 404, e.getMessage.getBytes(UTF_8))
+              case _ => respond(exchange, 204, Array.emptyByteArray)
       case ("POST", None) => respond(exchange, 404, Array.emptyByteArray)
       case _              => respond(exchange, 405, Array.emptyByteArray)
 

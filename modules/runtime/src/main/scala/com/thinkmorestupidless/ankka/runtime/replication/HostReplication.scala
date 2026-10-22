@@ -403,6 +403,21 @@ private[ankka] final class HostReplication(
       }
       Right(())
 
+  /**
+   * Whether a call another installation forwarded is admitted here (spec 057): only from an
+   * installation this one names among those it replicates with. `None` admits it, and admits every
+   * call nobody forwarded; the refusal is given before any handler runs, and the forwarder returns
+   * it to its caller unchanged.
+   */
+  def admission(invoke: EntityProtocol.Invoke): Option[CommandError] =
+    MetaEntry
+      .toMetadata(invoke.metadata)
+      .get(ForwardedFrom)
+      .filterNot(rep.settings.installations.contains)
+      .map(from =>
+        CommandError(s"installation '$from' is not admitted at '$me'", ErrorCode.Forbidden)
+      )
+
   /** The caller's answer to a forwarded call, as the home gave it or as its failure stands. */
   def forwarded(forwarded: EntityProtocol.Forwarded): EntityProtocol.Reply =
     forwarded.result match

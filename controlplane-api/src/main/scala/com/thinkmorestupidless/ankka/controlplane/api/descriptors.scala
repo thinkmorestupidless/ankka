@@ -1322,8 +1322,35 @@ final case class Installation(
      * The installation's model server and what it serves (feature 053), read live from it. Absent
      * when the installation has none.
      */
-    models: Option[InstallationModels] = None
+    models: Option[InstallationModels] = None,
+    /**
+     * The broker's nodes and the copies a topic is given by default. Absent from a control plane
+     * older than this field.
+     */
+    broker: Option[InstallationBroker] = None,
+    /** The longest retention a topic may be given. Absent from an older control plane. */
+    retention: Option[InstallationRetention] = None,
+    /**
+     * Whether erasure is on, and how many keyring instances hold its keys. Not stated (absent)
+     * until the platform has erasure.
+     */
+    erasure: Option[InstallationErasure] = None
 )
+
+/**
+ * The installation's broker: how many nodes it has, absent when the control plane was not told
+ * ("not stated"), and the copies and in-sync minimum a topic is given by default.
+ */
+final case class InstallationBroker(nodes: Option[Int] = None, defaultCopies: Int, minInSync: Int)
+
+/**
+ * The longest retention a topic may be given: `longest` the bound as a duration (`30d`) when the
+ * installation sets one, else `unbounded` is true and `longest` is absent.
+ */
+final case class InstallationRetention(longest: Option[String] = None, unbounded: Boolean = false)
+
+/** Erasure on the installation: whether it is on, and how many keyring instances hold its keys. */
+final case class InstallationErasure(enabled: Boolean, keyringInstances: Int)
 
 /** The model server of each cluster of the installation; one, `home`, until remote clusters. */
 final case class InstallationModels(clusters: Vector[ClusterModels])
@@ -1822,7 +1849,15 @@ final case class ServiceTopology(
  * A number rather than an `Option[Instant]` because the *server's* clock decides when "ninety days
  * from now" is; a client that sent an instant would be asserting its own.
  */
-final case class CreateDeployToken(label: String, expiresIn: Option[Long] = None)
+final case class CreateDeployToken(
+    label: String,
+    expiresIn: Option[Long] = None,
+    /**
+     * The one project of the organization the token is a member of; absent for a token of the whole
+     * organization. A project token may also make and end its project's grants.
+     */
+    project: Option[String] = None
+)
 
 /** The one response that ever carries a secret. There is no route that returns it again. */
 final case class DeployTokenCreated(
@@ -1831,7 +1866,9 @@ final case class DeployTokenCreated(
     /** `ankka_<id>_<secret>`. Shown here and nowhere else, ever. */
     secret: String,
     subject: String,
-    expiresAt: Option[java.time.Instant] = None
+    expiresAt: Option[java.time.Instant] = None,
+    /** The project the token is scoped to, echoed; absent for a token of the whole organization. */
+    project: Option[String] = None
 )
 
 /** A token in a listing: everything but the secret and the digest derived from it. */
@@ -1844,7 +1881,11 @@ final case class DeployTokenSummary(
     /** `None` means it never expires, which the listing says in so many words. */
     expiresAt: Option[java.time.Instant] = None,
     /** The date, not the instant — see the feature's clarification on last use. */
-    lastUsed: Option[java.time.LocalDate] = None
+    lastUsed: Option[java.time.LocalDate] = None,
+    /** The project the token is scoped to; absent for a token of the whole organization. */
+    project: Option[String] = None,
+    /** True when a platform administrator, not an owner of the organization, created it. */
+    administrative: Boolean = false
 )
 
 // ── Registry credentials (feature 013) ───────────────────────────────────────

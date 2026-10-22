@@ -663,7 +663,9 @@ def applyEvent(event: VehicleEvent): Vehicle =
   // Where this event was written, on replay as well as when it is persisted here.
   vehicle.copy(
     writtenAt = vehicle.writtenAt :+ eventContext.installation,
-    local = vehicle.local :+ eventContext.isLocal
+    local = vehicle.local :+ eventContext.isLocal,
+    // Who acted on the command that wrote it, as its record says.
+    actedBy = vehicle.actedBy :+ eventContext.attribution
   )
 ```
 

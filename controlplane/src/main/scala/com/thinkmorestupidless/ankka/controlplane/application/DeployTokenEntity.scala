@@ -24,8 +24,8 @@ final class DeployTokenEntity(context: EventSourcedEntityContext)
   def emptyState: DeployToken = DeployToken.empty(context.entityId)
 
   def applyEvent(event: DeployTokenEvent): DeployToken = event match
-    case DeployTokenCreated(organizationId, label, digest, expiresAt, actor, at) =>
-      currentState.onCreated(organizationId, label, digest, expiresAt, actor, at)
+    case DeployTokenCreated(organizationId, label, digest, expiresAt, actor, at, project) =>
+      currentState.onCreated(organizationId, label, digest, expiresAt, actor, at, project)
     case DeployTokenUsed(date) => currentState.onUsed(date)
     case _: DeployTokenRevoked => currentState.onRevoked
 
@@ -48,6 +48,8 @@ final class DeployTokenEntity(context: EventSourcedEntityContext)
       effects.error("a deploy token needs an organization")
     else if request.label.isEmpty then effects.error("deploy token label must not be empty")
     else if request.digest.isEmpty then effects.error("a deploy token needs a digest")
+    else if request.project.exists(_.isEmpty) then
+      effects.error("a deploy token's project must name a project")
     else
       effects
         .persist(
@@ -57,7 +59,8 @@ final class DeployTokenEntity(context: EventSourcedEntityContext)
             request.digest,
             request.expiresAt,
             actor,
-            at
+            at,
+            request.project
           )
         )
         .thenReply(_ => Done)
@@ -91,7 +94,9 @@ final class DeployTokenEntity(context: EventSourcedEntityContext)
           createdBy = currentState.createdBy.flatMap(_.display),
           createdAt = currentState.createdAt,
           expiresAt = currentState.expiresAt,
-          lastUsed = currentState.lastUsed
+          lastUsed = currentState.lastUsed,
+          project = currentState.project,
+          administrative = currentState.createdBy.exists(_.administrative)
         )
       )
 

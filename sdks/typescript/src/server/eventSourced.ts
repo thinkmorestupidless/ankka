@@ -112,7 +112,7 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
         const ev = m.message.value
         try {
           const written = ev.installation || here
-          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload), eventContext(written, written === here, ev.sequence))
+          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload), eventContext(written, written === here, ev.sequence, ev.attribution, ev.forwardedFrom))
           sequence = ev.sequence
         } catch (e) {
           ctx.log(`ankka: ${registered.id}/${entityId}: replay of event ${ev.sequence} failed: ${messageOf(e)}`)
@@ -167,7 +167,17 @@ async function runCommand(
   }
 
   const metadata = metadataFromProto(cmd.metadata)
-  const context = commandContext(registered.id, entityId, sequence, metadata, undefined, cmd.installation || null, cmd.atHome)
+  const context = commandContext(
+    registered.id,
+    entityId,
+    sequence,
+    metadata,
+    undefined,
+    cmd.installation || null,
+    cmd.atHome,
+    cmd.attribution,
+    cmd.forwardedFrom,
+  )
   let effect: EventSourcedEffect<unknown, unknown, unknown>
   entity._bindCommand(state, context, ctx.client.withMetadata(metadata))
   try {
@@ -187,7 +197,7 @@ async function runCommand(
     let applied = sequence
     const m = materialiseEventSourced(effect, state, (s, e) => {
       applied += 1n
-      return entity.applyEvent(s, e, eventContext(here, true, applied))
+      return entity.applyEvent(s, e, eventContext(here, true, applied, context.attribution, context.forwardedFrom))
     })
     const replication = !m.error && effect.kind === "persist" ? replicationToProto(effect.replication) : undefined
     const events = m.events.map((e) => encodePayload(registered.eventCodec, e))

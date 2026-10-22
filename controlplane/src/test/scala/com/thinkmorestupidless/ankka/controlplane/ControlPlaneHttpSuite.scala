@@ -641,6 +641,44 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     assert(!listing.contains("digest"), listing)
   }
 
+  test("a deploy token's list says which project a token is scoped to") {
+    createOrganizationFor("tokens-scoped")
+    assertEquals(
+      send(
+        "POST",
+        "/projects/tokens-scoped-orders",
+        Some("""{"name":"Orders","organizationId":"tokens-scoped"}""")
+      )._1,
+      204
+    )
+    val (status, created) = send(
+      "POST",
+      "/organizations/tokens-scoped/tokens",
+      Some("""{"label":"agent","project":"tokens-scoped-orders"}""")
+    )
+    assertEquals(status, 200, created)
+    assert(created.contains("\"project\":\"tokens-scoped-orders\""), created)
+    assertEquals(
+      send("POST", "/organizations/tokens-scoped/tokens", Some("""{"label":"ci"}"""))._1,
+      200
+    )
+    val listing = eventually("both tokens appear in the listing") {
+      val (status, body) = send("GET", "/organizations/tokens-scoped/tokens")
+      Option.when(
+        status == 200 && body.contains("\"label\":\"agent\"") && body.contains("\"label\":\"ci\"")
+      )(body)
+    }
+    val tokens = com.github.plokhotnyuk.jsoniter_scala.core
+      .readFromString[Vector[com.thinkmorestupidless.ankka.controlplane.api.DeployTokenSummary]](
+        listing
+      )(using com.thinkmorestupidless.ankka.controlplane.api.Wire.tokensCodec)
+    assertEquals(
+      tokens.map(t => t.label -> t.project).toMap,
+      Map("agent" -> Some("tokens-scoped-orders"), "ci" -> None)
+    )
+    assert(tokens.forall(!_.administrative), "an owner, not the platform, created both")
+  }
+
   test("a deploy token is authorized as a member and attributed as itself (S1.2)") {
     createOrganizationFor("tokens-b")
     val created =

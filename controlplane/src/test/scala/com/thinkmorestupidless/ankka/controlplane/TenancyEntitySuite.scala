@@ -608,6 +608,44 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(detail.lastUsed, None)
   }
 
+  test("a deploy token scoped to one project records the project, and its detail says so") {
+    val kit    = token
+    val by     = Attribution(Actor("root", Some("root"), administrative = true), now)
+    val scoped = request.copy(project = Some("orders"))
+    val result = kit.call(DeployTokenEntity.createToken, by.metadata)(scoped)
+    assertEquals(
+      result.events,
+      Vector(
+        DeployTokenCreated(
+          "acme",
+          "github-deploy",
+          "a" * 64,
+          Some(expiry),
+          Some(by.actor),
+          Some(now),
+          Some("orders")
+        )
+      )
+    )
+    val detail = kit.call(DeployTokenEntity.get).replyValue
+    assertEquals(detail.project, Some("orders"))
+    assert(detail.administrative, "a platform administrator's token is marked administrative")
+  }
+
+  test("a deploy token for the whole organization names no project and is not administrative") {
+    val kit    = token
+    val _      = kit.call(DeployTokenEntity.createToken)(request)
+    val detail = kit.call(DeployTokenEntity.get).replyValue
+    assertEquals((detail.project, detail.administrative), (None, false))
+  }
+
+  test("a deploy token's project, when named, is not empty") {
+    assertEquals(
+      token.call(DeployTokenEntity.createToken)(request.copy(project = Some(""))).error.code,
+      ErrorCode.BadRequest
+    )
+  }
+
   test("a deploy token needs an organization, a label and a digest") {
     assertEquals(
       token.call(DeployTokenEntity.createToken)(request.copy(organizationId = "")).error.code,

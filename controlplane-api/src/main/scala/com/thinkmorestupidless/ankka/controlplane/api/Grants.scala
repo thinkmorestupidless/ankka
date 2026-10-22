@@ -290,8 +290,15 @@ object Machines:
 /** `POST /projects/{id}/grants`: one grantee, as text, and one target. */
 final case class GrantRequest(grantee: String, target: GrantTarget)
 
-/** Who did something to a grant, and when: a display label, never a subject key. */
-final case class GrantAct(by: Option[String] = None, at: Option[java.time.Instant] = None)
+/**
+ * Who did something to a grant, and when: a display label, never a subject key. `administrative` is
+ * true when a platform administrator did it under that role rather than as a member.
+ */
+final case class GrantAct(
+    by: Option[String] = None,
+    at: Option[java.time.Instant] = None,
+    administrative: Boolean = false
+)
 
 /**
  * A grant as its project lists it. `effect` is `in effect`, or why not: the state's word for a
@@ -325,7 +332,9 @@ final case class GrantedTopicSettings(
 final case class GrantChangeRecord(
     change: GrantChange,
     by: Option[String] = None,
-    at: Option[java.time.Instant] = None
+    at: Option[java.time.Instant] = None,
+    /** True when a platform administrator made the change under that role. */
+    administrative: Boolean = false
 )
 
 /** A grant as its grantee's side lists it: what it reaches, from whom, and every change. */

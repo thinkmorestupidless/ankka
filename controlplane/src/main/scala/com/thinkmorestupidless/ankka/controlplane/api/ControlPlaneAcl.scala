@@ -19,6 +19,12 @@ import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, Principal, Request
 object ControlPlaneAcl:
 
   /**
+   * The claim a deploy token scoped to one project carries on its principal: the project's id.
+   * `Authorization` reads it to make the token a member of that project and of no other.
+   */
+  val ProjectClaim: String = "project"
+
+  /**
    * Two kinds of credential, one door: a deploy token, else an identity-provider token.
    *
    * Which is which is decided by *inspection*, never by trying one and falling back — `ankka_` is a
@@ -82,7 +88,7 @@ object ControlPlaneAcl:
                   claims = Map(
                     "kind"         -> "deploy-token",
                     "organization" -> entry.organizationId
-                  )
+                  ) ++ entry.project.map(ControlPlaneAcl.ProjectClaim -> _)
                 )
               )
 

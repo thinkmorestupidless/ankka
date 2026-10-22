@@ -104,6 +104,13 @@ seam the private `ankka-replication` fills; the runtime's own, `DatabaseReplicat
 sibling journals from their databases. A service names `ankka.replication.installation` and at least
 one other installation, or it does not replicate at all: an unreplicated service pays for nothing.
 
+**Attribution is the metadata key `ankka-attribution`** (spec 057): stamped on a component call's
+outgoing metadata from `Trace.Working` when an endpoint handler authenticated a principal, carried
+unchanged by a forward, read by both event sourced hosts into `CommandContext` and onto each persisted
+`JournalRecord` (`NON_ABSENT`), and never the credential. **A home admits a forward only from an
+installation in its own `ankka.replication.installations`** (`HostReplication`, before any handler),
+answering `Forbidden` naming both installations, which the forwarder returns unchanged.
+
 ## Traps
 
 - **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers

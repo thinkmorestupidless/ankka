@@ -20,7 +20,8 @@ final case class Vehicle(
     inspections: Vector[String] = Vector.empty,
     sold: Boolean = false,
     writtenAt: Vector[Option[String]] = Vector.empty,
-    local: Vector[Boolean] = Vector.empty
+    local: Vector[Boolean] = Vector.empty,
+    actedBy: Vector[Option[String]] = Vector.empty
 )
 
 enum VehicleEvent:
@@ -29,8 +30,20 @@ enum VehicleEvent:
   case InspectionRecorded(note: String)
   case Sold
 
-/** What a vehicle's handler answers a command with: which command, where, and whether at home. */
-final case class Receipt(command: String, installation: Option[String], home: Boolean, records: Int)
+/**
+ * What a vehicle's handler answers a command with: which command, where, and whether at home; who
+ * acted and where the command was forwarded from (spec 057); and the metadata the handler was
+ * given, as `key=value`, so a scenario can see what reached it.
+ */
+final case class Receipt(
+    command: String,
+    installation: Option[String],
+    home: Boolean,
+    records: Int,
+    attribution: Option[String] = None,
+    forwardedFrom: Option[String] = None,
+    heard: Vector[String] = Vector.empty
+)
 
 /** Where a query ran. */
 final case class Placement(installation: Option[String], home: Boolean)
@@ -55,15 +68,20 @@ final class VehicleEntity(ctx: EventSourcedEntityContext)
     // Where this event was written, on replay as well as when it is persisted here.
     vehicle.copy(
       writtenAt = vehicle.writtenAt :+ eventContext.installation,
-      local = vehicle.local :+ eventContext.isLocal
+      local = vehicle.local :+ eventContext.isLocal,
+      // Who acted on the command that wrote it, as its record says.
+      actedBy = vehicle.actedBy :+ eventContext.attribution
     )
   // docs:end replicated-apply
 
   /** Taken while the handler runs: the reply is computed after the context is gone. */
   private def receipt(command: String): Vehicle => Receipt =
-    val here   = commandContext.installation
-    val atHome = commandContext.isHome
-    vehicle => Receipt(command, here, atHome, vehicle.writtenAt.size)
+    val here      = commandContext.installation
+    val atHome    = commandContext.isHome
+    val actor     = commandContext.attribution
+    val forwarder = commandContext.forwardedFrom
+    val heard     = commandContext.metadata.toSeq.map((k, v) => s"$k=$v").toVector
+    vehicle => Receipt(command, here, atHome, vehicle.writtenAt.size, actor, forwarder, heard)
 
   def create(input: CreateVehicle): Effect[Receipt] =
     input.replicateTo
@@ -214,3 +232,31 @@ final class LedgerKit(at: String, log: ChangesGiven, kind: VehicleKind)
       source = ChangeSource.eventsOf(kind)
     ):
   def create(context: ConsumerContext) = new LedgerConsumer(at, log)
+
+/**
+ * Where a person records an inspection at an installation (spec 057): an endpoint that
+ * authenticates them by their bearer token, which names them, and calls the vehicle. The receipt is
+ * kept for the scenario, since what it says is what the home's handler was told.
+ */
+final class InspectionsEndpoint(
+    clients: com.thinkmorestupidless.ankka.http.EndpointClients,
+    kind: VehicleKind,
+    receipts: java.util.concurrent.atomic.AtomicReference[Option[Receipt]]
+) extends com.thinkmorestupidless.ankka.http.HttpEndpoint("/vehicles"):
+  import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, Principal}
+
+  val acl: Acl = Acl.Authenticate { request =>
+    request.header("Authorization").map(_.stripPrefix("Bearer ")) match
+      case Some(token) if token.endsWith("-token") =>
+        AuthDecision.Allow(Principal(token.stripSuffix("-token")))
+      case _ => AuthDecision.Unauthenticated("""realm="fleet"""")
+  }
+
+  post("/{id}/inspections") { (id: String) =>
+    val receipt = clients.componentClient
+      .forEventSourcedEntity(EntityId(id))
+      .call(kind.recordInspection)
+      .invoke(s"inspected by ${principal.subject}")
+    receipts.set(Some(receipt))
+    receipt.command
+  }

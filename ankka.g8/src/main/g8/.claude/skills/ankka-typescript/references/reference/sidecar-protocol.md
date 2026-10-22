@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.19"`;
+- its protocol version, `"1.22"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency, and whether it is replicated, for
@@ -126,6 +126,13 @@ so `at_home` is false only for a read-only command. A `Reply` may carry `replica
 for the home, the replication set and the handover never reach the process. All of these fields are empty
 on a service that names no installations.
 
+Each `Command` also carries `attribution`, the subject of the principal who made the original call (a
+person's subject, a deploy token's `token:<id>`, a machine's client id), and `forwarded_from`, the
+installation that forwarded the command to its home. Each event the command persists is recorded with
+both, and each `Event` replayed to the process carries them as recorded. Both are empty when there is
+nothing to say: a call no authenticated principal made, or a command that was not forwarded. Nothing else
+about the principal reaches the process, and never its credential.
+
 A consumer's request carries `ankka.installation`, the installation that wrote a replicated entity's
 change, and `ankka.local`, `"true"` or `"false"`, in its metadata. A consumer with a publication is sent
 only local changes unless it declared `mirrored_changes`.
@@ -213,7 +220,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.19`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.22`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -272,6 +279,20 @@ discovery; `installation` on `Init` and `Event`, `installation` and `at_home` on
 code. A replicated entity is refused from both ends across that line: the sidecar refuses a `Spec`
 declaring one under an earlier minor, naming the entity and both versions, and an SDK refuses to answer
 discovery with one to a runtime that states an earlier version.
+`1.20` added MCP endpoints: `Spec.mcp_endpoints` with `McpEndpoint`, `McpTool` and `McpAcl` in
+discovery, the `Mcp` service the process serves (`InvokeTool`: the sidecar has answered the MCP
+protocol, applied the ACL and checked the arguments, and the process runs the tool with the principal
+and the caller, never the credential), and the client key calls on `Client` (`IssueClientKey`,
+`ListClientKeys`, `RevokeClientKey`), with the `ankka1_mcp_tool` export and three imports of the same
+names for a module. The sidecar refuses an MCP endpoint from an SDK declaring an earlier minor, an SDK
+declaring one refuses discovery from a runtime that states an earlier one, and an earlier runtime
+answers the client key calls `UNIMPLEMENTED`.
+`1.21` added the service's object storage for a module: the `storage` import with `StorageRequest` and
+`StorageReply`. No call on `Client` carries it, since a process reaches its buckets over S3 itself; an
+earlier runtime refuses a module importing `storage` when it loads.
+`1.22` added who acted and where a write came from: `attribution` and `forwarded_from` on an event
+sourced entity's `Command` and `Event`, and on a module's `FoldRequest`. Each is empty when there is
+nothing to say, so a process that ignores them reads `1.22` as `1.21`.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

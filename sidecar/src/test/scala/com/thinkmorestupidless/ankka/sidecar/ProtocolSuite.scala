@@ -155,7 +155,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.21")
+    assertEquals(Discovery.ProtocolVersion, "1.22")
   }
 
   test(

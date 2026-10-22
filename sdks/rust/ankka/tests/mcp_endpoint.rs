@@ -188,7 +188,7 @@ fn discovery_declares_the_endpoint_its_tools_their_schemas_and_acls() {
     let service = service();
     assert!(service.problems().is_empty(), "{:?}", service.problems());
     let spec = discover(&service, "1.20");
-    assert_eq!(spec.protocol_version, "1.21");
+    assert_eq!(spec.protocol_version, "1.22");
     let [endpoint] = spec.mcp_endpoints.as_slice() else {
         panic!("{:?}", spec.mcp_endpoints)
     };

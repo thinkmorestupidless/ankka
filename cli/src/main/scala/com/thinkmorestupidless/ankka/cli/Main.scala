@@ -73,6 +73,16 @@ object Main:
       Context(Settings.resolve(url, token, project), format)
     }
 
+  /**
+   * The context without `--project`, for a command whose `--project` means something of its own:
+   * `organizations tokens create`, where it names the project a token is scoped to. A configured or
+   * `ANKKA_PROJECT` default never scopes a token; only the flag does.
+   */
+  private val contextWithoutProject: Opts[Context] =
+    (urlOpt, tokenOpt, formatOpt).mapN { (url, token, format) =>
+      Context(Settings.resolve(url, token, None), format)
+    }
+
   // ── organizations ─────────────────────────────────────────────────────────
 
   private val organizationsCommand = Opts.subcommand(
@@ -214,8 +224,15 @@ object Main:
           Opts
             .flag("never-expires", "Create a token with no expiry. Prefer a lifetime.")
             .orFalse,
-          contextOpt
-        ).mapN { (org, label, expiresIn, never, ctx) => () =>
+          Opts
+            .option[String](
+              "project",
+              "Scope the token to one project of the organization: a member of that project " +
+                "only, which may also make and end the project's grants."
+            )
+            .orNone,
+          contextWithoutProject
+        ).mapN { (org, label, expiresIn, never, project, ctx) => () =>
           if never && expiresIn.isDefined then
             throw ApiError(0, "--expires-in and --never-expires cannot both be given")
           // `0` is how the API says "never"; absent is how it says "the default".
@@ -224,7 +241,10 @@ object Main:
             else expiresIn.map(Durations.seconds)
           val problems = DeployTokenRules.problems(label, seconds)
           if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-          Output.deployTokenCreated(ctx.client.createDeployToken(org, label, seconds), ctx.format)
+          Output.deployTokenCreated(
+            ctx.client.createDeployToken(org, label, seconds, project),
+            ctx.format
+          )
         }
       }
 

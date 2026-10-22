@@ -186,13 +186,23 @@ final class GrpcConversation(
           def event(sequence: Long, payload: Payload): Unit =
             event(sequence, payload, None)
           override def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
+            event(sequence, payload, installation, None, None)
+          override def event(
+              sequence: Long,
+              payload: Payload,
+              installation: Option[String],
+              attribution: Option[String],
+              forwardedFrom: Option[String]
+          ): Unit =
             out.onNext(
               EventSourcedIn(
                 EventSourcedIn.Message.Event(
                   EventSourcedIn.Event(
                     sequence,
                     Some(toPayload(payload)),
-                    installation.getOrElse("")
+                    installation.getOrElse(""),
+                    attribution.getOrElse(""),
+                    forwardedFrom.getOrElse("")
                   )
                 )
               )
@@ -222,7 +232,9 @@ final class GrpcConversation(
                         Some(toMetadata(cmd.metadata)),
                         cmd.snapshotRequested,
                         cmd.installation.getOrElse(""),
-                        cmd.atHome
+                        cmd.atHome,
+                        cmd.attribution.getOrElse(""),
+                        cmd.forwardedFrom.getOrElse("")
                       )
                     )
                   )

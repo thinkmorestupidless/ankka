@@ -143,6 +143,12 @@ installation serving facts that must outlive a week raises `ANKKA_TOPIC_DEFAULT_
 already declared, each of which keeps the value it was given. A value the control plane cannot read, or a
 default outside its own bound, stops the control plane naming the variable.
 
+The control plane reports the topic defaults and the retention bound in `GET /installation`, as
+`broker.defaultCopies`, `broker.minInSync` and `retention`, beside `broker.nodes`, the broker's node count
+from `ANKKA_BROKER_NODES`. The control plane's Deployment sets that to `1`, for the one-node broker the
+component installs; unset, the count is reported as not stated rather than guessed. `ankka installation`
+prints them.
+
 When the control plane starts, it fills the settings of any topic declared before topics stated them from
 the defaults then in force, and records on the project that the platform did; such a topic's copies stay
 what the broker gave it.
@@ -188,7 +194,8 @@ the node count, each node's storage, the heap and the memory and CPU it is given
 A new installation that wants its topics on three nodes lists the `broker-three-nodes` component after
 `broker` and `controlplane`. It sets the node pool to three, `default.replication.factor` and both
 internal topics' factors to three, `min.insync.replicas` and `transaction.state.log.min.isr` to two, and
-the control plane's default copies to three with two in sync, all together. One node can then stop
+the control plane's default copies to three with two in sync, and `ANKKA_BROKER_NODES` on the control
+plane to three, all together. One node can then stop
 without losing a message the broker acknowledged or refusing a publication. It holds three times the
 storage of one node, since every partition is on every node.
 

@@ -68,3 +68,14 @@ test("an installation that names no cloud says everything is served by the insta
     await expect(body(page).locator("dt", { hasText: "Location" })).toHaveCount(0);
   });
 });
+
+test("the front page says how many nodes the broker has, the copies a topic gets, and the longest retention", async ({
+  page,
+  target,
+  signIn,
+}) => {
+  test.skip(target.kind !== "fake", "the installation's broker is the fake's");
+  await signIn(page, "outsider");
+  await expect(fact(page, "Broker")).toHaveText("1 node; a topic gets 1 copy, 1 in sync, by default");
+  await expect(fact(page, "Longest topic retention")).toHaveText("Unbounded");
+});

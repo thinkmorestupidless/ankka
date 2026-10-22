@@ -848,13 +848,17 @@ object Output:
       case Format.Table if tokens.isEmpty => "no deploy tokens"
       case Format.Table =>
         table(
-          Vector("ID", "LABEL", "CREATED", "BY", "EXPIRES", "LAST USED"),
+          Vector("ID", "LABEL", "PROJECT", "CREATED", "BY", "EXPIRES", "LAST USED"),
           tokens.map(t =>
             Vector(
               t.id,
               t.label,
+              // A token of the whole organization is scoped to no project.
+              t.project.getOrElse("-"),
               t.createdAt.fold("-")(_.toString),
-              t.createdBy.getOrElse("-"),
+              // A platform administrator acting for the organization is said so, as owners see it.
+              t.createdBy.getOrElse("-") + (if t.administrative then " (platform administrator)"
+                                            else ""),
               // "never" is a fact about the token, not a missing value, so it is not "-".
               t.expiresAt.fold("never")(_.toString),
               t.lastUsed.fold("-")(_.toString)
@@ -884,8 +888,14 @@ object Output:
         s"$identity\n\n$organizations"
 
   /**
-   * `ankka installation` (feature 044): the version, the cloud when there is one, and where the
-   * installation keeps its secrets (feature 038) when the control plane says.
+   * `ankka installation` (feature 044): the version, the cloud when there is one, where the
+   * installation keeps its secrets (feature 038) when the control plane says, and its broker and
+   * the longest retention a topic may be given (spec 057), each value or `not stated`:
+   *
+   * {{{
+   * broker     nodes 3, copies 3, in sync 2
+   * retention  longest 30d
+   * }}}
    */
   def installation(installation: Installation, format: Format): String =
     format match
@@ -903,9 +913,20 @@ object Output:
             "access log" -> s.auditLog
           )
         }
-        val fields = (("platform" -> installation.platformVersion) +: (cloud ++ secrets))
-          .map((label, value) => f"$label%-10s $value")
-          .mkString("\n")
+        val broker = installation.broker.toVector.map { b =>
+          "broker" ->
+            s"nodes ${b.nodes.fold(NotStated)(_.toString)}, copies ${b.defaultCopies}, in sync ${b.minInSync}"
+        }
+        val retention = installation.retention.toVector.map { r =>
+          "retention" -> (r.longest match
+            case Some(longest)       => s"longest $longest"
+            case None if r.unbounded => "unbounded"
+            case None                => NotStated)
+        }
+        val fields =
+          (("platform" -> installation.platformVersion) +: (cloud ++ secrets ++ broker ++ retention))
+            .map((label, value) => f"$label%-10s $value")
+            .mkString("\n")
         fields + "\n" + models(installation.models)
 
   /**
@@ -917,6 +938,9 @@ object Output:
    *   no-such-model:1b failed   pull model manifest: file does not exist
    * }}}
    */
+  /** What `ankka installation` prints for a fact the control plane did not state. */
+  val NotStated = "not stated"
+
   def models(models: Option[InstallationModels]): String =
     models.filter(_.clusters.nonEmpty) match
       case None => "model server: none"

@@ -47,6 +47,25 @@ had written up to about one poll before; a write the caller made through the fol
 then mirrored back, and a query sent straight after it may not see it yet. A caller that must read its
 own write reads at the home.
 
+A forwarded write reaches the home as a call by the installation that forwarded it, never by the caller:
+the caller's credential does not travel. Who acted travels beside it as the command's **attribution**,
+the subject of the principal who made the original call through an endpoint (a person's subject, a
+deploy token's `token:<id>`, a machine's client id). At the home the handler reads both from its command
+context: Scala's `commandContext.attribution` and `commandContext.forwardedFrom`, Python's
+`context.attribution` and `context.forwarded_from`, TypeScript's `context.attribution` and
+`context.forwardedFrom`, Rust's `ctx.attribution()` and `ctx.forwarded_from()`. Each event the command
+persists is recorded with both, so an event handler reads them from its event context at every
+installation and after every restart, and a view or consumer reading the journal sees who acted and
+where the write came from. A command that was not forwarded carries its attribution all the same, and no
+forwarding installation. The home authorizes the forwarding installation, never the attribution, which is
+recorded as it was given.
+
+The home admits a forwarded write only from an installation it names itself, under
+`ankka.replication.installations`. A write forwarded from any other is refused `Forbidden` before any
+handler runs, naming both installations (`installation 'vienna' is not admitted at 'leipzig'`), and the
+installation that forwarded it answers its caller with that refusal as it is, which is distinct from the
+`Timeout` of a home that could not be reached.
+
 An event handler can tell where each event it applies was written. Scala's `eventContext`, Python's
 `self.event_context`, TypeScript's third `applyEvent` argument and Rust's `apply_at` carry the
 installation that wrote the event, whether that is this installation, and the event's sequence number,
@@ -147,6 +166,19 @@ endpoints. It serves installations on one machine and tests. The replication tra
 installations on a network is `ankka-replication`, licensed separately, which a service gains by having it
 on its classpath. A service that names other installations and has no transport for them is refused at
 start, naming what is missing.
+
+A transport beside the runtime's own is found through a `ReplicationTransportProvider` on the classpath,
+whose `transport(system, config, settings, replicated)` is given the set of the service's replicated
+components, empty when none is declared, so it serves and tails those and no others. It carries a
+command's metadata unchanged, attribution included. To complete a handover it delivers the new home's
+report to the local copy of the entity through `ReplicationPeer.reported(system, componentId, entityId,
+from, position)`, which completes when the copy has it and fails for a component that is not replicated
+here. An installation such a transport reaches needs no database, so it is named by name alone:
+`ANKKA_INSTALLATIONS=leipzig,bratislava` names both, and a name that also has a database named for it is
+one installation with that database. In a Scala test, `AnkkaTestKit.installations(names*).using(factory)`
+runs every installation of the group over the transport the test supplies, with the group's databases,
+restarts and stop as before; the switches that pause and block the runtime's own transport refuse on such
+a group.
 
 An existing entity becomes replicated with no migration: declare it replicated and name the
 installations, and its history stays where it is, read as written at the installation that held it, which

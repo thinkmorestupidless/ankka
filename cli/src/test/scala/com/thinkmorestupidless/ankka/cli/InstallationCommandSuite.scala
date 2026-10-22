@@ -101,6 +101,31 @@ final class InstallationCommandSuite extends FunSuite:
     )
   }
 
+  test("the broker and the longest retention follow the secrets, each value or not stated") {
+    answer =
+      """{"platformVersion":"0.12.0","secrets":{"backend":"postgres","recordRetention":"365d","auditLog":"unknown"},"broker":{"nodes":3,"defaultCopies":3,"minInSync":2},"retention":{"longest":"30d"}}"""
+    assertEquals(
+      run()._2.trim,
+      Vector(
+        "platform   0.12.0",
+        "provider   none",
+        "secrets    postgres",
+        "records    365d",
+        "access log unknown",
+        "broker     nodes 3, copies 3, in sync 2",
+        "retention  longest 30d",
+        "model server: none"
+      ).mkString("\n")
+    )
+    answer =
+      """{"platformVersion":"0.12.0","broker":{"defaultCopies":1,"minInSync":1},"retention":{"unbounded":true}}"""
+    val out = run()._2
+    assert(out.contains("broker     nodes not stated, copies 1, in sync 1"), out)
+    assert(out.contains("retention  unbounded"), out)
+    answer = """{"platformVersion":"0.12.0","retention":{}}"""
+    assert(run()._2.contains("retention  not stated"), "neither a bound nor unbounded")
+  }
+
   test("--json prints the wire type") {
     answer = """{"platformVersion":"0.7.0"}"""
     val (code, out) = run("-o", "json")

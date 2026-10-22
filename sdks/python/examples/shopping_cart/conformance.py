@@ -1009,14 +1009,19 @@ class VehicleRecord:
     steps: list[str] = field(default_factory=list)
     writtenAt: list[str] = field(default_factory=list)
     local: list[bool] = field(default_factory=list)
+    actedBy: list[str] = field(default_factory=list)
+    forwardedFrom: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class VehiclePlacement:
-    """Where a command ran: the installation ("" when none is named) and whether it is the home."""
+    """Where a command ran: the installation ("" when none is named) and whether it is the home;
+    who acted and where the command was forwarded from ("" when none, 1.22)."""
 
     installation: str
     home: bool
+    attribution: str
+    forwardedFrom: str
 
 
 @dataclass(frozen=True)
@@ -1036,12 +1041,21 @@ class ReplicatedVehicle(EventSourcedEntity[VehicleRecord, StepAdded]):
     def apply_event(self, state: VehicleRecord, event: StepAdded) -> VehicleRecord:
         at = self.event_context
         return VehicleRecord(
-            [*state.steps, event.step], [*state.writtenAt, at.installation or ""], [*state.local, at.is_local]
+            [*state.steps, event.step],
+            [*state.writtenAt, at.installation or ""],
+            [*state.local, at.is_local],
+            [*state.actedBy, at.attribution or ""],
+            [*state.forwardedFrom, at.forwarded_from or ""],
         )
 
     @command("add-step")
     def add_step(self, step: str) -> EventSourcedEffect[VehicleRecord, StepAdded, VehiclePlacement]:
-        placement = VehiclePlacement(self.context.installation or "", self.context.is_home)
+        placement = VehiclePlacement(
+            self.context.installation or "",
+            self.context.is_home,
+            self.context.attribution or "",
+            self.context.forwarded_from or "",
+        )
         return self.effects.persist(StepAdded(step)).then_reply(lambda _: placement)
 
     @command("hand-over")

@@ -309,9 +309,23 @@ export class PartnerRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fa
  * A replicated entity's state: each step, where its event was written ("" when no installation is
  * named) and whether that was here. The conformance service runs at installation `a`.
  */
-export const VehicleRecord = s.record("VehicleRecord", { steps: s.list(s.string), writtenAt: s.list(s.string), local: s.list(s.boolean) })
-/** Where a command ran: the installation ("" when none is named) and whether it is the home. */
-export const VehiclePlacement = s.record("VehiclePlacement", { installation: s.string, home: s.boolean })
+export const VehicleRecord = s.record("VehicleRecord", {
+  steps: s.list(s.string),
+  writtenAt: s.list(s.string),
+  local: s.list(s.boolean),
+  actedBy: s.list(s.string),
+  forwardedFrom: s.list(s.string),
+})
+/**
+ * Where a command ran: the installation ("" when none is named) and whether it is the home; who acted
+ * and where the command was forwarded from ("" when none, 1.22).
+ */
+export const VehiclePlacement = s.record("VehiclePlacement", {
+  installation: s.string,
+  home: s.boolean,
+  attribution: s.string,
+  forwardedFrom: s.string,
+})
 export const StepAdded = s.record("StepAdded", { step: s.string })
 type VehicleRecord = Infer<typeof VehicleRecord>
 type StepAdded = Infer<typeof StepAdded>
@@ -324,7 +338,12 @@ export class ReplicatedVehicle extends EventSourcedEntity<VehicleRecord, StepAdd
   static readonly handlers = {
     addStep: command("add-step", s.string, jsonCodec(VehiclePlacement, "vehicle-placement"), (v: ReplicatedVehicle, step) => {
       // Read while the handler runs: the reply is computed once it has returned.
-      const placement = { installation: v.context.installation ?? "", home: v.context.isHome }
+      const placement = {
+        installation: v.context.installation ?? "",
+        home: v.context.isHome,
+        attribution: v.context.attribution ?? "",
+        forwardedFrom: v.context.forwardedFrom ?? "",
+      }
       return v.effects.persist({ step }).thenReply(() => placement)
     }),
     handOver: command("hand-over", s.string, s.string, (v: ReplicatedVehicle, target) => v.effects.handOverTo(target).thenReply(() => target)),
@@ -335,7 +354,7 @@ export class ReplicatedVehicle extends EventSourcedEntity<VehicleRecord, StepAdd
   }
 
   emptyState(): VehicleRecord {
-    return { steps: [], writtenAt: [], local: [] }
+    return { steps: [], writtenAt: [], local: [], actedBy: [], forwardedFrom: [] }
   }
 
   applyEvent(state: VehicleRecord, event: StepAdded, context?: EventContext): VehicleRecord {
@@ -343,6 +362,8 @@ export class ReplicatedVehicle extends EventSourcedEntity<VehicleRecord, StepAdd
       steps: [...state.steps, event.step],
       writtenAt: [...state.writtenAt, context?.installation ?? ""],
       local: [...state.local, context?.isLocal ?? true],
+      actedBy: [...state.actedBy, context?.attribution ?? ""],
+      forwardedFrom: [...state.forwardedFrom, context?.forwardedFrom ?? ""],
     }
   }
 }

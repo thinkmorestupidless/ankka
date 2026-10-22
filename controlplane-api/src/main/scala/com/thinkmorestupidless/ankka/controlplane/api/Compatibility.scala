@@ -79,9 +79,11 @@ object Protocol:
    * endpoints: `mcp_endpoints` in discovery, the `Mcp` service the process serves, the client key
    * rpcs on `Client`, and the `ankka1_mcp_tool` export and its three imports (feature 054). 1.21
    * added the service's object storage for a module: the `storage` import and its `StorageRequest`
-   * and `StorageReply` (feature 055).
+   * and `StorageReply` (feature 055). 1.22 added who acted and the installation a command was
+   * forwarded from: `attribution` and `forwarded_from` on an event sourced entity's command and
+   * event (spec 057).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 21)
+  val version: ProtocolVersion = ProtocolVersion(1, 22)
 
 object Compatibility:
 

@@ -685,3 +685,95 @@ class DescriptorSuite extends munit.FunSuite:
         Vector(s"$kind 'orders' is declared replicated; only an event sourced entity may be")
       )
   }
+
+  // The shapes a client from before deploy tokens had a project, and before the installation
+  // reported its broker, retention and erasure: what an older CLI or console decodes.
+  private final case class TokenBefore(label: String, expiresIn: Option[Long] = None)
+  private final case class SummaryBefore(id: String, label: String, subject: String)
+  private final case class InstallationBefore(platformVersion: String)
+  private final case class GrantActBefore(by: Option[String] = None)
+  private given tokenBefore
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[TokenBefore] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[TokenBefore]
+  private given summaryBefore
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[SummaryBefore] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[SummaryBefore]
+  private given installationBefore
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[InstallationBefore] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[InstallationBefore]
+  private given grantActBefore
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[GrantActBefore] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[GrantActBefore]
+
+  private given grantAct: com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[GrantAct] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[GrantAct]
+  private given grantChange
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[GrantChangeRecord] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[GrantChangeRecord]
+  private given retention
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[InstallationRetention] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[InstallationRetention]
+
+  test("a deploy token's project is absent-tolerant both ways") {
+    val scoped = CreateDeployToken("agent", None, Some("orders"))
+    assertEquals(readFromString[CreateDeployToken](writeToString(scoped)), scoped)
+    assertEquals(readFromString[TokenBefore](writeToString(scoped)), TokenBefore("agent"))
+    assertEquals(
+      readFromString[CreateDeployToken](writeToString(TokenBefore("ci"))),
+      CreateDeployToken("ci")
+    )
+    assert(!writeToString(CreateDeployToken("ci")).contains("project"))
+
+    val summary = DeployTokenSummary("t1", "agent", "token:t1", project = Some("orders"))
+      .copy(administrative = true)
+    assertEquals(readFromString[DeployTokenSummary](writeToString(summary)), summary)
+    assertEquals(
+      readFromString[SummaryBefore](writeToString(summary)),
+      SummaryBefore("t1", "agent", "token:t1")
+    )
+    val old = readFromString[DeployTokenSummary](
+      writeToString(SummaryBefore("t1", "ci", "token:t1"))
+    )
+    assertEquals((old.project, old.administrative), (None, false))
+    val created = DeployTokenCreated("t1", "agent", "ankka_t1_s", "token:t1", project = Some("o"))
+    assertEquals(readFromString[DeployTokenCreated](writeToString(created)), created)
+  }
+
+  test("a grant act's administrative mark is absent-tolerant both ways") {
+    val act = GrantAct(Some("root"), None, administrative = true)
+    assertEquals(readFromString[GrantAct](writeToString(act)), act)
+    assertEquals(readFromString[GrantActBefore](writeToString(act)), GrantActBefore(Some("root")))
+    assertEquals(
+      readFromString[GrantAct](writeToString(GrantActBefore(Some("ada")))),
+      GrantAct(Some("ada"), None, administrative = false)
+    )
+    val change = GrantChangeRecord(GrantChange.values.head, Some("root"), administrative = true)
+    assertEquals(readFromString[GrantChangeRecord](writeToString(change)), change)
+    val asMember = writeToString(GrantAct(Some("ada"), None, administrative = false))
+    assert(!asMember.contains("administrative"), asMember)
+  }
+
+  test("the installation's broker, retention and erasure are absent-tolerant both ways") {
+    val full = Installation(
+      "0.13.0",
+      broker = Some(InstallationBroker(Some(3), 3, 2)),
+      retention = Some(InstallationRetention(None, unbounded = true)),
+      erasure = Some(InstallationErasure(enabled = true, keyringInstances = 2))
+    )
+    assertEquals(readFromString[Installation](writeToString(full)), full)
+    assertEquals(
+      readFromString[InstallationBefore](writeToString(full)),
+      InstallationBefore("0.13.0")
+    )
+    val older = readFromString[Installation](writeToString(InstallationBefore("0.12.0")))
+    assertEquals((older.broker, older.retention, older.erasure), (None, None, None))
+    val notStated = writeToString(
+      Installation("0.13.0", broker = Some(InstallationBroker(None, 1, 1)))
+    )
+    assert(!notStated.contains("nodes"), notStated)
+    assert(!notStated.contains("erasure"), notStated)
+    assert(
+      writeToString(InstallationRetention(Some("30d"))).contains("\"longest\":\"30d\""),
+      "a bound is written as its duration"
+    )
+  }

@@ -657,7 +657,9 @@ enum DeployTokenEvent:
       digest: String,
       expiresAt: Option[Instant] = None,
       actor: Option[Actor] = None,
-      at: Option[Instant] = None
+      at: Option[Instant] = None,
+      /** The one project the token is a member of; absent for the whole organization. */
+      project: Option[String] = None
   )
 
   /** The date, not the instant: see `DeployToken.lastUsed`. */
@@ -670,7 +672,8 @@ final case class RecordDeployToken(
     organizationId: String,
     label: String,
     digest: String,
-    expiresAt: Option[Instant] = None
+    expiresAt: Option[Instant] = None,
+    project: Option[String] = None
 )
 
 /**
@@ -776,7 +779,9 @@ final case class DeployTokenDetail(
     createdBy: Option[String] = None,
     createdAt: Option[Instant] = None,
     expiresAt: Option[Instant] = None,
-    lastUsed: Option[java.time.LocalDate] = None
+    lastUsed: Option[java.time.LocalDate] = None,
+    project: Option[String] = None,
+    administrative: Boolean = false
 )
 
 // ── Machines (feature 040) ────────────────────────────────────────────────────

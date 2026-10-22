@@ -27,6 +27,17 @@ feature also says what that feature does not do.
   several installations write one entity and their states are merged.
 - **Only event sourced entities replicate.** A key value entity or a workflow declared replicated is
   refused when the service starts.
+- **A forwarded write is admitted only from an installation the home names.** The home of a replicated
+  entity admits a write forwarded from an installation in its own list of installations and refuses any
+  other, naming it. Admitting an installation of another organization, by granting it access as any
+  other caller is granted, is `ankka-replication`'s, not the platform's.
+- **The installation does not report erasure.** `GET /installation` reports its broker, its longest topic
+  retention and its backups; it states nothing about erasure, which the platform does not yet provide, so
+  a requirement that names erasure reads it as not stated.
+- **Only an event sourced entity's context carries a call's attribution.** An event sourced entity's
+  command and event contexts say who acted on a call and, for a forwarded write, which installation
+  forwarded it. A workflow's or key value entity's context does not yet expose the attribution of a
+  call.
 - **No autoscaling.** `minInstances` is a fixed instance count. `maxInstances` and `targetCpuPercent` are
   validated and stored, and nothing acts on them. Scaling is a change to the descriptor.
 - **A command in flight while its entity moves can time out.** During a rollout, a scale-in or a failure,

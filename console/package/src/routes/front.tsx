@@ -1,7 +1,8 @@
 /**
  * The front page: who you are, as the control plane sees you, and the organizations you can see —
  * yours with your role in each, or every one of them for a platform administrator — and what the
- * installation is: its version, and its cloud when it names one (feature 044).
+ * installation is: its version, and its cloud when it names one (feature 044), and its broker and
+ * longest topic retention (spec 057).
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { act, guard, pageData, text, useConsoleContext, withShell } from "../context.ts";
@@ -11,6 +12,7 @@ import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { ConsoleLink } from "../ui/console.tsx";
 import { Page } from "../ui/shell.tsx";
 import { HostActions, useHostActions } from "../extensions/render.tsx";
+import type { InstallationBroker, InstallationRetention } from "../client/schemas.ts";
 
 export const meta: MetaFunction = () => [{ title: "Organizations · ankka" }];
 
@@ -172,10 +174,34 @@ export default function Front() {
               <dd>{installation.secrets.auditLog}</dd>
             </>
           ) : null}
+          {installation.broker ? (
+            <>
+              <dt>Broker</dt>
+              <dd>{brokerWords(installation.broker)}</dd>
+            </>
+          ) : null}
+          {installation.retention ? (
+            <>
+              <dt>Longest topic retention</dt>
+              <dd>{retentionWords(installation.retention)}</dd>
+            </>
+          ) : null}
         </dl>
       </section>
     </Page>
   );
+}
+
+/** The installation's broker (spec 057), in words; a node count the control plane was not told is said so. */
+function brokerWords(broker: InstallationBroker): string {
+  const nodes = broker.nodes === undefined ? "nodes not stated" : `${broker.nodes} ${broker.nodes === 1 ? "node" : "nodes"}`;
+  return `${nodes}; a topic gets ${broker.defaultCopies} ${broker.defaultCopies === 1 ? "copy" : "copies"}, ${broker.minInSync} in sync, by default`;
+}
+
+/** The longest retention a topic may be given (spec 057), in words. */
+function retentionWords(retention: InstallationRetention): string {
+  if (retention.longest !== undefined) return retention.longest;
+  return retention.unbounded ? "Unbounded" : "Not stated";
 }
 
 /** The installation's secret store (feature 038), in words; an unknown backend is shown as it is named. */

@@ -86,7 +86,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
 - [ ] T014 [P] [US5] `kustomization/components/broker/` and `broker-three-nodes/`: `ANKKA_BROKER_NODES`
   (`1`, `3`) beside the topic defaults; the k3s suite that reads `/installation`
   (`EndToEndClusterSuite` or the installation-models one) asserts `broker.nodes` is stated on kind
-- [ ] T015 [P] [US5] `cli/.../Output.scala`, `Main.scala`: `ankka installation` prints `broker` and
+- [X] T015 [P] [US5] `cli/.../Output.scala`, `Main.scala`: `ankka installation` prints `broker` and
   `retention`, `not stated` for an absent value; `OutputSuite` and `InstallationCommandSuite` cases;
   `console/package/src/client/schemas.ts` (optional fields), `fixtures/control-plane/Installation.json`,
   `src/testing/fake-control-plane.ts`, the front page shows the broker line; `just test-console`

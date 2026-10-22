@@ -137,7 +137,9 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
               )
             )
           )
-        )
+        ),
+        broker = Some(InstallationBroker(Some(3), defaultCopies = 3, minInSync = 2)),
+        retention = Some(InstallationRetention(Some("30d")))
       ),
       Installation("0.12.0")
     ),

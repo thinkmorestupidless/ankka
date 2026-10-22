@@ -149,24 +149,26 @@ final class WasmConversation(
       val events = held.takeUnfolded()
       events.zipWithIndex.foldLeft[Either[GuestFault, Boolean]](Right(resident)) {
         case (Left(fault), _) => Left(fault)
-        case (Right(holds), ((sequence, event, installation), i)) =>
+        case (Right(holds), (replayed, i)) =>
           val request = FoldRequest(
             init.componentId,
             init.entityId,
             held.toSend(holds),
-            Some(event),
-            sequence,
-            installation.getOrElse(""),
-            WasmConversation.mirrored(installation, init.installation)
+            Some(replayed.event),
+            replayed.sequence,
+            replayed.installation.getOrElse(""),
+            WasmConversation.mirrored(replayed.installation, init.installation),
+            replayed.attribution.getOrElse(""),
+            replayed.forwardedFrom.getOrElse("")
           )
           ask(instance, fn("fold"), request, purposeOf(None, Metadata.empty))(
             FoldReply.parseFrom
           ) match
             case Right(reply) if reply.failure.isEmpty =>
-              held.update(reply.state, sequence)
+              held.update(reply.state, replayed.sequence)
               Right(true)
             case other =>
-              events.drop(i).foreach((s, e, at) => held.replayed(s, e, at))
+              events.drop(i).foreach(held.replayed)
               other match
                 case Right(reply) =>
                   Left(GuestFault("ankka1_fold", reply.getFailure.getError.message))
@@ -177,7 +179,18 @@ final class WasmConversation(
     def event(sequence: Long, payload: Payload): Unit = event(sequence, payload, None)
 
     override def event(sequence: Long, payload: Payload, installation: Option[String]): Unit =
-      held.replayed(sequence, toPayload(payload), installation)
+      event(sequence, payload, installation, None, None)
+
+    override def event(
+        sequence: Long,
+        payload: Payload,
+        installation: Option[String],
+        attribution: Option[String],
+        forwardedFrom: Option[String]
+    ): Unit =
+      held.replayed(
+        HeldState.Replayed(sequence, toPayload(payload), installation, attribution, forwardedFrom)
+      )
 
     def command(cmd: Command): Future[Either[ProcessFailure, Reply]] = Future {
       val sent     = stamped(cmd.metadata).set(WasmConversation.Sequence, held.sequence.toString)

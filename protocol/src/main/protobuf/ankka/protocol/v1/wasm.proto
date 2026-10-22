@@ -55,6 +55,8 @@ message FoldRequest {
   int64 sequence = 5;
   string installation = 6;                      // 1.19: where the event was written; empty when none is named
   bool mirrored = 7;                            // 1.19: written at another installation than this one
+  string attribution = 8;                       // 1.22: who acted on the command that wrote the event; empty when none
+  string forwarded_from = 9;                    // 1.22: where that command was forwarded from; empty when it was not
 }
 
 message FoldReply {

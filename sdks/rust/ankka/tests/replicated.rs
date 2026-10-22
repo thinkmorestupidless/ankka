@@ -339,6 +339,7 @@ fn over_the_exports_a_replayed_event_is_told_where_it_was_written() {
         sequence: 1,
         installation: "leipzig".to_string(),
         mirrored: true,
+        ..Default::default()
     });
     assert!(folded.failure.is_none());
     let state: Vehicle = VehicleEntity::state_codec()

@@ -1,6 +1,7 @@
 //! Who acted, and where a command was forwarded from (protocol 1.22): read off the command into
 //! the handler's context, and into the event context of each event the command persists.
 
+use ankka::codec::Codec;
 use ankka::prelude::*;
 use ankka::proto;
 
@@ -125,4 +126,40 @@ fn a_command_nobody_attributed_has_neither() {
         }
     );
     assert_eq!(state.acted_by, vec![None]);
+}
+
+fn fold(attribution: &str, forwarded_from: &str) -> Inspections {
+    let service = Service::new("test").register(Vehicle);
+    let event = Vehicle::event_codec()
+        .payload(&Inspected {
+            note: "brakes".to_string(),
+        })
+        .expect("encodes");
+    let folded = service.fold(proto::FoldRequest {
+        component_id: "vehicle".to_string(),
+        entity_id: "v1".to_string(),
+        event: Some(event),
+        sequence: 1,
+        attribution: attribution.to_string(),
+        forwarded_from: forwarded_from.to_string(),
+        ..Default::default()
+    });
+    assert!(folded.failure.is_none(), "{:?}", folded.failure);
+    Vehicle::state_codec()
+        .decode_value(&folded.state.expect("a state").data)
+        .expect("decodes")
+}
+
+#[test]
+fn a_replayed_event_is_told_who_acted_and_where_its_command_was_forwarded_from() {
+    let state = fold("ada", "bratislava");
+    assert_eq!(state.acted_by, vec![Some("ada".to_string())]);
+    assert_eq!(state.forwarded_from, vec![Some("bratislava".to_string())]);
+}
+
+#[test]
+fn a_replayed_event_nobody_attributed_has_neither() {
+    let state = fold("", "");
+    assert_eq!(state.acted_by, vec![None]);
+    assert_eq!(state.forwarded_from, vec![None]);
 }

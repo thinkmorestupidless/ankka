@@ -80,8 +80,8 @@ earlier runtime refuses a module importing `storage` when it loads.
 `1.22` added who acted and where a write came from on an event sourced entity: `attribution` and
 `forwarded_from` on `EventSourcedIn.Command` (the subject of the principal who made the original
 call, and the installation that forwarded the command to its home) and on `EventSourcedIn.Event`
-(as recorded with the event). Each is empty when there is nothing to say, so an SDK that ignores
-them reads 1.22 as 1.21.
+(as recorded with the event), and the same two on a module's `FoldRequest`. Each is empty when
+there is nothing to say, so an SDK that ignores them reads 1.22 as 1.21.
 
 `MAJOR.MINOR`. Within a major:
 

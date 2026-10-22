@@ -159,6 +159,8 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     sequence: self.sequence,
                     installation: written.clone().unwrap_or_default(),
                     mirrored,
+                    // History the copy already holds was written by nobody the kit names.
+                    ..Default::default()
                 },
                 &mut self.held,
             );

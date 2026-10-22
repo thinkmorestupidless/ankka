@@ -454,7 +454,13 @@ impl<C: EventSourcedEntity> Registration<C> {
                 Err(e) => return failed(request.state, format!("the event does not decode: {e}")),
             };
         let written = (!request.installation.is_empty()).then(|| request.installation.clone());
-        let at = EventContext::new(written, !request.mirrored, request.sequence);
+        // Protocol 1.22: who acted on the command that wrote the event and where it was forwarded
+        // from, as the journal recorded them; empty from an earlier runtime.
+        let non_empty = |text: &str| (!text.is_empty()).then(|| text.to_string());
+        let at = EventContext::new(written, !request.mirrored, request.sequence).attributed(
+            non_empty(&request.attribution),
+            non_empty(&request.forwarded_from),
+        );
         let new_state = C::apply_at(state, &event, &at);
         match C::state_codec().to_payload(&new_state) {
             Ok(payload) => {

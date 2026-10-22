@@ -96,7 +96,7 @@ the control plane half may be reviewed on its own.
 
 ## Phase 5: Foundational (runtime)
 
-- [ ] T016 `modules/core/.../PlatformVariables.scala`: `Installations = "ANKKA_INSTALLATIONS"` in
+- [X] T016 `modules/core/.../PlatformVariables.scala`: `Installations = "ANKKA_INSTALLATIONS"` in
   `PlatformOnly`; `PlatformDeclarationSuite` green (R8)
 - [ ] T017 `modules/runtime/.../wire.scala`: `JournalRecord.attribution` and `forwardedFrom`,
   `@JsonInclude(NON_ABSENT)`; `JournalRecordCompatibilitySuite` green with fixtures untouched; one

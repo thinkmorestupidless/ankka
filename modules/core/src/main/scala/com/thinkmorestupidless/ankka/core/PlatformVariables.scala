@@ -165,6 +165,14 @@ private[ankka] object PlatformVariables:
   val Installation: String = "ANKKA_INSTALLATION"
 
   /**
+   * The other installations this one replicates with, by name alone, comma-separated (spec 057):
+   * for an installation reached through a transport beside the runtime's own, which needs no
+   * database settings. A name that also has `ANKKA_INSTALLATION_<NAME>_DB_*` is one installation
+   * with a database.
+   */
+  val Installations: String = "ANKKA_INSTALLATIONS"
+
+  /**
    * Another installation's journal, for the runtime's own replication transport:
    * `ANKKA_INSTALLATION_<NAME>_DB_HOST` and the rest of a database's settings.
    */
@@ -219,8 +227,10 @@ private[ankka] object PlatformVariables:
     MachineIssuer,
     MachineJwksUrl,
     MachineJwksCa,
-    // Which installation this is: the platform names it, so two services cannot both claim one.
+    // Which installation this is, and which others it replicates with: the platform names them, so
+    // two services cannot both claim one.
     Installation,
+    Installations,
     // Where the installation's model server is (feature 053).
     ModelsAddress
   ) ++ SecretStoreSettings

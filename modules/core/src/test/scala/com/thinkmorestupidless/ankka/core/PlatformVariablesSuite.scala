@@ -49,6 +49,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_MACHINE_JWKS_URL",
         "ANKKA_MACHINE_JWKS_CA",
         "ANKKA_INSTALLATION",
+        "ANKKA_INSTALLATIONS",
         // Where the installation's model server is (feature 053).
         "ANKKA_MODELS_ADDRESS"
       )
@@ -140,6 +141,13 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(runtimeOnly("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
     assert(!platformOnly("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
     assert(withheldFromModule("ANKKA_INSTALLATION_VIENNA_DB_PASSWORD"))
+  }
+
+  test("which installations this one replicates with is the platform's to name (spec 057)") {
+    assertEquals(Installations, "ANKKA_INSTALLATIONS")
+    assert(platformOnly(Installations))
+    assert(!runtimeOnly(Installations), "not under the sibling databases' prefix")
+    assert(withheldFromModule(Installations))
   }
 
   test("how long a call to another service waits is the platform's program's to know") {

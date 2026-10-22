@@ -392,7 +392,12 @@ object Project:
 
 /** Who did something to a grant, and when: what an event carried, kept on the grant. */
 final case class GrantMark(actor: Option[Actor] = None, at: Option[Instant] = None):
-  def display: GrantAct = GrantAct(actor.flatMap(_.display).orElse(actor.map(_.subject)), at)
+  def display: GrantAct =
+    GrantAct(
+      actor.flatMap(_.display).orElse(actor.map(_.subject)),
+      at,
+      administrative = actor.exists(_.administrative)
+    )
 
 /**
  * A grant a project holds (feature 040): one grantee, one target, and where it is in its life. The

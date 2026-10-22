@@ -1046,7 +1046,8 @@ object ProjectEndpoint:
           GrantChangeRecord(
             c.change,
             c.actor.flatMap(_.display).orElse(c.actor.map(_.subject)),
-            c.at
+            c.at,
+            administrative = c.actor.exists(_.administrative)
           )
         ),
         settings

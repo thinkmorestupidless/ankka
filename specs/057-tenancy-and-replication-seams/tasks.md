@@ -68,7 +68,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
   `platform-admin` token), "an organization's history shows an administrator's act under the role
   that allowed it" (the token list's and the received grant's `administrative: true`); a token or
   acceptance for an organization or grant that does not exist is 404 and records nothing (R3)
-- [ ] T010 [US2] `controlplane/.../api/ProjectEndpoint.scala` and `OrganizationEndpoint.scala`:
+- [X] T010 [US2] `controlplane/.../api/ProjectEndpoint.scala` and `OrganizationEndpoint.scala`:
   fill `GrantAct.administrative` and `GrantChangeRecord.administrative` from the events' actor;
   `DeployTokenSummary.administrative` from `createdBy`
 - [ ] T011 [P] [US5] `modules/core/.../PlatformVariables.scala`: `BrokerNodes = "ANKKA_BROKER_NODES"`

@@ -19,7 +19,7 @@ the docs and the release note.
 
 ## Phase 2: Foundational (control plane)
 
-- [ ] T002 `controlplane-api/.../descriptors.scala`: `CreateDeployToken.project: Option[String]`,
+- [X] T002 `controlplane-api/.../descriptors.scala`: `CreateDeployToken.project: Option[String]`,
   `DeployTokenCreated.project`, `DeployTokenSummary.{project, administrative}`,
   `GrantAct.administrative`, `GrantChangeRecord.administrative`, `Installation.{broker, retention,
   erasure}` with `InstallationBroker`, `InstallationRetention`, `InstallationErasure`; codecs;

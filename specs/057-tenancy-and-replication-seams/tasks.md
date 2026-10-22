@@ -44,7 +44,7 @@ munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
 - [X] T006 [US1] `controlplane/.../api/OrganizationEndpoint.scala`: `POST .../tokens` validates
   and records `project`; the list carries `project` and `administrative`; `ProjectEndpoint.scala`:
   `POST /projects/{id}/grants` and `DELETE .../grants/{grantId}` use `projectGrants`
-- [ ] T007 [US1] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: tests named "a deploy
+- [X] T007 [US1] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: tests named "a deploy
   token scoped to one project acts in that project and is told there is no other", "a project-scoped
   deploy token makes and ends its project's grants", "a project-scoped deploy token may not do what
   only an owner may" (create a token, invite, accept: each 403); the matrix walks every route of

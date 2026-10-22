@@ -1350,8 +1350,12 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   test("14. the shipped control plane states its broker's nodes on GET /installation (spec 057)") {
     // The node count comes from the Deployment's own ANKKA_BROKER_NODES, as the shipped manifest
     // sets it beside the one-node topic defaults: what an installation of this shape reports.
-    val (code, body) = api("GET", "/installation")
-    assertEquals(code, 0, body)
+    val (code, out) = api("GET", "/installation")
+    assertEquals(code, 0, out)
+    // kubectl exec says which container it chose after curl's output, on the same stream.
+    val body = out.indexOf("Defaulted container") match
+      case -1 => out
+      case at => out.substring(0, at)
     val installation = com.github.plokhotnyuk.jsoniter_scala.core.readFromString[
       com.thinkmorestupidless.ankka.controlplane.api.Installation
     ](body)(using com.thinkmorestupidless.ankka.controlplane.api.Wire.installationCodec)

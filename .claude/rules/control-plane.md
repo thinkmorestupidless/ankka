@@ -150,6 +150,16 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   attempts at feature 007's "no cluster credentials" proof were spent on a TLS error that was
   really a config never consulted. From a shell the override is `ANKKA_CONFIG`; in-process,
   `-Dankka.config`.
+- **The plugin lookup reads `PATH`, so it is overridable by `-Dankka.path`** (2026-10-22), for the
+  reason `-Dankka.config` is: a test cannot set its own JVM's `PATH`, and would otherwise search the
+  developer's. Names are matched by listing each directory and comparing strings, never with
+  `Files.exists`, which ignores case on APFS and would run `ankka-vendor` for `ankka Vendor`.
+- **The CLI ignores SIGINT while a plugin runs, with `sun.misc.Signal`, not a shutdown hook**
+  (2026-10-22). Ctrl-c reaches the plugin from the terminal; a CLI that died with it would return the
+  prompt under the plugin's output. A shutdown hook cannot wait in the native image, which installs no
+  exit handlers. The handler is never restored, so an in-process test leaves its JVM ignoring SIGINT;
+  `PluginSuite`'s ctrl-c case runs the CLI as a process and signals its pid only, never the group,
+  which holds the test JVM too.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.

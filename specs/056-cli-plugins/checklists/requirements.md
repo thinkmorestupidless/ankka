@@ -31,6 +31,12 @@
 
 ## Notes
 
-- The environment variable names are the CLI's documented ones; `ANKKA_OUTPUT` is the only new
-  name and FR-013 makes the reference carry it.
+- Reviewed against the CLI on 2026-10-21. The first draft assumed flags before a command's word
+  (`ankka -o json vendor …`); the CLI has none, so every argument after a plugin's word is the
+  plugin's and `ANKKA_OUTPUT` is dropped. The four environment variables a plugin is given are the
+  CLI's documented ones.
+- Also corrected: the token is written to the saved login on refresh (FR-006 now says so); a refused
+  refresh runs the plugin without a token (FR-005); lookup is exact by name on a filesystem that
+  ignores case (FR-001); non-executable files are passed over; interrupts and signals (FR-011); the
+  generated reference never lists plugins (FR-013); SC-002 no longer depends on a private repository.
 - Serving plugins through `ankka mcp` is deliberately out of scope and named as a limitation.

@@ -3003,32 +3003,25 @@ Avoid: broker (alone, for this), auth server
 ## Command line plugins
 
 ### plugin
-*Proposed.* A program on the path named `ankka-` and a word, which the command line runs as the
+A program on the path named `ankka-` and a word, which the command line runs as the
 command of that word with the rest of the command line and the settings a built-in command would
 have resolved.
 Avoid: extension, subcommand
 
 ### built-in command
-*Proposed.* A command the command line answers itself: login, logout, whoami, status,
+A command the command line answers itself: login, logout, whoami, status,
 installation, organizations, projects, services, config, version, init, local, mcp, plugin.
 
-### path
-*Proposed.* The directories a shell searches for a program, in order.
-
 ### shadowed
-*Proposed.* Of a plugin: named like a built-in command, so it is listed and never run.
+Of a plugin: named like a built-in command, so it is listed and never run.
 
 ### saved login
-*Proposed.* What the command line keeps for a control plane URL after `ankka login`: an access
+What the command line keeps for a control plane URL after `ankka login`: an access
 token, and the means to refresh it when it has run out.
-
-### plugin list
-*Proposed.* What the command line prints for `ankka plugin list`: every plugin on the path and
-where its program is.
 
 ## Everyday words
 
-exits, help, refreshed,
+exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path,
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

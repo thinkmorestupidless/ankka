@@ -583,6 +583,50 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
     assert(refusedErr.contains("the token was rejected"), refusedErr)
   }
 
+  test("a deploy token for one project, created and listed through the CLI") {
+    val _ = cli(connected("organizations", "create", "cli-scoped", "--name", "Scoped")*)
+    assertEquals(
+      cli(
+        connected(
+          "projects",
+          "create",
+          "cli-scoped-orders",
+          "--name",
+          "Orders",
+          "-O",
+          "cli-scoped"
+        )*
+      )._1,
+      0
+    )
+    val (code, created, err) = cli(
+      connected(
+        "organizations",
+        "tokens",
+        "create",
+        "cli-scoped",
+        "--label",
+        "agent",
+        "--project",
+        "cli-scoped-orders"
+      )*
+    )
+    assertEquals(code, 0, err)
+    val secret = secretIn(created)
+    // The token reaches its project, and another project is not there for it.
+    assertEquals(cli(connectedAs(secret, "projects", "get", "cli-scoped-orders")*)._1, 0)
+    val (missing, _, missingErr) = cli(connectedAs(secret, "projects", "get", "cli-scoped-other")*)
+    assertEquals(missing, 1)
+    assert(missingErr.contains("no such project"), missingErr)
+
+    val listed = eventually("the scoped token appears in the listing") {
+      val (_, out, _) = cli(connected("organizations", "tokens", "list", "cli-scoped")*)
+      Option.when(out.contains("agent"))(out)
+    }
+    assert(listed.linesIterator.next().contains("PROJECT"), listed)
+    assert(listed.linesIterator.exists(l => l.contains("agent") && l.contains("cli-scoped-orders")))
+  }
+
   test("a token's own validation happens before the request") {
     val _ = cli(connected("organizations", "create", "cli-tokens-2", "--name", "Two")*)
 

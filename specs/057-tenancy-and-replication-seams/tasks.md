@@ -53,7 +53,7 @@ munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
   project was deleted is told "no such project" and stays listed until revoked;
   `ControlPlaneHttpSuite.scala`: "a deploy token's list says which project a token is scoped to"; break `projectGrants` into `accept`
   once and watch `CrossProjectAcceptanceFeatures`' outline row go red, then restore
-- [ ] T008 [US1] `cli/.../Main.scala`, `ControlPlaneClient.scala`, `Output.scala`: `ankka tokens create
+- [X] T008 [US1] `cli/.../Main.scala`, `ControlPlaneClient.scala`, `Output.scala`: `ankka tokens create
   --project <id>`; the list's `PROJECT` column and the administrative mark; `OutputSuite` and
   `CliEndToEndSuite` cases; `just docs-reference` (the CLI page)
 

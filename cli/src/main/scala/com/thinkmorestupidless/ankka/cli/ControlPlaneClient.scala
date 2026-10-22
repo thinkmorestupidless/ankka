@@ -105,12 +105,17 @@ final class ControlPlaneClient(settings: Settings):
     get[Vector[DeployTokenSummary]](s"/organizations/${segment(id)}/tokens")
 
   /** The reply carries the secret. It is returned, printed once, and never stored. */
-  def createDeployToken(id: String, label: String, expiresIn: Option[Long]): DeployTokenCreated =
+  def createDeployToken(
+      id: String,
+      label: String,
+      expiresIn: Option[Long],
+      project: Option[String] = None
+  ): DeployTokenCreated =
     decode[DeployTokenCreated](
       send(
         "POST",
         s"/organizations/${segment(id)}/tokens",
-        Some(writeToString(CreateDeployToken(label, expiresIn)))
+        Some(writeToString(CreateDeployToken(label, expiresIn, project)))
       )
     )
 

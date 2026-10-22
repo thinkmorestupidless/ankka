@@ -848,13 +848,17 @@ object Output:
       case Format.Table if tokens.isEmpty => "no deploy tokens"
       case Format.Table =>
         table(
-          Vector("ID", "LABEL", "CREATED", "BY", "EXPIRES", "LAST USED"),
+          Vector("ID", "LABEL", "PROJECT", "CREATED", "BY", "EXPIRES", "LAST USED"),
           tokens.map(t =>
             Vector(
               t.id,
               t.label,
+              // A token of the whole organization is scoped to no project.
+              t.project.getOrElse("-"),
               t.createdAt.fold("-")(_.toString),
-              t.createdBy.getOrElse("-"),
+              // A platform administrator acting for the organization is said so, as owners see it.
+              t.createdBy.getOrElse("-") + (if t.administrative then " (platform administrator)"
+                                            else ""),
               // "never" is a fact about the token, not a missing value, so it is not "-".
               t.expiresAt.fold("never")(_.toString),
               t.lastUsed.fold("-")(_.toString)

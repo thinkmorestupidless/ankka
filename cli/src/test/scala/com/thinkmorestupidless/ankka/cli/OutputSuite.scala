@@ -676,6 +676,31 @@ class OutputSuite extends munit.FunSuite:
     assert(!json.contains("secret"), json)
   }
 
+  test("a listing says which project a token is scoped to, and marks a platform administrator") {
+    val rows = Vector(
+      DeployTokenSummary(
+        "3f9a1c2e7b4d8f01",
+        "agent",
+        "token:3f9a1c2e7b4d8f01",
+        createdBy = Some("root"),
+        project = Some("orders"),
+        administrative = true
+      ),
+      DeployTokenSummary("aaaabbbbccccdddd", "ci", "token:aaaabbbbccccdddd", Some("alice"))
+    )
+    val rendered = Output.deployTokens(rows, Format.Table)
+    val header   = rendered.linesIterator.next()
+    assert(header.contains("PROJECT"), rendered)
+    val agent = rendered.linesIterator.find(_.contains("agent")).getOrElse(fail(rendered))
+    val ci    = rendered.linesIterator.find(_.contains(" ci ")).getOrElse(fail(rendered))
+    assert(agent.contains("orders"), agent)
+    assert(agent.contains("root (platform administrator)"), agent)
+    assert(!ci.contains("platform administrator"), ci)
+    // The organization-wide token is scoped to no project: a dash in the project's column.
+    assertEquals(ci.split("\\s+").toVector.lift(2), Some("-"), ci)
+    assert(Output.deployTokens(rows, Format.Json).contains("\"project\":\"orders\""))
+  }
+
   test("an empty listing says so") {
     assertEquals(Output.deployTokens(Vector.empty, Format.Table), "no deploy tokens")
   }

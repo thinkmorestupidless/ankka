@@ -40,6 +40,45 @@ class DeployTokenIndexSuite extends munit.FunSuite with LogCapturing:
     assertEquals(entry.persistedLastUsed, None)
   }
 
+  test("a creation scoped to one project carries the project into the entry") {
+    val map = fresh
+    DeployTokenIndex.fold(
+      map,
+      none,
+      "t1",
+      DeployTokenCreated(
+        "acme",
+        "agent",
+        "d" * 64,
+        Some(expiry),
+        None,
+        Some(created),
+        Some("orders")
+      )
+    )
+    assertEquals(map.get("t1").project, Some("orders"))
+  }
+
+  test("a creation event written before tokens had a project replays as organization-wide") {
+    // The JSON of a creation as the journal holds it from before the field existed.
+    val before =
+      """{"type":"DeployTokenCreated","organizationId":"acme","label":"github-deploy",""" +
+        """"digest":"dddd","expiresAt":"2026-12-24T10:00:00Z"}"""
+    val event =
+      com.thinkmorestupidless.ankka.controlplane.application.DeployTokenEntity.eventSerializer
+        .fromBytes(before.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val map = fresh
+    DeployTokenIndex.fold(map, none, "t1", event)
+    assertEquals(map.get("t1").organizationId, "acme")
+    assertEquals(map.get("t1").project, None)
+  }
+
+  test("the write-through admits a scoped token with its project") {
+    val index = new DeployTokenIndex()
+    index.admit("t1", "d" * 64, "acme", "agent", Some(expiry), Some("orders"))
+    assertEquals(index.lookup("t1").flatMap(_.project), Some("orders"))
+  }
+
   test("a revocation removes the entry rather than flagging it") {
     val map     = fresh
     val revoked = none

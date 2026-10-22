@@ -176,9 +176,10 @@ final class DeployTokenIndex(
       digest: String,
       organizationId: String,
       label: String,
-      expiresAt: Option[Instant]
+      expiresAt: Option[Instant],
+      project: Option[String] = None
   ): Unit =
-    live.put(id, Live(digest, organizationId, label, expiresAt)): Unit
+    live.put(id, Live(digest, organizationId, label, expiresAt, project = project)): Unit
 
   /**
    * Forgets a token now, without waiting for its revocation to come back through the journal.
@@ -242,7 +243,9 @@ object DeployTokenIndex:
       expiresAt: Option[Instant],
       persistedLastUsed: Option[LocalDate] = None,
       /** This node's own record of use, never read by anything but the sweep. */
-      touched: AtomicReference[Option[LocalDate]] = new AtomicReference(None)
+      touched: AtomicReference[Option[LocalDate]] = new AtomicReference(None),
+      /** The one project the token is a member of; `None` for the whole organization. */
+      project: Option[String] = None
   ):
     def expiredAt(now: Instant): Boolean = expiresAt.exists(!_.isAfter(now))
 
@@ -260,9 +263,9 @@ object DeployTokenIndex:
       event: DeployTokenEvent
   ): Unit =
     event match
-      case DeployTokenCreated(organizationId, label, digest, expiresAt, _, _, _) =>
+      case DeployTokenCreated(organizationId, label, digest, expiresAt, _, _, project) =>
         if !revoked.contains(id) then
-          into.put(id, Live(digest, organizationId, label, expiresAt)): Unit
+          into.put(id, Live(digest, organizationId, label, expiresAt, project = project)): Unit
       case DeployTokenUsed(date) =>
         Option(into.get(id)).foreach(entry =>
           into.put(id, entry.copy(persistedLastUsed = Some(date))): Unit

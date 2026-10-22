@@ -28,7 +28,7 @@ the docs and the release note.
 - [X] T003 `controlplane/.../domain/model.scala`, `events.scala`, `application/DeployTokenEntity.scala`,
   `DeployTokenRows.scala`: `DeployToken.project`, `DeployTokenCreated.project`, the row; `DeployTokenRules`
   refuses a project of another organization as `404 no such project`; `TenancyEntitySuite` cases
-- [ ] T004 `controlplane/.../auth/DeployTokenIndex.scala`: `Live.project`, replayed from the event;
+- [X] T004 `controlplane/.../auth/DeployTokenIndex.scala`: `Live.project`, replayed from the event;
   `ControlPlaneAcl.scala`: the `"project"` claim on the admitted principal; `DeployTokenIndexSuite`:
   an event without the field replays as organization-wide
 

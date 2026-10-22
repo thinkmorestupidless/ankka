@@ -47,8 +47,11 @@ munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
 - [ ] T007 [US1] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: tests named "a deploy
   token scoped to one project acts in that project and is told there is no other", "a project-scoped
   deploy token makes and ends its project's grants", "a project-scoped deploy token may not do what
-  only an owner may" (create a token, invite, accept: each 403); `ControlPlaneHttpSuite.scala`: "a
-  deploy token's list says which project a token is scoped to"; break `projectGrants` into `accept`
+  only an owner may" (create a token, invite, accept: each 403); the matrix walks every route of
+  the control plane API with a project token and asserts exactly its project's routes plus its two
+  grant routes answer (SC-002); a grant it makes to another organization is pending; a token whose
+  project was deleted is told "no such project" and stays listed until revoked;
+  `ControlPlaneHttpSuite.scala`: "a deploy token's list says which project a token is scoped to"; break `projectGrants` into `accept`
   once and watch `CrossProjectAcceptanceFeatures`' outline row go red, then restore
 - [ ] T008 [US1] `cli/.../Main.scala`, `ControlPlaneClient.scala`, `Output.scala`: `ankka tokens create
   --project <id>`; the list's `PROJECT` column and the administrative mark; `OutputSuite` and
@@ -121,7 +124,8 @@ the four new scenarios; `ReplicationSettingsSuite`.
   `Installations.using(factory)`; `start`/`restart` wire the supplied factory; the switches throw
   on a `using` group naming `using` (R7)
 - [ ] T023 [US3] `modules/testkit/src/test/.../replication/RecordingTransport.scala`: a transport
-  built on the runtime's own that records the components it was given and delivers reports through
+  built on the runtime's own that records the components it was given (an empty set for a service
+  with none declared) and delivers reports through
   `ReplicationPeer.reported`; registered as a provider on the test classpath beside `TestProvider`
   (`META-INF/services`); its factory for `using`
 - [ ] T024 [US3] `modules/testkit/src/test/.../replication/ReplicationSteps.scala`: steps for "a

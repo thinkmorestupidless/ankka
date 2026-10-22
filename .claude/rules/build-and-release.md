@@ -150,7 +150,10 @@ because the binary links the build machine's glibc; none runs on musl. What the 
 declared in the jar, in `cli/src/main/resources/META-INF/native-image/`, and **a missing resource is
 not a build failure**: the first image built without the resource globs served `ankka mcp` with zero
 pages and no error. So the job runs `cli/native-smoke.sh` on each binary, which asks it for the docs
-and the console's files, and a new resource the CLI reads needs a glob there.
+and the console's files, and a new resource the CLI reads needs a glob there. **The `ci` workflow builds
+and smoke-tests it too**, on `linux-x64` and `macos-arm64`, for any pull request touching the CLI, the
+modules it is built from, or the docs and skills its jar carries (its `cli-native` job, behind a
+`cli-native` summary), so a defect only the native image has fails the pull request, not the tag.
 
 **The GitHub Action ships as its own repository.** `action/` is a composite action, subtree-pushed to
 `thinkmorestupidless/ankka-action` by the release workflow's `action` job exactly as `ankka.g8/`,

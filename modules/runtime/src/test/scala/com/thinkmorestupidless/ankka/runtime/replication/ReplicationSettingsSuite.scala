@@ -96,6 +96,14 @@ class ReplicationSettingsSuite extends munit.FunSuite:
     assert(e.getMessage.contains("'a|b'"), e.getMessage)
   }
 
+  test("an installation set to null by a configuration above is not named") {
+    val s = read("""
+      ankka.replication.installation = leipzig
+      ankka.replication.installations { bratislava {}, vienna = null }
+    """)
+    assertEquals(s.installations, Set("bratislava"))
+  }
+
   test("an empty installation name is no installation") {
     assertEquals(read("ankka.replication.installation = \"  \"").installation, None)
   }

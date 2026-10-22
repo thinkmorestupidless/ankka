@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime.replication
 
 import com.thinkmorestupidless.ankka.core.PlatformVariables
-import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
+import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory, ConfigValueType}
 
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
@@ -64,7 +64,10 @@ object ReplicationSettings:
       throw IllegalArgumentException(s"ankka.replication.installation: $p")
     }
     val section = c.getConfig("installations")
-    val names   = section.root.keySet.asScala.toSet
+    // A name set to null is not named: how a configuration above another takes one out.
+    val names = section.root.asScala.collect {
+      case (name, value) if value.valueType != ConfigValueType.NULL => name
+    }.toSet
     names.flatMap(nameProblem).headOption.foreach { p =>
       throw IllegalArgumentException(s"ankka.replication.installations: $p")
     }

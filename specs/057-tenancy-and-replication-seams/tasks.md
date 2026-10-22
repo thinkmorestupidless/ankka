@@ -151,10 +151,10 @@ all green.
   and `forwardedFrom` from the metadata; the records a command persists carry both;
   `EventContext` reads them from the record; `HostReplication.forward` unchanged (metadata
   carried as is); a host suite case
-- [ ] T027 [US4] `modules/runtime/.../replication/HostReplication.scala`: admission at the home
+- [X] T027 [US4] `modules/runtime/.../replication/HostReplication.scala`: admission at the home
   (`ankka.forwarded-from` not in `settings.installations` → `Rejected(... not admitted ...)`,
   `Forbidden`), before the handler; the forwarder returns the rejection unchanged (R10)
-- [ ] T028 [US4] `ReplicationSteps.scala`: steps for "a forwarded write reaches the home as a call
+- [X] T028 [US4] `ReplicationSteps.scala`: steps for "a forwarded write reaches the home as a call
   by the forwarding installation, with the caller who acted as its attribution" (a person's call
   through an endpoint at the follower; the handler's context at the home; no `authorization` key
   in the metadata the home saw; the record carrying both) and "a forwarded write from an

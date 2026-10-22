@@ -202,7 +202,7 @@ all green.
 - [X] T037 `docs/reference/limitations.md`: erasure reported as not stated until spec 042;
   admission across organizations is ankka-replication's; `just docs-sync && just docs` green;
   `git diff --exit-code` after `just docs-reference` (the pages are committed)
-- [ ] T038 `CHANGELOG.md` or the release notes file the repository keeps: the four answered requests
+- [X] T038 `CHANGELOG.md` or the release notes file the repository keeps: the four answered requests
   by repository and number, the provider signature change, protocol 1.22; `.claude/rules/runtime.md`
   gains the attribution key and the admission rule as one line each; `just features`, `sbt
   -Dankka.cluster.tests=off test` green; `gh workflow run cluster --ref 057-tenancy-and-replication-seams`

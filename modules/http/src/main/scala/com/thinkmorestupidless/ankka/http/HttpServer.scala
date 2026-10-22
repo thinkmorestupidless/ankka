@@ -1325,7 +1325,7 @@ private[ankka] object Tracing:
     )
     var outcome = SpanOutcome.Failed
     try
-      try Trace.within(span, origin)(body)
+      try attributed(Trace.within(span, origin)(body))
       catch case _: SocketClosed => ()
       outcome = SpanOutcome.Ok
     finally
@@ -1387,10 +1387,20 @@ private[ankka] object Tracing:
       .foreach(p => observability.recorder.withSubject(span, p.subject))
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span, origin)(body)
+      val result = attributed(Trace.within(span, origin)(body))
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)
+
+  /**
+   * Runs `body` as the work of the principal admission found, if it found one (spec 057): every
+   * component call the handler makes carries their subject as `ankka-attribution`, and nothing else
+   * about them. A handler whose ACL authenticated nobody makes calls that name no one.
+   */
+  private def attributed[A](body: => A): A =
+    RequestScope.currentContext.flatMap(_.principal).map(_.subject) match
+      case Some(subject) => com.thinkmorestupidless.ankka.runtime.Attribution.within(subject)(body)
+      case None          => body
 
 /**
  * What a server needs to open a socket: the limits, pekko-http's settings for the upgrade with the

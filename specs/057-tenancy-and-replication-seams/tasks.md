@@ -143,7 +143,7 @@ all green.
 
 **Goal**: FR-010 to FR-012. **Independent test**: `ForwardingFeatures` with its two new scenarios.
 
-- [ ] T025 [US4] `modules/http/.../HttpServer.scala`: enter `Attribution.within(principal.subject)`
+- [X] T025 [US4] `modules/http/.../HttpServer.scala`: enter `Attribution.within(principal.subject)`
   around a handler whose `RequestContext` holds a principal, in the wrapper that enters the trace;
   an `HttpServer` suite case that a component call from an authenticated handler carries
   `ankka-attribution` and one from an unauthenticated handler does not (R9)

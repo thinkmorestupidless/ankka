@@ -69,7 +69,7 @@ final class VehicleEntity(ctx: EventSourcedEntityContext)
     vehicle.copy(
       writtenAt = vehicle.writtenAt :+ eventContext.installation,
       local = vehicle.local :+ eventContext.isLocal,
-      // Who acted on the command that wrote it, as its record says (spec 057).
+      // Who acted on the command that wrote it, as its record says.
       actedBy = vehicle.actedBy :+ eventContext.attribution
     )
   // docs:end replicated-apply

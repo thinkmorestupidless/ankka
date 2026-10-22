@@ -196,7 +196,7 @@ all green.
   `docs/concepts/tenancy-and-access.md`, `docs/platform/organizations.md`, `docs/deploy/ci.md`
   (`--project`), `docs/platform/broker.md` and `docs/reference/configuration.md`
   (`ANKKA_BROKER_NODES`, `ANKKA_INSTALLATIONS`)
-- [ ] T036 [P] `docs/concepts/replicated-entities.md`: a transport beside the runtime's own (the
+- [X] T036 [P] `docs/concepts/replicated-entities.md`: a transport beside the runtime's own (the
   provider's set, `ReplicationPeer`, `Installations.using`, `ANKKA_INSTALLATIONS`), the forwarded
   write's caller and attribution, admission at the home; `docs/reference/sidecar-protocol.md` 1.22
 - [ ] T037 `docs/reference/limitations.md`: erasure reported as not stated until spec 042;

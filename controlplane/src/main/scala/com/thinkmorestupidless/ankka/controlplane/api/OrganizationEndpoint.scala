@@ -352,7 +352,9 @@ final class OrganizationEndpoint(
           createdBy = row.createdBy,
           createdAt = row.createdAt,
           expiresAt = row.expiresAt,
-          lastUsed = row.lastUsed
+          lastUsed = row.lastUsed,
+          project = row.project,
+          administrative = row.administrative
         )
       )
   }
@@ -369,6 +371,12 @@ final class OrganizationEndpoint(
     val access   = authz.requireOwner(principal, organizationId, write = true)
     val problems = DeployTokenRules.problems(request.label, request.expiresIn)
     if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+    // A token scoped to one project names a project of this organization. Any other, or one that
+    // does not exist, is answered as a stranger asking for it would be.
+    request.project.foreach { projectId =>
+      if !authz.organizationOf(projectId).contains(organizationId) then
+        throw CommandError(s"no such project '$projectId'", ErrorCode.NotFound)
+    }
 
     val minted = DeployTokens.mint()
     // The server's clock decides when a lifetime ends; a client sending an instant would be
@@ -382,7 +390,13 @@ final class OrganizationEndpoint(
       .call(DeployTokenEntity.createToken)
       .withMetadata(by)
       .invoke(
-        RecordDeployToken(organizationId, request.label.trim, minted.digest, expiresAt)
+        RecordDeployToken(
+          organizationId,
+          request.label.trim,
+          minted.digest,
+          expiresAt,
+          request.project
+        )
       ): Done
 
     entity(organizationId)
@@ -399,7 +413,14 @@ final class OrganizationEndpoint(
     // Usable on this node at once, rather than at the next read-refresh. Without it the obvious
     // script — create a token, then use it — fails against the very node that minted it.
     tokenIndex.foreach(
-      _.admit(minted.id, minted.digest, organizationId, request.label.trim, expiresAt)
+      _.admit(
+        minted.id,
+        minted.digest,
+        organizationId,
+        request.label.trim,
+        expiresAt,
+        request.project
+      )
     )
 
     DeployTokenCreated(
@@ -407,7 +428,8 @@ final class OrganizationEndpoint(
       label = request.label.trim,
       secret = minted.presented,
       subject = DeployToken.subjectOf(minted.id),
-      expiresAt = expiresAt
+      expiresAt = expiresAt,
+      project = request.project
     )
   }
 

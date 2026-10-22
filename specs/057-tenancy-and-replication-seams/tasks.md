@@ -41,7 +41,7 @@ munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
   `projectOwner` throw `noSuchProject` for a scoped token on another project; `requireMember` on
   an organization route narrows the project listing (`OrganizationEndpoint`'s projects route
   filters by the scope); new `projectGrants(principal, projectId)` (R1, R2)
-- [ ] T006 [US1] `controlplane/.../api/OrganizationEndpoint.scala`: `POST .../tokens` validates
+- [X] T006 [US1] `controlplane/.../api/OrganizationEndpoint.scala`: `POST .../tokens` validates
   and records `project`; the list carries `project` and `administrative`; `ProjectEndpoint.scala`:
   `POST /projects/{id}/grants` and `DELETE .../grants/{grantId}` use `projectGrants`
 - [ ] T007 [US1] `controlplane/src/test/.../AuthorizationMatrixSuite.scala`: tests named "a deploy

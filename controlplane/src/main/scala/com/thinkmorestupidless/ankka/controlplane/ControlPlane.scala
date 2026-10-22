@@ -155,6 +155,9 @@ object ControlPlane:
       /** The installation's topic defaults, bounds and warning threshold (feature 043). */
       topicPolicy: => com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
         com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
+      /** The broker's node count, as `GET /installation` reports it (`ANKKA_BROKER_NODES`). */
+      brokerFacts: => com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated,
       /**
        * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
        * resolver `deploy` names, or the system's; a suite passes one it scripts.
@@ -234,7 +237,9 @@ object ControlPlane:
           platform,
           hold,
           installationSecrets,
-          installationModels
+          installationModels,
+          topicPolicy,
+          brokerFacts
         )
     ) ++ {
       val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
@@ -299,6 +304,8 @@ object ControlPlane:
     val backups = BackupConfig.from(config)
     val topicPolicy =
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
+    val brokerFacts =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.from(config)
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.
     val backend = secrets.SecretBackendConfig.from(config)
@@ -352,7 +359,8 @@ object ControlPlane:
             hold = hold,
             machineSettings = machines,
             machineKeys = Some(keys),
-            topicPolicy = topicPolicy
+            topicPolicy = topicPolicy,
+            brokerFacts = brokerFacts
           )*
         )
       case _ =>
@@ -377,7 +385,8 @@ object ControlPlane:
             hold = hold,
             machineSettings = machines,
             machineKeys = Some(keys),
-            topicPolicy = topicPolicy
+            topicPolicy = topicPolicy,
+            brokerFacts = brokerFacts
           )*
         )
     val served = Ankka.service

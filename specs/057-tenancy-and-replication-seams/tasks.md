@@ -75,7 +75,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
   in `PlatformOnly`; `controlplane/.../tenancy/BrokerFacts.scala` (`nodes: Option[Int]` from
   `ankka.controlplane.broker.nodes = ${?ANKKA_BROKER_NODES}` in `reference.conf`);
   `PlatformDeclarationSuite` green (R4)
-- [ ] T012 [US5] `controlplane/.../api/InstallationEndpoint.scala` and `ControlPlane.scala`: the
+- [X] T012 [US5] `controlplane/.../api/InstallationEndpoint.scala` and `ControlPlane.scala`: the
   endpoint takes `TopicPolicy` and `BrokerFacts`; fills `broker`, `retention`; `erasure = None` with
   a comment naming spec 042; `InstallationRouteSuite` cases for each field and for an unset node
   count

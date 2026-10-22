@@ -101,6 +101,7 @@ class ReplicationResolutionSuite extends munit.FunSuite:
     assert(message.contains("replication transport"), message)
     assert(message.contains("vienna") && message.contains("bratislava"), message)
     assert(message.contains("ANKKA_INSTALLATION_<NAME>_DB_HOST"), message)
+    assert(message.contains("ANKKA_INSTALLATIONS"), "the hint names both forms: " + message)
     // The refusal is written where the platform reads why a container stopped.
     assert(Files.readString(termination).contains("replication transport"))
   }
@@ -109,6 +110,21 @@ class ReplicationResolutionSuite extends munit.FunSuite:
     val replication =
       resolve(twoWithDatabases + "\nankka.test.replication-provider = on").getOrElse(fail("none"))
     assertEquals(replication.transport.name, TestProvider.Name)
+  }
+
+  test("a provider is given the components the service declares replicated, and no others") {
+    val plain = descriptor("plain", ComponentKind.EventSourcedEntity, false)
+    val replication = ReplicationRuntime
+      .resolve(
+        system,
+        config(twoWithDatabases + "\nankka.test.replication-provider = on"),
+        Seq(vehicle, plain),
+        None,
+        LoopbackReplication.none
+      )
+      .getOrElse(fail("none"))
+    assertEquals(replication.transport.name, TestProvider.Name)
+    assertEquals(TestProvider.seen.get(), Set(ComponentId("vehicle")))
   }
 
   test("a provider that is not configured leaves the choice to the runtime") {
@@ -149,15 +165,23 @@ final class TestProvider extends ReplicationTransportProvider:
   def transport(
       system: ActorSystem[?],
       config: Config,
-      settings: ReplicationSettings
+      settings: ReplicationSettings,
+      replicated: Set[ComponentId]
   ): Option[ReplicationTransport] =
     Option.when(
       config.hasPath("ankka.test.replication-provider") &&
         config.getBoolean("ankka.test.replication-provider")
-    )(TestProvider.Nobody(TestProvider.Name))
+    ) {
+      TestProvider.seen.set(replicated)
+      TestProvider.Nobody(TestProvider.Name)
+    }
 
 object TestProvider:
   val Name = "the test provider's transport"
+
+  /** The replicated components the provider was last given. */
+  val seen: java.util.concurrent.atomic.AtomicReference[Set[ComponentId]] =
+    java.util.concurrent.atomic.AtomicReference(Set.empty)
 
   /** A transport that reaches nobody. */
   final case class Nobody(name: String) extends ReplicationTransport:

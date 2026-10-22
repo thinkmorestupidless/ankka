@@ -52,9 +52,10 @@ object ReplicationSettings:
       )
 
   /**
-   * Reads the settings, with `ANKKA_INSTALLATION_<NAME>_DB_*` from `env` added over the
-   * configuration's `installations`. Throws `IllegalArgumentException` naming the setting when a
-   * name is not one an installation may have.
+   * Reads the settings, with `ANKKA_INSTALLATIONS` (names alone, comma-separated) and
+   * `ANKKA_INSTALLATION_<NAME>_DB_*` from `env` added over the configuration's `installations`; a
+   * name in the list that also has a database is one installation, with that database. Throws
+   * `IllegalArgumentException` naming the setting when a name is not one an installation may have.
    */
   def from(config: Config, env: Map[String, String] = sys.env): ReplicationSettings =
     val c    = withEnvironment(config, env).getConfig("ankka.replication")
@@ -99,8 +100,29 @@ object ReplicationSettings:
     "_DB_PASSWORD" -> "password"
   )
 
-  /** `ANKKA_INSTALLATION_<NAME>_DB_*` as `ankka.replication.installations.<name>.db.*`. */
+  /**
+   * `ANKKA_INSTALLATIONS=a,b` as `ankka.replication.installations."a" {}` and `."b" {}` (spec 057),
+   * and `ANKKA_INSTALLATION_<NAME>_DB_*` as `ankka.replication.installations.<name>.db.*`.
+   */
   private def withEnvironment(config: Config, env: Map[String, String]): Config =
+    val listed = env
+      .get(PlatformVariables.Installations)
+      .toVector
+      .flatMap(_.split(',').toVector)
+      .map(_.trim.toLowerCase)
+      .filter(_.nonEmpty)
+    listed.flatMap(nameProblem).headOption.foreach { p =>
+      throw IllegalArgumentException(s"${PlatformVariables.Installations}: $p")
+    }
+    val named = listed.foldLeft(ConfigFactory.empty) { (acc, name) =>
+      acc.withValue(
+        s"ankka.replication.installations.${quoted(name)}",
+        ConfigValueFactory.fromMap(java.util.Map.of[String, AnyRef]())
+      )
+    }
+    withDatabases(env).withFallback(named).withFallback(config)
+
+  private def withDatabases(env: Map[String, String]): Config =
     val entries = env.toVector.flatMap { (key, value) =>
       if !key.startsWith(PlatformVariables.InstallationPrefix) then None
       else
@@ -115,4 +137,3 @@ object ReplicationSettings:
       .foldLeft(ConfigFactory.empty) { case (acc, (path, value)) =>
         acc.withValue(path, ConfigValueFactory.fromAnyRef(value))
       }
-      .withFallback(config)

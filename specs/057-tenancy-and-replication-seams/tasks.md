@@ -111,12 +111,12 @@ the control plane half may be reviewed on its own.
 **Goal**: FR-006 to FR-009. **Independent test**: `TransportFeatures` and `TestkitFeatures` with
 the four new scenarios; `ReplicationSettingsSuite`.
 
-- [ ] T019 [US3] `modules/runtime/.../replication/ReplicationTransport.scala`: `ReplicationTransportProvider.transport(system, config, settings, replicated)`;
+- [X] T019 [US3] `modules/runtime/.../replication/ReplicationTransport.scala`: `ReplicationTransportProvider.transport(system, config, settings, replicated)`;
   `ReplicationRuntime.resolve` passes the set; the runtime's own test `TestProvider` updated (R5)
-- [ ] T020 [US3] `modules/runtime/.../replication/ReplicationPeer.scala`: `reported(...)`;
+- [X] T020 [US3] `modules/runtime/.../replication/ReplicationPeer.scala`: `reported(...)`;
   `DatabaseReplicationTransport.report` and `LoopbackRoutes`' report route call it;
   `HandoverFeatures` unchanged and green (R6)
-- [ ] T021 [US3] `modules/runtime/.../replication/ReplicationSettings.scala`: `ANKKA_INSTALLATIONS`
+- [X] T021 [US3] `modules/runtime/.../replication/ReplicationSettings.scala`: `ANKKA_INSTALLATIONS`
   in `withEnvironment`, merged with the database form; `ReplicationRuntime.scala`'s refusal hint
   names both forms; `ReplicationSettingsSuite`: the list alone, the list plus a database for one
   name, a name that is not a DNS label refused (R8)

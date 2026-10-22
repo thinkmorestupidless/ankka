@@ -131,9 +131,17 @@ final case class Advanced(
  */
 trait ReplicationTransportProvider:
 
-  /** `None` when this provider is not configured; the runtime then falls back or refuses. */
+  /**
+   * `None` when this provider is not configured; the runtime then falls back or refuses.
+   *
+   * `replicated` is every component of the service declared replicated, the set the test kit's
+   * `ReplicationTransportFactory` is given too, and empty when none is: a transport serves and
+   * tails those and no others (spec 057; a provider written against feature 051's two-argument form
+   * does not compile against this one).
+   */
   def transport(
       system: ActorSystem[?],
       config: Config,
-      settings: ReplicationSettings
+      settings: ReplicationSettings,
+      replicated: Set[ComponentId]
   ): Option[ReplicationTransport]

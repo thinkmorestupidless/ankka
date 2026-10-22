@@ -79,7 +79,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
   endpoint takes `TopicPolicy` and `BrokerFacts`; fills `broker`, `retention`; `erasure = None` with
   a comment naming spec 042; `InstallationRouteSuite` cases for each field and for an unset node
   count
-- [ ] T013 [US5] `controlplane/src/test/.../InstallationFactsFeatures.scala`:
+- [X] T013 [US5] `controlplane/src/test/.../InstallationFactsFeatures.scala`:
   `GherkinSuite("../features/installation/facts.feature")` over `InstallationRouteSuite`'s harness,
   the configuration by system properties; both scenarios green, the first seen red with the fields
   left out

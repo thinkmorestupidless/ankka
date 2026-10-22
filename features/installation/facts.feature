@@ -4,17 +4,16 @@ Feature: What the installation reports about itself
   its erasure, its broker and the longest retention a topic may be given. A fact the control
   plane cannot read is reported as not stated, never guessed.
 
-  Scenario: what the installation reports includes its erasure, its broker and its longest retention
-    Given an installation whose erasure is on with "2" keyring instances
-    And whose broker has "3" nodes and gives a topic "3" copies with "2" in sync by default
+  Scenario: what the installation reports includes its broker and its longest retention
+    Given an installation whose broker has "3" nodes and gives a topic "3" copies with "2" in sync by default
     And whose longest retention is unbounded
     When a caller with a token reads the installation
-    Then the installation reports its erasure as on with "2" keyring instances
-    And its broker as "3" nodes, "3" copies and "2" in sync by default
+    Then the installation reports its broker as "3" nodes, "3" copies and "2" in sync by default
     And its longest retention as unbounded, beside its backups
 
   Scenario: a fact the control plane cannot read is reported as not stated
-    Given an installation whose broker cannot be read
+    Given an installation whose number of broker nodes is not known to the control plane
+    And whose erasure the platform does not yet have
     When a caller with a token reads the installation
-    Then the installation reports its broker as not stated
+    Then the installation reports its broker's nodes as not stated and its erasure as not stated
     And every other fact as it is

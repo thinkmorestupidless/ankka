@@ -141,9 +141,10 @@ them names both.
 A write forwarded from one installation to the entity's home reaches the home as a call made by
 the forwarding installation's own identity, admitted by what that identity is granted, as any call
 across installations would be. The principal who made the original call travels with the forwarded
-command as its attribution: the handler at the home can read it, the journal records it with the
-event, and the entity's history shows who acted and where the write was forwarded from (one
-scenario covers the call, the attribution and the history line). The
+command as its attribution: the handler at the home can read it, and the journal records it with the
+event beside the installation the write was forwarded from, so the entity's own record of the
+change says who acted and from where (one scenario covers the call, the attribution and the
+record). The
 forwarding installation never lends the caller's token.
 
 **Why this priority**: Decided for the family on 2026-10-22; the vendor's agent permission model
@@ -164,10 +165,12 @@ shows both.
 ### User Story 5 - The installation reports what a requirement asks (Priority: P2)
 
 Any caller with a token reads, in the one read of the installation that already reports its
-backups, whether erasure is on and how many keyring instances hold its keys, how many nodes the
-broker has and the copies and in-sync minimum it gives a topic by default, and the longest
-retention a topic may be given, or that it is unbounded. A fact the control plane cannot read is
-reported as not stated, never guessed; an older control plane leaves the fields absent.
+backups, how many nodes the broker has and the copies and in-sync minimum it gives a topic by
+default, the longest retention a topic may be given, or that it is unbounded, and whether erasure
+is on and how many keyring instances hold its keys. A fact the control plane cannot read is
+reported as not stated, never guessed; an older control plane leaves the fields absent. Erasure
+(spec 042) is not built yet, so this release reports it as not stated and reserves its shape; a
+requirement that names it is unmet until 042 lands, which is honest rather than a guess.
 
 **Why this priority**: A product's module may require facts of the installation before it is
 applied (a real-money brand needs backups off the cluster, erasure on, three broker nodes and
@@ -178,7 +181,7 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
 
 **Acceptance Scenarios**:
 
-- added `features/installation/facts.feature`: what the installation reports includes its erasure, its broker and its longest retention
+- added `features/installation/facts.feature`: what the installation reports includes its broker and its longest retention
 - added `features/installation/facts.feature`: a fact the control plane cannot read is reported as not stated
 
 ---
@@ -205,6 +208,8 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
   two forms agree on the name and the database form adds the database; a name in one and not the
   other is one installation.
 - The installation read by an older CLI or console: the new fields are ignored; nothing breaks.
+- A write forwarded and attributed on one machine, with the runtime's own transport: the same
+  attribution and forwarding installation are recorded; nothing is special to a transport.
 
 ## Requirements *(mandatory)*
 
@@ -251,19 +256,19 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
   forwarding installation's own identity, authorized at the home by what that identity holds; the
   caller's own credential MUST NOT travel with the command.
 - **FR-011**: The principal who made the original call MUST travel with the forwarded command as
-  its attribution, readable by the handler at the home in every SDK language, recorded with each
-  event the command persists, and shown in the entity's history together with the installation the write was
-  forwarded from.
+  its attribution, readable by the handler at the home in every SDK language, and recorded with
+  each event the command persists together with the installation the write was forwarded from, so
+  that an event handler, a view or a consumer reading the record sees both.
 - **FR-012**: The home MUST refuse a forwarded write from an installation it does not admit, naming
   the installation, and the caller at the forwarding installation MUST be told so, distinctly from
   the home being unreachable.
 
 **The installation's facts**
 
-- **FR-013**: The read of the installation MUST report, beside its backups: whether erasure is on
-  and the number of keyring instances; the broker's number of nodes and the copies and in-sync
-  minimum it gives a topic by default; and the longest retention a topic may be given, or that it
-  is unbounded.
+- **FR-013**: The read of the installation MUST report, beside its backups: the broker's number of
+  nodes and the copies and in-sync minimum it gives a topic by default; the longest retention a
+  topic may be given, or that it is unbounded; and erasure (whether on, the number of keyring
+  instances) once the platform has it, not stated until then.
 - **FR-014**: A fact the control plane cannot read MUST be reported as not stated; an older
   control plane MUST be readable by a newer client with the fields absent, and a newer control
   plane by an older client.

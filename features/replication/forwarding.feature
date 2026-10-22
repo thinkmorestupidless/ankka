@@ -44,7 +44,7 @@ Feature: A write that reaches a follower is handled by the home
     Then the handler at "leipzig" sees the caller as the installation "bratislava"
     And the handler at "leipzig" reads "ada" as the attribution of the command
     And the token of "ada" never reaches "leipzig"
-    And the history of "v1" shows the inspection as acted by "ada" and forwarded from "bratislava"
+    And the record of the inspection in the journal of "v1" carries "ada" as its attribution and "bratislava" as where it was forwarded from
 
   Scenario: a forwarded write from an installation the home does not admit is refused naming the installation
     Given "leipzig" does not admit the installation "vienna"

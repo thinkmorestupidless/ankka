@@ -123,13 +123,15 @@ final class ProjectEndpoint(
    * organizations yields an empty list rather than a refusal, for the reason a read of one does.
    */
   get("/") { () =>
-    val mine = authz.visible(principal).map(_.id).toSet
+    val mine  = authz.visible(principal).map(_.id).toSet
+    val scope = authz.scopedTo(principal)
     val condition = request.query.optional[String]("organization") match
       case Some(organizationId) => jsonText("organizationId") ++ sql" = $organizationId"
       case None                 => SqlFragment.empty
     projects
       .ordered(condition, order = jsonText("name"))
       .filter(detail => mine.contains(detail.organizationId))
+      .filter(detail => scope.forall(_ == detail.id))
       .map(detail => ProjectSummary.of(detail, serviceCount(detail.id)))
   }
 
@@ -869,13 +871,14 @@ final class ProjectEndpoint(
   // ── grants (feature 040) ──────────────────────────────────────────────────
 
   /**
-   * Makes a grant. Only an owner of the project's organization may. The checks that read other
-   * entities are here: the grantee's project must exist, and the grantee's organization decides
-   * whether the grant waits for an answer — a grantee of this project's own organization takes
-   * effect at once, any other is pending. The project's own rules are the entity's.
+   * Makes a grant. An owner of the project's organization may, and so may a deploy token scoped to
+   * this project. The checks that read other entities are here: the grantee's project must exist,
+   * and the grantee's organization decides whether the grant waits for an answer — a grantee of
+   * this project's own organization takes effect at once, any other is pending. The project's own
+   * rules are the entity's.
    */
   postBody("/{projectId}/grants") { (projectId: String, request: GrantRequest) =>
-    val access   = authz.projectOwner(principal, projectId, write = true)
+    val access   = authz.projectGrants(principal, projectId)
     val problems = GrantRules.problems(request)
     if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
     val grantee = Grantee.parse(request.grantee).toOption.get
@@ -958,11 +961,11 @@ final class ProjectEndpoint(
   }
 
   /**
-   * Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. Only
-   * an owner of the project's organization may.
+   * Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. An
+   * owner of the project's organization may, and so may a deploy token scoped to this project.
    */
   delete("/{projectId}/grants/{grantId}") { (projectId: String, grantId: String) =>
-    val access = authz.projectOwner(principal, projectId, write = true)
+    val access = authz.projectGrants(principal, projectId)
     val grant = entity(projectId)
       .call(ProjectEntity.grants)
       .invoke()

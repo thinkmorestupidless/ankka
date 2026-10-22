@@ -37,7 +37,7 @@ the docs and the release note.
 **Goal**: FR-001 to FR-003. **Independent test**: the four `deploy-tokens.feature` scenarios as
 munit tests; `AuthorizationMatrixSuite` test 10 unchanged and green.
 
-- [ ] T005 [US1] `controlplane/.../auth/Authorization.scala`: `scopedTo`; `project` and
+- [X] T005 [US1] `controlplane/.../auth/Authorization.scala`: `scopedTo`; `project` and
   `projectOwner` throw `noSuchProject` for a scoped token on another project; `requireMember` on
   an organization route narrows the project listing (`OrganizationEndpoint`'s projects route
   filters by the scope); new `projectGrants(principal, projectId)` (R1, R2)

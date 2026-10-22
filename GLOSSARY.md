@@ -3099,12 +3099,12 @@ registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, u
 withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years
 
 ### project token
-*Proposed.* A deploy token scoped to one project of its organization: a member of that project
+A deploy token scoped to one project of its organization: a member of that project
 and of no other, told there is no such project for any other, able to do in its project what a
 deploy token can and to make and end the project's grants. Avoid: project credential, scoped token.
 
 ### attribution
-*Proposed.* The principal who made the original call, carried with a command the runtime forwards
+The principal who made the original call, carried with a command the runtime forwards
 to an entity's home, read by the handler there and recorded with the events the command persists.
 The home authorizes the forwarding installation, never the attribution. Avoid: on-behalf-of,
 impersonation.

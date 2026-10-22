@@ -38,6 +38,21 @@ product that provisions an organization for a stranger cannot deploy its agent b
 signs in; and the installation reports its backups but not the other facts a product's
 requirements name.
 
+## Clarifications
+
+### Session 2026-10-22
+
+- Q: May every project-scoped deploy token make and end its project's grants, or is that asked for
+  at creation? → A: every project-scoped token may; there is no opt-in flag. Organization-wide
+  deploy tokens keep today's rule.
+- Q: Does 057 define how the home admits a forwarding installation of another organization? → A:
+  no. 057 defines the forwarding installation's identity as the caller and the attribution; a grant
+  whose grantee is an installation's identity is ankka-replication spec 002's. Within one
+  organization or one machine nothing changes.
+- Q: Does the attribution reach a handler in every SDK language, or Scala only? → A: every
+  language; the sidecar's protocol carries it beside the caller it already carries, under the
+  version bump the release makes anyway. (Coordinator's decision, for Trevor to overrule.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A deploy token for one project (Priority: P1)
@@ -202,8 +217,8 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
   member of that project and of no other, told "no such project" for any other project of the
   organization exactly as a stranger is, and listed with the project it is scoped to.
 - **FR-002**: A project-scoped deploy token MUST be able to do in its project everything an
-  organization-wide deploy token can, and in addition make and end the project's own grants; it
-  MUST NOT be able to accept, decline or relinquish a grant, manage members or tokens, or act on
+  organization-wide deploy token can, and in addition make and end the project's own grants, with
+  no flag to ask for that right; it MUST NOT be able to accept, decline or relinquish a grant, manage members or tokens, or act on
   the organization above its project.
 - **FR-003**: A project-scoped token's changes MUST be attributed to the token as today, and its
   scope MUST survive the project's renaming and end with the project's deletion.
@@ -236,8 +251,8 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
   forwarding installation's own identity, authorized at the home by what that identity holds; the
   caller's own credential MUST NOT travel with the command.
 - **FR-011**: The principal who made the original call MUST travel with the forwarded command as
-  its attribution, readable by the handler at the home, recorded with each event the command
-  persists, and shown in the entity's history together with the installation the write was
+  its attribution, readable by the handler at the home in every SDK language, recorded with each
+  event the command persists, and shown in the entity's history together with the installation the write was
   forwarded from.
 - **FR-012**: The home MUST refuse a forwarded write from an installation it does not admit, naming
   the installation, and the caller at the forwarding installation MUST be told so, distinctly from
@@ -287,8 +302,8 @@ default copy, the shipped retention bound; on a cluster configured for the oppos
   subject, a token's `token:<id>`, a machine's client id, or a service's identity); nothing else
   about the principal travels.
 - The forwarding installation's identity at the home is the identity spec 051 gives a service
-  calling itself at another installation, and a grant to it is made as any cross-installation
-  grant is (ankka-replication 002's concern).
+  calling itself at another installation. Admitting it across organizations, by a grant whose
+  grantee is an installation's identity, is ankka-replication 002's and is out of scope here.
 - `ANKKA_INSTALLATIONS` is the only new environment form; `ANKKA_INSTALLATION_<NAME>=on` was the
   alternative and is not added.
 

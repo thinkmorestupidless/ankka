@@ -83,7 +83,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
   `GherkinSuite("../features/installation/facts.feature")` over `InstallationRouteSuite`'s harness,
   the configuration by system properties; both scenarios green, the first seen red with the fields
   left out
-- [ ] T014 [P] [US5] `kustomization/components/broker/` and `broker-three-nodes/`: `ANKKA_BROKER_NODES`
+- [X] T014 [P] [US5] `kustomization/components/broker/` and `broker-three-nodes/`: `ANKKA_BROKER_NODES`
   (`1`, `3`) beside the topic defaults; the k3s suite that reads `/installation`
   (`EndToEndClusterSuite` or the installation-models one) asserts `broker.nodes` is stated on kind
 - [X] T015 [P] [US5] `cli/.../Output.scala`, `Main.scala`: `ankka installation` prints `broker` and

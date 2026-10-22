@@ -327,8 +327,12 @@ impl<C: EventSourcedEntity> Registration<C> {
         let here = (!command.installation.is_empty()).then(|| command.installation.clone());
         // A runtime before 1.19 sends no installation, and every command it sends is at the home.
         let at_home = command.at_home || here.is_none();
+        let non_empty = |text: &str| (!text.is_empty()).then(|| text.to_string());
+        let attribution = non_empty(&command.attribution);
+        let forwarded_from = non_empty(&command.forwarded_from);
         let ctx = Context::new(C::COMPONENT_ID, entity_id.clone(), sequence, metadata)
-            .at_installation(here.clone(), at_home);
+            .at_installation(here.clone(), at_home)
+            .attributed(attribution.clone(), forwarded_from.clone());
         let Some(entry) = self.handlers.find(&command.name) else {
             let refusal = CommandError::new(
                 ErrorCode::NotFound,
@@ -364,7 +368,8 @@ impl<C: EventSourcedEntity> Registration<C> {
                 C::apply_at(
                     state,
                     event,
-                    &EventContext::new(here.clone(), true, applied),
+                    &EventContext::new(here.clone(), true, applied)
+                        .attributed(attribution.clone(), forwarded_from.clone()),
                 )
             },
             effect,

@@ -116,15 +116,20 @@ pub struct Context {
     standing: Option<crate::standing::Standing>,
     installation: Option<String>,
     at_home: bool,
+    attribution: Option<String>,
+    forwarded_from: Option<String>,
 }
 
 /// Where the event `apply_at` is applying was written (protocol 1.19): the installation, if one is
-/// named, whether that is this installation, and the event's sequence number.
+/// named, whether that is this installation, and the event's sequence number; who acted on the
+/// command that wrote it and where that command was forwarded from, as recorded (protocol 1.22).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventContext {
     installation: Option<String>,
     local: bool,
     sequence: i64,
+    attribution: Option<String>,
+    forwarded_from: Option<String>,
 }
 
 impl EventContext {
@@ -135,7 +140,33 @@ impl EventContext {
             installation,
             local,
             sequence,
+            attribution: None,
+            forwarded_from: None,
         }
+    }
+
+    /// This event as written by a command `attribution` acted on, forwarded from `forwarded_from`
+    /// (protocol 1.22): what the runtime builds for an event it applies, and a test builds for one.
+    pub fn attributed(
+        mut self,
+        attribution: Option<String>,
+        forwarded_from: Option<String>,
+    ) -> EventContext {
+        self.attribution = attribution;
+        self.forwarded_from = forwarded_from;
+        self
+    }
+
+    /// The subject of the principal who made the call that wrote this event; `None` when none
+    /// named one.
+    pub fn attribution(&self) -> Option<&str> {
+        self.attribution.as_deref()
+    }
+
+    /// The installation the command that wrote this event was forwarded from; `None` when it was
+    /// not.
+    pub fn forwarded_from(&self) -> Option<&str> {
+        self.forwarded_from.as_deref()
     }
 
     /// The installation that wrote the event; `None` on a service that names no installations.
@@ -177,7 +208,31 @@ impl Context {
             standing: None,
             installation: None,
             at_home: true,
+            attribution: None,
+            forwarded_from: None,
         }
+    }
+
+    /// This context for a command `attribution` acted on, forwarded from `forwarded_from`
+    /// (protocol 1.22): what the runtime builds for a command, and a test builds for one.
+    pub fn attributed(
+        mut self,
+        attribution: Option<String>,
+        forwarded_from: Option<String>,
+    ) -> Context {
+        self.attribution = attribution;
+        self.forwarded_from = forwarded_from;
+        self
+    }
+
+    /// The subject of the principal who made the original call; `None` when none named one.
+    pub fn attribution(&self) -> Option<&str> {
+        self.attribution.as_deref()
+    }
+
+    /// The installation this command was forwarded from to its home; `None` when it was not.
+    pub fn forwarded_from(&self) -> Option<&str> {
+        self.forwarded_from.as_deref()
     }
 
     /// This context at `installation`, which is or is not the replicated entity's home: what the

@@ -233,6 +233,9 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     snapshot_requested: false,
                     installation: self.here().unwrap_or_default(),
                     at_home: !matches!(self.mode, ReplicationMode::Follower { .. }),
+                    // The unit kit's calls are made by nobody and forwarded from nowhere.
+                    attribution: String::new(),
+                    forwarded_from: String::new(),
                 },
             )),
         };

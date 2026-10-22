@@ -72,3 +72,27 @@ Feature: Deploy tokens
     When a machine sends a request with the deploy token 90 days after it was created
     Then the control plane admits the request as a member of "acme"
     And a list of the deploy tokens of "acme" says the deploy token never expires
+
+  Scenario: a deploy token scoped to one project acts in that project and is told there is no other
+    Given an owner creates a project token for the project "orders"
+    When the project token applies a service in "orders"
+    Then the service is applied, attributed to the project token
+    When the project token asks for the project "billing" of the same organization
+    Then it is told there is no such project
+
+  Scenario: a project-scoped deploy token makes and ends its project's grants
+    Given a project token for the project "orders"
+    When the project token grants the service "payments/merchant" a route of "orders"
+    Then the grant is made, attributed to the project token
+    When the project token ends the grant
+    Then the grant is ended
+
+  Scenario: a project-scoped deploy token may not do what only an owner may
+    Given a project token for the project "orders"
+    When the project token tries to create a deploy token, to invite a member, and to accept a grant offered to the organization
+    Then each is refused as beyond what a project token may do
+
+  Scenario: a deploy token's list says which project a token is scoped to
+    Given a project token for the project "orders" and a deploy token for the whole organization
+    When an owner lists the organization's deploy tokens
+    Then the list shows the first scoped to "orders" and the second scoped to no project

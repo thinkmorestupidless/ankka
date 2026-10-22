@@ -28,3 +28,22 @@ Feature: The replication transport
       | workflow         |
       | agent            |
       | timer            |
+
+  Scenario: a transport beside the runtime's own is given the replicated components it serves
+    Given a service "fleet" with a replicated entity "vehicle" and an entity "depot" that is not replicated
+    And a transport beside the runtime's own
+    When "fleet" starts
+    Then the transport is given "vehicle" as the replicated components and not "depot"
+
+  Scenario: a transport beside the runtime's own delivers a handover's report to the local copy
+    Given a service "fleet" running at "leipzig" and "bratislava" over a transport beside the runtime's own
+    And the vehicle "v1" homed at "leipzig" with "bratislava" in its replication set
+    When the home of "v1" is handed over to "bratislava"
+    Then the transport delivers the handover's report to the copy at "leipzig" through the runtime's public operation
+    And the next write to "v1" is handled at "bratislava"
+
+  Scenario: a service names an installation it reaches through a transport beside the runtime's own by its name alone
+    Given a service "fleet" started with the environment naming the installations "leipzig" and "bratislava" and no database for them
+    And a transport beside the runtime's own
+    When "fleet" starts
+    Then "fleet" names "leipzig" and "bratislava" as installations it may replicate with

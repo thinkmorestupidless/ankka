@@ -37,3 +37,17 @@ Feature: A write that reaches a follower is handled by the home
   Scenario: a read at an installation outside the replication set is refused naming the home
     When a caller at "vienna" sends the query "get" to "v1"
     Then the caller is refused with an error naming "leipzig" as the home of "v1"
+
+  Scenario: a forwarded write reaches the home as a call by the forwarding installation, with the caller who acted as its attribution
+    Given a person "ada" calling at "bratislava"
+    When "ada" sends the command "record-inspection" to "v1"
+    Then the handler at "leipzig" sees the caller as the installation "bratislava"
+    And the handler at "leipzig" reads "ada" as the attribution of the command
+    And the token of "ada" never reaches "leipzig"
+    And the history of "v1" shows the inspection as acted by "ada" and forwarded from "bratislava"
+
+  Scenario: a forwarded write from an installation the home does not admit is refused naming the installation
+    Given "leipzig" does not admit the installation "vienna"
+    When a caller at "vienna" sends the command "record-inspection" to "v1"
+    Then the caller is refused with an error naming "vienna" as not admitted at "leipzig"
+    And the error is not that the home cannot be reached

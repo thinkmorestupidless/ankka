@@ -1,1 +1,3 @@
-{"feature_directory":"specs/056-cli-plugins"}
+{
+  "feature_directory": "specs/057-tenancy-and-replication-seams"
+}

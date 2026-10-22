@@ -166,12 +166,12 @@ all green.
 
 ## Phase 8: Protocol 1.22 (US4 in every language; SC-003)
 
-- [ ] T029 `protocol/src/main/protobuf/ankka/protocol/v1/event_sourced.proto`: `Command.attribution = 8`,
+- [X] T029 `protocol/src/main/protobuf/ankka/protocol/v1/event_sourced.proto`: `Command.attribution = 8`,
   `Command.forwarded_from = 9`, `Event.attribution = 4`, `Event.forwarded_from = 5`;
   `protocol/README.md`; `modules/runtime/.../remote/Conversation.scala` `WireProtocol.Version = "1.22"`;
   `sidecar/.../Discovery.scala` changelog lines for 1.21 and 1.22;
   `remote/RemoteEventSourcedHost.scala` fills and reads the fields; `sidecar` `ProtocolSuite` (R11)
-- [ ] T030 `sidecar/src/test/.../conformance/ConformanceReference.scala`, `ConformanceSuite`: the
+- [X] T030 `sidecar/src/test/.../conformance/ConformanceReference.scala`, `ConformanceSuite`: the
   case "a command carrying attribution and where it was forwarded from persists a record carrying
   both"; `sbt 'sidecar/testOnly *ConformanceSuite'` green
 - [ ] T031 [P] `sdks/python`: proto copy, `service.py` version, `attribution`/`forwarded_from` on

@@ -316,25 +316,47 @@ object ConformanceReference:
    * A replicated entity's state: each step, where its event was written ("" when no installation is
    * named) and whether that was here. The conformance service runs at installation `a` alone.
    */
-  final case class VehicleRecord(steps: List[String], writtenAt: List[String], local: List[Boolean])
+  final case class VehicleRecord(
+      steps: List[String],
+      writtenAt: List[String],
+      local: List[Boolean],
+      /** 1.22: who acted on the command that wrote each step, and where it was forwarded from. */
+      actedBy: List[String],
+      forwardedFrom: List[String]
+  )
 
-  /** Where a command ran: the installation ("" when none is named) and whether it is the home. */
-  final case class VehiclePlacement(installation: String, home: Boolean)
+  /**
+   * Where a command ran: the installation ("" when none is named) and whether it is the home; who
+   * acted and where the command was forwarded from (1.22; "" when none).
+   */
+  final case class VehiclePlacement(
+      installation: String,
+      home: Boolean,
+      attribution: String,
+      forwardedFrom: String
+  )
 
   final case class StepAdded(step: String)
 
   final class ReplicatedVehicle extends EventSourcedEntity[VehicleRecord, StepAdded]:
-    def emptyState: VehicleRecord = VehicleRecord(Nil, Nil, Nil)
+    def emptyState: VehicleRecord = VehicleRecord(Nil, Nil, Nil, Nil, Nil)
     def applyEvent(event: StepAdded): VehicleRecord =
       val s = currentState
       VehicleRecord(
         s.steps :+ event.step,
         s.writtenAt :+ eventContext.installation.getOrElse(""),
-        s.local :+ eventContext.isLocal
+        s.local :+ eventContext.isLocal,
+        s.actedBy :+ eventContext.attribution.getOrElse(""),
+        s.forwardedFrom :+ eventContext.forwardedFrom.getOrElse("")
       )
     def addStep(step: String): Effect[VehiclePlacement] =
       val placement =
-        VehiclePlacement(commandContext.installation.getOrElse(""), commandContext.isHome)
+        VehiclePlacement(
+          commandContext.installation.getOrElse(""),
+          commandContext.isHome,
+          commandContext.attribution.getOrElse(""),
+          commandContext.forwardedFrom.getOrElse("")
+        )
       effects.persist(StepAdded(step)).thenReply(_ => placement)
     def handOver(target: String): Effect[String] =
       effects.handOverTo(target).thenReply(_ => target)

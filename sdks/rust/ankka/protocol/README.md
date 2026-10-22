@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.21`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.22`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -77,6 +77,11 @@ earlier one, and an earlier runtime answers the client key rpcs `UNIMPLEMENTED`.
 `1.21` added the service's object storage for a module: the `storage` import with `StorageRequest`
 and `StorageReply`. No rpc carries it, since a process reaches its buckets over S3 itself; an
 earlier runtime refuses a module importing `storage` when it loads.
+`1.22` added who acted and where a write came from on an event sourced entity: `attribution` and
+`forwarded_from` on `EventSourcedIn.Command` (the subject of the principal who made the original
+call, and the installation that forwarded the command to its home) and on `EventSourcedIn.Event`
+(as recorded with the event). Each is empty when there is nothing to say, so an SDK that ignores
+them reads 1.22 as 1.21.
 
 `MAJOR.MINOR`. Within a major:
 

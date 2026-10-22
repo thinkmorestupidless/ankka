@@ -2483,7 +2483,13 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     // off each event it folds, and hands them to the handler and the event handler.
     val placed = post("/vehicles/rc1/steps", "frame")
     assertEquals(placed.status, 200, placed.body)
-    assertEquals(placed.json, Json.parse("""{"installation":"a","home":true}""").toOption.get)
+    assertEquals(
+      placed.json,
+      Json
+        .parse("""{"installation":"a","home":true,"attribution":"","forwardedFrom":""}""")
+        .toOption
+        .get
+    )
     post("/vehicles/rc1/steps", "wheels")
     // After a restart the state is rebuilt from the journal: the events' installations come back.
     target.restart()
@@ -2493,12 +2499,68 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       read.json,
       Json
         .parse(
-          """{"steps":["frame","wheels"],"writtenAt":["a","a"],"local":[true,true]}"""
+          """{"steps":["frame","wheels"],"writtenAt":["a","a"],"local":[true,true],""" +
+            """"actedBy":["",""],"forwardedFrom":["",""]}"""
         )
         .toOption
         .get
     )
   }
+
+  test(
+    "es.attribution: a command carrying attribution and where it was forwarded from persists a record carrying both"
+  ) {
+    // 1.22. The runtime reads `ankka-attribution` and `ankka.forwarded-from` off the call and puts
+    // them on the command; the SDK hands them to the handler. The record keeps both, and the event
+    // is replayed with them, so the event handler reads them after a restart as well.
+    given ActorSystem[?] = target.system
+    val client = com.thinkmorestupidless.ankka.sdk.ComponentClient(
+      com.thinkmorestupidless.ankka.runtime.ShardingTransport(
+        org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding(target.system),
+        10.seconds
+      )
+    )
+    val placed = client
+      .forEventSourcedEntity(com.thinkmorestupidless.ankka.core.EntityId("at1"))
+      .call(ConformanceReference.ReplicatedVehicle.addStep)
+      .withMetadata(
+        com.thinkmorestupidless.ankka.core.Metadata
+          .of("ankka-attribution" -> "ada", "ankka.forwarded-from" -> "b")
+      )
+      .invoke("frame")
+    assertEquals(placed.attribution, "ada")
+    assertEquals(placed.forwardedFrom, "b")
+    assertEquals(journalAttributions("replicated-vehicle|at1"), Vector(("ada", "b")))
+    target.restart()
+    val read = get("/vehicles/at1")
+    assertEquals(read.status, 200, read.body)
+    assertEquals(
+      read.json("actedBy").flatMap(_.asArray).map(_.flatMap(_.asString).toList),
+      Some(List("ada")),
+      read.body
+    )
+    assertEquals(
+      read.json("forwardedFrom").flatMap(_.asArray).map(_.flatMap(_.asString).toList),
+      Some(List("b")),
+      read.body
+    )
+  }
+
+  /** Each domain record's attribution and forwarding installation, as the journal holds them. */
+  private def journalAttributions(persistenceId: String): Vector[(String, String)] =
+    given ActorSystem[?] = target.system
+    val cbor             = com.fasterxml.jackson.dataformat.cbor.databind.CBORMapper()
+    Await
+      .result(
+        Database().query(
+          SqlFragment.raw(
+            s"SELECT event_payload FROM event_journal WHERE persistence_id = '$persistenceId' ORDER BY seq_nr"
+          )
+        )(r => cbor.readTree(r.get("event_payload", classOf[Array[Byte]]))),
+        10.seconds
+      )
+      .filter(_.path("kind").asInt(0) == 0)
+      .map(n => (n.path("attribution").asText(""), n.path("forwardedFrom").asText("")))
 
   test("es.replicated-effects: a handover and a change to the replication set reach the journal") {
     // The SDK writes the effect's `ReplicationChange` on the reply; the runtime writes it as the

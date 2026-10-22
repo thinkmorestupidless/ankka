@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.runtime.replication.{
   Where
 }
 import com.thinkmorestupidless.ankka.runtime.{
+  Attribution,
   CallOrigin,
   EntityProtocol,
   JournalRecord,
@@ -95,8 +96,16 @@ private[ankka] object RemoteEventSourcedHost:
     def fresh(nowMillis: Long): Boolean   = deleted || expired(nowMillis)
 
   enum Journaled:
-    /** `installation` is the record's writer as read back; `None` for one being written here. */
-    case Domain(payload: Payload, installation: Option[String] = None)
+    /**
+     * `installation` is the record's writer as read back; `None` for one being written here.
+     * `attribution` and `forwardedFrom` as the in-process host's (spec 057).
+     */
+    case Domain(
+        payload: Payload,
+        installation: Option[String] = None,
+        attribution: Option[String] = None,
+        forwardedFrom: Option[String] = None
+    )
     case Deleted
     case Expiry(atEpochMillis: Long)
     case Replication(record: Platform)
@@ -217,8 +226,22 @@ private[ankka] object RemoteEventSourcedHost:
                         )
                       // A record with no installation was written here (a follower stamps what it
                       // mirrors), so a replicated entity's process is told this installation.
-                      if rep.isEmpty then s.event(envelope.sequenceNr, payload)
-                      else s.event(envelope.sequenceNr, payload, record.installation.orElse(self))
+                      if rep.isEmpty then
+                        s.event(
+                          envelope.sequenceNr,
+                          payload,
+                          None,
+                          record.attribution,
+                          record.forwardedFrom
+                        )
+                      else
+                        s.event(
+                          envelope.sequenceNr,
+                          payload,
+                          record.installation.orElse(self),
+                          record.attribution,
+                          record.forwardedFrom
+                        )
                     case _ => ()
                 })(using org.apache.pekko.stream.Materializer.matFromSystem(using ctx.system))
                 .map(_ => ())(using ctx.executionContext)
@@ -289,7 +312,9 @@ private[ankka] object RemoteEventSourcedHost:
                     ),
                     snapshotRequested,
                     self,
-                    atHome(state)
+                    atHome(state),
+                    Attribution.from(metadata),
+                    metadata.get(HostReplication.ForwardedFrom)
                   )
                   ctx.pipeToSelf(s.command(command))(
                     Replied(id, invoke, handler, snapshotRequested, span, _)
@@ -350,7 +375,9 @@ private[ankka] object RemoteEventSourcedHost:
                 def here(): Effect =
                   local(invoke, state)
                   PekkoEffect.noReply
-                if state.conflict.nonEmpty && !reads then
+                val refused = c.admission(invoke)
+                if refused.nonEmpty then reply(invoke, EntityProtocol.Rejected(refused.get))
+                else if state.conflict.nonEmpty && !reads then
                   reply(invoke, EntityProtocol.Rejected(c.inConflict(state)))
                 else
                   c.mode(state) match
@@ -396,10 +423,16 @@ private[ankka] object RemoteEventSourcedHost:
         def records(
             state: RemoteStored,
             m: RemoteEffect.Materialised,
-            handler: RemoteHandler
+            handler: RemoteHandler,
+            invoke: EntityProtocol.Invoke
         ): Either[CommandError, Vector[Journaled]] =
+          // Each record says who acted and where the command was forwarded from (spec 057).
+          val received      = MetaEntry.toMetadata(invoke.metadata)
+          val attribution   = Attribution.from(received)
+          val forwardedFrom = received.get(HostReplication.ForwardedFrom)
           val handlerRecords: Vector[Journaled] =
-            m.events.map(Journaled.Domain(_)) ++ retentionRecord(m.retention)
+            m.events.map(Journaled.Domain(_, None, attribution, forwardedFrom)) ++
+              retentionRecord(m.retention)
           copy match
             case None =>
               m.replication match
@@ -498,7 +531,7 @@ private[ankka] object RemoteEventSourcedHost:
                           )
                         )
                     case Right(m) =>
-                      (m.reply, records(state, m, handler)) match
+                      (m.reply, records(state, m, handler, invoke)) match
                         case (Left(error), _) =>
                           finish(span, invoke, SpanOutcome.Refused)
                           PekkoEffect.none
@@ -684,7 +717,7 @@ private[ankka] object RemoteEventSourcedHost:
           // path and on recovery alike (measured, not assumed).
           val seq = EventSourcedBehavior.lastSequenceNumber(ctx)
           event match
-            case Journaled.Domain(_, _) =>
+            case Journaled.Domain(_, _, _, _) =>
               pendingSnapshot match
                 case Some(snapshot) =>
                   // The snapshot the process sent describes the state after the reply's events and
@@ -787,7 +820,9 @@ private[ankka] object RemoteEventSourcedHost:
       case JournalRecord.KindDomain =>
         Journaled.Domain(
           Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload),
-          record.installation
+          record.installation,
+          record.attribution,
+          record.forwardedFrom
         )
       case JournalRecord.KindDeleted => Journaled.Deleted
       case JournalRecord.KindExpiry  => Journaled.Expiry(record.expiryMillis)
@@ -805,17 +840,21 @@ private[ankka] object RemoteEventSourcedHost:
   private def eventAdapter(self: Option[String]): EventAdapter[Journaled, JournalRecord] =
     new EventAdapter[Journaled, JournalRecord]:
       def toJournal(event: Journaled): JournalRecord = event match
-        case Journaled.Domain(p, _)     => JournalRecord.domain(p.manifest, p.data).at(self)
+        case Journaled.Domain(p, _, attribution, forwardedFrom) =>
+          JournalRecord
+            .domain(p.manifest, p.data)
+            .at(self)
+            .copy(attribution = attribution, forwardedFrom = forwardedFrom)
         case Journaled.Deleted          => JournalRecord.deleted.at(self)
         case Journaled.Expiry(atMillis) => JournalRecord.expiry(atMillis).at(self)
         case Journaled.Replication(p)   => p.record.at(self)
         case Journaled.Mirrored(record) => record
 
       def manifest(event: Journaled): String = event match
-        case Journaled.Domain(p, _)   => p.manifest
-        case Journaled.Deleted        => "ankka.deleted"
-        case Journaled.Expiry(_)      => "ankka.expiry"
-        case Journaled.Replication(p) => p.record.manifest
+        case Journaled.Domain(p, _, _, _) => p.manifest
+        case Journaled.Deleted            => "ankka.deleted"
+        case Journaled.Expiry(_)          => "ankka.expiry"
+        case Journaled.Replication(p)     => p.record.manifest
         case Journaled.Mirrored(r) =>
           r.kind match
             case JournalRecord.KindDeleted => "ankka.deleted"

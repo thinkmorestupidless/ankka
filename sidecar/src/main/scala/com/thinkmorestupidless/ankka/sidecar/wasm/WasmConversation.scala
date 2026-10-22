@@ -192,7 +192,9 @@ final class WasmConversation(
               metadata,
               cmd.snapshotRequested,
               cmd.installation.getOrElse(""),
-              cmd.atHome
+              cmd.atHome,
+              cmd.attribution.getOrElse(""),
+              cmd.forwardedFrom.getOrElse("")
             )
           )
         case Kind.KEY_VALUE_ENTITY =>

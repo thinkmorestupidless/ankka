@@ -23,6 +23,8 @@ message EventSourcedIn {
     // 1.19: the installation that wrote the event; empty on a service that names no installations.
     // A record from before replication reads as written at the entity's home.
     string installation = 3;
+    string attribution = 4;                     // 1.22: who acted, as recorded; empty when none
+    string forwarded_from = 5;                  // 1.22: where it was forwarded from, as recorded
   }
   message Command  {
     int64 id = 1;                               // per stream, from 1, monotonic
@@ -34,6 +36,10 @@ message EventSourcedIn {
     // 1.19: whether this installation is the entity's home (true when none is named). A persisting
     // command reaches a process only at the home; a read-only one may arrive at a follower.
     bool at_home = 7;
+    // 1.22: the subject of the principal who made the original call; empty when none named one.
+    string attribution = 8;
+    // 1.22: the installation this command was forwarded from to its home; empty when it was not.
+    string forwarded_from = 9;
   }
 }
 

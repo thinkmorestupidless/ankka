@@ -118,6 +118,11 @@ spec:
             # every declaration is checked against. A laptop's values, for a one-node broker; an
             # installation serving long-lived facts raises the retention default and bound before
             # its first topic is declared. components/broker-three-nodes sets copies 3, in sync 2.
+            # How many nodes the broker has, as GET /installation reports it: one, the broker
+            # component's; components/broker-three-nodes sets three. Here and not in the broker
+            # component, which is listed before this one and so cannot patch its Deployment.
+            - name: ANKKA_BROKER_NODES
+              value: "1"
             - name: ANKKA_TOPIC_DEFAULT_RETENTION
               value: "7d"
             - name: ANKKA_TOPIC_DEFAULT_RETENTION_SIZE

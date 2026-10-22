@@ -937,6 +937,47 @@ object Output:
           }
           .mkString("\n")
 
+  /** One row of `ankka plugin list -o json`; `hiddenBy` only on a hidden one. */
+  private final case class PluginRow(
+      word: String,
+      program: String,
+      status: String,
+      hiddenBy: Option[String] = None
+  )
+
+  private val pluginRowsCodec: JsonValueCodec[Vector[PluginRow]] =
+    com.thinkmorestupidless.ankka.core.Codecs.make[Vector[PluginRow]]
+
+  /** `ankka plugin list`: every `ankka-<word>` on the path, in path order, and whether it runs. */
+  def plugins(rows: Vector[Plugins.Candidate], format: Format): String =
+    format match
+      case Format.Json =>
+        writeToString(
+          rows.map { row =>
+            row.status match
+              case Plugins.Status.Runs     => PluginRow(row.word, row.program.toString, "runs")
+              case Plugins.Status.Shadowed => PluginRow(row.word, row.program.toString, "shadowed")
+              case Plugins.Status.NotExecutable =>
+                PluginRow(row.word, row.program.toString, "not-executable")
+              case Plugins.Status.Hidden(by) =>
+                PluginRow(row.word, row.program.toString, "hidden", Some(by.toString))
+          }
+        )(using pluginRowsCodec)
+      case Format.Table =>
+        if rows.isEmpty then "no plugins on the path"
+        else
+          table(
+            Vector("PLUGIN", "PROGRAM", "STATUS"),
+            rows.map { row =>
+              val status = row.status match
+                case Plugins.Status.Runs          => "runs"
+                case Plugins.Status.Shadowed      => "shadowed by the built-in command"
+                case Plugins.Status.NotExecutable => "not executable"
+                case Plugins.Status.Hidden(by)    => s"hidden by $by"
+              Vector(row.word, row.program.toString, status)
+            }
+          )
+
   private val settingsCodec: JsonValueCodec[Settings] =
     com.thinkmorestupidless.ankka.core.Codecs.make[Settings]
 

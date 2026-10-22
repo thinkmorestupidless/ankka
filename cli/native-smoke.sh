@@ -112,3 +112,20 @@ host="$(cat "$work/host.txt" 2>/dev/null || true)"
 [ "$host" = "127.0.0.1:$web_port" ] \
   || fail "the process was given Host '$host', not the proxy's: the image may lack jdk.httpclient.allowRestrictedHeaders=host"
 echo "local web  answers for the proxy, and sets the process's Host"
+
+# A plugin: a process spawned with the CLI's streams, its environment and its exit code. A native
+# image can get process spawning wrong in ways the JVM build never shows.
+mkdir -p "$work/plugins"
+cat > "$work/plugins/ankka-smoke" <<'SH'
+#!/bin/sh
+echo "smoke: $* config=${ANKKA_CONFIG:+set}"
+exit 4
+SH
+chmod +x "$work/plugins/ankka-smoke"
+code=0
+said="$(PATH="$work/plugins:$PATH" "$bin" smoke hello)" || code=$?
+[ "$said" = "smoke: hello config=set" ] || fail "ankka smoke printed '$said', not the plugin's words"
+[ "$code" = "4" ] || fail "ankka smoke exited $code, not the plugin's 4"
+PATH="$work/plugins:$PATH" "$bin" plugin list | grep -Eq '^smoke .*ankka-smoke +runs$' \
+  || fail "ankka plugin list does not show ankka-smoke as running"
+echo "plugin     runs with its arguments and exit code, and is listed"

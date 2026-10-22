@@ -445,6 +445,9 @@ feature also says what that feature does not do.
   package, and the Linux builds need glibc, so they do not run on musl (Alpine); the release's zip runs
   anywhere with a JDK 21. The macOS executables are not signed by Apple. `ankka init` needs `sbt` on
   `PATH` for a Scala service.
+- **`ankka mcp` serves no plugin's commands.** A program run as an `ankka` plugin is a command at the
+  shell only; a coding agent reaches it by running the shell. The CLI asks a plugin nothing about
+  itself, so `ankka --help` lists a plugin by its word, with no description.
 - **The template waits on a release.** `sbt new thinkmorestupidless/ankka.g8` works once a release has
   published the template; until then use `sbt new file:///path/to/ankka/ankka.g8` from a checkout.
 - **No local image registry.** A local platform loads images straight into its cluster with

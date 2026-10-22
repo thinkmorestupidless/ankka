@@ -1630,6 +1630,41 @@ object Main:
       catch case _: Throwable => () // a console you must click on is still a console
     }
 
+  // ── plugin ────────────────────────────────────────────────────────────────
+
+  private val pluginCommand = Opts.subcommand(
+    "plugin",
+    "Programs named ankka-<word> on the path, run as `ankka <word>`."
+  ) {
+    Opts.subcommand("list", "List the plugins on the path and whether each would run.") {
+      formatOpt.map(format => () => Output.plugins(Plugins.candidates(builtIn), format))
+    }
+  }
+
+  /**
+   * The words the CLI answers itself. A first word outside this set is a plugin's.
+   *
+   * Explicit rather than read from the tree, which does not expose its names as values;
+   * `CliReferenceSuite` holds it equal to the subcommands the root help prints, so a command added
+   * to one and not the other fails the build instead of becoming something a plugin can answer.
+   */
+  private[cli] val builtIn: Set[String] = Set(
+    "login",
+    "logout",
+    "whoami",
+    "status",
+    "installation",
+    "organizations",
+    "projects",
+    "services",
+    "config",
+    "version",
+    "init",
+    "local",
+    "mcp",
+    "plugin"
+  )
+
   private[cli] val command = Command(
     name = "ankka",
     header = "Operate an ankka control plane."
@@ -1647,6 +1682,7 @@ object Main:
       .orElse(initCommand)
       .orElse(localCommand)
       .orElse(mcpCommand)
+      .orElse(pluginCommand)
   )
 
   /**
@@ -1657,11 +1693,19 @@ object Main:
    * scripts is part of the contract.
    */
   def run(args: Seq[String], out: PrintStream, err: PrintStream): Int =
+    args.headOption match
+      // Before decline: everything after a plugin's word is the plugin's, `--help` included.
+      case Some(word) if !word.startsWith("-") && !builtIn(word) =>
+        Plugins.dispatch(word, args.tail, builtIn, err)
+      case _ => parse(args, out, err)
+
+  private def parse(args: Seq[String], out: PrintStream, err: PrintStream): Int =
     command.parse(args, sys.env) match
       case Left(help) =>
         // Decline prints usage on a parse failure. That is a usage error, not a failure of
         // the operation, so it gets its own exit code.
         err.println(help)
+        if args.isEmpty || args == Seq("--help") then pluginsAppendix(err)
         2
 
       case Right(action) =>
@@ -1679,6 +1723,19 @@ object Main:
             err.println(s"error: ${error.detail}")
             1
           case ExitWith(code) => code
+
+  /**
+   * The root help's last section: the plugins that would run on this machine. Printed by `run`
+   * only, never by the tree, so the generated reference cannot depend on the PATH it was built on.
+   */
+  private def pluginsAppendix(err: PrintStream): Unit =
+    val words = Plugins.candidates(builtIn).collect {
+      case Plugins.Candidate(word, _, Plugins.Status.Runs) => word
+    }
+    if words.nonEmpty then
+      err.println()
+      err.println("Plugins (programs named ankka-<word> on the path):")
+      words.foreach(word => err.println(s"    $word"))
 
   def main(args: Array[String]): Unit =
     // Before anything can load the JDK's HTTP client, which reads this once: `ankka local web`

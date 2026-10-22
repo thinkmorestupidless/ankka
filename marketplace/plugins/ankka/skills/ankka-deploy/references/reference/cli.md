@@ -99,6 +99,78 @@ A descriptor passed to `ankka services apply -f` is validated before it is sent,
 the control plane applies, and every problem is reported at once. `-f -` reads the descriptor from
 standard input.
 
+## Plugins
+
+A first word that names no built-in command names a plugin: `ankka vendor modules list` runs the
+first executable file named exactly `ankka-vendor` in the directories of `PATH`, in order, with the
+arguments `modules list`. A product ships its own commands this way, as one program on the path,
+without the CLI knowing the product. Built-in commands always win, so a program named
+`ankka-services` never runs; `plugin` is itself a built-in command.
+
+Everything after the plugin's word is the plugin's, untouched: `--help`, `--url`, `--project`,
+`--output` and every other flag reach it as typed, and the plugin parses them itself. The CLI accepts
+no flag before the word, for a plugin as for a built-in command.
+
+The plugin inherits the CLI's standard input, output and error, and its environment, with these set
+over it:
+
+| Variable | Set | Value |
+|---|---|---|
+| `ANKKA_URL` | always | the control plane URL a built-in command given no flags would use |
+| `ANKKA_TOKEN` | when a token resolves | the token a built-in command would present: `ANKKA_TOKEN`, the saved `token`, or the saved login's access token, refreshed and saved first when it has run out |
+| `ANKKA_PROJECT` | when a project resolves | `ANKKA_PROJECT`, else the saved `project` |
+| `ANKKA_CA` | when a CA file resolves | the extra trusted CA file, as an absolute path |
+| `ANKKA_CONFIG` | always | the absolute path of the settings file the CLI read; `credentials.json` is beside it |
+
+A plugin that keeps files of its own can keep them beside `ANKKA_CONFIG`, so they follow the CLI
+wherever a test or a job points it. When no token resolves the plugin still runs, without
+`ANKKA_TOKEN`: it may need no control plane, or may tell the person to run `ankka login` itself. When
+a saved login has run out and the identity provider refuses the refresh, or cannot be reached, the
+plugin also runs without a token, and the CLI first writes one line to standard error:
+
+```text
+warning: https://cp.example.test rejected the login (Session not active); run 'ankka login'
+```
+
+The token reaches the plugin through its environment only. It is never an argument, never printed,
+and written nowhere but the saved login.
+
+The CLI waits for the plugin and exits with its exit code. A plugin ended by a signal ends the
+command with 128 plus the signal's number, as a shell reports it: 130 after ctrl-c, 143 after
+`SIGTERM`. Ctrl-c reaches the plugin, and the CLI waits through it rather than return the prompt
+while the plugin is still finishing.
+
+| Code | When a plugin is involved |
+|---|---|
+| the plugin's | the plugin ran |
+| `128` + signal | the plugin was ended by a signal |
+| `1` | the program was found and would not start, a missing interpreter say; the message names the file |
+| `2` | no program `ankka-<word>` is on the path, `PATH` is empty, or the word holds a `/` or `\` |
+
+Names are compared exactly, case included, even on a filesystem that ignores case: `ankka Vendor`
+does not run `ankka-vendor`. A file of a plugin's name that is not executable is passed over, as a
+shell passes over it, and the search goes on.
+
+`ankka plugin list` shows every program named `ankka-<word>` on the path, in path order, and whether
+`ankka <word>` would run it:
+
+```text
+PLUGIN    PROGRAM                          STATUS
+vendor    /opt/homebrew/bin/ankka-vendor   runs
+vendor    /usr/local/bin/ankka-vendor      hidden by /opt/homebrew/bin/ankka-vendor
+services  /usr/local/bin/ankka-services    shadowed by the built-in command
+reports   /home/me/bin/ankka-reports       not executable
+```
+
+With `-o json` it prints the same as an array of objects with `word`, `program`, `status` (`runs`,
+`hidden`, `shadowed` or `not-executable`) and, on a hidden one, `hiddenBy`. `ankka --help` ends with
+the plugins that would run, by word, under the heading `Plugins (programs named ankka-<word> on the
+path):`. The command reference below describes the CLI alone and never lists a plugin.
+
+A plugin is trusted as any program on the path is; `ankka plugin list` shows which file would run.
+The CLI asks a plugin nothing about itself, so help shows a plugin's word only. `ankka mcp` serves no
+plugin's commands: a coding agent reaches them by running the shell.
+
 ## Commands
 
 The help below is generated from the CLI's own command tree, so it is exactly what `--help` prints.
@@ -120,6 +192,7 @@ Usage:
     ankka init
     ankka local
     ankka mcp
+    ankka plugin
 
 Operate an ankka control plane.
 
@@ -154,6 +227,8 @@ Subcommands:
         Tools for services running on this machine.
     mcp
         Serve ankka's tools and documentation to an agent over MCP (stdio).
+    plugin
+        Programs named ankka-<word> on the path, run as `ankka <word>`.
 ```
 
 ### `ankka login`
@@ -2831,4 +2906,34 @@ Options and flags:
         Replace an existing server named ankka.
     --dry-run
         Say what would change, and change nothing.
+```
+
+### `ankka plugin`
+
+```text
+Usage: ankka plugin list
+
+Programs named ankka-<word> on the path, run as `ankka <word>`.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List the plugins on the path and whether each would run.
+```
+
+### `ankka plugin list`
+
+```text
+Usage: ankka plugin list [--output <string>]
+
+List the plugins on the path and whether each would run.
+
+Options and flags:
+    --help
+        Display this help text.
+    --output <string>, -o <string>
+        Output format: table or json.
 ```

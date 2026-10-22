@@ -40,6 +40,31 @@ class CliReferenceSuite extends munit.FunSuite:
     assert(paths.contains(Seq("local", "console")), paths.mkString(", "))
   }
 
+  test("the built-in words are exactly the root help's subcommands") {
+    assertEquals(
+      Main.builtIn,
+      CliReferenceSuite.subcommands(CliReferenceSuite.help(Seq.empty)).toSet
+    )
+  }
+
+  // The help a person sees ends with the plugins on their path; the reference is rendered from the
+  // tree, which never sees them (features/command-line/plugins.feature).
+  test("the command reference names no plugin") {
+    val early = Files.createTempDirectory("ankka-plugins")
+    try
+      val program = early.resolve("ankka-vendor")
+      Files.writeString(program, "#!/bin/sh\n")
+      program.toFile.setExecutable(true): Unit
+      sys.props("ankka.path") = early.toString
+      val rendered = CliReferenceSuite.render()
+      assert(!rendered.linesIterator.exists(_.startsWith("Plugins")), rendered)
+      assert(!rendered.contains("vendor"), "a plugin on the path reached the reference")
+    finally
+      sys.props.remove("ankka.path")
+      Files.deleteIfExists(early.resolve("ankka-vendor"))
+      Files.deleteIfExists(early): Unit
+  }
+
 object CliReferenceSuite:
 
   def repoRoot: Path =
@@ -60,7 +85,7 @@ object CliReferenceSuite:
    * Subcommand names from a help text's `Subcommands:` section, in the order the tree declares
    * them.
    */
-  private def subcommands(text: String): Vector[String] =
+  def subcommands(text: String): Vector[String] =
     val lines = text.linesIterator.toVector
     val start = lines.indexWhere(_.trim == "Subcommands:")
     if start < 0 then Vector.empty

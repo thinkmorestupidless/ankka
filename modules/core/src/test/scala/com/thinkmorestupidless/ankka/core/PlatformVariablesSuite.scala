@@ -226,6 +226,12 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(!platformOnly(MachineTokenRate), "the control plane's own setting, never a service's")
   }
 
+  test("the broker's node count is the control plane's own setting, never a service's") {
+    assertEquals(BrokerNodes, "ANKKA_BROKER_NODES")
+    assert(!platformOnly(BrokerNodes))
+    assert(!runtimeOnly(BrokerNodes))
+  }
+
   test("the object store's variables are the developer's program's, by prefix") {
     assert(objectStorage("ANKKA_S3_BUCKET"))
     assert(objectStorage("ANKKA_S3_ANYTHING"))

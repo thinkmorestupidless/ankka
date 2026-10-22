@@ -153,6 +153,14 @@ private[ankka] object PlatformVariables:
   val MachineTokenRate: String         = "ANKKA_MACHINE_TOKEN_RATE"
   val BrokerExternalBootstrap: String  = "ANKKA_BROKER_EXTERNAL_BOOTSTRAP"
 
+  /**
+   * How many nodes the installation's broker has, as the control plane reports it on
+   * `GET /installation`: set by the broker component that sizes the broker, beside the topic
+   * defaults it sets. Unset, the control plane says the number is not stated. The control plane's
+   * own setting, never a service's.
+   */
+  val BrokerNodes: String = "ANKKA_BROKER_NODES"
+
   /** Which installation this service runs at, for a replicated entity's home (feature 051). */
   val Installation: String = "ANKKA_INSTALLATION"
 

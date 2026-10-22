@@ -71,7 +71,7 @@ as munit tests. **Goal (US5)**: FR-013, FR-014. **Independent test**: `Installat
 - [X] T010 [US2] `controlplane/.../api/ProjectEndpoint.scala` and `OrganizationEndpoint.scala`:
   fill `GrantAct.administrative` and `GrantChangeRecord.administrative` from the events' actor;
   `DeployTokenSummary.administrative` from `createdBy`
-- [ ] T011 [P] [US5] `modules/core/.../PlatformVariables.scala`: `BrokerNodes = "ANKKA_BROKER_NODES"`
+- [X] T011 [P] [US5] `modules/core/.../PlatformVariables.scala`: `BrokerNodes = "ANKKA_BROKER_NODES"`
   in `PlatformOnly`; `controlplane/.../tenancy/BrokerFacts.scala` (`nodes: Option[Int]` from
   `ankka.controlplane.broker.nodes = ${?ANKKA_BROKER_NODES}` in `reference.conf`);
   `PlatformDeclarationSuite` green (R4)

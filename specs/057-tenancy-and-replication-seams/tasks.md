@@ -183,7 +183,7 @@ all green.
 - [X] T033 [P] `sdks/rust`: proto copy, `service.rs` version, `attribution()`/`forwarded_from()`
   on the contexts, `tests/contracts_discovery.rs`, the conformance case; `cargo test --workspace &&
   ./conformance.sh`
-- [ ] T034 `features/replication/languages.feature`'s protocol scenario covers 1.22 through
+- [X] T034 `features/replication/languages.feature`'s protocol scenario covers 1.22 through
   `ranElsewhere` (`LanguagesFeatures`); `sbt 'testkit/testOnly *LanguagesFeatures'`
 
 **Checkpoint D**: `sbt sidecar/test` and the three SDK runs green.

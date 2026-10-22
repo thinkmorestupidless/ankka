@@ -13,7 +13,7 @@ the docs and the release note.
 
 ## Phase 1: Setup
 
-- [ ] T001 Read `.claude/rules/control-plane.md`, `runtime.md`, `messaging.md`, `sidecar.md`,
+- [X] T001 Read `.claude/rules/control-plane.md`, `runtime.md`, `messaging.md`, `sidecar.md`,
   `testing.md` and `docs.md`; confirm `sbt controlPlane/compile testkit/compile sidecar/compile`
   and `just features` are green at the start (no file change)
 

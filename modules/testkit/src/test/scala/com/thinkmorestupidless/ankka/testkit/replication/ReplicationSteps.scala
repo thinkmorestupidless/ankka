@@ -53,6 +53,8 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   private var mirrored                                  = false
   private var ledger                                    = false
   private var loopback                                  = false
+  private var supplied                                  = false
+  private var beside: Seq[ComponentDescriptor]          = Nil
   private var settings: Config                          = ConfigFactory.empty()
   private var broker: InMemoryBroker                    = InMemoryBroker()
   private val changes                                   = ChangesGiven()
@@ -82,6 +84,9 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
       mirrored = false
       ledger = false
       loopback = false
+      supplied = false
+      beside = Nil
+      RecordingTransport.clear()
       settings = ConfigFactory.empty()
       broker = InMemoryBroker()
       changes.clear()
@@ -101,9 +106,10 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   private def started: AnkkaTestKit.Installations =
     group.getOrElse {
       assert(names.nonEmpty, "the scenario names no installation")
-      val fleet = AnkkaTestKit.installations(names*)
+      val named = AnkkaTestKit.installations(names*)
+      val fleet = if supplied then named.using(RecordingTransport.factory) else named
       group = Some(fleet)
-      fleet.transport.loopbackOnly(loopback)
+      if !supplied then fleet.transport.loopbackOnly(loopback)
       names.foreach(start(fleet, _, None))
       fleet
     }
@@ -1004,11 +1010,12 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   Given("no replication transport can reach {string}")((_: String) => ())
 
   When("{string} starts") { (_: String) =>
-    refusedStart = Try(AnkkaTestKit.start(Seq(kind.descriptor), settings = settings)) match
-      case Success(kit) =>
-        kit.stop()
-        None
-      case Failure(e) => Some(e)
+    refusedStart =
+      Try(AnkkaTestKit.start(Seq(kind.descriptor) ++ beside, settings = settings)) match
+        case Success(kit) =>
+          kit.stop()
+          None
+        case Failure(e) => Some(e)
   }
 
   Then("{string} refuses to start") { (_: String) =>
@@ -1024,6 +1031,103 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
       ),
       message
     )
+  }
+
+  // ── a transport beside the runtime's own (spec 057) ───────────────────────
+
+  Given(
+    "a service {string} with a replicated entity {string} and an entity {string} that is not replicated"
+  ) { (_: String, entity: String, other: String) =>
+    kind = if entity == "vehicle" then Fleet.vehicles else VehicleKind(entity)
+    beside = Seq(VehicleKind(other, replicatedHere = false).descriptor)
+    // Replicating at all, so that a transport is asked for: here and one other, named alone.
+    settings = ConfigFactory
+      .parseString("""ankka.replication { installation = "leipzig", named = "bratislava" }""")
+      .withFallback(settings)
+  }
+
+  Given("a transport beside the runtime's own") { () =>
+    settings = ConfigFactory
+      .parseString(s"${RecordingTransportProvider.Switch} = on")
+      .withFallback(settings)
+  }
+
+  Then("the transport is given {string} as the replicated components and not {string}") {
+    (entity: String, other: String) =>
+      assertEquals(refusedStart, None, "the service started")
+      val made = RecordingTransport.made.getOrElse("leipzig", fail("no transport was made"))
+      assertEquals(made.replicated, Set(ComponentId(entity)))
+      assert(!made.replicated.contains(ComponentId(other)))
+  }
+
+  Given(
+    "a service {string} running at {string} and {string} over a transport beside the runtime's own"
+  ) { (_: String, a: String, b: String) =>
+    names = Vector(a, b)
+    supplied = true
+  }
+
+  Given("the vehicle {string} homed at {string} with {string} in its replication set") {
+    (id: String, name: String, other: String) => create(name, id, Vector(other)): Unit
+  }
+
+  When("the home of {string} is handed over to {string}") { (id: String, to: String) =>
+    handedOver(id, to)
+  }
+
+  Then(
+    "the transport delivers the handover's report to the copy at {string} through the runtime's public operation"
+  ) { (home: String) =>
+    val delivered = RecordingTransport.reports.getOrElse(home, Vector.empty)
+    assert(delivered.nonEmpty, s"no report reached $home: ${RecordingTransport.reports}")
+    assert(delivered.forall(_._2 != home), delivered.toString)
+  }
+
+  Then("the next write to {string} is handled at {string}") { (id: String, name: String) =>
+    val receipt = answered[Receipt](send(names.find(_ != name).get, "add-step", id))
+    assertEquals(receipt.installation, Some(name))
+    assert(receipt.home)
+  }
+
+  Given(
+    "a service {string} started with the environment naming the installations {string} and {string} and no database for them"
+  ) { (_: String, a: String, b: String) =>
+    // What ANKKA_INSTALLATION and ANKKA_INSTALLATIONS set, through the settings they feed.
+    settings = ConfigFactory
+      .parseString(s"""ankka.replication { installation = "$a", named = "$a,$b" }""")
+      .withFallback(settings)
+  }
+
+  Then("{string} names {string} and {string} as installations it may replicate with") {
+    (_: String, a: String, b: String) =>
+      assertEquals(refusedStart, None, "the service started with no database for either")
+      val made = RecordingTransport.made.getOrElse(a, fail("no transport was made"))
+      assertEquals(made.settings.installation, Some(a))
+      assertEquals(made.settings.installations, Set(b))
+      assertEquals(made.settings.databases, Map.empty)
+  }
+
+  Given(
+    "a test that supplies its own replication transport to the test kit's installations group"
+  ) { () =>
+    supplied = true
+  }
+
+  When("the test starts {string} at {string} and {string}") { (_: String, a: String, b: String) =>
+    names = Vector(a, b)
+    started: Unit
+  }
+
+  Then("every installation of the group replicates over the transport the test supplied") { () =>
+    val fleet = started
+    assertEquals(RecordingTransport.made.keySet.toSet, fleet.names.toSet)
+    val Vector(a, b) = fleet.names: @unchecked
+    create(a, "v1", Vector(b)): Unit
+    commands(a, "v1", 2)
+    sameAs(b, a, "v1", 30.seconds)
+    // The runtime's own transport's switches are not this group's.
+    val e = intercept[UnsupportedOperationException](fleet.transport.pause(b))
+    assert(e.getMessage.contains("using"), e.getMessage)
   }
 
   private var declared: Option[ComponentDescriptor] = None

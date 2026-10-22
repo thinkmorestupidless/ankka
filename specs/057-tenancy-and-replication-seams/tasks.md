@@ -123,12 +123,12 @@ the four new scenarios; `ReplicationSettingsSuite`.
 - [X] T022 [US3] `modules/testkit/.../AnkkaTestKit.scala`, `TestReplicationTransport.scala`:
   `Installations.using(factory)`; `start`/`restart` wire the supplied factory; the switches throw
   on a `using` group naming `using` (R7)
-- [ ] T023 [US3] `modules/testkit/src/test/.../replication/RecordingTransport.scala`: a transport
+- [X] T023 [US3] `modules/testkit/src/test/.../replication/RecordingTransport.scala`: a transport
   built on the runtime's own that records the components it was given (an empty set for a service
   with none declared) and delivers reports through
   `ReplicationPeer.reported`; registered as a provider on the test classpath beside `TestProvider`
   (`META-INF/services`); its factory for `using`
-- [ ] T024 [US3] `modules/testkit/src/test/.../replication/ReplicationSteps.scala`: steps for "a
+- [X] T024 [US3] `modules/testkit/src/test/.../replication/ReplicationSteps.scala`: steps for "a
   transport beside the runtime's own is given the replicated components it serves", "... delivers a
   handover's report to the local copy", "a service names an installation it reaches through a
   transport beside the runtime's own by its name alone" (the service started with

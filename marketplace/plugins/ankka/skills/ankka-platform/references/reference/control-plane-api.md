@@ -79,6 +79,11 @@ A caller's permissions come from their role in an organization, which the contro
   last owner cannot be removed or demoted.
 - A **platform administrator** holds the `platform-admin` role in the identity provider. They can read
   every organization, disable and enable one, set and clear its quota, and add a member to one directly.
+  They can also do what an owner does in an organization they are not a member of, such as create a
+  deploy token or accept a grant offered to it; each such act is recorded as administrative, so the
+  organization's owners can see that the platform did it, not one of them.
+- A **deploy token** is a member of its organization, or, when it was created for one project, a member
+  of that project alone. A project token can also make and end its project's own grants.
 
 Anyone logged in may create an organization, and becomes its first owner.
 
@@ -233,8 +238,20 @@ with a token may read it. Response:
 | `secrets.backend` | string | `postgres` (each service's own database and the cluster's Secrets) or `secret-manager`. |
 | `secrets.recordRetention` | string | How long the record of secret reads is kept, such as `365d`. |
 | `secrets.auditLog` | string | Whether the cloud's own access log for its secrets is on: `on`, `off`, or `unknown` until the cloud provider reports it. |
+| `broker` | object, optional | The installation's broker; absent from an older control plane. |
+| `broker.nodes` | number, optional | How many nodes the broker has; absent when the control plane was not told, which means not stated. |
+| `broker.defaultCopies` | number | The copies a topic is given when its declaration states none. |
+| `broker.minInSync` | number | The copies that must hold a message before it is acknowledged, when a declaration states none. |
+| `retention` | object, optional | The longest retention a topic may be given; absent from an older control plane. |
+| `retention.longest` | string, optional | The bound as a duration, such as `30d`; absent when there is none. |
+| `retention.unbounded` | boolean, optional | `true` when a topic may keep its messages for ever; absent when there is a bound. |
+| `erasure` | object, optional | Whether erasure is on (`enabled`) and how many keyring instances hold its keys (`keyringInstances`). Not yet reported: absent, which means not stated. |
 
 | `backups` | object | Where the installation's backups go, and how safely. |
+
+A fact the control plane cannot read is absent rather than guessed, so a requirement that names one
+reads it as not stated. For example `"broker": { "nodes": 3, "defaultCopies": 3, "minInSync": 2 },
+"retention": { "unbounded": true }`.
 
 `backups` is, for example, `{ "backupTarget": "object-store", "retentionDays": 30, "copyRequired": false,
 "sharesFailureDomain": true, "encryption": "none: …" }`.
@@ -349,19 +366,25 @@ Adds a member directly by subject, for an organization whose owners have all lef
 
 ### `GET /organizations/{organizationId}/tokens`
 
-Lists the organization's deploy tokens, newest first. Owners only. Each entry carries `id`, `label`,
-`subject`, `createdBy`, `createdAt`, `expiresAt` (absent when the token never expires) and `lastUsed`
-(a date, absent when it has never been used). No entry carries the secret, which exists only in the
-response that created it.
+Lists the organization's deploy tokens, newest first. Owners, or a platform administrator. Each entry
+carries `id`, `label`, `subject`, `createdBy`, `createdAt`, `expiresAt` (absent when the token never
+expires), `lastUsed` (a date, absent when it has never been used), `project` (the project the token is
+scoped to, absent for a token of the whole organization) and `administrative` (`true` when a platform
+administrator, not an owner, created it; absent otherwise). No entry carries the secret, which exists only in the
+response that created it. A token whose project was deleted is listed with that project until it is
+revoked.
 
 ### `POST /organizations/{organizationId}/tokens`
 
 Creates a deploy token: a credential a machine can hold, which authenticates as a `member` of this
-organization. Body: `{ "label": "github-deploy", "expiresIn": 7776000 }`, where `label` is for people
-and `expiresIn` is seconds — absent means 90 days, and `0` means a token that never expires. The
-maximum is 365 days. Owners only.
+organization, or of one of its projects. Body: `{ "label": "github-deploy", "expiresIn": 7776000,
+"project": "storefront" }`, where `label` is for people and `expiresIn` is seconds — absent means 90
+days, and `0` means a token that never expires. The maximum is 365 days. `project` is optional: absent,
+the token is a member of the whole organization; present, it must name a project of this organization,
+or the request is refused `404 no such project`, what a stranger is told. Owners, or a platform
+administrator who need not be a member, whose act is recorded as administrative.
 
-Answers `200` with `{ "id", "label", "secret", "subject", "expiresAt" }`. **`secret` is shown here and
+Answers `200` with `{ "id", "label", "secret", "subject", "expiresAt", "project" }`. **`secret` is shown here and
 nowhere else**: it is stored only as a one-way digest, so a lost token is replaced rather than
 recovered. Present it as `Authorization: Bearer <secret>`, or give it to the CLI through `ANKKA_TOKEN`.
 
@@ -369,6 +392,22 @@ The token's subject is `token:<id>`, an ordinary member of the organization — 
 attributed and made invisible outside its organization by exactly the rules that apply to a person. It
 can do everything a member can, and nothing an owner can: it cannot invite members, rename or delete
 the organization, or manage deploy tokens, including its own.
+
+A token created for one project is a member of that project and of nothing else:
+
+| Route | Organization token | Project token, its project | Project token, another project |
+|---|---|---|---|
+| a project's services, topics, secrets, exposure, status and history | yes | yes | `404 no such project` |
+| `GET /organizations/{organizationId}/projects` | every project | its project only | — |
+| `POST /projects/{projectId}/grants`, `DELETE /projects/{projectId}/grants/{grantId}` | `403` | yes | `404 no such project` |
+| `GET /projects/{projectId}/grants`, `GET /projects/{projectId}/grants/received` | yes | yes | `404 no such project` |
+| accepting, declining or relinquishing a grant | `403` | `403` | `403` |
+| members, tokens and the organization's own settings | `403` | `403` | `403` |
+
+A project token makes its project's grants because an agent that deploys into one project has to open
+what it deploys. A grant it makes to another organization is pending, as any such grant is, and it
+cannot accept one. Every change it makes is attributed to `token:<id>`. Its scope survives the
+project's renaming; once the project is deleted, the token is told there is no such project.
 
 ### `DELETE /organizations/{organizationId}/tokens/{tokenId}`
 
@@ -390,8 +429,9 @@ and for a topic grant the topic's partitions and whether it is compacted.
 ### `POST /organizations/{organizationId}/grants/{grantId}/accept`
 
 Accepts a pending grant offered to the organization: one naming a registered machine of it, or a
-service of one of its projects. Owners only; a member or a deploy token is refused with `403`. The grant
-takes effect, on the granting project's listing and its history, with the owner who accepted it. A
+service of one of its projects. Owners, or a platform administrator who need not be a member; a member or
+a deploy token is refused with `403`. The grant takes effect, on the granting project's listing and its
+history, with whoever accepted it, and an administrator's acceptance is marked `administrative`. A
 grant not offered to this organization is `404`, whoever asks, so an id discloses nothing; a grant that
 is no longer pending is `409`. Answers `204`.
 
@@ -822,8 +862,9 @@ Who did what to the project's database, newest first: `[{ "kind": "restore-reque
 
 Grants one grantee one target of the project's own. Body: `{ "grantee": "service:payments/merchant",
 "target": { "kind": "route", "service": "wallet", "method": "POST", "path":
-"/v1/wallets/{player}/{currency}/deposits" } }`. Owners of the project's organization only; a member or a
-deploy token is refused with `403`. Answers `200` with the grant.
+"/v1/wallets/{player}/{currency}/deposits" } }`. Owners of the project's organization, or a deploy token
+created for this project; a member or an organization's deploy token is refused with `403`. Answers `200`
+with the grant.
 
 A grantee is `service:<project>/<service>` or `machine:<organization>/<name>`. A target is one of:
 
@@ -848,7 +889,9 @@ The project's grants, live and ended, oldest first: `[{ "id": "3f9c…", "grante
 "by": "Ada", "at": "…" }, "answered": { … }, "ended": { … } }]`. Members of the project's organization.
 `state` is `pending`, `accepted`, `declined`, `withdrawn`, `revoked`, `relinquished` or `lapsed`;
 `effect` is `in effect`, or why the grant opens nothing: its state's word, `route not seen`, `route not
-grantable`, `rollout needed` or `broker not exposed`.
+grantable`, `rollout needed` or `broker not exposed`. Each act (`granted`, `answered`, `ended`) carries
+`"administrative": true` when a platform administrator did it under that role, and no such field
+otherwise.
 
 ### `GET /projects/{projectId}/grants/received`
 
@@ -856,13 +899,14 @@ What other projects granted this project's services, with every change and who m
 "3f9c…", "grantingProject": "spinvibe", "grantingOrganization": "eitheror", "grantee":
 "service:payments/merchant", "target": { … }, "state": "accepted", "changes": [ { "change": "made",
 "by": "Ada", "at": "…" } ], "topic": { "partitions": 3, "compacted": false } }]`. Members of this
-project's organization. `topic` is the granted topic's settings, for a topic grant. A change appears here
+project's organization. A change carries `"administrative": true` when a platform administrator made it
+under that role. `topic` is the granted topic's settings, for a topic grant. A change appears here
 a moment after it is made on the granting project, which is the one record a change is written to.
 
 ### `DELETE /projects/{projectId}/grants/{grantId}`
 
 Ends a grant from the grantor's side: a pending grant is withdrawn and an accepted one revoked. Owners of
-the project's organization only. Answers `204`; `404` for a grant the project does not hold, `409` for
+the project's organization, or a deploy token created for this project. Answers `204`; `404` for a grant the project does not hold, `409` for
 one that has already ended. An ended grant is never reopened; granting the same again makes a new one.
 
 ## Installation

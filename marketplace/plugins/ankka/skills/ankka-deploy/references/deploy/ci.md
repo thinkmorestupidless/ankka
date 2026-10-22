@@ -43,6 +43,16 @@ restart, expose and delete services and read their logs and history, and it cann
 rename or delete the organization, or manage deploy tokens — including itself, so a leaked credential
 cannot mint a replacement or revoke the one that would stop it.
 
+A workflow that deploys into one project is better served by a token for that project alone:
+
+```bash
+ankka organizations tokens create acme --label github-deploy --project storefront
+```
+
+That token is a member of `storefront` and of no other project, which it is told does not exist, and it
+can also make and end `storefront`'s own grants. `ankka organizations tokens list acme` shows each token's
+project in its `PROJECT` column, `-` for a token of the whole organization.
+
 A token expires after 90 days unless you say otherwise (`--expires-in 30d`, up to 365 days, or
 `--never-expires`). See [Identity and machine accounts](../platform/identity.md#machine-accounts) for
 the whole model, including the Keycloak-client alternative.

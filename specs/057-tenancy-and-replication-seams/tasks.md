@@ -190,7 +190,7 @@ all green.
 
 ## Phase 9: Docs, limitations, release note
 
-- [ ] T035 [P] `docs/reference/control-plane-api.md`: `project` on tokens, the scoped token's table
+- [X] T035 [P] `docs/reference/control-plane-api.md`: `project` on tokens, the scoped token's table
   (contracts/control-plane.md), `projectGrants`' routes, the administrator on `tokens` and
   `accept`, `administrative` on the views, `GET /installation`'s three objects;
   `docs/concepts/tenancy-and-access.md`, `docs/platform/organizations.md`, `docs/deploy/ci.md`

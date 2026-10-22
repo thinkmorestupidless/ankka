@@ -97,6 +97,20 @@ organization is required to retain, so a secret in a CI system can never become 
 administer it. And a token cannot manage deploy tokens, so a leaked credential cannot mint a
 replacement for itself or revoke the one that would stop it.
 
+### A deploy token for one project
+
+A deploy token can be created for one project of its organization rather than the whole of it. Such a
+token is a member of that project and of nothing else: in its project it does what any member does, and
+for every other project of the organization it is told there is no such project, exactly as an outsider
+is. It is refused everything above its project, the organization's own settings, its members and its
+tokens among them.
+
+It can also do one thing an organization's token cannot: make and end its project's own grants. An agent
+that deploys into one project has to open to other projects what it deploys, and needing an owner for
+each grant would put a person in that loop. Answering a grant offered to the organization stays an
+owner's act. Every change it makes carries the token as the actor, as for any token, and once its
+project is deleted it can do nothing.
+
 See [Identity and machine accounts](../platform/identity.md#machine-accounts).
 
 ## A client key belongs to a service
@@ -113,7 +127,12 @@ for a token from an issuer the service lists.
 
 One role lives in the identity provider rather than the control plane: `platform-admin`, a realm role for
 the people who run the installation. A platform administrator can see every organization, add an owner
-to an organization whose owners have all left, and **disable** an organization.
+to an organization whose owners have all left, and **disable** an organization. They can also act as an
+owner in an organization they are not a member of: create a deploy token for it, organization-wide or
+for one project, and accept a grant offered to it, which is how a product that provisions an
+organization for a new customer deploys into it before any owner has signed in. Each such act is
+recorded as administrative, in the token list and on the grant, so the organization's owners can see the
+platform did it rather than one of them.
 
 Disabling an organization suspends every service in its projects. Its members can still read everything,
 but every change is refused with a conflict. Enabling it again brings back exactly what was running: a

@@ -48,6 +48,7 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_INSTALLATION` | `ankka.replication.installation` | `""` | every service |
+| `ANKKA_INSTALLATIONS` | `ankka.replication.named` | `""` | every service |
 | `ANKKA_VIEW_WATCH_BOUND` | `ankka.view.watch-bound` | `1000` | every service |
 | `ANKKA_VIEW_UNREAD_BOUND` | `ankka.view.unread-bound` | `256` | every service |
 | `ANKKA_VIEW_FETCH_SIZE` | `ankka.view.fetch-size` | `256` | every service |

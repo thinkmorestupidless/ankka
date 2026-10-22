@@ -120,7 +120,10 @@ members can still read. The services report `Suspended`. `enable` brings back ex
 a service its members had paused before the organization was disabled stays paused.
 
 Every change a platform administrator makes is recorded as administrative, so the history of a service
-shows when the platform administrator role was what allowed it.
+shows when the platform administrator role was what allowed it. That includes acting as an owner of an
+organization they are not a member of: a deploy token they create is listed with `(platform
+administrator)` beside its creator, and a grant they accept for the organization carries the mark on
+its acceptance.
 
 ## Quotas
 
@@ -175,7 +178,7 @@ ankka organizations grants decline acme <grant>
 ankka organizations grants relinquish acme <grant>   # give up an accepted grant
 ```
 
-Only owners answer a grant; a member or a deploy token is refused. A grant within one organization needs
+Only owners, or a platform administrator, answer a grant; a member or a deploy token is refused. A grant within one organization needs
 no answer. See [Cross-project access](cross-project-access.md).
 
 ## Machines

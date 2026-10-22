@@ -174,13 +174,20 @@ object Trace:
    */
   private val current = ThreadLocal[Working]()
 
-  /** What a thread is working for: the trace, the span, and the handler that span is. */
+  /**
+   * What a thread is working for: the trace, the span, the handler that span is, and who acted,
+   * when an endpoint authenticated them (spec 057). Who acted is kept by every scope entered inside
+   * the one that named them: it is the same person's work, however many spans it makes.
+   */
   private final class Working(
       val traceIdHigh: Long,
       val traceId: Long,
       val spanId: Long,
-      val origin: CallOrigin
-  )
+      val origin: CallOrigin,
+      val attribution: String | Null = null
+  ):
+    def attributedTo(subject: String | Null): Working =
+      Working(traceIdHigh, traceId, spanId, origin, subject)
 
   /** The trace and span the current thread is working for, both halves of the trace id. */
   def currentContext: Option[TraceContext] =
@@ -261,9 +268,28 @@ object Trace:
     val traced = currentContext match
       case Some(context) => into(metadata, context)
       case None          => metadata
-    currentOrigin match
+    val originated = currentOrigin match
       case Some(origin) => CallOrigin.into(traced, origin)
       case None         => CallOrigin.strip(traced)
+    // Who acted travels with the call, and the first to be named is kept: a handler forwarding the
+    // metadata it was given is still acting for whoever that call was made for.
+    currentAttribution match
+      case Some(subject) if !originated.contains(Attribution.MetadataKey) =>
+        originated.set(Attribution.MetadataKey, subject)
+      case _ => originated
+
+  /** Who acted, as the endpoint that authenticated them named them, if the thread was told. */
+  def currentAttribution: Option[String] =
+    current.get() match
+      case null    => None
+      case working => Option(working.attribution).map(_.nn)
+
+  /** Runs `body` as the work of `subject`, keeping whatever trace and handler are current. */
+  private[runtime] def attributed[A](subject: String)(body: => A): A =
+    val working = current.get() match
+      case null     => Working(0L, 0L, 0L, null, subject)
+      case existing => existing.attributedTo(subject)
+    scoped(working)(body)
 
   /** Runs `body` as the work of this span, for no handler in particular. */
   def within[A](span: Span)(body: => A): A =
@@ -275,7 +301,12 @@ object Trace:
 
   private def scoped[A](working: Working)(body: => A): A =
     val previous = current.get()
-    current.set(working)
+    // A scope entered inside one that named who acted is still their work.
+    val kept =
+      if working.attribution == null && previous != null && previous.attribution != null then
+        working.attributedTo(previous.attribution)
+      else working
+    current.set(kept)
     try body
     finally if previous eq null then current.remove() else current.set(previous)
 

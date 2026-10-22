@@ -90,6 +90,19 @@ trait CommandContext:
    */
   def isHome: Boolean = true
 
+  /**
+   * Who acted (spec 057): the subject of the person or machine an endpoint authenticated, whose
+   * call led to this command; `None` when no endpoint named one.
+   */
+  def attribution: Option[String] = None
+
+  /**
+   * The installation that forwarded this command to its home (spec 057); `None` for a command that
+   * was not forwarded. On a forwarded write, the installation is the caller and the person is the
+   * attribution.
+   */
+  def forwardedFrom: Option[String] = None
+
 /**
  * Available inside `applyEvent`, for the event being applied (feature 051): where it was written,
  * on replay as well as when it is persisted.
@@ -107,10 +120,18 @@ trait EventContext:
   /** The event's sequence number in the entity's journal, the same at every installation. */
   def sequenceNumber: Long
 
+  /** Who acted on the command that persisted the event (spec 057), as its record says. */
+  def attribution: Option[String] = None
+
+  /** The installation that forwarded that command to its home (spec 057), as its record says. */
+  def forwardedFrom: Option[String] = None
+
 private[ankka] final case class SimpleEventContext(
     installation: Option[String],
     isLocal: Boolean,
-    sequenceNumber: Long
+    sequenceNumber: Long,
+    override val attribution: Option[String] = None,
+    override val forwardedFrom: Option[String] = None
 ) extends EventContext
 
 private[ankka] final case class SimpleEntityContext(

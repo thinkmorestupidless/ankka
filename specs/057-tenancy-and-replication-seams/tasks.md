@@ -101,7 +101,7 @@ the control plane half may be reviewed on its own.
 - [X] T017 `modules/runtime/.../wire.scala`: `JournalRecord.attribution` and `forwardedFrom`,
   `@JsonInclude(NON_ABSENT)`; `JournalRecordCompatibilitySuite` green with fixtures untouched; one
   case that a record with both round-trips (R9)
-- [ ] T018 `modules/sdk/.../contexts.scala`: `CommandContext.{attribution, forwardedFrom}`,
+- [X] T018 `modules/sdk/.../contexts.scala`: `CommandContext.{attribution, forwardedFrom}`,
   `EventContext.{attribution, forwardedFrom}`, defaults `None`; `modules/runtime/.../Attribution.scala`:
   `MetadataKey = "ankka-attribution"`, `within(subject)(body)`, `current`; `Trace.Working` gains
   the field and the outgoing stamp at `Trace.scala:~265` writes it when present

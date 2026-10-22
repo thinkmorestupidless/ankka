@@ -120,7 +120,7 @@ the four new scenarios; `ReplicationSettingsSuite`.
   in `withEnvironment`, merged with the database form; `ReplicationRuntime.scala`'s refusal hint
   names both forms; `ReplicationSettingsSuite`: the list alone, the list plus a database for one
   name, a name that is not a DNS label refused (R8)
-- [ ] T022 [US3] `modules/testkit/.../AnkkaTestKit.scala`, `TestReplicationTransport.scala`:
+- [X] T022 [US3] `modules/testkit/.../AnkkaTestKit.scala`, `TestReplicationTransport.scala`:
   `Installations.using(factory)`; `start`/`restart` wire the supplied factory; the switches throw
   on a `using` group naming `using` (R7)
 - [ ] T023 [US3] `modules/testkit/src/test/.../replication/RecordingTransport.scala`: a transport

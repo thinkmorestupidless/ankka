@@ -30,7 +30,18 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
  * Each installation of a group has its own transport, made by `factory`; they share this one's
  * switches.
  */
-final class TestReplicationTransport private[testkit] (val installations: Vector[String]):
+final class TestReplicationTransport private[testkit] (
+    val installations: Vector[String],
+    supplied: Boolean = false
+):
+
+  /** A group running over the test's own transport has none of these switches to throw. */
+  private def switch(name: String): Unit =
+    if supplied then
+      throw UnsupportedOperationException(
+        s"$name belongs to the runtime's own replication transport; the group " +
+          s"${installations.mkString(", ")} runs over the transport given to `using`"
+      )
 
   private val lock                               = Object()
   private var paused: Map[String, Promise[Unit]] = Map.empty
@@ -38,11 +49,13 @@ final class TestReplicationTransport private[testkit] (val installations: Vector
 
   /** Stalls every record and wake on its way to `installation` until `resume`. */
   def pause(installation: String): Unit = lock.synchronized {
+    switch("pause")
     if !paused.contains(installation) then paused += installation -> Promise[Unit]()
   }
 
   /** Lets what was stalled on its way to `installation` through, in order. */
   def resume(installation: String): Unit = lock.synchronized {
+    switch("resume")
     paused.get(installation).foreach(_.trySuccess(()))
     paused -= installation
   }
@@ -51,7 +64,10 @@ final class TestReplicationTransport private[testkit] (val installations: Vector
   def isPaused(installation: String): Boolean = lock.synchronized(paused.contains(installation))
 
   /** Makes `to` unreachable from `from` until `unblock`. */
-  def block(from: String, to: String): Unit = lock.synchronized(blocked += from -> to)
+  def block(from: String, to: String): Unit = lock.synchronized {
+    switch("block")
+    blocked += from -> to
+  }
 
   @volatile private var loopback = false
 
@@ -60,10 +76,15 @@ final class TestReplicationTransport private[testkit] (val installations: Vector
    * the routes their local console endpoints serve, rather than in the JVM. Set before the
    * installations start.
    */
-  def loopbackOnly(on: Boolean): Unit = loopback = on
+  def loopbackOnly(on: Boolean): Unit =
+    switch("loopbackOnly")
+    loopback = on
 
   /** Makes `to` reachable from `from` again. */
-  def unblock(from: String, to: String): Unit = lock.synchronized(blocked -= from -> to)
+  def unblock(from: String, to: String): Unit = lock.synchronized {
+    switch("unblock")
+    blocked -= from -> to
+  }
 
   private def isBlocked(from: String, to: String): Boolean =
     lock.synchronized(blocked.contains(from -> to))

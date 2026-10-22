@@ -105,13 +105,15 @@ object ReplicationSettings:
    * and `ANKKA_INSTALLATION_<NAME>_DB_*` as `ankka.replication.installations.<name>.db.*`.
    */
   private def withEnvironment(config: Config, env: Map[String, String]): Config =
-    val listed = env
-      .get(PlatformVariables.Installations)
-      .toVector
+    val configured =
+      if config.hasPath("ankka.replication.named") then
+        Some(config.getString("ankka.replication.named"))
+      else None
+    val listed = (env.get(PlatformVariables.Installations).toVector ++ configured)
       .flatMap(_.split(',').toVector)
       .map(_.trim.toLowerCase)
       .filter(_.nonEmpty)
-    listed.flatMap(nameProblem).headOption.foreach { p =>
+    listed.distinct.flatMap(nameProblem).headOption.foreach { p =>
       throw IllegalArgumentException(s"${PlatformVariables.Installations}: $p")
     }
     val named = listed.foldLeft(ConfigFactory.empty) { (acc, name) =>

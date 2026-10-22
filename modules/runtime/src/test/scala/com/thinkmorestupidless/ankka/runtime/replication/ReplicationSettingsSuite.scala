@@ -80,6 +80,14 @@ class ReplicationSettingsSuite extends munit.FunSuite:
     assertEquals(s.databases("vienna").host, "db-v")
   }
 
+  test("ankka.replication.named, which ANKKA_INSTALLATIONS sets, names them as the variable does") {
+    val s = read("""
+      ankka.replication.installation = leipzig
+      ankka.replication.named = "bratislava,vienna"
+    """)
+    assertEquals(s.installations, Set("bratislava", "vienna"))
+  }
+
   test("a name in ANKKA_INSTALLATIONS that is not a DNS label is refused, naming the variable") {
     val e = intercept[IllegalArgumentException](
       read("ankka.replication.installation = leipzig", Map("ANKKA_INSTALLATIONS" -> "vienna,a|b"))

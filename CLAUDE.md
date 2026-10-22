@@ -151,8 +151,9 @@ owns the logic and the guards. A recipe that reimplements a step becomes a secon
 
 **CI builds pull requests, and only the parts a pull request touched.** The `changes` job in
 `.github/workflows/ci.yml` maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
-`sdk-typescript`, `sdk-rust`, `console`, `template-scala`); a skipped job counts as a pass. Branch
-protection requires the `template-scala` *summary* job, never the matrix's expanded names. `build` is
+`sdk-typescript`, `sdk-rust`, `console`, `template-scala`, `cli-native`); a skipped job counts as a
+pass. Branch protection names a matrix job by its *summary* job (`template-scala`, `cli-native`), never
+by the matrix's expanded names. `build` is
 a matrix too, for speed — `build (testkit)`, `build (sidecar)`, `build (rest)` behind a required `build`
 summary — and `rest` is defined by subtraction (`set testkit / Test / test := {}`, likewise `sidecar`),
 so a new module's suites run there unlisted; a module given its own runner must be subtracted from it.

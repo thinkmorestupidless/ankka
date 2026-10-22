@@ -36,6 +36,7 @@ jobs:
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
       features: ${{ steps.filter.outputs.features == 'true' || github.event_name == 'workflow_dispatch' }}
       web: ${{ steps.filter.outputs.web == 'true' || github.event_name == 'workflow_dispatch' }}
+      cli-native: ${{ steps.filter.outputs.cli-native == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       # The map below is only as good as its coverage: a tracked file no filter claims is a file whose
       # change runs nothing, and a pattern that matches no file can never fire. Both would pass
@@ -177,6 +178,19 @@ jobs:
               - 'cli/src/main/scala/**/mcp/McpInstall.scala'
               - 'cli/src/test/scala/**/cli/TemplateSuite.scala'
               - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
+            # The CLI as a native executable: its module, the modules it is built from, and the files its
+            # jar carries from elsewhere in the tree, the documentation pages `ankka mcp` serves and the
+            # rendered skills `ankka init` writes into a project.
+            cli-native:
+              - *workflow
+              - 'build.sbt'
+              - 'project/**'
+              - 'cli/**'
+              - 'controlplane-api/**'
+              - 'proxy-core/**'
+              - 'modules/core/**'
+              - 'docs/**'
+              - 'marketplace/plugins/ankka/skills/**'
             # The living features, the glossary their steps are held to, the specs that name their
             # scenarios, and the config that says where each is and which specs are read.
             features:
@@ -310,6 +324,54 @@ jobs:
           # A failed `changes` job skips the template too; that is not a pass.
           [ "${{ needs.changes.result }}" = success ] || exit 1
           case "${{ needs.template-scala.result }}" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac
+
+  # The CLI as a native executable, built and smoke-tested as the release builds it, so a defect only
+  # the native image has (a resource the image does not carry, a process spawned or a signal handled
+  # differently) fails the pull request rather than the tag. Two of the release's four platforms,
+  # one per operating system and one per architecture; the release still builds all four, because it
+  # publishes them. No expected version is passed: there is no tag to compare with.
+  cli-native:
+    needs: changes
+    if: needs.changes.outputs.cli-native == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04, as the release builds: the binary links the build machine's glibc.
+          - { platform: linux-x64, runner: ubuntu-22.04 }
+          - { platform: macos-arm64, runner: macos-14 }
+    runs-on: ${{ matrix.runner }}
+    name: cli-native (${{ matrix.platform }})
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # sbt-dynver derives the version from tags; a shallow clone sees none
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: graalvm-community
+          cache: sbt
+          github-token: ${{ github.token }}
+      - uses: sbt/setup-sbt@v1
+      - run: sbt cli/GraalVMNativeImage/packageBin
+      # A native image builds successfully with a resource missing; this asks the binary for each one.
+      - run: cli/native-smoke.sh cli/target/graalvm-native-image/ankka
+
+  # The check branch protection requires for the native CLI, in place of the matrix's own names, for
+  # the reason `template-scala` has one. Passes when both platforms passed or the CLI was untouched.
+  cli-native-result:
+    name: cli-native
+    needs: [changes, cli-native]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "changes: ${{ needs.changes.result }}, cli-native: ${{ needs.cli-native.result }}"
+          [ "${{ needs.changes.result }}" = success ] || exit 1
+          case "${{ needs.cli-native.result }}" in
             success|skipped) ;;
             *) exit 1 ;;
           esac

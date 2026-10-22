@@ -147,7 +147,7 @@ all green.
   around a handler whose `RequestContext` holds a principal, in the wrapper that enters the trace;
   an `HttpServer` suite case that a component call from an authenticated handler carries
   `ankka-attribution` and one from an unauthenticated handler does not (R9)
-- [ ] T026 [US4] `modules/runtime/.../EventSourcedEntityHost.scala`: `CommandContext.attribution`
+- [X] T026 [US4] `modules/runtime/.../EventSourcedEntityHost.scala`: `CommandContext.attribution`
   and `forwardedFrom` from the metadata; the records a command persists carry both;
   `EventContext` reads them from the record; `HostReplication.forward` unchanged (metadata
   carried as is); a host suite case

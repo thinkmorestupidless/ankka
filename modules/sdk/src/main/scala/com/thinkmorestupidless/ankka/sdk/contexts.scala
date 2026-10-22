@@ -169,5 +169,7 @@ private[ankka] final case class SimpleCommandContext(
     metadata: Metadata,
     sequenceNumber: Long,
     override val installation: Option[String] = None,
-    override val isHome: Boolean = true
+    override val isHome: Boolean = true,
+    override val attribution: Option[String] = None,
+    override val forwardedFrom: Option[String] = None
 ) extends CommandContext

@@ -65,8 +65,17 @@ private[ankka] object EventSourcedEntityHost:
 
   /** In-memory event type: domain events plus the runtime's own lifecycle markers. */
   enum Journaled[+E]:
-    /** `installation` is the record's writer as read back; `None` for one being written here. */
-    case Domain(event: E, installation: Option[String] = None)
+    /**
+     * `installation` is the record's writer as read back; `None` for one being written here.
+     * `attribution` and `forwardedFrom` are who acted and the installation that forwarded the
+     * command (spec 057): taken from the command when written, from the record when read back.
+     */
+    case Domain(
+        event: E,
+        installation: Option[String] = None,
+        attribution: Option[String] = None,
+        forwardedFrom: Option[String] = None
+    )
     case Deleted
     case Expiry(atEpochMillis: Long)
 
@@ -280,16 +289,19 @@ private[ankka] object EventSourcedEntityHost:
             case Local.AtHome(c, _)  => (Some(c.me), true)
             case Local.AtFollower(c) => (Some(c.me), false)
 
+          val received = MetaEntry.toMetadata(invoke.metadata)
           entity._setState(visible)
           entity._setContext(
             Some(
               SimpleCommandContext(
                 entityId,
                 descriptor.componentId,
-                MetaEntry.toMetadata(invoke.metadata),
+                received,
                 lastSeq,
                 installation,
-                isHome
+                isHome,
+                Attribution.from(received),
+                received.get(HostReplication.ForwardedFrom)
               )
             )
           )
@@ -312,11 +324,14 @@ private[ankka] object EventSourcedEntityHost:
           try
             // Published as current for the duration of the handler, so a nested
             // ComponentClient call is recorded as this span's child rather than a root.
-            val (effect, handlerOutcome) =
+            // A call the handler makes is for whoever this command was for (spec 057).
+            def handle =
               Trace.within(
                 span,
                 CallOrigin(descriptor.componentId.toString, invoke.method)
               )(interpret(binding, invoke, state, lastSeq, local))
+            val (effect, handlerOutcome) =
+              Attribution.from(metadata).fold(handle)(Attribution.within(_)(handle))
             outcome = handlerOutcome
             effect
           finally
@@ -381,8 +396,13 @@ private[ankka] object EventSourcedEntityHost:
           (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
         case (outcome, Right((before, after))) =>
+          // Each record says who acted and where the command was forwarded from, when it was.
+          val received      = MetaEntry.toMetadata(invoke.metadata)
+          val attribution   = Attribution.from(received)
+          val forwardedFrom = received.get(HostReplication.ForwardedFrom)
           val handlerRecords =
-            effect.events.map(Journaled.Domain(_)) ++ retentionRecord(effect.retention)
+            effect.events.map(Journaled.Domain(_, None, attribution, forwardedFrom)) ++
+              retentionRecord(effect.retention)
           // A command that asks for nothing creates nothing: a creation's records are written only
           // with what the handler persists or the replication change it asks for.
           val writes =
@@ -454,8 +474,10 @@ private[ankka] object EventSourcedEntityHost:
           // No such handler: answered as any entity answers it.
           case None => onInvoke(state, invoke, lastSeq, Local.Unreplicated)
           case Some(binding) =>
-            val reads = binding.readOnly
-            if state.conflict.nonEmpty && !reads then refuse(invoke, c.inConflict(state))
+            val reads   = binding.readOnly
+            val refused = c.admission(invoke)
+            if refused.nonEmpty then refuse(invoke, refused.get)
+            else if state.conflict.nonEmpty && !reads then refuse(invoke, c.inConflict(state))
             else
               c.mode(state) match
                 case Mode.Home =>
@@ -604,7 +626,7 @@ private[ankka] object EventSourcedEntityHost:
       sequenceNumber: Long
   ): Stored[S] =
     event match
-      case Journaled.Domain(domainEvent, written) =>
+      case Journaled.Domain(domainEvent, written, attribution, forwardedFrom) =>
         // `_applyEvent` sets `currentState` before delegating, so a handler written as
         // `currentState.addItem(...)` — the idiom the docs use — works on replay too.
         // After a deletion or an expiry the handler was shown `emptyState` (see `onCommand`),
@@ -620,7 +642,9 @@ private[ankka] object EventSourcedEntityHost:
         val context = SimpleEventContext(
           installation,
           isLocal = installation == self,
-          sequenceNumber
+          sequenceNumber,
+          attribution,
+          forwardedFrom
         )
         state.copy(
           value = entity._applyEvent(base, domainEvent, context),
@@ -667,7 +691,12 @@ private[ankka] object EventSourcedEntityHost:
   ): Journaled[E] =
     record.kind match
       case JournalRecord.KindDomain =>
-        Journaled.Domain(descriptor.eventSerializer.fromBytes(record.payload), record.installation)
+        Journaled.Domain(
+          descriptor.eventSerializer.fromBytes(record.payload),
+          record.installation,
+          record.attribution,
+          record.forwardedFrom
+        )
       case JournalRecord.KindDeleted => Journaled.Deleted
       case JournalRecord.KindExpiry  => Journaled.Expiry(record.expiryMillis)
       case other =>
@@ -700,18 +729,19 @@ private[ankka] object EventSourcedEntityHost:
     new EventAdapter[Journaled[E], JournalRecord]:
 
       def toJournal(event: Journaled[E]): JournalRecord = event match
-        case Journaled.Domain(e, _) =>
+        case Journaled.Domain(e, _, attribution, forwardedFrom) =>
           JournalRecord
             .domain(descriptor.eventSerializer.manifest, descriptor.eventSerializer.toBytes(e))
             .at(self)
+            .copy(attribution = attribution, forwardedFrom = forwardedFrom)
         case Journaled.Deleted          => JournalRecord.deleted.at(self)
         case Journaled.Expiry(atMillis) => JournalRecord.expiry(atMillis).at(self)
         case Journaled.Replication(p)   => p.record.at(self)
         case Journaled.Mirrored(record) => record
 
       def manifest(event: Journaled[E]): String = event match
-        case Journaled.Domain(_, _) => descriptor.eventSerializer.manifest
-        case other                  => manifestOf(toJournal(other))
+        case Journaled.Domain(_, _, _, _) => descriptor.eventSerializer.manifest
+        case other                        => manifestOf(toJournal(other))
 
       def fromJournal(record: JournalRecord, manifest: String): EventSeq[Journaled[E]] =
         EventSeq.single(decode(descriptor, record))

@@ -53,6 +53,25 @@ class JournalRecordSuite extends munit.FunSuite:
     assertEquals(roundTrip(written).installation, None)
   }
 
+  test("a record carrying who acted and the installation that forwarded it reads both back") {
+    val written = JournalRecord
+      .domain("vehicle-event", "{}".getBytes(UTF_8))
+      .at(Some("leipzig"))
+      .copy(attribution = Some("token:abc"), forwardedFrom = Some("vienna"))
+    val back = roundTrip(written)
+    assertEquals(back.attribution, Some("token:abc"))
+    assertEquals(back.forwardedFrom, Some("vienna"))
+    assertEquals(back.installation, Some("leipzig"))
+  }
+
+  test("a record with neither is written without the fields, as the release before wrote it") {
+    val written = JournalRecord.domain("vehicle-event", "{}".getBytes(UTF_8)).at(Some("leipzig"))
+    val bytes   = text(bytesOf(written))
+    assert(!bytes.contains("attribution") && !bytes.contains("forwardedFrom"), bytes)
+    val back = roundTrip(written)
+    assertEquals((back.attribution, back.forwardedFrom), (None, None))
+  }
+
   test("each platform record reads back its kind, manifest and payload") {
     val cases = Vector(
       (JournalRecord.home("leipzig"), JournalRecord.KindHome, "ankka.home", "leipzig"),

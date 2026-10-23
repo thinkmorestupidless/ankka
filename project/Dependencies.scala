@@ -32,7 +32,7 @@ object Dependencies {
     val cucumberExpressions = "20.1.0"
     val testcontainers      = "1.21.4"
     val r2dbcPostgres       = "1.1.2.RELEASE"
-    val fabric8             = "7.9.0"
+    val fabric8             = "8.0.0"
     val decline             = "2.6.2"
     val nimbusJoseJwt       = "10.9.1"
 

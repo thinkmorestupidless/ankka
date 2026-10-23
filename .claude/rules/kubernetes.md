@@ -235,7 +235,7 @@ replacement's selector is `[name=^https$]`: kustomize matches a name as an unanc
 
 - **A kind node that filled its disk does not heal when the disk is freed.** CNPG's controller stays in
   `CrashLoopBackOff` and the kubelet keeps logging "probe already exists". Delete the cluster and create
-  it again. (2026-10-23, T6 run 2)
+  it again. (2026-10-23)
 
 It ends by `rollout restart`ing the operator and control plane. Without that a *re*-run changes
 nothing that is running: the manifests are unchanged and the tag is still `:latest`, so `kubectl

@@ -2,12 +2,12 @@
 title: Adding a language SDK
 description: What an SDK for a new language must do to host services on ankka, and how the encoding fixtures and the conformance suite prove it compatible without the platform knowing the language exists.
 kind: contributing
-related: [reference/sidecar-protocol.md, reference/wasm-abi.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/rust-sdk.md, concepts/polyglot.md]
+related: [reference/sidecar-protocol.md, reference/wasm-abi.md, reference/java-sdk.md, reference/kotlin-sdk.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/rust-sdk.md, concepts/polyglot.md]
 ---
 
 # Adding a language SDK
 
-ankka hosts services in a language other than Scala through the sidecar: the ankka runtime runs beside the
+ankka hosts a service in a language off the JVM through the sidecar: the ankka runtime runs beside the
 service's process and speaks a gRPC protocol to it. The platform never learns which language is on the other
 end. A new language therefore needs no change to the platform, only an SDK, and an SDK is compatible when it
 passes two things: the encoding fixtures and the conformance suite. The Python SDK in
@@ -21,6 +21,14 @@ answers the same discovery and the same messages, across the module's linear mem
 and passes the same fixtures and the same suite. The Rust crate in
 [`sdks/rust`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/rust) is the working example; see
 [A guest library](#a-guest-library).
+
+There is a third route for a language that runs on the JVM: an **embedded SDK**, a facade over the Scala SDK
+that the runtime hosts in its own process, as it hosts a Scala service. There is no sidecar, no protocol and
+no module: the facade reads the developer's classes when the service starts and hands the runtime the same
+descriptors a Scala service registers. The Java SDK in
+[`modules/sdk-java`](https://github.com/thinkmorestupidless/ankka/blob/main/modules/sdk-java) and the Kotlin
+SDK over it in [`sdks/kotlin`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/kotlin) are the
+working examples; see [An embedded SDK](#an-embedded-sdk).
 
 ## What an SDK does
 
@@ -133,6 +141,41 @@ sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=wasm:/path/t
 ```
 
 The Rust crate's `conformance.sh` builds its reference module and runs both.
+
+## An embedded SDK
+
+An embedded SDK is built in this repository, against the Scala SDK, and is released with it, because it
+calls the runtime's own types. The five things an SDK does read differently for it:
+
+1. **Serves no protocol.** The runtime calls the developer's handlers directly, on the same virtual threads
+   a Scala handler runs on. A service is one process and one image, with `"hosting"` left at its default.
+2. **Answers no discovery.** The facade reads every registered class once when the service starts and
+   turns it into the Scala SDK's descriptors, refusing to start with every declaration problem listed. What
+   the descriptors carry is what a Scala service's carry, so the runtime cannot tell the languages apart.
+3. **Gives developers the component model in their language's idiom.** The Java SDK declares components as
+   classes and handlers as annotated methods whose string is the wire name, called by method reference; the
+   Kotlin SDK adds data classes, suspending handlers and a DSL over the Java types. The rules are the same:
+   a stable component id, wire names apart from method names, effects as values, a query that can only
+   return a read-only effect.
+4. **Encodes values exactly as the Scala SDK does.** The facade's codec is its own, written for the
+   language's types, and is held to the [encoding fixtures](#the-encoding-fixtures) as any SDK's is. The
+   Java SDK's `RecordCodecFixturesSuite` reads them; the Kotlin SDK keeps a copy in `sdks/kotlin/fixtures`,
+   which `./gradlew checkFixtures` compares with the original.
+5. **Ships testkits** over the Scala testkits: unit kits that run one component, and a whole-service kit
+   that starts the real runtime against Postgres. No sidecar image is involved.
+
+The conformance suite runs an embedded reference in its own process, as it runs the Scala one, chosen by a
+system property:
+
+```bash
+sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.reference=java
+sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.reference=classpath:<file>:<class>
+```
+
+The second form names a file listing a class path and the reference's class on it, for a reference built
+outside sbt; `just kotlin-conformance` builds the Kotlin reference with Gradle and runs it that way. A case
+the reference cannot run yet is reported skipped, with the reason, never run against another language's
+components under this one's name.
 
 ## Declaring a service
 

@@ -44,6 +44,10 @@ func kitOf(service any) (*kit.Service, error) {
 	for id, e := range d.esKits {
 		out.EventSourced[id] = e
 	}
+	out.KeyValue = map[string]*kit.KeyValue{}
+	for id, e := range d.kvKits {
+		out.KeyValue[id] = e
+	}
 	return out, nil
 }
 

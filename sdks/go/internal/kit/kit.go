@@ -17,6 +17,8 @@ type Service struct {
 	Problems []string
 	// EventSourced are the event sourced entities, by component id.
 	EventSourced map[string]*EventSourced
+	// KeyValue are the key value entities, by component id.
+	KeyValue map[string]*KeyValue
 	// Kinds are the protocol kinds of the components, by id.
 	Kinds map[string]pb.Kind
 	// Route finds the route a request names: its endpoint id, route id and path arguments.
@@ -47,6 +49,23 @@ type EventSourced struct {
 	// Event decodes one persisted event, by the entity's event codec.
 	Event func(p *pb.Payload) (any, error)
 	// State decodes a snapshot of the state, by the entity's state codec.
+	State func(p *pb.Payload) (any, error)
+	// Empty is the empty state of the instance entityID, encoded by the state codec.
+	Empty func(entityID string) (*pb.Payload, error)
+	// Handlers are the entity's wire names, each with whether it is read-only.
+	Handlers map[string]bool
+}
+
+// KeyValue is what a test kit needs of a key value entity.
+type KeyValue struct {
+	ID string
+	// New is a fresh instance of the entity, before its Init.
+	New func(entityID string) server.KeyValueInstance
+	// Input encodes a value as the input of the handler wire, by the handler's codec.
+	Input func(wire string, value any) (*pb.Payload, error)
+	// Reply decodes the reply of the handler wire, by the handler's codec.
+	Reply func(wire string, p *pb.Payload) (any, error)
+	// State decodes the state, by the entity's state codec.
 	State func(p *pb.Payload) (any, error)
 	// Empty is the empty state of the instance entityID, encoded by the state codec.
 	Empty func(entityID string) (*pb.Payload, error)

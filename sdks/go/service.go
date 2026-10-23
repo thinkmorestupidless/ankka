@@ -213,6 +213,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	if len(s.decls.eventSourced) > 0 {
 		server.RegisterEventSourced(g, s.eventSourcedHost, s.serverOptions())
 	}
+	if len(s.decls.keyValue) > 0 {
+		server.RegisterKeyValue(g, s.keyValueHost, s.serverOptions())
+	}
 	if len(s.decls.endpoints) > 0 {
 		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP}, s.serverOptions())
 	}
@@ -223,6 +226,14 @@ func (s *Service) eventSourcedHost(componentID, entityID string) (server.EventSo
 	f, ok := s.decls.eventSourced[componentID]
 	if !ok {
 		return nil, fmt.Errorf("this process hosts no event sourced entity %q", componentID)
+	}
+	return f(entityID), nil
+}
+
+func (s *Service) keyValueHost(componentID, entityID string) (server.KeyValueInstance, error) {
+	f, ok := s.decls.keyValue[componentID]
+	if !ok {
+		return nil, fmt.Errorf("this process hosts no key value entity %q", componentID)
 	}
 	return f(entityID), nil
 }

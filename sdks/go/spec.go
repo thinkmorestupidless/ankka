@@ -33,6 +33,7 @@ type declarations struct {
 	needs      []need
 
 	eventSourced map[string]func(entityID string) server.EventSourcedInstance
+	keyValue     map[string]func(entityID string) server.KeyValueInstance
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
@@ -43,11 +44,14 @@ type declarations struct {
 
 	// esKits are the event sourced entities as the test kits drive them, by id.
 	esKits map[string]*kit.EventSourced
+	kvKits map[string]*kit.KeyValue
 }
 
 func newDeclarations() *declarations {
 	return &declarations{
 		eventSourced:  map[string]func(string) server.EventSourcedInstance{},
+		keyValue:      map[string]func(string) server.KeyValueInstance{},
+		kvKits:        map[string]*kit.KeyValue{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},

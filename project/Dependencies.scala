@@ -50,7 +50,7 @@ object Dependencies {
      * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object
      * store the way a service's own client would (feature 034, R20). Never on a main classpath.
      */
-    val awsSdk = "2.55.11"
+    val awsSdk = "2.55.16"
 
     /**
      * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native

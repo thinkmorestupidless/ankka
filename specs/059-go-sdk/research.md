@@ -382,6 +382,13 @@ and the `go get` of the released module in an empty directory.
 - **V3, holds.** testcontainers-go v0.44.0 declares `go 1.25.0`; grpc v1.84.0 `go 1.25.0`; protobuf
   v1.36.12 `go 1.23`. The SDK's floor of 1.26 stands. buf v1.75.0 needs 1.26.7, which is why the
   generators live in the nested tools module and never in a service's graph.
+- **V4, holds.** The pack smoke (`sdks/go/scripts/pack-smoke.sh`, go1.26.10 and go1.27.3) builds a
+  `main` importing only `ankka`: `go list -deps` names 319 packages (330 on 1.27) and no testcontainers one, while
+  the `_test.go` beside it importing `ankka/testkit` pulls 11. Built from an empty module cache, that
+  `main` downloads six modules (grpc, protobuf, genproto's rpc, x/net, x/sys, x/text) and no
+  testcontainers code, not even its `go.mod`. `go mod tidy` still records two testcontainers checksums
+  in such a consumer's `go.sum` (120 lines), because the SDK's own root-package tests import the kit;
+  acceptable: a checksum is a line, not a download.
 - **V5, holds.** A program requiring the SDK at `v0.9.9` with a `replace` to the checkout reports that
   version with `Replace != nil`; one fetched from a file module proxy serving a copy as `v0.13.0`
   reports `v0.13.0` with no replacement.

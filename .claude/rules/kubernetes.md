@@ -237,9 +237,11 @@ start-up, every TLS handshake. It now has the family's (INFO, clients at WARN).
 - **A pass that asks to be looked at again must not add a timer each time.** `WorkQueue.enqueueAfter`
   keeps one per resource, the earliest; before, every event-caused pass during a wait added one and
   every timer's pass added the next, so a long wait was reconciled ever more often.
-- **The operator's `pods/exec` grant is `create` alone, and Kubernetes 1.35 refuses its WebSocket
-  exec without `get`**: every `psql` in `DatabaseQueries` answers 403 (`WebSocket upgrade failure:
-  403`, an ERROR from fabric8 each project pass). Not fixed here: it is a permission change.
+- **A `pods/exec` grant needs `get` beside `create` (2026-10-23).** Exec runs over WebSockets since
+  Kubernetes 1.31, and that path is authorised as a `get` on `pods/exec` too; with `create` alone,
+  every `psql` in `DatabaseQueries` answered 403 (`WebSocket upgrade failure: 403`, an ERROR from
+  fabric8 each project pass) on a 1.35 cluster, and the backup and restore readings those queries
+  feed were never made. `OperatorManifestSuite` pins both verbs.
 
 ## Deploying locally
 

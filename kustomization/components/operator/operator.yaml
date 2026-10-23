@@ -141,10 +141,12 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch"]
   # psql in a database's own pod, as postgres over its socket (feature 041, research R11): the
   # archive's lag, which replica a synchronous write waits on, and what a restore holds — none of
-  # which any resource carries. Read-only statements, all in one file (DatabaseQueries).
+  # which any resource carries. Read-only statements, all in one file (DatabaseQueries). `get` beside
+  # `create`: exec runs over WebSockets since Kubernetes 1.31, and that path is authorised as a `get`
+  # on `pods/exec` as well; without it every psql is refused 403 on 1.35.
   - apiGroups: [""]
     resources: ["pods/exec"]
-    verbs: ["create"]
+    verbs: ["create", "get"]
   # create, to write a Secret once — a service's database location, its secret key, its storage
   # credential — and learn from a conflict that it is already there; patch, for server-side apply of
   # the telemetry Secret. No "get" and no "list": the operator writes credentials where a pod reads

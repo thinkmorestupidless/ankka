@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.javasdk.http;
 import com.thinkmorestupidless.ankka.javasdk.bridge.EndpointCell;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients;
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import java.util.Optional;
 
@@ -62,5 +64,15 @@ public abstract class HttpEndpoint {
   /** Calls to other services, by name. */
   protected final ServiceClients services() {
     return cell.services();
+  }
+
+  /** The service's own secrets. */
+  protected final SecretStore secrets() {
+    return cell.secrets();
+  }
+
+  /** The service's buckets. */
+  protected final ObjectStorage storage() {
+    return cell.storage();
   }
 }

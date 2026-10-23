@@ -184,7 +184,11 @@ private[bridge] object JavaStepEffects:
 /** A Java workflow as the Scala SDK's own companion, so the workflow runtime hosts it unchanged. */
 private[ankka] object Workflows:
 
-  def companion(plan: ComponentPlan, refs: Refs): sdk.Workflow.Companion[JavaWorkflowHost, Any] =
+  def companion(
+      plan: ComponentPlan,
+      refs: Refs,
+      serializers: Declarations.Serializers
+  ): sdk.Workflow.Companion[JavaWorkflowHost, Any] =
     val index = StepIndex(plan.cls, plan.steps)
     new sdk.Workflow.Companion[JavaWorkflowHost, Any](
       ComponentId(plan.componentId),
@@ -194,6 +198,9 @@ private[ankka] object Workflows:
         val cell =
           EntityCell(ctx.workflowId, plan.componentId, Clients.of(ctx.componentClient, refs))
         cell.steps = index
+        cell.serviceClients = Services.of(ctx.services, serializers)
+        cell.secretStore = Stores.secrets(ctx.secrets)
+        cell.objectStorage = Stores.storage(ctx.storage)
         JavaWorkflowHost(Adapters.construct(plan, cell), cell, plan.settings)
 
       plan.handlers.foreach { h =>

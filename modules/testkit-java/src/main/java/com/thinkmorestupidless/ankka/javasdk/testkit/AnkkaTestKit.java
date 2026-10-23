@@ -1,5 +1,8 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit;
 
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
+import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
@@ -58,6 +61,21 @@ public final class AnkkaTestKit implements AutoCloseable {
   /** Stops the service and starts it again on the same database. */
   public void restartService() {
     kit.restartService();
+  }
+
+  /** The service's timers; refused when it registers no timed action. */
+  public Timers timers() {
+    return kit.timers();
+  }
+
+  /** The service's secret store, kept in its database under the kit's secret key. */
+  public SecretStore secrets() {
+    return kit.secrets();
+  }
+
+  /** The service's buckets, kept in memory by the kit. */
+  public ObjectStorage storage() {
+    return kit.storage();
   }
 
   /**

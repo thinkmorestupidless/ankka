@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.javasdk.component;
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients;
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,4 +29,8 @@ public interface TimerContext {
   ComponentClient componentClient();
 
   ServiceClients services();
+
+  SecretStore secrets();
+
+  ObjectStorage storage();
 }

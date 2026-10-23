@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.javasdk.bridge
 import com.thinkmorestupidless.ankka.http
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceClients, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.http.*
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 
 import java.util.Optional
 import java.util.function.{Function, Predicate}
@@ -82,8 +84,14 @@ private[bridge] final class JavaRequest(ctx: http.RequestContext) extends Reques
 final class EndpointCell private[bridge] (
     client: ComponentClient,
     serviceClients: ServiceClients = Services.unavailable,
-    views: ViewClient = JavaViews.unavailable
+    views: ViewClient = JavaViews.unavailable,
+    secretStore: SecretStore = Stores.noSecrets,
+    objectStorage: ObjectStorage = Stores.noStorage
 ):
+  def secrets(): SecretStore = secretStore
+
+  def storage(): ObjectStorage = objectStorage
+
   def viewClient(): ViewClient = views
 
   def request(): Request =

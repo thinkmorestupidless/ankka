@@ -129,7 +129,12 @@ private[ankka] object Consumers:
       refs: Refs,
       serializers: Declarations.Serializers
   ): ViewCell =
-    ViewCell(Clients.of(ctx.componentClient, refs), Services.of(ctx.services, serializers))
+    ViewCell(
+      Clients.of(ctx.componentClient, refs),
+      Services.of(ctx.services, serializers),
+      Stores.secrets(ctx.secrets),
+      Stores.storage(ctx.storage)
+    )
 
   private[bridge] final class Hooks(base: Class[?]):
     private def method(name: String, params: Class[?]*): Method =

@@ -14,6 +14,8 @@ import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
 import com.thinkmorestupidless.ankka.javasdk.component.{TimedAction, TimerContext}
 import com.thinkmorestupidless.ankka.javasdk.effect.TimedActionEffect
 import com.thinkmorestupidless.ankka.javasdk.problems.DeclarationProblem
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers
 import com.thinkmorestupidless.ankka.sdk
 
@@ -181,6 +183,8 @@ private final class JavaTimerContext(
     serviceClients: ServiceClients,
     javaTimers: Timers
 ) extends TimerContext:
+  def secrets(): SecretStore             = Stores.secrets(ctx.secrets)
+  def storage(): ObjectStorage           = Stores.storage(ctx.storage)
   def timerName(): String                = ctx.timerName
   def previousAttempts(): Int            = ctx.previousAttempts
   def dueTime(): Instant                 = ctx.dueTime

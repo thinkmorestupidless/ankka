@@ -1,6 +1,9 @@
 package com.thinkmorestupidless.ankka.javasdk.bridge
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient as JavaClient
+import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.component.EntityContext
 import com.thinkmorestupidless.ankka.sdk.CommandContext
 
@@ -23,8 +26,17 @@ final class EntityCell private[bridge] (
 
   /** A workflow's steps, which its effects resolve step references through. */
   private[bridge] var steps: StepIndex = StepIndex.empty
-  private lazy val workflow            = JavaWorkflowEffects(steps)
-  private lazy val step                = JavaStepEffects(steps)
+
+  /** What a workflow's steps may call besides components. */
+  private[bridge] var serviceClients: ServiceClients = Services.unavailable
+  private[bridge] var secretStore: SecretStore       = Stores.noSecrets
+  private[bridge] var objectStorage: ObjectStorage   = Stores.noStorage
+
+  def services(): ServiceClients = serviceClients
+  def secrets(): SecretStore     = secretStore
+  def storage(): ObjectStorage   = objectStorage
+  private lazy val workflow      = JavaWorkflowEffects(steps)
+  private lazy val step          = JavaStepEffects(steps)
 
   /** A workflow's command effects; read by the Java base class. */
   def workflowEffects(): AnyRef = workflow

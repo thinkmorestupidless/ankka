@@ -1,6 +1,8 @@
 package com.thinkmorestupidless.ankka.javasdk.bridge
 
-import com.thinkmorestupidless.ankka.javasdk.{AnkkaService, ServiceBuilder}
+import com.thinkmorestupidless.ankka.javasdk.{AnkkaService, ServiceBuilder, ServiceIdentity}
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId
 import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
@@ -86,7 +88,13 @@ private[ankka] object JavaServiceBuilder:
         val viewz = viewClient(clients.viewClient)
         JavaHttpEndpoint(endpoints.flatMap { plan =>
           val instance = EndpointCell.constructing(
-            EndpointCell(java, Services.of(clients.services, serializers), viewz)
+            EndpointCell(
+              java,
+              Services.of(clients.services, serializers),
+              viewz,
+              Stores.secrets(clients.secrets),
+              Stores.storage(clients.storage)
+            )
           )(plan.construct())
           Routes.scalaRoutes(plan, instance.asInstanceOf[HttpEndpoint], serializers)
         })
@@ -146,7 +154,7 @@ private[ankka] object JavaServiceBuilder:
     val consumers   = consumerResults.collect { case Right(plan) => plan }
     val actionPlans = actionResults.collect { case Right(plan) => plan }
     val actions     = ActionIndex(actionPlans)
-    val descriptors = plans.map(Adapters.descriptor(_, refs)) ++
+    val descriptors = plans.map(Adapters.descriptor(_, refs, serializers)) ++
       views.map(_._2._2.descriptor) ++
       consumers.map(Consumers.descriptor(_, refs, serializers)) ++
       actionPlans.map(TimedActions.descriptor(_, refs, actions, serializers))
@@ -185,6 +193,9 @@ private[ankka] final class JavaAnkkaService(
 
   def componentClient(): ComponentClient = client
   def viewClient(): ViewClient           = views
+  def secrets(): SecretStore             = Stores.secrets(scala.secrets)
+  def storage(): ObjectStorage           = Stores.storage(scala.storage)
+  def identity(): ServiceIdentity        = Stores.identity(scala.identity)
   def timers(): Timers =
     scala
       .extension[runtime.TimerRuntime]

@@ -1,5 +1,8 @@
 package com.thinkmorestupidless.ankka.javasdk.component;
 
+import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients;
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
 import com.thinkmorestupidless.ankka.javasdk.bridge.EntityCell;
 import com.thinkmorestupidless.ankka.javasdk.effect.StepEffects;
 import com.thinkmorestupidless.ankka.javasdk.effect.WorkflowEffects;
@@ -53,5 +56,20 @@ public abstract class Workflow<S> {
   @SuppressWarnings("unchecked")
   protected final StepEffects<S> stepEffects() {
     return (StepEffects<S>) cell.stepEffects();
+  }
+
+  /** Calls to other services, by name. */
+  protected final ServiceClients services() {
+    return cell.services();
+  }
+
+  /** The service's own secrets. */
+  protected final SecretStore secrets() {
+    return cell.secrets();
+  }
+
+  /** The service's buckets. */
+  protected final ObjectStorage storage() {
+    return cell.storage();
   }
 }

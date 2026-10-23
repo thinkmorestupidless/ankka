@@ -1,9 +1,18 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.bridge
 
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder
-import com.thinkmorestupidless.ankka.javasdk.bridge.{Clients, JavaServiceBuilder}
+import com.thinkmorestupidless.ankka.javasdk.bridge.{
+  Clients,
+  JavaServiceBuilder,
+  JavaTimers,
+  Stores
+}
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceResponse, ViewClient}
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.testkit.{ScriptedService, Settings}
+import com.thinkmorestupidless.ankka.javasdk.timer.Timers
+import com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.testkit as stk
 import com.typesafe.config.ConfigFactory
@@ -36,6 +45,16 @@ final class ServiceKit private (
   def httpClient(): HttpClient = client
 
   def restartService(): Unit = kit.restartService()
+
+  // Each read from the running service, as viewClient is.
+  def timers(): Timers =
+    kit.service
+      .extension[runtime.TimerRuntime]
+      .fold(JavaTimers.unavailable)(t => read.timers(t.timerScheduler))
+
+  def secrets(): SecretStore = Stores.secrets(kit.service.secrets)
+
+  def storage(): ObjectStorage = Stores.storage(kit.service.storage)
 
   def eventually(within: Duration, assertion: Runnable): Unit =
     val deadline = System.nanoTime() + within.toNanos
@@ -81,7 +100,8 @@ object ServiceKit:
           read.descriptors,
           extensions = http,
           settings = config,
-          localServices = scripted.view.mapValues(_.address).toMap
+          localServices = scripted.view.mapValues(_.address).toMap ++
+            settings.localServices.asScala.view.mapValues(_.toString)
         )
       catch
         case e: Throwable =>

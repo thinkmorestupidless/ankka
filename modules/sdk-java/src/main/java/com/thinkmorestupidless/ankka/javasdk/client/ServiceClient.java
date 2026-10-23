@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk.client;
 
+import java.util.Map;
+
 /**
  * Calls to one other service over HTTP, as this service: mutual TLS on the platform, plain HTTP to
  * {@code ankka.local-services.<name>} on a developer's machine. A body and a reply are written and
@@ -13,6 +15,10 @@ public interface ServiceClient {
 
   /** Any request, answered as it came. */
   ServiceResponse request(String method, String path, byte[] body, String contentType);
+
+  /** Any request with headers of its own, such as the caller's token to pass on. */
+  ServiceResponse request(
+      String method, String path, byte[] body, String contentType, Map<String, String> headers);
 
   <R> R get(String path, Class<R> reply);
 

@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.javasdk.bridge
 
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceClients}
 import com.thinkmorestupidless.ankka.javasdk.component.ChangeContext as JavaChange
+import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
+import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.sdk.ChangeContext
 
 import java.util.Optional
@@ -13,7 +15,9 @@ import java.util.Optional
  */
 final class ViewCell private[bridge] (
     client: ComponentClient = Clients.unavailable,
-    serviceClients: ServiceClients = Services.unavailable
+    serviceClients: ServiceClients = Services.unavailable,
+    secretStore: SecretStore = Stores.noSecrets,
+    objectStorage: ObjectStorage = Stores.noStorage
 ):
   private var current: Any                  = null
   private var change: Option[ChangeContext] = None
@@ -32,6 +36,10 @@ final class ViewCell private[bridge] (
   def componentClient(): ComponentClient = client
 
   def services(): ServiceClients = serviceClients
+
+  def secrets(): SecretStore = secretStore
+
+  def storage(): ObjectStorage = objectStorage
 
 object ViewCell:
   private val constructing = ThreadLocal[ViewCell]()

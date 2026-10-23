@@ -37,7 +37,18 @@ private final class JavaServiceClient(
       body: Array[Byte],
       contentType: String
   ): ServiceResponse =
-    val r = calling(scala.request(method, path, Option(body), Option(contentType)))
+    request(method, path, body, contentType, JMap.of())
+
+  def request(
+      method: String,
+      path: String,
+      body: Array[Byte],
+      contentType: String,
+      headers: JMap[String, String]
+  ): ServiceResponse =
+    val r = calling(
+      scala.request(method, path, Option(body), Option(contentType), headers.asScala.toSeq)
+    )
     ServiceResponse(
       r.status,
       r.contentType,

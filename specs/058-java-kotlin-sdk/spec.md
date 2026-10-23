@@ -66,6 +66,19 @@ licence") is the largest the family names. That is the reason on record.
 - Q: Is a Kotlin library published, and of what shape? → A: A Kotlin SDK of its own: a published
   library with its own component declarations in Kotlin's idiom and suspending client calls,
   built on the Java SDK, with a reference service that passes the conformance suite.
+- Q: How is a Java handler declared? → A: By an annotation on the method that carries the wire
+  name, as Akka's Java SDK does, read by reflection once when the service starts; a handler that
+  is wrong is refused at start, naming it. A query's return type still cannot persist, so that one
+  guarantee stays with the compiler. Components are still registered explicitly.
+- Q: Where do the two SDKs live and what builds them? → A: The Java SDK is a module of this
+  repository's own build beside the Scala SDK, published with the platform's JVM artifacts; the
+  Kotlin SDK is its own Gradle build under `sdks/kotlin`, as the Python, TypeScript and Rust SDKs
+  have their own toolchains there, consuming the published Java SDK, with its own continuous
+  integration job and conformance run, and published by the same release job after the JVM
+  artifacts.
+- Q: What cost may the facade add? → A: A command to a Java or Kotlin entity, measured end to end
+  as the tracing measures it, takes no more than 10% longer than the same command to the Scala
+  entity on the same machine, median of 1,000.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -92,6 +105,7 @@ cart wrote and read the same cart.
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
 - added `features/java-kotlin/embedded.feature`: a service written in Java or Kotlin is embedded, as a service written in Scala is
+- added `features/java-kotlin/embedded.feature`: a command to an entity in Java or Kotlin costs at most a tenth more than in Scala
 - changed `features/polyglot/entities.feature`: a refused command records nothing and its caller is told the refusal
 - changed `features/polyglot/entities.feature`: a handler that fails records nothing and the service goes on serving
 - changed `features/polyglot/entities.feature`: a restarted entity is recovered through the developer's code before its next command
@@ -101,6 +115,7 @@ cart wrote and read the same cart.
 - changed `features/polyglot/components.feature`: a key value entity's state is kept and recovered after a restart
 - added `features/java-kotlin/embedded.feature`: a handler's name is declared apart from the function that handles it
 - added `features/java-kotlin/embedded.feature`: two handlers declared with one name fail the service at start
+- added `features/java-kotlin/embedded.feature`: a handler declared wrongly fails the service at start, not at its first request
 - added `features/java-kotlin/embedded.feature`: a component the service does not register fails at start, not at its first request
 - added `features/java-kotlin/embedded.feature`: every type a Java developer writes, reads or is given is a Java type
 - changed `features/polyglot/encoding.feature`: every fixture is read and written again exactly by an SDK
@@ -325,6 +340,9 @@ coding agent holding the Java skill to write an entity and check what it writes 
   the developer is steered to returning an error effect, as in Scala.
 - Two handlers on one entity declaring the same wire name: the service fails at start, naming
   both.
+- A method shaped like a handler with no annotation, or an annotation on a method of the wrong
+  shape (a query returning a persisting effect, a command taking two arguments): the service fails
+  at start, naming the method; reflection runs once, at start, and never on a request.
 - A Java service and a Scala service in one project calling each other's entities: works unchanged,
   since both are the same runtime speaking to the same journal.
 - A Kotlin data class with default arguments: its defaults apply when a field is absent in the
@@ -360,11 +378,17 @@ coding agent holding the Java skill to write an entity and check what it writes 
   brokered sign-in), the component client, the service client, the secret store and the storage
   client. The Scala SDK reference page is the list; a capability on it with no Java form is a
   defect of this feature.
-- **FR-002**: A handler's wire name MUST be declared separately from its method name, and a
-  query handler MUST be unable to persist: the Java compiler refuses it.
-- **FR-003**: Registration MUST be explicit, and the SDK MUST collect every problem with a
-  service's declarations (an unregistered component, two handlers with one wire name, a route
-  with no access rule) and fail at start naming each.
+- **FR-002**: A handler MUST be declared by an annotation on its method that carries the wire
+  name, separately from the method name, as Akka's Java SDK does; the SDK MUST read the
+  annotations by reflection once, when the service starts, and never on a request. A query
+  handler MUST be unable to persist: its return type is a read-only effect, so the Java compiler
+  refuses a persisting one, and a method annotated as a query whose return type could persist is
+  refused at start.
+- **FR-003**: Registration of components MUST be explicit, and the SDK MUST collect every problem
+  with a service's declarations (an unregistered component, a method meant as a handler that
+  carries no wire name, two handlers with one wire name, an annotation on a method of the wrong
+  shape, a route with no access rule) and fail at start naming each; no problem of declaration
+  MAY surface at the first request.
 - **FR-004**: Every effect the Scala SDK offers for a kind the Java SDK carries MUST be
   expressible in Java, and MUST be reduced by the same function the Scala SDK's is, so the two
   cannot disagree about semantics.
@@ -434,15 +458,21 @@ coding agent holding the Java skill to write an entity and check what it writes 
 **Publishing, documentation, skills**
 
 - **FR-022**: The Java SDK, the Kotlin SDK and their test kits MUST be published to Maven Central
-  from a release tag of this repository, with the platform's own artifacts, under the same
-  version, with no hand step.
+  from a release tag of this repository, under the platform's version, with no hand step: the Java
+  SDK with the platform's JVM artifacts, from the repository's own build; the Kotlin SDK from its
+  own build under `sdks/kotlin`, after them, against the Java SDK just published. The Kotlin SDK's
+  version in the tree is a placeholder the release job rewrites, as the other `sdks/` are.
+- **FR-022a**: Continuous integration MUST build and test the Kotlin SDK in a job of its own, run
+  only when a pull request touches what it reads, and MUST run the conformance suite against the
+  Kotlin reference service; the Java SDK's suites run with the repository's build.
 - **FR-023**: The documentation MUST gain a first-service page and an SDK reference page for Java
   and for Kotlin, with samples included from tested code, and every page, skill and tool
   description that names the supported languages MUST name Java and Kotlin.
 - **FR-024**: A Java skill and a Kotlin skill MUST exist beside the Python, TypeScript and Rust
   ones, and every shared skill that has a per-language differences section MUST gain one for each.
 - **FR-025**: The divergences page MUST say where ankka's Java differs from Akka's Java SDK and
-  why, and the limitations page MUST name what the Java and Kotlin SDKs do not do.
+  why, and where it deliberately adopts Akka's shape (annotated handlers read at start) while
+  the Scala SDK does not; the limitations page MUST name what the Java and Kotlin SDKs do not do.
 - **FR-026**: No file in the runtime, the protocol, the sidecar, the operator, the control plane
   or the CRD MAY change for this feature, except where a Scala SDK type must gain a Java-callable
   form, and every existing test MUST pass unchanged.
@@ -472,6 +502,10 @@ coding agent holding the Java skill to write an entity and check what it writes 
 - **SC-008**: Every living feature scenario that runs for a Scala service runs for a Java and a
   Kotlin service and passes; a scenario with a language table that lacks a Java or Kotlin row is a
   finding.
+- **SC-009**: One command to a Java entity, and one to a Kotlin entity whose handler is a
+  suspending function, each measured end to end the way the tracing measures a call, take no more
+  than 10% longer than the same command to the Scala shopping cart's entity on the same machine,
+  as the median of 1,000 commands.
 - **SC-003**: A journal written by the Scala shopping cart is recovered by the Java cart with
   every cart readable, and the reverse.
 - **SC-004**: A developer with a JDK and Docker installed and no other tool goes from an empty
@@ -489,7 +523,11 @@ coding agent holding the Java skill to write an entity and check what it writes 
 - The Java SDK is a facade in this repository, published beside the Scala SDK under the same
   version, not a port: it delegates to the Scala SDK and the runtime, and reduces effects through
   the same functions, so there is one semantics. A behaviour the Scala SDK gains later reaches Java
-  by adding its facade, which is the per-language cost on record.
+  by adding its facade, and Kotlin by adding its form over that, which is the per-language cost on
+  record.
+- The Kotlin SDK under `sdks/kotlin` consumes the Java SDK as a published artifact; on a developer's
+  machine and in continuous integration before a release it consumes the one the repository's build
+  publishes locally, as the Scala template does while the platform is being developed.
 - The Java version is the platform's, JDK 21, so records, sealed interfaces and virtual threads
   are available and the facade is shaped for them.
 - The default serializer derives from the record's shape and matches the Scala encoding under a

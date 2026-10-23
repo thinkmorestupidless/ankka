@@ -16,6 +16,16 @@ Feature: A service in Java or Kotlin is embedded
       | Java     |
       | Kotlin   |
 
+  Scenario Outline: a command to an entity in Java or Kotlin costs at most a tenth more than in Scala
+    Given the shopping cart sample written in "Scala" and written in "<language>", running on the same machine
+    When a caller sends the command "add-item" 1000 times to a cart of each
+    Then the median time of a command to the "<language>" cart, as the trace measures it, is at most a tenth more than to the "Scala" cart
+
+    Examples:
+      | language |
+      | Java     |
+      | Kotlin   |
+
   Scenario: every type a Java developer writes, reads or is given is a Java type
     Given the Java SDK and its documentation
     When a developer reads every declaration the documentation of the Java SDK names
@@ -46,6 +56,19 @@ Feature: A service in Java or Kotlin is embedded
       | language |
       | Java     |
       | Kotlin   |
+
+  Scenario Outline: a handler declared wrongly fails the service at start, not at its first request
+    Given a service "shop" written in "<language>" whose entity "cart" has <problem>
+    When the developer starts "shop"
+    Then "shop" does not start, naming the function
+    And no caller's request is needed to find out
+
+    Examples:
+      | language | problem                                                        |
+      | Java     | a function shaped like a handler that carries no name          |
+      | Java     | a query whose declared outcome could record an event           |
+      | Kotlin   | a function shaped like a handler that carries no name          |
+      | Kotlin   | a query whose declared outcome could record an event           |
 
   Scenario Outline: a component the service does not register fails at start, not at its first request
     Given a service "shop" written in "<language>" whose endpoint calls the entity "cart", which "shop" does not register

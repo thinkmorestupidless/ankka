@@ -302,7 +302,7 @@ val service = Ankka.service
 | Extension | Needed for |
 |---|---|
 | `ProjectionRuntime()` | Views and consumers over entities. `.withPublisher(p)`, `.withBroker(p, s)` or `.withKafka(servers)` for topics. |
-| `TimerRuntime()` | Timed actions and `timerScheduler`. |
+| `TimerRuntime()` | Timed actions and `timerScheduler`. A service with a workflow is given one when it registers none, for its pauses' deadlines. |
 | `HttpServer.of(…)` | HTTP endpoints. |
 | `AgentRuntime…` | Agents; also register `agents.descriptors`. |
 

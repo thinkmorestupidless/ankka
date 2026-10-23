@@ -37,7 +37,7 @@ class ObjectStorageSuite extends munit.FunSuite:
 
   private val made    = Instant.parse("2026-10-04T10:00:00Z")
   private val earlier = Instant.parse("2026-10-01T10:00:00Z")
-  private val ready =
+  private val ready   =
     ObjectStorageObservation(
       bucketCreated = Some(made),
       keyAllowed = true,
@@ -399,7 +399,7 @@ class ObjectStorageSuite extends munit.FunSuite:
   }
 
   // Feature 055: named buckets.
-  private val web = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
+  private val web    = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
   private val served = withStore.copy(
     objectStore = Some(store.copy(webService = Some(web))),
     baseDomain = Some("example.test"),
@@ -529,7 +529,7 @@ class ObjectStorageSuite extends munit.FunSuite:
   test(
     "055: a bucket the descriptor stopped naming is kept, with its last store, name and address"
   ) {
-    val first = ObjectStorage.decideBuckets(four, served, everyReady, None)
+    val first  = ObjectStorage.decideBuckets(four, served, everyReady, None)
     val status =
       ObjectStorageStatus(phase = "", buckets = ObjectStorage.bucketStatuses(first, four, None))
     val fewer  = four.copy(buckets = four.buckets.filterNot(_.name == "photos"))

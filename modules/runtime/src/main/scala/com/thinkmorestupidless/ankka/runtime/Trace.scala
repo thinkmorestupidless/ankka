@@ -156,7 +156,7 @@ object Trace:
   def inbound(metadata: Metadata): Inbound =
     traceOf(metadata) match
       case Some((high, low)) => Inbound(high, low, parentSpanIdOf(metadata).getOrElse(0L))
-      case None =>
+      case None              =>
         val parent =
           if CallOrigin.from(metadata).contains(CallOrigin.Console) then 0L
           else Recorder.UnknownCaller

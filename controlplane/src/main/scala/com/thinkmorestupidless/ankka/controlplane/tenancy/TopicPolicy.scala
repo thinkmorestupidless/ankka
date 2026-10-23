@@ -34,9 +34,9 @@ object TopicPolicy:
 
   /** Each setting's key under the section, and the variable that overrides it. */
   object Keys:
-    val DefaultRetention     = "default-retention"      -> "ANKKA_TOPIC_DEFAULT_RETENTION"
-    val DefaultRetentionSize = "default-retention-size" -> "ANKKA_TOPIC_DEFAULT_RETENTION_SIZE"
-    val DefaultCleanup       = "default-cleanup"        -> "ANKKA_TOPIC_DEFAULT_CLEANUP"
+    val DefaultRetention       = "default-retention"      -> "ANKKA_TOPIC_DEFAULT_RETENTION"
+    val DefaultRetentionSize   = "default-retention-size" -> "ANKKA_TOPIC_DEFAULT_RETENTION_SIZE"
+    val DefaultCleanup         = "default-cleanup"        -> "ANKKA_TOPIC_DEFAULT_CLEANUP"
     val DefaultTombstoneWindow =
       "default-tombstone-window" -> "ANKKA_TOPIC_DEFAULT_TOMBSTONE_WINDOW"
     val DefaultMinCompactionLag =

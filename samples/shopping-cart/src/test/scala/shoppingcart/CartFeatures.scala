@@ -57,7 +57,7 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
     // The customer's assistant holds the customer's key to the cart's tools, issued as the sample
     // issues one; until the keys have loaded, the issue is answered 503.
     val deadline = 30.seconds.fromNow
-    var issued = send(
+    var issued   = send(
       "POST",
       "/mcp-keys",
       Some("""{"subject":"customer","label":"the customer's assistant"}""")

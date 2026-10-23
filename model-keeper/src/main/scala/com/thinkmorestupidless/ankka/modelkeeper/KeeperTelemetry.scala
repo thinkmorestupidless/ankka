@@ -40,7 +40,7 @@ final class KeeperTelemetry private (
   private val failed   = new AtomicLong
   private val inFlight = new AtomicLong
 
-  private val meter = meterProvider.map(_.get("ankka-model-keeper"))
+  private val meter       = meterProvider.map(_.get("ankka-model-keeper"))
   private val callCounter = meter.map(
     _.counterBuilder("ankka.models.calls")
       .setDescription("Calls through the model server's door, by model and how they ended.")
@@ -187,7 +187,7 @@ object KeeperTelemetry:
       parallel: Int,
       source: Source
   ): KeeperTelemetry =
-    val base = endpoint.toString.stripSuffix("/")
+    val base  = endpoint.toString.stripSuffix("/")
     val spans = headers
       .foldLeft(
         OtlpHttpSpanExporter.builder().setEndpoint(s"$base/v1/traces").setRetryPolicy(null)
@@ -223,7 +223,7 @@ object KeeperTelemetry:
       parallel: Int,
       source: Source
   ): KeeperTelemetry =
-    val res = resource(installation)
+    val res     = resource(installation)
     val tracing =
       SdkTracerProvider.builder().setResource(res).addSpanProcessor(processor).build()
     val meters = metrics.map { exporter =>
@@ -242,5 +242,5 @@ object KeeperTelemetry:
 
   private object Getter extends TextMapGetter[String]:
     def keys(carrier: String): java.lang.Iterable[String] = Seq("traceparent").asJava
-    def get(carrier: String, key: String): String =
+    def get(carrier: String, key: String): String         =
       if key == "traceparent" then carrier else null

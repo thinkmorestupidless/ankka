@@ -72,8 +72,8 @@ object GraphDelta:
    * A delta as JSON, under the manifest `ankka.graph-delta.v1`. Reading refuses what `read` does.
    */
   val serializer: Serializer[GraphDelta] = new Serializer[GraphDelta]:
-    val manifest: String                        = SchemaName
-    def toBytes(delta: GraphDelta): Array[Byte] = write(delta)
+    val manifest: String                          = SchemaName
+    def toBytes(delta: GraphDelta): Array[Byte]   = write(delta)
     def fromBytes(bytes: Array[Byte]): GraphDelta =
       read(bytes).fold(problem => throw IllegalArgumentException(problem), identity)
     override def toString: String = s"GraphDelta.serializer($SchemaName)"
@@ -98,7 +98,7 @@ object GraphDelta:
   // Field order as the contract's examples have it. `labels` and `properties` are always written
   // for a node or an edge, empty when there are none.
   private val writer: JsonValueCodec[GraphDelta] = new JsonValueCodec[GraphDelta]:
-    def nullValue: GraphDelta = null
+    def nullValue: GraphDelta                                        = null
     def decodeValue(in: JsonReader, default: GraphDelta): GraphDelta =
       in.decodeError("a graph delta is read with GraphDelta.read")
 
@@ -146,7 +146,7 @@ object GraphDelta:
       case whole: Long    => out.writeVal(whole)
       case whole: Int     => out.writeVal(whole)
       case number: Double => out.writeVal(number)
-      case items: Seq[?] =>
+      case items: Seq[?]  =>
         out.writeArrayStart()
         items.foreach(item => writeValue(item.asInstanceOf[PropertyValue], out))
         out.writeArrayEnd()

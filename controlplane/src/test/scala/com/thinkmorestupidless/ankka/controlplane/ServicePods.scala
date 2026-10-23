@@ -72,7 +72,7 @@ final class ServicePods(k3s: K3sContainer, k8s: KubernetesClient, namespace: Str
     val body = upload.fold("printf '' > /tmp/upload && ")(content =>
       s"printf '%s' '$content' > /tmp/upload && "
     ) + "hash=$(sha256sum /tmp/upload | cut -d' ' -f1) && "
-    val send = upload.fold("")(_ => "-T /tmp/upload ")
+    val send     = upload.fold("")(_ => "-T /tmp/upload ")
     val (_, out) = inPod(
       project,
       name,

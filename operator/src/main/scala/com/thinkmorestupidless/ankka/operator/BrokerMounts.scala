@@ -27,7 +27,7 @@ object BrokerMounts:
   private def volumeName(broker: String) = s"ankka-broker-$broker"
 
   def variables(broker: ProjectBrokerEntry): Vector[EnvVar] =
-    val upper = broker.name.toUpperCase.replace('-', '_')
+    val upper                                = broker.name.toUpperCase.replace('-', '_')
     def literal(name: String, value: String) =
       new EnvVarBuilder().withName(name).withValue(value).build()
     Vector(

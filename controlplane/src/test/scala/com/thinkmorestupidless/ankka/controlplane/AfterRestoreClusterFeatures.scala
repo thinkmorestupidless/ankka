@@ -84,7 +84,7 @@ class AfterRestoreClusterFeatures
       new DivergenceReader:
         def since(projectId: String, service: String, at: Instant) =
           InstanceTopologies.runningPods(k8s, Prefix)(projectId, service).headOption match
-            case None => Left(s"$service has no running instance")
+            case None           => Left(s"$service has no running instance")
             case Some((pod, _)) =>
               val forward = k8s
                 .pods()

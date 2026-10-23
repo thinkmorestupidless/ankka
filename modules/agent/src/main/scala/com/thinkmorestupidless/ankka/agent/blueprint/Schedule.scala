@@ -135,7 +135,7 @@ final case class Schedule(cadence: Cadence, zone: String, catchUp: CatchUp = Cat
     if missed.isEmpty then Vector.empty
     else
       catchUp match
-        case CatchUp.One => Vector(Period(lastEnd, missed.last, missed))
+        case CatchUp.One  => Vector(Period(lastEnd, missed.last, missed))
         case CatchUp.Each =>
           (lastEnd +: missed).zip(missed).map((from, to) => Period(from, to, Vector(to)))
 

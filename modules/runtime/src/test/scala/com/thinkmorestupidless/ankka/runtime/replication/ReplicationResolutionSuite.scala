@@ -113,7 +113,7 @@ class ReplicationResolutionSuite extends munit.FunSuite:
   }
 
   test("a provider is given the components the service declares replicated, and no others") {
-    val plain = descriptor("plain", ComponentKind.EventSourcedEntity, false)
+    val plain       = descriptor("plain", ComponentKind.EventSourcedEntity, false)
     val replication = ReplicationRuntime
       .resolve(
         system,
@@ -135,7 +135,7 @@ class ReplicationResolutionSuite extends munit.FunSuite:
 
   test("a transport the test kit supplies wins over everything") {
     val supplied: ReplicationTransportFactory = (_, _, _) => TestProvider.Nobody("supplied")
-    val replication = resolve(
+    val replication                           = resolve(
       twoWithDatabases + "\nankka.test.replication-provider = on",
       Some(supplied)
     ).getOrElse(fail("none"))

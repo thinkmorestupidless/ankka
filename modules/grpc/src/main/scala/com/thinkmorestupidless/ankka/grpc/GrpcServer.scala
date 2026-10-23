@@ -107,8 +107,8 @@ final class GrpcServer private (
       )
     grace = duration(config, "ankka.grpc.shutdown-grace")
 
-    val tls  = serviceTls(config)
-    val bare = tls.fold(Admission.local)(Admission.under)
+    val tls    = serviceTls(config)
+    val bare   = tls.fold(Admission.local)(Admission.under)
     val grants = configuredGrants
       .orElse(GrantsFile.fromConfig(config, bare.self.service))
       .getOrElse(Grants.none)
@@ -118,7 +118,7 @@ final class GrpcServer private (
       com.thinkmorestupidless.ankka.http.MachineTokens.fromConfig(config, Some(t.directory))
     )
     machines.foreach(_.start())
-    val admission = bare.withGrants(grants).withMachines(machines)
+    val admission                      = bare.withGrants(grants).withMachines(machines)
     val credentials: ServerCredentials = tls match
       case None           => InsecureServerCredentials.create()
       case Some(identity) =>

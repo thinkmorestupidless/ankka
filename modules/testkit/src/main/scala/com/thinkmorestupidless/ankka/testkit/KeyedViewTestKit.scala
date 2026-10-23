@@ -133,6 +133,6 @@ object KeyedViewTestKit:
   ) extends KeyedChange[Row]
 
   private final class Rows[Row](kit: KeyedViewTestKit[?, Row]) extends ViewRows[Row]:
-    def get(key: String): Option[Row] = kit.row(key)
+    def get(key: String): Option[Row]                                     = kit.row(key)
     def ask(query: DeclaredQuery, values: (String, String)*): Vector[Row] =
       kit.answer(query, values.toMap)

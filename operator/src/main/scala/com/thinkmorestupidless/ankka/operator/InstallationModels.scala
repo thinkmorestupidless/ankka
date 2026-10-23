@@ -49,7 +49,7 @@ object InstallationModels:
 
   /** Every provider the service names with the preset, in the order its descriptor lists them. */
   def named(spec: AnkkaServiceSpec): Vector[Named] =
-    val declared = spec.env.map(e => e.name -> e).toMap
+    val declared                              = spec.env.map(e => e.name -> e).toMap
     def present(name: String): Option[String] =
       declared
         .get(name)
@@ -96,9 +96,9 @@ object InstallationModels:
       }
       misnamed match
         case Some(why) => InstallationModelsPlan.Failed(why)
-        case None =>
+        case None      =>
           settings match
-            case None => InstallationModelsPlan.Failed(NoServer)
+            case None    => InstallationModelsPlan.Failed(NoServer)
             case Some(_) =>
               observed match
                 case Left(_)         => InstallationModelsPlan.Waiting(NotAnswering)
@@ -108,8 +108,8 @@ object InstallationModels:
       models: Vector[String],
       document: ModelServerDocument
   ): InstallationModelsPlan =
-    val lines  = document.models.map(m => canonical(m.name) -> m).toMap
-    val served = document.served
+    val lines                = document.models.map(m => canonical(m.name) -> m).toMap
+    val served               = document.served
     def notServed(m: String) =
       s"installation model \"$m\" is not served; served: ${
           if served.isEmpty then "none" else served.mkString(", ")
@@ -128,7 +128,7 @@ object InstallationModels:
     }
     each.collectFirst { case Left(Right(failed)) => failed } match
       case Some(why) => InstallationModelsPlan.Failed(why)
-      case None =>
+      case None      =>
         each.collectFirst { case Left(Left(waiting)) => waiting } match
           case Some(why) => InstallationModelsPlan.Waiting(why)
           case None      => InstallationModelsPlan.Ready(each.collect { case Right(m) => m })
@@ -146,7 +146,7 @@ object InstallationModels:
 
   /** The resource's status block; absent for a service that names none. */
   def status(plan: InstallationModelsPlan): Option[InstallationModelsStatus] = plan match
-    case InstallationModelsPlan.NotNeeded => None
+    case InstallationModelsPlan.NotNeeded     => None
     case InstallationModelsPlan.Ready(models) =>
       Some(InstallationModelsStatus("Ready", models.toList))
     case InstallationModelsPlan.Waiting(why) =>

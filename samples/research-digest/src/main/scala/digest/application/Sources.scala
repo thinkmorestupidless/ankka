@@ -51,9 +51,9 @@ object Source:
 
   /** Europe PMC's REST search, by first publication date. */
   val europePmc: Source = new Source:
-    def name = "europepmc"
+    def name                                                                 = "europepmc"
     def search(query: String, from: LocalDate, to: LocalDate): Vector[Paper] =
-      val q = s"($query) AND FIRST_PDATE:[$from TO $to]"
+      val q    = s"($query) AND FIRST_PDATE:[$from TO $to]"
       val json = getJson(
         s"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encode(q)}&format=json&pageSize=50"
       )
@@ -67,7 +67,7 @@ object Source:
    * bioRxiv's details listing for a span of dates, kept to the titles that carry the query's words.
    */
   val bioRxiv: Source = new Source:
-    def name = "biorxiv"
+    def name                                                                 = "biorxiv"
     def search(query: String, from: LocalDate, to: LocalDate): Vector[Paper] =
       val json  = getJson(s"https://api.biorxiv.org/details/biorxiv/$from/$to/0")
       val words = query.toLowerCase.split("\\s+").filter(_.nonEmpty)
@@ -81,7 +81,7 @@ object Source:
 
   /** OpenAlex's works search, by publication date. */
   val openAlex: Source = new Source:
-    def name = "openalex"
+    def name                                                                 = "openalex"
     def search(query: String, from: LocalDate, to: LocalDate): Vector[Paper] =
       val json = getJson(
         s"https://api.openalex.org/works?search=${encode(query)}&filter=from_publication_date:$from,to_publication_date:$to&per-page=50"

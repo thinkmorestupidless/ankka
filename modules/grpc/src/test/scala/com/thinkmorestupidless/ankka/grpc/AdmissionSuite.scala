@@ -35,10 +35,10 @@ class AdmissionSuite extends munit.FunSuite:
   // Feature 040: a grant on a gRPC method opens that method, by the full name the call carries.
   test("granted callers are admitted on the method their grant names, and on no other") {
     val merchant = Caller.Service("payments", "merchant")
-    val granted = Admission.local.withGrants(
+    val granted  = Admission.local.withGrants(
       Grants.of(GrantEntry(merchant, GrantTarget.Method("CartService/GetCart")))
     )
-    val acl = Acl.allowCallers(Callers.granted)
+    val acl                              = Acl.allowCallers(Callers.granted)
     def as(caller: Caller, path: String) =
       code(granted.decide(acl, context().copy(caller = caller, path = path)))
     assertEquals(as(merchant, "/ankka.fixtures.v1.CartService/GetCart"), Status.Code.OK)

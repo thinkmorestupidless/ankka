@@ -58,7 +58,7 @@ final class RecordingTransport(
 
 class WorkflowCallsSuite extends munit.FunSuite:
 
-  private val ended = Tally(7, closed = true)
+  private val ended   = Tally(7, closed = true)
   private val endedOk = (_: FiniteDuration) =>
     Future.successful((TallyWorkflow.stateSerializer.toBytes(ended), Metadata.empty))
   private val done = (_: MethodName) => Future.successful(Serializers.done.toBytes(Done))
@@ -106,7 +106,7 @@ class WorkflowCallsSuite extends munit.FunSuite:
   test("a refused command is thrown at once, and no wait begins") {
     val refused = CommandError("no", ErrorCode.Conflict)
     val t       = RecordingTransport(_ => Future.failed(refused), endedOk)
-    val error =
+    val error   =
       intercept[CommandError](client(t).call(TallyWorkflow.start).thenAwaitEnd(5.seconds).invoke(3))
     assertEquals(error, refused)
     assertEquals(t.calls.map(_._1), Vector("start"))

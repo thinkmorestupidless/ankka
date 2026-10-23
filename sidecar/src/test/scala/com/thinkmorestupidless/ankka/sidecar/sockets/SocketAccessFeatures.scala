@@ -35,12 +35,12 @@ final class SocketAccessFeatures
 
   // No clock skew, so a token that has expired is refused at once: what proves that a socket opened
   // before the expiry stays open because nothing re-verifies it, not because the token still passes.
-  private val issuer = TestIssuer(name = "customers", defaultAudience = "shop")
-  private val config = OidcConfig(Vector(issuer.asIssuer(skew = 0.seconds)))
+  private val issuer   = TestIssuer(name = "customers", defaultAudience = "shop")
+  private val config   = OidcConfig(Vector(issuer.asIssuer(skew = 0.seconds)))
   private val verified =
     Oidc.authenticate(new OidcVerifier(config, _ => issuer.keySource()), config.realm)
 
-  @volatile private var answer = "allow"
+  @volatile private var answer                     = "allow"
   private val stub: RequestContext => AuthDecision = _ =>
     answer match
       case "forbidden"   => AuthDecision.Forbidden("not this one")
@@ -81,7 +81,7 @@ final class SocketAccessFeatures
     if testKit != null then testKit.stop()
     issuer.stop()
 
-  @volatile private var token: String = ""
+  @volatile private var token: String                                  = ""
   @volatile private var opened: Either[TestSocket.Refused, TestSocket] = Left(
     TestSocket.Refused(0, Map.empty)
   )
@@ -191,7 +191,7 @@ final class SocketAccessFeatures
   Then("the token is not in what the service records of the socket") { () =>
     assertEquals(current.subprotocol, Some("ankka.socket"), "the 101 never selects the bearer one")
     val observability = Observability(testKit.service.system)
-    val names = observability.recorder
+    val names         = observability.recorder
       .snapshot()
       .flatMap(s =>
         observability.names.nameOf(s.handlerRef) ++ observability.names.nameOf(s.componentRef)

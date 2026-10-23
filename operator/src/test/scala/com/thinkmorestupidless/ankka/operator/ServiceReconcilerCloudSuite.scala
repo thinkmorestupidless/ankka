@@ -53,7 +53,7 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
     def foreignObjectAt(namespace: String, name: String)                       = false
     def podProblems(namespace: String, serviceName: String, projectId: String) = Vector.empty
     def observeRoute(namespace: String, name: String)                          = None
-    def observeDatabase(namespace: String, cluster: String, service: String) =
+    def observeDatabase(namespace: String, cluster: String, service: String)   =
       DatabaseObservation.empty
     def resourceCreatedAt(namespace: String, name: String)       = None
     def observeBroker(namespace: String, user: String)           = BrokerObservation.empty
@@ -92,7 +92,7 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
   )
 
   private val identity = "reports-identity" -> answered("identity" -> "reports@acct.scripted")
-  private val bucket = "reports-bucket" -> answered(
+  private val bucket   = "reports-bucket"   -> answered(
     "bucket"   -> "acct-shop-reports",
     "endpoint" -> "https://storage.scripted.invalid",
     "region"   -> "europe-west2"
@@ -140,7 +140,7 @@ class ServiceReconcilerCloudSuite extends munit.FunSuite:
   test("a request unanswered past the bound says so, and the Deployment is held with that reason") {
     val stale     = CloudObservation(1L, now.minusSeconds(121), None)
     val (seen, _) = pass(Map("reports-identity" -> stale, "reports-bucket" -> stale))
-    val plan = ObjectStorage.decide(
+    val plan      = ObjectStorage.decide(
       resource.getSpec,
       settings,
       ObjectStorageObservation.empty,

@@ -191,7 +191,7 @@ final class PersistBuilder[S, E] private[ankka] (
 
   private def setChange(add: Set[String], remove: Set[String]): PersistBuilder[S, E] =
     val change = replication match
-      case None => ReplicationChange.SetChange(add, remove)
+      case None                                    => ReplicationChange.SetChange(add, remove)
       case Some(ReplicationChange.SetChange(a, r)) =>
         val both = (a ++ add).intersect(r ++ remove)
         if both.nonEmpty then

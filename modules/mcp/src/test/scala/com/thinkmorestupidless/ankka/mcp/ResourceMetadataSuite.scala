@@ -65,7 +65,7 @@ class ResourceMetadataSuite extends munit.FunSuite:
 
   test("the document names the resource as the client reached it, and the issuers") {
     val servers = Vector("https://customers.example.test")
-    val plain =
+    val plain   =
       ResourceMetadata.document(request("cart.shop.example"), "/mcp", secure = false, servers)
     assertEquals(
       plain,

@@ -87,7 +87,7 @@ class ProvisioningSuite extends munit.FunSuite:
   test("rule 7a: the role reports the transient 'forbidden' message — waiting, not failed") {
     // Research R5: CNPG's per-cluster secret RBAC allowlist has not caught up yet.
     val message = "secrets \"cart-db\" is forbidden: User \"...\" cannot get resource \"secrets\""
-    val plan = Provisioning.decide(
+    val plan    = Provisioning.decide(
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
@@ -102,7 +102,7 @@ class ProvisioningSuite extends munit.FunSuite:
     // Research R4: the role and the database reconcile independently and the database can lose
     // the race.
     val message = "while creating database \"cart\": ERROR: role \"cart\" does not exist"
-    val plan = Provisioning.decide(
+    val plan    = Provisioning.decide(
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
@@ -115,7 +115,7 @@ class ProvisioningSuite extends munit.FunSuite:
 
   test("rule 8a: a real rejection on the role is Failed") {
     val message = "ERROR: quota exceeded for role creation"
-    val plan = Provisioning.decide(
+    val plan    = Provisioning.decide(
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
@@ -128,7 +128,7 @@ class ProvisioningSuite extends munit.FunSuite:
 
   test("rule 8b: a real rejection on the database is Failed") {
     val message = "ERROR: could not extend file: No space left on device"
-    val plan = Provisioning.decide(
+    val plan    = Provisioning.decide(
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,

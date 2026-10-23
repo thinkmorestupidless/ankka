@@ -73,7 +73,7 @@ class AnthropicProviderSuite extends munit.FunSuite:
       .handle(location => s"$location: 18C and sunny")
 
     val settings = ModelSettings(AnthropicProvider.DefaultModel, maxTokens = Some(1024))
-    val first = complete(
+    val first    = complete(
       ModelRequest(
         settings,
         Some("Use the tools available to you, then answer briefly."),

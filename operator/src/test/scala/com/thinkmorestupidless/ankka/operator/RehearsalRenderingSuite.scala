@@ -51,14 +51,14 @@ class RehearsalRenderingSuite extends munit.FunSuite:
     private val reads                 = new ProjectBackupsSuiteReads(cluster, answers)
     val removed                       = scala.collection.mutable.ArrayBuffer.empty[(String, String)]
     def execute(action: Action): Unit = ()
-    def snapshot(namespace: String, name: String): Option[ClusterSnapshot]     = None
-    def foreignObjectAt(namespace: String, name: String): Boolean              = false
-    def podProblems(namespace: String, serviceName: String, projectId: String) = Vector.empty
-    def observeRoute(namespace: String, name: String)                          = None
+    def snapshot(namespace: String, name: String): Option[ClusterSnapshot]           = None
+    def foreignObjectAt(namespace: String, name: String): Boolean                    = false
+    def podProblems(namespace: String, serviceName: String, projectId: String)       = Vector.empty
+    def observeRoute(namespace: String, name: String)                                = None
     def observeDatabase(namespace: String, clusterName: String, serviceName: String) =
       cnpg.DatabaseObservation.empty
     def resourceCreatedAt(namespace: String, name: String) = None
-    def observeBroker(namespace: String, user: String) = BrokerObservation(
+    def observeBroker(namespace: String, user: String)     = BrokerObservation(
       StrimziObjectState.absent
     )
     def observeTopics(namespace: String, topics: Vector[String]) = Map.empty
@@ -83,7 +83,7 @@ class RehearsalRenderingSuite extends munit.FunSuite:
         case RecoveryPoint.Commit                          => Some("812")
         case RecoveryPoint.Switch | RecoveryPoint.Archived => Some("000000010000000000000008")
         case _ => reads.query(namespace, pod, database, sql)
-    override def rehearsalClusters(namespace: String) = found
+    override def rehearsalClusters(namespace: String)                    = found
     override def deleteRehearsalCluster(namespace: String, name: String) =
       if removable then
         removed += namespace -> name
@@ -147,7 +147,7 @@ class RehearsalRenderingSuite extends munit.FunSuite:
 
   test("a healthy rehearsal is checked, timed and removed, and its report kept") {
     val executor = Rehearsing(healthy, holds)
-    val begun =
+    val begun    =
       RehearsalStatus(entry.name, entry.targetTime, "Running", Some("2026-10-09T00:00:00Z"))
     val result =
       pass(executor, current = Some(AnkkaProjectStatus(rehearsals = List(begun))))
@@ -181,7 +181,7 @@ class RehearsalRenderingSuite extends munit.FunSuite:
     val line =
       LineStatus("ankka-db", "ankka-db", "BackingUp", lastRestorable = Some("2026-10-08T23:59:00Z"))
     val backups = Some(BackupsStatus("object-store", List(line)))
-    val daily = AnkkaProjectSpec(
+    val daily   = AnkkaProjectSpec(
       "shop",
       database = Some(ProjectDatabaseSpec(rehearsalSchedule = Some("daily")))
     )

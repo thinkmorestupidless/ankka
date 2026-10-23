@@ -58,7 +58,7 @@ final class CountingTransport(underlying: CallTransport) extends CallTransport:
 
 /** Every log line written while it is attached, formatted when written. */
 final class LinesSeen extends AppenderBase[ILoggingEvent]:
-  val lines = CopyOnWriteArrayList[String]()
+  val lines                                       = CopyOnWriteArrayList[String]()
   override def append(event: ILoggingEvent): Unit =
     lines.add(s"${event.getLevel} ${event.getFormattedMessage}"): Unit
 
@@ -168,7 +168,7 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
   ): Caller =
     val (client, counting) = clientOn(on)
     val askedAt            = System.nanoTime()
-    val outcome = Future {
+    val outcome            = Future {
       val result = Try(client.forWorkflow(EntityId(id(name))).awaitEnd(QuoteWorkflow, within))
       Answer(result, askedAt, System.nanoTime())
     }
@@ -265,7 +265,7 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
     )
     val (client, counting) = clientOn(anyClient)
     val askedAt            = System.nanoTime()
-    val result = Try(
+    val result             = Try(
       client
         .forWorkflow(EntityId(id(name)))
         .call(QuoteWorkflow.start)
@@ -283,7 +283,7 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
     assertEquals(command, "start")
     val (client, counting) = clientOn(anyClient)
     val askedAt            = System.nanoTime()
-    val result = Try(
+    val result             = Try(
       client
         .forWorkflow(EntityId(id(name)))
         .call(QuoteWorkflow.start)
@@ -504,7 +504,7 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
     start(name)
     until(s"$name has run rates")(StepScript.finishedAt(id(name), "rates").isDefined)
     until(s"$name recorded where rates ran")(stateOf(name).instances.nonEmpty)
-    val ranOn = stateOf(name).instances.head
+    val ranOn   = stateOf(name).instances.head
     val hosting = nodes
       .find(n => System.identityHashCode(n) == ranOn)
       .getOrElse(fail("rates ran on no known instance"))
@@ -671,7 +671,7 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
       .header("Accept", "text/event-stream")
       .build()
     val lines = Vector.newBuilder[String]
-    val cut =
+    val cut   =
       try
         val response = http.send(request, HttpResponse.BodyHandlers.ofLines())
         if response.statusCode() != 200 then

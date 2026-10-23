@@ -126,7 +126,7 @@ object ObjectStorage:
       settings: Settings,
       reported: Option[ObjectStorageStatus]
   ): Boolean =
-    val made = reported.filter(r => r.phase == "Provisioned" || r.phase == "Recovered")
+    val made    = reported.filter(r => r.phase == "Provisioned" || r.phase == "Recovered")
     val inCloud =
       if reported.flatMap(_.move).exists(_.state == "Switched") then true
       else
@@ -195,15 +195,15 @@ object ObjectStorage:
       identity: Option[String],
       bucket: Option[String]
   ): Vector[CloudResource] =
-    val spec  = resource.getSpec
-    val by    = CloudRequests.Requester.of(resource)
-    val asked = existingBucket.flatMap(_.spec).map(_.parameters)
+    val spec    = resource.getSpec
+    val by      = CloudRequests.Requester.of(resource)
+    val asked   = existingBucket.flatMap(_.spec).map(_.parameters)
     val stamped = existingBucket
       .flatMap(_.annotations.get(Labels.SettingsGenerationKey))
       .flatMap(_.toIntOption)
       .getOrElse(0)
     val keep = asked.filter(_ => spec.objectStorageSettingsGeneration <= stamped)
-    val ask = CloudRequests.BucketAsk(
+    val ask  = CloudRequests.BucketAsk(
       versioning = true,
       softDeleteDays = keep
         .flatMap(_.get(CloudRequests.Keys.SoftDeleteDays))
@@ -272,14 +272,14 @@ object ObjectStorage:
       bucket: BucketSpec,
       existing: Option[CloudObservation]
   ): CloudResource =
-    val spec  = resource.getSpec
-    val asked = existing.flatMap(_.spec).map(_.parameters)
+    val spec    = resource.getSpec
+    val asked   = existing.flatMap(_.spec).map(_.parameters)
     val stamped = existing
       .flatMap(_.annotations.get(Labels.SettingsGenerationKey))
       .flatMap(_.toIntOption)
       .getOrElse(0)
     val keep = asked.filter(_ => spec.objectStorageSettingsGeneration <= stamped)
-    val ask = CloudRequests.BucketAsk(
+    val ask  = CloudRequests.BucketAsk(
       versioning = true,
       softDeleteDays = keep
         .flatMap(_.get(CloudRequests.Keys.SoftDeleteDays))
@@ -395,7 +395,7 @@ object ObjectStorage:
       else
         observed.unreachable match
           case Some(reason) => ObjectStoragePlan.Waiting(Some(reason))
-          case None =>
+          case None         =>
             observed.bucketCreated match
               case Some(created) if observed.keyAllowed =>
                 ObjectStoragePlan.Ready(
@@ -433,7 +433,7 @@ object ObjectStorage:
             )
             found match
               case Some(b) => ObjectStoragePlan.Ready(recovered, Some(b))
-              case None =>
+              case None    =>
                 ObjectStoragePlan.Failed(
                   Vector(
                     "the cloud provider answered the bucket without its bucket, endpoint and region"
@@ -514,7 +514,7 @@ object ObjectStorage:
       else
         made.map(_.store) match
           case Some(store) => store == "gcs"
-          case None =>
+          case None        =>
             service.filter(s => isMade(s.phase)) match
               case Some(unnamed) => unnamed.store == "gcs"
               case None          => settings.bucketBackend.contains(ObjectStoreBackend.Gcs)
@@ -568,7 +568,7 @@ object ObjectStorage:
       case None =>
         val named   = Buckets.named(spec.projectId, spec.serviceName, bucket.name)
         val inCloud = bucketInCloud(settings, reported, service)
-        val plan =
+        val plan    =
           if waitsForMove(spec, reported, service) then
             ObjectStoragePlan.Waiting(Some(WaitingOnMove))
           else if inCloud then cloud.fold(ObjectStoragePlan.Waiting(None))(fold(_, true))
@@ -585,7 +585,7 @@ object ObjectStorage:
             else
               observed.unreachable match
                 case Some(reason) => ObjectStoragePlan.Waiting(Some(reason))
-                case None =>
+                case None         =>
                   observed.bucketCreated match
                     case Some(created) if observed.keyAllowed =>
                       ObjectStoragePlan.Ready(
@@ -792,7 +792,7 @@ object ObjectStorage:
   ): Option[ObjectStorageStatus] =
     plan.reportedPhase.map { phase =>
       plan match
-        case ObjectStoragePlan.Supplied => ObjectStorageStatus(phase = phase)
+        case ObjectStoragePlan.Supplied         => ObjectStorageStatus(phase = phase)
         case ObjectStoragePlan.Failed(problems) =>
           ObjectStorageStatus(
             phase = phase,

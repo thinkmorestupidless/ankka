@@ -43,7 +43,7 @@ object ClientRequestWallet
   val put                                    = command("put")(_.put)
 
 final class ClientRequestFlow extends Workflow[Int]:
-  def emptyState: Int = 0
+  def emptyState: Int               = 0
   def go(amount: Int): Effect[Done] =
     effects
       .updateState(amount)
@@ -68,8 +68,8 @@ class ClientRequestSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val scripted = ScriptedService.start()
-  private val slow     = ScriptedService.start()
+  private val scripted    = ScriptedService.start()
+  private val slow        = ScriptedService.start()
   private val closed: Int =
     val socket = ServerSocket(0, 1, InetAddress.getLoopbackAddress)
     try socket.getLocalPort
@@ -89,7 +89,7 @@ class ClientRequestSuite extends munit.FunSuite with LogCapturing:
       ),
       configure = _.withServices { real =>
         new ServiceClients:
-          def apply(name: String): ServiceClient = apply("local", name)
+          def apply(name: String): ServiceClient                  = apply("local", name)
           def apply(project: String, name: String): ServiceClient =
             if name != "impostor" then real(project, name)
             else
@@ -294,8 +294,8 @@ class ClientRequestSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a call made for a handler in a trace is a span under the handler's span") {
-    val traceId = Trace.mint()
-    val spanId  = 4242L
+    val traceId  = Trace.mint()
+    val spanId   = 4242L
     val metadata = caller("request-flow", "pay").addEntries(
       pb.Metadata.Entry(Trace.TraceIdKey, java.lang.Long.toHexString(traceId)),
       pb.Metadata.Entry(Trace.SpanIdKey, java.lang.Long.toHexString(spanId))

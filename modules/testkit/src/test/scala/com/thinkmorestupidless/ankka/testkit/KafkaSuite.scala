@@ -70,12 +70,12 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
   private given org.apache.pekko.actor.typed.ActorSystem[?] = testKit.service.system
 
   @volatile private var publisherOpened = false
-  private lazy val kafkaPublisher =
+  private lazy val kafkaPublisher       =
     publisherOpened = true
     KafkaPublisher(bootstrap)
   protected def publisher: MessagePublisher = kafkaPublisher
 
-  @volatile private var subscriberStarted = false
+  @volatile private var subscriberStarted          = false
   protected lazy val subscriber: MessageSubscriber =
     subscriberStarted = true
     KafkaSubscriber(bootstrap)
@@ -351,8 +351,8 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
     // restart at the *new* end: past everything published while it was down.
     val topic = KafkaSuite.createTopic(bootstrap, "committed-start")
     publishMany(topic, 5, "before")
-    val group = s"start-${java.util.UUID.randomUUID().toString.take(8)}"
-    val seen  = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val group       = s"start-${java.util.UUID.randomUUID().toString.take(8)}"
+    val seen        = java.util.concurrent.ConcurrentLinkedQueue[String]()
     def subscribe() = subscriber.subscribe(
       TopicSubscription(topic, group, StartFrom.Latest),
       (message: IncomingMessage) =>
@@ -391,13 +391,13 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
     publishMany(topic, 20, "v")
     @volatile var declared = 1
     val consumed           = java.util.concurrent.ConcurrentLinkedQueue[(Int, String)]()
-    def view(at: Int) =
+    def view(at: Int)      =
       new com.thinkmorestupidless.ankka.sdk.View.Companion[VersionedView, StockEvent, VersionedRow](
         com.thinkmorestupidless.ankka.core.ComponentId("versioned"),
         com.thinkmorestupidless.ankka.sdk.ChangeSource.Topic(topic, eventSerializer, None),
         Codecs.serializer[VersionedRow]("versioned-row")
       ):
-        override def version = Some(at)
+        override def version                                                    = Some(at)
         def create(ctx: com.thinkmorestupidless.ankka.sdk.ViewComponentContext) =
           new VersionedView(at)
     def consumer(at: Int) =
@@ -406,7 +406,7 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
         com.thinkmorestupidless.ankka.sdk.ChangeSource
           .Topic(topic, eventSerializer, Some(StartFrom.Earliest))
       ):
-        override def version = Some(at)
+        override def version                                               = Some(at)
         def create(ctx: com.thinkmorestupidless.ankka.sdk.ConsumerContext) =
           new RecordingAt(at, consumed)
     val log = LogLines()

@@ -151,7 +151,7 @@ class CrossProjectMachineTopicsFeatures
          |""".stripMargin,
       "public-issuer"
     )
-    val component = PkiStack.repoRoot.resolve("kustomization/components/broker-external")
+    val component            = PkiStack.repoRoot.resolve("kustomization/components/broker-external")
     def filled(file: String) =
       Files
         .readString(component.resolve(file))
@@ -379,15 +379,15 @@ class CrossProjectMachineTopicsFeatures
   ): Properties =
     val p = Properties()
     (Map(
-      "bootstrap.servers"           -> Bootstrap,
-      "security.protocol"           -> "SASL_SSL",
-      "ssl.truststore.type"         -> "PEM",
-      "ssl.truststore.certificates" -> ca,
-      "sasl.mechanism"              -> "OAUTHBEARER",
+      "bootstrap.servers"                 -> Bootstrap,
+      "security.protocol"                 -> "SASL_SSL",
+      "ssl.truststore.type"               -> "PEM",
+      "ssl.truststore.certificates"       -> ca,
+      "sasl.mechanism"                    -> "OAUTHBEARER",
       "sasl.login.callback.handler.class" ->
         "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginCallbackHandler",
       "sasl.oauthbearer.token.endpoint.url" -> s"$controlPlaneUrl/oauth/token",
-      "sasl.jaas.config" ->
+      "sasl.jaas.config"                    ->
         ("org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required " +
           s"""clientId="${machine.clientId}" clientSecret="${machine.clientSecret}";"""),
       "request.timeout.ms"     -> "15000",
@@ -679,7 +679,7 @@ class CrossProjectMachineTopicsFeatures
     lastProbe = Some(
       connectWith(
         Map(
-          "sasl.mechanism" -> "PLAIN",
+          "sasl.mechanism"   -> "PLAIN",
           "sasl.jaas.config" ->
             "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"nobody\" password=\"none\";"
         )
@@ -728,7 +728,7 @@ class CrossProjectMachineTopicsFeatures
       // must not stall on something it cannot decode.
       val padding = "x" * 10240
       for i <- 1 to 400 do
-        val r = record(topic, s"bulk-$i")
+        val r      = record(topic, s"bulk-$i")
         val padded = ProducerRecord[String, Array[Byte]](
           topic,
           null,

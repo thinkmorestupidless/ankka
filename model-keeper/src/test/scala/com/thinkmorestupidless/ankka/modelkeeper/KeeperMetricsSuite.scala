@@ -18,7 +18,7 @@ class KeeperMetricsSuite extends munit.FunSuite with LogCapturing:
         ModelStatus("no-such-model:1b", ModelState.Failed, detail = Some("file does not exist"))
       )
     )
-    val exported = RecordingExporter()
+    val exported  = RecordingExporter()
     val telemetry = KeeperTelemetry.exportingTo(
       exported.spanExporter,
       Some(exported.metricExporter),

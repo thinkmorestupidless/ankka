@@ -57,7 +57,7 @@ private[ankka] final class McpClient(
     def page(cursor: Option[String]): Vector[McpTool] =
       val params = cursor.fold(Json.obj())(c => Json.obj("cursor" -> Json.str(c)))
       val result = request("tools/list", params).fold(e => throw McpUnavailable(e), identity)
-      val tools = result("tools").flatMap(_.asArray).getOrElse(Vector.empty).flatMap { tool =>
+      val tools  = result("tools").flatMap(_.asArray).getOrElse(Vector.empty).flatMap { tool =>
         tool("name").flatMap(_.asString).map { name =>
           McpTool(
             name,
@@ -92,7 +92,7 @@ private[ankka] final class McpClient(
     send(method, params, retry = true)
 
   private def send(method: String, params: Json, retry: Boolean): Either[String, Json] =
-    val id = ids.incrementAndGet()
+    val id      = ids.incrementAndGet()
     val message = Json.obj(
       "jsonrpc" -> Json.str("2.0"),
       "id"      -> Json.num(id.toDouble),

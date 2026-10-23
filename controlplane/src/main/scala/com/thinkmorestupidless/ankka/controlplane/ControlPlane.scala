@@ -299,9 +299,9 @@ object ControlPlane:
        */
       tokens: Option[DeployTokenIndex] = None
   ): ServiceBuilder =
-    val deploy  = DeployConfig.from(config)
-    val policy  = OrganizationPolicy.from(config)
-    val backups = BackupConfig.from(config)
+    val deploy      = DeployConfig.from(config)
+    val policy      = OrganizationPolicy.from(config)
+    val backups     = BackupConfig.from(config)
     val topicPolicy =
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     val brokerFacts =
@@ -325,7 +325,7 @@ object ControlPlane:
     // Feature 040: a deployed control plane signs with the keys its Secret holds, mounted, and
     // writes a new one there; a local one keeps them in memory.
     val machines = MachineSettings.from(config)
-    val keys = machines.keysDirectory.fold(MachineKeys.inMemory())(directory =>
+    val keys     = machines.keysDirectory.fold(MachineKeys.inMemory())(directory =>
       MachineKeys.mounted(
         java.nio.file.Path.of(directory),
         projector.machineKeyWriter(machines.namespace, machines.keysSecret)
@@ -333,7 +333,7 @@ object ControlPlane:
     )
     // Where a project secret's entries go: the project's Secret in the cluster, or Secret Manager.
     val projectSecrets: ProjectSecretWriter = backend.backend match
-      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres => projector
+      case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.Postgres      => projector
       case com.thinkmorestupidless.ankka.runtime.secrets.SecretBackend.SecretManager =>
         secrets.SecretManagerProjectSecretWriter.from(config, backend)
     val server = (interface, port) match
@@ -411,7 +411,7 @@ object ControlPlane:
     // no client certificate, so the broker and every service read them inside the cluster. Only
     // where the control plane serves TLS: elsewhere the main port serves them already.
     val keysPort = config.getInt("ankka.controlplane.machines.keys-port")
-    val tls =
+    val tls      =
       config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
     val withKeys =
       if tls && keysPort > 0 then

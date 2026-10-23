@@ -28,7 +28,7 @@ private[sidecar] object RemoteMcp:
     val built = servers.map(s => Try(server(s)).toEither.left.map(e => s"$owner: ${e.getMessage}"))
     val invalid = built.collect { case Left(problem) => problem }
     val valid   = built.collect { case Right(server) => server }
-    val listed =
+    val listed  =
       McpServer.problems(valid.toVector, tools.map(_.name).toVector).map(p => s"$owner: $p")
     val limits = tools.flatMap(t => t.approval.flatMap(_.withinMillis)).filter(_ <= 0).map { ms =>
       s"$owner: a tool's time limit for approval must be positive, not ${ms}ms"
@@ -42,7 +42,7 @@ private[sidecar] object RemoteMcp:
   /** A declared server as the agent's own declaration; throws what the declaration would refuse. */
   def server(declared: PbMcpServer): McpServer =
     val address = declared.address match
-      case PbMcpServer.Address.Url(url) => McpServer.at(declared.name, url)
+      case PbMcpServer.Address.Url(url)         => McpServer.at(declared.name, url)
       case PbMcpServer.Address.Service(service) =>
         service.project match
           case Some(project) =>

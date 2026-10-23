@@ -25,7 +25,7 @@ class PublishAllSuite extends munit.FunSuite:
 
   test("messages are published in the order given, each under its key, else its subject") {
     val publisher = InMemoryPublisher()
-    val result = publish(
+    val result    = publish(
       publisher,
       Encoded(bytes("a"), Metadata.empty, None),
       Encoded(bytes("b"), Metadata.empty, Some("line:2")),
@@ -52,8 +52,8 @@ class PublishAllSuite extends munit.FunSuite:
     // A publisher that answers each message only when told to, as a broker client that hands a
     // record over on a thread of its own does. Sent all at once, the second message would go out
     // before the first was answered, and could reach its partition first.
-    val answers = new java.util.concurrent.ConcurrentLinkedQueue[scala.concurrent.Promise[Done]]()
-    val sent    = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val answers   = new java.util.concurrent.ConcurrentLinkedQueue[scala.concurrent.Promise[Done]]()
+    val sent      = new java.util.concurrent.ConcurrentLinkedQueue[String]()
     val publisher = new MessagePublisher:
       def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
         sent.add(String(payload, "UTF-8"))
@@ -80,7 +80,7 @@ class PublishAllSuite extends munit.FunSuite:
 
   test("other metadata travels with its own message only") {
     val publisher = InMemoryPublisher()
-    val _ = publish(
+    val _         = publish(
       publisher,
       Encoded(bytes("a"), Metadata.empty, None),
       Encoded(bytes("b"), Metadata.empty.set("x-n", "2"), None)
@@ -96,7 +96,7 @@ class PublishAllSuite extends munit.FunSuite:
 
   test("an empty key is refused, and nothing is published") {
     val publisher = InMemoryPublisher()
-    val result = publish(
+    val result    = publish(
       publisher,
       Encoded(bytes("a"), Metadata.empty, None),
       Encoded(bytes("b"), Metadata.empty, Some(""))
@@ -154,7 +154,7 @@ class PublishAllSuite extends munit.FunSuite:
   test(
     "a publisher that was never taught keys publishes an un-keyed message and refuses a keyed one"
   ) {
-    val seen = collection.mutable.Buffer[String]()
+    val seen        = collection.mutable.Buffer[String]()
     val subjectOnly = new MessagePublisher:
       def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
         seen += String(payload, "UTF-8")

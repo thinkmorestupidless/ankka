@@ -67,11 +67,11 @@ final class OidcVerifier(config: OidcConfig, keys: Issuer => JWKSource[SecurityC
       try
         val named = Option(SignedJWT.parse(token).getJWTClaimsSet.getIssuer).map(_.stripSuffix("/"))
         named.flatMap(processors.get) match
-          case None => Verification.Rejected("issuer not accepted")
+          case None                      => Verification.Rejected("issuer not accepted")
           case Some((issuer, processor)) =>
             val claims = processor.process(token, null)
             issuer.typ match
-              case None => Verification.Verified(claims, issuer)
+              case None           => Verification.Verified(claims, issuer)
               case Some(required) =>
                 Option(claims.getStringClaim("typ")) match
                   case Some(found) if found == required => Verification.Verified(claims, issuer)

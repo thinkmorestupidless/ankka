@@ -71,11 +71,11 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     try new ProcessBuilder("curl", "--version").start().waitFor() == 0
     catch case _: Exception => false
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
   private val Prefix     = "ankka"
   private val Project    = "shop"
@@ -175,8 +175,8 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
   // ---- plumbing ------------------------------------------------------------------------------
 
   private def ankka(args: String*): (Int, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -291,7 +291,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
   /** A channel from the host to `name`'s hostname, through the gateway, trusting the local CA. */
   private def fromOutside(name: String): ManagedChannel =
     val credentials = TlsChannelCredentials.newBuilder().trustManager(ca.toFile).build()
-    val channel = Grpc
+    val channel     = Grpc
       .newChannelBuilderForAddress("127.0.0.1", httpsPort, credentials)
       .overrideAuthority(host(name))
       .build()
@@ -344,7 +344,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
 
   /** One reflection request from the host, and its one answer. */
   private def reflect(name: String, request: ServerReflectionRequest) =
-    val answer = Promise[ServerReflectionResponse]()
+    val answer   = Promise[ServerReflectionResponse]()
     val requests = ServerReflectionGrpc
       .newStub(fromOutside(name))
       .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:
@@ -460,7 +460,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
       )._1 == 0
 
     val grpcAddress = service(Cart).map(_.getSpec.getClusterIP).getOrElse(fail("no address"))
-    val dns = Option(k8s.services().inNamespace("kube-system").withName("kube-dns").get())
+    val dns         = Option(k8s.services().inNamespace("kube-system").withName("kube-dns").get())
       .map(_.getSpec.getClusterIP)
       .getOrElse(fail("no kube-dns"))
     // The same pod reaches an address no policy protects, so the refusal below is the policy's.
@@ -476,7 +476,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
 
   test("an instance that cannot yet answer a gRPC call is not ready") {
     // The pod became ready only once its gRPC server was listening: readiness asks the server.
-    val pod = pods(Cart).headOption.getOrElse(fail("no cart pod"))
+    val pod      = pods(Cart).headOption.getOrElse(fail("no cart pod"))
     val (_, log) =
       kubectl("logs", "--timestamps", "-n", Namespace, pod.getMetadata.getName, "-c", Cart)
     val listening = log.linesIterator
@@ -591,7 +591,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
   test(
     "a method that takes a stream and answers with a stream is called from outside the cluster"
   ) {
-    val heard = ConcurrentLinkedQueue[Line]()
+    val heard    = ConcurrentLinkedQueue[Line]()
     val requests = CartStreamsGrpc
       .stub(fromOutside(Cart))
       .converse(new StreamObserver[Line]:
@@ -760,7 +760,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     val failures          = ConcurrentLinkedQueue[String]()
     @volatile var running = true
     val stub              = CartServiceGrpc.blockingStub(fromOutside(Cart))
-    val load = new Thread(() =>
+    val load              = new Thread(() =>
       while running do
         try
           stub.withDeadlineAfter(10, TimeUnit.SECONDS).whoCalled(WhoCalledRequest()): Unit
@@ -790,12 +790,12 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     // once that call fails on its own before the server's grace has run — which is a fact about the
     // cluster going away, not the one this scenario states. An echo depends on nothing but the
     // server that holds it.
-    val ended = Promise[(Status, Long)]()
-    val heard = ConcurrentLinkedQueue[Line]()
+    val ended    = Promise[(Status, Long)]()
+    val heard    = ConcurrentLinkedQueue[Line]()
     val requests = CartStreamsGrpc
       .stub(fromOutside(Cart))
       .converse(new StreamObserver[Line]:
-        def onNext(value: Line): Unit = heard.add(value): Unit
+        def onNext(value: Line): Unit   = heard.add(value): Unit
         def onError(t: Throwable): Unit =
           ended.trySuccess(Status.fromThrowable(t) -> System.nanoTime()): Unit
         def onCompleted(): Unit = ended.trySuccess(Status.OK -> System.nanoTime()): Unit)
@@ -829,7 +829,7 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     // The listener is the installation's, which the operator does not reconcile; the project's
     // namespace label, the other half of the rule, is re-applied by the operator on every
     // reconcile, so taking it away is a fault the platform heals before the gateway may notice.
-    val selector = "/spec/listeners/1/allowedRoutes/namespaces/selector/matchLabels"
+    val selector                 = "/spec/listeners/1/allowedRoutes/namespaces/selector/matchLabels"
     def listener(labels: String) =
       kubectl(
         "patch",

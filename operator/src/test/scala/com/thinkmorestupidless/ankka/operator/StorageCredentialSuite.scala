@@ -40,7 +40,7 @@ class StorageCredentialSuite extends munit.FunSuite:
     val store: ObjectStore = new ObjectStore:
       def bucket(name: String): Option[BucketInfo] =
         Some(BucketInfo("bucket-1", Instant.EPOCH, allowed.toSet))
-      def createBucket(name: String): BucketInfo = bucket(name).get
+      def createBucket(name: String): BucketInfo  = bucket(name).get
       def keysNamed(name: String): Vector[String] =
         calls += "keysNamed"; keys.collect { case (id, `name`) => id }.toVector
       def createKey(name: String): IssuedKey =

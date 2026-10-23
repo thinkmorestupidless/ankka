@@ -135,8 +135,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     HostImports(settings.commandTimeout, settings.requestTimeout, env.get)
 
   test("the spike guest's declaration is discovered: a stateless event sourced cart") {
-    val module    = loaded(spikeGuest)
-    val bootstrap = GuestInstance.build(module, imports().values, settings.wasmMaxMemoryPages)
+    val module     = loaded(spikeGuest)
+    val bootstrap  = GuestInstance.build(module, imports().values, settings.wasmMaxMemoryPages)
     val discovered = WasmDiscovery
       .discover(bootstrap, module, BuildInfo.version, authConfigured = true)
       .fold(p => fail(p.mkString), identity)
@@ -284,7 +284,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
         )
       )
     )
-    val spec = cartSpec().addComponents(view)
+    val spec  = cartSpec().addComponents(view)
     val found =
       problems(WasmSpec(Some(spec), Seq("ghost", "rows"), "2"), everyExport - "ankka1_view")
     for expected <- Seq(
@@ -324,7 +324,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   test("a command from the empty state, the state handed back, and a replay by fold") {
     val talk    = conversation()
     val session = talk.open(Init(ComponentKind.EventSourcedEntity, cartId, EntityId("c1"), None))
-    val first = await(session.command(command(1, "add-item", json("Item", item(0)))))
+    val first   = await(session.command(command(1, "add-item", json("Item", item(0)))))
       .fold(f => fail(f.toString), identity)
     assertEquals(first.commandId, 1L)
     assertEquals(
@@ -435,7 +435,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   test(
     "sixty-four calls each blocked 200ms in an import complete together, not one after another"
   ) {
-    val hold = 200.millis
+    val hold           = 200.millis
     val blockingInvoke = new HostFunction(
       "ankka1",
       "invoke",
@@ -495,7 +495,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val workspace = Path.of(sys.props.getOrElse("user.dir", ".")).resolve("../sdks/rust").normalize
     val found     = Path.of("sdks/rust").toAbsolutePath
     val dir       = if Files.isDirectory(workspace) then workspace else found
-    val command = Vector(
+    val command   = Vector(
       "cargo",
       "build",
       "-p",
@@ -577,7 +577,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       assert(body.contains(""""productId":"p1"""") && body.contains(""""productId":"p2""""), body)
 
       given ActorSystem[?] = target.system
-      val rows = Await.result(
+      val rows             = Await.result(
         Database().query(
           SqlFragment.raw(
             "SELECT event_payload FROM event_journal WHERE persistence_id = 'shopping-cart|rust-1' ORDER BY seq_nr"
@@ -726,7 +726,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val observability  = com.thinkmorestupidless.ankka.runtime.Observability(calls.system)
     def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
     val spans          = observability.recorder.snapshot()
-    val step = spans
+    val step           = spans
       .find(s => name(s.componentRef) == "service-steps" && name(s.handlerRef) == "call")
       .getOrElse(fail("no span for the step"))
     val call = spans
@@ -740,7 +740,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val before = System.currentTimeMillis()
     val state  = stepped("time-1", "/at-a-time")
     val after  = System.currentTimeMillis()
-    val at =
+    val at     =
       """"at":(\d+)""".r.findFirstMatchIn(state).map(_.group(1).toLong).getOrElse(fail(state))
     assert(before <= at && at <= after, s"$at is not between $before and $after")
   }
@@ -779,8 +779,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   test(
     "a stateful cart is handed its state once, keeps it, and is handed it again after a trap or a close"
   ) {
-    val module   = loaded(spikeGuest)
-    val stateful = imports(Map("ANKKA_CONFORMANCE_SHAPE" -> "stateful"))
+    val module     = loaded(spikeGuest)
+    val stateful   = imports(Map("ANKKA_CONFORMANCE_SHAPE" -> "stateful"))
     val discovered = WasmDiscovery
       .discover(
         GuestInstance.build(module, stateful.values, settings.wasmMaxMemoryPages),
@@ -824,7 +824,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   test("a stateless cart is handed its state on every command") {
     val snapshot = Snapshot(1, json("Cart", s"""{"items":[${item(0)}]}"""))
-    val session = conversation().open(
+    val session  = conversation().open(
       Init(ComponentKind.EventSourcedEntity, cartId, EntityId("s2"), Some(snapshot))
     )
     val presence = (1 to 3).map(i =>
@@ -896,15 +896,15 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("one command instance serialises stateless commands, and answers them all") {
-    val module = loaded(spikeGuest)
-    val values = slowInvoke(200.millis)
+    val module   = loaded(spikeGuest)
+    val values   = slowInvoke(200.millis)
     val commands = CommandPool(
       1,
       () => GuestInstance.build(module, values, settings.wasmMaxMemoryPages),
       5.seconds
     )
     val start = System.nanoTime()
-    val both =
+    val both  =
       (1 to 2).map { i =>
         Future(
           commands.withAny("ankka1_call_out")(
@@ -976,7 +976,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       ).fold(f => fail(f.toString), identity)
       assertEquals((http.status, String(http.body, "UTF-8")), (200, "hello"))
       val workflow = talk.open(Init(ComponentKind.Workflow, cartId, EntityId("w1"), None))
-      val step = await(workflow.runStep(7, "first", None, Metadata.empty))
+      val step     = await(workflow.runStep(7, "first", None, Metadata.empty))
         .fold(f => fail(f.toString), identity)
       assertEquals(
         (step.commandId, step.next),

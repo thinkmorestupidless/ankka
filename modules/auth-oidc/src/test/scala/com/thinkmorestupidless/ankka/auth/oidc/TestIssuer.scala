@@ -60,7 +60,7 @@ class TestIssuer(
         exchange.close()
       else
         val (kid, _, pub) = current
-        val body = new JWKSet(new RSAKey.Builder(pub).keyID(kid).build().toPublicJWK)
+        val body          = new JWKSet(new RSAKey.Builder(pub).keyID(kid).build().toPublicJWK)
           .toString(true)
           .getBytes("UTF-8")
         exchange.getResponseHeaders.add("Content-Type", "application/json")
@@ -113,7 +113,7 @@ class TestIssuer(
       kid: Option[String] = None,
       claims: Map[String, Any] = Map.empty
   ): String =
-    val now = Instant.now()
+    val now     = Instant.now()
     val builder = new JWTClaimsSet.Builder()
       .subject(subject)
       .issuer(issuer)
@@ -257,7 +257,7 @@ class TestIssuer(
                 .get("grant_type")
                 .contains("authorization_code") && found.clientId == clientId &&
                 params.get("redirect_uri").contains(found.redirectUri) && secretOk =>
-            val now = Instant.now()
+            val now    = Instant.now()
             val claims = new JWTClaimsSet.Builder()
               .subject(found.person)
               .issuer(issuer)

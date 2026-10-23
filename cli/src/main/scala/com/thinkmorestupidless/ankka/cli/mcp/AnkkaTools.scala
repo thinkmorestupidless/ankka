@@ -241,7 +241,7 @@ private[cli] final class AnkkaTools(
       schema(
         Seq("descriptor"),
         "descriptor" -> Json.obj(
-          "type" -> Json.str("object"),
+          "type"        -> Json.str("object"),
           "description" -> Json.str(
             "The service descriptor, as in service.json: {\"name\": ..., \"service\": {\"image\": ..., ...}}."
           )
@@ -422,7 +422,7 @@ private[cli] final class AnkkaTools(
         required(args, "id"),
         required(args, "query")
       ) match
-        case None => ToolResult("no running local service by that name", isError = true)
+        case None           => ToolResult("no running local service by that name", isError = true)
         case Some(response) =>
           ToolResult(s"${response.status}\n${response.body}", isError = response.status >= 400)
     },
@@ -433,9 +433,9 @@ private[cli] final class AnkkaTools(
       schema(
         Seq("service", "method", "path"),
         serviceOnMachine,
-        "method" -> string("GET, POST, PUT, PATCH or DELETE."),
-        "path"   -> string("The request path with parameters filled in, e.g. `/carts/c1/items`."),
-        "body"   -> string("The request body, usually JSON."),
+        "method"  -> string("GET, POST, PUT, PATCH or DELETE."),
+        "path"    -> string("The request path with parameters filled in, e.g. `/carts/c1/items`."),
+        "body"    -> string("The request body, usually JSON."),
         "headers" -> Json.obj(
           "type"                 -> Json.str("object"),
           "description"          -> Json.str("Extra request headers."),
@@ -448,7 +448,7 @@ private[cli] final class AnkkaTools(
       val headers = args("headers") match
         case Some(Json.Obj(fields)) => fields.collect { case (k, Json.Str(v)) => k -> v }
         case _                      => Vector.empty
-      val body = args.string("body")
+      val body     = args.string("body")
       val withType =
         if body.isDefined && !headers.exists(_._1.equalsIgnoreCase("content-type")) then
           headers :+ ("Content-Type" -> "application/json")
@@ -456,7 +456,7 @@ private[cli] final class AnkkaTools(
       val request =
         InvokeRequest(required(args, "method").toUpperCase, required(args, "path"), withType, body)
       local().invoke(required(args, "service"), request) match
-        case None => ToolResult("no running local service by that name", isError = true)
+        case None           => ToolResult("no running local service by that name", isError = true)
         case Some(response) =>
           val shown = response.headers.map((k, v) => s"$k: $v").mkString("\n")
           ToolResult(

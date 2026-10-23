@@ -199,7 +199,7 @@ class GcsCompatibilitySuite extends munit.FunSuite:
     )
 
   test("a browser on an origin the descriptor names keeps an object through a signed URL") {
-    val key = fresh("selfie.jpg")
+    val key       = fresh("selfie.jpg")
     val presigner = S3Presigner
       .builder()
       .endpointOverride(URI.create(endpoint))

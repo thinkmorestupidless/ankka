@@ -214,7 +214,7 @@ class TemplateSuite extends munit.FunSuite:
     )
 
     val main = files.find(_.endsWith("Main.scala")).getOrElse(fail("no Main.scala"))
-    val pkg = Files
+    val pkg  = Files
       .readString(main)
       .linesIterator
       .collectFirst { case s"package $p" => p.trim }

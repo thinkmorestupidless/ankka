@@ -55,7 +55,7 @@ class SchemaInitSuite extends munit.FunSuite:
     // A stray extra backslash here once produced `\cart\` instead of `"cart"` in the emitted
     // SQL, which failed with a syntax error rather than revoking anything. This does not run a
     // shell, but it does assert the balance that made that bug possible is not there.
-    val script = SchemaInit.container("cart").getCommand.asScala.last
+    val script     = SchemaInit.container("cart").getCommand.asScala.last
     val revokeLine =
       script.linesIterator.find(_.contains("REVOKE CONNECT")).getOrElse(fail("no REVOKE line"))
     assertEquals(

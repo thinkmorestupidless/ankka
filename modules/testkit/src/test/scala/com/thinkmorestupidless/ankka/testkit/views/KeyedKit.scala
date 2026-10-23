@@ -74,8 +74,8 @@ enum Recorded:
 
 /** An entity whose events are scripts; `shipment` and `customer` are two of them. */
 final class ScriptedEntity extends EventSourcedEntity[Int, Recorded]:
-  def emptyState: Int                  = 0
-  def applyEvent(event: Recorded): Int = currentState + 1
+  def emptyState: Int                      = 0
+  def applyEvent(event: Recorded): Int     = currentState + 1
   def record(script: String): Effect[Done] =
     effects.persist(Recorded.Ran(script)).thenReply(_ => Done)
 
@@ -118,7 +118,7 @@ object ShipmentRow:
 
   /** Refuses a row noted `unwritable`: a row the view cannot write. */
   val serializer: Serializer[ShipmentRow] = new Serializer[ShipmentRow]:
-    def manifest: String = plain.manifest
+    def manifest: String                       = plain.manifest
     def toBytes(row: ShipmentRow): Array[Byte] =
       if row.notes.contains("unwritable") then
         throw IllegalArgumentException(s"row '${row.key}' cannot be written")
@@ -158,7 +158,7 @@ final class ShipmentsView(view: String) extends KeyedView[ShipmentRow]:
       // The rows this event is about, found by asking the view's own query.
       val theirs = change.rows.ask(Shipments.ofCustomer, "customer" -> customer)
       effects.updateRows(theirs.map(row => row.key -> row.copy(notes = row.notes :+ note)))
-    case Scripts.Op.Delete(keys) => effects.deleteRows(keys)
+    case Scripts.Op.Delete(keys)    => effects.deleteRows(keys)
     case Scripts.Op.Unwritable(key) =>
       effects.updateRow(key, ShipmentRow(key, None, Vector("unwritable"), 0))
     case Scripts.Op.Count(key) =>
@@ -206,7 +206,7 @@ object AccountShipments
       ShipmentRow.serializer
     ):
   val shipments = source(ChangeSource.eventsOf(Shipment))(_.run)
-  val accounts = source(ChangeSource.stateOf(Account))((view: ShipmentsView) =>
+  val accounts  = source(ChangeSource.stateOf(Account))((view: ShipmentsView) =>
     (script: String, change) => view.run(Recorded.Ran(script), change)
   )
   def create(ctx: ViewComponentContext) = new ShipmentsView(ctx.componentId.toString)

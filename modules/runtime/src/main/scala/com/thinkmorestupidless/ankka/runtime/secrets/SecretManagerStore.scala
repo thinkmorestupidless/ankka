@@ -71,7 +71,7 @@ private[ankka] final class SecretManagerStore(
     SecretRules.check(name)
     val id = DerivedIds.service(project, service, name)
     mapped(name, id)(client.accessLatest(id)) match
-      case None => ReadDetail.Read(None, latestSkipped = false)
+      case None           => ReadDetail.Read(None, latestSkipped = false)
       case Some(accessed) =>
         val skipped = Option(newestSeen.get(id)).exists(_.longValue > accessed.version)
         seen(id, accessed.version)

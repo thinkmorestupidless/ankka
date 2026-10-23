@@ -341,28 +341,28 @@ enum Action:
 
   def describe: String = this match
     case EnsureNamespace(name) => s"ensure namespace $name"
-    case ApplyDeployment(d) =>
+    case ApplyDeployment(d)    =>
       s"apply deployment ${d.getMetadata.getNamespace}/${d.getMetadata.getName}"
     case DeleteDeployment(ns, name) => s"delete deployment $ns/$name"
-    case EnsureService(svc) =>
+    case EnsureService(svc)         =>
       s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName}"
     case RemoveService(ns, name, _) => s"remove service $ns/$name if owned"
-    case EnsureGrpcPeers(svc, _) =>
+    case EnsureGrpcPeers(svc, _)    =>
       s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName} if unowned or owned"
     case EnsureHttpRoute(r) =>
       s"ensure httproute ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case RemoveHttpRoute(ns, name, _) => s"remove httproute $ns/$name if owned"
-    case EnsureServiceAccount(sa) =>
+    case EnsureServiceAccount(sa)     =>
       s"ensure serviceaccount ${sa.getMetadata.getNamespace}/${sa.getMetadata.getName}"
     case EnsureRole(r) => s"ensure role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureRoleBinding(b) =>
       s"ensure rolebinding ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
-    case SetStatus(ns, name, status) => s"set status $ns/$name to ${status.lifecycle}"
+    case SetStatus(ns, name, status)        => s"set status $ns/$name to ${status.lifecycle}"
     case SetProjectStatus(ns, name, status) =>
       s"set project status $ns/$name: " +
         status.topics.map(t => s"${t.name} ${t.phase}").mkString(", ")
     case SetMachineStatus(name, status) => s"set machine status $name: ${status.phase}"
-    case EnsureCluster(c) =>
+    case EnsureCluster(c)               =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>
       s"ensure credentials ${s.getMetadata.getNamespace}/${s.getMetadata.getName} (create-if-absent)"
@@ -378,7 +378,7 @@ enum Action:
     case SetWebsiteAccess(bucket, enabled) =>
       if enabled then s"serve bucket $bucket at the store's web endpoint"
       else s"do not serve bucket $bucket at the store's web endpoint"
-    case DeleteExpiredKeys(bucket) => s"delete expired keys of bucket $bucket"
+    case DeleteExpiredKeys(bucket)      => s"delete expired keys of bucket $bucket"
     case SetBucketCors(bucket, origins) =>
       if origins.isEmpty then s"set no cors rule on bucket $bucket"
       else s"set cors rule on bucket $bucket admitting ${origins.mkString(", ")}"
@@ -404,7 +404,7 @@ enum Action:
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case EnsureProjectConfig(cm) =>
       s"ensure project config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
-    case NoAction => "nothing to do"
+    case NoAction             => "nothing to do"
     case EnsureCertificate(c) =>
       s"ensure certificate ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureIssuer(i) =>
@@ -412,10 +412,10 @@ enum Action:
     case EnsureNetworkPolicy(p) =>
       s"ensure networkpolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
     case RemoveNetworkPolicy(ns, name, _) => s"remove networkpolicy $ns/$name if owned"
-    case EnsureBackendTlsPolicy(p) =>
+    case EnsureBackendTlsPolicy(p)        =>
       s"ensure backendtlspolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
     case RemoveBackendTlsPolicy(ns, name, _) => s"remove backendtlspolicy $ns/$name if owned"
-    case EnsureObjectStore(o) =>
+    case EnsureObjectStore(o)                =>
       s"ensure objectstore ${o.getMetadata.getNamespace}/${o.getMetadata.getName}"
     case EnsureScheduledBackup(b) =>
       s"ensure scheduledbackup ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
@@ -427,7 +427,7 @@ enum Action:
     case EnsureListenerSet(s) =>
       s"ensure listenerset ${s.getMetadata.getNamespace}/${s.getMetadata.getName} for " +
         s.getSpec.getListeners.asScala.map(_.getHostname).mkString(", ")
-    case RemoveListenerSet(ns, name, _) => s"remove listenerset $ns/$name if owned"
+    case RemoveListenerSet(ns, name, _)         => s"remove listenerset $ns/$name if owned"
     case PruneHostnameCertificates(ns, _, keep) =>
       s"prune hostname certificates in $ns" +
         (if keep.isEmpty then "" else s" except ${keep.mkString(", ")}")

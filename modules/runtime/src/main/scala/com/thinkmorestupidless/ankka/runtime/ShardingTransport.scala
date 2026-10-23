@@ -127,7 +127,7 @@ private[ankka] final class ShardingTransport(
     val observability = Observability(system)
     val recorder      = observability.recorder
     val parent        = Trace.currentContext
-    val span = recorder.reserve(
+    val span          = recorder.reserve(
       parent.fold(Trace.mintHigh())(_.traceIdHigh),
       parent.fold(Trace.mint())(_.traceId),
       observability.names.intern(componentId.toString),
@@ -170,7 +170,7 @@ private[ankka] final class ShardingTransport(
               Future.successful((bytes, MetaEntry.toMetadata(replyMetadata)))
             case Success(failed: EntityProtocol.WorkflowFailed) =>
               Future.failed(failed.toCommandError(componentId.toString, entityId.toString))
-            case Success(_: EntityProtocol.NotYet) => attempt()
+            case Success(_: EntityProtocol.NotYet)          => attempt()
             case Success(rejected: EntityProtocol.Rejected) =>
               Future.failed(
                 if ShardingTransport.fromBeforeAwaiting(rejected, componentId) then
@@ -182,7 +182,7 @@ private[ankka] final class ShardingTransport(
                 else rejected.toCommandError
               )
             case Failure(_: java.util.concurrent.TimeoutException) => attempt()
-            case Failure(NonFatal(other)) =>
+            case Failure(NonFatal(other))                          =>
               observability.unanswered(
                 call.origin,
                 componentId,

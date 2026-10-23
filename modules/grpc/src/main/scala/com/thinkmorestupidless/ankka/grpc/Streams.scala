@@ -113,7 +113,7 @@ private[grpc] object Streams:
     // Listener side.
     def onMessage(bytes: Array[Byte]): Unit = arrived.put(Signal.Part(bytes))
     def onHalfClose(): Unit                 = arrived.put(Signal.End)
-    def onCancel(reason: String): Unit =
+    def onCancel(reason: String): Unit      =
       cancelled = true
       arrived.put(Signal.Cancelled(reason))
 
@@ -180,7 +180,7 @@ private[grpc] object Streams:
         else
           Await.result(parts.pull(), Duration.Inf) match
             case Some(part) => out.send(part)
-            case None =>
+            case None       =>
               out.close(Status.OK, Metadata())
               done = true
     catch

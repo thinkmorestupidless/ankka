@@ -50,7 +50,7 @@ class LoopbackLatencySpike extends munit.FunSuite with LogCapturing:
       ManagedChannelBuilder.forAddress("127.0.0.1", server.getPort).usePlaintext().build()
     val stub  = EventSourcedGrpc.stub(channel)
     val queue = new ArrayBlockingQueue[Long](1)
-    val in = stub.handle(new StreamObserver[EventSourcedOut]:
+    val in    = stub.handle(new StreamObserver[EventSourcedOut]:
       def onNext(o: EventSourcedOut): Unit = o.message.reply.foreach(r => queue.put(r.commandId))
       def onError(t: Throwable): Unit      = ()
       def onCompleted(): Unit              = ())

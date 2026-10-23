@@ -143,14 +143,14 @@ final class FakeSecretManager private (server: HttpServer, val account: String):
           queryParam(query, "secretId")
             .toRight(400 -> "secretId is required")
             .map(id => (Op.Create, id, None))
-        case ("GET", "") => Right((Op.ListSecrets, "", None))
+        case ("GET", "")                              => Right((Op.ListSecrets, "", None))
         case ("POST", r) if r.endsWith(":addVersion") =>
           Right((Op.Add, r.stripPrefix("/").stripSuffix(":addVersion"), None))
         case (m, r) if r.contains("/versions") =>
           val id    = r.stripPrefix("/").takeWhile(_ != '/')
           val after = r.stripPrefix("/" + id + "/versions")
           (m, after) match
-            case ("GET", "") => Right((Op.ListVersions, id, None))
+            case ("GET", "")                         => Right((Op.ListVersions, id, None))
             case ("GET", a) if a.endsWith(":access") =>
               Right((Op.Access, id, Some(a.stripPrefix("/").stripSuffix(":access"))))
             case ("POST", a) if a.endsWith(":destroy") =>
@@ -164,7 +164,7 @@ final class FakeSecretManager private (server: HttpServer, val account: String):
 
   private def route(who: Identity, exchange: HttpExchange): (Int, String) =
     parse(exchange) match
-      case Left((status, message)) => status -> error(status, message)
+      case Left((status, message))  => status -> error(status, message)
       case Right((op, id, version)) =>
         if op != Op.ListSecrets && !IdShape.matches(id) then
           400 -> error(400, s"secret id '$id' is not letters, digits, '_' and '-', 1 to 255")
@@ -191,14 +191,14 @@ final class FakeSecretManager private (server: HttpServer, val account: String):
         val annotations = request.annotations.getOrElse(Map.empty)
         annotations.keys.find(k => !AnnotationKey.matches(k)) match
           case Some(bad) => 400 -> error(400, s"annotation key '$bad' is not allowed")
-          case None =>
+          case None      =>
             if secrets.contains(id) then 409 -> error(409, s"Secret [$name] already exists.")
             else
               secrets(id) = Secret(annotations, Vector.empty)
               200 -> s"""{"name":${quote(name)}}"""
       case Op.Add =>
         secrets.get(id) match
-          case None => 404 -> error(404, s"Secret [$name] not found or has no versions.")
+          case None         => 404 -> error(404, s"Secret [$name] not found or has no versions.")
           case Some(secret) =>
             val data = Base64.getDecoder.decode(readFromArray[AddRequest](body).payload.data)
             if data.length > 65536 then 400 -> error(400, "payload is larger than 64 KiB")
@@ -212,7 +212,7 @@ final class FakeSecretManager private (server: HttpServer, val account: String):
         val found = secrets.get(id).flatMap { secret =>
           version match
             case Some("latest") => latestEnabled(secret)
-            case Some(n) =>
+            case Some(n)        =>
               secret.versions.find(v => v.number.toString == n && v.state == Enabled)
             case None => None
         }
@@ -229,10 +229,10 @@ final class FakeSecretManager private (server: HttpServer, val account: String):
               )}}}"""
       case Op.ListVersions =>
         secrets.get(id) match
-          case None => 404 -> error(404, s"Secret [$name] not found.")
+          case None         => 404 -> error(404, s"Secret [$name] not found.")
           case Some(secret) =>
             val listed = secret.versions.reverse.filter(_.state == Enabled)
-            val items = listed.map(v =>
+            val items  = listed.map(v =>
               s"""{"name":${quote(s"$name/versions/${v.number}")},"state":${quote(v.state)}}"""
             )
             200 -> s"""{"versions":[${items.mkString(",")}],"totalSize":${items.size}}"""
@@ -289,8 +289,8 @@ object FakeSecretManager:
 
   object Identity:
     def fromToken(token: String): Option[Identity] = token match
-      case "fake:controlplane" => Some(ControlPlane)
-      case "fake:provider"     => Some(Provider)
+      case "fake:controlplane"        => Some(ControlPlane)
+      case "fake:provider"            => Some(Provider)
       case t if t.startsWith("fake:") =>
         t.stripPrefix("fake:").split('/') match
           case Array(p, s) if p.nonEmpty && s.nonEmpty => Some(Service(p, s))

@@ -85,7 +85,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
   private def dueAt(name: String): Option[Instant]  = column(name, "due_at", classOf[Instant])
   private def dueFor(name: String): Option[Instant] = column(name, "due_for", classOf[Instant])
   private def fireAt(name: String): Option[Instant] = column(name, "fire_at", classOf[Instant])
-  private def attempts(name: String): Option[Int] =
+  private def attempts(name: String): Option[Int]   =
     column(name, "attempts", classOf[Integer]).map(_.intValue)
 
   private def isRecurring(name: String): Boolean =
@@ -122,7 +122,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
 
   test("a due time read from the table and bound back matches its row") {
     schedule("t", Instant.now().plusSeconds(60))
-    val read = readDue("t")
+    val read    = readDue("t")
     val matched = await(
       database.query(
         sql"SELECT timer_name FROM ankka_timers WHERE timer_name = ${"t"} AND due_at = $read"
@@ -232,8 +232,8 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
   test(
     "a recurring timer set again with another period, another handler, or over a one-shot, is replaced"
   ) {
-    val first = firstDue
-    val later = first.plusSeconds(500)
+    val first                          = firstDue
+    val later                          = first.plusSeconds(500)
     def replacedBy(set: => Unit): Unit =
       run(SqlFragment.raw("UPDATE ankka_timers SET attempts = 2 WHERE timer_name = 'r'")): Unit
       set
@@ -259,8 +259,8 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
     given ExecutionContext = ExecutionContext.global
     for round <- 1 to 20 do
       run(TimerStore.delete("r")): Unit
-      val a = firstDue
-      val b = a.plusSeconds(7)
+      val a    = firstDue
+      val b    = a.plusSeconds(7)
       val both = Future.sequence(
         Seq(
           database.execute(TimerStore.upsertRecurring("r", call, 2_000L, a)),
@@ -391,7 +391,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
     run(LegacyTimers.Store.upsert("old", call, Instant.now().minusSeconds(1))): Unit
     @volatile var polling                    = true
     @volatile var failure: Option[Throwable] = None
-    val poller = Thread.ofVirtual().start { () =>
+    val poller                               = Thread.ofVirtual().start { () =>
       while polling do
         try
           await(
@@ -430,7 +430,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
   test("the scheduler says what to do about a table from before recurring timers, not SQL") {
     legacySchema()
     val scheduler = DatabaseTimerScheduler(database)
-    val refused = intercept[CommandError](
+    val refused   = intercept[CommandError](
       scheduler.createRecurringTimer("r", Duration.Zero, 2.seconds, call)
     )
     assert(refused.message.contains("30-timers-postgres.sql"), refused.message)
@@ -439,7 +439,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
 
   test("the scheduler refuses a period out of bounds before anything is stored") {
     val scheduler = DatabaseTimerScheduler(database)
-    val refused = intercept[IllegalArgumentException](
+    val refused   = intercept[IllegalArgumentException](
       scheduler.createRecurringTimer("sweep-carts", 1.second, Duration.Zero, call)
     )
     assert(refused.getMessage.contains("sweep-carts"), refused.getMessage)
@@ -467,7 +467,7 @@ class TimerStoreSuite extends munit.FunSuite with LogCapturing:
   private def sweepOnce(): Vector[FiredTimer] =
     val service = kit.service
     val fired   = java.util.concurrent.ConcurrentLinkedQueue[FiredTimer]()
-    val sweep = Sweep(
+    val sweep   = Sweep(
       database,
       Map(OrderTimers.componentId -> OrderTimers.descriptor),
       service.componentClient,

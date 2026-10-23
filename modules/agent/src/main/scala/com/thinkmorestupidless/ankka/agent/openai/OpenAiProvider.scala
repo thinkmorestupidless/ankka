@@ -50,7 +50,7 @@ final class OpenAiProvider private (
 
   def complete(request: ModelRequest): Future[ModelResponse] =
     connection match
-      case Left(reason) => Future.failed(ModelCallFailed(name, reason))
+      case Left(reason)  => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
         val outgoing    = idsFor(request)
         val traceparent = OpenAiProvider.traceparent
@@ -86,7 +86,7 @@ final class OpenAiProvider private (
    */
   override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
     connection match
-      case Left(reason) => Source.failed(ModelCallFailed(name, reason))
+      case Left(reason)  => Source.failed(ModelCallFailed(name, reason))
       case Right(client) =>
         val outgoing    = idsFor(request)
         val traceparent = OpenAiProvider.traceparent
@@ -190,7 +190,7 @@ object OpenAiProvider:
    */
   def fromEnv(env: Map[String, String], modelName: String, defaults: Defaults): OpenAiProvider =
     env.get(KeyVariable).filter(_.nonEmpty) match
-      case None => withoutKey(modelName, defaults)
+      case None      => withoutKey(modelName, defaults)
       case Some(key) =>
         val address = env.get("OPENAI_BASE_URL").filter(_.nonEmpty).getOrElse(Address)
         new OpenAiProvider(
@@ -295,7 +295,7 @@ object OpenAiProvider:
     case Json.Null    => null
     case Json.Bool(v) => java.lang.Boolean.valueOf(v)
     case Json.Str(v)  => v
-    case Json.Num(v) =>
+    case Json.Num(v)  =>
       if v.isWhole && v.abs <= Long.MaxValue.toDouble then java.lang.Long.valueOf(v.toLong)
       else java.lang.Double.valueOf(v)
     case Json.Arr(items)  => items.map(toJava).asJava
@@ -308,7 +308,7 @@ object OpenAiProvider:
    */
   private[agent] def failed(name: String, failure: Throwable): ModelCallFailed =
     failure match
-      case already: ModelCallFailed => already
+      case already: ModelCallFailed        => already
       case service: OpenAIServiceException =>
         ModelCallFailed(
           name,
@@ -351,7 +351,7 @@ private[openai] final case class OpenAiSettings(defaults: OpenAiProvider.Default
     val thinking = request.settings.thinking && defaults.thinking
     val asked    = request.settings.effort.orElse(defaults.effort).map(OpenAiSettings.word)
     quirks.reasoningEfforts match
-      case None => if thinking then asked else None
+      case None                            => if thinking then asked else None
       case Some(levels) if levels.nonEmpty =>
         if !thinking then levels.headOption
         else

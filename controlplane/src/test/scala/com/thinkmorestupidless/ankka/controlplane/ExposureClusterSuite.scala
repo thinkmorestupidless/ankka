@@ -51,13 +51,13 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     try new ProcessBuilder("curl", "--version").start().waitFor() == 0
     catch case _: Exception => false
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
   private val Prefix     = "ankka"
   private val Project    = "checkout"
@@ -158,8 +158,8 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     dir
 
   private def ankka(args: String*): (Int, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -234,7 +234,7 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
   ): (Int, String) =
     val port   = if https then httpsPort else httpPort
     val scheme = if https then "https" else "http"
-    val args = Vector(
+    val args   = Vector(
       "curl",
       "-sS",
       "--cacert",
@@ -450,7 +450,7 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     val stale             = AtomicInteger(0)
     @volatile var running = true
     val failures          = java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val load = new Thread(() =>
+    val load              = new Thread(() =>
       while running do
         val (code, body) = curl(host(Project, Service), "/carts/c1")
         if code != 200 then

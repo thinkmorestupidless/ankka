@@ -32,7 +32,7 @@ class ClientKeyIndexSpike extends munit.FunSuite with LogCapturing:
     try
       val peer             = kit.startPeer(Nil)
       given ActorSystem[?] = peer.service.system
-      val journal = PersistenceQuery(peer.service.system)
+      val journal          = PersistenceQuery(peer.service.system)
         .readJournalFor[R2dbcReadJournal]("ankka.mcp.client-keys.query")
       val maxSlice = Persistence(peer.service.system).numberOfSlices - 1
       val seen     = ConcurrentHashMap[String, Long]()

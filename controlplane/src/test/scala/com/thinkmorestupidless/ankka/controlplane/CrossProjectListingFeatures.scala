@@ -93,7 +93,7 @@ class CrossProjectListingFeatures
   ): Unit =
     serviceProject += service -> project
     if !services((service, project)) then
-      val web = hosting.contains("web")
+      val web  = hosting.contains("web")
       val body =
         if web then
           s"""{"name":"$service","service":{"image":"$service:1","hosting":"web","processPort":8080}}"""
@@ -317,7 +317,7 @@ class CrossProjectListingFeatures
   ) { (grantee: String, granteeProject: String, text: String, service: String, owner: String) =>
     val rows   = readFromString[Vector[GrantDetail]](listed._2)
     val (m, p) = text.trim.span(_ != ' ')
-    val found = rows.find(g =>
+    val found  = rows.find(g =>
       g.grantee.text == s"service:$granteeProject/$grantee" && g.target.service.contains(service) &&
         g.target.method.contains(m) && g.target.path.contains(p.trim)
     )
@@ -342,7 +342,7 @@ class CrossProjectListingFeatures
   }
 
   Then("the grant is shown as not in effect, {string}") { (why: String) =>
-    val g = made.last
+    val g     = made.last
     val shown = cp.eventually(s"the grant shown as $why")(
       grantsOf(projectOfGrant(g)).find(_.id == g.id).filter(_.effect == why)
     )
@@ -396,7 +396,7 @@ class CrossProjectListingFeatures
   Then(
     "the history shows that {string} granted it and that {string} revoked it, each with when it was done"
   ) { (granter: String, revoker: String) =>
-    val g = made.last
+    val g     = made.last
     val shown =
       readFromString[Vector[GrantDetail]](listed._2).find(_.id == g.id).getOrElse(fail(listed._2))
     assertEquals(shown.state, GrantState.Revoked)

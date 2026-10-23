@@ -223,7 +223,7 @@ final class OrganizationEndpoint(
   private def received(
       organizationId: String
   ): Vector[com.thinkmorestupidless.ankka.controlplane.domain.ReceivedGrant] =
-    val own = entity(organizationId).call(OrganizationEntity.receivedGrants).invoke()
+    val own        = entity(organizationId).call(OrganizationEntity.receivedGrants).invoke()
     val ofProjects = projects
       .ordered(jsonText("organizationId") ++ sql" = $organizationId", order = jsonText("id"))
       .flatMap(row =>
@@ -247,7 +247,7 @@ final class OrganizationEndpoint(
       handle: com.thinkmorestupidless.ankka.sdk.CommandHandle[ProjectEntity, String, Done]
   ): Done =
     val access = authz.requireOwner(principal, organizationId, write = true)
-    val grant = received(organizationId)
+    val grant  = received(organizationId)
       .find(_.id == grantId)
       .getOrElse(
         throw CommandError(

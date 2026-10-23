@@ -401,7 +401,7 @@ final class Fabric8Executor(
       val namespace = service.getMetadata.getNamespace
       val name      = service.getMetadata.getName
       val existing  = Option(client.services().inNamespace(namespace).withName(name).get())
-      val ours = existing.forall { found =>
+      val ours      = existing.forall { found =>
         ownerUid.nonEmpty &&
         Option(found.getMetadata.getOwnerReferences).exists(_.asScala.exists(_.getUid == ownerUid))
       }
@@ -425,7 +425,7 @@ final class Fabric8Executor(
       // that this resource does not own is somebody else's, and removing it would be the operator
       // destroying an object it never created.
       val existing = Option(client.services().inNamespace(namespace).withName(name).get())
-      val owned = existing.exists { service =>
+      val owned    = existing.exists { service =>
         ownerUid.nonEmpty &&
         Option(service.getMetadata.getOwnerReferences)
           .exists(_.asScala.exists(_.getUid == ownerUid))
@@ -451,7 +451,7 @@ final class Fabric8Executor(
       // create.
       val routes   = client.resources(classOf[HTTPRoute]).inNamespace(namespace).withName(name)
       val existing = routeIfAny(namespace, name)
-      val owned = existing.exists { route =>
+      val owned    = existing.exists { route =>
         ownerUid.nonEmpty &&
         Option(route.getMetadata.getOwnerReferences).exists(_.asScala.exists(_.getUid == ownerUid))
       }
@@ -821,7 +821,7 @@ final class Fabric8Executor(
     case Action.RemoveListenerSet(namespace, name, ownerUid) =>
       // Absent-safe, as the route's removal is: rendered for every exposed service on every pass,
       // so a cluster whose Gateway API predates ListenerSet reads as "no set".
-      val sets = client.resources(classOf[ListenerSet]).inNamespace(namespace).withName(name)
+      val sets     = client.resources(classOf[ListenerSet]).inNamespace(namespace).withName(name)
       val existing =
         try Option(sets.get())
         catch case e: KubernetesClientException if e.getCode == 404 => None
@@ -989,7 +989,7 @@ final class Fabric8Executor(
       selector: Map[String, String],
       timeout: scala.concurrent.duration.FiniteDuration
   ): Boolean =
-    val deadline = timeout.fromNow
+    val deadline  = timeout.fromNow
     def remaining =
       client.pods().inNamespace(namespace).withLabels(selector.asJava).list().getItems.size
     while remaining > 0 && deadline.hasTimeLeft() do Thread.sleep(1000)
@@ -1051,7 +1051,7 @@ final class Fabric8Executor(
     if hostnames.isEmpty then Map.empty
     else
       val setName = HostnameRendering.setName(serviceName)
-      val set =
+      val set     =
         try
           Option(
             client.resources(classOf[ListenerSet]).inNamespace(namespace).withName(setName).get()
@@ -1121,7 +1121,7 @@ final class Fabric8Executor(
   ): CertificateView =
     val conditions = Generic.conditions(c)
     val ready      = conditions.get("Ready").exists(_._1 == "True")
-    val failed = conditions
+    val failed     = conditions
       .get("Issuing")
       .filter((status, reason, _) => status == "False" && reason == "Failed")
       .map(_._3)
@@ -1255,7 +1255,7 @@ final class Fabric8Executor(
       status: => Option[com.thinkmorestupidless.ankka.operator.strimzi.StrimziStatus]
   ): StrimziObjectState =
     found match
-      case None => StrimziObjectState.absent
+      case None           => StrimziObjectState.absent
       case Some(resource) =>
         StrimziObjectState.found(
           Option(resource.getMetadata.getGeneration).map(_.longValue),
@@ -1270,7 +1270,7 @@ final class Fabric8Executor(
    */
   private def baseBackupAgain(namespace: String, cluster: String): Unit =
     def instant(text: String) = scala.util.Try(java.time.Instant.parse(text)).toOption
-    val attempts = ifTypeExists(
+    val attempts              = ifTypeExists(
       client.resources(classOf[cnpg.PostgresBackup]).inNamespace(namespace).list().getItems
     ).map(_.asScala.toVector)
       .getOrElse(Vector.empty)
@@ -1425,7 +1425,7 @@ final class Fabric8Executor(
     store.fold(ObjectStorageObservation.empty) { s =>
       try
         s.bucket(bucket) match
-          case None => ObjectStorageObservation.empty
+          case None       => ObjectStorageObservation.empty
           case Some(info) =>
             ObjectStorageObservation(
               bucketCreated = Some(info.created),
@@ -1446,11 +1446,11 @@ final class Fabric8Executor(
 
   override def observeMoveJob(namespace: String, name: String): StorageMove.JobOutcome =
     Option(client.batch().v1().jobs().inNamespace(namespace).withName(name).get()) match
-      case None => StorageMove.JobOutcome.Absent
+      case None      => StorageMove.JobOutcome.Absent
       case Some(job) =>
         val status    = Option(job.getStatus)
         val succeeded = status.flatMap(s => Option(s.getSucceeded)).exists(_.intValue > 0)
-        val failed = status.flatMap(s => Option(s.getFailed)).exists(_.intValue > 0) ||
+        val failed    = status.flatMap(s => Option(s.getFailed)).exists(_.intValue > 0) ||
           status
             .flatMap(s => Option(s.getConditions))
             .exists(_.asScala.exists(c => c.getType == "Failed" && c.getStatus == "True"))
@@ -1513,8 +1513,8 @@ final class Fabric8Executor(
       resource: Option[Option[com.thinkmorestupidless.ankka.operator.cnpg.CnpgReconcileStatus]]
   ): CnpgObjectState =
     resource match
-      case None       => CnpgObjectState.absent
-      case Some(None) => CnpgObjectState(exists = true, applied = false, message = None)
+      case None               => CnpgObjectState.absent
+      case Some(None)         => CnpgObjectState(exists = true, applied = false, message = None)
       case Some(Some(status)) =>
         CnpgObjectState(exists = true, applied = status.applied, message = status.message)
 

@@ -56,9 +56,9 @@ class AnkkaTestKitStorageSuite extends munit.FunSuite with LogCapturing:
       )
     )
     try
-      val base   = kit.service.boundAddresses.head
-      val client = java.net.http.HttpClient.newHttpClient()
-      val body   = Array.fill[Byte](3 * 1024 * 1024)('p'.toByte)
+      val base     = kit.service.boundAddresses.head
+      val client   = java.net.http.HttpClient.newHttpClient()
+      val body     = Array.fill[Byte](3 * 1024 * 1024)('p'.toByte)
       val uploaded = client.send(
         java.net.http.HttpRequest
           .newBuilder(java.net.URI.create(s"$base/storage/upload?name=listings%2F42%2Ffront.jpg"))

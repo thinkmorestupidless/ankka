@@ -92,7 +92,7 @@ object BrokerStack:
    */
   private def shaped(kafka: String, nodes: Int): String =
     val inSync = (nodes - 1).max(1)
-    val lines = Vector(
+    val lines  = Vector(
       "  replicas: 1" -> s"  replicas: $nodes",
       "      offsets.topic.replication.factor: 1" -> s"      offsets.topic.replication.factor: $nodes",
       "      transaction.state.log.replication.factor: 1" -> s"      transaction.state.log.replication.factor: $nodes",

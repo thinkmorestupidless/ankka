@@ -90,7 +90,7 @@ private[ankka] object RemoteKeyValueHost:
 
       def open(state: RemoteState): InstanceSession =
         val now = System.currentTimeMillis()
-        val s = conversation.open(
+        val s   = conversation.open(
           Init(
             descriptor.kind,
             descriptor.componentId,
@@ -120,7 +120,7 @@ private[ankka] object RemoteKeyValueHost:
             sentNanos = System.nanoTime()
             val metadata = MetaEntry.toMetadata(invoke.metadata)
             val inbound  = Trace.inbound(metadata)
-            val span = observability.recorder.begin(
+            val span     = observability.recorder.begin(
               traceIdHigh = inbound.traceIdHigh,
               traceId = inbound.traceId,
               parentSpanId = inbound.parentSpanId,

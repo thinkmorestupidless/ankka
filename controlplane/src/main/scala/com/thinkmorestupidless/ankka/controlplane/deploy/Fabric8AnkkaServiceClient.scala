@@ -74,7 +74,7 @@ final class Fabric8AnkkaServiceClient(
           .build()
       )
       .build()
-    val _ = client.resource(ns).fieldManager(FieldManager).forceConflicts().serverSideApply()
+    val _       = client.resource(ns).fieldManager(FieldManager).forceConflicts().serverSideApply()
     val binding = new io.fabric8.kubernetes.api.model.rbac.RoleBindingBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
@@ -191,7 +191,7 @@ final class Fabric8AnkkaServiceClient(
    * The answer's body — the whole Secret, every entry's value included — is never read.
    */
   private def mergePatchSecret(namespace: String, name: String, body: String): Int =
-    val base = client.getMasterUrl.toString.stripSuffix("/")
+    val base    = client.getMasterUrl.toString.stripSuffix("/")
     val request = client.getHttpClient
       .newHttpRequestBuilder()
       .uri(s"$base/api/v1/namespaces/$namespace/secrets/$name")
@@ -295,7 +295,7 @@ final class Fabric8AnkkaServiceClient(
       .flatMap(data => Option(data.get(Fabric8AnkkaServiceClient.schemaKey(fingerprint))))
 
   private def mergePatchConfigMap(namespace: String, name: String, body: String): Int =
-    val base = client.getMasterUrl.toString.stripSuffix("/")
+    val base    = client.getMasterUrl.toString.stripSuffix("/")
     val request = client.getHttpClient
       .newHttpRequestBuilder()
       .uri(s"$base/api/v1/namespaces/$namespace/configmaps/$name")

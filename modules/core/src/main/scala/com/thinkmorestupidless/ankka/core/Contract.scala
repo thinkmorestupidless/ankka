@@ -55,7 +55,7 @@ object Contract:
         case GraphJson.Bool(value) => put(if value then "true" else "false")
         case GraphJson.Num(value)  => put(number(value))
         case GraphJson.Str(value)  => string(value, out)
-        case GraphJson.Arr(items) =>
+        case GraphJson.Arr(items)  =>
           put("[")
           items.zipWithIndex.foreach { (item, i) =>
             if i > 0 then put(",")
@@ -100,12 +100,12 @@ object Contract:
       else if d.isWhole && math.abs(d) < 1e21 then BigDecimal(d).toBigInt.toString
       else
         // Java's shortest repr is `d.dddE±n` past 1e7 or below 1e-3; ECMAScript's thresholds differ.
-        val repr = java.lang.Double.toString(d)
+        val repr            = java.lang.Double.toString(d)
         val (mantissa, exp) = repr.split('E') match
           case Array(m, e) => (m, e.toInt)
           case Array(m)    => (m, 0)
-        val negative        = mantissa.startsWith("-")
-        val digitsWithPoint = if negative then mantissa.drop(1) else mantissa
+        val negative         = mantissa.startsWith("-")
+        val digitsWithPoint  = if negative then mantissa.drop(1) else mantissa
         val (intPart, frac0) = digitsWithPoint.split('.') match
           case Array(i, f) => (i, f)
           case Array(i)    => (i, "")
@@ -117,7 +117,7 @@ object Contract:
         val point = intPart.length + exp - (intPart + frac).takeWhile(_ == '0').length
         val k     = digits.length
         val n     = point
-        val body =
+        val body  =
           if k <= n && n <= 21 then digits + "0" * (n - k)
           else if 0 < n && n <= 21 then digits.take(n) + "." + digits.drop(n)
           else if -6 < n && n <= 0 then "0." + "0" * (-n) + digits

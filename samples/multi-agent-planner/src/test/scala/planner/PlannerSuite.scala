@@ -43,7 +43,7 @@ class PlannerSuite extends munit.FunSuite with LogCapturing:
   override def beforeEach(context: BeforeEach): Unit = model.reset()
   // docs:end start
 
-  private def planner(id: String) = testKit.componentClient.forWorkflow(EntityId(id))
+  private def planner(id: String)         = testKit.componentClient.forWorkflow(EntityId(id))
   private def preferences(userId: String) =
     testKit.componentClient.forKeyValueEntity(EntityId(userId))
 
@@ -157,10 +157,10 @@ class PlannerSuite extends munit.FunSuite with LogCapturing:
 
     // The last model call is the summariser's; it must have seen the specialists' answers.
     val summaryRequest = model.lastRequest
-    val visible = summaryRequest.messages
+    val visible        = summaryRequest.messages
       .collect {
         case ChatMessage.Assistant(text, _, _) => text
-        case ChatMessage.User(content) =>
+        case ChatMessage.User(content)         =>
           content.collect { case MessageContent.Text(t) => t }.mkString
       }
       .mkString("\n")
@@ -188,7 +188,7 @@ class PlannerSuite extends munit.FunSuite with LogCapturing:
 
     // The preferences reached the model as context, read from the entity by the agent.
     val activityRequest = model.requests(1)
-    val text = activityRequest.messages.collect { case ChatMessage.User(content) =>
+    val text            = activityRequest.messages.collect { case ChatMessage.User(content) =>
       content.collect { case MessageContent.Text(t) => t }.mkString
     }.mkString
     assert(text.contains("museums"), text)

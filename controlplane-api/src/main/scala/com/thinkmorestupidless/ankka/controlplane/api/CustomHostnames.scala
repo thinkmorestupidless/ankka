@@ -46,7 +46,7 @@ object CustomHostnames:
       val labels = h.split("\\.", -1).toVector
       labels
         .collectFirst {
-          case l if l.isEmpty => s"'$h' is not a hostname: it has an empty label"
+          case l if l.isEmpty           => s"'$h' is not a hostname: it has an empty label"
           case l if l.length > MaxLabel =>
             s"'$h' is not a hostname: label '$l' is ${l.length} characters, over the $MaxLabel " +
               "character limit"

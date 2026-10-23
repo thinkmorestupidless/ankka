@@ -41,7 +41,7 @@ class ResearchDigestFeatures extends GherkinSuite("features") with LogCapturing:
   private val answers = TrieMap[String, Either[String, Vector[Paper]]]()
 
   private def scripted(sourceName: String): Source = new Source:
-    def name = sourceName
+    def name                                                                 = sourceName
     def search(query: String, from: LocalDate, to: LocalDate): Vector[Paper] =
       answers.getOrElse(sourceName, Right(Vector.empty)) match
         case Left(problem) => throw IllegalStateException(problem)
@@ -231,7 +231,7 @@ class ResearchDigestFeatures extends GherkinSuite("features") with LogCapturing:
         Json
           .obj(
             "identifier" -> Json.str(id),
-            "statement" -> Json.str(
+            "statement"  -> Json.str(
               s"$id reports ${item("title").flatMap(_.asString).getOrElse("")}."
             )
           )
@@ -253,7 +253,7 @@ class ResearchDigestFeatures extends GherkinSuite("features") with LogCapturing:
     }
     // The writer: a statement per paper read, or one saying the period held none.
     model.respondWhen(r => Scripted.forStep(r, "script")) { r =>
-      val read = reads(r)("read").flatMap(_.asArray).getOrElse(Vector.empty)
+      val read       = reads(r)("read").flatMap(_.asArray).getOrElse(Vector.empty)
       val statements =
         if read.isEmpty then
           Vector(Json.obj("text" -> Json.str("No papers were found in the period.")))

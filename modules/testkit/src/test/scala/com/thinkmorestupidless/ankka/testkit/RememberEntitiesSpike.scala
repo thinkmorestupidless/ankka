@@ -46,7 +46,7 @@ class RememberEntitiesSpike extends munit.FunSuite with LogCapturing:
           Behaviors.receiveMessage {
             case Hello          => Behaviors.same
             case Asked(replyTo) => replyTo ! true; Behaviors.same
-            case Leave =>
+            case Leave          =>
               ctx.shard ! ClusterSharding.Passivate(self.self)
               Behaviors.same
           }
@@ -77,7 +77,7 @@ class RememberEntitiesSpike extends munit.FunSuite with LogCapturing:
   ): Unit =
     val kit = AnkkaTestKit.start(Seq.empty)
     try
-      val key = EntityTypeKey[Msg](s"spike-$label")
+      val key                              = EntityTypeKey[Msg](s"spike-$label")
       def settings(system: ActorSystem[?]) =
         configure(ClusterShardingSettings(system).withRememberEntities(true))
 

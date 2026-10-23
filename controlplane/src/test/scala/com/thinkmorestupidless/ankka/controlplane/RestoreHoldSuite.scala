@@ -67,7 +67,7 @@ class RestoreHoldSuite extends munit.FunSuite:
   }
 
   test("held, a credential or a secret is refused as unavailable rather than recorded") {
-    val client = HeldClient(new FakeAnkkaServiceClient, held())
+    val client  = HeldClient(new FakeAnkkaServiceClient, held())
     val refusal =
       intercept[CommandError](client.setSecretEntries("ankka-checkout", "api", Map("k" -> "v")))
     assertEquals(refusal.code, ErrorCode.Unavailable)

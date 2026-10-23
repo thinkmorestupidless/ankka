@@ -58,7 +58,7 @@ class BrokerGrantsRenderingSuite extends munit.FunSuite:
       .collect { case Action.EnsureKafkaUser(u) => u }
       .head
 
-  private val players = GrantedTopic("spinvibe", "casino.players", GrantedTopic.Consume)
+  private val players    = GrantedTopic("spinvibe", "casino.players", GrantedTopic.Consume)
   private val ownEntries = Vector(
     AclRule(AclResource("topic", "affiliates-hub.", "prefix"), Vector("Read", "Write", "Describe")),
     AclRule(AclResource("group", "ankka.affiliates-hub.attribution.", "prefix"), Vector("Read"))

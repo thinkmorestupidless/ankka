@@ -87,20 +87,20 @@ class RemoteModelsSuite extends munit.FunSuite with LogCapturing:
 
   /** A sidecar in front of the double, answering agents from `models`. */
   private def sidecar(models: Models): Sidecar =
-    val double  = new ProcessDouble(DoubleSpec(agents = Vector(assistant)))
-    val port    = double.start()
-    val channel = ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+    val double   = new ProcessDouble(DoubleSpec(agents = Vector(assistant)))
+    val port     = double.start()
+    val channel  = ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
     val settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val discovered = Discovery
+    val discovered   = Discovery
       .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
       .fold(p => fail(p.mkString("; ")), identity)
     val agents = discovered.agents.map(c =>
       RemoteAgent.descriptor(RemoteAgent.spec(c).toOption.get, conversation, models, 5.seconds)
     )
     val runtime = models.default.fold(AgentRuntime())(AgentRuntime.withDefaultModel(_))
-    val kit = AnkkaTestKit.start(
+    val kit     = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ AgentRuntime.descriptors,
       Seq(runtime),
       60.seconds,
@@ -235,7 +235,7 @@ class RemoteModelsSuite extends munit.FunSuite with LogCapturing:
     "an agent of a process naming an installation model is answered by the model server, and its turn recorded under the provider"
   ) {
     val authority = TestPki.root("service authority")
-    val door = FakeOllama.startTls(
+    val door      = FakeOllama.startTls(
       RotatingTls(
         authority
           .issue(uris = Seq("ankka://platform/models"), dnsNames = Seq("localhost"))

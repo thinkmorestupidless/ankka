@@ -15,27 +15,27 @@ class StorageCredentialBucketsSuite extends munit.FunSuite:
     val keys      = mutable.LinkedHashMap.empty[String, String] // id -> name
     private var n = 0
     def bucket(name: String): Option[BucketInfo] = buckets.get(name)
-    def createBucket(name: String): BucketInfo =
+    def createBucket(name: String): BucketInfo   =
       calls += s"create $name"
       val made = BucketInfo(s"id-$name", Instant.EPOCH, Set.empty)
       buckets(name) = made
       made
     def keysNamed(name: String): Vector[String] = keys.collect { case (id, `name`) => id }.toVector
-    def createKey(name: String): IssuedKey =
+    def createKey(name: String): IssuedKey      =
       n += 1
       keys(s"GK$n") = name
       IssuedKey(s"GK$n", s"secret-$n")
-    def deleteKey(id: String): Unit = keys -= id: Unit
+    def deleteKey(id: String): Unit                               = keys -= id: Unit
     def allow(bucketId: String, id: String, write: Boolean): Unit =
       calls += s"allow $id on $bucketId"
       update(bucketId)(b => b.copy(allowedKeys = b.allowedKeys + id))
       if write then writers(bucketId) = writers(bucketId) + id
     def setCors(bucketId: String, origins: Seq[String]): Unit = ()
-    def setWebsite(bucketId: String, enabled: Boolean): Unit =
+    def setWebsite(bucketId: String, enabled: Boolean): Unit  =
       calls += s"website $enabled on $bucketId"
       update(bucketId)(_.copy(website = enabled))
-    def expire(id: String, at: Instant): Unit = ()
-    def keyInfo(id: String): Option[KeyInfo]  = keys.get(id).map(KeyInfo(id, _, false))
+    def expire(id: String, at: Instant): Unit   = ()
+    def keyInfo(id: String): Option[KeyInfo]    = keys.get(id).map(KeyInfo(id, _, false))
     def keysOf(bucket: String): Vector[KeyInfo] =
       keys.collect {
         case (id, name) if name == bucket || name.startsWith(bucket + "#") =>

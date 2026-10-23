@@ -56,7 +56,7 @@ class OidcVerifierSuite extends munit.FunSuite:
   }
 
   test("expired, not-yet-valid, wrong issuer, wrong audience, wrong type, missing type") {
-    val strict = verifier(skew = 0.seconds)
+    val strict                                                 = verifier(skew = 0.seconds)
     def reasonFor(token: String, expectedWords: String*): Unit =
       val reason = rejected(strict.verify(token)).toLowerCase
       assert(expectedWords.exists(reason.contains), s"'$reason' names none of $expectedWords")
@@ -152,7 +152,7 @@ class OidcVerifierSuite extends munit.FunSuite:
     )
     https.start()
     try
-      val url = s"https://localhost:${https.getAddress.getPort}/jwks"
+      val url  = s"https://localhost:${https.getAddress.getPort}/jwks"
       val root = java.nio.file.Files
         .writeString(java.nio.file.Files.createTempFile("root", ".crt"), authority.pem)
       def trusting(ca: Option[java.nio.file.Path]) =
@@ -175,7 +175,7 @@ class OidcVerifierSuite extends munit.FunSuite:
   // ── Several issuers ──────────────────────────────────────────────────────
 
   private def twoIssuers(test: (TestIssuer, TestIssuer, OidcVerifier) => Unit): Unit =
-    val staff = TestIssuer("https://auth.example.test/realms/staff", "staff", "backoffice")
+    val staff     = TestIssuer("https://auth.example.test/realms/staff", "staff", "backoffice")
     val customers =
       TestIssuer("https://auth.example.test/realms/customers", "customers", "shop")
     try

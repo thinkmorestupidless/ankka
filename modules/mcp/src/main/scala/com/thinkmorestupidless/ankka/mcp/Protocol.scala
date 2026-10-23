@@ -75,7 +75,7 @@ private[ankka] object Protocol:
           failure(403, InvalidRequest, "the request's Origin is not this server")
         else
           Json.parse(String(request.body, "UTF-8")) match
-            case Left(reason) => failure(400, ParseError, s"parse error: $reason")
+            case Left(reason)       => failure(400, ParseError, s"parse error: $reason")
             case Right(_: Json.Arr) =>
               failure(400, InvalidRequest, "batches are not accepted in protocol 2025-06-18")
             case Right(message: Json.Obj) => message_(message, context, server, tools, invoke)
@@ -90,7 +90,7 @@ private[ankka] object Protocol:
   ): Response =
     (message("method").flatMap(_.asString), message("id")) match
       // A notification asks for no answer, and one the server does not know is ignored all the same.
-      case (Some(_), None) => accepted
+      case (Some(_), None)          => accepted
       case (Some(method), Some(id)) =>
         val params = message("params").getOrElse(Json.Null)
         method match
@@ -108,7 +108,7 @@ private[ankka] object Protocol:
     Json.obj(
       "protocolVersion" -> Json.str(asked.filter(SupportedVersions.contains).getOrElse(Latest)),
       "capabilities"    -> Json.obj("tools" -> Json.obj("listChanged" -> Json.bool(false))),
-      "serverInfo" -> Json.obj(
+      "serverInfo"      -> Json.obj(
         "name"    -> Json.str(server.name),
         "version" -> Json.str(server.version)
       )
@@ -136,12 +136,12 @@ private[ankka] object Protocol:
         // No such tool, one outside the key's scope and one the caller's ACL refuses are the same
         // words, so a listing's absence and a call's refusal agree and neither says which it was.
         tools(context).find(_.name == name) match
-          case None => error(200, id, InvalidParams, s"tool not available: $name")
+          case None       => error(200, id, InvalidParams, s"tool not available: $name")
           case Some(tool) =>
             val arguments = params("arguments").getOrElse(Json.Null)
             invoke(tool, ToolCall(arguments, context)) match
               case ToolOutcome.BadArguments(reason) => error(200, id, InvalidParams, reason)
-              case ToolOutcome.Failed(reason) =>
+              case ToolOutcome.Failed(reason)       =>
                 result(id, content(reason, None, isError = true))
               case ToolOutcome.Answered(answer) =>
                 result(id, content(answer.text, answer.structured, isError = false))
@@ -160,7 +160,7 @@ private[ankka] object Protocol:
    */
   private def sameOrigin(request: Request): Boolean =
     request.header("Origin") match
-      case None => true
+      case None         => true
       case Some(origin) =>
         val authority = Try(URI(origin.trim)).toOption.flatMap(u => Option(u.getRawAuthority))
         authority.exists(a => request.header("Host").exists(_.trim.equalsIgnoreCase(a)))

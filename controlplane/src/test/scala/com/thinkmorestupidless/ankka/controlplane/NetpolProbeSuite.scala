@@ -24,8 +24,8 @@ class NetpolProbeSuite extends munit.FunSuite with LogCapturing:
    * and the cluster is said to enforce it — or always, for a network that connects nothing.
    */
   private def stub(enforces: Boolean, connects: Boolean = true): Path =
-    val dir   = Files.createTempDirectory("kubectl-stub")
-    val state = dir.resolve("policy-applied")
+    val dir    = Files.createTempDirectory("kubectl-stub")
+    val state  = dir.resolve("policy-applied")
     val script =
       s"""#!/usr/bin/env bash
          |case "$$*" in

@@ -325,7 +325,7 @@ final class ServiceBuilder private[ankka] (
     // The secret store too, for the same reason. A key that is set and malformed stops the start
     // here, naming the variable; no key at all is a service that runs and refuses to keep secrets.
     val secretKey = system.settings.config.getString("ankka.secrets.key").trim match
-      case "" => None
+      case ""   => None
       case text =>
         Some(
           SecretKey.parse(text).fold(problem => throw IllegalArgumentException(problem), identity)
@@ -388,7 +388,7 @@ final class ServiceBuilder private[ankka] (
       case Some(handed) if handed eq ObjectStorage.unavailable =>
         storage.BuiltStorage(storage.StorageBackend.Unavailable, handed, None)
       case Some(handed) => storage.BuiltStorage(storage.StorageBackend.Memory, handed, None)
-      case None =>
+      case None         =>
         storage.StorageSettings
           .from(system.settings.config, sys.env, runningLocally)
           .flatMap(settings =>
@@ -531,7 +531,7 @@ final class ServiceBuilder private[ankka] (
     // the Companion's `command`/`query` signatures have not already established.
     type AnyEntity = EventSourcedEntity[Any, Any]
     val typed = descriptor.asInstanceOf[EventSourcedEntityDescriptor[AnyEntity, Any, Any]]
-    val _ = sharding.init(
+    val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
         EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
           typed,
@@ -552,7 +552,7 @@ final class ServiceBuilder private[ankka] (
   ): Unit =
     type AnyWorkflow = Workflow[Any]
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
-    val _ = sharding.init(
+    val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
         WorkflowHost.behavior[AnyWorkflow, Any](
           typed,
@@ -572,7 +572,7 @@ final class ServiceBuilder private[ankka] (
   ): Unit =
     type AnyEntity = KeyValueEntity[Any]
     val typed = descriptor.asInstanceOf[KeyValueEntityDescriptor[AnyEntity, Any]]
-    val _ = sharding.init(
+    val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
         KeyValueEntityHost.behavior[AnyEntity, Any](
           typed,
@@ -816,6 +816,6 @@ object ServiceBuilder:
 
   /** For a service built without one: every call says so. */
   val noServices: ServiceClients = new ServiceClients:
-    def apply(name: String): ServiceClient = apply("", name)
+    def apply(name: String): ServiceClient                  = apply("", name)
     def apply(project: String, name: String): ServiceClient =
       throw IllegalStateException(s"no service client is configured; cannot call '$name'")

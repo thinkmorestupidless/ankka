@@ -81,12 +81,12 @@ object SigV4:
       now: Instant
   ): Map[String, String] =
     val amzDate = AmzDate.format(now)
-    val signed =
+    val signed  =
       headers.map((k, v) => k.toLowerCase(java.util.Locale.ROOT) -> v) +
         ("host" -> request.host) + ("x-amz-date" -> amzDate)
     val (names, canonical) = canonicalHeaders(signed)
     val scope              = s"${ShortDate.format(now)}/$region/$service/aws4_request"
-    val creq =
+    val creq               =
       Vector(
         request.method,
         request.canonicalPath,
@@ -118,8 +118,8 @@ object SigV4:
       expiresSeconds: Long,
       now: Instant
   ): URI =
-    val amzDate = AmzDate.format(now)
-    val scope   = s"${ShortDate.format(now)}/$region/$service/aws4_request"
+    val amzDate  = AmzDate.format(now)
+    val scope    = s"${ShortDate.format(now)}/$region/$service/aws4_request"
     val withAuth = request.copy(query =
       request.query ++ Vector(
         "X-Amz-Algorithm"     -> Algorithm,

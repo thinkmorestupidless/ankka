@@ -63,7 +63,7 @@ class McpInstallSuite extends munit.FunSuite:
   }
 
   test("a different entry named ankka is left alone, and replaced in place only when forced") {
-    val theirs = """{"command":"/opt/ankka-dev/bin/ankka","args":["mcp","--url","https://x"]}"""
+    val theirs   = """{"command":"/opt/ankka-dev/bin/ankka","args":["mcp","--url","https://x"]}"""
     val existing =
       parse(s"""{"mcpServers":{"a":{"command":"a"},"ankka":$theirs,"z":{"command":"z"}}}""")
 
@@ -92,7 +92,7 @@ class McpInstallSuite extends munit.FunSuite:
   test("the ankka a client starts is --command, else the first on PATH, else this process") {
     val first  = binDir("ankka")
     val second = binDir("ankka")
-    val path =
+    val path   =
       Seq(Files.createTempDirectory("empty"), first, second).mkString(java.io.File.pathSeparator)
     val self = () => Some(Path.of("/self/ankka"))
     assertEquals(McpInstall.locate(None, path, self), first.resolve("ankka"))
@@ -138,7 +138,7 @@ class McpInstallSuite extends munit.FunSuite:
 
   /** A runner that answers from a script and records what it was asked to run. */
   private final class Scripted(answers: PartialFunction[Vector[String], (Int, String)]):
-    val ran = Vector.newBuilder[Vector[String]]
+    val ran                       = Vector.newBuilder[Vector[String]]
     val runner: McpInstall.Runner = argv =>
       ran += argv
       answers.applyOrElse(
@@ -216,7 +216,7 @@ class McpInstallSuite extends munit.FunSuite:
   }
 
   test("`--dry-run` shows the file it would write and writes nothing") {
-    val dir = Files.createTempDirectory("project")
+    val dir            = Files.createTempDirectory("project")
     val (code, out, _) =
       run("mcp", "install", "--scope", "project", "--dir", dir.toString, "--dry-run")
     assertEquals(code, 0)

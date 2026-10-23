@@ -56,9 +56,9 @@ class GherkinSuiteSuite extends munit.FunSuite:
     val notifier = RunNotifier()
     notifier.addListener(new RunListener:
       override def testStarted(d: Description): Unit = started += d.getMethodName
-      override def testFailure(f: Failure): Unit = failed(f.getDescription.getMethodName) =
+      override def testFailure(f: Failure): Unit     = failed(f.getDescription.getMethodName) =
         f.getMessage
-      override def testIgnored(d: Description): Unit = ignored += d.getMethodName
+      override def testIgnored(d: Description): Unit       = ignored += d.getMethodName
       override def testAssumptionFailure(f: Failure): Unit =
         ignored += f.getDescription.getMethodName)
     MUnitRunner(cls, suite).run(notifier)
@@ -109,8 +109,8 @@ class GherkinSuiteSuite extends munit.FunSuite:
       "When the customer adds 2 items",
       "When the customer removes \"pen\" and 2 items"
     )
-    val suite = new CartSteps(features("add.feature" -> text)) {}
-    val run   = this.run(classOf[CartSteps], () => suite)
+    val suite        = new CartSteps(features("add.feature" -> text)) {}
+    val run          = this.run(classOf[CartSteps], () => suite)
     val (_, message) =
       run.failed.find(_._1.startsWith("adding items")).getOrElse(fail(run.toString))
     assert(
@@ -127,8 +127,8 @@ class GherkinSuiteSuite extends munit.FunSuite:
   }
 
   test("a step two definitions match fails, naming both") {
-    val suite = new AmbiguousSteps(features("add.feature" -> cart)) {}
-    val run   = this.run(classOf[AmbiguousSteps], () => suite)
+    val suite        = new AmbiguousSteps(features("add.feature" -> cart)) {}
+    val run          = this.run(classOf[AmbiguousSteps], () => suite)
     val (_, message) =
       run.failed.find(_._1.startsWith("adding items")).getOrElse(fail(run.toString))
     assert(message.contains("matches 2 step definitions"), message)
@@ -153,8 +153,8 @@ class GherkinSuiteSuite extends munit.FunSuite:
   }
 
   test("a step that gives more or fewer values than its definition takes fails, saying both") {
-    val text  = "Feature: f\n  Scenario: n\n    Given a note \"hi\" with an extra value\n"
-    val suite = new ArgumentSteps(features("n.feature" -> text)) {}
+    val text         = "Feature: f\n  Scenario: n\n    Given a note \"hi\" with an extra value\n"
+    val suite        = new ArgumentSteps(features("n.feature" -> text)) {}
     val (_, message) =
       run(classOf[ArgumentSteps], () => suite).failed.headOption.getOrElse(fail("it passed"))
     assert(message.contains("gives 1 value(s)") && message.contains("takes 2"), message)
@@ -196,7 +196,7 @@ class GherkinSuiteSuite extends munit.FunSuite:
 
   test("a scenario run outside the repository is reported ignored with why, never run or passed") {
     // The steps would fail: 2 items is not 99. Ignored, they are never run.
-    val text = cart.replace("Then the cart holds 2 items", "Then the cart holds 99 items")
+    val text  = cart.replace("Then the cart holds 2 items", "Then the cart holds 99 items")
     val suite = new CartSteps(features("add.feature" -> text)):
       override def ranOutside = Map("adding items" -> "only a real cloud account can answer")
     val run = this.run(classOf[CartSteps], () => suite)
@@ -215,7 +215,7 @@ class GherkinSuiteSuite extends munit.FunSuite:
   test("a scenario said to run outside that the feature does not hold fails the suite, naming it") {
     val suite = new CartSteps(features("add.feature" -> cart)):
       override def ranOutside = Map("removing items" -> "nowhere")
-    val run = this.run(classOf[CartSteps], () => suite)
+    val run   = this.run(classOf[CartSteps], () => suite)
     val stale = run.failed.collectFirst {
       case (name, message) if name.contains("says is run outside it") => message
     }

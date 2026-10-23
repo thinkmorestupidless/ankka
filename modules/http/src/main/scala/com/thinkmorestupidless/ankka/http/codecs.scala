@@ -16,7 +16,7 @@ trait FromPath[A]:
 object FromPath:
 
   private def simple[A](typeName: String, f: String => A): FromPath[A] = new FromPath[A]:
-    val name = typeName
+    val name                                  = typeName
     def parse(raw: String): Either[String, A] =
       try Right(f(raw))
       catch
@@ -38,7 +38,7 @@ object FromBody:
 
   /** Any type with a jsoniter codec in scope can be a request body. */
   given json[A](using codec: JsonValueCodec[A]): FromBody[A] = new FromBody[A]:
-    val contentType = "application/json"
+    val contentType                                 = "application/json"
     def read(bytes: Array[Byte]): Either[String, A] =
       try Right(readFromArray(bytes)(using codec))
       catch case failure: JsonReaderException => Left(s"malformed JSON body: ${failure.getMessage}")

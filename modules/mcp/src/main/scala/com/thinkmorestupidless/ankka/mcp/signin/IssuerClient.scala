@@ -41,7 +41,7 @@ final class IssuerClient(
   def endpoints(): Either[String, Endpoints] =
     discovered.get match
       case Some(found) => Right(found)
-      case None =>
+      case None        =>
         val url = s"${issuer.issuer.stripSuffix("/")}/.well-known/openid-configuration"
         get(url)
           .flatMap { body =>

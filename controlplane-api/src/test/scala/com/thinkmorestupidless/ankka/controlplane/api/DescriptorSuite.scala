@@ -301,7 +301,7 @@ class DescriptorSuite extends munit.FunSuite:
       com.thinkmorestupidless.ankka.core.PlatformVariables.HttpPort -
       com.thinkmorestupidless.ankka.core.PlatformVariables.GrpcPort
     for name <- platformOnly do
-      val literal = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems
+      val literal    = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems
       val fromSecret = ServiceSpec(
         "i:1",
         env = Vector(EnvVar(name, secretKeyRef = Some(SecretKeyRef("s", "k"))))
@@ -317,7 +317,7 @@ class DescriptorSuite extends munit.FunSuite:
   }
 
   test("ANKKA_SERVICE_NAME is refused by name: a deployed service's name comes from the platform") {
-    val literal = EnvVar("ANKKA_SERVICE_NAME", value = Some("orders"))
+    val literal    = EnvVar("ANKKA_SERVICE_NAME", value = Some("orders"))
     val fromSecret =
       EnvVar("ANKKA_SERVICE_NAME", secretKeyRef = Some(SecretKeyRef("s", "k")))
     for env <- Seq(literal, fromSecret) do

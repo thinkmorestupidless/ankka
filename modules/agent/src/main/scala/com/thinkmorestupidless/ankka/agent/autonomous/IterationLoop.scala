@@ -75,7 +75,7 @@ private[ankka] final class IterationLoop(
    */
   private def withState(turns: Vector[ChatMessage]): Vector[ChatMessage] =
     lastState match
-      case None => turns
+      case None               => turns
       case Some((ids, state)) =>
         val at = turns.lastIndexWhere {
           case ChatMessage.Assistant(_, calls, _) => calls.nonEmpty
@@ -106,7 +106,7 @@ private[ankka] final class IterationLoop(
   def resumePoint(working: Working): ResumePoint =
     val messages = session(working.taskId).call(SessionMemoryEntity.history).invoke().messages
     val tail     = messages.lastOption
-    def landed = tail.exists {
+    def landed   = tail.exists {
       case m: SessionMessage.AiMessage => m.timestamp >= working.iterationStartedAt
       case _                           => false
     }
@@ -210,12 +210,12 @@ private[ankka] final class IterationLoop(
         case _: java.util.concurrent.TimeoutException =>
           Left(s"${model.name} did not respond within $modelTimeout")
         case failure: InterruptedException => throw failure
-        case NonFatal(failure) =>
+        case NonFatal(failure)             =>
           Left(Option(failure.getMessage).getOrElse(failure.toString))
 
     response match
       case Left(error) => failed(taskRecord.id, n, error)
-      case Right(r) =>
+      case Right(r)    =>
         lastState = r.providerState.map(state => (r.toolCalls.map(_.id), state))
         val message = SessionMessage.AiMessage(
           math.max(now(), startedAt),
@@ -306,7 +306,7 @@ private[ankka] final class IterationLoop(
     try settleWith(taskId, calls, checks)
     catch
       case failure: Guardrails.GuardrailCheckFailed => failed(taskId, n, failure.getMessage)
-      case failure: JudgmentScriptFailed =>
+      case failure: JudgmentScriptFailed            =>
         IterationResult.Ended(TaskOutcome.Failed(failure.getMessage))
     finally recordJudgmentUsage(taskId, spent.usage)
 
@@ -317,7 +317,7 @@ private[ankka] final class IterationLoop(
   ): IterationResult =
     val (answered, _) = lastResponse(history(taskId))
     val open          = calls.filterNot(c => answered.contains(c.id))
-    val recorded = instance
+    val recorded      = instance
       .call(InstanceEntity.get)
       .invoke()
       .current
@@ -325,7 +325,7 @@ private[ankka] final class IterationLoop(
       .getOrElse(Map.empty)
 
     val asked = open.filter(c => needsApproval(c) && !recorded.contains(c.id)).map { call =>
-      val at = now()
+      val at      = now()
       val request = ApprovalRequest(
         id = Approvals.newId(),
         callId = call.id,
@@ -364,7 +364,7 @@ private[ankka] final class IterationLoop(
 
     val settled = open.flatMap { call =>
       requests.get(call.id) match
-        case None => Some(ToolRunner.run(tools, call, spans, checks) -> None)
+        case None          => Some(ToolRunner.run(tools, call, spans, checks) -> None)
         case Some(request) =>
           request.decision.map { decision =>
             val result =
@@ -413,7 +413,7 @@ private[ankka] final class IterationLoop(
       decisions: Map[String, Decision] = Map.empty
   ): Unit =
     if results.nonEmpty then
-      val at = now()
+      val at       = now()
       val messages = results.map(r =>
         SessionMessage.ToolResultMessage(
           at,
@@ -436,7 +436,7 @@ private[ankka] final class IterationLoop(
 
   private def systemMessage(taskType: TaskType[?], n: Int, budget: Int): String =
     val remaining = budget - n
-    val warning =
+    val warning   =
       if remaining <= 0 then " This is your last iteration: complete or fail the task now."
       else if n >= math.ceil(definition.settings.approachingBudgetAt * budget) then
         s" You have $remaining ${

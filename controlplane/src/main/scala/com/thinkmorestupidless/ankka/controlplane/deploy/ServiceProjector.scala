@@ -456,7 +456,7 @@ private[deploy] final class Projection(
    */
   def sweep(): Unit =
     reconcileSuspensions()
-    val desired = knownServices
+    val desired  = knownServices
     val existing =
       try client.list().map(r => ServiceKey(r.spec.projectId, r.spec.serviceName))
       catch
@@ -538,7 +538,7 @@ private[deploy] final class Projection(
         // restores and rehearsals are the entity's, which keeps a rehearsal the operator no longer
         // reports once its cluster is removed.
         val entity = componentClient.forEventSourcedEntity(EntityId(projectId))
-        val view = com.thinkmorestupidless.ankka.controlplane.BackupViews.project(
+        val view   = com.thinkmorestupidless.ankka.controlplane.BackupViews.project(
           projectId,
           status,
           backups,
@@ -594,8 +594,8 @@ private[deploy] final class Projection(
     try
       val organizations =
         viewClient.forView(OrganizationRows).ordered(SqlFragment.empty, order = jsonText("name"))
-      val disabled = organizations.filter(_.disabled).map(_.id).toSet
-      val enabled  = organizations.filterNot(_.disabled).map(_.id).toSet
+      val disabled                           = organizations.filter(_.disabled).map(_.id).toSet
+      val enabled                            = organizations.filterNot(_.disabled).map(_.id).toSet
       val attribution: Map[String, Metadata] =
         organizations.map { o =>
           o.id -> Attribution
@@ -694,8 +694,8 @@ private[deploy] object ProjectionSweeper:
           }
 
           def busy: Behavior[Command] = Behaviors.receiveMessage {
-            case Tick     => Behaviors.same
-            case Finished => idle
+            case Tick            => Behaviors.same
+            case Finished        => idle
             case Failed(failure) =>
               ctx.log.warn("projection sweep failed; retrying on the next tick", failure)
               idle

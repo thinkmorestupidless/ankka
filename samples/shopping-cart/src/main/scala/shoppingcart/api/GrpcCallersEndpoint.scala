@@ -58,7 +58,7 @@ final class GrpcCallersEndpoint(grpc: GrpcClients) extends HttpEndpoint("/caller
   // that service's own reflection ACL, reading this service from its certificate: the answer is the
   // service definitions it listed, or the status it refused with.
   get("/{service}/reflection") { (service: String) =>
-    val answer = Promise[ServerReflectionResponse]()
+    val answer   = Promise[ServerReflectionResponse]()
     val requests = ServerReflectionGrpc
       .newStub(grpc(service))
       .withDeadlineAfter(10, TimeUnit.SECONDS)

@@ -71,8 +71,8 @@ private[openai] object ResponsesShape:
       case ChatMessage.User(content) =>
         Vector(
           Json.obj(
-            "type" -> Json.str("message"),
-            "role" -> Json.str("user"),
+            "type"    -> Json.str("message"),
+            "role"    -> Json.str("user"),
             "content" -> Json.str(
               content.collect { case MessageContent.Text(t) => t }.mkString("\n")
             )
@@ -89,8 +89,8 @@ private[openai] object ResponsesShape:
           else
             Vector(
               Json.obj(
-                "type" -> Json.str("message"),
-                "role" -> Json.str("assistant"),
+                "type"    -> Json.str("message"),
+                "role"    -> Json.str("assistant"),
                 "content" -> Json.arr(
                   Json.obj("type" -> Json.str("output_text"), "text" -> Json.str(text))
                 )
@@ -119,7 +119,7 @@ private[openai] object ResponsesShape:
     if response("status").flatMap(_.asString).contains("failed") then
       throw ModelCallFailed(provider, failure(response))
     val output = response("output").flatMap(_.asArray).getOrElse(Vector.empty)
-    val parts = output
+    val parts  = output
       .filter(_("type").flatMap(_.asString).contains("message"))
       .flatMap(_("content").flatMap(_.asArray).getOrElse(Vector.empty))
     val text = parts
@@ -138,7 +138,7 @@ private[openai] object ResponsesShape:
       )
     }
     val reasoned = output.exists(_("type").flatMap(_.asString).contains("reasoning"))
-    val cutOff = response("incomplete_details")
+    val cutOff   = response("incomplete_details")
       .flatMap(_("reason"))
       .flatMap(_.asString)
       .contains("max_output_tokens")

@@ -39,7 +39,7 @@ trait MessagePublisher:
       metadata: Metadata
   ): Future[Done] =
     key match
-      case None => publish(topic, payload, metadata)
+      case None        => publish(topic, payload, metadata)
       case Some(named) =>
         Future.failed(
           UnsupportedOperationException(

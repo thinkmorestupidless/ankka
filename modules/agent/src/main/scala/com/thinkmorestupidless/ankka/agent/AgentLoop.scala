@@ -142,7 +142,7 @@ private[agent] final class AgentLoop(
 
     val result = for
       provider <- effect.failure.toLeft(()).flatMap(_ => chosenModel(effect))
-      state = memoryEntity.call(SessionMemoryEntity.history).invoke()
+      state   = memoryEntity.call(SessionMemoryEntity.history).invoke()
       history =
         if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
       progress <- settle(effect, turn, buildPrompt(effect, history, userText), checksFor(spent))
@@ -254,7 +254,7 @@ private[agent] final class AgentLoop(
       origin: TurnOrigin,
       provider: ModelProvider
   ): Either[CommandError, Unit] =
-    val now = System.currentTimeMillis()
+    val now  = System.currentTimeMillis()
     val user =
       if userText.isEmpty then Vector.empty
       else Vector(SessionMessage.UserMessage(now, userText, descriptor.role))
@@ -360,7 +360,7 @@ private[agent] final class AgentLoop(
       prompt: Vector[ChatMessage],
       checks: ResultChecks
   ): Either[CommandError, Progress] = guarded {
-    val tools = effect.functionTools.map(tool => tool.name -> tool).toMap
+    val tools   = effect.functionTools.map(tool => tool.name -> tool).toMap
     val decided = turn.requests.flatMap { request =>
       request.decision.map { decision =>
         val result =
@@ -375,7 +375,7 @@ private[agent] final class AgentLoop(
         result -> decision
       }
     }
-    val rest = turn.messages.filterNot(_.isInstanceOf[SessionMessage.UserMessage])
+    val rest             = turn.messages.filterNot(_.isInstanceOf[SessionMessage.UserMessage])
     val earlierDecisions = rest.collect {
       case m: SessionMessage.ToolResultMessage if m.decision.isDefined =>
         m.callId -> m.decision.get
@@ -387,7 +387,7 @@ private[agent] final class AgentLoop(
       results.sortBy(r => order.getOrElse(r.callId, Int.MaxValue))
 
     val newResults = decided.map(_._1)
-    val produced = replayed.lastOption match
+    val produced   = replayed.lastOption match
       case Some(ChatMessage.ToolResults(existing)) =>
         replayed.init :+ ChatMessage.ToolResults(ordered(existing ++ newResults))
       case _ =>
@@ -410,7 +410,7 @@ private[agent] final class AgentLoop(
     try Right(body)
     catch
       case failed: Guardrails.GuardrailCheckFailed => Left(failed.toCommandError)
-      case failure: JudgmentScriptFailed =>
+      case failure: JudgmentScriptFailed           =>
         Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   // ── The loop ──────────────────────────────────────────────────────────────
@@ -629,7 +629,7 @@ private[agent] final class AgentLoop(
           )
         )
       else
-        val now = System.currentTimeMillis()
+        val now      = System.currentTimeMillis()
         val requests = waiting.map { call =>
           ApprovalRequest(
             id = Approvals.newId(),
@@ -676,7 +676,7 @@ private[agent] final class AgentLoop(
         .toLeft(())
     catch
       case failed: Guardrails.GuardrailCheckFailed => Left(failed.toCommandError)
-      case failure: JudgmentScriptFailed =>
+      case failure: JudgmentScriptFailed           =>
         Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   // ── Memory ────────────────────────────────────────────────────────────────
@@ -741,7 +741,7 @@ private[agent] final class AgentLoop(
       endsTurn: Boolean,
       provider: ModelProvider
   ): Unit =
-    val now = System.currentTimeMillis()
+    val now  = System.currentTimeMillis()
     val user =
       if userText.isEmpty then Vector.empty
       else Vector(SessionMessage.UserMessage(now, userText, descriptor.role))

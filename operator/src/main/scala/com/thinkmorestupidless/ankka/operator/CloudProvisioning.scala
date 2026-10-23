@@ -64,7 +64,7 @@ object CloudProvisioning:
       bound: FiniteDuration
   ): CloudPlan =
     observed match
-      case None => CloudPlan.Waiting(None)
+      case None       => CloudPlan.Waiting(None)
       case Some(seen) =>
         seen.status.flatMap(_.observedGeneration) match
           case None =>

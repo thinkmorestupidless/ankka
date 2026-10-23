@@ -26,7 +26,7 @@ object BrokerFacts:
       else
         text.toIntOption.filter(_ >= 1) match
           case Some(n) => BrokerFacts(Some(n))
-          case None =>
+          case None    =>
             throw IllegalArgumentException(
               s"$NodesKey (ANKKA_BROKER_NODES) is '$text'; it must be a whole number of at least 1"
             )

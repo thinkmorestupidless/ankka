@@ -83,7 +83,7 @@ class TelemetryRenderingSuite extends munit.FunSuite:
   test("the headers are a reference to the service's own Secret, written before the Deployment") {
     for hosting <- Vector("embedded", "process", "wasm") do
       val actions = render(hosting, withHeaders)
-      val ref = named(containers(actions).head, PlatformVariables.OtlpHeaders)
+      val ref     = named(containers(actions).head, PlatformVariables.OtlpHeaders)
         .map(_.getValueFrom.getSecretKeyRef)
         .getOrElse(fail(s"$hosting: no headers"))
       assertEquals((ref.getName, ref.getKey), ("orders-telemetry", "headers"), hosting)

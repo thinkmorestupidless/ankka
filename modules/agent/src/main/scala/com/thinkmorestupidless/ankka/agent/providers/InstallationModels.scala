@@ -79,7 +79,7 @@ object InstallationModels:
   /** A provider for a resolved installation model, through `tls`. */
   def provider(config: ResolvedConfig, tls: RotatingTls): ModelProvider =
     val (context, clientTls) = clientContext(tls)
-    val inner = OpenAiProvider.at(
+    val inner                = OpenAiProvider.at(
       config.name,
       config.url,
       config.model,
@@ -100,7 +100,7 @@ object InstallationModels:
     def of(model: String): Future[Set[String]] =
       Option(known.get(model)) match
         case Some(capabilities) => Future.successful(capabilities)
-        case None =>
+        case None               =>
           val request = HttpRequest
             .newBuilder(URI.create(s"$server/api/show"))
             .timeout(Duration.ofSeconds(30))
@@ -149,7 +149,7 @@ object InstallationModels:
           known => lacking(model, known, request).foreach(why => throw ModelCallFailed(name, why)),
           {
             case failed: ModelCallFailed => failed
-            case other =>
+            case other                   =>
               ModelCallFailed(name, s"could not ask the model server about \"$model\": $other")
           }
         )

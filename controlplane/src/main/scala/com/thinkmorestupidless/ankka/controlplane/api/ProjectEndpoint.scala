@@ -123,8 +123,8 @@ final class ProjectEndpoint(
    * organizations yields an empty list rather than a refusal, for the reason a read of one does.
    */
   get("/") { () =>
-    val mine  = authz.visible(principal).map(_.id).toSet
-    val scope = authz.scopedTo(principal)
+    val mine      = authz.visible(principal).map(_.id).toSet
+    val scope     = authz.scopedTo(principal)
     val condition = request.query.optional[String]("organization") match
       case Some(organizationId) => jsonText("organizationId") ++ sql" = $organizationId"
       case None                 => SqlFragment.empty
@@ -215,7 +215,7 @@ final class ProjectEndpoint(
     try writer.writePullSecret(projectId, request.server, request.username, request.password)
     catch
       case error: CommandError => throw error
-      case NonFatal(error) =>
+      case NonFatal(error)     =>
         throw CommandError(
           s"could not write the registry credential: ${error.getMessage}",
           ErrorCode.Unavailable
@@ -249,7 +249,7 @@ final class ProjectEndpoint(
     try write(writer)
     catch
       case error: CommandError => throw error
-      case NonFatal(error) =>
+      case NonFatal(error)     =>
         throw CommandError(s"could not $what: ${error.getMessage}", ErrorCode.Unavailable)
 
   /**
@@ -314,7 +314,7 @@ final class ProjectEndpoint(
       val outside = TopicSettingsRules.bounded(name, asked, topicPolicy.bounds)
       if outside.nonEmpty then throw CommandError(outside.mkString("; "), ErrorCode.BadRequest)
       val current = entity(projectId).call(ProjectEntity.topics).invoke().get(name)
-      val filled = current match
+      val filled  = current match
         case None =>
           if request.partitions.isEmpty then
             throw CommandError(
@@ -508,7 +508,7 @@ final class ProjectEndpoint(
         )
       val lines = reportedOf(projectId).flatMap(_.backups).toVector.flatMap(_.lines)
       val named = request.line.getOrElse(com.thinkmorestupidless.ankka.crd.Recovery.ProjectDatabase)
-      val line = lines
+      val line  = lines
         .find(_.line == named)
         .getOrElse(
           throw CommandError(
@@ -520,7 +520,7 @@ final class ProjectEndpoint(
         text.flatMap(t => scala.util.Try(java.time.Instant.parse(t)).toOption)
       val earliest = instant(line.firstRestorable)
       val latest   = instant(line.lastRestorable)
-      val moment = request.moment
+      val moment   = request.moment
         .orElse(latest)
         .getOrElse(
           throw CommandError(s"$projectId cannot be restored to any moment yet", ErrorCode.Conflict)
@@ -600,7 +600,7 @@ final class ProjectEndpoint(
         ErrorCode.BadRequest
       )
     val lines = reportedOf(projectId).flatMap(_.backups).toVector.flatMap(_.lines)
-    val line = request.line match
+    val line  = request.line match
       case Some(named) =>
         lines
           .find(_.line == named)
@@ -614,7 +614,7 @@ final class ProjectEndpoint(
       case None =>
         lines match
           case Vector(only) => only
-          case Vector() =>
+          case Vector()     =>
             throw CommandError(s"$projectId has no backups to restore from yet", ErrorCode.Conflict)
           case many =>
             throw CommandError(
@@ -881,7 +881,7 @@ final class ProjectEndpoint(
     val access   = authz.projectGrants(principal, projectId)
     val problems = GrantRules.problems(request)
     if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
-    val grantee = Grantee.parse(request.grantee).toOption.get
+    val grantee             = Grantee.parse(request.grantee).toOption.get
     val granteeOrganization = grantee match
       case Grantee.Service(project, _) =>
         authz
@@ -897,7 +897,7 @@ final class ProjectEndpoint(
         organization
     val pending = granteeOrganization != access.organizationId
     val id      = ProjectEndpoint.grantId()
-    val grant = entity(projectId)
+    val grant   = entity(projectId)
       .call(ProjectEntity.makeGrant)
       .withMetadata(authz.metadata(access))
       .invoke(MakeGrant(id, grantee, request.target, pending))
@@ -966,7 +966,7 @@ final class ProjectEndpoint(
    */
   delete("/{projectId}/grants/{grantId}") { (projectId: String, grantId: String) =>
     val access = authz.projectGrants(principal, projectId)
-    val grant = entity(projectId)
+    val grant  = entity(projectId)
       .call(ProjectEntity.grants)
       .invoke()
       .find(_.id == grantId)
@@ -1065,7 +1065,7 @@ object ProjectEndpoint:
       defaultCopies: Int
   ): Vector[String] =
     val unstated = Option.when(settings.exists(_.copies.isEmpty))("copies are the broker's")
-    val below = held.collect {
+    val below    = held.collect {
       case n if n < defaultCopies => s"below the installation's default of $defaultCopies copies"
     }
     val single = held.collect { case 1 => "single copy" }

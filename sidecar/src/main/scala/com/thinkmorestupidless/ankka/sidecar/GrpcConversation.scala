@@ -527,7 +527,7 @@ final class GrpcConversation(
                 done = true
                 queue.fail(t)
             def onNext(frame: StreamFrame): Unit = frame.frame match
-              case StreamFrame.Frame.Text(text) => offer(StreamPart.Text(text))
+              case StreamFrame.Frame.Text(text)   => offer(StreamPart.Text(text))
               case StreamFrame.Frame.Event(event) =>
                 offer(StreamPart.Event(event.name, event.data))
               case StreamFrame.Frame.Completed(_) => finish()

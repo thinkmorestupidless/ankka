@@ -155,7 +155,7 @@ class StorageClientClusterFeatures
   private val Project     = "shop"
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -327,8 +327,8 @@ class StorageClientClusterFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -455,7 +455,7 @@ class StorageClientClusterFeatures
   private def contents(obj: String) = s"contents of $obj"
 
   private def keep(logical: String, obj: String, bucket: Option[String]): Unit =
-    val bucketField = bucket.fold("null")(b => s""""$b"""")
+    val bucketField  = bucket.fold("null")(b => s""""$b"""")
     val (code, body) = handler(
       real(logical),
       "POST",
@@ -1032,7 +1032,7 @@ class StorageClientClusterFeatures
 
   Then("the status says that the bucket {string} is kept and no longer named") { (name: String) =>
     val logical = "listings"
-    val b =
+    val b       =
       statusOf(real(logical)).flatMap(_.buckets.find(_.name == name)).getOrElse(fail(s"no $name"))
     assertEquals((b.phase, b.kept), ("Kept", true))
     val human = ok(ankka("services", "get", real(logical), "-p", Project)).out

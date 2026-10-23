@@ -19,7 +19,7 @@ final class ConsoleGrpcSuite extends FunSuite:
   private val invoked = AtomicInteger()
 
   private object Cart extends Source:
-    def services(): Vector[ServiceSummary] = Vector.empty
+    def services(): Vector[ServiceSummary]    = Vector.empty
     def service(name: String): Option[String] =
       Option.when(name == "cart")(
         """{"name":"cart","instances":[],"components":[],"routes":[""" +
@@ -29,10 +29,10 @@ final class ConsoleGrpcSuite extends FunSuite:
           """{"method":"MCP","path":"/mcp get_cart","streaming":false},""" +
           """{"method":"MCP","path":"/mcp add_item","streaming":false}]}"""
       )
-    def traces(name: String): Option[String]              = None
-    def topology(name: String): Option[QueryResponse]     = None
-    def trace(name: String, id: String): Option[String]   = None
-    def session(name: String, id: String): Option[String] = None
+    def traces(name: String): Option[String]                           = None
+    def topology(name: String): Option[QueryResponse]                  = None
+    def trace(name: String, id: String): Option[String]                = None
+    def session(name: String, id: String): Option[String]              = None
     def invoke(name: String, r: InvokeRequest): Option[InvokeResponse] =
       invoked.incrementAndGet()
       Some(InvokeResponse(200, Vector.empty, "{}"))

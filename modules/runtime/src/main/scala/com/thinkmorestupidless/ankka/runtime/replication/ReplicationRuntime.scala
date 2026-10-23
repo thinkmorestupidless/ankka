@@ -42,7 +42,7 @@ final class ReplicationRuntime private[ankka] (val replication: Replication)
 
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
-    val askTimeout = FiniteDuration(
+    val askTimeout               = FiniteDuration(
       system.settings.config.getDuration("ankka.ask-timeout").toMillis,
       java.util.concurrent.TimeUnit.MILLISECONDS
     )
@@ -137,7 +137,7 @@ object ReplicationRuntime:
     if !settings.enabled then None
     else
       val replicated = components.filter(_.replicated).map(_.componentId).toSet
-      val provided = java.util.ServiceLoader
+      val provided   = java.util.ServiceLoader
         .load(classOf[ReplicationTransportProvider])
         .iterator()
         .asScala

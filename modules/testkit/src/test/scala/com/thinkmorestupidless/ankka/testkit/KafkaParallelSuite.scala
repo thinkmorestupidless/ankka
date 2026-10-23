@@ -76,7 +76,7 @@ class KafkaParallelSuite extends munit.FunSuite with LogCapturing:
       poison: Option[String] = None,
       gate: Option[CountDownLatch] = None
   ) =
-    val handled = ConcurrentLinkedQueue[(String, Long)]()
+    val handled   = ConcurrentLinkedQueue[(String, Long)]()
     val companion = new Consumer.Companion[Recording, StockEvent, Nothing](
       ComponentId("recorder"),
       ChangeSource.fromTopic(
@@ -170,7 +170,7 @@ class KafkaParallelSuite extends munit.FunSuite with LogCapturing:
     val kit = start(companion.descriptor)
     try
       // The handler blocks on the 41st message, so 40 are committed and 60 are held.
-      val _ = eventually("forty are handled")(Option.when(handled.size == 40)(()))
+      val _   = eventually("forty are handled")(Option.when(handled.size == 40)(()))
       val lag = eventually("the lag is polled", within = 90.seconds) {
         TopicSources(kit.service.system).all
           .find(_.componentId == "recorder")

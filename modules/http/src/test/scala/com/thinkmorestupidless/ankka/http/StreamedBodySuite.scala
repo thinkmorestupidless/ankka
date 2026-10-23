@@ -31,8 +31,8 @@ class StreamedBodySuite extends munit.FunSuite:
    * A stream of `size` bytes made as they are read, counting what was read and whether it closed.
    */
   private final class Generated(size: Long) extends InputStream:
-    val consumed = AtomicLong()
-    val closed   = AtomicBoolean(false)
+    val consumed    = AtomicLong()
+    val closed      = AtomicBoolean(false)
     def read(): Int =
       if consumed.get >= size then -1
       else
@@ -107,7 +107,7 @@ class StreamedBodySuite extends munit.FunSuite:
     }
 
   private val storageRoot = java.nio.file.Files.createTempDirectory("ankka-streamed-body")
-  private val storage = com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+  private val storage     = com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
     .open(storageRoot, None, () => "http://127.0.0.1")
     .fold(problem => throw IllegalStateException(problem), identity)
 
@@ -142,7 +142,7 @@ class StreamedBodySuite extends munit.FunSuite:
     URI.create(s"http://127.0.0.1:${on.boundPort.get}$path")
 
   private def put(on: HttpServer, size: Long): (HttpResponse[String], Generated) =
-    val body = Generated(size)
+    val body      = Generated(size)
     val publisher = HttpRequest.BodyPublishers.fromPublisher(
       HttpRequest.BodyPublishers.ofInputStream(() => body),
       size

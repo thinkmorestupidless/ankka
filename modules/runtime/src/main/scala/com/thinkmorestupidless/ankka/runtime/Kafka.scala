@@ -111,11 +111,11 @@ enum KafkaCredential:
 
   def properties: Map[String, String] = this match
     case Certificate(directory) => KafkaTls.clientProperties(directory)
-    case Sasl(directory) =>
+    case Sasl(directory)        =>
       val dir                = java.nio.file.Paths.get(directory)
       def read(name: String) = java.nio.file.Files.readString(dir.resolve(name)).trim
       val mechanism          = scala.util.Try(read("mechanism")).getOrElse("SCRAM-SHA-512")
-      val module =
+      val module             =
         if mechanism == "PLAIN" then "org.apache.kafka.common.security.plain.PlainLoginModule"
         else "org.apache.kafka.common.security.scram.ScramLoginModule"
       def quoted(text: String) =
@@ -123,7 +123,7 @@ enum KafkaCredential:
       Map(
         "security.protocol" -> "SASL_SSL",
         "sasl.mechanism"    -> mechanism,
-        "sasl.jaas.config" ->
+        "sasl.jaas.config"  ->
           s"$module required username=${quoted(read("username"))} password=${quoted(read("password"))};",
         "ssl.truststore.type"         -> "PEM",
         "ssl.truststore.certificates" -> read("ca.crt")
@@ -304,7 +304,7 @@ final class KafkaPublisher private (
 
     // A topic nobody declared is not made by publishing to it: the send fails, the delivery is
     // retried with the backoff the projection has, and the log says which topic it was waiting for.
-    val sent = Promise[Done]()
+    val sent                             = Promise[Done]()
     def failed(failure: Throwable): Unit =
       system.log.warn(
         "could not publish to topic '{}' ({} on the broker): {}",
@@ -385,7 +385,7 @@ final class KafkaSubscriber private (
       handle: IncomingMessage => Future[Done]
   ): Subscribed =
     val qualified = connection.qualified(subscription.topic)
-    val settings = ConsumerSettings(system, StringDeserializer(), ByteArrayDeserializer())
+    val settings  = ConsumerSettings(system, StringDeserializer(), ByteArrayDeserializer())
       .withBootstrapServers(connection.bootstrapServers)
       .withProperties(connection.properties)
       .withGroupId(subscription.group)
@@ -405,7 +405,7 @@ final class KafkaSubscriber private (
     // Restarting on failure is what makes this at-least-once: the stream resumes from
     // the last committed offset, so the failed message is delivered again.
     def handled(committable: CommittableMessage[String, Array[Byte]]) =
-      val record = committable.record
+      val record  = committable.record
       val headers = record
         .headers()
         .asScala
@@ -546,7 +546,7 @@ final class KafkaSubscriber private (
             .asScala
             .toVector
             .map(info => TopicPartition(topic, info.partition))
-          val ends = consumer.endOffsets(partitions.asJava).asScala
+          val ends     = consumer.endOffsets(partitions.asJava).asScala
           val atMoment = consumer
             .offsetsForTimes(
               partitions.map(p => p -> java.lang.Long.valueOf(at.toEpochMilli)).toMap.asJava
@@ -555,7 +555,7 @@ final class KafkaSubscriber private (
           def offsetAt(p: TopicPartition) =
             Option(atMoment.getOrElse(p, null)).map(_.offset).getOrElse(ends(p).longValue)
           val after = partitions.map(p => (ends(p).longValue - offsetAt(p)).max(0L)).sum
-          val read = group.map { _ =>
+          val read  = group.map { _ =>
             val committed = consumer.committed(partitions.toSet.asJava).asScala
             partitions.map { p =>
               Option(committed.getOrElse(p, null))
@@ -669,7 +669,7 @@ object KafkaSubscriber:
         case StartFrom.Earliest => longs(consumer.beginningOffsets(partitions.asJava))
         case StartFrom.Latest   => longs(consumer.endOffsets(partitions.asJava))
         case StartFrom.At(time) =>
-          val ends = longs(consumer.endOffsets(partitions.asJava))
+          val ends  = longs(consumer.endOffsets(partitions.asJava))
           val found = consumer.offsetsForTimes(
             partitions.map(p => p -> java.lang.Long.valueOf(time.toEpochMilli)).toMap.asJava
           )

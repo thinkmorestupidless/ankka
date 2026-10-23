@@ -44,8 +44,8 @@ object ControlPlaneLine:
       .getOrElse(Vector.empty)
       .flatMap(map)
       .find(c => string(c, "type").contains("ContinuousArchiving"))
-    val last    = window.flatMap(string(_, "lastSuccessfulBackupTime"))
-    val failing = archiving.filter(c => string(c, "status").contains("False"))
+    val last            = window.flatMap(string(_, "lastSuccessfulBackupTime"))
+    val failing         = archiving.filter(c => string(c, "status").contains("False"))
     val (phase, reason) =
       if failing.isDefined then
         "Failing" -> failing

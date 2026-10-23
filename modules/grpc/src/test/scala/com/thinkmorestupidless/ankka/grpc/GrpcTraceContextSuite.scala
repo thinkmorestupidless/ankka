@@ -77,7 +77,7 @@ class GrpcTraceContextSuite extends munit.FunSuite:
 
   private def carrying(value: Option[String]): Channel =
     value match
-      case None => channel
+      case None    => channel
       case Some(v) =>
         val headers = Metadata()
         headers.put(Metadata.Key.of(Traceparent.Name, Metadata.ASCII_STRING_MARSHALLER), v)
@@ -126,7 +126,7 @@ class GrpcTraceContextSuite extends munit.FunSuite:
       method: io.grpc.MethodDescriptor[Req, Res],
       requests: Vector[Req]
   ): Unit =
-    val done = CountDownLatch(1)
+    val done      = CountDownLatch(1)
     val responses = new StreamObserver[Res]:
       def onNext(value: Res): Unit    = ()
       def onError(t: Throwable): Unit = done.countDown()

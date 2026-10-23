@@ -11,7 +11,7 @@ import java.time.{DayOfWeek, LocalTime, ZoneId}
  */
 class BlueprintCheckSuite extends munit.FunSuite:
 
-  private val search = FunctionTool.named("search").describedAs("Searches.").handle(() => "[]")
+  private val search   = FunctionTool.named("search").describedAs("Searches.").handle(() => "[]")
   private val registry = BlueprintRegistry.empty
     .tools(search)
     .questions(

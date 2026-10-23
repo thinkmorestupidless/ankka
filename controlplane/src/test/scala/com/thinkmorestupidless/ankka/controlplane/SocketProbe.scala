@@ -25,8 +25,8 @@ object SocketProbe:
   def main(args: Array[String]): Unit =
     val Array(url, ca, protocols) = args.padTo(3, "")
     val out                       = PrintStream(System.out, true, StandardCharsets.UTF_8)
-    val client = HttpClient.newBuilder().sslContext(trusting(Paths.get(ca))).build()
-    val buffer = StringBuilder()
+    val client   = HttpClient.newBuilder().sslContext(trusting(Paths.get(ca))).build()
+    val buffer   = StringBuilder()
     val listener = new WebSocket.Listener:
       override def onOpen(ws: WebSocket): Unit = ws.request(Long.MaxValue)
       override def onText(ws: WebSocket, data: CharSequence, last: Boolean): CompletionStage[?] =
@@ -103,7 +103,7 @@ object SocketProbe:
   def start(hostname: String, url: String, ca: Path, protocols: Seq[String] = Nil): Running =
     val hosts = Files.createTempFile("ankka-socket-hosts", ".txt")
     Files.writeString(hosts, s"127.0.0.1 $hostname\n")
-    val java = Paths.get(sys.props("java.home"), "bin", "java").toString
+    val java    = Paths.get(sys.props("java.home"), "bin", "java").toString
     val command = Vector(
       java,
       s"-Djdk.net.hosts.file=$hosts",

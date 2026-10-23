@@ -47,7 +47,7 @@ private[sidecar] object Translate:
     case ErrorCode.NotHome        => pb.ErrorCode.NOT_HOME
   def toPayload(p: Payload): pb.Payload =
     pb.Payload(p.contentType, p.manifest, ByteString.copyFrom(p.data))
-  def fromPayload(p: pb.Payload): Payload = Payload(p.contentType, p.manifest, p.data.toByteArray)
+  def fromPayload(p: pb.Payload): Payload  = Payload(p.contentType, p.manifest, p.data.toByteArray)
   def toMetadata(m: Metadata): pb.Metadata =
     pb.Metadata(m.toSeq.map((k, v) => pb.Metadata.Entry(k, v)))
   def fromMetadata(m: Option[pb.Metadata]): Metadata =
@@ -89,7 +89,7 @@ private[sidecar] object Translate:
     StepOutcome.TransitionTo(StepRef(s.step, s.input.map(_.toByteArray)))
   def fromStepOutcome(o: Option[PbStepOutcome]): StepOutcome = o.map(_.outcome) match
     case Some(PbStepOutcome.Outcome.TransitionTo(s)) => fromStepRef(s)
-    case Some(PbStepOutcome.Outcome.Pause(p)) =>
+    case Some(PbStepOutcome.Outcome.Pause(p))        =>
       StepOutcome.Pause(
         p.afterMillis.map(_.millis),
         p.onTimeout.map(s => StepRef(s.step, s.input.map(_.toByteArray)))
@@ -115,7 +115,7 @@ private[sidecar] object Translate:
     import com.thinkmorestupidless.ankka.core.effect.ReplicationChange as Change
     change.change match
       case PbReplicationChange.Change.HandOverTo(target) => Some(Change.HandOver(target))
-      case PbReplicationChange.Change.Set(set) =>
+      case PbReplicationChange.Change.Set(set)           =>
         Some(Change.SetChange(set.add.toSet, set.remove.toSet))
       case PbReplicationChange.Change.Empty => None
 
@@ -194,7 +194,7 @@ private[sidecar] object Translate:
       case Reply.Ok(answer)     => Right(Right(RemoteMcpAnswer(answer.text, answer.structuredJson)))
       case Reply.Error(message) => Right(Left(message))
       case Reply.Failure(f)     => Left(fromFailure(f))
-      case Reply.Empty =>
+      case Reply.Empty          =>
         Left(
           ProcessFailure(
             0L,
@@ -206,7 +206,7 @@ private[sidecar] object Translate:
     import ankka.protocol.v1.endpoint.{Caller as PbCaller, MachineCaller, ServiceCaller}
     import ankka.protocol.v1.payload.Empty
     c match
-      case RemoteCaller.Gateway => PbCaller(PbCaller.Kind.Gateway(Empty()))
+      case RemoteCaller.Gateway          => PbCaller(PbCaller.Kind.Gateway(Empty()))
       case RemoteCaller.Service(p, name) =>
         PbCaller(PbCaller.Kind.Service(ServiceCaller(p, name)))
       case RemoteCaller.Machine(organization, name) =>
@@ -247,7 +247,7 @@ private[sidecar] object Translate:
     case ViewEffect.Effect.UpdateRow(row) => ViewOutcome.UpdateRow(fromPayload(row))
     case ViewEffect.Effect.DeleteRow(_)   => ViewOutcome.DeleteRow
     case ViewEffect.Effect.Ignore(_)      => ViewOutcome.Ignore
-    case ViewEffect.Effect.Rows(rows) =>
+    case ViewEffect.Effect.Rows(rows)     =>
       ViewOutcome.Rows(rows.changes.toVector.map { change =>
         change.key -> (change.change match
           case RowChange.Change.Upsert(row) => Some(fromPayload(row))
@@ -305,7 +305,7 @@ private[sidecar] object Translate:
   def fromPlanReply(reply: PlanReply): Either[ProcessFailure, RemotePlan] = reply.message match
     case PlanReply.Message.Plan(p)    => Right(fromPlan(p))
     case PlanReply.Message.Failure(f) => Left(fromFailure(f))
-    case PlanReply.Message.Empty =>
+    case PlanReply.Message.Empty      =>
       Left(ProcessFailure(0L, CommandError("the process answered no plan", ErrorCode.Internal)))
 
   def fromPlan(p: AgentPlan): RemotePlan =
@@ -371,7 +371,7 @@ private[sidecar] object Translate:
         )
       )
     case HttpReply.Message.Failure(f) => Left(fromFailure(f))
-    case HttpReply.Message.Empty =>
+    case HttpReply.Message.Empty      =>
       Left(
         ProcessFailure(0L, CommandError("empty HTTP reply from the process", ErrorCode.Internal))
       )

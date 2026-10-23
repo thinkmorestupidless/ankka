@@ -102,7 +102,7 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
   test(
     "with no mounts, no callers, no base domain and the default process port, the proxy reads none of each"
   ) {
-    val bare = web.copy(mounts = Nil, callers = Nil, processPort = None)
+    val bare   = web.copy(mounts = Nil, callers = Nil, processPort = None)
     val parsed =
       ProxySettings.fromEnvironment(proxyEnvironment(bare, settings.copy(baseDomain = None))) match
         case Right(s)       => s
@@ -155,7 +155,7 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
     "every Secret the platform issues for a provisioned service is one a descriptor may not read"
   ) {
     val embedded = web.copy(hosting = "embedded", mounts = Nil, callers = Nil, processPort = None)
-    val names = issuedSecrets(actions(embedded, ProvisioningPlan.Ready(recovered = false))) ++
+    val names    = issuedSecrets(actions(embedded, ProvisioningPlan.Ready(recovered = false))) ++
       Set(
         CnpgRendering.projectClusterName + "-ca",
         CnpgRendering.clientCaName,

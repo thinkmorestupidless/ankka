@@ -37,7 +37,7 @@ final class DerivedIdsSuite extends munit.FunSuite:
 
   test("two entries of a project's secrets never share an id, across secrets") {
     val random = Random(44)
-    val pairs = Vector
+    val pairs  = Vector
       .fill(20000)((word(random, secretAlphabet, 6), word(random, entryAlphabet, 6)))
       .distinct
     val ids = pairs.map((secret, entry) => DerivedIds.projectEntry("shop", secret, entry))
@@ -117,7 +117,7 @@ final class DerivedIdsSuite extends munit.FunSuite:
 
   test("the annotations carry the names, under keys Secret Manager accepts") {
     val KeyShape = "[A-Za-z0-9]([A-Za-z0-9._-]{0,61}[A-Za-z0-9])?".r
-    val keys = DerivedIds.serviceAnnotations("p", "s", "n").keys ++
+    val keys     = DerivedIds.serviceAnnotations("p", "s", "n").keys ++
       DerivedIds.entryAnnotations("p", "c", "e").keys
     keys.foreach(k => assert(KeyShape.matches(k), k))
     assertEquals(DerivedIds.serviceAnnotations("p", "s", "a/b")(DerivedIds.NameAnnotation), "a/b")

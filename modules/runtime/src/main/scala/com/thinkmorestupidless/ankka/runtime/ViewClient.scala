@@ -32,7 +32,7 @@ final class ViewClient private[ankka] (
 
   // The instance's watches, made on the first watch: a service that never watches opens no
   // connection for them.
-  @volatile private var watching = false
+  @volatile private var watching        = false
   private lazy val watches: ViewWatches =
     watching = true
     ViewWatches(database, askTimeout)
@@ -254,7 +254,7 @@ final class ViewQueries[Row] private[ankka] (
   ): Source[Row, NotUsed] =
     checkedAsk(name, values, limit.getOrElse(1)) match
       case Left(refused) => Source.failed(refused)
-      case Right(query) =>
+      case Right(query)  =>
         val rows = streamed(name)(
           database
             .stream(statementTimeout, fetchSize)(query.sql, query.values.map(values)) {
@@ -302,7 +302,7 @@ final class ViewQueries[Row] private[ankka] (
       watching: Watching
   ): Source[WatchEvent[Row], NotUsed] =
     checkedAsk(name, values, 1) match
-      case Left(refused) => Source.failed(refused)
+      case Left(refused)                    => Source.failed(refused)
       case Right(query) if !query.watchable =>
         Source.failed(
           CommandError(
@@ -448,7 +448,7 @@ final class ViewQueries[Row] private[ankka] (
   ): Future[Vector[Row]] =
     checkedAsk(name, values, limit) match
       case Left(refused) => Future.failed(refused)
-      case Right(query) =>
+      case Right(query)  =>
         val timeout = statementTimeout
         counted(name)(
           database

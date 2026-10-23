@@ -87,7 +87,7 @@ final class ScriptedCloudProvider(client: KubernetesClient, val fulfilment: Scri
    * answered, it is.
    */
   private def answer(seen: CloudResource): Unit =
-    val meta = seen.getMetadata
+    val meta    = seen.getMetadata
     val current = Option(
       client
         .resources(classOf[CloudResource])

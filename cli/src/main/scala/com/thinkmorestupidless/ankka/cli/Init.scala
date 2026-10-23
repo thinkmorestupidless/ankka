@@ -72,8 +72,8 @@ object Init:
 
   /** Everything that can be wrong before a process is started; empty means go. */
   def problems(request: Request): Vector[String] =
-    val name   = ServiceDescriptor.nameProblems(request.name)
-    val target = request.directory.resolve(request.name)
+    val name     = ServiceDescriptor.nameProblems(request.name)
+    val target   = request.directory.resolve(request.name)
     val occupied =
       if Files.isDirectory(target) && Files.list(target).iterator().asScala.nonEmpty then
         Vector(s"$target already exists and is not empty")

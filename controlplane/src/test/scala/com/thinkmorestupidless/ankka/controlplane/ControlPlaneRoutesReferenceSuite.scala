@@ -94,7 +94,7 @@ class ControlPlaneRoutesReferenceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("every route has a hand-written section on the page") {
-    val page = Files.readString(repoRoot.resolve(PagePath))
+    val page  = Files.readString(repoRoot.resolve(PagePath))
     val prose =
       page.substring(page.indexOf(s"<!-- generated:end $Name -->"))
     val undocumented = routes.collect {

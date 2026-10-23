@@ -44,7 +44,7 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
   }
 
   test("a query the test has not answered fails, naming it") {
-    val kit = KeyedViewTestKit(Shipments)
+    val kit    = KeyedViewTestKit(Shipments)
     val thrown = intercept[IllegalStateException](
       kit.change(Shipments.customers, "c1", script(Scripts.Op.TouchHolding("c1")))
     )

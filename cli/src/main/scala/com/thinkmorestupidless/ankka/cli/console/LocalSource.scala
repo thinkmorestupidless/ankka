@@ -79,7 +79,7 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
       builder.method(request.method, publisher): Unit
 
       val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-      val headers = response
+      val headers  = response
         .headers()
         .map()
         .asScala
@@ -105,7 +105,7 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
       yield address
 
     target match
-      case None => false
+      case None          => false
       case Some(address) =>
         try
           val builder = HttpRequest

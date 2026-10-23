@@ -148,10 +148,10 @@ private[ankka] object QueryCheck:
     else if query.statement.trim.isEmpty then refused("which holds no statement")
     else
       Values.scan(query.statement) match
-        case Left(why) => refused(why)
+        case Left(why)            => refused(why)
         case Right((sql, values)) =>
           parse(query.statement) match
-            case Left(why) => refused(why)
+            case Left(why)        => refused(why)
             case Right(statement) =>
               val found = Found()
               statement.accept(found: StatementVisitor[Void], null): Unit
@@ -264,13 +264,13 @@ private[ankka] object QueryCheck:
         if limited then Some("which has a limit; a watched query decides each row alone")
         else
           top match
-            case plain: PlainSelect => plainProblem(plain)
+            case plain: PlainSelect      => plainProblem(plain)
             case union: SetOperationList =>
               union.getSelects.asScala.toVector.iterator
                 .map(outermost)
                 .map {
                   case plain: PlainSelect => plainProblem(plain)
-                  case _ =>
+                  case _                  =>
                     Some("whose outermost select cannot be read; a watched query is a select")
                 }
                 .collectFirst { case Some(why) => why }
@@ -445,7 +445,7 @@ private[runtime] object Values:
       else if c == ':' && identStart(next) then
         var j = i + 1
         while j < n && ident(text(j)) do j += 1
-        val name = text.substring(i + 1, j)
+        val name  = text.substring(i + 1, j)
         val index = names.indexOf(name) match
           case -1 =>
             names += name
@@ -457,6 +457,6 @@ private[runtime] object Values:
 
     bad match
       case Some(why) => Left(why)
-      case None =>
+      case None      =>
         val sql = out.toString.reverse.dropWhile(ch => ch.isWhitespace || ch == ';').reverse
         Right((sql, names.toVector))

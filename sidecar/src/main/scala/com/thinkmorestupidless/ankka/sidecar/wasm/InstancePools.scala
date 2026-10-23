@@ -36,7 +36,7 @@ private object Deadline:
         )
         Left(fault)
       case e: InterruptedException => throw e
-      case NonFatal(e) =>
+      case NonFatal(e)             =>
         val fault = GuestFault(what, Option(e.getMessage).getOrElse(e.toString))
         instance.markBroken(fault)
         Left(fault)
@@ -61,7 +61,7 @@ final class CommandPool(size: Int, build: () => GuestInstance, timeout: FiniteDu
   /** Any free instance; if none is free, waits for one in turn. */
   def withAny[A](what: String)(f: GuestInstance => Either[GuestFault, A]): Either[GuestFault, A] =
     val start = Math.floorMod(next.getAndIncrement(), size)
-    val free = (0 until size).iterator
+    val free  = (0 until size).iterator
       .map(i => slots((start + i) % size))
       .find(_.lock.tryLock())
     val slot = free.getOrElse {

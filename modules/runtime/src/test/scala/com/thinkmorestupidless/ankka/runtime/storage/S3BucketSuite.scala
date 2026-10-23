@@ -82,7 +82,7 @@ class S3BucketSuite extends BucketContract:
   test("S1: a put whose payload is not hashed, of a declared length, is kept whole") {
     val body   = Array.tabulate[Byte](3 * 1024 * 1024)(i => (i % 251).toByte)
     val stream = HttpRequest.BodyPublishers.ofInputStream(() => new ByteArrayInputStream(body))
-    val put = http.send(
+    val put    = http.send(
       signed(
         "PUT",
         s"/$bucket/spike/large.bin",
@@ -158,11 +158,11 @@ class S3BucketSuite extends BucketContract:
       http
         .send(signed("GET", s"/$bucket", query).GET().build(), HttpResponse.BodyHandlers.ofString())
         .body
-    val keys = "<Key>([^<]+)</Key>".r
-    val next = "<NextContinuationToken>([^<]+)</NextContinuationToken>".r
+    val keys  = "<Key>([^<]+)</Key>".r
+    val next  = "<NextContinuationToken>([^<]+)</NextContinuationToken>".r
     val names = Iterator
       .unfold[Vector[String], Option[Option[String]]](Some(None)) {
-        case None => None
+        case None        => None
         case Some(token) =>
           val body = page(token)
           Some(
@@ -238,7 +238,7 @@ class S3BucketSuite extends BucketContract:
     val length = 20L * 1024 * 1024
     var reads  = 0L
     val source = new InputStream:
-      private var at = 0L
+      private var at  = 0L
       def read(): Int =
         if at >= length then -1
         else
@@ -256,7 +256,7 @@ class S3BucketSuite extends BucketContract:
     assertEquals(reads, length)
     assertEquals(s3Bucket().stat("large/twenty.bin").map(_.length), Some(length))
     val back = s3Bucket().get("large/twenty.bin").getOrElse(fail("nothing kept"))
-    val sum = scala.util.Using.resource(back)(o =>
+    val sum  = scala.util.Using.resource(back)(o =>
       Iterator.continually(o.body.read()).takeWhile(_ >= 0).foldLeft(0L)((n, _) => n + 1)
     )
     assertEquals(sum, length)
@@ -273,15 +273,15 @@ class S3BucketSuite extends BucketContract:
   }
 
   test("a key the store does not know is refused as unavailable, naming the store") {
-    val wrong = s3Bucket(key = SigV4.Credentials("GKnobody", "wrong"))
+    val wrong   = s3Bucket(key = SigV4.Credentials("GKnobody", "wrong"))
     val message =
       refusal(ErrorCode.Unavailable)(wrong.putBytes("a.txt", Array[Byte](1), "text/plain"))
     assert(message.contains(garage.s3.toString) && message.contains("refused"), message)
   }
 
   test("a store that cannot be reached is refused as unavailable, saying so") {
-    val closed = { val s = new java.net.ServerSocket(0); val p = s.getLocalPort; s.close(); p }
-    val gone   = s3Bucket(endpoint = URI.create(s"http://127.0.0.1:$closed"), timeout = 2.seconds)
+    val closed  = { val s = new java.net.ServerSocket(0); val p = s.getLocalPort; s.close(); p }
+    val gone    = s3Bucket(endpoint = URI.create(s"http://127.0.0.1:$closed"), timeout = 2.seconds)
     val message =
       refusal(ErrorCode.Unavailable)(gone.putBytes("a.txt", Array[Byte](1), "text/plain"))
     assert(message.contains("cannot be reached"), message)
@@ -306,12 +306,12 @@ class S3BucketSuite extends BucketContract:
     val b = s3Bucket()
     b.putBytes("exports/march.pdf", "march".getBytes(UTF_8), "application/pdf")
     val read = b.signedUrl("exports/march.pdf", SignedAccess.Read, 1.minute)
-    val got =
+    val got  =
       http.send(HttpRequest.newBuilder(read).GET().build(), HttpResponse.BodyHandlers.ofString())
     assertEquals(got.statusCode, 200, got.body)
     assertEquals(got.body, "march")
     val keep = b.signedUrl("uploads/passport.pdf", SignedAccess.Keep, 1.minute)
-    val put = http.send(
+    val put  = http.send(
       HttpRequest
         .newBuilder(keep)
         .header("Content-Type", "application/pdf")
@@ -330,7 +330,7 @@ class S3BucketSuite extends BucketContract:
     val b = s3Bucket()
     b.putBytes("exports/april.pdf", "april".getBytes(UTF_8), "application/pdf")
     val read = b.signedUrl("exports/april.pdf", SignedAccess.Read, 1.minute)
-    val put = http.send(
+    val put  = http.send(
       HttpRequest.newBuilder(read).PUT(HttpRequest.BodyPublishers.ofString("x")).build(),
       HttpResponse.BodyHandlers.ofString()
     )
@@ -444,8 +444,8 @@ class S3BucketSuite extends BucketContract:
 
 /** An `HttpClient` that counts the listings it sends, and sends everything through `underlying`. */
 final class CountingClient(underlying: HttpClient) extends HttpClient:
-  val listings = new java.util.concurrent.atomic.AtomicInteger()
-  val requests = new java.util.concurrent.atomic.AtomicInteger()
+  val listings                              = new java.util.concurrent.atomic.AtomicInteger()
+  val requests                              = new java.util.concurrent.atomic.AtomicInteger()
   private def counted(r: HttpRequest): Unit =
     requests.incrementAndGet(): Unit
     if Option(r.uri.getRawQuery).exists(_.contains("list-type=2")) then

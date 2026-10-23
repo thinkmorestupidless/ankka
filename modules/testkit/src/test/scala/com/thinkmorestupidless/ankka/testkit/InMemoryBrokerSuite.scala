@@ -20,11 +20,11 @@ import scala.jdk.CollectionConverters.*
 /** The in-memory broker keeps the subscriber contract, and what only it can be asked to do. */
 class InMemoryBrokerSuite extends munit.FunSuite with SubscriberContract:
 
-  private val broker                              = InMemoryBroker()
-  protected def publisher: MessagePublisher       = broker
-  protected def subscriber: MessageSubscriber     = broker
-  override protected def patience: FiniteDuration = 10.seconds
-  private var topics                              = 0
+  private val broker                               = InMemoryBroker()
+  protected def publisher: MessagePublisher        = broker
+  protected def subscriber: MessageSubscriber      = broker
+  override protected def patience: FiniteDuration  = 10.seconds
+  private var topics                               = 0
   protected def freshTopic(prefix: String): String =
     topics += 1
     s"$prefix-$topics"

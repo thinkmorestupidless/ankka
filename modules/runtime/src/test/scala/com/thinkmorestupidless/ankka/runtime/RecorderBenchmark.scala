@@ -80,7 +80,7 @@ final class RecorderBenchmark extends FunSuite:
       recorder.complete(span, SpanOutcome.Ok)
     }
 
-    val payload = Payload("cart-1", 2, "Widget")
+    val payload        = Payload("cart-1", 2, "Widget")
     val serializerOnly = nanosPerOp(Warmup / 5, Iterations / 10) { _ =>
       val bytes = writeToArray(payload)
       val _     = readFromArray[Payload](bytes)
@@ -139,8 +139,8 @@ final class RecorderBenchmark extends FunSuite:
       CallCounts(600_000L, 60, System.currentTimeMillis())
     )
     val component = new ComponentDescriptor:
-      val componentId: ComponentId = ComponentId("shopping-cart")
-      val kind: ComponentKind      = ComponentKind.EventSourcedEntity
+      val componentId: ComponentId                           = ComponentId("shopping-cart")
+      val kind: ComponentKind                                = ComponentKind.EventSourcedEntity
       override def declaredHandlers: Vector[DeclaredHandler] =
         Vector(DeclaredHandler("add-item", HandlerKind.Command))
     observability.declare(
@@ -156,13 +156,13 @@ final class RecorderBenchmark extends FunSuite:
       val _ = Trace.within(i.toLong + 1, 1L, origin)(Trace.outbound(Metadata.empty))
     }
     // The host's half: the name read back, checked against what was declared, and counted.
-    val carried = CallOrigin.into(Trace.into(Metadata.empty, 7L, 1L), origin)
+    val carried  = CallOrigin.into(Trace.into(Metadata.empty, 7L, 1L), origin)
     val counting = nanosPerOp(Warmup, Iterations) { i =>
       observability.handled(carried, "shopping-cart", "add-item", SpanOutcome.Ok, i.toLong)
     }
     // The counter alone, as it would be with the names already in hand.
-    val key = CallCounts.key(1, 2, 3, 4).get
-    val now = System.currentTimeMillis()
+    val key         = CallCounts.key(1, 2, 3, 4).get
+    val now         = System.currentTimeMillis()
     val counterOnly = nanosPerOp(Warmup, Iterations) { i =>
       observability.calls.handled(key, SpanOutcome.Ok, i.toLong, streaming = false, now)
     }

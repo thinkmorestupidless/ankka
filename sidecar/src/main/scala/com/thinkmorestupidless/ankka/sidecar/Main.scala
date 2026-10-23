@@ -103,7 +103,7 @@ object Main:
    * and exit 1, since there is no process to report them to.
    */
   private def runModule(settings: Settings, system: ActorSystem[?]): Int =
-    val path = settings.wasmModule.get
+    val path    = settings.wasmModule.get
     val started = for
       module <- wasm.ModuleLoader.load(path)
       imports = wasm.HostImports(
@@ -171,7 +171,7 @@ object Main:
       RemoteAutonomousAgent.descriptor(c, conversation, models, settings.commandTimeout)
     )
     val agentRuntime = models.default.fold(AgentRuntime())(AgentRuntime.withDefaultModel(_))
-    val memory =
+    val memory       =
       if agents.isEmpty && autonomousAgents.isEmpty then Vector.empty
       else AgentRuntime.descriptors.toVector
     // A process has no builder to hand a broker to, so the one broker the sidecar knows how to
@@ -202,7 +202,7 @@ object Main:
         case found    => throw IllegalArgumentException(found.mkString("; "))
 
     val mounted = endpoints ++ mcpEndpoints
-    val http =
+    val http    =
       sys.env.get("ANKKA_HTTP_PORT").map(_.toInt) match
         case Some(port) => HttpServer.at("0.0.0.0", port)(mounted.map(e => _ => e)*)
         case None       => HttpServer.of(mounted.map(e => _ => e)*)

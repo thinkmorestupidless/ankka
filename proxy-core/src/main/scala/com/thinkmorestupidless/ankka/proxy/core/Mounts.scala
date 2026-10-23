@@ -13,7 +13,7 @@ final class Mounts(entries: Vector[(String, String)]):
   /** The mounted service and the path it receives, or nothing when no mount matches. */
   def find(path: String): Option[(String, String)] =
     entries.collectFirst {
-      case (mount, service) if path == mount => (service, "/")
+      case (mount, service) if path == mount                => (service, "/")
       case (mount, service) if path.startsWith(mount + "/") =>
         (service, path.substring(mount.length))
     }

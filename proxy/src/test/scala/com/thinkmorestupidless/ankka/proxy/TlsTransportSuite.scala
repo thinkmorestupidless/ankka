@@ -36,7 +36,7 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
   authority.issue(uris = Seq("ankka://shop/web"), dnsNames = Seq("localhost")).writeTo(serverDir)
   private val serverTls = RotatingTls(serverDir, 1.minute)
 
-  private val process = StandInProcess().start()
+  private val process  = StandInProcess().start()
   private val settings = ProxySettings(
     project = "shop",
     service = "web",
@@ -180,7 +180,7 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
 
   test("a certificate whose identity differs from the settings makes run return 1 naming both") {
     val reported = Vector.newBuilder[String]
-    val env = Map(
+    val env      = Map(
       ProxySettings.Variables.Project     -> "billing",
       ProxySettings.Variables.Service     -> "portal",
       ProxySettings.Variables.Port        -> "9000",
@@ -213,7 +213,7 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
 
   test("a missing certificate directory makes run return 1 naming it") {
     val reported = Vector.newBuilder[String]
-    val env = Map(
+    val env      = Map(
       ProxySettings.Variables.Project     -> "shop",
       ProxySettings.Variables.Service     -> "web",
       ProxySettings.Variables.Port        -> "9000",

@@ -33,7 +33,7 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private var testKit: AnkkaTestKit = null

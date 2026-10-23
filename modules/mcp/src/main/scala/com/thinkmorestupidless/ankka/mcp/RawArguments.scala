@@ -81,7 +81,7 @@ private[ankka] object RawArguments:
     case ("integer", Json.Num(n))  => n.isWhole
     case ("boolean", Json.Bool(_)) => true
     case ("null", Json.Null)       => true
-    case (other, _) =>
+    case (other, _)                =>
       !Set("object", "array", "string", "number", "integer", "boolean", "null").contains(other)
 
   private def article(kind: String): String = kind match

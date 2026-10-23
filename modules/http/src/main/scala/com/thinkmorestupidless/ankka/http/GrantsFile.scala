@@ -118,7 +118,7 @@ object GrantsFile:
    */
   def fromConfig(config: com.typesafe.config.Config, service: String): Option[GrantsFile] =
     def setting(path: String) = if config.hasPath(path) then config.getString(path) else ""
-    val file = Option(setting("ankka.grants.file"))
+    val file                  = Option(setting("ankka.grants.file"))
       .filter(_.nonEmpty)
       .orElse(
         Option(setting("ankka.grants.declarations"))

@@ -109,7 +109,7 @@ final class RemoteEndpoint private (
    * the server closes as "failed".
    */
   private def relay(r: RouteSpec, args: Vector[String], socket: Socket): Unit =
-    val link = conversation.openSocket(forwardOf(r, args, Array.emptyByteArray))
+    val link      = conversation.openSocket(forwardOf(r, args, Array.emptyByteArray))
     val toProcess = Thread.ofVirtual().start { () =>
       var open = true
       while open do
@@ -130,7 +130,7 @@ final class RemoteEndpoint private (
             catch case _: SocketClosed => () // the client has gone; the process is being told
           case Some(SocketOutput.Completed)     => done = true
           case Some(SocketOutput.Failed(error)) => throw ProcessSocketFailed(error)
-          case None =>
+          case None                             =>
             if socket.closedBecause.isDefined then
               val since = closedAt.getOrElse {
                 val now = System.nanoTime(); closedAt = Some(now); now
@@ -274,7 +274,7 @@ object RemoteEndpoint:
       case other => plainAcl(other, authenticated)
 
   private def matcherOf(spec: CallerMatcherSpec): CallerMatcher = spec.kind match
-    case CallerMatcherSpec.Kind.Internet(_) => CallerMatcher.Internet
+    case CallerMatcherSpec.Kind.Internet(_)    => CallerMatcher.Internet
     case CallerMatcherSpec.Kind.Service(named) =>
       CallerMatcher.NamedService(named.project, named.name)
     case CallerMatcherSpec.Kind.AnyInProject(_) => CallerMatcher.AnyInProject

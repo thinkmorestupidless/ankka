@@ -57,7 +57,7 @@ final class TimerRuntime private (
       system.log.debug("no timed actions registered; timers can still be scheduled and cancelled")
     else
       val byId = actions.map(a => a.componentId -> a).toMap
-      val _ = ClusterSingleton(system).init(
+      val _    = ClusterSingleton(system).init(
         SingletonActor(
           TimerSweeper(
             database,

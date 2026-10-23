@@ -20,7 +20,7 @@ object PlainKafka:
 
   /** Applies the broker in `namespace`, waits for it to answer, and returns its address. */
   def install(k3s: K3sContainer, namespace: String): String =
-    val address = s"$Name.$namespace.svc.cluster.local:9092"
+    val address  = s"$Name.$namespace.svc.cluster.local:9092"
     val manifest =
       s"""apiVersion: v1
          |kind: Pod

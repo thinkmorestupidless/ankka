@@ -42,7 +42,7 @@ class DirectoryStorageEndpointSuite extends munit.FunSuite:
   /** A server over a store at `at`, and the store, its addresses on the server's own port. */
   private def serving(at: Path): (HttpServer, DirectoryObjectStorage) =
     val server = HttpServer.at("127.0.0.1", 0)()
-    val store = DirectoryObjectStorage
+    val store  = DirectoryObjectStorage
       .open(at, Some(declared), () => s"http://127.0.0.1:${server.boundPort.get}")
       .fold(problem => throw IllegalStateException(problem), identity)
     server.serve(Vector.empty, "127.0.0.1", 0, 10.seconds, directoryStorage = Some(store))
@@ -83,7 +83,7 @@ class DirectoryStorageEndpointSuite extends munit.FunSuite:
 
   test("a URL signed for keeping keeps what is sent, which a URL signed for reading then reads") {
     val exports = store.bucket("exports")
-    val kept = put(
+    val kept    = put(
       exports.signedUrl("uploads/passport.pdf", SignedAccess.Keep),
       "passport",
       "application/pdf"
@@ -145,7 +145,7 @@ class DirectoryStorageEndpointSuite extends munit.FunSuite:
     assertEquals(head.statusCode, 200, head.body)
     assertEquals(head.headers.firstValue("Content-Type").orElse(""), "image/jpeg")
     assertEquals(head.body, "")
-    val base = s"http://127.0.0.1:${server.boundPort.get}/_ankka/storage"
+    val base    = s"http://127.0.0.1:${server.boundPort.get}/_ankka/storage"
     val refused = client.send(
       HttpRequest
         .newBuilder(URI.create(s"$base/exports/a.pdf"))

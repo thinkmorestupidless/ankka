@@ -38,11 +38,11 @@ object LifecycleRules:
       "rejected: the operator has no base domain (ANKKA_BASE_DOMAIN); no route can be rendered"
     else
       view match
-        case None => "pending"
+        case None    => "pending"
         case Some(v) =>
           v.accepted.filter(!_._1).orElse(v.resolvedRefs.filter(!_._1)) match
             case Some((_, reason)) => s"rejected: $reason"
-            case None =>
+            case None              =>
               if v.accepted.exists(_._1) && v.resolvedRefs.exists(_._1) then "accepted"
               else "pending"
 

@@ -29,10 +29,10 @@ class CallerAclSuite extends munit.FunSuite:
   // ── the matcher rules ────────────────────────────────────────────────────────────────────
 
   test("every matcher admits Local, and each admits exactly the callers it names") {
-    val gateway = Caller.Gateway
-    val orders  = Caller.Service("checkout", "orders")
-    val foreign = Caller.Service("billing", "orders")
-    val itself  = Caller.Service("checkout", "carts")
+    val gateway  = Caller.Gateway
+    val orders   = Caller.Service("checkout", "orders")
+    val foreign  = Caller.Service("billing", "orders")
+    val itself   = Caller.Service("checkout", "carts")
     val matchers = Vector(
       Callers.internet,
       Callers.service("orders"),
@@ -90,7 +90,7 @@ class CallerAclSuite extends munit.FunSuite:
   private val router = Router(Vector(new Carts), 5.seconds, new CallerSource(self, tls = false))
 
   private def as(caller: Option[Caller], path: String, extra: (String, String)*): (Int, String) =
-    val headers = (caller.map(LocalCallers.header).toList ++ extra).map((k, v) => RawHeader(k, v))
+    val headers  = (caller.map(LocalCallers.header).toList ++ extra).map((k, v) => RawHeader(k, v))
     val response =
       Await.result(router.handle(HttpRequest(uri = path).withHeaders(headers)), 10.seconds)
     val body = Await.result(response.entity.toStrict(5.seconds), 5.seconds).data.utf8String

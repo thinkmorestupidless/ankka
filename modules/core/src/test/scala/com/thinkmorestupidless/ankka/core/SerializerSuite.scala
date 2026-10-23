@@ -23,7 +23,7 @@ class SerializerSuite extends munit.FunSuite:
   }
 
   test("a sealed hierarchy round-trips through the shared discriminator") {
-    val ser = Serializer.json[CartEvent]("cart-event")
+    val ser                     = Serializer.json[CartEvent]("cart-event")
     val events: List[CartEvent] = List(
       CartEvent.ItemAdded(LineItem("p1", "Widget", 2)),
       CartEvent.ItemRemoved("p1"),

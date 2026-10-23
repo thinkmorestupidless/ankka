@@ -23,8 +23,8 @@ private[ankka] final class Admitter(val self: RotatingTls.Identity, grants: Gran
   ): Either[Refusal, RequestContext] =
     def forbidden = Left(Refusal.Forbidden("not permitted by this endpoint's acl"))
     acl match
-      case Acl.DenyAll  => forbidden
-      case Acl.AllowAll => Right(context)
+      case Acl.DenyAll            => forbidden
+      case Acl.AllowAll           => Right(context)
       case Acl.AllowIf(predicate) =>
         if predicate(context) then Right(context) else forbidden
       case Acl.AllowCallers(matchers) =>
@@ -56,14 +56,14 @@ private[ankka] final class Admitter(val self: RotatingTls.Identity, grants: Gran
       .map(acl =>
         decide(acl, context, target) match
           case Right(admitted) => Some(admitted)
-          case Left(refused) =>
+          case Left(refused)   =>
             refusals += refused
             None
       )
       .collectFirst { case Some(admitted) => admitted }
     admitted match
       case Some(context) => Right(context)
-      case None =>
+      case None          =>
         val all         = refusals.result()
         val unavailable = all.collectFirst { case r: Refusal.Unavailable => r }
         val challenges  = all.collect { case r: Refusal.Unauthenticated => r }

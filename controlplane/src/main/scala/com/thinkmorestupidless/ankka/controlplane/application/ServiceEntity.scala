@@ -182,7 +182,7 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     else
       MoveRequest.boundProblem(bound) match
         case Some(problem) => effects.error(problem, ErrorCode.BadRequest)
-        case None =>
+        case None          =>
           val generation = currentState.storageMove.fold(1)(_.generation + 1)
           effects
             .persist(StorageMoveRequested(generation, bound, actor, at))
@@ -369,14 +369,14 @@ object ServiceEntity
   given Serializer[ApplyService] = Codecs.serializer[ApplyService]("apply-service")
   given switchDatabaseSerializer: Serializer[SwitchDatabase] =
     Codecs.serializer[SwitchDatabase]("switch-database")
-  given Serializer[RollbackService] = Codecs.serializer[RollbackService]("rollback-service")
-  given Serializer[RollbackRequest] = Codecs.serializer[RollbackRequest]("rollback-request")
+  given Serializer[RollbackService]    = Codecs.serializer[RollbackService]("rollback-service")
+  given Serializer[RollbackRequest]    = Codecs.serializer[RollbackRequest]("rollback-request")
   given Serializer[StorageMoveRequest] =
     Codecs.serializer[StorageMoveRequest]("storage-move-request")
-  given Serializer[KeptDescriptor] = Codecs.serializer[KeptDescriptor]("kept-descriptor")
+  given Serializer[KeptDescriptor]    = Codecs.serializer[KeptDescriptor]("kept-descriptor")
   given Serializer[ServiceDescriptor] =
     Codecs.serializer[ServiceDescriptor]("service-descriptor")
-  given Serializer[ServiceStatus] = Codecs.serializer[ServiceStatus]("service-status")
+  given Serializer[ServiceStatus]      = Codecs.serializer[ServiceStatus]("service-status")
   given Serializer[ServiceObservation] =
     Codecs.serializer[ServiceObservation]("service-observation")
 
@@ -396,11 +396,11 @@ object ServiceEntity
     s"service '$service' holds ${CustomHostnames.MaxPerService} custom hostnames, the most a " +
       "service can hold"
 
-  val applyDescriptor = command("apply")(_.apply)
-  val restart         = command("restart")(_.restart)
+  val applyDescriptor          = command("apply")(_.apply)
+  val restart                  = command("restart")(_.restart)
   val reissueStorageCredential =
     command("reissue-storage-credential")(_.reissueStorageCredential)
-  val moveStorage = command("move-storage")(_.moveStorage)
+  val moveStorage            = command("move-storage")(_.moveStorage)
   val reapplyStorageSettings =
     command("reapply-storage-settings")(_.reapplyStorageSettings)
   val rollback       = command("rollback")(_.rollback)

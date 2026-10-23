@@ -102,9 +102,9 @@ final class ModelStandIn private (server: HttpServer):
 
   private[agent] def handle(exchange: HttpExchange): Unit =
     try
-      val path = exchange.getRequestURI.getPath
-      val text = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
-      val body = Json.parse(text).getOrElse(Json.Null)
+      val path    = exchange.getRequestURI.getPath
+      val text    = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+      val body    = Json.parse(text).getOrElse(Json.Null)
       val headers = exchange.getRequestHeaders.asScala
         .map((k, v) => k.toLowerCase -> v.asScala.mkString(","))
         .toMap
@@ -240,10 +240,10 @@ final class ModelStandIn private (server: HttpServer):
       if response.isRefusal then
         Vector(
           Json.obj(
-            "type"   -> Json.str("message"),
-            "id"     -> Json.str(next("msg_")),
-            "role"   -> Json.str("assistant"),
-            "status" -> Json.str("completed"),
+            "type"    -> Json.str("message"),
+            "id"      -> Json.str(next("msg_")),
+            "role"    -> Json.str("assistant"),
+            "status"  -> Json.str("completed"),
             "content" -> Json.arr(
               Json.obj(
                 "type"    -> Json.str("refusal"),
@@ -256,10 +256,10 @@ final class ModelStandIn private (server: HttpServer):
       else
         Vector(
           Json.obj(
-            "type"   -> Json.str("message"),
-            "id"     -> Json.str(next("msg_")),
-            "role"   -> Json.str("assistant"),
-            "status" -> Json.str("completed"),
+            "type"    -> Json.str("message"),
+            "id"      -> Json.str(next("msg_")),
+            "role"    -> Json.str("assistant"),
+            "status"  -> Json.str("completed"),
             "content" -> Json.arr(
               Json.obj(
                 "type"        -> Json.str("output_text"),
@@ -313,7 +313,7 @@ final class ModelStandIn private (server: HttpServer):
         "tool_choice"         -> Json.str("auto"),
         "tools"               -> Json.arr(),
         "error"               -> Json.Null,
-        "incomplete_details" ->
+        "incomplete_details"  ->
           (if cutOff then Json.obj("reason" -> Json.str("max_output_tokens")) else Json.Null)
       ) ++ usageOr(
         Vector(
@@ -349,8 +349,8 @@ final class ModelStandIn private (server: HttpServer):
             else
               Vector("tool_calls" -> Json.Arr(response.toolCalls.map { call =>
                 Json.obj(
-                  "id"   -> Json.str(call.id),
-                  "type" -> Json.str("function"),
+                  "id"       -> Json.str(call.id),
+                  "type"     -> Json.str("function"),
                   "function" -> Json.obj(
                     "name"      -> Json.str(call.name),
                     "arguments" -> Json.str(call.arguments.render)
@@ -386,7 +386,7 @@ final class ModelStandIn private (server: HttpServer):
   ): Unit =
     exchange.getResponseHeaders.add("Content-Type", "text/event-stream")
     exchange.sendResponseHeaders(200, 0)
-    val out = exchange.getResponseBody
+    val out                                             = exchange.getResponseBody
     def event(name: Option[String], data: String): Unit =
       name.foreach(n => out.write(s"event: $n\n".getBytes(StandardCharsets.UTF_8)))
       out.write(s"data: $data\n\n".getBytes(StandardCharsets.UTF_8))
@@ -407,7 +407,7 @@ final class ModelStandIn private (server: HttpServer):
       response: ModelResponse,
       words: Vector[String]
   ): Unit =
-    val whole = messages(model, response)
+    val whole                                          = messages(model, response)
     def send(t: String, fields: (String, Json)*): Unit =
       event(Some(t), Json.Obj((("type" -> Json.str(t)) +: fields).toMap).render)
     val start = whole match
@@ -436,7 +436,7 @@ final class ModelStandIn private (server: HttpServer):
     response.toolCalls.foreach { call =>
       send(
         "content_block_start",
-        "index" -> num(index),
+        "index"         -> num(index),
         "content_block" -> Json.obj(
           "type"  -> Json.str("tool_use"),
           "id"    -> Json.str(call.id),
@@ -476,9 +476,9 @@ final class ModelStandIn private (server: HttpServer):
       response: ModelResponse,
       words: Vector[String]
   ): Unit =
-    val output   = responsesOutput(response)
-    val whole    = responses(model, response, Some(output))
-    var sequence = 0
+    val output                                         = responsesOutput(response)
+    val whole                                          = responses(model, response, Some(output))
+    var sequence                                       = 0
     def send(t: String, fields: (String, Json)*): Unit =
       sequence += 1
       event(
@@ -519,7 +519,7 @@ final class ModelStandIn private (server: HttpServer):
       words: Vector[String],
       body: Json
   ): Unit =
-    val id = next("chatcmpl-")
+    val id                                               = next("chatcmpl-")
     def chunk(delta: Json, finish: Option[String]): Unit =
       event(
         None,

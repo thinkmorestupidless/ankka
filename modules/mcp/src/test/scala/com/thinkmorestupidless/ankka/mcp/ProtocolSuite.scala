@@ -187,7 +187,7 @@ class ProtocolSuite extends munit.FunSuite:
   }
 
   test("an argument the tool's types refuse is invalid params naming it, and no handler runs") {
-    var ran = 0
+    var ran     = 0
     val counted = declaring { d =>
       d.tool("add_item").describedAs("Adds").param[Int]("quantity", "How many").handle { (q: Int) =>
         ran += 1
@@ -385,7 +385,7 @@ class ProtocolSuite extends munit.FunSuite:
   ) {
     ranTools.clear()
     val (keyed, toolsFor) = underKey(Set("list_jobs"))
-    val response =
+    val response          =
       Protocol.handle(
         rpc("tools/call", """{"name":"close_books","arguments":{}}"""),
         keyed,

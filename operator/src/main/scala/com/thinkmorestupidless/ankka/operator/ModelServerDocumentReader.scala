@@ -22,7 +22,7 @@ object ModelServerDocumentReader:
 
   val Timeout: Duration = Duration.ofSeconds(2)
 
-  private val mapper = ObjectMapper()
+  private val mapper      = ObjectMapper()
   private lazy val client =
     HttpClient
       .newBuilder()
@@ -53,7 +53,7 @@ object ModelServerDocumentReader:
         val models = elements(root.get("models")).map(model)
         models.collectFirst { case Left(why) => why } match
           case Some(why) => Left(why)
-          case None =>
+          case None      =>
             Right(
               ModelServerDocument(
                 server = text(root, "server").getOrElse(""),

@@ -15,7 +15,7 @@ class SuspendedTurnSuite extends munit.FunSuite with LogCapturing:
     ApprovalRequest(id, s"call-$id", "issue_refund", Json.obj("amount" -> Json.num(40)), 1L)
 
   private val user = SessionMessage.UserMessage(1L, "refund order 7", "support")
-  private val ai = SessionMessage.AiMessage(
+  private val ai   = SessionMessage.AiMessage(
     2L,
     "",
     "support",

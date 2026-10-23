@@ -92,7 +92,7 @@ class GrpcServerValidationSuite extends munit.FunSuite:
     val first = GrpcServer.at("127.0.0.1", 0)()
     first.serve(Vector(Complete()), "127.0.0.1", 0, config)
     try
-      val port = first.boundPort.getOrElse(fail("did not bind"))
+      val port    = first.boundPort.getOrElse(fail("did not bind"))
       val failure = intercept[IllegalStateException](
         GrpcServer.at("127.0.0.1", port)().serve(Vector(Complete()), "127.0.0.1", port, config)
       )

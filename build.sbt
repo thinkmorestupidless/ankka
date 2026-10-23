@@ -9,7 +9,7 @@ ThisBuild / organization := "com.thinkmorestupidless"
 // version anywhere silently overrides the tag, which is the one thing a release must not do.
 ThisBuild / versionScheme := Some("early-semver")
 ThisBuild / homepage      := Some(url("https://github.com/thinkmorestupidless/ankka"))
-ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / licenses   := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / developers := List(
   Developer(
     "thinkmorestupidless",
@@ -353,9 +353,9 @@ lazy val grpcFixtures = project
   .in(file("modules/grpc-fixtures"))
   .settings(commonSettings)
   .settings(
-    name           := "ankka-grpc-fixtures",
-    publish / skip := true,
-    scalacOptions  := Seq("-encoding", "UTF-8", "-source:3.3"),
+    name                 := "ankka-grpc-fixtures",
+    publish / skip       := true,
+    scalacOptions        := Seq("-encoding", "UTF-8", "-source:3.3"),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
@@ -618,14 +618,14 @@ lazy val controlPlane = project
           (modelKeeper / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
-          val built = scala.sys.process
+          val built   = scala.sys.process
             .Process(Seq("docker", "build", "-q", "-t", "ankka-console:latest", console.getPath))
             .!
           if (built != 0) sys.error(s"docker build of $console failed ($built)")
           // The shopping cart's interface (feature 021): a Node image Docker builds, under this
           // build's tag, as a suite names every image.
-          val web = (ThisBuild / baseDirectory).value / "samples" / "shopping-cart-web"
-          val tag = version.value.replace('+', '-')
+          val web      = (ThisBuild / baseDirectory).value / "samples" / "shopping-cart-web"
+          val tag      = version.value.replace('+', '-')
           val webBuilt = scala.sys.process
             .Process(
               Seq("docker", "build", "-q", "-t", s"sample-shopping-cart-web:$tag", web.getPath)
@@ -657,7 +657,7 @@ lazy val protocol = project
     publish / skip := true,
     // Generated code only: no `-source:3.7` (it warns on every `_` wildcard ScalaPB emits) and no
     // `-Wunused`. The one promise kept is that `sbt compile` stays warning-free.
-    scalacOptions := Seq("-encoding", "UTF-8", "-source:3.3"),
+    scalacOptions        := Seq("-encoding", "UTF-8", "-source:3.3"),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
@@ -915,8 +915,8 @@ lazy val cli = project
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
     // jar cannot be listed.
     Compile / resourceGenerators += Def.task {
-      val docs = (ThisBuild / baseDirectory).value / "docs"
-      val out  = (Compile / resourceManaged).value / "ankka" / "docs"
+      val docs  = (ThisBuild / baseDirectory).value / "docs"
+      val out   = (Compile / resourceManaged).value / "ankka" / "docs"
       val pages = (docs ** "*.md").get
         .flatMap(file => IO.relativize(docs, file).map(_ -> file))
         .sortBy(_._1)
@@ -1051,9 +1051,9 @@ lazy val shoppingCartApi = project
   .in(file("samples/shopping-cart-api"))
   .settings(commonSettings)
   .settings(
-    name           := "sample-shopping-cart-api",
-    publish / skip := true,
-    scalacOptions  := Seq("-encoding", "UTF-8", "-source:3.3"),
+    name                 := "sample-shopping-cart-api",
+    publish / skip       := true,
+    scalacOptions        := Seq("-encoding", "UTF-8", "-source:3.3"),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = true) -> (Compile / sourceManaged).value / "scalapb"
     ),

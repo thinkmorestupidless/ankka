@@ -177,7 +177,7 @@ class ProxyTlsSpike extends munit.FunSuite:
 
   test("4. a body is read as it arrives, and a response reaches the client part by part") {
     val megabyte = new Array[Byte](1024 * 1024)
-    val counted = client(gateway).send(
+    val counted  = client(gateway).send(
       HttpRequest
         .newBuilder(URI(s"https://localhost:$port/count"))
         .POST(

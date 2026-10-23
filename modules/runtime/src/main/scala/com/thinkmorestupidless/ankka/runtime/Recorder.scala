@@ -232,7 +232,7 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
     else
       VarHandle.loadLoadFence()
       val parent = parentIds(slot)
-      val read = RecordedSpan(
+      val read   = RecordedSpan(
         traceId = traceIds(slot),
         spanId = spanIds(slot),
         parentSpanId = if parent == Recorder.UnknownCaller then 0L else parent,
@@ -363,7 +363,7 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       seq = floor
     while seq <= end && taken < max do
       readSlot(((seq - 1) & mask).toInt, seq) match
-        case null => waiting += seq
+        case null               => waiting += seq
         case span: RecordedSpan =>
           spans += span
           taken += 1

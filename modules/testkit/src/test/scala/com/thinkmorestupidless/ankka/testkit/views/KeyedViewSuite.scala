@@ -197,7 +197,7 @@ class KeyedViewSuite extends munit.FunSuite with LogCapturing:
 
   test("the view handled every change one at a time") {
     // Over everything this suite did, view by view: no handler began before the one before it ended.
-    val log = Scripts.log.asScala.toVector.filter(_.split(' ')(1) == "shipments")
+    val log         = Scripts.log.asScala.toVector.filter(_.split(' ')(1) == "shipments")
     val overlapping = log
       .sliding(2)
       .collect {

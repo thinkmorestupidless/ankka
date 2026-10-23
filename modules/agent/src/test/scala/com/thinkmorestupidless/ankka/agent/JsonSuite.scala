@@ -75,7 +75,7 @@ class JsonSuite extends munit.FunSuite:
 
   test("builders compose the shape a tool schema needs") {
     val schema = Json.obj(
-      "type" -> Json.str("object"),
+      "type"       -> Json.str("object"),
       "properties" -> Json.obj(
         "location" -> Json.obj("type" -> Json.str("string"))
       ),

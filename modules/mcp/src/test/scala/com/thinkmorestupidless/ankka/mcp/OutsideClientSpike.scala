@@ -23,7 +23,7 @@ class OutsideClientSpike extends munit.FunSuite with LogCapturing:
 
   private final class Echo extends McpEndpoint("/mcp"):
     val acl: Acl = Acl.AllowAll
-    val headers =
+    val headers  =
       tool("headers").describedAs("Answers the headers this call came with").handle { () =>
         request.headers.map((n, v) => s"$n: $v").sorted.mkString("\n")
       }

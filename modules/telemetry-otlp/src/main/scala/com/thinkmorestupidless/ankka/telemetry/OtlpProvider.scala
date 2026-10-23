@@ -17,7 +17,7 @@ final class OtlpProvider extends RuntimeExtensionProvider:
     TelemetrySettings.from(config) match
       case Right(None)           => None
       case Right(Some(settings)) => Some(OtlpTelemetry(settings))
-      case Left(problem) =>
+      case Left(problem)         =>
         LoggerFactory
           .getLogger(classOf[OtlpProvider])
           .error("telemetry: not exporting, because {}", problem)

@@ -56,7 +56,7 @@ object Headers:
     val authority: Option[(String, String)] = sender match
       case Sender.Internet(stated) => stated.orElse(settings.publicAuthority).map("https" -> _)
       case Sender.Service(_, _)    => Some("https" -> inClusterAuthority(settings))
-      case Sender.Local =>
+      case Sender.Local            =>
         Some("http" -> settings.publicAuthority.getOrElse(s"127.0.0.1:${settings.port}"))
     val keepForwardedFor = sender match
       case Sender.Internet(_) => true

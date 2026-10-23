@@ -46,8 +46,8 @@ final class InstallationCommandSuite extends FunSuite:
       case None    => sys.props.remove("ankka.config"): Unit
 
   private def run(args: String*): (Int, String) =
-    val out = ByteArrayOutputStream()
-    val url = s"http://127.0.0.1:${server.getAddress.getPort}"
+    val out  = ByteArrayOutputStream()
+    val url  = s"http://127.0.0.1:${server.getAddress.getPort}"
     val code = Main.run(
       Vector("installation") ++ args ++ Vector("--url", url, "--token", "t"),
       PrintStream(out),

@@ -101,7 +101,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
     names.diff(here).map(_ -> suite).toMap
 
   private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
-  private val Sample =
+  private val Sample   =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private val BaseDomain = "example.test"
   private val Prefix     = "ankka"
@@ -111,7 +111,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
   private val Derived    = s"$Service-$Project.$BaseDomain"
 
   private lazy val identity = TestIdentity()
-  private lazy val Admin =
+  private lazy val Admin    =
     identity.token(
       "root",
       Some("root@example.test"),
@@ -129,7 +129,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
   private var roots: Path               = null
   private var httpsPort: Int            = 0
 
-  private val proofRecords = TrieMap.empty[String, Vector[String]]
+  private val proofRecords        = TrieMap.empty[String, Vector[String]]
   private val proofs: ProofLookup = name =>
     proofRecords.get(name).toRight(ProofLookup.Failure.NoRecord)
 
@@ -175,7 +175,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
         if customHostnames then AcmeStack.bundle(GatewayStack.exportCa(k8s), acme.root)
         else GatewayStack.exportCa(k8s)
 
-      val issuer = Option.when(customHostnames)(AcmeStack.Issuer)
+      val issuer           = Option.when(customHostnames)(AcmeStack.Issuer)
       val operatorSettings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
         baseDomain = Some(BaseDomain),
@@ -228,8 +228,8 @@ abstract class McpEndpointsClusterSteps(feature: String)
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Admin),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -332,9 +332,9 @@ abstract class McpEndpointsClusterSteps(feature: String)
     val lines = out.split("\n", -1).toVector
     val code  = lines.lastOption.map(_.trim).flatMap(_.toIntOption).getOrElse(0)
     // With `-D -` curl writes every response's headers, a blank line after each, then the body.
-    val text      = lines.dropRight(1).mkString("\n").replace("\r", "")
-    val lastBlock = text.lastIndexOf("\nHTTP/")
-    val response  = if lastBlock >= 0 then text.drop(lastBlock + 1) else text
+    val text         = lines.dropRight(1).mkString("\n").replace("\r", "")
+    val lastBlock    = text.lastIndexOf("\nHTTP/")
+    val response     = if lastBlock >= 0 then text.drop(lastBlock + 1) else text
     val (head, body) = response.indexOf("\n\n") match
       case -1 => (response, "")
       case i  => (response.take(i), response.drop(i + 2))
@@ -358,7 +358,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
       headers: Seq[String]
   ): Answer =
     val method = "POST"
-    val args =
+    val args   =
       Vector("kubectl", "exec", "-n", Namespace, proberPod, "--", "curl", "-sS", "-m", "10") ++
         Vector("-X", method, "-D", "-", "-w", "\n%{http_code}") ++ Tls ++
         // A pod is reached by IP, which no certificate names; the server's check of ours is the one that matters.
@@ -429,7 +429,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
     assertEquals(answer.status, 200, answer.body)
     val id     = """"id":"([0-9a-f]+)"""".r.findFirstMatchIn(answer.body).map(_.group(1))
     val secret = """"clientKey":"([^"]+)"""".r.findFirstMatchIn(answer.body).map(_.group(1))
-    val made =
+    val made   =
       Key(id.getOrElse(fail(answer.body)), secret.getOrElse(fail("no key in the issue answer")))
     // The instance that took the issue writes the key through; the others learn it from the
     // journal about half a second later. A scenario's next request may go to any of them.
@@ -659,7 +659,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
     // the revoke answered, polling each instance until it refuses, for at most five seconds.
     val curl    = (Tls :+ "--insecure").mkString(" ")
     val headers = (McpHeaders :+ bearer(k)).map(h => s"-H '$h'").mkString(" ")
-    val script =
+    val script  =
       s"""t() { tr -d . < /proc/uptime | cut -d' ' -f1; }
          |code=$$(curl -sS -m 10 -o /dev/null -w '%{http_code}' $curl -X DELETE https://$Service.$Namespace.svc.cluster.local:9000/mcp-keys/${k.id})
          |start=$$(t)
@@ -707,7 +707,7 @@ abstract class McpEndpointsClusterSteps(feature: String)
     }
     // Read with a key that works: the refused calls added nothing.
     val fresh = issue("reader")
-    val read = inCluster(
+    val read  = inCluster(
       s"$Service.$Namespace.svc.cluster.local",
       "/mcp",
       body = Some(callTool("get_cart", s"""{"cartId":"$cart"}""")),

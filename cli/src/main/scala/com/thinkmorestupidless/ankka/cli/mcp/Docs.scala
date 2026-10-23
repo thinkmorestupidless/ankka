@@ -79,8 +79,8 @@ private[cli] object Docs:
     else
       pages
         .flatMap { page =>
-          val head = (page.title + " " + page.description).toLowerCase
-          val body = read(page.path).getOrElse("").toLowerCase
+          val head  = (page.title + " " + page.description).toLowerCase
+          val body  = read(page.path).getOrElse("").toLowerCase
           val score = words.map { word =>
             (if head.contains(word) then 5 else 0) + (if body.contains(word) then 1 else 0)
           }.sum

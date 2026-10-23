@@ -84,7 +84,7 @@ object Judgment:
     val answered = judgment.answers.keySet
     (asked -- answered).toVector.sorted.headOption match
       case Some(missing) => Left(s"question '$missing' was asked and not answered")
-      case None =>
+      case None          =>
         (answered -- asked).toVector.sorted.headOption match
           case Some(extra) =>
             Left(s"an answer was given for question '$extra', which was not asked")

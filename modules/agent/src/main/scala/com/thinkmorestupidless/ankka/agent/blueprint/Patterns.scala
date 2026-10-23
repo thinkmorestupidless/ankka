@@ -70,7 +70,7 @@ private[blueprint] object Patterns:
     over(ctx) match
       case Interrupted    => ()
       case Failed(reason) => w.endRun(RunStatus.Failed, Some(s"${step.name}: $reason"))
-      case Done(p) =>
+      case Done(p)        =>
         w.record(
           RunEvent.StepEnded(
             step.name,
@@ -114,7 +114,7 @@ private[blueprint] object Patterns:
           }
       case Over.Workers(workers, chosenBy) =>
         val chosen = chosenBy match
-          case None => workers
+          case None     => workers
           case Some(by) =>
             val names =
               Reads.resolve(by, ctx.run).asArray.getOrElse(Vector.empty).flatMap(_.asString)
@@ -205,7 +205,7 @@ private[blueprint] object Patterns:
       val failed = indices.flatMap(i => record.get(i).flatMap(_.failure).map(i -> _))
       failed.headOption match
         case Some((i, reason)) if !keepGoing => Failed(s"item ${i + 1}: $reason")
-        case _ =>
+        case _                               =>
           val values = indices.map { i =>
             val value = record
               .get(i)
@@ -274,10 +274,10 @@ private[blueprint] object Patterns:
               ) match
                 case Interrupted    => outcome = Some(Interrupted)
                 case Failed(reason) => outcome = Some(Failed(reason))
-                case Done(draft) =>
+                case Done(draft)    =>
                   acc = acc + draft
                   verdict(ctx, u.verdict, draft.result, round) match
-                    case Left(failure) => outcome = Some(Failed(failure))
+                    case Left(failure)              => outcome = Some(Failed(failure))
                     case Right((passed, why, cost)) =>
                       acc = acc + cost
                       if idSuffix.isEmpty then
@@ -334,11 +334,11 @@ private[blueprint] object Patterns:
           s"Verdict on step '${ctx.step.name}', round $round.\n${Json.obj("draft" -> draft).render}"
         val before = ctx.w.history(session)
         Turns.answer(ctx.w, session, critic, message, Verdict.shape, ctx.ref, ctx.step.name) match
-          case Turns.Interrupted    => Left("the run ended while the critic judged")
-          case Turns.Failed(reason) => Left(s"the critic '$name' failed: $reason")
+          case Turns.Interrupted      => Left("the run ended while the critic judged")
+          case Turns.Failed(reason)   => Left(s"the critic '$name' failed: $reason")
           case Turns.Answered(answer) =>
-            val after  = ctx.w.history(session)
-            val passed = answer("passed").flatMap(_.asBoolean).getOrElse(false)
+            val after   = ctx.w.history(session)
+            val passed  = answer("passed").flatMap(_.asBoolean).getOrElse(false)
             val reasons =
               answer("reasons").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
             Right(
@@ -381,8 +381,8 @@ private[blueprint] object Patterns:
       said: String,
       reasons: Vector[String]
   ): Outcome =
-    val step = ctx.step
-    val base = s"Step '${step.name}'$said.\n${input.render}"
+    val step    = ctx.step
+    val base    = s"Step '${step.name}'$said.\n${input.render}"
     val message =
       if reasons.isEmpty then base
       else
@@ -391,20 +391,20 @@ private[blueprint] object Patterns:
       case Action.Ask(Some(name))               => ask(ctx, name, message, idSuffix)
       case Action.Work(Some(name))              => work(ctx, name, message, idSuffix)
       case Action.Ask(None) | Action.Work(None) => Failed("the step names no worker")
-      case Action.Judge(ids) =>
+      case Action.Judge(ids)                    =>
         val questions = ids.flatMap(ctx.w.registry.question)
         judge(ctx, JudgmentState.Structured(input), questions)
           .fold(Failed(_), j => Done(Produced(render(j, questions), judgmentUsage = j.usage)))
       case Action.Call(name) =>
         ctx.w.registry.handler(name) match
-          case None => Failed(s"the handler '$name' is not registered for blueprints")
+          case None          => Failed(s"the handler '$name' is not registered for blueprints")
           case Some(handler) =>
             val result =
               try Right(RunContext.within(ctx.ref)(handler.run(ctx.ref, input)))
               catch case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
             result match
               case Left(failure) => Failed(s"the handler '$name' failed: $failure")
-              case Right(json) =>
+              case Right(json)   =>
                 val problems = itemShape(ctx).check(json)
                 if problems.nonEmpty then
                   Failed(
@@ -424,8 +424,8 @@ private[blueprint] object Patterns:
     val session = s"run:${ctx.ref.runId}:${ctx.step.name}:$name$idSuffix"
     val before  = ctx.w.history(session)
     Turns.answer(ctx.w, session, worker, message, itemShape(ctx), ctx.ref, ctx.step.name) match
-      case Turns.Interrupted    => Interrupted
-      case Turns.Failed(reason) => Failed(reason)
+      case Turns.Interrupted      => Interrupted
+      case Turns.Failed(reason)   => Failed(reason)
       case Turns.Answered(result) =>
         val after = ctx.w.history(session)
         Done(

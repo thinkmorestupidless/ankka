@@ -153,7 +153,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     authority
       .issue(uris = Seq(s"ankka://$inProject/$name"), dnsNames = Seq("localhost"))
       .writeTo(directory)
-    val tls = RotatingTls(directory, 1.minute)
+    val tls      = RotatingTls(directory, 1.minute)
     val mountTls = Option.when(withMounts.nonEmpty) {
       val dir = Files.createTempDirectory(s"proxy-features-$name-mount")
       authority.issue(uris = Seq(s"ankka://$inProject/$name/mount")).writeTo(dir)
@@ -187,7 +187,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     else
       callees.get((inProject, name)) match
         case Some(c) => at(c.port)
-        case None =>
+        case None    =>
           others
             .get(name)
             .filter(_.project == inProject)
@@ -197,8 +197,8 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   protected def other(name: String): ProxySteps.Running =
     runningOthers.getOrElseUpdate(
       name, {
-        val spec = others.getOrElse(name, fail(s"no web-hosted service $name"))
-        val over = StandInProcess().start()
+        val spec          = others.getOrElse(name, fail(s"no web-hosted service $name"))
+        val over          = StandInProcess().start()
         val (built, _, _) = buildEngine(
           name,
           spec.project,
@@ -569,8 +569,8 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
 
   When("{string} passes a request to {string} as a request under a mount") {
     (mounting: String, callee: String) =>
-      val spec   = others.getOrElse(mounting, fail(s"no web-hosted service $mounting"))
-      val target = calleeNamed(callee)
+      val spec     = others.getOrElse(mounting, fail(s"no web-hosted service $mounting"))
+      val target   = calleeNamed(callee)
       val response = presenting(s"ankka://${spec.project}/$mounting/mount").send(
         HttpRequest.newBuilder(URI.create(s"https://localhost:${target.port}/carts/c1")).build(),
         BodyHandlers.ofString()
@@ -705,7 +705,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     callees((inProject, name)) = ProxySteps.Callee(name, inProject, directory, acl, refuses)
 
   /** The answer the process was given by its last call, and how the call was made. */
-  protected var processCall: ProxySteps.Reply = null
+  protected var processCall: ProxySteps.Reply            = null
   protected val processHeaders: Vector[(String, String)] =
     Vector("Accept" -> "application/json", "X-Request-Id" -> "r-1")
 
@@ -775,7 +775,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
 
   When("the service {string} in the project {string} calls {string}") {
     (caller: String, inProject: String, callee: String) =>
-      val target = callees.getOrElse((project, callee), fail(s"no service $callee"))
+      val target   = callees.getOrElse((project, callee), fail(s"no service $callee"))
       val response = serviceClient(inProject, caller).send(
         HttpRequest
           .newBuilder(java.net.URI.create(s"https://localhost:${target.port}/svc/whoami"))
@@ -815,7 +815,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   Then("a person on the internet who sends a request to {string} without {string} is refused") {
     (callee: String, name: String) =>
       assertEquals(name, service)
-      val target = callees.getOrElse((project, callee), fail(s"no service $callee"))
+      val target   = callees.getOrElse((project, callee), fail(s"no service $callee"))
       val response = internet.send(
         HttpRequest
           .newBuilder(java.net.URI.create(s"https://localhost:${target.port}/svc/whoami"))
@@ -832,7 +832,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
 
   Then("{string} is given the call as the process made it, with nothing added but who called") {
     (callee: String) =>
-      val c = callees.values.find(_.name == callee).getOrElse(fail(s"no service $callee"))
+      val c    = callees.values.find(_.name == callee).getOrElse(fail(s"no service $callee"))
       val seen = c.seen match
         case Vector(one) => one
         case other       => fail(s"one call expected: $other")
@@ -899,7 +899,7 @@ object ProxySteps:
     private val calls = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
 
     private final class Endpoint(prefix: String) extends HttpEndpoint(prefix):
-      val acl: Acl = Callee.this.acl
+      val acl: Acl                 = Callee.this.acl
       private def answer(): String =
         val who = Caller.encode(caller)
         calls.add(Seen(who, request.path, request.headers))
@@ -925,7 +925,7 @@ object ProxySteps:
    * (`quickstart.md`'s manual step); a suite may not name an image by a literal tag.
    */
   final class OldCallee(val name: String, directory: java.nio.file.Path) extends Served:
-    private val calls = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
+    private val calls  = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
     private val server =
       com.sun.net.httpserver.HttpsServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
     server.setHttpsConfigurator(RotatingServerTls.configurator(RotatingTls(directory, 1.minute)))
@@ -940,7 +940,7 @@ object ProxySteps:
           .asInstanceOf[java.security.cert.X509Certificate]
         val (status, body) =
           com.thinkmorestupidless.ankka.http.PreFeatureCaller.fromCertificate(leaf) match
-            case Left(reason) => (403, reason)
+            case Left(reason)  => (403, reason)
             case Right(caller) =>
               val who = Caller.encode(caller)
               calls.add(Seen(who, exchange.getRequestURI.getPath, Vector.empty))

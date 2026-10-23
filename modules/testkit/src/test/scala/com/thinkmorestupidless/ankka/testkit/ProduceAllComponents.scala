@@ -48,7 +48,7 @@ final class LedgerFanout extends Consumer[LedgerEvent, Line]:
     effects.message(Line(messageContext.subject, messageContext.sequenceNumber, n, note))
 
   def onMessage(event: LedgerEvent): Effect = event match
-    case LedgerEvent.Added(0) => effects.produceAll(Nil)
+    case LedgerEvent.Added(0)      => effects.produceAll(Nil)
     case LedgerEvent.Added(amount) =>
       effects.produceAll(
         Seq(

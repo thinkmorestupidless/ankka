@@ -65,7 +65,7 @@ object ServiceProjection:
               .toVector
     // Feature 055: each named bucket the platform makes is named in the store as the unnamed one is,
     // with its own name after the service's, and may be too long where the unnamed one is not.
-    val made = spec.buckets.filter(_.made)
+    val made  = spec.buckets.filter(_.made)
     val named =
       config.objectStore match
         case ObjectStoreKind.Garage =>

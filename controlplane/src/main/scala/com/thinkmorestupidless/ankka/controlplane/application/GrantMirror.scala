@@ -27,11 +27,11 @@ final class GrantMirror(client: ComponentClient) extends Consumer[ProjectEvent, 
         val change = if pending then GrantChange.Offered else GrantChange.Made
         record(granting, id, grantee, target, change, Attribution.from(actor, at))
         lapseIfGone(granting, id, grantee)
-      case GrantAccepted(id, actor, at) => later(granting, id, GrantChange.Accepted, actor, at)
-      case GrantDeclined(id, actor, at) => later(granting, id, GrantChange.Declined, actor, at)
+      case GrantAccepted(id, actor, at)  => later(granting, id, GrantChange.Accepted, actor, at)
+      case GrantDeclined(id, actor, at)  => later(granting, id, GrantChange.Declined, actor, at)
       case GrantWithdrawn(id, actor, at) =>
         later(granting, id, GrantChange.Withdrawn, actor, at)
-      case GrantRevoked(id, actor, at) => later(granting, id, GrantChange.Revoked, actor, at)
+      case GrantRevoked(id, actor, at)      => later(granting, id, GrantChange.Revoked, actor, at)
       case GrantRelinquished(id, actor, at) =>
         later(granting, id, GrantChange.Relinquished, actor, at)
       case GrantLapsed(id, actor, at) => later(granting, id, GrantChange.Lapsed, actor, at)
@@ -87,7 +87,7 @@ final class GrantMirror(client: ComponentClient) extends Consumer[ProjectEvent, 
    */
   private def lapseIfGone(granting: String, id: String, grantee: Grantee): Unit =
     val deletion = grantee match
-      case Grantee.Service(p, _) => project(p).call(ProjectEntity.deletion).invoke()
+      case Grantee.Service(p, _)                 => project(p).call(ProjectEntity.deletion).invoke()
       case Grantee.Machine(organizationId, name) =>
         client
           .forEventSourcedEntity(EntityId(s"$organizationId/$name"))

@@ -138,7 +138,7 @@ private[ankka] object RemoteEventSourcedHost:
         val observability = Observability(ctx.system)
         val componentRef  = observability.names.intern(descriptor.componentId.toString)
         val persistenceId = PersistenceId(descriptor.componentId, entityId)
-        val readJournal = PersistenceQuery(ctx.system)
+        val readJournal   = PersistenceQuery(ctx.system)
           .readJournalFor[CurrentEventsByPersistenceIdQuery]("pekko.persistence.r2dbc.query")
         val copy = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
 
@@ -198,7 +198,7 @@ private[ankka] object RemoteEventSourcedHost:
           val fresh       = state.fresh(now)
           val snapshotSeq = state.snapshotSeq
           val deletionSeq = state.deletionSeq
-          val init = Init(
+          val init        = Init(
             descriptor.kind,
             descriptor.componentId,
             entityId,
@@ -254,7 +254,7 @@ private[ankka] object RemoteEventSourcedHost:
               case Mode.Home     => true
               case Mode.Follower => false
               case Mode.Outside  => false
-              case Mode.Unknown =>
+              case Mode.Unknown  =>
                 !c.where.exists {
                   case Where.At(l)           => l.home != c.me
                   case Where.Nobody(Some(_)) => true
@@ -264,7 +264,7 @@ private[ankka] object RemoteEventSourcedHost:
 
         def send(invoke: EntityProtocol.Invoke, state: RemoteStored): Unit =
           session match
-            case None => open(state); queued :+= invoke
+            case None    => open(state); queued :+= invoke
             case Some(s) =>
               descriptor.handler(MethodName(invoke.method)) match
                 case None =>
@@ -282,7 +282,7 @@ private[ankka] object RemoteEventSourcedHost:
                   sentNanos = System.nanoTime()
                   val metadata = MetaEntry.toMetadata(invoke.metadata)
                   val inbound  = Trace.inbound(metadata)
-                  val span = observability.recorder.begin(
+                  val span     = observability.recorder.begin(
                     traceIdHigh = inbound.traceIdHigh,
                     traceId = inbound.traceId,
                     parentSpanId = inbound.parentSpanId,
@@ -367,7 +367,7 @@ private[ankka] object RemoteEventSourcedHost:
                 local(invoke, state)
                 PekkoEffect.noReply
               case Some(handler) =>
-                val reads = handler.readOnly
+                val reads                         = handler.readOnly
                 def forward(home: String): Effect =
                   c.forward(invoke, home, observability, componentRef) match
                     case Left(error) => reply(invoke, EntityProtocol.Rejected(error))
@@ -427,16 +427,16 @@ private[ankka] object RemoteEventSourcedHost:
             invoke: EntityProtocol.Invoke
         ): Either[CommandError, Vector[Journaled]] =
           // Each record says who acted and where the command was forwarded from (spec 057).
-          val received      = MetaEntry.toMetadata(invoke.metadata)
-          val attribution   = Attribution.from(received)
-          val forwardedFrom = received.get(HostReplication.ForwardedFrom)
+          val received                          = MetaEntry.toMetadata(invoke.metadata)
+          val attribution                       = Attribution.from(received)
+          val forwardedFrom                     = received.get(HostReplication.ForwardedFrom)
           val handlerRecords: Vector[Journaled] =
             m.events.map(Journaled.Domain(_, None, attribution, forwardedFrom)) ++
               retentionRecord(m.retention)
           copy match
             case None =>
               m.replication match
-                case None => Right(handlerRecords)
+                case None         => Right(handlerRecords)
                 case Some(change) =>
                   Left(
                     CommandError(
@@ -469,7 +469,7 @@ private[ankka] object RemoteEventSourcedHost:
             case invoke: EntityProtocol.Invoke =>
               copy match
                 case Some(c) => replicated(c, state, invoke, lastSequence)
-                case None =>
+                case None    =>
                   local(invoke, state)
                   PekkoEffect.none.thenNoReply()
 
@@ -808,8 +808,8 @@ private[ankka] object RemoteEventSourcedHost:
 
   private def retentionRecord(retention: Option[Retention]): Vector[Journaled] =
     retention match
-      case None                      => Vector.empty
-      case Some(Retention.DeleteNow) => Vector(Journaled.Deleted)
+      case None                           => Vector.empty
+      case Some(Retention.DeleteNow)      => Vector(Journaled.Deleted)
       case Some(Retention.ExpireAfter(d)) =>
         Vector(Journaled.Expiry(System.currentTimeMillis() + d.toMillis))
 
@@ -826,7 +826,7 @@ private[ankka] object RemoteEventSourcedHost:
         )
       case JournalRecord.KindDeleted => Journaled.Deleted
       case JournalRecord.KindExpiry  => Journaled.Expiry(record.expiryMillis)
-      case other =>
+      case other                     =>
         Platform
           .of(record)
           .map(Journaled.Replication(_))
@@ -855,7 +855,7 @@ private[ankka] object RemoteEventSourcedHost:
         case Journaled.Deleted            => "ankka.deleted"
         case Journaled.Expiry(_)          => "ankka.expiry"
         case Journaled.Replication(p)     => p.record.manifest
-        case Journaled.Mirrored(r) =>
+        case Journaled.Mirrored(r)        =>
           r.kind match
             case JournalRecord.KindDeleted => "ankka.deleted"
             case JournalRecord.KindExpiry  => "ankka.expiry"

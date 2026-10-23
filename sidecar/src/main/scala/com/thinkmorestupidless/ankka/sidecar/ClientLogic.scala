@@ -133,7 +133,7 @@ final class ClientLogic(
 
   private def payload(p: Option[pb.Payload]): Array[Byte] =
     p.map(_.data.toByteArray).getOrElse(Array.emptyByteArray)
-  private def manifest(p: Option[pb.Payload]): String = p.map(_.manifest).getOrElse("")
+  private def manifest(p: Option[pb.Payload]): String    = p.map(_.manifest).getOrElse("")
   private def metadata(m: Option[pb.Metadata]): Metadata =
     Metadata(m.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toVector)
   private def error(e: CommandError): pb.Error =
@@ -175,7 +175,7 @@ final class ClientLogic(
     ).recoverWith {
       case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
         val promise = scala.concurrent.Promise[(Array[Byte], Metadata)]()
-        val _ = system.scheduler.scheduleOnce(
+        val _       = system.scheduler.scheduleOnce(
           RetryDelays(attempt),
           () =>
             promise.completeWith(
@@ -225,7 +225,7 @@ final class ClientLogic(
         )
       )
     ).recover {
-      case e: CommandError => InvokeReply(InvokeReply.Result.Error(error(e)))
+      case e: CommandError             => InvokeReply(InvokeReply.Result.Error(error(e)))
       case e: IllegalArgumentException =>
         InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.BAD_REQUEST)))
       case e => InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
@@ -287,7 +287,7 @@ final class ClientLogic(
             )
           }
     yield reply).recover {
-      case e: CommandError => InvokeReply(InvokeReply.Result.Error(error(e)))
+      case e: CommandError             => InvokeReply(InvokeReply.Result.Error(error(e)))
       case e: IllegalArgumentException =>
         InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.BAD_REQUEST)))
       case e => InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
@@ -394,7 +394,7 @@ final class ClientLogic(
 
   private def failure(e: Throwable): pb.Error = e match
     case refused: CommandError => error(refused)
-    case other =>
+    case other                 =>
       pb.Error(Option(other.getMessage).getOrElse(other.getClass.getName), pb.ErrorCode.INTERNAL)
 
   /**
@@ -422,15 +422,15 @@ final class ClientLogic(
         emit(StreamToken(StreamToken.Token.Failed(refusal)))
         () => ()
       case Right((componentId, entityId, timeout)) =>
-        val lock  = new Object
-        var ended = false
+        val lock                                          = new Object
+        var ended                                         = false
         def once(token: StreamToken, last: Boolean): Unit = lock.synchronized {
           if !ended then
             if last then ended = true
             emit(token)
         }
         val every = com.thinkmorestupidless.ankka.http.Heartbeat.interval(system.settings.config)
-        val beat = system.scheduler.scheduleAtFixedRate(every, every)(() =>
+        val beat  = system.scheduler.scheduleAtFixedRate(every, every)(() =>
           once(StreamToken(StreamToken.Token.Heartbeat(pb.Empty())), last = false)
         )
         waiting(componentId, entityId, timeout, request).onComplete { result =>
@@ -487,7 +487,7 @@ final class ClientLogic(
           }
           .recover {
             case e: CommandError => QueryReply(QueryReply.Result.Error(error(e)))
-            case e =>
+            case e               =>
               QueryReply(QueryReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
           }
 
@@ -505,7 +505,7 @@ final class ClientLogic(
 
   private def failedFrame(failure: Throwable): RowFrame = failure match
     case e: CommandError => RowFrame(RowFrame.Frame.Failed(error(e)))
-    case e =>
+    case e               =>
       RowFrame(RowFrame.Frame.Failed(pb.Error(String.valueOf(e.getMessage), pb.ErrorCode.INTERNAL)))
 
   private def rowFrame(key: String, row: Array[Byte]): RowFrame =
@@ -523,12 +523,12 @@ final class ClientLogic(
   def queryStream(request: QueryRequest): Source[RowFrame, NotUsed] =
     servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
       case Some(refused) => Source.single(failedFrame(refused))
-      case None =>
+      case None          =>
         val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
         val limit   = request.limit.map(_.toInt)
-        val rows = asCaller(metadata(request.metadata)) {
+        val rows    = asCaller(metadata(request.metadata)) {
           request.name match
-            case "all" => queries.allStream(limit)
+            case "all"                      => queries.allStream(limit)
             case "get" | "by-id" | "by-key" =>
               queries.allStream(None).take(0) ++
                 Source
@@ -546,8 +546,8 @@ final class ClientLogic(
   def watch(request: WatchRequest): Source[RowFrame, NotUsed] =
     servesViewStreams.orElse(ComponentId.parse(request.viewId).left.toOption.map(BadRequest)) match
       case Some(refused) => Source.single(failedFrame(refused))
-      case None =>
-        val queries = viewQueries(ComponentId.parse(request.viewId).toOption.get)
+      case None          =>
+        val queries  = viewQueries(ComponentId.parse(request.viewId).toOption.get)
         val watching = Watching(
           unread = request.unreadBound.map(_.toInt),
           overflow = request.overflow match
@@ -562,7 +562,7 @@ final class ClientLogic(
             case WatchRequest.Target.Named(named) =>
               queries.watchNamed(named.name, named.values, watching)
             case WatchRequest.Target.Key(key) => queries.watchRow(key, watching)
-            case WatchRequest.Target.Empty =>
+            case WatchRequest.Target.Empty    =>
               Source.failed(
                 CommandError("a watch names a declared query or a row key", ErrorCode.BadRequest)
               )
@@ -649,7 +649,7 @@ final class ClientLogic(
 
   def cancel(request: CancelRequest): Future[pb.Empty] =
     timers() match
-      case None => Future.successful(pb.Empty())
+      case None            => Future.successful(pb.Empty())
       case Some(scheduler) =>
         scheduler.delete(request.timerId)
         Future.successful(pb.Empty())
@@ -782,9 +782,9 @@ final class ClientLogic(
         bucket.stat(r.name) match
           case None                              => StorageReply(Reply.Done(pb.Empty()))
           case Some(info) if info.length > bound => throw tooLarge(info.length, "an object read")
-          case Some(_) =>
+          case Some(_)                           =>
             bucket.get(r.name) match
-              case None => StorageReply(Reply.Done(pb.Empty()))
+              case None        => StorageReply(Reply.Done(pb.Empty()))
               case Some(found) =>
                 scala.util.Using.resource(found) { o =>
                   // Replaced between the stat and the read: still never more than the bound.
@@ -806,7 +806,7 @@ final class ClientLogic(
         StorageReply(Reply.Done(pb.Empty()))
       case StorageRequest.Op.LIST =>
         val after = r.continuation.getOrElse("")
-        val page = bucket
+        val page  = bucket
           .list(r.name)
           .dropWhile(e => after.nonEmpty && e.name <= after)
           .take(ClientLogic.ListPage + 1)
@@ -822,7 +822,7 @@ final class ClientLogic(
         )
       case StorageRequest.Op.STAT =>
         bucket.stat(r.name) match
-          case None => StorageReply(Reply.Done(pb.Empty()))
+          case None    => StorageReply(Reply.Done(pb.Empty()))
           case Some(i) =>
             StorageReply(Reply.Info(ObjectInfo(i.name, i.contentType, i.length, stamp(i.lastKept))))
       case StorageRequest.Op.SIGNED_URL =>
@@ -894,9 +894,9 @@ final class ClientLogic(
       }
 
   private def call(request: ServiceRequest): ServiceReply =
-    val metadata = this.metadata(request.metadata)
-    val origin   = observability.declared.origin(metadata)
-    val trace    = Trace.traceIdOf(metadata).zip(Trace.parentSpanIdOf(metadata))
+    val metadata              = this.metadata(request.metadata)
+    val origin                = observability.declared.origin(metadata)
+    val trace                 = Trace.traceIdOf(metadata).zip(Trace.parentSpanIdOf(metadata))
     def made: ServiceResponse =
       val clients = service.services
       val client  = request.project.fold(clients(request.service))(clients(_, request.service))
@@ -942,7 +942,7 @@ final class ClientLogic(
       case e: ServiceUnanswered =>
         failure(ServiceFailure.Reason.UNANSWERED, e.getMessage)
       case e: CommandError => ServiceReply(ServiceReply.Result.Error(error(e)))
-      case e: Throwable =>
+      case e: Throwable    =>
         ServiceReply(
           ServiceReply.Result.Error(
             pb.Error(Option(e.getMessage).getOrElse(e.getClass.getName), pb.ErrorCode.INTERNAL)

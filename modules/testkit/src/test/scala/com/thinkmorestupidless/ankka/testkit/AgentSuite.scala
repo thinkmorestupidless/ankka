@@ -159,7 +159,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
 
     // The second request replayed the first exchange.
     val second = model.requests(1)
-    val texts = second.messages.collect {
+    val texts  = second.messages.collect {
       case ChatMessage.User(content) =>
         content.collect { case MessageContent.Text(t) => t }.mkString
       case ChatMessage.Assistant(text, _, _) => text
@@ -255,7 +255,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
 
   test("the agent knows its component id and session") {
     model.expectText("acknowledged")
-    val _ = agent("s-identity").call(WeatherAgent.whoAmI).invoke()
+    val _    = agent("s-identity").call(WeatherAgent.whoAmI).invoke()
     val text = model.lastRequest.messages.collect { case ChatMessage.User(content) =>
       content.collect { case MessageContent.Text(t) => t }.mkString
     }.mkString

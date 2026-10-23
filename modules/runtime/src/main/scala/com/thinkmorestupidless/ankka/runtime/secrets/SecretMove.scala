@@ -30,7 +30,7 @@ private[ankka] object MovePhase:
   def parse(word: String): Either[String, Option[MovePhase]] =
     word.trim match
       case "" => Right(None)
-      case w =>
+      case w  =>
         MovePhase.values
           .find(_.word == w)
           .map(Some(_))
@@ -153,7 +153,7 @@ private[ankka] final class MovingStore(
     if !rows.names().contains(name) then ledger.kept(name)
   def get(name: String): Option[String]   = underlying.get(name)
   def read(name: String): ReadDetail.Read = underlying.read(name)
-  def delete(name: String): Unit =
+  def delete(name: String): Unit          =
     underlying.delete(name)
     ledger.forgotten(name)
 

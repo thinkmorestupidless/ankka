@@ -117,9 +117,9 @@ final class HttpServer private (
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
 
-    val config   = system.settings.config
-    val host     = interface.getOrElse(config.getString("ankka.http.interface"))
-    val bindPort = port.getOrElse(config.getInt("ankka.http.port"))
+    val config      = system.settings.config
+    val host        = interface.getOrElse(config.getString("ankka.http.interface"))
+    val bindPort    = port.getOrElse(config.getInt("ankka.http.port"))
     val bodyTimeout = FiniteDuration(
       config.getDuration("ankka.http.body-timeout").toMillis,
       java.util.concurrent.TimeUnit.MILLISECONDS
@@ -260,7 +260,7 @@ final class HttpServer private (
     )
     machines.foreach(_.start())
     val callers = CallerSource(tls, machines, clientCertificates)
-    val grants = configuredGrants
+    val grants  = configuredGrants
       .orElse(GrantsFile.fromConfig(config, callers.self.service))
       .getOrElse(Grants.none)
     // A file is otherwise looked at only when a request asks: checked on a timer too, so a
@@ -286,7 +286,7 @@ final class HttpServer private (
       ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
-    val bound = Await.result(
+    val bound  = Await.result(
       tls match
         case Some(identity) =>
           // The caller is read from the session's client certificate, which Pekko hands a route
@@ -635,7 +635,7 @@ private final class Router(
         case Some((endpoint, route, args)) =>
           val found = Some(Matched.Root(route, args))
           callers.callerOf(request) match
-            case Left(reason) => Future.successful(problem(HttpProblem.forbidden(reason)))
+            case Left(reason)  => Future.successful(problem(HttpProblem.forbidden(reason)))
             case Right(caller) =>
               admitted(endpoint, request, path, found, route.acl.getOrElse(endpoint.acl), caller)
         case None => prefixed(request, path)
@@ -663,7 +663,7 @@ private final class Router(
         val effective = found.flatMap(_.acl).getOrElse(endpoint.acl)
 
         callers.callerOf(request) match
-          case Left(reason) => Future.successful(problem(HttpProblem.forbidden(reason)))
+          case Left(reason)  => Future.successful(problem(HttpProblem.forbidden(reason)))
           case Right(caller) =>
             admitted(endpoint, request, remaining, found, effective, caller)
 
@@ -697,8 +697,8 @@ private final class Router(
         // topology counts it apart from a failure. Nothing matched has no route to name.
         found.foreach { matched =>
           val origin = matched match
-            case Matched.Socket(route, _) => originOf(endpoint, "SOCKET", route.template)
-            case Matched.Plain(route, _)  => originOf(endpoint, route.method, route.template)
+            case Matched.Socket(route, _)    => originOf(endpoint, "SOCKET", route.template)
+            case Matched.Plain(route, _)     => originOf(endpoint, route.method, route.template)
             case Matched.Streaming(route, _) =>
               originOf(endpoint, route.method, route.template)
             case Matched.Root(route, _) =>
@@ -848,7 +848,7 @@ private final class Router(
               s"Bearer ${endpoint.challenge(context, challenge)}"
             )
           )
-      case Refusal.Forbidden(reason) => problem(HttpProblem.forbidden(reason))
+      case Refusal.Forbidden(reason)   => problem(HttpProblem.forbidden(reason))
       case Refusal.Unavailable(reason) =>
         problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5"))
     }
@@ -956,18 +956,18 @@ private final class Router(
           headers = encoded.headers.map((name, value) => headers.RawHeader(name, value)),
           entity = encoded.streamed match
             case Some(streamed) => Router.streamedEntity(streamed)
-            case None =>
+            case None           =>
               if encoded.body.isEmpty then HttpEntity.Empty
               else
                 ContentType.parse(encoded.contentType) match
                   case Right(contentType) => HttpEntity(contentType, encoded.body)
-                  case Left(_) =>
+                  case Left(_)            =>
                     HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
         )
       }
       .recover {
-        case failure: HttpProblem => problem(failure)
-        case Rejection(error)     => problem(HttpProblem.from(error))
+        case failure: HttpProblem              => problem(failure)
+        case Rejection(error)                  => problem(HttpProblem.from(error))
         case failure: IllegalArgumentException =>
           problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
         case NonFatal(failure) =>
@@ -1016,7 +1016,7 @@ private final class Router(
         // A stream a grant admitted ends when the grant does (feature 040): a kill switch the
         // router holds while the stream is open, completing it as if it had ended on its own.
         val served = revoke match
-          case None => events
+          case None                => events
           case Some(stillAdmitted) =>
             events
               .viaMat(org.apache.pekko.stream.KillSwitches.single)(
@@ -1042,7 +1042,7 @@ private final class Router(
       .recover {
         case failure: HttpProblem => problem(failure)
         case Rejection(error)     => problem(HttpProblem.from(error))
-        case NonFatal(failure) =>
+        case NonFatal(failure)    =>
           system.log.error(s"unhandled failure building ${route.describe}", failure)
           problem(HttpProblem(500, "internal error"))
       }
@@ -1093,7 +1093,7 @@ private final class Router(
           catch case failure: HttpProblem => Left(problem(failure))
         handler match
           case Left(refused) => Future.successful(refused)
-          case Right(run) =>
+          case Right(run)    =>
             val upgrades = configuredUpgrades.getOrElse(SocketUpgrades.from(system, OpenSockets()))
             val socket   = upgrades.open()
             // A socket a grant admitted is closed when the grant ends (feature 040).
@@ -1108,7 +1108,7 @@ private final class Router(
               )(using AnkkaExecutors.virtual).onComplete { outcome =>
                 open.foreach(revocable.remove(_): Unit)
                 outcome match
-                  case scala.util.Success(_) => opened.close(CloseReason.Finished)
+                  case scala.util.Success(_)       => opened.close(CloseReason.Finished)
                   case scala.util.Failure(failure) =>
                     system.log.error(s"unhandled failure in ${route.describe}", failure)
                     opened.close(CloseReason.Failed)
@@ -1278,7 +1278,7 @@ private[http] object CallerSource:
       clientCertificates: Boolean = true
   ): CallerSource =
     tls match
-      case None => local
+      case None           => local
       case Some(identity) =>
         val self = identity.identity.getOrElse(
           throw IllegalStateException(
@@ -1346,7 +1346,7 @@ private[ankka] object Tracing:
     val observability = Observability(system)
     val componentRef  = observability.names.intern("http")
     val handlerRef    = observability.names.intern(describe)
-    val continued =
+    val continued     =
       RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
     val span = continued match
       case Some(parent) =>
@@ -1368,7 +1368,7 @@ private[ankka] object Tracing:
     val observability = Observability(system)
     val componentRef  = observability.names.intern("http")
     val handlerRef    = observability.names.intern(describe)
-    val continued =
+    val continued     =
       RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
     val span = continued match
       case Some(parent) =>
@@ -1452,7 +1452,7 @@ private[http] object SocketUpgrades:
     val server   = org.apache.pekko.http.scaladsl.settings.ServerSettings(system)
     SocketSettings.problems(settings, server.timeouts.idleTimeout) match
       case Vector() => ()
-      case found =>
+      case found    =>
         throw IllegalArgumentException(
           found.mkString("invalid ankka http configuration:\n  - ", "\n  - ", "")
         )

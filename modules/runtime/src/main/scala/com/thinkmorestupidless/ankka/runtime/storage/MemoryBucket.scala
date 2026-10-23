@@ -112,7 +112,7 @@ final class MemoryObjectStorage(
       ObjectRules.checkName(objectName)
       exposure match
         case BucketExposure.Signed | BucketExposure.Supplied => ()
-        case other =>
+        case other                                           =>
           throw name.fold(StorageRefusals.notExposed())(b => StorageRefusals.notSigned(b, other))
       ObjectRules.checkSpan(span)
       val expires = clock().plusSeconds(span.toSeconds).getEpochSecond

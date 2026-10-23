@@ -47,7 +47,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   private def render(overlay: String): String =
     val dir    = repoRoot.resolve(s"kustomization/overlays/$overlay")
     val errors = StringBuilder()
-    val out =
+    val out    =
       Process(Seq("kubectl", "kustomize", dir.toString))
         .!!(ProcessLogger(line => errors.append(line): Unit))
     assert(out.nonEmpty, s"$overlay rendered nothing: $errors")
@@ -81,7 +81,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     val copy   = Files.createTempDirectory("ankka-recovery")
     Files.list(source).iterator.asScala.filter(Files.isRegularFile(_)).foreach { file =>
       val text = Files.readString(file)
-      val set =
+      val set  =
         if file.getFileName.toString == "kustomization.yaml" then
           values.foldLeft(text)((t, kv) => t.replace(s"${kv._1}=SET", s"${kv._1}=${kv._2}"))
         else text
@@ -92,7 +92,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
   test(
     "the control plane's restore makes its cluster from the line, and the marker, as set (041)"
   ) {
-    val name = "ankka-controlplane-db-r202610081012"
+    val name     = "ankka-controlplane-db-r202610081012"
     val rendered =
       renderRecovery("", Map("restoreName" -> name, "targetTime" -> "2026-10-08T09:20:00Z"))
     val cluster = documentsOfKind(rendered, "Cluster").head
@@ -337,7 +337,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     // variable's *name* and legitimately contains it, so match the placeholder on its own.
     // A variable's name may appear anywhere (`${strimzienv:ANKKA_BASE_DOMAIN}` reads one).
     val placeholder = "(?<!ANKKA_)BASE_DOMAIN".r
-    val unreplaced = remote.linesIterator
+    val unreplaced  = remote.linesIterator
       .filter(line => placeholder.findFirstIn(line).isDefined)
       .toVector
     assertEquals(unreplaced, Vector.empty, "a placeholder reached the remote render")
@@ -355,7 +355,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     // trust-manager's chart brings its own self-signed Issuer for its webhook's serving
     // certificate, which is a dependency's business and serves nothing on the domain.
     val internal = Set("ankka-selfsigned", "ankka-cluster", "ankka-service")
-    val issuers = (documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer"))
+    val issuers  = (documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer"))
       .filterNot(d => internal.exists(n => d.linesIterator.contains(s"  name: $n")))
       .filterNot(_.contains("app.kubernetes.io/name: trust-manager"))
       // So does the Barman Cloud plugin (feature 041), for its channel to CNPG inside cnpg-system.
@@ -565,7 +565,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     )
 
     val gateway = yamlOf(documentsOfKind(remote, "Gateway").find(_.contains("name: ankka")).get)
-    val broker = at(gateway, "spec", "listeners") match
+    val broker  = at(gateway, "spec", "listeners") match
       case l: java.util.List[?] =>
         l.asScala.collect { case m: java.util.Map[?, ?] => m }.find(_.get("name") == "broker")
       case _ => None
@@ -669,7 +669,7 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
         .findFirstMatchIn(deployment)
         .map(_.group(1).trim)
     for (render, overlay) <- Vector(local -> "local", remote -> "cloud") do
-      val operator = operatorDeployment(render, overlay)
+      val operator     = operatorDeployment(render, overlay)
       val controlPlane = documentsOfKind(render, "Deployment")
         .find(_.contains("name: ankka-controlplane"))
         .getOrElse(fail(s"$overlay: no control plane Deployment"))

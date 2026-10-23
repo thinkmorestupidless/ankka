@@ -178,7 +178,7 @@ object Models:
         }
     }
     val shorthands = (anthropic ++ openai).toMap
-    val named = byName.collect {
+    val named      = byName.collect {
       case (name, settings) if !shorthands.contains(name) => name -> configure(name, settings)
     }
     val scripted = present(env, ScriptVariable).map { script =>
@@ -194,7 +194,7 @@ object Models:
       case Some(name) =>
         providers.get(name) match
           case Some(chosen) => Models(providers, Some(chosen))
-          case None =>
+          case None         =>
             refuse(
               s"$DefaultVariable: '$name' is not a configured model provider; the providers are " +
                 (if providers.isEmpty then "none"
@@ -251,7 +251,7 @@ object Models:
   private def responseOf(turn: Json): Either[String, ModelResponse] =
     def call(t: Json, i: Int): Either[String, ToolCall] =
       t("tool").flatMap(_.asString) match
-        case None => Left("a tool call needs a \"tool\" name")
+        case None       => Left("a tool call needs a \"tool\" name")
         case Some(name) =>
           Right(
             ToolCall(
@@ -270,9 +270,9 @@ object Models:
           }
           .map(calls)
       case None if turn("tool").isDefined => call(turn, 0).map(c => calls(Vector(c)))
-      case None =>
+      case None                           =>
         (turn("text").flatMap(_.asString), turn("refusal").flatMap(_.asString)) match
-          case (Some(text), _) => Right(response(text))
+          case (Some(text), _)   => Right(response(text))
           case (None, Some(why)) =>
             Right(ModelResponse("", Vector.empty, StopReason.Refusal, TokenUsage.zero, Some(why)))
           case (None, None) => Left("a turn is a text, a tool call, or a refusal")

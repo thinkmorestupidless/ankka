@@ -500,7 +500,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     )
     // A writer, started once the watcher is caught up, places a row the watch must then give.
     val placed = new java.util.concurrent.atomic.AtomicBoolean(false)
-    val lines = readEvents("/tree/watched") { read =>
+    val lines  = readEvents("/tree/watched") { read =>
       val events = eventsOf(read)
       if events.exists(_._1 == "caught-up") && !placed.getAndSet(true) then
         Thread.ofVirtual().start(() => post("/tree/vw-b"): Unit): Unit
@@ -624,7 +624,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // ── Another project's topic (feature 040) ──────────────────────────────────
 
   /** The topic `partner-relay` reads and publishes to, as the runtime carries them. */
-  private val partnerShared = s"${ConformanceReference.Partner}/${ConformanceReference.Shared}"
+  private val partnerShared  = s"${ConformanceReference.Partner}/${ConformanceReference.Shared}"
   private val partnerRelayed =
     s"${ConformanceReference.Partner}/${ConformanceReference.SharedRelayed}"
 
@@ -1218,7 +1218,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test("socket.token-as-subprotocol") {
     onlyWhereStreaming()
     val token = ConformanceTarget.issuer.token("grace")
-    val s = socket("/private/socket", protocols = Seq("ankka.socket", s"ankka.bearer.$token"))
+    val s     = socket("/private/socket", protocols = Seq("ankka.socket", s"ankka.bearer.$token"))
       .fold(r => fail(s"not opened: $r"), identity)
     assertEquals(s.subprotocol, Some("ankka.socket"))
     assertEquals(principalAndCaller(s)("subject").flatMap(_.asString), Some("grace"))
@@ -1451,7 +1451,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
 
   private def createTask(instructions: String, dependsOn: String*): String =
     val deps = dependsOn.map(d => s"\"$d\"").mkString(",")
-    val r = postJson(
+    val r    = postJson(
       "/autonomous/tasks/answer/create",
       s"""{"instructions":"$instructions","dependsOn":[$deps]}"""
     )
@@ -1556,13 +1556,13 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   private def subscribe(
       instance: String
   ): (java.util.concurrent.LinkedBlockingQueue[Json], () => Unit) =
-    val queue = java.util.concurrent.LinkedBlockingQueue[Json]()
+    val queue   = java.util.concurrent.LinkedBlockingQueue[Json]()
     val request = HttpRequest
       .newBuilder(URI.create(s"${target.baseUrl}/autonomous/instances/$instance/notifications"))
       .GET()
       .build()
     val response = http.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
-    val reader = Thread.ofVirtual().start { () =>
+    val reader   = Thread.ofVirtual().start { () =>
       try
         response.get().body().forEach { line =>
           if line.startsWith("data:") then
@@ -1666,7 +1666,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   private def everyRow(): Vector[(String, String)] =
     given ActorSystem[?] = target.system
     val database         = Database()
-    val tables = Await.result(
+    val tables           = Await.result(
       database.query(
         SqlFragment.raw(
           "SELECT table_name FROM information_schema.tables " +
@@ -1695,7 +1695,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
    */
   private def heldCopies(name: String): Int =
     ConformanceTarget.secretManager match
-      case None => secretRows(name).size
+      case None       => secretRows(name).size
       case Some(fake) =>
         assertEquals(secretRows(name), Vector.empty, s"the database holds '$name'")
         val id =
@@ -1841,7 +1841,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       )
       .fold(p => fail(p), identity)
     def rows(field: String) = fixture(field).flatMap(_.asArray).getOrElse(fail(s"no $field"))
-    def text(row: Json) =
+    def text(row: Json)     =
       word(row, "unit") * row("repeat").flatMap(_.asDouble).fold(1)(_.toInt)
     val checked = for
       (field, rule) <- Vector("objectNames" -> "name", "prefixes" -> "prefix")
@@ -2072,7 +2072,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       .expectCompleteTaskJson("""{"answer":"one","sources":["sensitive_lookup"]}""")
     val (id, instance) = runTask("Look auto-ap2 up carefully")
     val approval       = eventually()(awaitingOf(instance).headOption)
-    val decided = postJson(
+    val decided        = postJson(
       s"/autonomous/instances/$instance/decide/$approval",
       """{"approved":true,"by":"dana"}"""
     )
@@ -2514,7 +2514,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     // them on the command; the SDK hands them to the handler. The record keeps both, and the event
     // is replayed with them, so the event handler reads them after a restart as well.
     given ActorSystem[?] = target.system
-    val client = com.thinkmorestupidless.ankka.sdk.ComponentClient(
+    val client           = com.thinkmorestupidless.ankka.sdk.ComponentClient(
       com.thinkmorestupidless.ankka.runtime.ShardingTransport(
         org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding(target.system),
         10.seconds
@@ -2607,7 +2607,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test("contracts.edges: the topology says what a component states for a topic") {
     val document = Json.parse(target.topology).fold(p => fail(s"not JSON: $p"), identity)
     val edges    = document("declared").flatMap(_.asArray).getOrElse(fail(target.topology))
-    val relay = edges.filter(e =>
+    val relay    = edges.filter(e =>
       e("from").flatMap(_.asString).contains("contract-relay") ||
         e("to").flatMap(_.asString).contains("contract-relay")
     )
@@ -2642,7 +2642,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
 
   private def observedCalls(): Vector[Observed] =
     val document = Json.parse(target.topology).fold(p => fail(s"not JSON: $p"), identity)
-    def text(of: Json, field: String) = of(field).flatMap(_.asString).getOrElse(fail(s"$of"))
+    def text(of: Json, field: String)  = of(field).flatMap(_.asString).getOrElse(fail(s"$of"))
     def count(of: Json, field: String) =
       of("handled").flatMap(_(field)).flatMap(_.asDouble).map(_.toLong).getOrElse(fail(s"$of"))
     for
@@ -2783,7 +2783,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   ): (String, String) =
     val scopeJson = scope.map(s => s"\"$s\"").mkString("[", ",", "]")
     val attrsJson = attributes.map((k, v) => s"\"$k\":\"$v\"").mkString("{", ",", "}")
-    val r = postJson(
+    val r         = postJson(
       "/mcp-keys",
       s"""{"subject":"$subject","scope":$scopeJson,"attributes":$attrsJson}"""
     )
@@ -2890,7 +2890,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     val r         = get("/mcp-keys")
     assertEquals(r.status, 200, r.toString)
     val listed = r.json.asArray.getOrElse(fail(r.toString))
-    val mine =
+    val mine   =
       listed.find(_("id").flatMap(_.asString).contains(id)).getOrElse(fail(s"$id not listed: $r"))
     assertEquals(mine("subject").flatMap(_.asString), Some("listed-subject"))
     assert(!r.body.contains(key), "the key is in the listing")

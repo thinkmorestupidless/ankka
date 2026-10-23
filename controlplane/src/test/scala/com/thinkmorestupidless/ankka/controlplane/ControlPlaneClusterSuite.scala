@@ -43,7 +43,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   private val K3sImage          = "rancher/k3s:v1.35.1-k3s1"
   private val BaseDomain        = "test.local"
   private val ControlPlaneImage = "ankka-controlplane:latest"
-  private val SampleImage =
+  private val SampleImage       =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real token from the deployed identity provider, through the gateway, for a client this
   // suite creates: the deployed control plane verifies against the in-cluster key set and expects
@@ -53,10 +53,10 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   // The realm's tokens live five minutes and the suite runs for longer, so one is minted again once
   // the last is four minutes old: a case that runs late must not fail on an expired credential.
   @volatile private var minted: Option[(String, Long)] = None
-  private def Token: String =
+  private def Token: String                            =
     minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
       case Some((token, _)) => token
-      case None =>
+      case None             =>
         val token = KeycloakStack.mintToken(
           GatewayStack.exportCa(k8s),
           BaseDomain,
@@ -133,7 +133,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       applyManifest("kustomization/components/crd/ankkaservice.yaml")
       applyManifest("kustomization/components/controlplane/namespace.yaml")
 
-      val ddl = repoRoot.resolve("modules/runtime/src/main/resources/ankka/ddl")
+      val ddl  = repoRoot.resolve("modules/runtime/src/main/resources/ankka/ddl")
       val data = Files
         .list(ddl)
         .iterator()
@@ -299,7 +299,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     // By the Service's name, over mutual TLS with the pod's own service certificate (feature 014).
     val target = s"https://ankka-controlplane.$Namespace.svc.cluster.local:9000$path"
     val dir    = "/var/run/secrets/ankka/service"
-    val from = readyPods
+    val from   = readyPods
       .filter(_.getMetadata.getDeletionTimestamp == null)
       .lastOption
       .getOrElse(pods.last)
@@ -404,7 +404,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
         // Say what the pods were doing: an image that will not start, a node out of memory and a
         // cluster that will not form look identical from a ready count.
         val report = k8s.pods().inNamespace(Namespace).list().getItems.asScala.map { pod =>
-          val status = Option(pod.getStatus)
+          val status     = Option(pod.getStatus)
           val containers = status.toList
             .flatMap(_.getContainerStatuses.asScala)
             .map(c =>
@@ -482,7 +482,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       "pod/stranger",
       "--timeout=120s"
     ): Unit
-    val ip = readyPods.head.getStatus.getPodIP
+    val ip                  = readyPods.head.getStatus.getPodIP
     def connects(port: Int) =
       k3s
         .execInContainer(
@@ -600,7 +600,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     val failures          = java.util.concurrent.ConcurrentLinkedQueue[String]()
     val latencies         = java.util.concurrent.ConcurrentLinkedQueue[Long]()
     @volatile var running = true
-    val load = new Thread(() =>
+    val load              = new Thread(() =>
       var n = 0
       while running do
         n += 1
@@ -629,8 +629,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     Thread.sleep(5000)
     running = false; load.join(10000)
 
-    val total = accepted.get + refused.get
-    val lat   = latencies.asScala.toVector.sorted
+    val total  = accepted.get + refused.get
+    val lat    = latencies.asScala.toVector.sorted
     val timing =
       if lat.isEmpty then "no timings"
       else s"GET latency min/median/max ${lat.head}/${lat(lat.size / 2)}/${lat.last}ms"
@@ -676,7 +676,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
    * change name resolution for this whole test JVM if set here, which is why it is a subprocess.
    */
   private def cliProcess(config: Path, hosts: Path, args: String*): (Int, String) =
-    val java = Paths.get(sys.props("java.home"), "bin", "java").toString
+    val java    = Paths.get(sys.props("java.home"), "bin", "java").toString
     val command = Vector(
       java,
       s"-Djdk.net.hosts.file=$hosts",
@@ -902,7 +902,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
         (if form.nonEmpty then Vector("-H", s"Origin: $origin") else Vector.empty) ++
         form.flatMap((k, v) => Vector("--data-urlencode", s"$k=$v")) :+ url
       val process = new ProcessBuilder(args*).redirectErrorStream(true).start()
-      val output =
+      val output  =
         new String(process.getInputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
       process.waitFor()
       val lastLine                 = output.lastIndexOf('\n')
@@ -911,7 +911,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
 
     def signIn(): Unit =
       val (_, _, form) = request(s"$origin/")
-      val action = """action="([^"]+)"""".r
+      val action       = """action="([^"]+)"""".r
         .findFirstMatchIn(form)
         .map(_.group(1).replace("&amp;", "&"))
         .getOrElse(fail(s"no login form in: ${form.take(300)}\n${consoleLogs()}"))
@@ -995,7 +995,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   test("10. the console is reachable only through the gateway, and holds no grant") {
     waitFor(420.seconds)(consoleAndControlPlaneReady)
     // From a pod in another namespace, the console's serving port is closed by the network.
-    val from = readyPods.headOption.getOrElse(fail("no control plane pod to try from"))
+    val from        = readyPods.headOption.getOrElse(fail("no control plane pod to try from"))
     val (code, out) = nodeExec(
       "kubectl",
       "exec",
@@ -1051,7 +1051,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     // console serves from its session alone: the control plane's availability is not this case's.
     val statuses          = java.util.concurrent.ConcurrentLinkedQueue[Int]()
     @volatile var running = true
-    val poller = new Thread(() =>
+    val poller            = new Thread(() =>
       while running do
         statuses.add(browser.request(s"${browser.origin}/auth/sign-out", follow = false)._1)
         Thread.sleep(1000)
@@ -1111,7 +1111,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     // Everything but svc1 was created only to be counted, so it goes.
     val NamePattern  = """"name":"([^"]+)"""".r
     val (_, listing) = api("GET", s"/services/$Project")
-    val throwaway =
+    val throwaway    =
       NamePattern.findAllMatchIn(listing).map(_.group(1)).toVector.distinct.filterNot(_ == "svc1")
     throwaway.foreach(name => api("DELETE", s"/services/$Project/$name"): Unit)
     waitFor(300.seconds) {
@@ -1129,7 +1129,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     val (applied, appliedOut) = api("PUT", s"/services/$Project/svc1", Some(two))
     assertEquals(applied, 0, appliedOut)
 
-    val workload = s"ankka-$Project"
+    val workload              = s"ankka-$Project"
     def cartPods: Vector[Pod] =
       k8s
         .pods()
@@ -1168,8 +1168,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     catch
       case failure: Throwable =>
         // What the rollout was doing, so a failure says why rather than only that it timed out.
-        val d     = Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get())
-        val every = k8s.pods().inNamespace(workload).withLabel("app.kubernetes.io/name", "svc1")
+        val d      = Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get())
+        val every  = k8s.pods().inNamespace(workload).withLabel("app.kubernetes.io/name", "svc1")
         val states = every.list().getItems.asScala.map { p =>
           val cs =
             Option(p.getStatus.getContainerStatuses).map(_.asScala.toVector).getOrElse(Vector.empty)
@@ -1276,7 +1276,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   test("12. only the control plane may open a workload's observe port") {
     import com.thinkmorestupidless.ankka.operator.InPod
     val workload = s"ankka-$Project"
-    val carts = k8s
+    val carts    = k8s
       .pods()
       .inNamespace(workload)
       .withLabel("app.kubernetes.io/name", "svc1")

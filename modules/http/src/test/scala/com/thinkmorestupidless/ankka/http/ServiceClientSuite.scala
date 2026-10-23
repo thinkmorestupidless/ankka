@@ -233,7 +233,7 @@ class ServiceClientSuite extends munit.FunSuite:
     val slow = standIn(_ => "late", delay = 2.seconds)
     try
       val started = System.nanoTime()
-      val e = intercept[ServiceUnanswered](
+      val e       = intercept[ServiceUnanswered](
         localClients("slow", addressOf(slow), "ankka.service-client.timeout = 500ms")("slow")
           .getText("/")
       )

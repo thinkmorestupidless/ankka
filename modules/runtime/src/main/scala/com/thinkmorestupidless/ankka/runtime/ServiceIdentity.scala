@@ -100,7 +100,7 @@ object ServiceIdentity:
     else
       val file = Paths.get(directory).resolve("tls.crt")
       try
-        val pem = Files.readAllBytes(file)
+        val pem          = Files.readAllBytes(file)
         val certificates = CertificateFactory
           .getInstance("X.509")
           .generateCertificates(ByteArrayInputStream(pem))

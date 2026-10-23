@@ -29,7 +29,7 @@ object GrantEffect:
     else
       grant.target.kind match
         case GrantTarget.Route | GrantTarget.Method => onService(grant.target, status, documents)
-        case GrantTarget.Topic =>
+        case GrantTarget.Topic                      =>
           grant.grantee match
             case _: Grantee.Machine if !brokerExposed => BrokerNotExposed
             case _                                    => InEffect
@@ -45,7 +45,7 @@ object GrantEffect:
       case Some(s) if s.hosting == ServiceSpec.Web => RouteNotGrantable
       case Some(s) if s.readyInstances < 1         => RouteNotSeen
       case Some(s) if s.grants.isEmpty             => RolloutNeeded
-      case Some(_) =>
+      case Some(_)                                 =>
         val handlers = documents
           .flatMap(_.nodes)
           .filter(_.kind == "Endpoint")

@@ -86,7 +86,7 @@ final case class GrantTarget(
     case GrantTarget.Route =>
       s"route ${service.getOrElse("")} ${method.getOrElse("")} ${path.getOrElse("")}"
     case GrantTarget.Method => s"method ${service.getOrElse("")} ${method.getOrElse("")}"
-    case GrantTarget.Topic =>
+    case GrantTarget.Topic  =>
       s"topic ${topic.getOrElse("")} ${right.getOrElse("")}" + (if decrypt then " decrypt" else "")
     case other => other
 
@@ -128,7 +128,7 @@ object GrantTarget:
     case Vector(Topic, name, right)            => Right(topic(name, right))
     case Vector(Topic, name, right, "decrypt") => Right(topic(name, right, decrypt = true))
     case Vector(Erasure)                       => Right(erasure)
-    case _ =>
+    case _                                     =>
       Left(
         s"target '${words.mkString(" ")}' is not \"route <service> <METHOD> <path>\", " +
           "\"method <service> <Service/Method>\", \"topic <name> consume|produce [decrypt]\" or " +

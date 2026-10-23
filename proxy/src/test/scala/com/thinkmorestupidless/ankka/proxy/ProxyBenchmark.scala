@@ -36,7 +36,7 @@ class ProxyBenchmark extends munit.FunSuite:
 
   test("a request through the proxy costs under 5 ms, and the proxy fits its allotment") {
     val process = StandInProcess().start()
-    val dir = authority
+    val dir     = authority
       .issue(uris = Seq("ankka://bench/web"), dnsNames = Seq("localhost"))
       .writeTo(Files.createTempDirectory("proxy-benchmark"))
     val port  = freePort()
@@ -54,7 +54,7 @@ class ProxyBenchmark extends munit.FunSuite:
 
       def time(client: HttpClient, uri: URI, n: Int): Vector[Long] =
         Vector.fill(n) {
-          val started = System.nanoTime()
+          val started  = System.nanoTime()
           val response =
             client.send(HttpRequest.newBuilder(uri).build(), BodyHandlers.ofByteArray())
           val took = System.nanoTime() - started
@@ -89,7 +89,7 @@ class ProxyBenchmark extends munit.FunSuite:
 
   /** The proxy's `Main` as the image runs it: the image's JVM flags, the pod's memory as RAM. */
   private def forkProxy(serviceDirectory: Path, port: Int, processPort: Int): Process =
-    val java = Path.of(sys.props("java.home"), "bin", "java").toString
+    val java    = Path.of(sys.props("java.home"), "bin", "java").toString
     val command = Vector(
       java,
       "-XX:+UseSerialGC",

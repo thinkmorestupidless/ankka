@@ -99,7 +99,7 @@ class RunFeatures extends GherkinSuite("../../features/blueprints/runs.feature")
   private val text = Shape.obj("text" -> Shape.string)
 
   private def brief(instructions: String = "Write briefly."): Blueprint =
-    val writer = Worker("writer").instructions(instructions).tools("note", "gate").budget(4)
+    val writer   = Worker("writer").instructions(instructions).tools("note", "gate").budget(4)
     val polisher =
       Worker("polisher").instructions("Polish, asking first.").tools("approve_me").budget(4)
     val base = Blueprint(name)
@@ -224,7 +224,7 @@ class RunFeatures extends GherkinSuite("../../features/blueprints/runs.feature")
     (_: String, a: String, b: String) =>
       // Both steps call the gate, so both can be seen in flight before either ends.
       val writer = Worker("writer").instructions("Write briefly.").tools("gate").budget(4)
-      val pair = Blueprint(named("pair"))
+      val pair   = Blueprint(named("pair"))
         .input(Shape.obj("topic" -> Shape.string))
         .worker(writer)
         .step(Step(a).ask("writer").reads("input").result(text))

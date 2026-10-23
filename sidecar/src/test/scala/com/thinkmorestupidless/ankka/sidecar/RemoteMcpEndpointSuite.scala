@@ -90,7 +90,7 @@ class RemoteMcpEndpointSuite extends munit.FunSuite:
       headers: Vector[(String, String)] = Vector.empty
   ): ToolOutcome =
     val endpoint = RemoteMcpEndpoint.from(spec, conversation, settings)
-    val tool =
+    val tool     =
       endpoint.tools.find(_.spec.name == "get_cart").getOrElse(fail("get_cart not declared"))
     val context =
       SimpleRequestContext("POST", "/mcp", QueryParams.empty, headers, None, principal, caller)
@@ -136,7 +136,7 @@ class RemoteMcpEndpointSuite extends munit.FunSuite:
   }
 
   test("a token's principal reaches the process as its claims, and the token does not") {
-    val c = Scripted(ok("{}"))
+    val c         = Scripted(ok("{}"))
     val principal =
       Principal("ada", roles = Set("buyer"), claims = Map("tier" -> "gold"), issuer = Some("test"))
     run(c, principal = Some(principal), headers = Vector("Authorization" -> s"Bearer $Token"))

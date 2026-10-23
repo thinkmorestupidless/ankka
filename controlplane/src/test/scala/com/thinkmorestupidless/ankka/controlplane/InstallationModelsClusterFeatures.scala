@@ -76,7 +76,7 @@ class InstallationModelsClusterFeatures
     "a served model stays served while no call comes"                     -> "KeeperSuite",
     "a served model is fetched once and its digest recorded"              -> "KeeperSuite",
     "the model server's metrics reach the installation's telemetry store" -> "KeeperMetricsSuite",
-    "a call to an installation model is a span in the turn's trace" ->
+    "a call to an installation model is a span in the turn's trace"       ->
       "InstallationModelsSuite (the call carries the turn's traceparent) and DoorSuite (the door records its span under it)",
     "the model server is placed and sized by the installation's own settings" -> "RemoteOverlaySuite",
     "a local platform asked for the model server serves one small model on a CPU" ->
@@ -110,7 +110,7 @@ class InstallationModelsClusterFeatures
   private val Small       = "qwen3:0.6b"
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -306,8 +306,8 @@ class InstallationModelsClusterFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -629,7 +629,7 @@ class InstallationModelsClusterFeatures
     // and what refuses it is the door; `-k` so the refusal is the door's, not curl's own distrust.
     // The namespace first: these scenarios run before any service has made it.
     val namespace = s"$Prefix-$Project"
-    val manifest =
+    val manifest  =
       s"""apiVersion: v1
          |kind: Namespace
          |metadata:

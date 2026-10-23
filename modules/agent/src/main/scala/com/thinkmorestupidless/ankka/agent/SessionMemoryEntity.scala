@@ -111,7 +111,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
       appended(message)
 
     case SessionMemoryEvent.AiMessageAdded(message, usage) =>
-      val next = appended(message)
+      val next       = appended(message)
       val byProvider = message.provider match
         case Some(provider) =>
           next.usageByProvider.updated(
@@ -169,7 +169,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     // A batch's usage is the whole turn's, and a turn with a tool round holds several answers: it is
     // recorded once, with the last of them, or the session would count the turn once per answer.
     val lastAnswer = batch.messages.lastIndexWhere(_.isInstanceOf[SessionMessage.AiMessage])
-    val events = batch.messages.zipWithIndex.map {
+    val events     = batch.messages.zipWithIndex.map {
       case (message: SessionMessage.UserMessage, _) => SessionMemoryEvent.UserMessageAdded(message)
       case (message: SessionMessage.AiMessage, index) =>
         SessionMemoryEvent.AiMessageAdded(
@@ -219,7 +219,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     val id = decision.approvalId
     Decision.problem(decision) match
       case Some(problem) => effects.error(problem, ErrorCode.BadRequest)
-      case None =>
+      case None          =>
         currentState.suspended.flatMap(turn => turn.requests.find(_.id == id).map(turn -> _)) match
           case Some((_, request)) if !request.awaiting =>
             effects.error(s"approval request '$id' is decided", ErrorCode.Conflict)

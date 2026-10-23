@@ -44,7 +44,7 @@ object ProjectDeclarations:
    */
   def fromEnv(env: Map[String, String] = sys.env): Either[String, Option[ProjectDeclarations]] =
     env.get(EnvVar).filter(_.nonEmpty) match
-      case None => Right(None)
+      case None       => Right(None)
       case Some(path) =>
         val file = Paths.get(path)
         if !Files.exists(file) then Right(None) else read(file).map(Some(_))
@@ -72,9 +72,9 @@ object ProjectDeclarations:
       name       <- text(json, "name")
       partitions <- number(json, "partitions")
       compacted  <- flag(json, "compacted")
-      contract <- json.field("contract") match
+      contract   <- json.field("contract") match
         case None | Some(GraphJson.Null) => Right(None)
-        case Some(c) =>
+        case Some(c)                     =>
           for
             cn <- text(c, "name")
             fp <- text(c, "fingerprint")

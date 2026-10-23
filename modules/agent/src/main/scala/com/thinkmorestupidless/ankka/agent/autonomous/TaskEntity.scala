@@ -21,7 +21,7 @@ object TaskStatus:
    * every codec that contains a status uses it.
    */
   given JsonValueCodec[TaskStatus] = new JsonValueCodec[TaskStatus]:
-    def nullValue: TaskStatus = null
+    def nullValue: TaskStatus                                        = null
     def decodeValue(in: JsonReader, default: TaskStatus): TaskStatus =
       val word = in.readString(null)
       TaskStatus.values

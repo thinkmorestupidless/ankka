@@ -173,7 +173,7 @@ class OperatorClusterSuite extends munit.FunSuite:
             .filter(c => c.getStatus != "True")
             .map(c => s"${c.getType}: ${c.getReason} ${Option(c.getMessage).getOrElse("")}".trim)
           val state = (p.getStatus.getPhase +: conditions).mkString("; ")
-          val log = Option(p.getSpec.getContainers.get(0).getName)
+          val log   = Option(p.getSpec.getContainers.get(0).getName)
             .map(c =>
               scala.util
                 .Try(
@@ -606,7 +606,7 @@ class OperatorClusterSuite extends munit.FunSuite:
       installedCertificates += role
 
   private def execInPostgres(command: Seq[String]): (Int, String) =
-    val out = new java.io.ByteArrayOutputStream()
+    val out   = new java.io.ByteArrayOutputStream()
     val watch = client
       .pods()
       .inNamespace(Namespace)
@@ -692,7 +692,7 @@ class OperatorClusterSuite extends munit.FunSuite:
 
   test("16b. one service's certificate does not log in as another service's role") {
     installCertificate(DbService)
-    val dir = s"/controller/ankka-test-certs/$DbService"
+    val dir         = s"/controller/ankka-test-certs/$DbService"
     val (code, out) = execInPostgres(
       Seq(
         "psql",
@@ -935,7 +935,7 @@ class OperatorClusterSuite extends munit.FunSuite:
         .inNamespace(probeNamespace)
         .resource(AnkkaService(probeNamespace, "probe", probeSpec))
         .create()
-      val asOperator = new Fabric8Executor(restricted)
+      val asOperator   = new Fabric8Executor(restricted)
       def probeService =
         Option(client.services().inNamespace(probeNamespace).withName("probe").get())
 
@@ -1001,7 +1001,7 @@ class OperatorClusterSuite extends munit.FunSuite:
       // Feature 039: a move's Job, under the same real identity. Its grant on batch/jobs lets it
       // create the Job, apply it again (a PATCH) and read how it ended; the Secrets the Job names
       // stay unreadable to it, as above.
-      val moving = probeSpec.copy(provisionObjectStorage = true)
+      val moving  = probeSpec.copy(provisionObjectStorage = true)
       val moveJob = Rendering.moveJob(
         owner,
         moving,
@@ -1162,8 +1162,8 @@ class OperatorClusterSuite extends munit.FunSuite:
           .get
       val store = ObjectStoreStack.install(k3s, client, root)
       try
-        val garage = GarageStore(store.settings.adminUrl, store.settings.adminToken)
-        val labels = Labels.identity("probe", "probe")
+        val garage     = GarageStore(store.settings.adminUrl, store.settings.adminToken)
+        val labels     = Labels.identity("probe", "probe")
         val credential =
           Action.EnsureStorageCredential(probeNamespace, "probe-storage", labels, "probe.probe")
         def secret = client.secrets().inNamespace(probeNamespace).withName("probe-storage").get()
@@ -1594,7 +1594,7 @@ class OperatorClusterSuite extends munit.FunSuite:
   }
 
   test("28. the identity objects exist, owned — and go with the service") {
-    val sa = client.serviceAccounts().inNamespace(Namespace).withName(ClusteredService).get()
+    val sa   = client.serviceAccounts().inNamespace(Namespace).withName(ClusteredService).get()
     val role =
       client.rbac().roles().inNamespace(Namespace).withName(s"$ClusteredService-peers").get()
     val binding =
@@ -2009,7 +2009,7 @@ class OperatorClusterSuite extends munit.FunSuite:
     assertEquals(e.getCode, 403, s"$what should be refused by the API server: ${e.getMessage}")
 
   test("40. the operator's token writes a cloud request, and cannot answer or delete one") {
-    val owner = cloudReady
+    val owner      = cloudReady
     val asOperator =
       cloud.CloudProviderStack.client(client, mintToken("ankka-operator", "ankka-operator"))
     try
@@ -2110,8 +2110,8 @@ class OperatorClusterSuite extends munit.FunSuite:
   }
 
   test("42. a change to what is asked raises the generation, and an answer does not") {
-    val owner = cloudReady
-    val name  = s"$CloudOwner-bucket"
+    val owner      = cloudReady
+    val name       = s"$CloudOwner-bucket"
     val asOperator =
       cloud.CloudProviderStack.client(client, mintToken("ankka-operator", "ankka-operator"))
     try

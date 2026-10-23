@@ -209,8 +209,8 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("an observation that changes nothing is not persisted") {
-    val kit = newKit
-    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val kit         = newKit
+    val _           = kit.call(ServiceEntity.applyDescriptor)(applying())
     val observation =
       ServiceObservation(1L, ServiceLifecycle.Ready, readyInstances = 1, desiredInstances = 1)
     val _ = kit.call(ServiceEntity.observe)(observation)
@@ -235,7 +235,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("pausing is idempotent and zeroes the desired instances") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _ = kit.call(ServiceEntity.observe)(
+    val _   = kit.call(ServiceEntity.observe)(
       ServiceObservation(1L, ServiceLifecycle.Ready, readyInstances = 2, desiredInstances = 2)
     )
 
@@ -270,7 +270,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("unexposing persists one event, is idempotent, and changes nothing else") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _ = kit.call(ServiceEntity.observe)(
+    val _   = kit.call(ServiceEntity.observe)(
       ServiceObservation(1L, ServiceLifecycle.Ready, readyInstances = 3, desiredInstances = 3)
     )
     val before = kit.call(ServiceEntity.expose).replyValue
@@ -307,9 +307,9 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("exposure survives a replay, and deleting then re-applying starts unexposed") {
-    val kit = newKit
-    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _   = kit.call(ServiceEntity.expose)
+    val kit      = newKit
+    val _        = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _        = kit.call(ServiceEntity.expose)
     val replayed = kit.allEvents.foldLeft(Service.empty(kit.currentState.key)) {
       case (service, applied: ServiceApplied) =>
         service.onApplied(applied.descriptor, applied.generation)
@@ -511,7 +511,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
 
     val gcs = newKit
     val _   = gcs.call(ServiceEntity.applyDescriptor)(withBucket)
-    val _ = gcs.call(ServiceEntity.observe)(
+    val _   = gcs.call(ServiceEntity.observe)(
       ServiceObservation(
         1L,
         ServiceLifecycle.Ready,
@@ -538,7 +538,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("a restart bumps the generation so a stale observation is recognised") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _ = kit.call(ServiceEntity.observe)(
+    val _   = kit.call(ServiceEntity.observe)(
       ServiceObservation(1L, ServiceLifecycle.Ready, readyInstances = 1, desiredInstances = 1)
     )
 
@@ -664,8 +664,8 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("repeating an unconfirmed observation is refused, so an outage costs one event") {
     // The reconciler reports on a timer. Without the dedupe an unreachable cluster would
     // grow the journal for as long as it stayed unreachable.
-    val kit = newKit
-    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val kit         = newKit
+    val _           = kit.call(ServiceEntity.applyDescriptor)(applying())
     val unreachable =
       ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
 
@@ -681,7 +681,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("recovering from unconfirmed back to confirmed is a change worth recording") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _ = kit.call(ServiceEntity.observe)(
+    val _   = kit.call(ServiceEntity.observe)(
       ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
     )
 
@@ -711,7 +711,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("an operator action clears staleness, because it supersedes what was observed") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
-    val _ = kit.call(ServiceEntity.observe)(
+    val _   = kit.call(ServiceEntity.observe)(
       ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
     )
     assertEquals(kit.currentState.confirmed, false)
@@ -772,9 +772,9 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("reinstate restores what the members had chosen, and an observation cannot un-suspend") {
-    val kit = newKit
-    val _   = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
-    val _   = kit.call(ServiceEntity.suspend, carol.metadata)
+    val kit      = newKit
+    val _        = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val _        = kit.call(ServiceEntity.suspend, carol.metadata)
     val observed =
       kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1))
     assertEquals(
@@ -994,7 +994,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test("a roll back to a descriptor the platform no longer accepts is refused") {
     // A descriptor today's rules refuse cannot be applied, so the state is built by folding, as a
     // journal written under older rules would build it.
-    val key = ServiceKey("acme", "cart")
+    val key    = ServiceKey("acme", "cart")
     val events = Vector(
       ServiceApplied("acme", ServiceDescriptor("cart", ServiceSpec("")), 1L),
       ServiceApplied("acme", ServiceDescriptor("cart", ServiceSpec("cart:2")), 2L)
@@ -1258,8 +1258,8 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
   test(
     "an observation of the hostnames is what a member reads, and an identical one is not persisted"
   ) {
-    val kit = exposedKit
-    val _   = kit.call(ServiceEntity.addHostname)("app.example.com")
+    val kit    = exposedKit
+    val _      = kit.call(ServiceEntity.addHostname)("app.example.com")
     val report = ServiceObservation(
       1L,
       ServiceLifecycle.Ready,
@@ -1288,7 +1288,7 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("a service with only a supplied bucket has no storage credential to issue again") {
     val kit = newKit
-    val _ = kit.call(ServiceEntity.applyDescriptor)(
+    val _   = kit.call(ServiceEntity.applyDescriptor)(
       withNamed(
         BucketSpec(
           "archive",

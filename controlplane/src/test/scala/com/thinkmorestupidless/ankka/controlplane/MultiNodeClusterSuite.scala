@@ -51,13 +51,13 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
   private val Prefix    = "ankka"
   private val Project   = "checkout"
@@ -145,8 +145,8 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
   // ---- plumbing ------------------------------------------------------------------------------
 
   private def ankka(args: String*): (Int, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -328,7 +328,7 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
         val (c2, out) = nodeExec("kill", "-9", pid.trim)
         if c2 != 0 then Left(s"kill -9 ${pid.trim}: exit $c2: $out") else Right(())
     attempt() match
-      case Right(()) => ()
+      case Right(())   => ()
       case Left(first) =>
         Thread.sleep(2000)
         attempt() match
@@ -359,7 +359,7 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
     private val stale             = AtomicInteger(0)
     val failures                  = java.util.concurrent.ConcurrentLinkedQueue[String]()
     @volatile private var running = true
-    private val thread = new Thread(() =>
+    private val thread            = new Thread(() =>
       while running do
         val t0           = System.nanoTime()
         val (code, body) = nodeHttp(s"/carts/$cart")
@@ -523,8 +523,8 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
 
   test("6. graceful: a deleted pod leaves cleanly and is replaced") {
     waitFor(300.seconds)(readyPods.size == 3 && disjointClusters == 1)
-    val victim = pods.head
-    val peer   = pods.last
+    val victim        = pods.head
+    val peer          = pods.last
     val victimAddress = membership(peer)
       .find(_.contains(victim.getStatus.getPodIP))
       .getOrElse(fail("victim not a member"))

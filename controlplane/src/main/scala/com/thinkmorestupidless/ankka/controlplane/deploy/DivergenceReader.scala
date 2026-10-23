@@ -57,7 +57,7 @@ object DivergenceReader:
 
   /** The reader that ships: each running pod over the observe port, until one answers. */
   def observePort(namespacePrefix: String): DivergenceReader =
-    val config = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
+    val config    = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
     val directory =
       Option
         .when(config.hasPath(InstanceTopologies.ServiceDirectoryKey))(
@@ -93,12 +93,12 @@ object DivergenceReader:
         at: Instant
     ): Either[String, Vector[TopicDivergence]] =
       serviceDirectory match
-        case None => Left("the control plane has no service certificate to ask with")
+        case None            => Left("the control plane has no service certificate to ask with")
         case Some(directory) =>
           val running = pods(projectId, service)
           if running.isEmpty then Left(s"$service has no running instance")
           else
-            val tls = tlsFor(s"ankka://$projectId/$service", directory)
+            val tls     = tlsFor(s"ankka://$projectId/$service", directory)
             val answers = running.iterator.map { (pod, ip) =>
               Try {
                 val http = HttpClient

@@ -54,7 +54,7 @@ class CrossProjectTopicSuite extends munit.FunSuite with LogCapturing:
     ):
       def create(ctx: ConsumerContext)                           = new Relay
       override val outputSerializer: Option[Serializer[FanLine]] = Some(lineSerializer)
-      override def produces: Option[Publication] =
+      override def produces: Option[Publication]                 =
         if broker.isEmpty then produceTo("spinvibe", "payments.deposits")
         else Some(Publication("payments.deposits", broker = broker, project = Some("spinvibe")))
 
@@ -106,7 +106,7 @@ class CrossProjectTopicSuite extends munit.FunSuite with LogCapturing:
       assert(groups.keys.forall(g => g.contains("players") && !g.contains("spinvibe")), groups)
 
       // The topology names the topic by its project.
-      val address = kit.service.observabilityAddress.getOrElse(fail("no local console endpoint"))
+      val address  = kit.service.observabilityAddress.getOrElse(fail("no local console endpoint"))
       val response = http.send(
         HttpRequest.newBuilder(URI.create(s"$address/observability/topology")).GET().build(),
         HttpResponse.BodyHandlers.ofString()

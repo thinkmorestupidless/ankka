@@ -207,7 +207,7 @@ private[ankka] final class RemoteKeyedView(
       standing: Option[WorkflowLifecycle]
   ): Future[Vector[(String, Option[String])]] =
     val handler = source.toString
-    val span = observability.recorder.begin(
+    val span    = observability.recorder.begin(
       traceId = Trace.mint(),
       parentSpanId = 0L,
       componentRef = componentRef,
@@ -236,7 +236,7 @@ private[ankka] final class RemoteKeyedView(
         case ViewOutcome.Rows(changes) =>
           Future.successful(changes.map((key, row) => key -> row.map(p => String(p.data, "UTF-8"))))
         case ViewOutcome.Ignore => Future.successful(Vector.empty)
-        case other =>
+        case other              =>
           Future.failed(
             IllegalStateException(
               s"keyed view '${descriptor.componentId}' answered $other; a keyed view answers with rows"
@@ -259,7 +259,7 @@ private[ankka] final class RemoteViewEventHandler[A](
     reader.read(envelope.event) match
       // A TTL being set, or a workflow record that holds no state: nothing to project.
       case SourceChange.Skip => Future.successful(Done)
-      case read =>
+      case read              =>
         val change = read match
           case SourceChange.Changed(payload, _) => Some(payload)
           case _                                => None
@@ -286,7 +286,7 @@ private[ankka] final class RemoteViewStateHandler(
   import RemoteProjection.*
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
+    val subject             = PersistenceId.extractEntityId(change.persistenceId)
     val (payload, revision) = change match
       // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
       case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
@@ -405,7 +405,7 @@ private[ankka] final class RemoteConsumer(
       }
       .flatMap {
         case ConsumerOutcome.ProduceAll(messages) if messages.isEmpty => Future.successful(Done)
-        case ConsumerOutcome.ProduceAll(messages) =>
+        case ConsumerOutcome.ProduceAll(messages)                     =>
           (descriptor.producesTo, publisher) match
             case (Some(topic), Some(target)) =>
               ProjectionSupport.publishAll(
@@ -488,8 +488,8 @@ private[ankka] final class RemoteConsumerEventHandler[A](
     val local  = reader.local(envelope.event)
     val origin = reader.installation(envelope.event).map(i => (Some(i), local))
     reader.read(envelope.event) match
-      case SourceChange.Skip        => Future.successful(Done)
-      case _ if localOnly && !local => Future.successful(Done)
+      case SourceChange.Skip                       => Future.successful(Done)
+      case _ if localOnly && !local                => Future.successful(Done)
       case SourceChange.Changed(payload, standing) =>
         consumer.handle(
           subject,
@@ -510,7 +510,7 @@ private[ankka] final class RemoteConsumerStateHandler(
   import RemoteProjection.*
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
+    val subject                 = PersistenceId.extractEntityId(change.persistenceId)
     def eventId(revision: Long) = lines
       .lineOf(HistoryLines.writtenAt(change))
       .map(HistoryLines.messageId(_, change.persistenceId, revision))

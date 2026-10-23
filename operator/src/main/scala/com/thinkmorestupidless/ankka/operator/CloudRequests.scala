@@ -56,7 +56,7 @@ object CloudRequests:
       CloudKinds.Identity     -> Set(ServiceAccount),
       CloudKinds.SecretAccess -> Set(Identity, Own, Read),
       CloudKinds.SecretSync   -> Set(SecretName, Entries, EntryGeneration),
-      CloudKinds.Bucket -> Set(
+      CloudKinds.Bucket       -> Set(
         Purpose,
         Location,
         Versioning,
@@ -334,7 +334,7 @@ object CloudRequests:
       annotations: Map[String, String] = Map.empty
   ): CloudResource =
     val resource = new CloudResource
-    val meta = new ObjectMetaBuilder()
+    val meta     = new ObjectMetaBuilder()
       .withNamespace(by.namespace)
       .withName(by.name(suffix))
       .withLabels(by.labels.asJava)

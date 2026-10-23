@@ -59,7 +59,7 @@ object SqlParam:
     case v: BigDecimal        => SqlParam(v.bigDecimal, classOf[java.math.BigDecimal])
     case v: java.util.UUID    => SqlParam(v, classOf[java.util.UUID])
     case v: java.time.Instant => SqlParam(v, classOf[java.time.Instant])
-    case other =>
+    case other                =>
       throw IllegalArgumentException(
         s"cannot bind ${other.getClass.getName} as a SQL parameter; " +
           "convert it to a String, number, boolean, UUID or Instant first"

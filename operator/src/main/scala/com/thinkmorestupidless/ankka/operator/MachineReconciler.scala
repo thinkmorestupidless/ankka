@@ -23,16 +23,16 @@ final class MachineReconciler(client: KubernetesClient, settings: Settings, exec
 
   def reconcile(ref: ServiceRef): Unit =
     settings.broker match
-      case None => log.debug("no broker; machine {} is given nothing", ref.name)
+      case None         => log.debug("no broker; machine {} is given nothing", ref.name)
       case Some(broker) =>
         MachineReconciler.parse(ref.name) match
-          case None => log.warn("{} is not a machine's name", ref.name)
+          case None                         => log.warn("{} is not a machine's name", ref.name)
           case Some((organizationId, name)) =>
             val resource =
               Option(client.resources(classOf[AnkkaMachine]).withName(ref.name).get())
             val spec     = resource.flatMap(r => Option(r.getSpec))
             val projects = projectSpecs()
-            val actions = MachineReconciler.actions(
+            val actions  = MachineReconciler.actions(
               organizationId,
               name,
               spec,

@@ -75,7 +75,7 @@ class DeclaredQuerySuite extends munit.FunSuite with LogCapturing:
     "SC-002: a service declaring a refused statement does not start, and the database is sent none of it"
   ) {
     for (what, statement) <- Refused.statements do
-      val marker = statement.split("'").find(_.startsWith("sc002-")).get
+      val marker  = statement.split("'").find(_.startsWith("sc002-")).get
       val service = Ankka.service.registerAll(
         Seq(NodeEntity.descriptor, nodesDeclaring("broken", statement), Accounts.descriptor)
       )
@@ -98,7 +98,7 @@ class DeclaredQuerySuite extends munit.FunSuite with LogCapturing:
     assertEquals(error.code, ErrorCode.Timeout, error.message)
     assert(error.message.contains("'around'"), error.message)
     val database = Database()(using kit.service.system)
-    val running = Await.result(
+    val running  = Await.result(
       database.query(
         SqlFragment.raw(
           "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid() " +
@@ -151,7 +151,7 @@ class DeclaredQuerySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("C7: a declared query is counted as a call to the view, under the query's name") {
-    val _ = nodes.ask(Nodes.ofKind, "kind" -> "person")
+    val _       = nodes.ask(Nodes.ofKind, "kind" -> "person")
     val address =
       kit.service.observabilityAddress.getOrElse(fail("no local observability endpoint"))
     val http = HttpClient.newHttpClient()

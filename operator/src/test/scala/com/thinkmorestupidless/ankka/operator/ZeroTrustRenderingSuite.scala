@@ -187,7 +187,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   test(
     "the gRPC port admits the same two peers on its own port, and the HTTP policy is unchanged"
   ) {
-    val withGrpc = actions(spec.copy(grpcPort = Some(9090)))
+    val withGrpc                                 = actions(spec.copy(grpcPort = Some(9090)))
     def named(all: Vector[Action], name: String) = all.collectFirst {
       case Action.EnsureNetworkPolicy(p) if p.getMetadata.getName == name => p
     }
@@ -232,7 +232,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
 
   test("an exposed service gets a backend TLS policy whose hostname its certificate carries") {
     val exposed = spec.copy(exposed = true)
-    val policy = actions(exposed)
+    val policy  = actions(exposed)
       .collectFirst { case Action.EnsureBackendTlsPolicy(p) => p }
       .getOrElse(fail("no backend TLS policy"))
     val target = policy.getSpec.getTargetRefs.asScala.toList match
@@ -261,7 +261,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   test("certificates and policies come before the Deployment that mounts them") {
     val a          = actions(spec)
     val deployment = a.indexWhere { case Action.ApplyDeployment(_) => true; case _ => false }
-    val lastTls = a.lastIndexWhere {
+    val lastTls    = a.lastIndexWhere {
       case _: Action.EnsureCertificate | _: Action.EnsureNetworkPolicy => true
       case _                                                           => false
     }

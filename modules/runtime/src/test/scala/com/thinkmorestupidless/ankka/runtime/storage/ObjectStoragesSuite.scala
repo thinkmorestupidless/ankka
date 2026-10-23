@@ -10,7 +10,7 @@ class ObjectStoragesSuite extends munit.FunSuite:
 
   private def settings(env: Map[String, String], locally: Boolean, backend: String) =
     val base = ConfigFactory.load()
-    val c =
+    val c    =
       ConfigFactory
         .parseString(s"""ankka.storage { backend = "$backend", directory = "${Files
             .createTempDirectory("ankka-objs")}" }""")

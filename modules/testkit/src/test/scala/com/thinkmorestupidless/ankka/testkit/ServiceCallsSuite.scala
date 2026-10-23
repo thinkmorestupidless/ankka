@@ -135,7 +135,7 @@ class ServiceCallsSuite extends munit.FunSuite with LogCapturing:
     val observability  = Observability(kit.service.system)
     def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
     val spans          = observability.recorder.snapshot()
-    val call = spans
+    val call           = spans
       .find(s => name(s.componentRef) == "service:local/psp-gateway")
       .getOrElse(fail("no span for the call to the PSP gateway"))
     val step = spans

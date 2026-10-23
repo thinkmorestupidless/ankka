@@ -29,9 +29,9 @@ object Answers:
       .getOrElse(Question.refuse(question.id, s"$choice is not one of its options"))
     if !Question.inRange(confidence) then
       Question.refuse(question.id, s"a confidence of $confidence is outside 0 to 1")
-    val n    = question.options.size
-    val top  = (confidence * (n - 1) + 1) / n
-    val rest = (1 - top) / (n - 1)
+    val n             = question.options.size
+    val top           = (confidence * (n - 1) + 1) / n
+    val rest          = (1 - top) / (n - 1)
     val probabilities =
       question.options.map(o => o.key -> (if o.key == chosen.key then top else rest)).toMap
     ScriptedAnswer(question.id, Judgment.Stored.Choice(chosen.key, probabilities, confidence))
@@ -56,8 +56,8 @@ object Answers:
   def score(question: ScoreQuestion, score: Double): ScriptedAnswer =
     if score < 0 || score > question.top then
       Question.refuse(question.id, s"a score of $score is off the scale 0 to ${question.top}")
-    val lo = math.floor(score).toInt
-    val hi = math.ceil(score).toInt
+    val lo            = math.floor(score).toInt
+    val hi            = math.ceil(score).toInt
     val probabilities = Vector.tabulate(question.levels.size) { i =>
       if lo == hi then if i == lo then 1.0 else 0.0
       else if i == lo then hi - score

@@ -61,7 +61,7 @@ class MainSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the keeper refuses to start without a certificate") {
-    val empty = Files.createTempDirectory("keeper-none")
+    val empty            = Files.createTempDirectory("keeper-none")
     val (code, reported) =
       withDirectory(empty)(run(environment(declaration(), "http://127.0.0.1:1")))
     assertEquals(code, 1)
@@ -101,13 +101,13 @@ class MainSuite extends munit.FunSuite with LogCapturing:
         Option(started.poll(30, TimeUnit.SECONDS)).getOrElse(fail("the keeper did not start"))
       val probe  = running.door.ports.probe
       val client = HttpClient.newHttpClient()
-      val live = client.send(
+      val live   = client.send(
         HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$probe/live")).build(),
         BodyHandlers.ofString()
       )
       assertEquals(live.statusCode, 200)
       val deadline = System.nanoTime() + 20.seconds.toNanos
-      def ready = client
+      def ready    = client
         .send(
           HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$probe/ready")).build(),
           BodyHandlers.ofString()
@@ -136,7 +136,7 @@ class MainSuite extends munit.FunSuite with LogCapturing:
     ollama.pullHold = Some(fetching)
     val started = new ArrayBlockingQueue[Main.Started](1)
     val env     = environment(declaration(), ollama.url)
-    val thread = withDirectory(certificate(Main.Identity)) {
+    val thread  = withDirectory(certificate(Main.Identity)) {
       val t = Thread.ofPlatform().daemon().start { () =>
         Main.run(Array.empty, env.get, _ => (), s => started.put(s)): Unit
       }

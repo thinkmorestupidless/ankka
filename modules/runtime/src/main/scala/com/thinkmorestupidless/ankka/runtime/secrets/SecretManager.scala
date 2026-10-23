@@ -50,7 +50,7 @@ private[ankka] final class SecretManager(
       location: Option[String] = None,
       kmsKey: Option[String] = None
   ): Boolean =
-    val cmek = kmsKey.map(Cmek(_))
+    val cmek        = kmsKey.map(Cmek(_))
     val replication = location match
       case None        => Replication(automatic = Some(Automatic(cmek)))
       case Some(place) => Replication(userManaged = Some(UserManaged(Vector(Replica(place, cmek)))))
@@ -62,7 +62,7 @@ private[ankka] final class SecretManager(
 
   /** Adds a version holding `data`; its number. `NotFound` when the secret does not exist. */
   def addVersion(id: String, data: Array[Byte]): Long =
-    val body = writeToArray(AddVersionBody(Payload(Base64.getEncoder.encodeToString(data))))
+    val body  = writeToArray(AddVersionBody(Payload(Base64.getEncoder.encodeToString(data))))
     val reply = readFromArray[VersionReply](
       call("POST", s"$base/projects/$account/secrets/$id:addVersion", id, Some(body))
     )
@@ -88,7 +88,7 @@ private[ankka] final class SecretManager(
 
   /** The numbers of the secret's enabled versions, newest first; none when there is no secret. */
   def listEnabledVersions(id: String): Vector[Long] =
-    val filter = encoded("state:ENABLED")
+    val filter                                                       = encoded("state:ENABLED")
     def page(token: Option[String], acc: Vector[Long]): Vector[Long] =
       val url = s"$base/projects/$account/secrets/$id/versions?filter=$filter&pageSize=100" +
         token.fold("")(t => s"&pageToken=${encoded(t)}")
@@ -124,7 +124,7 @@ private[ankka] final class SecretManager(
       id: String,
       body: Option[Array[Byte]]
   ): Array[Byte] =
-    val token = tokens.token()
+    val token   = tokens.token()
     val builder = HttpRequest
       .newBuilder(URI(url))
       .timeout(Duration.ofMillis(timeout.toMillis))
@@ -140,7 +140,7 @@ private[ankka] final class SecretManager(
       try http.send(request, HttpResponse.BodyHandlers.ofByteArray())
       catch
         case e: InterruptedException => throw e
-        case NonFatal(e) =>
+        case NonFatal(e)             =>
           throw SecretManagerException(
             Kind.Unavailable,
             0,
@@ -217,7 +217,7 @@ object SecretManager:
       catch case NonFatal(_) => ErrorDetail()
     val status  = detail.status.getOrElse(s"HTTP $statusCode")
     val message = detail.message.getOrElse("")
-    val kind = statusCode match
+    val kind    = statusCode match
       case 401 | 403                   => Kind.Denied
       case 404                         => Kind.NotFound
       case 409                         => Kind.Conflict

@@ -45,7 +45,7 @@ class ProjectTopicsFeature
   override val munitTimeout = 4.minutes
 
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
   private lazy val OtherToken =
     identity.token("stranger", Some("stranger@example.test"), expiresIn = 2.hours)
@@ -130,8 +130,8 @@ class ProjectTopicsFeature
   private def declare(name: String, p: String, n: Int): Unit =
     topic = name
     partitions = n
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       Seq(
         "projects",
@@ -234,7 +234,7 @@ class ProjectTopicsFeature
   private val ready = StrimziObjectState(exists = true, ready = Some(true))
 
   private val states: Vector[(String, Int => Map[String, TopicState])] = Vector(
-    "has not yet made the topic" -> (_ => Map.empty),
+    "has not yet made the topic"                      -> (_ => Map.empty),
     "has made the topic with fewer partitions so far" -> (n =>
       Map("t" -> TopicState(stale, Some(n)))
     ),
@@ -252,7 +252,7 @@ class ProjectTopicsFeature
       // A topic the broker has made carries the settings the declaration rendered (feature 043).
       val entry = spec.topics.find(_.name == topic).getOrElse(fail(s"'$topic' was not written"))
       val made  = StrimziRendering.kafkaConfig(entry).map(_.map((k, v) => k -> String.valueOf(v)))
-      val seen = observe(partitions).map((_, s) =>
+      val seen  = observe(partitions).map((_, s) =>
         s"$p.$topic" -> s.copy(replicas = entry.replicas, config = made)
       )
       cluster.reportProject(

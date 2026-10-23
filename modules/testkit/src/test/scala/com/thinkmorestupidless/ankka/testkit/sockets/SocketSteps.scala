@@ -72,13 +72,13 @@ abstract class SocketSteps(features: String) extends GherkinSuite(features) with
               handler.add("sent"): Unit
             catch case _: SocketClosed => handler.add("SocketClosed"): Unit
         case Behaviour.FinishAfter(n) => frames.take(n).foreach(received.add)
-        case Behaviour.FailAfter(n) =>
+        case Behaviour.FailAfter(n)   =>
           frames.take(n).foreach(received.add)
           throw IllegalStateException("the handler broke")
         case Behaviour.Waiting =>
           frames.foreach(received.add)
           handler.add("told closed"): Unit
-        case Behaviour.NoRead => release.await(60, TimeUnit.SECONDS): Unit
+        case Behaviour.NoRead        => release.await(60, TimeUnit.SECONDS): Unit
         case Behaviour.CallAfterEach =>
           frames.foreach { f =>
             received.add(f)

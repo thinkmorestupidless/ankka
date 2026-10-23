@@ -128,7 +128,7 @@ final class OllamaClient(base: URI):
     catch
       case _: java.net.ConnectException          => Left(s"Ollama is not answering at $root")
       case _: java.net.http.HttpTimeoutException => Left("Ollama did not answer in time")
-      case NonFatal(e) =>
+      case NonFatal(e)                           =>
         Left(s"Ollama could not be asked: ${e.getClass.getSimpleName}: ${e.getMessage}")
 
 object OllamaClient:

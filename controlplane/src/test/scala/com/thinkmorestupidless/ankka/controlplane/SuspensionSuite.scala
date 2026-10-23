@@ -45,7 +45,7 @@ class SuspensionSuite extends munit.FunSuite with LogCapturing:
 
   private def client                   = testKit.componentClient
   private def organization(id: String) = client.forEventSourcedEntity(EntityId(id))
-  private def service(name: String) =
+  private def service(name: String)    =
     client.forEventSourcedEntity(EntityId(ServiceKey("checkout", name).id))
 
   private def status(name: String): ServiceStatus = service(name).call(ServiceEntity.get).invoke()

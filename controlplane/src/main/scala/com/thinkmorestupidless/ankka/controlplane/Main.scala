@@ -17,7 +17,7 @@ import com.typesafe.config.ConfigFactory
   // because it is registered as an extension here. Taking one without the other is the bug this
   // pair exists to make impossible.
   val (acl, tokens) = ControlPlane.aclWithTokens(auth)
-  val service =
+  val service       =
     ControlPlane
       .builder(acl, config = config, auth = Some(auth), tokens = Some(tokens))
       .start()

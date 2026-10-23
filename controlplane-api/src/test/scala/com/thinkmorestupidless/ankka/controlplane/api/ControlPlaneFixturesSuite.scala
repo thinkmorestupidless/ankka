@@ -891,7 +891,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       .find(Files.exists(_))
       .map(Files.readString(_, UTF_8))
       .getOrElse(fail("could not find descriptors.scala"))
-    val wire = source.substring(source.indexOf("object Wire:"))
+    val wire  = source.substring(source.indexOf("object Wire:"))
     val types =
       "JsonValueCodec\\[(?:Vector\\[)?([A-Za-z]+)\\]".r.findAllMatchIn(wire).map(_.group(1)).toSet
     val named = fixtures.map(_._1.takeWhile(_ != '.')).toSet

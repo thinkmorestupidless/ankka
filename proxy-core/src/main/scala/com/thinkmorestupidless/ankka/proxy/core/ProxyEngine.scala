@@ -165,7 +165,7 @@ final class ProxyEngine(
   ): Unit =
     val target = CallingAddress.Target(settings.project, service, rest)
     locator.locate(settings.project, service) match
-      case None => answer(exchange, Some(sender), Answers.cannotBeReached(service))
+      case None          => answer(exchange, Some(sender), Answers.cannotBeReached(service))
       case Some(located) =>
         val received = flatten(exchange)
         send(
@@ -192,7 +192,7 @@ final class ProxyEngine(
   private def call(exchange: HttpExchange): Unit =
     try
       CallingAddress.parse(requestTarget(exchange), settings.project, callingUrl) match
-        case Left(reason) => answer(exchange, None, Answer(400, reason))
+        case Left(reason)  => answer(exchange, None, Answer(400, reason))
         case Right(target) =>
           locator.locate(target.project, target.service) match
             case None =>
@@ -246,7 +246,7 @@ final class ProxyEngine(
     val response: Either[Answer, HttpResponse[InputStream]] =
       try Right(via.send(request.build(), BodyHandlers.ofInputStream()))
       catch
-        case _: ConnectException => Left(refused)
+        case _: ConnectException     => Left(refused)
         case _: HttpTimeoutException =>
           Left(Answers.noAnswerInTime(who, settings.responseTimeout))
         case e: IOException =>
@@ -269,7 +269,7 @@ final class ProxyEngine(
     val bodyless =
       exchange.getRequestMethod.equalsIgnoreCase("HEAD") || status == 204 || status == 304
     val declared = response.headers.firstValueAsLong("content-length")
-    val length =
+    val length   =
       if bodyless then -1L
       else if declared.isPresent then if declared.getAsLong == 0 then -1L else declared.getAsLong
       else 0L

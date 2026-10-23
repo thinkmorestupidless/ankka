@@ -119,7 +119,7 @@ class DatabaseStreamSuite extends munit.FunSuite with LogCapturing:
 
   test("a reader that takes nothing for the timeout fails the stream, naming how long") {
     val produced = AtomicInteger()
-    val queue = numbers(timeout = 500.millis, fetchSize = 16)
+    val queue    = numbers(timeout = 500.millis, fetchSize = 16)
       .map { n =>
         produced.incrementAndGet(); n
       }

@@ -19,7 +19,7 @@ class AskApprovalSuite extends munit.FunSuite with LogCapturing:
 
   private val model = TestModelProvider()
   private val ran   = AtomicInteger(0)
-  private val send = FunctionTool
+  private val send  = FunctionTool
     .named("send_letter")
     .describedAs("Sends the letter.")
     .handle { () =>

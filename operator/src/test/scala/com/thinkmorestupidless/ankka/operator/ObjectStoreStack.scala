@@ -97,8 +97,8 @@ object ObjectStoreStack:
    * machine. Waits for the layout loop to make the three one store.
    */
   def installReplicated(k3s: K3sContainer, k8s: KubernetesClient, repoRoot: Path): Installed =
-    val component  = repoRoot.resolve("kustomization/components/garage")
-    val replicated = repoRoot.resolve("kustomization/components/garage-replicated")
+    val component   = repoRoot.resolve("kustomization/components/garage")
+    val replicated  = repoRoot.resolve("kustomization/components/garage-replicated")
     val storeSecret = Files
       .readString(component.resolve("secrets.yaml"))
       .split("\n---\n")

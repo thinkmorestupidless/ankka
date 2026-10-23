@@ -51,7 +51,7 @@ final class KeyedViewEffects[Row] private[ankka] ():
 object RowChanges:
   def reduce[Row](changes: Vector[RowChange[Row]]): Vector[(String, Option[Row])] =
     val order = changes.map(_.key).distinct
-    val last = changes.foldLeft(Map.empty[String, Option[Row]]) {
+    val last  = changes.foldLeft(Map.empty[String, Option[Row]]) {
       case (acc, RowChange.Upsert(key, row)) => acc.updated(key, Some(row))
       case (acc, RowChange.Delete(key))      => acc.updated(key, None)
     }

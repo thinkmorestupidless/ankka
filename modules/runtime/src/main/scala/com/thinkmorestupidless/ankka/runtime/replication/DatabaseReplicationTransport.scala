@@ -95,7 +95,7 @@ final class DatabaseReplicationTransport(
   private def database(installation: String): Future[Database] =
     databases.get(installation) match
       case Some(db) => Future.successful(db)
-      case None =>
+      case None     =>
         Future.failed(
           IllegalStateException(
             s"installation '$installation' names no database the runtime's own transport can read"
@@ -271,7 +271,7 @@ final class DatabaseReplicationTransport(
           replicated
         )
       }.map { rows =>
-        val fresh = rows.filterNot((pid, _, _, r) => seen.emitted((pid, r.sequenceNr)))
+        val fresh    = rows.filterNot((pid, _, _, r) => seen.emitted((pid, r.sequenceNr)))
         val advanced = fresh.collect {
           case (pid, entityType, _, r) if r.record.installation.contains(installation) =>
             Advanced(
@@ -286,7 +286,7 @@ final class DatabaseReplicationTransport(
         val latest = rows.map(_._3).maxOption.getOrElse(seen.since)
         // Remembered only within the look-back window: anything older is never read again.
         val horizon = latest.minusMillis(LookBack.toMillis * 2)
-        val keep = rows.collect {
+        val keep    = rows.collect {
           case (pid, _, at, r) if at.isAfter(horizon) => (pid, r.sequenceNr)
         }.toSet
         (Seen(if latest.isAfter(seen.since) then latest else seen.since, keep), advanced)
@@ -317,7 +317,7 @@ object DatabaseReplicationTransport:
     case EntityProtocol.Succeeded(bytes, metadata) =>
       ForwardedReply.Succeeded(bytes, MetaEntry.toMetadata(metadata))
     case rejected: EntityProtocol.Rejected => ForwardedReply.Rejected(rejected.toCommandError)
-    case other =>
+    case other                             =>
       ForwardedReply.Rejected(
         CommandError(s"unexpected reply to a forwarded call: $other", ErrorCode.Internal)
       )

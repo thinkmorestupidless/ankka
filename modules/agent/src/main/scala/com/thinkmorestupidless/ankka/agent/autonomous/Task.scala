@@ -77,7 +77,7 @@ final class TaskType[R] private[autonomous] (
         val encoded = encode(result)
         external match
           case Some(check) => check(encoded)
-          case None =>
+          case None        =>
             rules.iterator
               .map(rule => rule.name -> rule.run(result))
               .collectFirst { case (rule, TaskRule.Rejected(reason)) =>
@@ -191,7 +191,7 @@ private[ankka] final class ResultShape[R] private (
 
   def decodeCompletion(arguments: Json): Either[String, R] = codec match
     case Some(c) => decodeWith(arguments.render)(using c)
-    case None =>
+    case None    =>
       arguments("result").flatMap(_.asString) match
         case Some(text) => Right(text.asInstanceOf[R])
         case None       => Left("""complete_task needs {"result": "<text>"}""")

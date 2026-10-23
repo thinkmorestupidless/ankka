@@ -51,7 +51,7 @@ class CustomHostnamesRenderingSuite extends munit.FunSuite:
   test("a certificate per custom hostname, from the installation's issuer, owned and labelled") {
     val certs = certificates(actions(spec))
     assertEquals(certs.map(_.getMetadata.getName), Vector("app.example.com", "example.com"))
-    val c = certs.head
+    val c    = certs.head
     val body =
       c.getAdditionalProperties.get("spec").asInstanceOf[java.util.Map[String, AnyRef]].asScala
     assertEquals(body("secretName"), "app.example.com")

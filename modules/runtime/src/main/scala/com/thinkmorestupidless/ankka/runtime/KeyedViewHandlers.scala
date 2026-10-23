@@ -79,7 +79,7 @@ private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeou
   /** `work` on a virtual thread, failed when it outlives the ask timeout. */
   def bounded[A](work: => A): Future[A] =
     val running = Future(work)(using AnkkaExecutors.virtual)
-    val late = org.apache.pekko.pattern.after(askTimeout)(
+    val late    = org.apache.pekko.pattern.after(askTimeout)(
       Future.failed(
         TimeoutException(s"view '$view' did not handle a change within $askTimeout")
       )
@@ -105,7 +105,7 @@ private[ankka] type KeyedHandle =
 
 /** A keyed view's own rows, read through the view client on a connection of its own. */
 private[ankka] final class KeyedViewRows[Row](queries: ViewQueries[Row]) extends ViewRows[Row]:
-  def get(key: String): Option[Row] = queries.get(key)
+  def get(key: String): Option[Row]                                     = queries.get(key)
   def ask(query: DeclaredQuery, values: (String, String)*): Vector[Row] =
     queries.ask(query, values*)
 
@@ -122,7 +122,7 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
 
   private val view          = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val observability = Observability(system)
-  private val rows = KeyedViewRows(
+  private val rows          = KeyedViewRows(
     ViewQueries(
       descriptor.componentId.toString,
       descriptor.tableName,
@@ -188,7 +188,7 @@ private[ankka] final class KeyedViewEventHandler[A](
     reader.read(envelope.event) match
       // A TTL being set, or a workflow record that holds no state: not a change a view is told of.
       case SourceChange.Skip => Future.successful(Done)
-      case change =>
+      case change            =>
         val payload = change match
           case SourceChange.Changed(p, _) => Some(p)
           case _                          => None
@@ -231,7 +231,7 @@ private[ankka] final class KeyedViewStateHandler(
   private val database           = Database()
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
-    val subject = PersistenceId.extractEntityId(change.persistenceId)
+    val subject             = PersistenceId.extractEntityId(change.persistenceId)
     val (payload, revision) = change match
       // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
       case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
@@ -255,7 +255,7 @@ private[ankka] final class KeyedViewStateHandler(
           f.flatMap(_ => tx.query(s)(_ => ()))
         )
         changes <- handle(subject, revision, payload, None)
-        writes <- core
+        writes  <- core
           .writes(changes)
           .fold(why => Future.failed(IllegalStateException(why)), Future.successful)
         _ <- writes.foldLeft(Future.successful(0L))((f, w) => f.flatMap(_ => tx.execute(w)))

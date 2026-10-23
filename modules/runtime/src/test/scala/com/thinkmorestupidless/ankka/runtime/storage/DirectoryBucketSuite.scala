@@ -78,7 +78,7 @@ class DirectoryBucketSuite extends BucketContract:
     readOnly.toFile.setWritable(false): Unit
     try
       val declared = LocalBuckets.Declared(unnamed = false, Map("photos" -> BucketExposure.Public))
-      val opened =
+      val opened   =
         DirectoryObjectStorage.open(readOnly.resolve("storage"), Some(declared), () => "")
       assert(opened.left.exists(_.contains(readOnly.resolve("storage").toString)), opened)
     finally readOnly.toFile.setWritable(true): Unit
@@ -95,7 +95,7 @@ class DirectoryBucketSuite extends BucketContract:
       assert(opened.isRight, opened)
       assert(!Files.exists(storage), "the store was made at open")
       val bucket = opened.toOption.get.default
-      val put = refused(ErrorCode.Unavailable)(
+      val put    = refused(ErrorCode.Unavailable)(
         bucket.put("a.txt", ByteArrayInputStream("a".getBytes(UTF_8)), 1, "text/plain")
       )
       assert(put.contains(storage.toString), put)

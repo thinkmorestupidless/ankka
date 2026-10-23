@@ -22,7 +22,7 @@ class NeedsServiceSuite extends munit.FunSuite with LogCapturing:
   private final class Bound(answer: Either[String, Unit])
       extends (RequestContext => AuthDecision)
       with NeedsService:
-    val service = AtomicReference[AnkkaService]()
+    val service                                           = AtomicReference[AnkkaService]()
     def bind(service: AnkkaService): Either[String, Unit] =
       this.service.set(service)
       answer
@@ -49,7 +49,7 @@ class NeedsServiceSuite extends munit.FunSuite with LogCapturing:
     val authenticator = Bound(Left("client keys need McpRuntime(); add it to the service"))
     val server        = HttpServer.at("127.0.0.1", 0)(_ => Keyed(authenticator))
     val failure       = intercept[Throwable](AnkkaTestKit.start(Nil, Seq(server)).stop())
-    val text = Iterator
+    val text          = Iterator
       .iterate[Throwable](failure)(_.getCause)
       .takeWhile(_ != null)
       .map(t => String.valueOf(t.getMessage))

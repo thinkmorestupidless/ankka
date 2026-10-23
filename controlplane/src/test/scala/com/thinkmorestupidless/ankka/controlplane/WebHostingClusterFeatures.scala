@@ -84,7 +84,7 @@ abstract class WebHostingClusterSteps(
   )
 
   protected lazy val identity = TestIdentity()
-  protected lazy val Token = identity.token(
+  protected lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -225,8 +225,8 @@ abstract class WebHostingClusterSteps(
     def all: String = out + err
 
   protected def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -686,7 +686,7 @@ abstract class WebHostingClusterSteps(
     // How long the proxy's JVM took from its container starting to serving, for research R19.
     val pod   = pods(service).head
     val start = pod.getStatus.getContainerStatuses.asScala.find(_.getName == service).get.getState
-    val log = k3s
+    val log   = k3s
       .execInContainer("kubectl", "logs", "-n", Namespace, pod.getMetadata.getName, "-c", service)
       .getStdout
     println(
@@ -890,7 +890,7 @@ abstract class WebHostingClusterSteps(
     assertEquals(name, service)
     waitFor(60.seconds, "a pod")(pods(service).nonEmpty)
     val expected = InstanceType.byName(size).getOrElse(fail(size))
-    val app =
+    val app      =
       pods(service).head.getSpec.getContainers.asScala.find(_.getName == s"$service-app").get
     // As amounts: the API server writes 1000m back as 1 and 1024Mi as 1Gi.
     val limits = app.getResources.getLimits.asScala.view
@@ -948,7 +948,7 @@ class WebHostingObjectStorageFeatures
 
   private def envOf(container: String): Map[String, String] =
     val pod = pods(service).find(ready).getOrElse(fail(s"$service has no ready pod"))
-    val r = k3s.execInContainer(
+    val r   = k3s.execInContainer(
       "kubectl",
       "exec",
       "-n",
@@ -972,7 +972,7 @@ class WebHostingObjectStorageFeatures
       s"printf '%s' '$content' > /tmp/upload && "
     ) + "hash=$(sha256sum /tmp/upload | cut -d' ' -f1) && "
     val send = upload.fold("")(_ => "-T /tmp/upload ")
-    val r = k3s.execInContainer(
+    val r    = k3s.execInContainer(
       "kubectl",
       "exec",
       "-n",
@@ -1070,7 +1070,7 @@ class IsolationWebHostingClusterFeatures
   /** curl's exit code and output, from the pod holding "orders"'s certificate. */
   private def fromOrders(url: String): (Int, String) =
     val prober = com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, "orders")
-    val r = k3s.execInContainer(
+    val r      = k3s.execInContainer(
       "kubectl",
       "exec",
       "-n",

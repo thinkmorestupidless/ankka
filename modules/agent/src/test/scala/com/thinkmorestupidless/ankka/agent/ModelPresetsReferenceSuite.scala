@@ -21,8 +21,8 @@ class ModelPresetsReferenceSuite extends munit.FunSuite:
   private val Name = "model-presets"
 
   test("the model providers page lists every preset, as the presets describe themselves") {
-    val path    = ModelPresetsReferenceSuite.repoRoot.resolve(Page)
-    val current = Files.readString(path)
+    val path     = ModelPresetsReferenceSuite.repoRoot.resolve(Page)
+    val current  = Files.readString(path)
     val expected =
       ModelPresetsReferenceSuite.replaceBlock(current, Name, ModelPresetsReferenceSuite.render())
     if expected != current then
@@ -49,20 +49,20 @@ object ModelPresetsReferenceSuite:
       "| Preset | Protocol | Shape | Address | Key | Default model | Reasoning efforts | Temperature | Tool call ids | Notes |\n" +
         "|---|---|---|---|---|---|---|---|---|---|\n"
     val rows = Presets.names.map(Presets.all).map { p =>
-      val shape = if p.protocol == ModelProtocol.Anthropic then "—" else p.shape.wireName
+      val shape   = if p.protocol == ModelProtocol.Anthropic then "—" else p.shape.wireName
       val address = p.address
         .map(a => s"`$a`")
         .getOrElse(
           if p.name == Presets.Installation then "the platform's" else "required"
         )
-      val key   = if p.keyRequired then "required" else "none"
-      val model = p.defaultModel.map(m => s"`$m`").getOrElse("required")
+      val key     = if p.keyRequired then "required" else "none"
+      val model   = p.defaultModel.map(m => s"`$m`").getOrElse("required")
       val efforts =
         if p.protocol == ModelProtocol.Anthropic then
           if p.quirks.sendsThinking then "adaptive thinking and effort" else "—"
         else p.quirks.reasoningEfforts.map(_.mkString(", ")).getOrElse("as asked")
       val temperature = if p.quirks.acceptsTemperature then "sent" else "withheld"
-      val ids = p.quirks.toolCallIds
+      val ids         = p.quirks.toolCallIds
         .map { case com.thinkmorestupidless.ankka.agent.providers.IdRule.Alphanumeric(n) =>
           s"rewritten to $n letters and digits"
         }

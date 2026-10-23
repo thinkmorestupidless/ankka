@@ -19,7 +19,7 @@ final class PapersEntity(context: KeyValueEntityContext) extends KeyValueEntity[
     if finding.source.isBlank then effects.error("a finding names its source", ErrorCode.BadRequest)
     else
       val entry = currentState
-      val next =
+      val next  =
         if !entry.exists then
           Entry(identifier, finding.title, Vector(finding.source), finding.foundAt)
         else if entry.sources.contains(finding.source) then entry

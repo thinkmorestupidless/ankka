@@ -64,7 +64,7 @@ final class ConsoleTopologyJsSuite extends munit.FunSuite:
 
     val output = StringBuilder()
     val log    = ProcessLogger(line => output.append(line).append('\n'): Unit)
-    val exit =
+    val exit   =
       Process(Seq("node", "--test", "cli/src/test/js/topology.test.js"), root.toFile).!(log)
     assertEquals(exit, 0, output.toString)
     // Node exits 0 for a file that held no test; the count is what says the fixtures were run.

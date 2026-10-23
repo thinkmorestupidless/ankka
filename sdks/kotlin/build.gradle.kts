@@ -1,5 +1,6 @@
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.plugins.signing.SigningExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
@@ -40,17 +41,65 @@ subprojects {
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
     }
 
-    // Serialised, as the sbt build's suites are: each kit starts a database container.
-    // The three libraries a Kotlin service depends on, as `com.thinkmorestupidless:<project>`;
-    // `publishToMavenLocal -Pversion=<v>` puts them where a template's build finds them.
+    // The three libraries a Kotlin service depends on, as `com.thinkmorestupidless:<project>`.
+    // `publishToMavenLocal -Pversion=<v>` puts them where a template's build finds them; a release
+    // publishes them signed into build/staging (`publishAllPublicationsToStagingRepository`), which
+    // the release job zips and uploads to the Central Portal as the sbt modules' bundle is. The POM's
+    // metadata is the sbt build's (build.sbt, ThisBuild).
     if (!path.startsWith(":samples")) {
         apply(plugin = "maven-publish")
-        extensions.configure<JavaPluginExtension> { withSourcesJar() }
+        apply(plugin = "signing")
+        extensions.configure<JavaPluginExtension> {
+            withSourcesJar()
+            withJavadocJar()
+        }
         extensions.configure<PublishingExtension> {
-            publications { create<MavenPublication>("maven") { from(components["java"]) } }
+            publications {
+                create<MavenPublication>("maven") {
+                    from(components["java"])
+                    pom {
+                        name.set(project.name)
+                        description.set("ankka for Kotlin: ${project.name}")
+                        url.set("https://github.com/thinkmorestupidless/ankka")
+                        licenses {
+                            license {
+                                name.set("Apache-2.0")
+                                url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                            }
+                        }
+                        developers {
+                            developer {
+                                id.set("thinkmorestupidless")
+                                name.set("Trevor Burton-McCreadie")
+                                url.set("https://github.com/thinkmorestupidless")
+                            }
+                        }
+                        scm {
+                            url.set("https://github.com/thinkmorestupidless/ankka")
+                            connection.set("scm:git:https://github.com/thinkmorestupidless/ankka.git")
+                        }
+                    }
+                }
+            }
+            repositories {
+                maven {
+                    name = "staging"
+                    url = rootProject.layout.buildDirectory.dir("staging").get().asFile.toURI()
+                }
+            }
+        }
+        // Signed only when a key is given (ORG_GRADLE_PROJECT_signingKey and _signingPassword, the
+        // release job's PGP_* secrets), so a local publish needs none.
+        extensions.configure<SigningExtension> {
+            val key = findProperty("signingKey") as String?
+            if (key != null) {
+                useInMemoryPgpKeys(key, findProperty("signingPassword") as String?)
+                sign(extensions.getByType<PublishingExtension>().publications)
+            }
         }
     }
 
+    // Serialised, as the sbt build's suites are: each kit starts a database container.
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         maxParallelForks = 1

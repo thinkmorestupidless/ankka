@@ -41,8 +41,20 @@ too, and the template names `telemetry-otlp`, so a project it makes exports when
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.
 
+Three more are the **Java SDK** (feature 058): `ankka-java`, `ankka-java-agent`, `ankka-java-testkit`,
+with no `_3` (`crossPaths := false`), published by the same `ci-release` as the twelve. The **Kotlin SDK**
+(`ankka-kotlin`, `-agent`, `-testkit`) is a Gradle build in `sdks/kotlin`, not an sbt module, so it ships
+from the release workflow's own `sdk-kotlin` job after `publish`: it publishes the JVM modules to `~/.m2`
+at the tag's version (`cli/templateArtifacts`), writes the tag into `gradle.properties`' two `0.0.0`
+lines in its checkout, runs `./gradlew check`, signs into `build/staging` with the same PGP key
+(`ORG_GRADLE_PROJECT_signingKey`, the base64 of `PGP_SECRET` decoded) and uploads that directory, zipped,
+through the Central Portal's API exactly as `publish` uploads sbt's bundle. Its guard asks repo1 for
+`ankka-kotlin/<version>.pom`. Locally, `sdks/kotlin/gradlew-this-commit.sh` (`just kotlin`) runs the
+Gradle build against this commit's Java SDK; `publishToMavenLocal -Pversion=<v>` is what the Kotlin
+template suite resolves.
+
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly twelve artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, the twelve and the Java SDK
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

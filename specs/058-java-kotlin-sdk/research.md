@@ -366,6 +366,16 @@ is in hand.
   `SONATYPE_*` secrets, guarded by an "already published?" probe as the others are. The `template`
   release job (`:250-287`) is the g8 template's only; the Java and Kotlin templates ship inside the
   CLI and need no release job.
+  *Settled at implementation (T064):* no Central publishing Gradle plugin. Gradle's own `maven-publish`
+  and `signing` write the three libraries, signed, into `sdks/kotlin/build/staging`
+  (`publishAllPublicationsToStagingRepository`). The job zips that directory without its
+  `maven-metadata*` files and uploads it to `api/v1/publisher/upload?publishingType=AUTOMATIC`, the
+  same call the `publish` job makes for sbt's bundle, so one upload path serves both builds and no
+  third-party plugin holds the credentials. The key is `PGP_SECRET` base64-decoded into
+  `ORG_GRADLE_PROJECT_signingKey`; signing is configured only when that is set, so a local publish
+  needs no key. It was proved with a throwaway key (`gpg --verify` of the jar and POM), and the POM
+  carries the sbt build's license, developer and scm. The job runs `check`, not `conformance`,
+  which CI's `sdk-kotlin` runs on every change.
 - **CI.** `ci.yml`'s `changes` filters (`:55-216`): `scala-build` already claims `modules/**` and
   `samples/**`, so `modules/sdk-java` and an sbt Java sample run in `build` and trigger every SDK job
   as any module change does. New filters, each landing in the same commit as a file it matches

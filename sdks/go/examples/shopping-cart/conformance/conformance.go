@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -76,49 +75,21 @@ var Entity = ankka.EventSourced[Recordings, Recorded]("conformance", recordedCas
 	ankka.SnapshotEvery(3),
 )
 
-// intInputs are the handlers whose input is a number: the forwarder reads their body as one.
-var intInputs = map[string]bool{"record-many": true, "expire": true}
-
-// API is the routes the suite drives the conformance entity through.
-var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
-	// What the sidecar reported to this process, in order: a refusal at discovery among them.
-	ankka.Get("/problems", func(context.Context, *ankka.Request) ([]string, error) {
-		if s := reference.Load(); s != nil {
-			return append([]string{}, s.Reported()...), nil
-		}
-		return []string{}, nil
-	}),
-	ankka.Get("/{id}/count", func(ctx context.Context, req *ankka.Request) (int, error) {
-		return ankka.Invoke[int](ctx, "conformance", req.Param("id"), "count", ankka.Unit{})
-	}),
-	// A handler that answers nothing: the call is not awaited, and the route says so with 204.
-	ankka.Post("/{id}/no-reply", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
-		go func(ctx context.Context, id string) {
-			_, _ = ankka.Invoke[ankka.Done](ctx, "conformance", id, "no-reply", "")
-		}(context.WithoutCancel(ctx), req.Param("id"))
-		return ankka.Done{}, nil
-	}),
-	// The generic forwarder: the body is the handler's input as text, the reply comes back as text.
-	ankka.Post("/{id}/{handler}", func(ctx context.Context, req *ankka.Request, body string) (string, error) {
-		handler := req.Param("handler")
-		var input any = body
-		if intInputs[handler] {
-			n, err := strconv.Atoi(body)
-			if err != nil {
-				return "", ankka.Refusef(ankka.BadRequest, "%s takes a number, not %q", handler, body)
-			}
-			input = n
-		}
-		return ankka.Invoke[string](ctx, "conformance", req.Param("id"), handler, input)
-	}),
-)
-
 // reference is the service Service last made, whose reported problems the problems route answers.
 var reference atomic.Pointer[ankka.Service]
 
-// Service is the reference: the cart and the conformance components.
+// Service is the reference: the cart and every conformance component and endpoint, registered
+// explicitly.
 func Service() *ankka.Service {
-	s := ankka.NewService(cart.Entity, cart.API, Entity, API)
+	s := ankka.NewService(
+		cart.Entity, cart.Rows, cart.API,
+		Entity, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
+		CheckoutRows, TopicRows, TreeRows, JoinedRows,
+		CheckoutEnds, CheckoutRecorder, CheckoutFanout, TopicRelay, ContractRelay, PartnerRelay, VehicleFeed,
+		CartGraph, ProfileGraph,
+		Reminder, Assistant, Approver, Answerer,
+		Tree, Vehicles, Joined, API, Private, Callers, AutonomousAPI, McpKeys, CartMcp,
+	)
 	reference.Store(s)
 	return s
 }

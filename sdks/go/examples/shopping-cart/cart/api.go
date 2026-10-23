@@ -11,6 +11,18 @@ import (
 // API is the Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId},
 // /checkout, DELETE /carts/{cartId}.
 var API = ankka.NewEndpoint("/carts", ankka.AllowAll(),
+	// A literal beside a parameter: /carts/awkward is this route, never the cart "awkward".
+	ankka.Get("/awkward", func(context.Context, *ankka.Request) (string, error) { return "literal", nil }),
+	ankka.Get("/rows", func(ctx context.Context, _ *ankka.Request) ([]Row, error) {
+		return ankka.QueryView[Row](ctx, RowsID, ankka.All())
+	}),
+	ankka.Get("/{cartId}/rows", func(ctx context.Context, req *ankka.Request) (Row, error) {
+		row, found, err := ankka.ViewRow[Row](ctx, RowsID, req.Param("cartId"))
+		if err == nil && !found {
+			err = &ankka.HttpProblem{Status: 404, Message: "no row for '" + req.Param("cartId") + "'"}
+		}
+		return row, err
+	}),
 	ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (Cart, error) {
 		return ankka.Invoke[Cart](ctx, ComponentID, req.Param("cartId"), "get-cart", ankka.Unit{})
 	}),

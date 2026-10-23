@@ -2,9 +2,12 @@ package ankka
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"net/http"
+	"strings"
 
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 	"github.com/thinkmorestupidless/ankka-go/internal/server"
@@ -61,6 +64,85 @@ func SSE(template string, f func(ctx context.Context, req *Request) iter.Seq2[st
 		return nil
 	}
 	return r
+}
+
+// SSEEvent is one frame of an SSEEvents route: with Name empty, Text sent as an SSE route sends it;
+// otherwise an event under Name (one non-empty line) whose data is Data as JSON (1.11).
+type SSEEvent struct {
+	Name string
+	Text string
+	Data any
+}
+
+// SSEEvents is SSE whose frames may be named events beside text: an event a page listens for by
+// name, such as WatchEvents' row, removed and caught-up.
+func SSEEvents(template string, f func(ctx context.Context, req *Request) iter.Seq2[SSEEvent, error]) *Route {
+	r := newRoute(http.MethodGet, template)
+	r.kind = routeStream
+	r.stream = func(ctx context.Context, req *Request, send func(*pb.StreamFrame) error) error {
+		for e, err := range f(ctx, req) {
+			if err != nil {
+				return err
+			}
+			frame, err := frameOf(e)
+			if err != nil {
+				return err
+			}
+			if err := send(frame); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return r
+}
+
+func frameOf(e SSEEvent) (*pb.StreamFrame, error) {
+	if e.Name == "" {
+		return &pb.StreamFrame{Frame: &pb.StreamFrame_Text{Text: e.Text}}, nil
+	}
+	if strings.ContainsAny(e.Name, "\r\n") {
+		return nil, fmt.Errorf("an event name must be one line, not %q", e.Name)
+	}
+	data, err := json.Marshal(e.Data)
+	if err != nil {
+		return nil, fmt.Errorf("the event %q cannot be written as JSON: %w", e.Name, err)
+	}
+	return &pb.StreamFrame{Frame: &pb.StreamFrame_Event{Event: &pb.SseEvent{Name: e.Name, Data: string(data)}}}, nil
+}
+
+// WatchEvents is a watch as server-sent events: each row as row carrying {key, row}, each removal
+// as removed carrying {key}, the marker as caught-up, and a watch that ended with a reason as a last
+// event ended carrying {reason}, so a page is told why.
+func WatchEvents[Row any](watch iter.Seq2[WatchEvent[Row], error]) iter.Seq2[SSEEvent, error] {
+	return func(yield func(SSEEvent, error) bool) {
+		for e, err := range watch {
+			var ended *WatchEndedError
+			switch {
+			case errors.As(err, &ended):
+				yield(SSEEvent{Name: "ended", Data: map[string]string{"reason": ended.Reason}}, nil)
+				return
+			case err != nil:
+				yield(SSEEvent{}, err)
+				return
+			}
+			var out SSEEvent
+			switch {
+			case e.CaughtUp:
+				out = SSEEvent{Name: "caught-up", Data: struct{}{}}
+			case e.Removed:
+				out = SSEEvent{Name: "removed", Data: map[string]string{"key": e.Key}}
+			default:
+				out = SSEEvent{Name: "row", Data: struct {
+					Key string `json:"key"`
+					Row Row    `json:"row"`
+				}{e.Key, e.Row}}
+			}
+			if !yield(out, nil) {
+				return
+			}
+		}
+	}
 }
 
 // routeFor is the route a request names, admitted by its ACL, and the request its handler sees.

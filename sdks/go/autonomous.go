@@ -709,13 +709,13 @@ type Decision struct {
 	Note     string
 }
 
-func decide(ctx context.Context, kind pb.Kind, componentID, entityID, handler, approvalID string, d Decision) error {
+func decide(ctx context.Context, kind pb.Kind, componentID, entityID, handler, approvalID string, d Decision) (*pb.InvokeReply, error) {
 	if strings.TrimSpace(d.By) == "" {
-		return Refuse(BadRequest, "a decision names who decided")
+		return nil, Refuse(BadRequest, "a decision names who decided")
 	}
 	_, rpc, err := clientOf(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req := &pb.DecideRequest{Kind: kind, ComponentId: componentID, EntityId: entityID, Name: handler, ApprovalId: approvalID, Approved: d.Approved, By: d.By, Metadata: metadataToPb(MetadataFrom(ctx))}
 	if d.Note != "" {
@@ -723,12 +723,12 @@ func decide(ctx context.Context, kind pb.Kind, componentID, entityID, handler, a
 	}
 	reply, err := rpc.Decide(ctx, req)
 	if err != nil {
-		return tooOld("a decision", "1.11", err)
+		return nil, tooOld("a decision", "1.11", err)
 	}
 	if e := reply.GetError(); e != nil {
-		return errorFromPb(e)
+		return nil, errorFromPb(e)
 	}
-	return nil
+	return reply, nil
 }
 
 // Decide decides one of the instance's approval requests. Approved, the tool runs and the task goes
@@ -737,13 +737,21 @@ func (a AgentInstance) Decide(ctx context.Context, approvalID string, d Decision
 	if a.InstanceID == "" {
 		return errors.New("this call needs an instance id: ankka.Instance(agent, instanceID)")
 	}
-	return decide(ctx, pb.Kind_AUTONOMOUS_AGENT, a.ComponentID, a.InstanceID, "", approvalID, d)
+	_, err := decide(ctx, pb.Kind_AUTONOMOUS_AGENT, a.ComponentID, a.InstanceID, "", approvalID, d)
+	return err
 }
 
 // DecideApproval decides an approval request an agent's turn waits on: the agent componentID, the
-// session sessionID and the handler that was called (1.11).
-func DecideApproval(ctx context.Context, componentID, sessionID, handler, approvalID string, d Decision) error {
-	return decide(ctx, pb.Kind_AGENT, componentID, sessionID, handler, approvalID, d)
+// session sessionID and the handler that was called (1.11). It answers as the turn's caller would
+// have been answered once the turn goes on: its reply as R, or an *ApprovalAwaitedError when it
+// waits on another decision.
+func DecideApproval[R any](ctx context.Context, componentID, sessionID, handler, approvalID string, d Decision) (R, error) {
+	reply, err := decide(ctx, pb.Kind_AGENT, componentID, sessionID, handler, approvalID, d)
+	if err != nil {
+		var zero R
+		return zero, err
+	}
+	return decodeReply[R](reply)
 }
 
 // Notification is one thing an instance did: Type names it, and Fields holds every field as sent.

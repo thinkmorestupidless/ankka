@@ -92,6 +92,77 @@ func TestAnSSERouteStreamsItsEvents(t *testing.T) {
 	}
 }
 
+type sRow struct {
+	N int `json:"n"`
+}
+
+func TestAnSSEEventsRouteSendsAWatchAsNamedEvents(t *testing.T) {
+	watch := func(yield func(WatchEvent[sRow], error) bool) {
+		_ = yield(WatchEvent[sRow]{Key: "a", Row: sRow{N: 1}}, nil) &&
+			yield(WatchEvent[sRow]{CaughtUp: true}, nil) &&
+			yield(WatchEvent[sRow]{Key: "a", Removed: true}, nil) &&
+			yield(WatchEvent[sRow]{}, &WatchEndedError{Reason: "rebuilt"})
+	}
+	svc := NewService(NewEndpoint("/w", AllowAll(),
+		SSEEvents("/rows", func(context.Context, *Request) iter.Seq2[SSEEvent, error] {
+			return func(yield func(SSEEvent, error) bool) {
+				if !yield(SSEEvent{Text: "before"}, nil) {
+					return
+				}
+				for e, err := range WatchEvents(iter.Seq2[WatchEvent[sRow], error](watch)) {
+					if !yield(e, err) {
+						return
+					}
+				}
+			}
+		}),
+		SSEEvents("/bad", func(context.Context, *Request) iter.Seq2[SSEEvent, error] {
+			return func(yield func(SSEEvent, error) bool) { yield(SSEEvent{Name: "two\nlines"}, nil) }
+		}),
+	))
+	if p := svc.Problems(); len(p) > 0 {
+		t.Fatalf("problems: %v", p)
+	}
+	client := pb.NewHttpClient(loopback(t, svc))
+	read := func(route string) []*pb.StreamFrame {
+		t.Helper()
+		stream, err := client.HandleStream(context.Background(), &pb.HttpRequest{EndpointId: "/w", RouteId: route})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []*pb.StreamFrame
+		for {
+			f, err := stream.Recv()
+			if err != nil {
+				return out
+			}
+			out = append(out, f)
+		}
+	}
+	got := read("GET /rows")
+	want := []struct{ name, data string }{
+		{"", "before"}, {"row", `{"key":"a","row":{"n":1}}`}, {"caught-up", `{}`}, {"removed", `{"key":"a"}`}, {"ended", `{"reason":"rebuilt"}`},
+	}
+	if len(got) != len(want)+1 || got[len(want)].GetCompleted() == nil {
+		t.Fatalf("frames %v", got)
+	}
+	for i, w := range want {
+		if w.name == "" {
+			if got[i].GetText() != w.data {
+				t.Errorf("frame %d is %v, want the text %q", i, got[i], w.data)
+			}
+			continue
+		}
+		if e := got[i].GetEvent(); e.GetName() != w.name || e.GetData() != w.data {
+			t.Errorf("frame %d is %v, want %s %s", i, got[i], w.name, w.data)
+		}
+	}
+	bad := read("GET /bad")
+	if len(bad) != 1 || !strings.Contains(bad[0].GetFailed().GetMessage(), "one line") {
+		t.Errorf("an event named over two lines was %v", bad)
+	}
+}
+
 func socketOpen(t *testing.T, client pb.HttpClient) pb.Http_HandleSocketClient {
 	t.Helper()
 	stream, err := client.HandleSocket(context.Background())

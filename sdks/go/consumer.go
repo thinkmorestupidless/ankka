@@ -45,11 +45,16 @@ func (producesPart) part() {}
 // ProducesTo is the topic a consumer publishes to, and the type of what it publishes there: a
 // message's payload must be an Out.
 func ProducesTo[Out any](topic string, opts ...PublicationOption) Part {
+	return ProducesWith(topic, CodecFor[Out](), opts...)
+}
+
+// ProducesWith is ProducesTo with the codec the messages are encoded by, as a manifest of the
+// service's own choosing: ankka.ProducesWith("orders", ankka.CodecFor[Order](ankka.Manifest("order"))).
+func ProducesWith[Out any](topic string, c Codec[Out], opts ...PublicationOption) Part {
 	p := Publication{topic: topic}
 	for _, o := range opts {
 		o(&p)
 	}
-	c := CodecFor[Out]()
 	return producesPart{
 		pub:       p,
 		outType:   reflect.TypeFor[Out](),

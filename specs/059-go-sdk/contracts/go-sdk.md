@@ -122,7 +122,7 @@ var CartRows = ankka.View[CartRow]("cart-rows",
 
 var CheckoutNotifier = ankka.Consumer("checkout-notifier", ankka.Changes(Cart),
     func(ctx context.Context, e CartEvent, m ankka.Metadata) (ankka.ConsumerEffect, error) { ... },
-    ankka.ProducesTo("checkouts"))
+    ankka.ProducesTo("checkouts"))                               // or ankka.ProducesWith(topic, codec) for a manifest of the service's choosing
 
 var Reminder = ankka.TimedAction("reminder", ankka.Action("remind", remind))
 ```
@@ -143,6 +143,7 @@ var API = ankka.NewEndpoint("/carts", ankka.AllowAll(),
     }),
     ankka.Get("/{cartId}", getCart),
     ankka.SSE("/{cartId}/events", events),                        // iter.Seq2[string, error]
+    ankka.SSEEvents("/{cartId}/watched", watched),                 // iter.Seq2[ankka.SSEEvent, error]: named events beside text; ankka.WatchEvents(ankka.Watch(...)) turns a watch into row, removed, caught-up and ended
     ankka.Socket("/{cartId}/live", live),                          // func(ctx, *ankka.Socket) error
     ankka.Get("/admin", admin).ACL(ankka.Authenticate(ankka.Issuer("https://..."))),
 )

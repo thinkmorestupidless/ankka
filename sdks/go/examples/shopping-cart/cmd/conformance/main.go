@@ -64,7 +64,8 @@ func run() int {
 	if only := os.Getenv("ANKKA_CONFORMANCE_ONLY"); only != "" {
 		test += " -- " + only
 	}
-	args = append(args, "-Dankka.cluster.tests=off", "-Dankka.template.tests=off", test)
+	// The suite runs for minutes; each case is reported as it ends rather than all at the end.
+	args = append(args, "-Dankka.cluster.tests=off", "-Dankka.template.tests=off", "set sidecar / Test / logBuffered := false", test)
 	fmt.Fprintf(os.Stderr, "running: sbt %q in %s\n", args, repo)
 	cmd := exec.Command("sbt", args...)
 	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = repo, os.Stdin, os.Stdout, os.Stderr

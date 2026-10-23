@@ -41,63 +41,55 @@ var Profile = ankka.KeyValue[ProfileState]("profile", func(string) ProfileState 
 
 // ── checkout: a workflow ──
 
-// Checkout is a checkout's state.
+// Checkout is a checkout's state, in the Scala reference's shape: the id, the mode it was started
+// in and where it has got to.
 type Checkout struct {
-	CartID   string `json:"cartId"`
-	Status   string `json:"status"`
-	Reserved int    `json:"reserved"`
-	Mode     string `json:"mode"`
+	ID     string `json:"id"`
+	Mode   string `json:"mode"`
+	Status string `json:"status"`
 }
 
 var errDeclined = errors.New("payment declined")
 
 func step(s Checkout) ankka.StepBuilder[Checkout] { return ankka.StepUpdate(s) }
 
-// CheckoutFlow is a checkout as a durable multi-step process: reserve the stock, charge the
-// customer and check the cart out, or compensate. mode is ok, fail (the charge is declined and
-// compensated), pause (a pause before it), abort (declined; the compensation records it and fails
-// the workflow), drop (declined; the compensation fails the workflow and records nothing) or doomed
-// (the compensation fails too).
+// CheckoutFlow is a checkout as a durable multi-step process: reserve, then charge, or compensate.
+// mode is ok, fail (the charge is declined and compensated), pause (a pause before charging),
+// abort (declined; the compensation records it and fails the workflow), drop (declined; the
+// compensation fails the workflow and records nothing) or doomed (declined, and the compensation
+// fails too, so the workflow fails).
 var CheckoutFlow = ankka.Workflow[Checkout]("checkout", func(id string) Checkout {
-	return Checkout{CartID: id, Status: "new", Mode: "ok"}
+	return Checkout{ID: id, Status: "new"}
 },
-	ankka.WorkflowCommand("start", func(_ context.Context, s Checkout, mode string) (ankka.WorkflowEffect[Checkout, ankka.Done], error) {
+	ankka.WorkflowCommand("start", func(_ context.Context, s Checkout, mode string) (ankka.WorkflowEffect[Checkout, string], error) {
 		if s.Status != "new" {
-			return ankka.WorkflowEffect[Checkout, ankka.Done]{}, ankka.Refusef(ankka.Conflict, "checkout is already %s", s.Status)
+			return ankka.WorkflowEffect[Checkout, string]{}, ankka.Refuse(ankka.Conflict, "already started")
 		}
 		s.Status, s.Mode = "reserving", mode
-		return ankka.WorkflowUpdate[Checkout, ankka.Done](s).ThenTransitionTo("reserve", nil).ThenReplyValue(ankka.Done{}), nil
+		return ankka.WorkflowUpdate[Checkout, string](s).ThenTransitionTo("reserve", nil).ThenReplyValue("started"), nil
 	}),
-	ankka.Query("status", func(_ context.Context, s Checkout, _ ankka.Unit) (ankka.ReadOnlyEffect[Checkout], error) {
-		return ankka.Reply(s), nil
+	ankka.Query("status", func(_ context.Context, s Checkout, _ ankka.Unit) (ankka.ReadOnlyEffect[string], error) {
+		return ankka.Reply(s.Status), nil
 	}),
 	ankka.Step("reserve", func(ctx context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
 		// A client call from a step: what the cart holds.
-		total, err := ankka.Invoke[int](ctx, cart.ComponentID, s.CartID, "total-quantity", ankka.Unit{})
-		if err != nil {
+		if _, err := ankka.Invoke[int](ctx, cart.ComponentID, s.ID, "total-quantity", ankka.Unit{}); err != nil {
 			return ankka.StepEffect[Checkout]{}, err
 		}
 		next := "charge"
 		if s.Mode == "pause" {
 			next = "wait"
 		}
-		s.Status, s.Reserved = "reserved", total
+		s.Status = "reserved"
 		return step(s).ThenTransitionTo(next, nil), nil
 	}),
 	ankka.Step("wait", func(_ context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
 		s.Status = "waiting"
 		return step(s).ThenPause(ankka.PauseOptions{After: 1500 * time.Millisecond, OnTimeout: "charge"}), nil
 	}),
-	ankka.Step("charge", func(ctx context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
+	ankka.Step("charge", func(_ context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
 		if slices.Contains([]string{"fail", "abort", "drop", "doomed"}, s.Mode) {
 			return ankka.StepEffect[Checkout]{}, errDeclined
-		}
-		// Not idempotent: a retry after the cart was checked out is refused, which is why charge is
-		// allowed one retry and then fails over, and why compensation exists.
-		if s.Reserved > 0 {
-			if _, err := ankka.Invoke[cart.Cart](ctx, cart.ComponentID, s.CartID, "checkout", ankka.Unit{}); err != nil {
-				return ankka.StepEffect[Checkout]{}, err
-			}
 		}
 		s.Status = "charged"
 		return step(s).ThenEnd(), nil
@@ -105,14 +97,14 @@ var CheckoutFlow = ankka.Workflow[Checkout]("checkout", func(id string) Checkout
 	ankka.Step("compensate", func(_ context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
 		switch s.Mode {
 		case "abort":
-			s.Status, s.Reserved = "aborted", 0
+			s.Status = "aborted"
 			return step(s).ThenFail(ankka.WorkflowFailed, "payment declined"), nil
 		case "drop":
 			return ankka.FailWorkflow[Checkout](ankka.WorkflowFailed, "payment declined"), nil
 		case "doomed":
 			return ankka.StepEffect[Checkout]{}, errors.New("compensation failed too")
 		}
-		s.Status, s.Reserved = "compensated", 0
+		s.Status = "compensated"
 		return step(s).ThenEnd(), nil
 	}),
 	ankka.StateCodec(ankka.CodecFor[Checkout](ankka.Manifest("checkout"))),

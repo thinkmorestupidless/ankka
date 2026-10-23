@@ -485,11 +485,11 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	ankka.Delete("/profile/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
 		return ankka.Invoke[string](ctx, "profile", req.Param("id"), "delete", ankka.Unit{})
 	}),
-	ankka.Post("/checkout/{id}", func(ctx context.Context, req *ankka.Request, mode string) (ankka.Done, error) {
-		return ankka.Invoke[ankka.Done](ctx, "checkout", req.Param("id"), "start", mode)
+	ankka.Post("/checkout/{id}", func(ctx context.Context, req *ankka.Request, mode string) (string, error) {
+		return ankka.Invoke[string](ctx, "checkout", req.Param("id"), "start", mode)
 	}),
-	ankka.Get("/checkout/{id}", func(ctx context.Context, req *ankka.Request) (Checkout, error) {
-		return ankka.Invoke[Checkout](ctx, "checkout", req.Param("id"), "status", ankka.Unit{})
+	ankka.Get("/checkout/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
+		return ankka.Invoke[string](ctx, "checkout", req.Param("id"), "status", ankka.Unit{})
 	}),
 	ankka.Get("/checkout/{id}/row", func(ctx context.Context, req *ankka.Request) (CheckoutRow, error) {
 		row, found, err := ankka.ViewRow[CheckoutRow](ctx, "checkout-rows", req.Param("id"))
@@ -854,13 +854,13 @@ type ListedKey struct {
 
 // McpKeys is the reference's own routes over its client keys, as a product would write them.
 var McpKeys = ankka.NewEndpoint("/mcp-keys", ankka.AllowAll(),
-	ankka.Post("", func(ctx context.Context, _ *ankka.Request, asked KeyRequest) (map[string]string, error) {
+	ankka.Post("/", func(ctx context.Context, _ *ankka.Request, asked KeyRequest) (map[string]string, error) {
 		issued, err := ankka.ClientKeys(ctx).Issue(ankka.ClientKeyRequest{
 			Subject: asked.Subject, Never: true, Scope: asked.Scope, Attributes: asked.Attributes,
 		})
 		return map[string]string{"id": issued.ID, "clientKey": issued.ClientKey}, err
 	}),
-	ankka.Get("", func(ctx context.Context, _ *ankka.Request) ([]ListedKey, error) {
+	ankka.Get("/", func(ctx context.Context, _ *ankka.Request) ([]ListedKey, error) {
 		keys, err := ankka.ClientKeys(ctx).List()
 		out := make([]ListedKey, 0, len(keys))
 		for _, k := range keys {

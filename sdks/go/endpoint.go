@@ -128,8 +128,8 @@ func newRoute(method, template string) *Route {
 		}
 		r.params = append(r.params, m[1])
 	}
-	if template != "" && !strings.HasPrefix(template, "/") {
-		r.problems = append(r.problems, fmt.Sprintf("the template %q starts with /", template))
+	if !strings.HasPrefix(template, "/") {
+		r.problems = append(r.problems, fmt.Sprintf("the template %q must start with / (the endpoint's own path is \"/\")", template))
 	}
 	return r
 }

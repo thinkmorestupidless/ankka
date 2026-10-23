@@ -3,6 +3,7 @@ package ankka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
@@ -43,8 +44,8 @@ func Schedule(ctx context.Context, timerID string, delay time.Duration, target T
 // once every period, until it is cancelled or replaced (1.12). Scheduling again with the same target
 // and period keeps the next due and takes the input.
 func ScheduleRecurring(ctx context.Context, timerID string, delay, period time.Duration, target TimerTarget, input any) error {
-	if period <= 0 {
-		return Refuse(BadRequest, "a recurring timer's period is above zero")
+	if p := periodProblem(timerID, period); p != "" {
+		return Refuse(BadRequest, p)
 	}
 	if target.EntityID != "" {
 		return Refuse(BadRequest, "a recurring timer calls a timed action, which has no instance; leave EntityID empty")
@@ -83,4 +84,15 @@ func Cancel(ctx context.Context, timerID string) error {
 	}
 	_, err = rpc.Cancel(ctx, &pb.CancelRequest{TimerId: timerID})
 	return tooOld("timers", "1.0", err)
+}
+
+// maxPeriodDays is the longest recurring period, a century: the runtime's TimerRules.MaxPeriod.
+const maxPeriodDays = 36500
+
+// periodProblem is what is wrong with a recurring timer's period, in the runtime's own words, or "".
+func periodProblem(timerID string, period time.Duration) string {
+	if period >= time.Millisecond && period <= maxPeriodDays*24*time.Hour {
+		return ""
+	}
+	return fmt.Sprintf("timer '%s' has a period of %s; a period is from 1 millisecond to %d days", timerID, period, maxPeriodDays)
 }

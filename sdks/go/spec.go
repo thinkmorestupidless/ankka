@@ -187,6 +187,11 @@ func protocolMinor(version string) (int, bool) {
 // refusal is why a sidecar speaking version cannot host d, naming the oldest version it lacks
 // first, or "" when it can (FR-018).
 func (d *declarations) refusal(version string) string {
+	// A sidecar of another major is answered the spec: the sidecar refuses it, naming both versions,
+	// and reports the refusal back (Discovery retries a discovery the process refuses).
+	if major, _, found := strings.Cut(version, "."); found && major != "1" {
+		return ""
+	}
 	minor, ok := protocolMinor(version)
 	if !ok {
 		if len(d.needs) == 0 {

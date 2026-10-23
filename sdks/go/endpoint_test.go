@@ -3,6 +3,7 @@ package ankka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strings"
@@ -135,6 +136,34 @@ func TestTheEndpointDeclaresItsRoutes(t *testing.T) {
 		if r.GetHasBody() != (r.GetMethod() == "POST") {
 			t.Fatalf("route %v", r)
 		}
+	}
+}
+
+// The runtime refuses a template that does not start with "/", the endpoint's own path included,
+// so the process refuses it first, naming it.
+func TestARouteTemplateStartsWithASlash(t *testing.T) {
+	for _, template := range []string{"", "items"} {
+		e := NewEndpoint("/keys", AllowAll(), Get(template, func(context.Context, *Request) (Done, error) { return Done{}, nil }))
+		problems := fmt.Sprint(NewService(e).Problems())
+		if !strings.Contains(problems, fmt.Sprintf("the template %q must start with /", template)) {
+			t.Errorf("the template %q: %s", template, problems)
+		}
+	}
+	if p := NewService(NewEndpoint("/keys", AllowAll(), Get("/", func(context.Context, *Request) (Done, error) { return Done{}, nil }))).Problems(); len(p) > 0 {
+		t.Errorf("the endpoint's own path: %v", p)
+	}
+}
+
+// A sidecar of another major is answered the spec, whatever the service declares: the sidecar
+// refuses it and reports back, and a process that refused first would be asked again for ever.
+func TestASidecarOfAnotherMajorIsLeftToRefuse(t *testing.T) {
+	for _, svc := range []*Service{NewService(tAPI), NewService(tCartEntity, tAPI)} {
+		if why := svc.decls.refusal("99.0"); why != "" {
+			t.Errorf("99.0 was refused by the process: %q", why)
+		}
+	}
+	if why := NewService(tAPI).decls.refusal(ProtocolVersion); why != "" {
+		t.Errorf("this SDK's own version was refused: %q", why)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"os/signal"
@@ -264,7 +265,9 @@ func (s *Service) chooseStore(st startSettings) error {
 
 // grpcServer registers discovery and a servicer for every kind the declarations hold.
 func (s *Service) grpcServer() *grpc.Server {
-	g := server.New()
+	// No bound on what the sidecar sends: a route's body is the sidecar's to bound, and grpc-go's 4 MiB
+	// default refused an object a process may keep (the Python server lifts it the same way).
+	g := server.New(grpc.MaxRecvMsgSize(math.MaxInt32))
 	server.RegisterDiscovery(g, server.Discovery{Discover: s.discover, Report: s.report})
 	if len(s.decls.eventSourced) > 0 {
 		server.RegisterEventSourced(g, s.eventSourcedHost, s.serverOptions())

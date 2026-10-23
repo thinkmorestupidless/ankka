@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
+import com.thinkmorestupidless.ankka.testkit.ClasspathReference
 import java.nio.file.Files
 
 /**

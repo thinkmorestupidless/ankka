@@ -255,10 +255,13 @@ private[bridge] object Tools:
         if within.isNegative || within.isZero then
           throw IllegalArgumentException(s"$where needs a positive time limit for approval")
         Some(Approval(Some(Effects.finite(within))))
-    val parameters = m.getParameters.toVector
+    com.thinkmorestupidless.ankka.javasdk.bridge.Invocable
+      .problem(m)
+      .foreach(why => throw IllegalArgumentException(s"$where $why"))
+    val parameters = com.thinkmorestupidless.ankka.javasdk.bridge.Invocable.parameters(m).toVector
     val inputs: Vector[smcp.ToolInput[Any]] = parameters match
       case Vector() => Vector.empty
-      case Vector(p) if p.getType.isRecord =>
+      case Vector(p) if recordLike(p.getType) =>
         val tpe = p.getParameterizedType
         Vector(recordInput(p.getType, tpe, Values.serializer(tpe, serializers)))
       case ps => ps.map(p => described(p, named(where, p, serializers)))
@@ -295,11 +298,28 @@ private[bridge] object Tools:
   private def described(p: Parameter, input: smcp.ToolInput[Any]): smcp.ToolInput[Any] =
     described(input, describe(p).map(p.getName -> _).toMap)
 
-  /** A record's input, each property carrying its component's `@Describe`. */
+  /** A Java record, or a Kotlin class the SDK reads as one: a data class. */
+  private def recordLike(cls: Class[?]): Boolean =
+    cls.isRecord || (!cls.isEnum && !cls.isInterface &&
+      cls.getAnnotations.exists(_.annotationType.getName == "kotlin.Metadata") &&
+      com.thinkmorestupidless.ankka.javasdk.codec.RecordShapes.find(cls) != null)
+
+  /**
+   * A record's input, each property carrying its component's `@Describe`: a Java record's on the
+   * component, a Kotlin class's on its constructor parameter, where Kotlin puts an annotation on a
+   * constructor property.
+   */
   private def recordInput(record: Class[?], tpe: Type, serializer: Serializer[Any]) =
-    val descriptions = record.getRecordComponents.toVector.flatMap { c =>
-      describe(c.getAccessor).orElse(describe(c)).map(c.getName -> _)
-    }
+    val descriptions =
+      if record.isRecord then
+        record.getRecordComponents.toVector.flatMap { c =>
+          describe(c.getAccessor).orElse(describe(c)).map(c.getName -> _)
+        }
+      else
+        record.getDeclaredConstructors.toVector
+          .flatMap(_.getParameters)
+          .filter(_.isNamePresent)
+          .flatMap(p => describe(p).map(p.getName -> _))
     described(Mcp.recordInput(tpe, serializer, None), descriptions.toMap)
 
   /** What the model is told each property is, beside its type. */

@@ -3,10 +3,11 @@ package com.thinkmorestupidless.ankka.javasdk.samples
 import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, EntityId}
 import com.thinkmorestupidless.ankka.javasdk.bridge.JavaServiceBuilder
 import com.thinkmorestupidless.ankka.runtime.Observability
-import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
+import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, ClasspathReference, LogCapturing}
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain.LineItem
 
+import java.nio.file.Path
 import scala.concurrent.duration.DurationInt
 
 /**
@@ -15,6 +16,10 @@ import scala.concurrent.duration.DurationInt
  * median of the entity handler's spans is compared, as the tracing measures a handler. The medians
  * are printed; the 10% bound is asserted only under `-Dankka.cost.assert=true`, since a shared
  * machine's numbers say little about the facade.
+ *
+ * The Kotlin cart is the Kotlin reference's (`sdks/kotlin/samples/reference`), built by Gradle and
+ * named by `-Dankka.cost.kotlin=<listing>`, the file its `conformanceClasspath` task writes;
+ * without it the Kotlin half is skipped, saying so.
  */
 class FacadeCostSuite extends munit.FunSuite with LogCapturing:
 
@@ -29,6 +34,16 @@ class FacadeCostSuite extends munit.FunSuite with LogCapturing:
     shoppingcart.javasdk.Main.service() match
       case b: JavaServiceBuilder => JavaServiceBuilder.read(b.classes, b.serializers).descriptors
       case other                 => fail(s"$other is not a Java service")
+
+  private val KotlinCart = "com.thinkmorestupidless.ankka.kotlin.reference.ShoppingCartEntity"
+
+  /**
+   * The Kotlin reference's cart, read from the Gradle build's class path as the Java one is read.
+   */
+  private def kotlinCart(listing: String): Seq[ComponentDescriptor] =
+    val loader = ClasspathReference.loader(Path.of(listing), getClass.getClassLoader)
+    val cls    = Class.forName(KotlinCart, true, loader)
+    JavaServiceBuilder.read(Vector(cls -> None), Map.empty, checkReferences = false).descriptors
 
   /** The median duration of `add-item` on the cart, in microseconds. */
   private def median(descriptors: Seq[ComponentDescriptor]): Double =
@@ -67,5 +82,24 @@ class FacadeCostSuite extends munit.FunSuite with LogCapturing:
       assert(
         ratio <= 1.10,
         f"the Java handler's median is ${(ratio - 1) * 100}%.1f%% above Scala's"
+      )
+  }
+
+  test("the Kotlin cart's handler costs within 10% of the Scala cart's") {
+    val listing = sys.props.get("ankka.cost.kotlin")
+    assume(listing.isDefined, "-Dankka.cost.kotlin names no Kotlin build; see the suite's comment")
+    val kotlin = kotlinCart(listing.get)
+    val first  = (median(scalaCart), median(kotlin))
+    val scala  = median(scalaCart)
+    val kt     = median(kotlin)
+    val ratio  = kt / scala
+    println(
+      f"facade cost: Scala median $scala%.1f µs, Kotlin median $kt%.1f µs, ratio $ratio%.3f " +
+        f"(first round, not counted: ${first._1}%.1f and ${first._2}%.1f µs)"
+    )
+    if sys.props.get("ankka.cost.assert").contains("true") then
+      assert(
+        ratio <= 1.10,
+        f"the Kotlin handler's median is ${(ratio - 1) * 100}%.1f%% above Scala's"
       )
   }

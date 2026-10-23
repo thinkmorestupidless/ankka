@@ -1,16 +1,17 @@
-package com.thinkmorestupidless.ankka.sidecar.conformance
+package com.thinkmorestupidless.ankka.testkit
 
 import java.net.{URL, URLClassLoader}
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
 /**
- * The class loader of a reference built outside sbt (`classpath:<file>:<class>`): `file` is a jar
- * or a directory of classes, or a `.txt` listing one jar or directory a line, as the Kotlin build's
- * `conformance` task writes its runtime class path less what sbt already holds. A class is looked
- * for in the listed entries first and then in the suite's loader: the Java SDK, the runtime and
- * Scala are not listed, so they are the suite's, while the reference's language libraries are its
- * own even where the suite holds an older copy (a `kotlin-stdlib` the Java SDK reaches).
+ * The class loader of a service built outside sbt, as the conformance suite's Kotlin reference and
+ * the facade cost suite's Kotlin cart are: `file` is a jar or a directory of classes, or a `.txt`
+ * listing one jar or directory a line, as the Kotlin build's `conformanceClasspath` task writes its
+ * runtime class path less what sbt already holds. A class is looked for in the listed entries first
+ * and then in the suite's loader: the Java SDK, the runtime and Scala are not listed, so they are
+ * the suite's, while the reference's language libraries are its own even where the suite holds an
+ * older copy (a `kotlin-stdlib` the Java SDK reaches).
  */
 object ClasspathReference:
 
@@ -31,8 +32,7 @@ object ClasspathReference:
 
   /** What `file` names, each of which must exist: a missing entry is a broken build, not a skip. */
   def entries(file: Path): Vector[Path] =
-    if !Files.exists(file) then
-      throw IllegalArgumentException(s"ankka.conformance.reference: no file at $file")
+    if !Files.exists(file) then throw IllegalArgumentException(s"a class path: no file at $file")
     val listed =
       if file.getFileName.toString.endsWith(".txt") then
         Files
@@ -44,10 +44,10 @@ object ClasspathReference:
           .toVector
       else Vector(file)
     if listed.isEmpty then
-      throw IllegalArgumentException(s"ankka.conformance.reference: $file lists nothing")
+      throw IllegalArgumentException(s"the class path listing $file lists nothing")
     listed.filterNot(Files.exists(_)) match
       case Vector() => listed
       case missing =>
         throw IllegalArgumentException(
-          s"ankka.conformance.reference: $file lists ${missing.mkString(", ")}, which do not exist"
+          s"the class path listing $file lists ${missing.mkString(", ")}, which do not exist"
         )

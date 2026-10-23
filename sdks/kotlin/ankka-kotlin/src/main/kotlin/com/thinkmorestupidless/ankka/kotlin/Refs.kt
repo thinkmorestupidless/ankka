@@ -98,6 +98,12 @@ private class NamedNoArg<C : Any, O : Any>(private val handler: KFunction<Effect
 private fun refused(function: KFunction<*>): Nothing =
     throw UnsupportedOperationException("$function names a handler for the SDK to call; it is not called through this")
 
+/**
+ * What a Kotlin function reference writes in place of itself where the Java SDK takes the functional
+ * interface [functional]: how the SDK's own Kotlin modules hand a reference to a `suspend fun` over.
+ */
+fun functionReference(function: KFunction<*>, functional: Class<*>): Serializable = serialized(function, functional)
+
 private fun serialized(function: KFunction<*>, functional: Class<*>): Serializable {
     val method: Method =
         function.javaMethod ?: throw IllegalArgumentException("$function is not a method of a class")

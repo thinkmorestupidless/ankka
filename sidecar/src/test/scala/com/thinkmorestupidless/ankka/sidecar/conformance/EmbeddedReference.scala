@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
+import com.thinkmorestupidless.ankka.testkit.ClasspathReference
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, HttpEndpoint}
 import com.thinkmorestupidless.ankka.javasdk.conformance.ConformanceEntry

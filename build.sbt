@@ -193,6 +193,8 @@ lazy val commonSettings = Seq(
     "ankka.conformance.reference",
     // FacadeCostSuite asserts the 10% bound only on a machine that asks it to (feature 058, R13).
     "ankka.cost.assert",
+    // The Kotlin cart FacadeCostSuite measures: the Kotlin reference's class path listing.
+    "ankka.cost.kotlin",
     // The guest shape a module target is run in (feature 016): `stateless` or `stateful`. Without
     // it here the second run of `sdks/rust/conformance.sh` was a second stateless one.
     "ankka.conformance.shape",

@@ -528,6 +528,7 @@ private[bridge] object AgentReader:
       val stream  = Option(m.getAnnotation(classOf[annotations.Stream])).map(_.value)
       val member  = m.getName
       val count   = Invocable.parameterCount(m)
+      if command.isDefined || stream.isDefined then Invocable.problem(m).foreach(problem(member, _))
       def input =
         if count == 1 then serializer(m.getGenericParameterTypes()(0), member, "input")
         else None
@@ -537,11 +538,11 @@ private[bridge] object AgentReader:
           problem(member, "is both @Command and @Stream; a handler is one or the other"); None
         case (Some(wire), None) =>
           if count > 1 then problem(member, "takes more than one parameter; take one record")
-          if m.getReturnType != classOf[javasdk.AgentEffect[?]] then
+          if Invocable.returnType(m) != classOf[javasdk.AgentEffect[?]] then
             problem(member, "is a @Command, so it returns AgentEffect<R>")
             None
           else
-            val reply = m.getGenericReturnType match
+            val reply = Invocable.genericReturnType(m) match
               case p: ParameterizedType =>
                 serializer(p.getActualTypeArguments()(0), member, "reply")
               case _ => problem(member, "returns a raw AgentEffect; say what it replies with"); None
@@ -549,7 +550,7 @@ private[bridge] object AgentReader:
             Some(AgentHandler(wire, m, stream = false, input, reply))
         case (None, Some(wire)) =>
           if count != 1 then problem(member, "is a @Stream, so it takes exactly one parameter")
-          if m.getReturnType != classOf[javasdk.StreamEffect] then
+          if Invocable.returnType(m) != classOf[javasdk.StreamEffect] then
             problem(member, "is a @Stream, so it returns StreamEffect")
           if wire.isEmpty then problem(member, "has an empty wire name")
           Some(AgentHandler(wire, m, stream = true, input, None))

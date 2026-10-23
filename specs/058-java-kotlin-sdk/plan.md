@@ -152,7 +152,7 @@ The protocol, encoding, conformance cases and descriptor contracts are unchanged
 
 ```text
 modules/sdk-java/                                   # NEW sbt module, artifact ankka-java, crossPaths := false
-├── src/main/java/com/thinkmorestupidless/ankka/java/
+├── src/main/java/com/thinkmorestupidless/ankka/javasdk/
 │   ├── Ankka.java, AnkkaService.java, ServiceBuilder.java
 │   ├── annotations/     Command, Query, Step, Action, Stream, Rule, Get, Post, Put, Delete, Patch, Sse, Socket, StreamBody, Body, Path, QueryParam, Header
 │   ├── component/       EventSourcedEntity, KeyValueEntity, View, KeyedView, Consumer, GraphConsumer, Workflow, TimedAction, contexts
@@ -163,7 +163,7 @@ modules/sdk-java/                                   # NEW sbt module, artifact a
 │   ├── secret/          SecretStore;  storage/  ObjectStorage, Bucket
 │   ├── timer/           Timers
 │   └── problems/        ServiceProblems, DeclarationProblem
-├── src/main/scala/com/thinkmorestupidless/ankka/java/bridge/
+├── src/main/scala/com/thinkmorestupidless/ankka/javasdk/bridge/
 │   ├── Declarations.scala        # reads a Java class once: annotations → HandlerBinding/StepHandle values, problems collected
 │   ├── Adapters.scala            # Java<Kind> extends Scala <Kind>: forwards _setState/_setContext to the Java instance
 │   ├── Effects.scala             # wraps/unwraps the Scala effect values behind the Java effect interfaces
@@ -177,12 +177,12 @@ modules/sdk-java/                                   # NEW sbt module, artifact a
 └── src/test/scala/.../java/     # JavaKotlinFeatures (GherkinSuite over features/java-kotlin), bridge unit tests
 
 modules/agent-java/                                 # NEW, artifact ankka-java-agent
-├── src/main/java/com/thinkmorestupidless/ankka/agent/java/   Agent, AgentEffect, Tools (@Tool), FunctionTool, Guardrail,
+├── src/main/java/com/thinkmorestupidless/ankka/agent/javasdk/   Agent, AgentEffect, Tools (@Tool), FunctionTool, Guardrail,
 │                                                             AutonomousAgent, Task, Judgment, Blueprint, ModelProviders
-└── src/main/scala/com/thinkmorestupidless/ankka/agent/java/bridge/   AgentBridge.scala (reaches private[agent])
+└── src/main/scala/com/thinkmorestupidless/ankka/agent/javasdk/bridge/   AgentBridge.scala (reaches private[agent])
 
 modules/testkit-java/                               # NEW, artifact ankka-java-testkit
-├── src/main/java/com/thinkmorestupidless/ankka/java/testkit/  EventSourcedTestKit, KeyValueEntityTestKit, WorkflowTestKit,
+├── src/main/java/com/thinkmorestupidless/ankka/javasdk/testkit/  EventSourcedTestKit, KeyValueEntityTestKit, WorkflowTestKit,
 │                                                              ViewTestKit, KeyedViewTestKit, ConsumerTestKit, AgentTestKit,
 │                                                              AnkkaTestKit, TimerProbe, TestModelProvider, ScriptedService
 └── src/main/scala/.../java/testkit/bridge/         # wraps the Scala kits; unwraps Java effects to materialise

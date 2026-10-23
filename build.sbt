@@ -188,6 +188,11 @@ lazy val commonSettings = Seq(
     "ankka.mcp.spike.url",
     // The conformance suite's target (feature 009): a process speaking the sidecar protocol.
     "ankka.conformance.target",
+    // Which in-process reference the conformance suite drives (feature 058): `scala` by default,
+    // `java`, or `classpath:<file>:<class>` for the Kotlin reference built outside sbt.
+    "ankka.conformance.reference",
+    // FacadeCostSuite asserts the 10% bound only on a machine that asks it to (feature 058, R13).
+    "ankka.cost.assert",
     // The guest shape a module target is run in (feature 016): `stateless` or `stateful`. Without
     // it here the second run of `sdks/rust/conformance.sh` was a second stateless one.
     "ankka.conformance.shape",
@@ -1092,6 +1097,61 @@ lazy val researchDigest = project
  * root builds the image of every project with `DockerPlugin` enabled and skips every other project,
  * the same way `compile` and `test` already do.
  */
+/**
+ * The Java SDK (feature 058): a Java API with nothing of Scala on its surface, and a Scala bridge
+ * beside it that builds the Scala SDK's descriptors from annotated Java classes, read once at
+ * start. Java and Scala sources compile together (sbt's mixed order), so the bridge can reach the
+ * SDK's `private[ankka]` hooks and the Java API can call the bridge. No `_3` suffix: a Java
+ * developer's build names `ankka-java`. `SurfaceSuite` holds the surface to Java types.
+ */
+lazy val javaSdkSettings = Seq(
+  crossPaths := false,
+  // Lint the Java a developer reads, as `-Werror` holds the Scala. Scoped to `compile` so javadoc
+  // never receives it. `serial` is off: method references are Serializable by design (R2).
+  Compile / compile / javacOptions ++= Seq("-Xlint:all,-serial,-processing", "-Werror"),
+  // Handlers' parameter names are read when a route binds a parameter by name.
+  Compile / compile / javacOptions += "-parameters",
+  Test / compile / javacOptions += "-parameters"
+)
+
+lazy val sdkJava = project
+  .in(file("modules/sdk-java"))
+  .dependsOn(core, sdk, runtime, http, grpc, telemetryOtlp, testkit % Test, grpcFixtures % Test)
+  .settings(commonSettings)
+  .settings(javaSdkSettings)
+  .settings(
+    name := "ankka-java",
+    libraryDependencies ++= Seq(jspecify, testcontainersPg % Test)
+  )
+
+/** Agents, autonomous agents, judgments, blueprints and MCP endpoints in Java (feature 058). */
+lazy val agentJava = project
+  .in(file("modules/agent-java"))
+  .dependsOn(sdkJava % "compile;test->test", agent, mcp, testkit % Test)
+  .settings(commonSettings)
+  .settings(javaSdkSettings)
+  .settings(name := "ankka-java-agent")
+
+/** The Java test kits over the Scala ones, sharing their reduction (feature 058). */
+lazy val testkitJava = project
+  .in(file("modules/testkit-java"))
+  .dependsOn(sdkJava % "compile;test->test", agentJava, testkit)
+  .settings(commonSettings)
+  .settings(javaSdkSettings)
+  .settings(name := "ankka-java-testkit")
+
+/** The shopping cart written in Java, held to the sample's own features (feature 058). */
+lazy val shoppingCartJava = project
+  .in(file("samples/shopping-cart-java"))
+  .dependsOn(sdkJava, agentJava, testkitJava % Test, shoppingCart % Test)
+  .settings(commonSettings)
+  .settings(
+    name           := "sample-shopping-cart-java",
+    publish / skip := true,
+    Compile / compile / javacOptions += "-parameters",
+    Compile / mainClass := Some("shoppingcart.javasdk.Main")
+  )
+
 addCommandAlias(
   "buildAll",
   "; scalafmtCheckAll ; scalafmtSbtCheck ; compile ; test ; docker:publishLocal"
@@ -1128,7 +1188,11 @@ lazy val root = project
     shoppingCart,
     shoppingCartApi,
     multiAgentPlanner,
-    researchDigest
+    researchDigest,
+    sdkJava,
+    agentJava,
+    testkitJava,
+    shoppingCartJava
   )
   .settings(
     name           := "ankka",

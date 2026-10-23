@@ -114,7 +114,7 @@ object ConformanceTarget {
 
 `ClasspathReference.load` builds a `URLClassLoader` over the file's entries with the suite's loader
 as parent, instantiates `entryClass` (a Java class implementing
-`com.thinkmorestupidless.ankka.java.conformance.ConformanceEntry`, in `ankka-java`'s test-jar or a
+`com.thinkmorestupidless.ankka.javasdk.conformance.ConformanceEntry`, in `ankka-java`'s test-jar or a
 small `ankka-java-conformance` test artifact: verify, R8) and adapts its Java `EmbeddedReference` to
 the Scala trait. `hosting` reports `embedded` for every `InProcess`. The suite's cases do not
 change; its report names the language. `ankka.conformance.reference` is forwarded in

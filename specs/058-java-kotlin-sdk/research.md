@@ -35,7 +35,7 @@ build the descriptor case classes itself. Agent internals are `private[agent]` (
 **Decision**: one sbt module `modules/sdk-java` (artifact `ankka-java`, `crossPaths := false`) holding
 two layers that sbt compiles together in mixed order:
 
-- **The Java API**, in Java, package `com.thinkmorestupidless.ankka.java` and below: the annotations,
+- **The Java API**, in Java, package `com.thinkmorestupidless.ankka.javasdk` and below: the annotations,
   the base classes a developer extends (`EventSourcedEntity<S, E>`, `KeyValueEntity<S>`, `View<Src,
   Row>`, `KeyedView<Row>`, `Consumer<Src, Out>`, `GraphConsumer<Src>`, `Workflow<S>`, `TimedAction`,
   `HttpEndpoint`, `GrpcEndpoint`, `McpEndpoint`), the effect types (`Effect<R>`, `ReadOnlyEffect<R>`,
@@ -43,8 +43,8 @@ two layers that sbt compiles together in mixed order:
   references no Scala type, which is checkable: the Java layer is compiled first, by javac, against
   the Java standard library and ankka's **Java-visible** dependencies only, and SC-006's check is a
   `javap`-based test over the public signatures of the published jar (R12).
-- **The Scala bridge**, in Scala, package `com.thinkmorestupidless.ankka.java.bridge` (and
-  `com.thinkmorestupidless.ankka.agent.java` for what is `private[agent]`), which reads a Java
+- **The Scala bridge**, in Scala, package `com.thinkmorestupidless.ankka.javasdk.bridge` (and
+  `com.thinkmorestupidless.ankka.agent.javasdk` for what is `private[agent]`), which reads a Java
   component class once at start (R2), builds the Scala descriptor case class for it with
   `CommandHandle`/`StepHandle` values whose `run` functions call the Java methods through
   `MethodHandle`s, wraps the Scala `*Effects` builders behind the Java effect types, and adapts the
@@ -255,7 +255,7 @@ plain case-class builders (`blueprint/Blueprint.scala:219`). `forAgent(SessionId
 extension (`AgentRuntime.scala:1194`). `TestModelProvider` is in the agent module.
 
 **Decision**: `modules/agent-java` holds the Java agent API and its bridge in package
-`com.thinkmorestupidless.ankka.agent.java` so the `private[agent]` constructors are reachable.
+`com.thinkmorestupidless.ankka.agent.javasdk` so the `private[agent]` constructors are reachable.
 `@Command` and `@Stream` handlers return `AgentEffect<R>`; tools are `@Tool("name")` methods on a
 `Tools` class (the schema from the record codec's plan over the parameter record, the decoder from
 the same plan: "one schema and one decoder" as the Scala `FunctionTool` builder gives) or built
@@ -456,7 +456,7 @@ is in hand.
 ## R12 — Proving "nothing Scala on the surface"
 
 **Decision**: a test in `modules/sdk-java` lists, through `java.lang.reflect` over every public class
-of the packaged jar's `com.thinkmorestupidless.ankka.java` packages (excluding `.bridge`), each
+of the packaged jar's `com.thinkmorestupidless.ankka.javasdk` packages (excluding `.bridge`), each
 public method's parameter and return types, each public field's type, each supertype and each
 annotation's element types, and fails on any whose package starts with `scala.`,
 `org.apache.pekko.`, `com.github.plokhotnyuk.` or `com.thinkmorestupidless.ankka.` outside the
@@ -509,3 +509,29 @@ assertion, since CI's machines vary, but it is a reviewer's checklist item.
 9. R10: the Maven wrapper's script-only distribution type (no jar) works where the Gradle wrapper
    needs its jar; `Scaffold`'s binary entries carry the jar and the executable bits through the
    native image's resource glob.
+
+## Answers at implementation
+
+- **The package is `javasdk`, not `java`** (found before any Java was written). A package
+  `com.thinkmorestupidless.ankka.java` shadows the root `java` package for every Scala file in an
+  ankka package compiled beside it: `java.util.List` inside `com.thinkmorestupidless.ankka.sdk`
+  would resolve to `com.thinkmorestupidless.ankka.java.util`. Akka's Java SDK is `akka.javasdk` for
+  the same reason. The surface is `com.thinkmorestupidless.ankka.javasdk`, the agents'
+  `com.thinkmorestupidless.ankka.agent.javasdk`; Kotlin keeps `com.thinkmorestupidless.ankka.kotlin`.
+- **The MCP facade is in `agent-java`**, not `ankka-java`: `mcp` depends on `agent`.
+- **1 (R3).** Every payload fixture at the top of `protocol/fixtures` decodes and re-encodes byte for
+  byte through the Java codec (`RecordCodecFixturesSuite`, 24 cases), with `Double.toString` as the
+  double rendering and `Instant.toString` as the instant's. Each fixture shape is a Java record,
+  sealed interface or enum; the one-case `service-event` is a sealed interface with one record. The
+  subdirectories (`autonomous`, `contracts`, `graph-deltas`, `secrets`, `storage`, `topics`) are not
+  payloads of a developer's types, which is why no other SDK's encoding suite reads them either;
+  each is read by the suite of the feature it belongs to. Breaking the enum writer turns two cases red.
+- **8 (R11).** `sdkJava/publishM2` with `crossPaths := false` publishes
+  `com.thinkmorestupidless:ankka-java:<v>` whose pom names `ankka-core_3`, `ankka-sdk_3`,
+  `ankka-runtime_3`, `ankka-http_3`, `ankka-grpc_3`, `ankka-telemetry-otlp_3`, `scala3-library_3` and
+  `jspecify` at compile scope and the test-only modules (`ankka-testkit_3`, the unpublished
+  `ankka-grpc-fixtures_3`) at test scope, which Maven does not resolve for a consumer. No
+  `pomPostProcess` is needed. A Maven or Gradle build of an unreleased version therefore needs every
+  ankka module in `~/.m2`, so the template suites run `publishM2` over the published aggregate, not
+  over the Java modules alone. Javadoc of a mixed module is scaladoc's, and `-parameters` must stay
+  off the doc task's `javacOptions`.

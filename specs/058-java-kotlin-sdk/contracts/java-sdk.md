@@ -2,7 +2,7 @@
 
 **Feature**: [spec.md](../spec.md) | **Research**: R1, R2, R3, R4, R6, R7, R9, R12 | **Artifacts**: `com.thinkmorestupidless:ankka-java`, `ankka-java-agent`, `ankka-java-testkit`
 
-Everything below is in package `com.thinkmorestupidless.ankka.java` or a subpackage, is Java, and
+Everything below is in package `com.thinkmorestupidless.ankka.javasdk` or a subpackage, is Java, and
 names no type from `scala.*`, `org.apache.pekko.*`, `com.github.plokhotnyuk.*` or
 `com.thinkmorestupidless.ankka.*` outside these packages (R12 checks this over the published jars).
 The signatures are the contract; bodies are the implementation's.
@@ -55,7 +55,7 @@ Configuration is read from the same `ANKKA_*` variables and `service.json` as a 
 
 Reflection runs once per registered class, at `register`; a problem in any annotation is a
 `DeclarationProblem`, never an exception at a request. The reference page says `module-info.java`
-needs `opens` to `com.thinkmorestupidless.ankka.java`.
+needs `opens` to `com.thinkmorestupidless.ankka.javasdk`.
 
 ## Components (`...java.component`)
 
@@ -187,7 +187,7 @@ A route method returns a value (serialised by its codec, 200), a `Response`, `Do
 `@QueryParam`, `@Header` and `@Body`; a parameter with none of them and a type the request can
 supply (`Request`, `Caller`) is bound by type.
 
-## Agents (`com.thinkmorestupidless.ankka.agent.java`, artifact `ankka-java-agent`)
+## Agents (`com.thinkmorestupidless.ankka.agent.javasdk`, artifact `ankka-java-agent`)
 
 ```java
 public abstract class Agent<S> { protected final AgentEffects<S> effects(); protected final AgentContext context(); protected S currentState(); }
@@ -241,5 +241,5 @@ database as the Scala one does. None depends on a test framework.
 ## What the surface check allows (R12)
 
 Packages `java.*`, `javax.*` (none expected), `io.grpc.*` (gRPC endpoints only), `org.jspecify.*`,
-and `com.thinkmorestupidless.ankka.java.*`, `com.thinkmorestupidless.ankka.agent.java.*`, excluding
+and `com.thinkmorestupidless.ankka.javasdk.*`, `com.thinkmorestupidless.ankka.agent.javasdk.*`, excluding
 `.bridge`. Anything else on a public signature fails the build.

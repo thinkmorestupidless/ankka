@@ -91,4 +91,15 @@ abstract class SurfaceChecks(anchor: Class[?], root: String) extends munit.FunSu
     assertEquals(problems, Vector.empty)
   }
 
+  // Kotlin reads a type from an unmarked package as a platform type, so a null it passes compiles.
+  test("every surface package is @NullMarked, so Kotlin sees its types as non-null") {
+    val unmarked = classes
+      .map(_.getPackage)
+      .distinct
+      .filterNot(_.isAnnotationPresent(classOf[org.jspecify.annotations.NullMarked]))
+      .map(_.getName)
+      .sorted
+    assertEquals(unmarked, Vector.empty)
+  }
+
 class SurfaceSuite extends SurfaceChecks(classOf[Ankka], "com.thinkmorestupidless.ankka.javasdk")

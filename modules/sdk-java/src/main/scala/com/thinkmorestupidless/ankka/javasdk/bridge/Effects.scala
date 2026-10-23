@@ -89,6 +89,20 @@ object Effects:
       case o: HeldKeyed[R] @unchecked => HeldKeyed(scala ++ o.scala)
       case _ => throw IllegalArgumentException(s"$other is not an effect built by effects()")
 
+  def timedAction(): TimedActionEffects = TimedAction
+
+  private final class HeldAction(val scala: se.TimedActionEffect)
+      extends TimedActionEffect
+      with Holding
+
+  private object TimedAction extends TimedActionEffects:
+    private val effects                           = new se.TimedActionEffects()
+    def done(): TimedActionEffect                 = HeldAction(effects.done())
+    def error(message: String): TimedActionEffect = HeldAction(effects.error(message))
+    def error(problem: Problem): TimedActionEffect =
+      val e = toCommandError(problem)
+      HeldAction(effects.error(e.message, e.code))
+
   def consumer(): ConsumerEffects[?] = Consumer
 
   def graph(): GraphEffects = Graph

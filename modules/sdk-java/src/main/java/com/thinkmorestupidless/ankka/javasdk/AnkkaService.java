@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
+import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -14,6 +15,9 @@ public interface AnkkaService extends AutoCloseable {
 
   /** Queries of this service's views. */
   ViewClient viewClient();
+
+  /** The service's timers; refused when it registers no timed action. */
+  Timers timers();
 
   /** Where the endpoints are served, once ready. Throws when the service has no endpoint. */
   URI httpAddress();

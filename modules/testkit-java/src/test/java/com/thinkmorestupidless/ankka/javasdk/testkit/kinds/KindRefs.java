@@ -3,7 +3,9 @@ package com.thinkmorestupidless.ankka.javasdk.testkit.kinds;
 import com.thinkmorestupidless.ankka.javasdk.Done;
 import com.thinkmorestupidless.ankka.javasdk.cart.LineItem;
 import com.thinkmorestupidless.ankka.javasdk.cart.ShoppingCart;
+import com.thinkmorestupidless.ankka.javasdk.client.ActionRef;
 import com.thinkmorestupidless.ankka.javasdk.client.CommandRef;
+import com.thinkmorestupidless.ankka.javasdk.client.NoArgActionRef;
 import com.thinkmorestupidless.ankka.javasdk.client.NoArgRef;
 
 /** The method references the Scala suites call through: a Scala function is not one. */
@@ -18,4 +20,9 @@ public final class KindRefs {
   public static final CommandRef<Checkout, Checkout.Start, Done> startCheckout = Checkout::start;
   public static final NoArgRef<Checkout, Done> confirmCheckout = Checkout::confirm;
   public static final NoArgRef<Checkout, Checkout.State> getCheckout = Checkout::get;
+  public static final ActionRef<CartTimers, String> expireTimer = CartTimers::expire;
+  public static final NoArgActionRef<CartTimers> tick = CartTimers::tick;
+  public static final NoArgActionRef<CartTimers> flaky = CartTimers::flaky;
+  public static final ActionRef<CartTimers, String> chain = CartTimers::chain;
+  public static final NoArgActionRef<CartTimers> tickByLambda = action -> action.tick();
 }

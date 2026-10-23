@@ -7,7 +7,9 @@ import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint
 import com.thinkmorestupidless.ankka.http.{EndpointClients, HttpServer}
 import com.thinkmorestupidless.ankka.javasdk.problems.{DeclarationProblem, ServiceProblems}
+import com.thinkmorestupidless.ankka.javasdk.timer.Timers
 import com.thinkmorestupidless.ankka.runtime
+import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 
 import java.net.URI
@@ -58,15 +60,21 @@ private[ankka] object JavaServiceBuilder:
       endpoints: Vector[EndpointPlan] = Vector.empty,
       serializers: Declarations.Serializers = Map.empty,
       views: Map[Class[?], (String, Views.Companion)] = Map.empty,
-      consumers: Vector[ConsumerPlan] = Vector.empty
+      consumers: Vector[ConsumerPlan] = Vector.empty,
+      actions: ActionIndex = ActionIndex.empty
   ):
     /**
      * The platform's extensions the read components need, which a Java service never names: the
-     * projections behind its views and consumers.
+     * projections behind its views and consumers, and the timers its timed actions are run by.
      */
     def platformExtensions: Vector[runtime.RuntimeExtension] =
-      if views.nonEmpty || consumers.nonEmpty then Vector(runtime.ProjectionRuntime())
-      else Vector.empty
+      (if views.nonEmpty || consumers.nonEmpty then Vector(runtime.ProjectionRuntime())
+       else Vector.empty) ++
+        (if actions.isEmpty then Vector.empty else Vector(runtime.TimerRuntime()))
+
+    /** The Java timers over a running service's scheduler. */
+    def timers(scala: sdk.TimerScheduler): Timers =
+      if actions.isEmpty then JavaTimers.unavailable else JavaTimers(scala, actions)
 
     /** The Java view client over a running service's. */
     def viewClient(scala: runtime.ViewClient): ViewClient = JavaViews.client(scala, views)
@@ -95,10 +103,13 @@ private[ankka] object JavaServiceBuilder:
       checkReferences: Boolean = true
   ): Read =
     val (viewClasses, others) = classes.partition((cls, _) => Views.isView(cls))
-    val (consumerClasses, entityClasses) =
+    val (consumerClasses, rest) =
       others.partition((cls, _) => Consumers.isConsumer(cls))
-    val results  = entityClasses.map((cls, id) => Declarations.read(cls, id, serializers))
-    val entities = results.collect { case Right(plan) => plan }
+    val (actionClasses, entityClasses) =
+      rest.partition((cls, _) => TimedActions.isTimedAction(cls))
+    val actionResults = actionClasses.map((cls, id) => TimedActions.read(cls, id, serializers))
+    val results       = entityClasses.map((cls, id) => Declarations.read(cls, id, serializers))
+    val entities      = results.collect { case Right(plan) => plan }
     // A view is read after the entities, since its source names one of them.
     val viewResults = viewClasses.map((cls, id) => Views.read(cls, id, serializers, entities))
     val consumerResults =
@@ -107,10 +118,12 @@ private[ankka] object JavaServiceBuilder:
     val problems = results.collect { case Left(ps) => ps }.flatten ++
       viewResults.collect { case Left(ps) => ps }.flatten ++
       consumerResults.collect { case Left(ps) => ps }.flatten ++
+      actionResults.collect { case Left(ps) => ps }.flatten ++
       routes.collect { case Left(ps) => ps }.flatten
     val registered = results.collect { case Right(plan) => plan.cls }.toSet ++
       viewResults.collect { case Right(plan) => plan.cls } ++
-      consumerResults.collect { case Right(plan) => plan.cls }
+      consumerResults.collect { case Right(plan) => plan.cls } ++
+      actionResults.collect { case Right(plan) => plan.cls }
     val checked =
       if checkReferences then (classes.map(_._1) ++ endpoints).distinct else Vector.empty
     val unregistered = checked.flatMap { cls =>
@@ -130,10 +143,13 @@ private[ankka] object JavaServiceBuilder:
     val views = viewResults.collect { case Right(plan) =>
       plan.cls -> (plan.componentId, Views.companion(plan))
     }
-    val consumers = consumerResults.collect { case Right(plan) => plan }
+    val consumers   = consumerResults.collect { case Right(plan) => plan }
+    val actionPlans = actionResults.collect { case Right(plan) => plan }
+    val actions     = ActionIndex(actionPlans)
     val descriptors = plans.map(Adapters.descriptor(_, refs)) ++
       views.map(_._2._2.descriptor) ++
-      consumers.map(Consumers.descriptor(_, refs, serializers))
+      consumers.map(Consumers.descriptor(_, refs, serializers)) ++
+      actionPlans.map(TimedActions.descriptor(_, refs, actions, serializers))
     Read(
       plans,
       descriptors,
@@ -141,7 +157,8 @@ private[ankka] object JavaServiceBuilder:
       routes.collect { case Right(plan) => plan },
       serializers,
       views.toMap,
-      consumers
+      consumers,
+      actions
     )
 
   /** The Scala service of the read classes, its own checks reported as declaration problems. */
@@ -168,6 +185,10 @@ private[ankka] final class JavaAnkkaService(
 
   def componentClient(): ComponentClient = client
   def viewClient(): ViewClient           = views
+  def timers(): Timers =
+    scala
+      .extension[runtime.TimerRuntime]
+      .fold(JavaTimers.unavailable)(t => read.timers(t.timerScheduler))
   def httpAddress(): URI =
     URI.create(
       scala.boundAddresses.headOption.getOrElse(

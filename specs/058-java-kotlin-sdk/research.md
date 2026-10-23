@@ -545,6 +545,15 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   subdirectories (`autonomous`, `contracts`, `graph-deltas`, `secrets`, `storage`, `topics`) are not
   payloads of a developer's types, which is why no other SDK's encoding suite reads them either;
   each is read by the suite of the feature it belongs to. Breaking the enum writer turns two cases red.
+- **2 (R5).** `runBlocking` on a virtual thread, awaiting a `CompletableFuture` through
+  `kotlinx.coroutines.future.await`, parks the thread and frees its carrier. The spike
+  (`sdks/kotlin`, deleted after) ran 50 such waiters on a scheduler held to one carrier
+  (`jdk.virtualThreadScheduler.parallelism=1`, `maxPoolSize=1`), JDK 21 toolchain. All 50 reached
+  their await before any future completed, which one pinned waiter would have prevented, and all 50
+  finished once the futures completed. The same test with `synchronized { future.get() }`, which pins
+  on JDK 21, failed at the first assertion. R5 stands: a suspending handler's body is
+  `runBlocking(AnkkaDispatcher)` on the handler's virtual thread. kotlinx-coroutines is 1.11.0;
+  `kotlinx-coroutines-jdk8` has been part of core since 1.7, so the build names core only.
 - **8 (R11).** `sdkJava/publishM2` with `crossPaths := false` publishes
   `com.thinkmorestupidless:ankka-java:<v>` whose pom names `ankka-core_3`, `ankka-sdk_3`,
   `ankka-runtime_3`, `ankka-http_3`, `ankka-grpc_3`, `ankka-telemetry-otlp_3`, `scala3-library_3` and

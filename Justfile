@@ -141,3 +141,7 @@ docs-reference:
 # `ankka init --language java` rendered, built and tested with its own wrapper against this commit's SDK.
 template-java:
     sbt -Dankka.cluster.tests=off -Dankka.template.tests=java 'cli/testOnly *JavaTemplateSuite'
+
+# The Kotlin SDK's build (sdks/kotlin) against this commit's Java SDK: `just kotlin check`.
+kotlin *args='check':
+    sdks/kotlin/gradlew-this-commit.sh {{args}}

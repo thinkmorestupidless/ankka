@@ -38,6 +38,11 @@ sdks/typescript/src/_proto/
 sdks/typescript/dist/
 sdks/typescript/dist-pack/
 
+# Kotlin (the Gradle build under sdks/kotlin)
+sdks/kotlin/.gradle/
+sdks/kotlin/.kotlin/
+sdks/kotlin/**/build/
+
 # Rust (the crate under sdks/rust)
 sdks/rust/target/
 sdks/rust/**/target/

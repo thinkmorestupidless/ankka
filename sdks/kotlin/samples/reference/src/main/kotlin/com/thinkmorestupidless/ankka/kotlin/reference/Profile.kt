@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.javasdk.effect.Effect
 import com.thinkmorestupidless.ankka.javasdk.effect.ReadOnlyEffect
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 
+// docs:start key-value-entity
 /** A key value entity holding a name. */
 @ComponentId("profile")
 class Profile : KeyValueEntity<Profile.ProfileState>() {
@@ -29,3 +30,4 @@ class Profile : KeyValueEntity<Profile.ProfileState>() {
     @Command("delete")
     fun delete(): Effect<String> = effects { deleteEntity().thenReply("done") }
 }
+// docs:end key-value-entity

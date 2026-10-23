@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.javasdk.effect.ReadOnlyEffect
 import com.thinkmorestupidless.ankka.javasdk.http.Problem
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 
+// docs:start domain
 /** A quantity of one product in a cart. */
 @Manifest("line-item")
 data class LineItem(val productId: String, val name: String, val quantity: Int)
@@ -49,6 +50,7 @@ sealed interface CartEvent {
 
     data object Discarded : CartEvent
 }
+// docs:end domain
 
 // docs:start entity
 /** A customer's cart, one per cart id. Each handler's wire name is declared apart from its name. */

@@ -43,6 +43,7 @@ class CartEndpoint : HttpEndpoint(), RouteRegistrar {
 // docs:end endpoint
 
 /** The checkouts this service has read back from the topic, by cart id. */
+// docs:start annotated-endpoint
 class CheckoutsSeenEndpoint : HttpEndpoint() {
     override fun acl(): Acl = Acl.allowAll()
 
@@ -51,6 +52,7 @@ class CheckoutsSeenEndpoint : HttpEndpoint() {
         viewClient().forView(CheckoutsSeen::class.java).getOrNull(cartId)
             ?: throw ProblemException(Problem.notFound("no checkout of '$cartId' has been read"))
 }
+// docs:end annotated-endpoint
 
 /**
  * Issues and revokes the keys a customer's assistant carries to the cart's tools. Open to anyone,

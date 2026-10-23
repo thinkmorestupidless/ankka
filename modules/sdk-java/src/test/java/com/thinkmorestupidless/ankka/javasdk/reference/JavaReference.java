@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 
 /**
  * The reference service in Java, as the conformance suite hosts it: every component and route the
- * Scala reference has, but its agents, which the Java SDK's agents (task T076) will add.
+ * Scala reference has, but its agents, which the Java SDK's agents are to add.
  */
 public final class JavaReference implements ConformanceEntry {
 

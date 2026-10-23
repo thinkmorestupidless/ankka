@@ -73,6 +73,7 @@ class ConformanceEndpoint : HttpEndpoint() {
     @Get("/conformance/problems")
     fun problems(): List<String> = emptyList()
 
+    // docs:start call-another-service
     // A call to another service, as the case asks for it: `service`, `method` and `path` from the
     // query, the body and every `X-Conformance-*` header sent on, and two headers no handler may
     // send, added to show they never arrive.
@@ -86,6 +87,7 @@ class ConformanceEndpoint : HttpEndpoint() {
             put("X-Ankka-Caller", "ankka://elsewhere/impostor")
             put("Host", "elsewhere")
         }
+        // docs:start service-call
         val client = services().of(service)
         return try {
             if (request().queryOrNull("mode") == "typed") {
@@ -109,6 +111,8 @@ class ConformanceEndpoint : HttpEndpoint() {
             ServiceCallRecord("refused", message = e.problem().detail)
         }
     }
+        // docs:end service-call
+    // docs:end call-another-service
 
     // The secret store. The name is a query parameter because it may hold a slash.
     @Post("/conformance/secrets")
@@ -254,6 +258,7 @@ class ConformanceEndpoint : HttpEndpoint() {
         return end
     }
 
+    // docs:start start-and-await
     // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
     @Post("/conformance/checkout-await/{id}")
     fun checkoutAwait(id: String, @Body mode: String): String =
@@ -263,19 +268,24 @@ class ConformanceEndpoint : HttpEndpoint() {
             val end = failed.workflowFailureOrNull ?: throw failed
             throw ProblemException(Problem(424, "", "${end.step.orNull() ?: ""}: ${end.reason}"))
         }
+    // docs:end start-and-await
 
+    // docs:start schedule
     @Post("/conformance/remind/{id}")
     fun remind(id: String): Done {
         timers().schedule("remind-$id", Duration.ofSeconds(1), Reminder::remind, id)
         return Done.done()
     }
+    // docs:end schedule
 
+    // docs:start recurring
     // A recurring timer: due at once, then every second.
     @Post("/conformance/recur/{id}")
     fun recur(id: String): Done {
         timers().scheduleRecurring("recur-$id", Duration.ZERO, Duration.ofSeconds(1), Reminder::tick, id)
         return Done.done()
     }
+    // docs:end recurring
 
     // The same timer set again, with a delay a replacement would be first due after.
     @Post("/conformance/recur/{id}/again")

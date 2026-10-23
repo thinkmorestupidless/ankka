@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /** A keyed view of two sources: rows the left names, which the right finds by a query. */
+// docs:start keyed-view
 @ComponentId("joined-rows")
 public class JoinedRows extends KeyedView<JoinedRows.JoinedRow> {
 
@@ -53,3 +54,4 @@ public class JoinedRows extends KeyedView<JoinedRows.JoinedRow> {
     return effects().updateRows(rows);
   }
 }
+// docs:end keyed-view

@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+// docs:start workflow-view
 @ComponentId("checkout-rows")
 public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
 
@@ -52,3 +53,4 @@ public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.Chec
                 standing.failure()));
   }
 }
+// docs:end workflow-view

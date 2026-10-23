@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 
 class CheckoutWorkflowTest {
 
+    // docs:start workflow-test
     @Test
     fun `a checkout's suspending step checks the cart out and keeps what it held`() =
         ankkaTestKit(service()) {
@@ -22,5 +23,6 @@ class CheckoutWorkflowTest {
                     assertEquals(Cart("c1", listOf(widget), true), checkout.ordered)
                 }
             }
+    // docs:end workflow-test
         }
 }

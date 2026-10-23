@@ -2,6 +2,7 @@ package {{package}};
 
 import com.thinkmorestupidless.ankka.javasdk.codec.Manifest;
 
+// docs:start events
 /** What happened to a cart: the journal holds these, as the Scala cart's journal does. */
 @Manifest("shopping-cart-event")
 public sealed interface CartEvent {
@@ -13,3 +14,4 @@ public sealed interface CartEvent {
 
   record Discarded() implements CartEvent {}
 }
+// docs:end events

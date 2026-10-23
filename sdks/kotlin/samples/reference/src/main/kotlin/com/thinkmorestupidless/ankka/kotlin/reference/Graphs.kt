@@ -7,12 +7,13 @@ import com.thinkmorestupidless.ankka.javasdk.effect.GraphEffect
 import com.thinkmorestupidless.ankka.javasdk.effect.GraphElement
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 
-// A graph consumer's effects have no block form in the Kotlin SDK; they are the Java SDK's.
+// A graph consumer builds its effects in an effects { } block, as every other component does.
 
 /**
  * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
  * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
  */
+// docs:start graph-consumer
 @ComponentId("cart-graph")
 class CartGraph : GraphConsumer<CartEvent>() {
 
@@ -39,6 +40,7 @@ class CartGraph : GraphConsumer<CartEvent>() {
 
     override fun onDelete(): GraphEffect = effects { publish(graph().tombstoneNode("cart:${messageContext().subject()}")) }
 }
+// docs:end graph-consumer
 
 /** The key value entity as a graph: its node at each state, its tombstone after. */
 @ComponentId("profile-graph")

@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
 import com.thinkmorestupidless.ankka.javasdk.component.TimedAction;
 import com.thinkmorestupidless.ankka.javasdk.effect.TimedActionEffect;
 
+// docs:start timed-action
 /** A timed action that records on the conformance entity it is given. */
 @ComponentId("reminder")
 public class Reminder extends TimedAction {
@@ -30,3 +31,4 @@ public class Reminder extends TimedAction {
         .invoke(what);
   }
 }
+// docs:end timed-action

@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
 import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
 
 /** Records each checkout that ended, completed or failed, and nothing else. */
+// docs:start workflow-consumer
 @ComponentId("checkout-ends")
 public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
 
@@ -28,3 +29,4 @@ public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
     return effects().done();
   }
 }
+// docs:end workflow-consumer

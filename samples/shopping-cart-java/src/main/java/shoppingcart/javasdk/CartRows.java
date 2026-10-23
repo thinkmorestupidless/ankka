@@ -12,6 +12,7 @@ import java.util.Map;
  * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
  * checked out. The row's JSON is the Scala cart's {@code cart-row}.
  */
+// docs:start view
 @ComponentId("cart-rows")
 public class CartRows extends View<CartEvent, CartRows.CartRow> {
 
@@ -55,3 +56,4 @@ public class CartRows extends View<CartEvent, CartRows.CartRow> {
     };
   }
 }
+// docs:end view

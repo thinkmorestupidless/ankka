@@ -13,6 +13,7 @@ import com.thinkmorestupidless.ankka.kotlin.standingOrNull
 import java.util.Optional
 
 /** A checkout's row: its state's status, and where the workflow stood when it recorded it. */
+// docs:start workflow-view
 @ComponentId("checkout-rows")
 class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
 
@@ -48,3 +49,4 @@ class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
         private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
     }
 }
+// docs:end workflow-view

@@ -118,6 +118,7 @@ public class ConformanceEndpoint extends HttpEndpoint {
         headers.put(h.getKey(), h.getValue());
     headers.put("X-Ankka-Caller", "ankka://elsewhere/impostor");
     headers.put("Host", "elsewhere");
+    // docs:start service-call
     var client = services().of(service);
     try {
       if (request().query("mode").filter("typed"::equals).isPresent())
@@ -148,6 +149,7 @@ public class ConformanceEndpoint extends HttpEndpoint {
     } catch (CommandException e) {
       return ServiceCallRecord.raised("refused", e.problem().detail());
     }
+    // docs:end service-call
   }
 
   // The secret store. The name is a query parameter because it may hold a slash.
@@ -372,6 +374,7 @@ public class ConformanceEndpoint extends HttpEndpoint {
     return end;
   }
 
+  // docs:start start-and-await
   // Starts a checkout and answers with how it ended, as one request; a failed one is 424.
   @Post("/conformance/checkout-await/{id}")
   public String checkoutAwait(String id, @Body String mode) {
@@ -388,13 +391,17 @@ public class ConformanceEndpoint extends HttpEndpoint {
           new Problem(424, "", end.get().step().orElse("") + ": " + end.get().reason()));
     }
   }
+  // docs:end start-and-await
 
+  // docs:start schedule
   @Post("/conformance/remind/{id}")
   public Done remind(String id) {
     timers().schedule("remind-" + id, Duration.ofSeconds(1), Reminder::remind, id);
     return Done.done();
   }
+  // docs:end schedule
 
+  // docs:start recurring
   // A recurring timer: due at once, then every second.
   @Post("/conformance/recur/{id}")
   public Done recur(String id) {
@@ -402,6 +409,7 @@ public class ConformanceEndpoint extends HttpEndpoint {
         .scheduleRecurring("recur-" + id, Duration.ZERO, Duration.ofSeconds(1), Reminder::tick, id);
     return Done.done();
   }
+  // docs:end recurring
 
   // The same timer set again, with a delay a replacement would be first due after.
   @Post("/conformance/recur/{id}/again")

@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.javasdk.component.KeyValueEntity;
 import com.thinkmorestupidless.ankka.javasdk.effect.Effect;
 import com.thinkmorestupidless.ankka.javasdk.effect.ReadOnlyEffect;
 
+// docs:start key-value-entity
 /** A key value entity holding a name. */
 @ComponentId("profile")
 public class Profile extends KeyValueEntity<Profile.ProfileState> {
@@ -36,3 +37,4 @@ public class Profile extends KeyValueEntity<Profile.ProfileState> {
     return effects().deleteEntity().thenReply("done");
   }
 }
+// docs:end key-value-entity

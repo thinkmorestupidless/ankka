@@ -13,6 +13,7 @@ import com.thinkmorestupidless.ankka.kotlin.suspend.invokeSuspending
  * The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
  * can see who a client key or a token made the caller.
  */
+// docs:start mcp-endpoint
 class CartMcp : McpEndpoint() {
 
     @Manifest("tool-cart")
@@ -48,3 +49,4 @@ class CartMcp : McpEndpoint() {
 
     override fun acl(): Acl = Acl.anyOf(Acl.clientKeys(), KotlinReference.authenticated)
 }
+// docs:end mcp-endpoint

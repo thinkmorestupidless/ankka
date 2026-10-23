@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.javasdk.effect.TimedActionEffect
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 
 /** A timed action that records on the conformance entity it is given. */
+// docs:start action
 @ComponentId("reminder")
 class Reminder : TimedAction() {
 
@@ -27,3 +28,4 @@ class Reminder : TimedAction() {
         context().componentClient().forEventSourcedEntity(id).call(ConformanceEntity::record).invoke(what)
     }
 }
+// docs:end action

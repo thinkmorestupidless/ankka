@@ -21,6 +21,7 @@ import java.util.Set;
  * compensation records it and fails the workflow), {@code drop} (declined; the compensation fails
  * the workflow and records nothing) or {@code doomed} (declined, and the compensation fails too).
  */
+// docs:start workflow
 @ComponentId("checkout")
 public class Checkout extends Workflow<Checkout.CheckoutState> {
 
@@ -101,3 +102,4 @@ public class Checkout extends Workflow<Checkout.CheckoutState> {
     return effects().reply(currentState().status());
   }
 }
+// docs:end workflow

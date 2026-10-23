@@ -48,6 +48,7 @@ class JoinedRight : EventSourcedEntity<Int, Noted>() {
 }
 
 /** A keyed view of two sources: rows the left names, which the right finds by a query. */
+// docs:start keyed-view
 @ComponentId("joined-rows")
 class JoinedRows : KeyedView<JoinedRows.JoinedRow>() {
 
@@ -81,6 +82,7 @@ class JoinedRows : KeyedView<JoinedRows.JoinedRow>() {
             )
     }
 }
+// docs:end keyed-view
 
 /** Records on either side of the keyed view, and reads its rows. */
 class JoinedEndpoint : HttpEndpoint() {

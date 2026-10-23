@@ -15,8 +15,10 @@ public class CheckoutEvents extends HttpEndpoint {
     return Acl.allowAll();
   }
 
+  // docs:start sse-await
   @Sse("/checkouts/{id}/end")
   public Flow.Publisher<SseEvent> end(String id) {
     return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
   }
+  // docs:end sse-await
 }

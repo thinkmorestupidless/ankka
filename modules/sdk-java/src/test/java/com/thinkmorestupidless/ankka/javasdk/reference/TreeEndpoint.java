@@ -33,23 +33,29 @@ public class TreeEndpoint extends HttpEndpoint {
     return node(nodeId).call(TreeNode::place).invoke(parentId);
   }
 
+  // docs:start declared-recursive-query
   @Get("/tree/{nodeId}/below")
   public List<String> below(String nodeId) {
     return viewClient().forView(TreeRows.class).ask(TreeRows.UNDER, Map.of("row", nodeId)).stream()
         .map(TreeRows.TreeRow::key)
         .toList();
   }
+  // docs:end declared-recursive-query
 
+  // docs:start stream
   // Every row's key, as the database yields the rows: one event each, then the end.
   @Sse("/tree/streamed")
   public Flow.Publisher<SseEvent> streamed() {
     var rows = viewClient().forView(TreeRows.class).askStream(TreeRows.ALL_ROWS, Map.of());
     return Wire.map(rows, row -> SseEvent.text(row.key()));
   }
+  // docs:end stream
 
+  // docs:start watch
   // The rows now, `caught-up`, then each row as it is written, as named events.
   @Sse("/tree/watched")
   public Flow.Publisher<SseEvent> watched() {
     return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
   }
+  // docs:end watch
 }

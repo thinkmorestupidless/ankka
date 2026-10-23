@@ -12,6 +12,7 @@ import java.util.Map;
  * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
  * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
  */
+// docs:start graph-consumer
 @ComponentId("cart-graph")
 public class CartGraph extends GraphConsumer<CartEvent> {
 
@@ -53,3 +54,4 @@ public class CartGraph extends GraphConsumer<CartEvent> {
     return effects().publish(graph().tombstoneNode("cart:" + messageContext().subject()));
   }
 }
+// docs:end graph-consumer

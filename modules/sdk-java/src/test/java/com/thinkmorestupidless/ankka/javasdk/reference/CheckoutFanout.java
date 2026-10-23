@@ -13,6 +13,7 @@ import java.util.Optional;
  * Several messages for one change: three for a checkout (the second under a key of its own, the
  * third with a header), none for an item added, and a single one for an item removed.
  */
+// docs:start consumer
 @ComponentId("checkout-fanout")
 public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
 
@@ -42,3 +43,4 @@ public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
     };
   }
 }
+// docs:end consumer

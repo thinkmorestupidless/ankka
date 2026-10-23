@@ -39,6 +39,7 @@ class TreeNode : EventSourcedEntity<TreeNode.Placement, TreeNode.TreeEvent>() {
 }
 
 /** One row per node, walked by a declared recursive query and watched by another. */
+// docs:start view
 @ComponentId("tree-rows")
 class TreeRows : View<TreeNode.TreeEvent, TreeRows.TreeRow>() {
 
@@ -56,6 +57,7 @@ class TreeRows : View<TreeNode.TreeEvent, TreeRows.TreeRow>() {
     companion object {
         private val TABLE = ViewQuery.tableOf(TreeRows::class.java)
 
+        // docs:start declared-recursive-query
         /** Every row under the row `row`, to any depth, by key: the same in every language. */
         val UNDER: ViewQuery =
             ViewQuery.declare(
@@ -69,8 +71,12 @@ class TreeRows : View<TreeNode.TreeEvent, TreeRows.TreeRow>() {
                 SELECT payload FROM below ORDER BY row_key
                 """.trimIndent(),
             )
+        // docs:end declared-recursive-query
 
+        // docs:start watched-query
         /** Every row, by key, watchable: the same statement in every language. */
         val ALL_ROWS: ViewQuery = ViewQuery.declare("all-rows", "SELECT row_key, payload FROM $TABLE ORDER BY row_key").watched()
+        // docs:end watched-query
     }
 }
+// docs:end view

@@ -17,6 +17,8 @@ public class TreeRows extends View<TreeNode.TreeEvent, TreeRows.TreeRow> {
 
   private static final String TABLE = ViewQuery.tableOf(TreeRows.class);
 
+  // docs:start declared-queries
+  // docs:start declared-recursive-query
   /** Every row under the row {@code row}, to any depth, by key: the same in every language. */
   public static final ViewQuery UNDER =
       ViewQuery.declare(
@@ -31,11 +33,15 @@ public class TreeRows extends View<TreeNode.TreeEvent, TreeRows.TreeRow> {
               + " n JOIN below b ON n.payload::jsonb->>'under' = b.row_key\n"
               + ")\n"
               + "SELECT payload FROM below ORDER BY row_key");
+  // docs:end declared-recursive-query
 
+  // docs:start watched-query
   /** Every row, by key, watchable: the same statement in every language. */
   public static final ViewQuery ALL_ROWS =
       ViewQuery.declare("all-rows", "SELECT row_key, payload FROM " + TABLE + " ORDER BY row_key")
           .watched();
+  // docs:end watched-query
+  // docs:end declared-queries
 
   @Override
   protected ChangeSource<TreeNode.TreeEvent> source() {

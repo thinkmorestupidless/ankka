@@ -12,6 +12,7 @@ import com.thinkmorestupidless.ankka.kotlin.standingOrNull
 import java.util.Optional
 
 /** Records each checkout that ended, completed or failed, and nothing else. */
+// docs:start workflow-consumer
 @ComponentId("checkout-ends")
 class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
 
@@ -26,8 +27,10 @@ class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
         return effects { done() }
     }
 }
+// docs:end workflow-consumer
 
 /** Records each cart checked out on the conformance entity of the same id. */
+// docs:start calls-components
 @ComponentId("checkout-recorder")
 class CheckoutRecorder : Consumer<CartEvent, Void>() {
 
@@ -39,11 +42,13 @@ class CheckoutRecorder : Consumer<CartEvent, Void>() {
         return effects { done() }
     }
 }
+// docs:end calls-components
 
 /**
  * Several messages for one change: three for a checkout (the second under a key of its own, the
  * third with a header), none for an item added, and a single one for an item removed.
  */
+// docs:start fanout
 @ComponentId("checkout-fanout")
 class CheckoutFanout : Consumer<CartEvent, Fanned>() {
 
@@ -67,3 +72,4 @@ class CheckoutFanout : Consumer<CartEvent, Fanned>() {
         }
     }
 }
+// docs:end fanout

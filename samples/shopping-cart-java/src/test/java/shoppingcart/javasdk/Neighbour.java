@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
 
 /** The Java cart's calls to the Scala cart, running beside it as the service "scala-cart". */
+// docs:start call-another-service
 public class Neighbour extends HttpEndpoint {
 
   @Override
@@ -38,3 +39,4 @@ public class Neighbour extends HttpEndpoint {
     return scalaCart().getText("/callers/whoami");
   }
 }
+// docs:end call-another-service

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+// docs:start cart
 /** A cart: its lines, ordered by product, and whether it has been checked out. */
 @Manifest("shopping-cart")
 public record Cart(String cartId, List<LineItem> items, boolean checkedOut) {
@@ -51,3 +52,4 @@ public record Cart(String cartId, List<LineItem> items, boolean checkedOut) {
     return items.stream().filter(i -> !i.productId().equals(productId)).toList();
   }
 }
+// docs:end cart

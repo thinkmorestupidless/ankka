@@ -14,6 +14,7 @@ import com.thinkmorestupidless.ankka.javasdk.mcp.IssuedClientKey
 import java.util.Optional
 
 /** The reference's own routes over its client keys, as a product would write them. */
+// docs:start mcp-keys
 class McpKeysEndpoint : HttpEndpoint() {
 
     /** What a post is asked to issue: a key that never expires, for the cases. */
@@ -44,3 +45,4 @@ class McpKeysEndpoint : HttpEndpoint() {
         return "revoked"
     }
 }
+// docs:end mcp-keys

@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
 import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
 
 /** Records each cart checked out on the conformance entity of the same id. */
+// docs:start calls-components
 @ComponentId("checkout-recorder")
 public class CheckoutRecorder extends Consumer<CartEvent, Void> {
 
@@ -24,3 +25,4 @@ public class CheckoutRecorder extends Consumer<CartEvent, Void> {
     return effects().done();
   }
 }
+// docs:end calls-components

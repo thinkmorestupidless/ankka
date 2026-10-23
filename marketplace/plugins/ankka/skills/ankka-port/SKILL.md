@@ -29,7 +29,7 @@ question during the work is settled by an experiment against the original, or re
 - **The scope.** The whole system, or named parts of it (a set of routes, one bounded context). Anything
   out of scope is named as out of scope, not silently absent.
 - **The target language.** Prefer the original's language where an ankka SDK exists for it (Scala,
-  Java, Kotlin, Python, TypeScript, Rust): the domain logic can then move with little change, and most parity failures
+  Java, Kotlin, Python, TypeScript, Go, Rust): the domain logic can then move with little change, and most parity failures
   come from logic rewritten in a new language rather than from the platform.
 - **Permission to run it.** The original runs on this machine and is driven with writes. Say so, and
   get agreement.

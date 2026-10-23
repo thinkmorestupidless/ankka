@@ -18,12 +18,12 @@ callers; see [Cross-project access](../platform/cross-project-access.md).
 
 Every component whose handlers already run ordinary sequential code may make a call: an endpoint, a
 workflow's step, a consumer, a timed action, an agent's tool and an autonomous agent's tool, in Scala,
-Java, Kotlin, Python, TypeScript and Rust.
+Java, Kotlin, Python, TypeScript, Rust and Go.
 
 An **entity** and a **view** may not. Their contexts have no client for other services at all: in Scala
 reaching for one does not compile, in Java and Kotlin an entity and a view have no `services()` method,
-in TypeScript the property does not exist on the type, and in Python the attribute does not exist. An entity handles one command at a time for each id, so a call made inside
-a handler would hold every other command for that entity behind another service. A Python or TypeScript
+in TypeScript the property does not exist on the type, and in Python the attribute does not exist. In Go `ankka.CallService(ctx, …)` compiles anywhere a context is at hand. An entity handles one command at a time for each id, so a call made inside
+a handler would hold every other command for that entity behind another service. A Python, TypeScript or Go
 process that tries anyway is refused by the runtime, which reads which handler is calling and refuses an
 entity's.
 
@@ -170,6 +170,59 @@ fun serviceCall(@Body body: String): ServiceCallRecord {
 }
 ```
 
+**Go**
+
+The Go reference's route makes the call a request names, and records what came back:
+
+```go
+// serviceCall makes the call the case asks for: service, method and path from the query, the body
+// and every X-Conformance-* header sent on, and two headers no handler may send, the caller's and
+// the host, added to show they never arrive.
+func serviceCall(ctx context.Context, req *ankka.Request, body string) (ServiceCallRecord, error) {
+	q := req.Query
+	headers := http.Header{}
+	for name, values := range req.Headers {
+		if strings.HasPrefix(strings.ToLower(name), "x-conformance-") {
+			headers[name] = values
+		}
+	}
+	headers.Set("X-Ankka-Caller", "ankka://elsewhere/impostor")
+	headers.Set("Host", "elsewhere")
+	call := ankka.ServiceRequest{Method: q.Get("method"), Path: q.Get("path"), Headers: headers}
+	typed := q.Get("mode") == "typed"
+	if typed {
+		call.Method = http.MethodGet
+	} else if body != "" {
+		call.Body, call.ContentType = []byte(body), req.ContentType
+	}
+	res, err := ankka.CallService(ctx, q.Get("service"), call)
+	var failed *ankka.ServiceError
+	switch {
+	case errors.As(err, &failed):
+		outcome := map[ankka.ServiceFailureReason]string{
+			ankka.ServiceUnresolvable: "unresolvable", ankka.ServiceIdentityMismatch: "mismatch", ankka.ServiceUnanswered: "unanswered",
+		}[failed.Reason]
+		return ServiceCallRecord{Outcome: outcome, Message: failed.Error()}, nil
+	case err != nil:
+		if r, ok := ankka.AsRefusal(err); ok {
+			return ServiceCallRecord{Outcome: "refused", Message: r.Message}, nil
+		}
+		return ServiceCallRecord{}, err
+	}
+	// The typed client answers a body for a success and fails on any other status.
+	if typed {
+		if res.Status < 200 || res.Status > 299 {
+			return ServiceCallRecord{Outcome: "failed", Status: res.Status, Body: string(res.Body)}, nil
+		}
+		return ServiceCallRecord{Outcome: "response", Status: 200, Body: string(res.Body)}, nil
+	}
+	return ServiceCallRecord{
+		Outcome: "response", Status: res.Status, ContentType: res.ContentType, Body: string(res.Body),
+		Answer: res.Headers.Get("X-Answer"),
+	}, nil
+}
+```
+
 ## Calling from a workflow's step
 
 A step asks another service to do something and goes on with the answer. The context's `services` is
@@ -251,7 +304,8 @@ test("a workflow's step calls another service and goes on with the answer", asyn
 ```
 
 A consumer, a timed action and an agent's tool call the same way, through their context's `services`
-(Scala), `services()` (Java and Kotlin) or the component's own `services` (Python, TypeScript). A consumer makes its call before the
+(Scala), `services()` (Java and Kotlin), the component's own `services` (Python, TypeScript), or
+`ankka.CallService` with the handler's context (Go). A consumer makes its call before the
 change it is handling is done with, so a call that fails has the change delivered again.
 
 ## What a call answers
@@ -263,6 +317,9 @@ change it is handling is done with, so a call that fails has the change delivere
 | `delete(path)` | nothing; any 2xx succeeds |
 | `request(method, path, …)` | the answer, whatever its status: status, content type, body and headers |
 
+Go has no typed helpers: `ankka.CallService(ctx, service, ankka.ServiceRequest{…})` answers an
+`*ankka.ServiceResponse` with the status, content type, body and headers, whatever the status.
+
 A call that got no answer the typed helpers accept ends in one of four errors, with the same names in
 every language:
 
@@ -273,6 +330,10 @@ every language:
 | `ServiceUnanswered` | the connection was refused or broke, or no answer came in time | perhaps |
 | `ServiceCallFailed` | the service answered with a status outside 2xx, to a typed helper | yes, and it answered |
 
+In Go the first three are an `*ankka.ServiceError` whose `Reason` is `ankka.ServiceUnresolvable`,
+`ankka.ServiceIdentityMismatch` or `ankka.ServiceUnanswered`; a call the runtime would not make is an
+`*ankka.RefusalError`.
+
 A refusal by the service called — a `403` from its access rule, a `404` — is an answer, not a failure:
 `request` returns it, and a typed helper raises `ServiceCallFailed` carrying its status and body.
 
@@ -282,8 +343,8 @@ consumer's redelivery is often the retry it needs. A request that may change som
 an answer arrives may be sent a second time by the JDK's HTTP client underneath, which HTTP allows for a
 method that changes nothing.
 
-A body is sent whole and an answer read whole; neither is a stream. Through the runtime beside a Python
-or TypeScript process, each is at most 4,000,000 bytes, and a larger one is refused naming the limit.
+A body is sent whole and an answer read whole; neither is a stream. Through the runtime beside a Python,
+TypeScript or Go process, each is at most 4,000,000 bytes, and a larger one is refused naming the limit.
 
 ## How long a call waits
 
@@ -291,7 +352,7 @@ A call waits for its answer as long as the calling service's `ankka.service-clie
 seconds unless it is set; connecting has five seconds of its own. There is no per-call timeout. A Scala
 service sets the key in its `application.conf`; any service, in any language, sets
 `ANKKA_SERVICE_CLIENT_TIMEOUT` in its descriptor's environment, which goes to the runtime that makes the
-call and never to a Python or TypeScript process. A Java or Kotlin service is in the runtime's own JVM,
+call and never to a Python, TypeScript or Go process. A Java or Kotlin service is in the runtime's own JVM,
 so it reads either.
 
 ## What a call carries
@@ -306,7 +367,7 @@ the handler's span, and its topology counts it from that handler. A call made ou
 counted from the unknown caller. The trace does not continue into the service called, which starts a
 trace of its own.
 
-A Python or TypeScript process never holds a certificate or a key. It asks the runtime beside it to make
+A Python, TypeScript or Go process never holds a certificate or a key. It asks the runtime beside it to make
 the call, and the runtime makes it with the service's certificate. A Rust module asks the runtime that
 loaded it in the same way, and the runtime attributes the call to the handler it was running, whatever the
 module says.
@@ -317,15 +378,15 @@ There is no certificate on a developer's machine, and every caller is the local 
 the named service at the address `ankka.local-services.<name>` gives, if there is one, and otherwise at the
 address the service announced to the local console when it started.
 
-The runtime beside a Python or TypeScript process runs in a container, where the local console's
+The runtime beside a Python, TypeScript or Go process runs in a container, where the local console's
 announcements cannot be read, so it is told where another service is the same way, as a JVM option:
-`JAVA_OPTS=-Dankka.local-services.carts=http://host.docker.internal:9000` in its environment. Both
-language test kits pass `env` to that container, which is how a test does it.
+`JAVA_OPTS=-Dankka.local-services.carts=http://host.docker.internal:9000` in its environment. Each
+language's test kit passes environment variables to that container (`testkit.Env(...)` in Go), which is how a test does it.
 
 ## Testing a component that calls another service
 
 A unit test gives the component a scripted set of services, which answer as the test says and record
-every request: `ScriptedServices` in every language. A call to a service nothing is scripted for fails the
+every request: `ScriptedServices` in Scala, Python, TypeScript and Rust. A call to a service nothing is scripted for fails the
 test, naming the service, rather than answering something nobody chose.
 
 - **Scala:** `ScriptedServices()` is a `ServiceClients`; `ConsumerTestKit` takes one as `services`. A test
@@ -337,3 +398,6 @@ test, naming the service, rather than answering something nobody chose.
   `AnkkaTestKit.start(service, Settings.defaults().withScriptedService("psp-gateway"))`, and scripts and
   reads it through `kit.service("psp-gateway")`; `withLocalService(name, address)` points a name at a
   service of the test's own. There is no unit double for a single component yet.
+- **Go:** the SDK has no scripted services; a Go component that calls another service is tested through its
+  integration test kit, with the other service's address given to the sidecar
+  [as on a developer's machine](#on-a-developers-machine).

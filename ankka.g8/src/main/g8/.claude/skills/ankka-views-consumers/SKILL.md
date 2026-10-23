@@ -1,6 +1,6 @@
 ---
 name: ankka-views-consumers
-description: Build the read side and the reactions of an ankka service in Scala, Java, Kotlin, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a keyed view that reads several entities and names its rows by key, declared and recursive queries, rebuilding a view by its version, a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a keyed view, a declared or recursive query, a tree, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
+description: Build the read side and the reactions of an ankka service in Scala, Java, Kotlin, Python, TypeScript, Go or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a keyed view that reads several entities and names its rows by key, declared and recursive queries, rebuilding a view by its version, a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a keyed view, a declared or recursive query, a tree, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
 ---
 
 # ankka views and consumers
@@ -55,7 +55,7 @@ in a service with the projection runtime registered.
    change without breaking listeners.
 10. **Register `ProjectionRuntime()`** (Scala) or every command succeeds and every view stays empty
     forever. A topic source or output also needs a broker: `ProjectionRuntime.withKafka(servers)`, or
-    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Java, Kotlin, Python, TypeScript or Rust service's descriptor
+    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Java, Kotlin, Python, TypeScript, Go or Rust service's descriptor
     `env` (a Java or Kotlin service has its projection runtime without registering it). A component
     that needs a broker in a service with none is refused at startup.
 11. **Several messages for one change are one effect.** `effects.produceAll(messages)` (`produce_all` in
@@ -97,7 +97,7 @@ in a service with the projection runtime registered.
   `sql"…"` and `jsonText("field")`, `jsonNumber("total")`, `jsonContains("members", "x")`; values are
   bound parameters, never spliced. `jsonText` compares as text, so a boolean compares against `"true"`
   and a number needs `jsonNumber`. A hot query needs a Postgres expression index on the same term. In
-  Python, TypeScript and Rust a view answers `get(key)`, `all()` and the queries it declares; in Java and
+  Python, TypeScript, Go and Rust a view answers `get(key)`, `all()` and the queries it declares; in Java and
   Kotlin, `get(key)`, `all()`, `count()` and `ask(query, values)` for each `ViewQuery` it declares.
 
 ## Before writing a consumer
@@ -182,6 +182,24 @@ effects { updateRow(row) }`), data classes for rows and messages, and `rowState(
 current row. Callers read `getOrNull(key)`, or suspend with `getSuspending(key)`, `allSuspending(limit)`,
 `askSuspending(query)`; `askFlow(query)` is a cold `Flow`, complete per call. Test with
 `viewTestKit(CartRows::class)` and `consumerTestKit(..)`.
+
+## Go differences
+
+A view is `ankka.View[Row](id, ankka.OnChange(source, f), ankka.OnDelete(f), ankka.Queries(…),
+ankka.RowCodec(…))`; the source is `ankka.Changes(Entity)`, `ankka.WorkflowSource(Workflow)` or
+`ankka.Topic(name, ankka.StartFrom(ankka.Earliest()))`, and `f` is `func(ctx, change, row *Row)
+(ankka.ViewEffect[Row], error)` answering `ankka.UpdateRow(r)`, `DeleteRow`, `IgnoreChange` (`row` is nil
+for a new row). Queries are `ankka.Declared(name, sql)` and `ankka.WatchedQuery`; a rebuild is
+`ankka.SourceVersion(n)`. A keyed view is `ankka.KeyedView[Row](id, ankka.On(source, f), …)` with
+`ankka.UpdateRowAt(key, r)`, `DeleteRowAt` and `AllRows`. A consumer is `ankka.Consumer[Msg](id, source,
+f, ankka.ProducesTo[Out](topic))`, `f` answering `ankka.Produce(x)`, `ankka.ProduceAll(ankka.Message{Payload:
+x, Key: "k"}, …)`, `ConsumerDone` or `ConsumerIgnore`; an error or a panic redelivers the change. A graph
+consumer is `ankka.GraphConsumer[Msg](id, source, topic, f)` answering `ankka.Publish(ankka.Node(id,
+ankka.Labels(…), ankka.WithProperties(…)), ankka.Edge(id, typ, from, to), …)`, with `ankka.WhenDeleted` for
+tombstones. `ankka.ChangeFrom(ctx)` gives the source's id (`Subject`), `Sequence` and a workflow's
+`Standing`. Rows are read with `ankka.QueryView[Row](ctx, viewID, ankka.All())` or `ankka.Named(name,
+values)`, `ankka.ViewRow[Row](ctx, viewID, key)`, `ankka.QueryStream` and `ankka.Watch`. `testkit.View`,
+`testkit.KeyedView`, `testkit.Consumer` and `testkit.GraphConsumer` run them in process.
 
 ## Testing
 

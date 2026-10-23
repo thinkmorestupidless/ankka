@@ -120,24 +120,58 @@ export class CheckoutLog extends KeyValueEntity<CheckoutRecord> {
 }
 ```
 
+**Go**
+
+The Go reference's key value entity keeps one name per profile:
+
+```go
+// ProfileState is a profile's state.
+type ProfileState struct {
+	Name string `json:"name"`
+}
+
+type kvEffect[R any] = ankka.KeyValueEffect[ProfileState, R]
+
+// Profile is the key value entity: set, get and delete a name.
+var Profile = ankka.KeyValue[ProfileState]("profile", func(string) ProfileState { return ProfileState{} },
+	ankka.Update("set", func(_ context.Context, _ ProfileState, name string) (kvEffect[string], error) {
+		if name == "" {
+			return kvEffect[string]{}, ankka.Refuse(ankka.BadRequest, "a name is needed")
+		}
+		return ankka.UpdateState[ProfileState, string](ProfileState{Name: name}).ThenReplyValue("done"), nil
+	}),
+	ankka.Query("get", func(_ context.Context, s ProfileState, _ ankka.Unit) (ankka.ReadOnlyEffect[string], error) {
+		if s.Name == "" {
+			return ankka.Reply("none"), nil
+		}
+		return ankka.Reply(s.Name), nil
+	}),
+	ankka.Update("delete", func(_ context.Context, _ ProfileState, _ ankka.Unit) (kvEffect[string], error) {
+		return ankka.DeleteState[ProfileState, string]().ThenReplyValue("done"), nil
+	}),
+	ankka.StateCodec(ankka.CodecFor[ProfileState](ankka.Manifest("profile"))),
+)
+```
+
 The shape matches an event sourced entity's, and so do the rules. Handlers are declared with
 `command` or `query` under a wire name that is separate from the method name. A query must return a
 read-only effect, so it cannot change the state. The current value is `currentState` in Scala,
 `self.state` in Python and `this.state` in TypeScript; the id is `context.entityId`, `self.entity_id`
-and `this.entityId`.
+and `this.entityId`. In Go a handler is a function given the state, declared with `ankka.Update` or
+`ankka.Query`; the empty state is a function of the id, and `ankka.CommandFrom(ctx)` carries the id.
 
 ## Effects
 
-| Scala | Python | TypeScript | Meaning |
-|---|---|---|---|
-| `effects.updateState(s)` | `self.effects.update_state(s)` | `this.effects.updateState(s)` | Replace the stored value with `s`, then choose a reply. |
-| `.thenReply(s => value)` | `.then_reply(lambda s: value)` | `.thenReply(s => value)` | Reply with a value computed from the new state. |
-| `.thenReplyState` | `.then_reply_state()` | `.thenReplyState()` | Reply with the new state. |
-| `.thenNoReply` | `.then_no_reply()` | `.thenNoReply()` | Update and reply with nothing. |
-| `.expireAfter(duration)` | `.expire_after(timedelta)` | `.expireAfter(duration)` | Delete the entity once `duration` passes with no further update. |
-| `effects.deleteEntity()` | `self.effects.delete_entity()` | `this.effects.deleteEntity()` | Delete the entity; then choose a reply. |
-| `effects.reply(value)` | `self.effects.reply(value)` | `this.effects.reply(value)` | Reply without changing anything. |
-| `effects.error(message, code)` | `self.effects.error(message, code)` | `this.effects.error(message, code)` | Refuse the command; nothing changes. The code defaults to `BadRequest`. |
+| Scala | Python | TypeScript | Go | Meaning |
+|---|---|---|---|---|
+| `effects.updateState(s)` | `self.effects.update_state(s)` | `this.effects.updateState(s)` | `ankka.UpdateState[S, R](s)` | Replace the stored value with `s`, then choose a reply. |
+| `.thenReply(s => value)` | `.then_reply(lambda s: value)` | `.ThenReply(func(S) R)`, `.ThenReplyValue(v)` | Reply with a value computed from the new state. |
+| `.thenReplyState` | `.then_reply_state()` | `.ThenReplyState()` | Reply with the new state. |
+| `.thenNoReply` | `.then_no_reply()` | `.ThenNoReply()` | Update and reply with nothing. |
+| `.expireAfter(duration)` | `.expire_after(timedelta)` | `.ExpireAfter(d)` | Delete the entity once `duration` passes with no further update. |
+| `effects.deleteEntity()` | `self.effects.delete_entity()` | `ankka.DeleteState[S, R]()` | Delete the entity; then choose a reply. |
+| `effects.reply(value)` | `self.effects.reply(value)` | `ankka.KeepState[S, R]().ThenReplyValue(v)`; `ankka.Reply(v)` in a query | Reply without changing anything. |
+| `effects.error(message, code)` | `self.effects.error(message, code)` | return `ankka.Refuse(code, message)` as the error | Refuse the command; nothing changes. The code defaults to `BadRequest`. |
 
 A handler that replies without calling `updateState` leaves the value exactly as it was, and nothing is
 written.

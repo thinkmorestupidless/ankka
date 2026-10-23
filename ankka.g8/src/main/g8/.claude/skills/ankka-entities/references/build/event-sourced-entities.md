@@ -24,8 +24,8 @@ An entity has four parts, and each has one job:
 | Part | Job |
 |---|---|
 | state type | What the entity knows now. Plain data with no ankka types. |
-| event type | Everything that can happen to the entity. A closed set: a Scala `enum`, a union of Python dataclasses, or a TypeScript `s.sumType`. |
-| event handler | `applyEvent` in Scala and TypeScript, `apply_event` in Python. Folds one event into the state, and is the only place state changes. |
+| event type | Everything that can happen to the entity. A closed set: a Scala `enum`, a union of Python dataclasses, a TypeScript `s.sumType`, or a Go interface whose cases `ankka.Cases` registers. |
+| event handler | `applyEvent` in Scala and TypeScript, `apply_event` in Python, the apply function given to `ankka.EventSourced` in Go. Folds one event into the state, and is the only place state changes. |
 | command handlers | Decide, given the current state and a request, what should happen, and return it as an effect. |
 
 The events of the shopping cart sample are a closed set of three cases:
@@ -77,6 +77,42 @@ export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
   Discarded: {},
 })
 export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
+```
+
+**Go**
+
+```go
+// Event is what a cart persists.
+type Event interface{ cartEvent() }
+
+// ItemAdded is an item put in the cart.
+type ItemAdded struct {
+	Item LineItem `json:"item"`
+}
+
+// ItemRemoved is a product taken out of the cart.
+type ItemRemoved struct {
+	ProductID string `json:"productId"`
+}
+
+// CheckedOut is the cart ordered.
+type CheckedOut struct{}
+
+// Discarded is the cart thrown away.
+type Discarded struct{}
+
+func (ItemAdded) cartEvent()   {}
+func (ItemRemoved) cartEvent() {}
+func (CheckedOut) cartEvent()  {}
+func (Discarded) cartEvent()   {}
+
+// Events are the cases of Event, under the Scala sample's discriminators.
+var Events = ankka.Cases[Event](
+	ankka.Case[Event, ItemAdded]("ItemAdded"),
+	ankka.Case[Event, ItemRemoved]("ItemRemoved"),
+	ankka.Case[Event, CheckedOut]("CheckedOut"),
+	ankka.Case[Event, Discarded]("Discarded"),
+)
 ```
 
 ## Writing the entity
@@ -288,10 +324,78 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
 }
 ```
 
+**Go**
+
+```go
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's.
+var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
+	ankka.Command("add-item", addItem),
+	ankka.Command("remove-item", removeItem),
+	ankka.Command("checkout", checkout),
+	ankka.Command("discard", discard),
+	ankka.Query("get-cart", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[Cart], error) {
+		return ankka.Reply(c), nil
+	}),
+	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
+		return ankka.Reply(TotalQuantity(c)), nil
+	}),
+	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
+	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+	ankka.SnapshotEvery(3),
+)
+
+var checkedOut = ankka.Refuse(ankka.Conflict, "cart is already checked out")
+
+func done(Cart) ankka.Done { return ankka.Done{} }
+
+func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if item.Quantity <= 0 {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.BadRequest, "quantity must be greater than zero, was %d", item.Quantity)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
+}
+
+func removeItem(_ context.Context, c Cart, productID string) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if !Contains(c, productID) {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.NotFound, "cart does not contain '%s'", productID)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemRemoved{ProductID: productID}).ThenReply(done), nil
+}
+
+// checkout keeps the cart, the record of what was ordered, and refuses every later change to it.
+func checkout(_ context.Context, c Cart, _ ankka.Unit) (effect[Cart], error) {
+	if c.CheckedOut {
+		return effect[Cart]{}, checkedOut
+	}
+	if len(c.Items) == 0 {
+		return effect[Cart]{}, ankka.Refuse(ankka.BadRequest, "cannot check out an empty cart")
+	}
+	return ankka.Persist[Cart, Event, Cart](CheckedOut{}).ThenReplyState(), nil
+}
+
+// discard persists the event, then deletes the cart, so a consumer downstream sees the discard
+// rather than a cart that vanished; the same id then starts again empty.
+func discard(_ context.Context, c Cart, _ ankka.Unit) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](Discarded{}).DeleteEntity().ThenReply(done), nil
+}
+```
+
 In Scala, `currentState` is the state as of now: after replay, and after any events this command has
 already persisted. In Python the same value is `self.state`, and `apply_event` receives the state to
 fold into as an argument. The entity's id is `context.entityId` in Scala, from the context the runtime
-passes to the constructor, and `self.entity_id` in Python.
+passes to the constructor, and `self.entity_id` in Python. In Go a handler is a plain function given
+the state and the input, the empty state is a function of the entity's id, and a refusal is the error the
+handler returns, built with `ankka.Refuse` or `ankka.Refusef`. A query returns `ankka.ReadOnlyEffect`,
+which no persisting builder makes, so a query that persists does not compile.
 
 The event handler must be pure. It runs when an event is first persisted and again every time the entity
 is recovered from the journal, so reading a clock, generating a random value or calling anything outside
@@ -415,6 +519,7 @@ from a snapshot has exactly the state it would have had from a full replay.
 |---|---|---|
 | Scala | every 100 events | override `snapshotEvery` on the companion: `override def snapshotEvery: Option[Int] = Some(500)`, or `None` to never snapshot |
 | Python | never | set the class attribute `snapshot_every = 100`; `0` means never |
+| Go | never | pass `ankka.SnapshotEvery(100)` to `ankka.EventSourced`; `0` means never |
 
 Snapshots are stored with the state serializer, so the state type follows the same evolution rules as the
 events.
@@ -423,7 +528,7 @@ events.
 
 Registration is explicit: a component the service does not register does not exist, and a call to it
 fails. In Scala, register the companion's descriptor on the service builder. In Python and TypeScript,
-register the class.
+register the class. In Go, pass the declaration to `ankka.NewService`.
 
 **Scala**
 
@@ -449,6 +554,13 @@ service = Ankka.service().register(ShoppingCartEntity)
 import { Ankka } from "ankka"
 
 const service = Ankka.service().register(ShoppingCartEntity)
+```
+
+**Go**
+
+```go
+// Service is the whole inventory: registration is explicit, so nothing is found by scanning.
+func Service() *ankka.Service { return ankka.NewService(Entity, API) }
 ```
 
 ## Calling the entity
@@ -477,6 +589,20 @@ cart = await client.for_event_sourced_entity("shopping-cart", "c1").call("get-ca
 ```ts
 const done = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.addItem).invoke(item)
 const cart = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.getCart).invoke()
+```
+
+**Go**
+
+```go
+ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (Cart, error) {
+	return ankka.Invoke[Cart](ctx, ComponentID, req.Param("cartId"), "get-cart", ankka.Unit{})
+}),
+ankka.Get("/{cartId}/total", func(ctx context.Context, req *ankka.Request) (int, error) {
+	return ankka.Invoke[int](ctx, ComponentID, req.Param("cartId"), "total-quantity", ankka.Unit{})
+}),
+ankka.Post("/{cartId}/items", func(ctx context.Context, req *ankka.Request, item LineItem) (ankka.Done, error) {
+	return ankka.Invoke[ankka.Done](ctx, ComponentID, req.Param("cartId"), "add-item", item)
+}),
 ```
 
 In Scala, `invoke` blocks and `invokeAsync` returns a `Future`. Blocking is cheap because endpoints,
@@ -555,6 +681,22 @@ impl EventSourcedEntity for VehicleEntity {
 }
 ```
 
+**Go**
+
+```go
+// ReplicatedVehicle is the replicated entity. The conformance service runs at installation a.
+var ReplicatedVehicle = ankka.EventSourced[VehicleRecord, StepAdded]("replicated-vehicle", nil, emptyVehicle,
+	func(s VehicleRecord, e StepAdded) VehicleRecord { return appendStep(s, e, EventPlace{Local: true}) },
+	ankka.ApplyWithContext(func(ctx context.Context, s VehicleRecord, e StepAdded) VehicleRecord {
+		at := EventPlace{Local: true}
+		if ev, ok := ankka.EventFrom(ctx); ok {
+			at = EventPlace{Installation: ev.Installation, Local: ev.Local, Attribution: ev.Attribution, ForwardedFrom: ev.ForwardedFrom}
+		}
+		return appendStep(s, e, at)
+	}),
+	ankka.Replicated(),
+```
+
 Only an event sourced entity can be replicated. A key value entity or a workflow declared replicated is
 refused when the service starts.
 
@@ -617,6 +759,20 @@ fn allot(_: &Vehicle, dealer: String, _: &Context) -> Effect<VehicleEvent, Done>
 }
 ```
 
+**Go**
+
+```go
+ankka.Command("hand-over", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().HandOverTo(t)
+})),
+ankka.Command("replicate-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().ReplicateTo(t)
+})),
+ankka.Command("stop-replicating-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().StopReplicatingTo(t)
+})),
+```
+
 What each answers:
 
 | Asked for | Refused when |
@@ -644,6 +800,7 @@ runs there, with `isHome` false; every command that may persist runs at the home
 | Python | `self.context.installation` | `self.context.is_home` |
 | TypeScript | `this.context.installation` | `this.context.isHome` |
 | Rust | `ctx.installation()` | `ctx.is_home()` |
+| Go | `ankka.CommandFrom(ctx)`'s `Installation` | its `AtHome` |
 
 The event handler can read where the event it applies was written, whether that is this installation,
 and its sequence number, which is the same at every installation. It runs at the home when an event is
@@ -696,6 +853,18 @@ fn apply_at(mut state: Vehicle, event: &VehicleEvent, ctx: &EventContext) -> Veh
     state.written_at.push(ctx.installation().unwrap_or_default().to_string());
     state
 }
+```
+
+**Go**
+
+```go
+ankka.ApplyWithContext(func(ctx context.Context, s VehicleRecord, e StepAdded) VehicleRecord {
+	at := EventPlace{Local: true}
+	if ev, ok := ankka.EventFrom(ctx); ok {
+		at = EventPlace{Installation: ev.Installation, Local: ev.Local, Attribution: ev.Attribution, ForwardedFrom: ev.ForwardedFrom}
+	}
+	return appendStep(s, e, at)
+}),
 ```
 
 ### Errors a replicated entity answers
@@ -804,6 +973,32 @@ test("adds an item and replies done", async () => {
   assert.equal(result.reply, done)
   assert.equal(kit.state.items.length, 1)
 })
+```
+
+**Go**
+
+```go
+func TestAddingAndRemovingItems(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.EventSourced(cart.Entity, testkit.EntityID("c1"))
+	if r := kit.Command(ctx, "add-item", pen); r.Refusal() != nil || len(r.Events()) != 1 || r.Events()[0] != (cart.ItemAdded{Item: pen}) {
+		t.Fatalf("add-item answered %+v", r)
+	}
+	kit.Command(ctx, "add-item", ink)
+	if q := kit.Query(ctx, "total-quantity", ankka.Unit{}); q.Reply() != 3 {
+		t.Fatalf("the total is %v", q.Reply())
+	}
+	// Items are kept sorted by product, as the Scala sample keeps them.
+	if got := kit.State().Items; len(got) != 2 || got[0] != ink || got[1] != pen {
+		t.Fatalf("the items are %+v", got)
+	}
+	if r := kit.Command(ctx, "remove-item", "pen"); r.Refusal() != nil || r.Events()[0] != (cart.ItemRemoved{ProductID: "pen"}) {
+		t.Fatalf("remove-item answered %+v", r)
+	}
+	if got := kit.State(); got.CartID != "c1" || len(got.Items) != 1 || got.Items[0] != ink {
+		t.Fatalf("after removing, the cart is %+v", got)
+	}
+}
 ```
 
 See [Testing](testing.md) for the integration testkit, which runs the whole service against a real

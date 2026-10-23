@@ -143,6 +143,45 @@ export class ShoppingCartEndpoint extends Endpoint {
     discard: del("/{cartId}", Done, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.discard).invoke()),
 ```
 
+**Go**
+
+```go
+// API is the Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId},
+// /checkout, DELETE /carts/{cartId}.
+var API = ankka.NewEndpoint("/carts", ankka.AllowAll(),
+	// A literal beside a parameter: /carts/awkward is this route, never the cart "awkward".
+	ankka.Get("/awkward", func(context.Context, *ankka.Request) (string, error) { return "literal", nil }),
+	ankka.Get("/rows", func(ctx context.Context, _ *ankka.Request) ([]Row, error) {
+		return ankka.QueryView[Row](ctx, RowsID, ankka.All())
+	}),
+	ankka.Get("/{cartId}/rows", func(ctx context.Context, req *ankka.Request) (Row, error) {
+		row, found, err := ankka.ViewRow[Row](ctx, RowsID, req.Param("cartId"))
+		if err == nil && !found {
+			err = &ankka.HttpProblem{Status: 404, Message: "no row for '" + req.Param("cartId") + "'"}
+		}
+		return row, err
+	}),
+	ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (Cart, error) {
+		return ankka.Invoke[Cart](ctx, ComponentID, req.Param("cartId"), "get-cart", ankka.Unit{})
+	}),
+	ankka.Get("/{cartId}/total", func(ctx context.Context, req *ankka.Request) (int, error) {
+		return ankka.Invoke[int](ctx, ComponentID, req.Param("cartId"), "total-quantity", ankka.Unit{})
+	}),
+	ankka.Post("/{cartId}/items", func(ctx context.Context, req *ankka.Request, item LineItem) (ankka.Done, error) {
+		return ankka.Invoke[ankka.Done](ctx, ComponentID, req.Param("cartId"), "add-item", item)
+	}),
+	ankka.Delete("/{cartId}/items/{productId}", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
+		return ankka.Invoke[ankka.Done](ctx, ComponentID, req.Param("cartId"), "remove-item", req.Param("productId"))
+	}),
+	ankka.Post("/{cartId}/checkout", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (Cart, error) {
+		return ankka.Invoke[Cart](ctx, ComponentID, req.Param("cartId"), "checkout", ankka.Unit{})
+	}),
+	ankka.Delete("/{cartId}", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
+		return ankka.Invoke[ankka.Done](ctx, ComponentID, req.Param("cartId"), "discard", ankka.Unit{})
+	}),
+)
+```
+
 A Scala endpoint extends `HttpEndpoint(prefix)` and declares routes in its body, so they are collected
 when the endpoint is constructed, at service start. A route whose handler takes a different number of
 parameters than its template names fails the service at startup rather than on the first request that
@@ -235,6 +274,34 @@ watch: socket("/{cartId}/watch", async (ep: ShoppingCartEndpoint, req, socket) =
       await socket.send(JSON.stringify({ error: `unknown request '${text}'; send refresh` }))
     }
   }
+}),
+```
+
+**Go**
+
+The Go reference's socket echoes each frame, and answers `context` with the room and the opening request's tag:
+
+```go
+// Sockets (protocol 1.9). Echoes each frame; "context" is answered with the room and the
+// opening request's tag, read after any number of frames.
+ankka.SocketRoute("/socket/{room}", func(_ context.Context, s *ankka.Socket) error {
+	room := s.Request().Param("room")
+	for {
+		text, err := s.Receive()
+		if err == io.EOF {
+			logSocket("closed:" + room)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if text == "context" {
+			text = room + " " + s.Request().Query.Get("tag")
+		}
+		if err := s.Send(text); err != nil {
+			return err
+		}
+	}
 }),
 ```
 
@@ -671,6 +738,22 @@ const service = Ankka.service()
 await service.listen()
 ```
 
+**Go**
+
+```go
+// Service is the whole inventory: registration is explicit, so nothing is found by scanning.
+func Service() *ankka.Service { return ankka.NewService(Entity, API) }
+```
+
+```go
+func main() {
+	if err := cart.Service().Start(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+```
+
 `clients` is an `EndpointClients`, which carries `componentClient` for components and `viewClient` for
 views. The lambda cannot be shortened to `ShoppingCartEndpoint(_.componentClient)`: the placeholder would
 bind to the inner expression, and that passes a function where a `ComponentClient` is expected.
@@ -686,7 +769,7 @@ Two endpoints may not share a prefix. The server also answers `/_ankka/health` o
 ## The request, outside Scala
 
 `self.request` in Python and `req` in TypeScript carry the query and the headers as sequences of pairs,
-with helpers for one or many, the `principal` when the ACL established one, and the `caller` the platform
+with helpers for one or many (in Go, `req *ankka.Request` carries them as `url.Values` and `http.Header`), the `principal` when the ACL established one, and the `caller` the platform
 established. Every SDK answers with a status by raising or throwing an `HttpProblem(status, message)`:
 
 **Scala**
@@ -721,6 +804,18 @@ row: get("/{cartId}/rows", CartRow, async (ep: ShoppingCartEndpoint, req) => {
 }),
 ```
 
+**Go**
+
+```go
+ankka.Get("/{cartId}/rows", func(ctx context.Context, req *ankka.Request) (Row, error) {
+	row, found, err := ankka.ViewRow[Row](ctx, RowsID, req.Param("cartId"))
+	if err == nil && !found {
+		err = &ankka.HttpProblem{Status: 404, Message: "no row for '" + req.Param("cartId") + "'"}
+	}
+	return row, err
+}),
+```
+
 A `CommandError` from a component call propagates as its code's status, as in Scala. Routes are matched
 by the same rules, so a literal segment outranks a parameter.
 
@@ -729,8 +824,8 @@ when the class is defined, naming it. `Acl.ALLOW_ALL` admits any caller, `Acl.DE
 and `Acl.AUTHENTICATED` admits a request carrying a token from one of the issuers the service lists. The
 runtime verifies the token before the process is asked anything, exactly as `Oidc.authenticate()` does in
 Scala, and hands the handler `self.request.principal` with the token's subject, roles, every other claim
-under `claims`, and the name of the issuer that verified it. TypeScript declares `Acl.authenticated` and
-Rust `Acl::Authenticated`, with the same principal. The issuers are the `ANKKA_AUTH_` named set described in
+under `claims`, and the name of the issuer that verified it. TypeScript declares `Acl.authenticated`,
+Rust `Acl::Authenticated` and Go `ankka.Authenticate(ankka.Issuer(name))`, with the same principal. The issuers are the `ANKKA_AUTH_` named set described in
 [Identity and machine accounts](../platform/identity.md#a-services-own-users); a service that declares the
 rule and lists no issuer does not start, and its report names the route and the variable. A route decorator
 takes an `acl` of its own, which replaces the endpoint's for that route exactly as `withAcl` does in Scala:
@@ -747,7 +842,7 @@ class CartsEndpoint(Endpoint):
     async def purge(self, cart_id: str) -> None: ...
 ```
 
-Both SDKs name callers as Scala does, with the same meaning; the sidecar applies the ACL before the process
+Every SDK names callers as Scala does, with the same meaning; the sidecar applies the ACL before the process
 is asked anything, and hands the handler the caller:
 
 **Python**
@@ -785,8 +880,26 @@ export class CallersEndpoint extends Endpoint {
 }
 ```
 
+**Go**
+
+```go
+// Callers names callers through the local caller header, since every target runs outside a
+// cluster, where this service's own identity is local/local.
+var Callers = ankka.NewEndpoint("/callers", ankka.AllowIf(ankka.Internet(), ankka.ServiceNamed("orders")),
+	ankka.Get("/whoami", func(ctx context.Context, _ *ankka.Request) (string, error) {
+		return callerWord(ankka.CallerFrom(ctx)), nil
+	}),
+	ankka.Get("/self", func(context.Context, *ankka.Request) (string, error) { return "self", nil }).ACL(ankka.AllowIf(ankka.Self())),
+	ankka.SSE("/events", func(context.Context, *ankka.Request) iter.Seq2[string, error] {
+		return func(yield func(string, error) bool) { yield("tick", nil) }
+	}).ACL(ankka.AllowIf(ankka.Self())),
+	// Whoever the project granted this route to.
+	ankka.Get("/granted", func(context.Context, *ankka.Request) (string, error) { return "granted", nil }).ACL(ankka.AllowIf(ankka.Granted())),
+)
+```
+
 In Python `Callers.self_` carries a trailing underscore so it does not shadow `self`. A Python or TypeScript
-service calls another as itself through `services`, as
+service calls another as itself through `services`, and a Go service through `ankka.CallService(ctx, …)`, as
 [Calling other services](calling-services.md) describes.
 
 A `str` return value is answered as `text/plain`, and a `str` body is read as raw text, not as a JSON

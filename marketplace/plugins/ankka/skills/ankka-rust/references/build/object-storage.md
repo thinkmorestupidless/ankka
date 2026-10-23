@@ -17,7 +17,8 @@ directory, and in a test it is memory. Your code is the same in every case.
 
 The client is offered to endpoints, workflow steps, consumers, timed actions and agents. It is **not**
 offered to an entity or a view: their contexts have no storage at all, so in Scala reaching for it does not
-compile, and in the other SDKs the attribute does not exist. A put or a get waits on the store, which an
+compile, in Python, TypeScript and Rust the attribute does not exist, and in Go `ankka.StorageFrom(ctx)`
+answers `nil` for an entity's or a view's context. A put or a get waits on the store, which an
 entity's single-writer path must not do. An entity records the name; whatever handled the bytes calls the
 entity with it.
 
@@ -416,6 +417,136 @@ fn remove_object(request: &Request) -> Result<StorageRecord, HttpProblem> {
 }
 ```
 
+In Go, `ankka.StorageFrom(ctx)` answers the client, or `nil` for an entity's, a view's or a workflow
+command's context. A Go service, like a Python or TypeScript one, speaks to its store itself, and a put
+reads its body from an `io.Reader` of a declared length:
+
+```go
+// storageCall runs f on the bucket the request names (absent: the unnamed bucket), and answers
+// every refusal as a record rather than a status.
+func storageCall(ctx context.Context, req *ankka.Request, f func(ankka.Bucket) (StorageRecord, error)) (StorageRecord, error) {
+	refused := func(err error) (StorageRecord, error) {
+		if r, ok := ankka.AsRefusal(err); ok {
+			out := storageRecord("refused")
+			out.Code, out.Message = r.Code.String(), r.Message
+			return out, nil
+		}
+		return StorageRecord{}, err
+	}
+	store := ankka.StorageFrom(ctx)
+	if store == nil {
+		return refused(ankka.Refuse(ankka.Unavailable, "this service has no object storage"))
+	}
+	var bucket ankka.Bucket
+	var err error
+	if name := req.Query.Get("bucket"); req.Query.Has("bucket") {
+		bucket, err = store.Bucket(name)
+	} else {
+		bucket, err = store.Default()
+	}
+	if err != nil {
+		return refused(err)
+	}
+	out, err := f(bucket)
+	if err != nil {
+		return refused(err)
+	}
+	return out, nil
+}
+
+func storagePut(ctx context.Context, req *ankka.Request, body string) (StorageRecord, error) {
+	return storageCall(ctx, req, func(b ankka.Bucket) (StorageRecord, error) {
+		switch req.Query.Get("rules") {
+		case "":
+			contentType := req.ContentType
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			if err := b.Put(ctx, req.Query.Get("name"), strings.NewReader(body), int64(len(body)), contentType); err != nil {
+				return StorageRecord{}, err
+			}
+		case "prefix":
+			for _, err := range b.List(ctx, body) {
+				if err != nil {
+					return StorageRecord{}, err
+				}
+				break
+			}
+		default:
+			if _, err := b.Stat(ctx, body); err != nil {
+				return StorageRecord{}, err
+			}
+		}
+		return storageRecord("ok"), nil
+	})
+}
+
+func storageGet(ctx context.Context, req *ankka.Request) (StorageRecord, error) {
+	return storageCall(ctx, req, func(b ankka.Bucket) (StorageRecord, error) {
+		name, out := req.Query.Get("name"), storageRecord("ok")
+		switch op := req.Query.Get("op"); op {
+		case "get":
+			obj, err := b.Get(ctx, name)
+			if err != nil || obj == nil {
+				return storageRecord("absent"), err
+			}
+			data, err := io.ReadAll(obj.Body)
+			if err != nil {
+				return StorageRecord{}, err
+			}
+			out.ContentType, out.Text, out.Length = obj.ContentType, string(data), int64(len(data))
+		case "stat":
+			info, err := b.Stat(ctx, name)
+			if err != nil || info == nil {
+				return storageRecord("absent"), err
+			}
+			out.ContentType, out.Length = info.ContentType, info.Length
+		case "list":
+			for e, err := range b.List(ctx, req.Query.Get("prefix")) {
+				if err != nil {
+					return StorageRecord{}, err
+				}
+				out.Names = append(out.Names, e.Name)
+			}
+		case "url":
+			url, err := b.PublicURL(name)
+			if err != nil {
+				return StorageRecord{}, err
+			}
+			out.URL = url
+		case "signed-url":
+			access := ankka.AccessRead
+			if req.Query.Get("access") == "keep" {
+				access = ankka.AccessKeep
+			}
+			url, err := b.SignedURL(name, access, 0)
+			if err != nil {
+				return StorageRecord{}, err
+			}
+			out.URL = url
+		default:
+			out = storageRecord("refused")
+			out.Code, out.Message = ankka.BadRequest.String(), fmt.Sprintf("no storage op '%s'", op)
+		}
+		return out, nil
+	})
+}
+```
+
+```go
+// The service's buckets. bucket names one (absent: the unnamed bucket) and name the object; op
+// is get, stat, list (under prefix), url or signed-url (access read or keep). A post keeps its
+// body under name; a post with rules set to name or prefix instead tries its body as an
+// object's name or a listing's prefix, and keeps nothing.
+ankka.Post("/storage", storagePut),
+ankka.Get("/storage", storageGet),
+ankka.Delete("/storage", func(ctx context.Context, req *ankka.Request) (StorageRecord, error) {
+	return storageCall(ctx, req, func(b ankka.Bucket) (StorageRecord, error) {
+		return storageRecord("ok"), b.Delete(ctx, req.Query.Get("name"))
+	})
+}),
+```
+
 ## Names
 
 An object's name is 1 to 1024 bytes as UTF-8. Its segments are separated by `/`; it does not begin with
@@ -486,7 +617,9 @@ assert(kit.storage.bucket("photos").url("a/b.png").toString.endsWith("/a/b.png")
 
 What the service kept survives `restartService()` and is gone when the kit stops. A test against a real
 store starts the kit with `StorageBackendChoice.FromEnvironment` and the store's variables. The Python,
-TypeScript and Rust kits hold the same store in memory, as `kit.storage`.
+TypeScript and Rust kits hold the same store in memory, as `kit.storage`. A Go unit test hands a handler
+`ankka.NewMemoryStorage()` through `ankka.WithStorage(ctx, store)`, and a Go integration test chooses the
+store with `ANKKA_STORAGE_BACKEND`.
 
 ## When it fails
 

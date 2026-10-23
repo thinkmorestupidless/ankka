@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.codec.Serializer;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.problems.ServiceProblems;
+import com.thinkmorestupidless.ankka.javasdk.spi.ServiceModule;
 
 /**
  * A growing service definition. Nothing is read or started until {@link #start}, which reads every
@@ -47,6 +48,12 @@ public interface ServiceBuilder {
    * bytes the developer decides. Every handler that names the type uses it.
    */
   <A> ServiceBuilder withSerializer(Class<A> type, Serializer<A> serializer);
+
+  /**
+   * The component kinds a library beside the SDK adds, such as {@code Agents.module()}: a
+   * registered class of one of its kinds is read by it. Given once per module.
+   */
+  ServiceBuilder withModule(ServiceModule module);
 
   /**
    * Reads every registered class and starts the service, or throws {@link ServiceProblems} naming

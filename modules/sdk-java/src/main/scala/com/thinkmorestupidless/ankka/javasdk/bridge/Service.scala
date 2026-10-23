@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId
 import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
+import com.thinkmorestupidless.ankka.javasdk.spi.ServiceModule
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint
 import com.thinkmorestupidless.ankka.http.{
   ClientKeysProvider,
@@ -42,7 +43,8 @@ final case class JavaServiceBuilder private (
     grpcEndpoints: Vector[Class[?]] = Vector.empty,
     grpc: Option[(String, Int)] = None,
     grpcClients: Boolean = false,
-    mcpEndpoints: Vector[Class[?]] = Vector.empty
+    mcpEndpoints: Vector[Class[?]] = Vector.empty,
+    modules: Vector[JavaModule] = Vector.empty
 ) extends ServiceBuilder:
 
   def this(name: String) = this(name, Vector.empty, Vector.empty, Map.empty, None)
@@ -71,6 +73,10 @@ final case class JavaServiceBuilder private (
   def withSerializer[A](tpe: Class[A], serializer: Serializer[A]): ServiceBuilder =
     copy(serializers = serializers + (tpe -> serializer))
 
+  def withModule(module: ServiceModule): ServiceBuilder =
+    val java = Modules.asJava(module)
+    copy(modules = modules.filterNot(_.name == java.name) :+ java)
+
   def start(): AnkkaService =
     val read =
       JavaServiceBuilder.read(
@@ -78,7 +84,8 @@ final case class JavaServiceBuilder private (
         serializers,
         endpoints,
         grpcEndpoints = grpcEndpoints,
-        mcpEndpoints = mcpEndpoints
+        mcpEndpoints = mcpEndpoints,
+        modules = modules
       )
     val service = JavaServiceBuilder.problemsAtStart {
       JavaServiceBuilder
@@ -118,7 +125,8 @@ private[ankka] object JavaServiceBuilder:
       consumers: Vector[ConsumerPlan] = Vector.empty,
       actions: ActionIndex = ActionIndex.empty,
       grpcs: Vector[GrpcPlan] = Vector.empty,
-      mcps: Vector[McpPlan] = Vector.empty
+      mcps: Vector[McpPlan] = Vector.empty,
+      modules: Vector[ModulePlan] = Vector.empty
   ):
     /**
      * The platform's extensions the read components need, which a Java service never names: the
@@ -142,10 +150,14 @@ private[ankka] object JavaServiceBuilder:
         projections: => runtime.ProjectionRuntime,
         timers: => runtime.TimerRuntime
     ): Vector[runtime.RuntimeExtension] =
-      (if views.nonEmpty || consumers.nonEmpty then Vector(projections) else Vector.empty) ++
-        (if actions.isEmpty && mcps.isEmpty then Vector.empty else Vector(timers)) ++
+      val needsProjections =
+        views.nonEmpty || consumers.nonEmpty || modules.exists(_.needsProjections)
+      val needsTimers = !actions.isEmpty || mcps.nonEmpty || modules.exists(_.needsTimers)
+      (if needsProjections then Vector(projections) else Vector.empty) ++
+        (if needsTimers then Vector(timers) else Vector.empty) ++
         // Client keys, and the brokered sign-in's records, which its timers forget.
-        (if mcps.isEmpty then Vector.empty else Vector(smcp.McpRuntime()))
+        (if mcps.isEmpty then Vector.empty else Vector(smcp.McpRuntime())) ++
+        modules.flatMap(_.extensions)
 
     /** Whether anything is served over HTTP: routes, or an MCP endpoint's tools. */
     def servesHttp: Boolean = endpoints.nonEmpty || mcps.nonEmpty
@@ -240,9 +252,24 @@ private[ankka] object JavaServiceBuilder:
       /** Off for a component test kit, which hosts one component whatever it calls. */
       checkReferences: Boolean = true,
       grpcEndpoints: Vector[Class[?]] = Vector.empty,
-      mcpEndpoints: Vector[Class[?]] = Vector.empty
+      mcpEndpoints: Vector[Class[?]] = Vector.empty,
+      modules: Vector[JavaModule] = Vector.empty
   ): Read =
-    val (viewClasses, others) = classes.partition((cls, _) => Views.isView(cls))
+    // A module reads the classes of its kinds; one registered without its module is refused here.
+    val (moduleClasses, sdkClasses) =
+      classes.partition((cls, _) => modules.exists(_.claims(cls)) || Modules.needed(cls).isDefined)
+    val missing = moduleClasses.collect {
+      case (cls, _) if !modules.exists(_.claims(cls)) =>
+        DeclarationProblem(
+          cls.getSimpleName,
+          "",
+          s"needs its module: give the service withModule(${Modules.needed(cls).get})"
+        )
+    }
+    val moduleResults = modules.map { m =>
+      m.read(moduleClasses.filter((cls, _) => m.claims(cls)), serializers)
+    }
+    val (viewClasses, others) = sdkClasses.partition((cls, _) => Views.isView(cls))
     val (consumerClasses, rest) =
       others.partition((cls, _) => Consumers.isConsumer(cls))
     val (actionClasses, entityClasses) =
@@ -257,7 +284,8 @@ private[ankka] object JavaServiceBuilder:
     val routes = endpoints.map(Routes.read(_, serializers))
     val grpcs  = grpcEndpoints.map(Grpc.read)
     val mcps   = mcpEndpoints.map(Mcp.read)
-    val problems = results.collect { case Left(ps) => ps }.flatten ++
+    val problems = missing ++ moduleResults.collect { case Left(ps) => ps }.flatten ++
+      results.collect { case Left(ps) => ps }.flatten ++
       viewResults.collect { case Left(ps) => ps }.flatten ++
       consumerResults.collect { case Left(ps) => ps }.flatten ++
       actionResults.collect { case Left(ps) => ps }.flatten ++
@@ -267,7 +295,8 @@ private[ankka] object JavaServiceBuilder:
     val registered = results.collect { case Right(plan) => plan.cls }.toSet ++
       viewResults.collect { case Right(plan) => plan.cls } ++
       consumerResults.collect { case Right(plan) => plan.cls } ++
-      actionResults.collect { case Right(plan) => plan.cls }
+      actionResults.collect { case Right(plan) => plan.cls } ++
+      moduleResults.collect { case Right(plan) => plan.classes }.flatten
     val checked =
       if checkReferences then
         (classes.map(_._1) ++ endpoints ++ grpcEndpoints ++ mcpEndpoints).distinct
@@ -284,8 +313,9 @@ private[ankka] object JavaServiceBuilder:
     }
     val all = problems ++ unregistered
     if all.nonEmpty then throw ServiceProblems(all.asJava)
-    val plans = results.collect { case Right(plan) => plan }
-    val refs  = Refs(plans)
+    val plans       = results.collect { case Right(plan) => plan }
+    val modulePlans = moduleResults.collect { case Right(plan) => plan }
+    val refs        = Refs(plans, modulePlans)
     val views = viewResults.collect { case Right(plan) =>
       plan.cls -> (plan.componentId, Views.companion(plan))
     }
@@ -296,7 +326,8 @@ private[ankka] object JavaServiceBuilder:
       views.map(_._2._2.descriptor) ++
       consumers.map(Consumers.descriptor(_, refs, serializers)) ++
       actionPlans.map(TimedActions.descriptor(_, refs, actions, serializers)) ++
-      (if mcpEndpoints.isEmpty then Vector.empty else smcp.McpRuntime.descriptors.toVector)
+      (if mcpEndpoints.isEmpty then Vector.empty else smcp.McpRuntime.descriptors.toVector) ++
+      modulePlans.flatMap(_.descriptors(refs, serializers))
     Read(
       plans,
       descriptors,
@@ -307,7 +338,8 @@ private[ankka] object JavaServiceBuilder:
       consumers,
       actions,
       grpcs.collect { case Right(plan) => plan },
-      mcps.collect { case Right(plan) => plan }
+      mcps.collect { case Right(plan) => plan },
+      modulePlans
     )
 
   /** The Scala service of the read classes, its own checks reported as declaration problems. */

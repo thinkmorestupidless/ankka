@@ -36,6 +36,9 @@ private[ankka] final class ShardingTransport(
 
   private given ExecutionContext = system.executionContext
 
+  /** The system calls run in: what a client that hands a stream to Java materializes it with. */
+  private[ankka] def actorSystem: ActorSystem[?] = system
+
   def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit =
     // A stream is a call like any other, and says who made it the same way.
     val command = message.asInstanceOf[EntityProtocol.Command] match

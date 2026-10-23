@@ -67,7 +67,7 @@ object Effects:
     case s if s >= 400 && s < 500 => ErrorCode.BadRequest
     case _                        => ErrorCode.Internal
 
-  private[bridge] def finite(d: Duration): FiniteDuration =
+  private[ankka] def finite(d: Duration): FiniteDuration =
     FiniteDuration(d.toNanos, java.util.concurrent.TimeUnit.NANOSECONDS)
 
   private def fn[S, R](f: Function[S, R]): S => R = s => f.apply(s)

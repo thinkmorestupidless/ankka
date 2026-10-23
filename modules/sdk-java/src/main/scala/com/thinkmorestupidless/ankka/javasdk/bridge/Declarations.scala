@@ -264,7 +264,7 @@ private[ankka] object Declarations:
    * Whether the developer wrote `m`, rather than a compiler: not synthetic, not a bridge, and with
    * no `$` in its name, which Kotlin gives the methods it makes of lambdas without marking them so.
    */
-  private[bridge] def declaredByHand(m: Method): Boolean =
+  private[ankka] def declaredByHand(m: Method): Boolean =
     !m.isSynthetic && !m.isBridge && !m.getName.contains('$')
 
   /** A no-argument constructor or one taking the context, of any visibility. */
@@ -310,7 +310,7 @@ private[ankka] object Declarations:
   // ── Type arguments, resolved through the class hierarchy ──────────────────
 
   /** Every type variable in `cls`'s superclasses, bound to what `cls` gives it. */
-  private[bridge] def typeBindings(cls: Class[?]): Map[TypeVariable[?], Type] =
+  private[ankka] def typeBindings(cls: Class[?]): Map[TypeVariable[?], Type] =
     val out           = mutable.Map.empty[TypeVariable[?], Type]
     var current: Type = cls.getGenericSuperclass
     while current != null do
@@ -331,12 +331,12 @@ private[ankka] object Declarations:
   ): Vector[Type] =
     base.getTypeParameters.toVector.flatMap(v => bindings.get(v))
 
-  private[bridge] def resolve(t: Type, bindings: Map[TypeVariable[?], Type]): Type = t match
+  private[ankka] def resolve(t: Type, bindings: Map[TypeVariable[?], Type]): Type = t match
     case v: TypeVariable[?] => bindings.getOrElse(v, v)
     case _                  => t
 
 /** Reads a raw class from a type for the serializer registry. */
-private object Planner:
+private[ankka] object Planner:
   def rawClass(t: Type): Option[Class[?]] = t match
     case c: Class[?]          => Some(c)
     case p: ParameterizedType => rawClass(p.getRawType)

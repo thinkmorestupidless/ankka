@@ -10,7 +10,15 @@ import java.util.concurrent.ConcurrentHashMap
  * lambda carries what it refers to in its `SerializedLambda`: the class, the method and its
  * descriptor, which the registered plans are keyed by. Resolved once per lambda class.
  */
-private[ankka] final class Refs(plans: Iterable[ComponentPlan]):
+private[ankka] final class Refs(
+    plans: Iterable[ComponentPlan],
+    /** The modules' plans, which resolve calls to their own kinds. */
+    val modules: Vector[ModulePlan] = Vector.empty
+):
+
+  /** The plan of the module of type `M`, when the service was given one. */
+  def module[M <: ModulePlan](cls: Class[M]): Option[M] =
+    modules.collectFirst { case m if cls.isInstance(m) => cls.cast(m) }
 
   private val byKey: Map[(String, String, String), (ComponentPlan, HandlerPlan)] =
     plans.iterator.flatMap(c => c.handlers.map(h => h.javaKey -> (c, h))).toMap

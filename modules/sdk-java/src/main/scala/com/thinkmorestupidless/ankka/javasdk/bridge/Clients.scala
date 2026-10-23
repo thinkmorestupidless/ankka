@@ -46,7 +46,7 @@ private[ankka] object Clients:
       throw IllegalStateException("this component was not built by a service or a test kit")
 
   /** A rejection or a failure as a Java caller sees it. */
-  private[bridge] def javaFailure(t: Throwable): Throwable = t match
+  private[ankka] def javaFailure(t: Throwable): Throwable = t match
     case e: CompletionException if e.getCause != null => javaFailure(e.getCause)
     case e: CommandError =>
       WorkflowEnd.failure(e) match
@@ -90,8 +90,10 @@ private[ankka] object Clients:
         s.position
       )
 
-private final class JavaComponentClient(transport: CallTransport, refs: Refs)
-    extends ComponentClient:
+private[ankka] final class JavaComponentClient(
+    private[ankka] val transport: CallTransport,
+    private[ankka] val refs: Refs
+) extends ComponentClient:
   def forEventSourcedEntity(entityId: String): EntityRef = JavaEntityRef(transport, refs, entityId)
   def forKeyValueEntity(entityId: String): EntityRef     = JavaEntityRef(transport, refs, entityId)
   def forWorkflow(workflowId: String): WorkflowRef =

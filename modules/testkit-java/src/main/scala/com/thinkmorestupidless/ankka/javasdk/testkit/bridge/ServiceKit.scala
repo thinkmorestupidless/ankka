@@ -176,7 +176,8 @@ object ServiceKit:
       builder.serializers,
       builder.endpoints,
       grpcEndpoints = builder.grpcEndpoints,
-      mcpEndpoints = builder.mcpEndpoints
+      mcpEndpoints = builder.mcpEndpoints,
+      modules = builder.modules
     )
     val probe        = stk.TimerProbe()
     val broker       = runtime.InMemoryBroker()

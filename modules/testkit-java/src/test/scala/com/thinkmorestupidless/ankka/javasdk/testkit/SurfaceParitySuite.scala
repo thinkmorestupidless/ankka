@@ -397,8 +397,11 @@ class SurfaceParitySuite extends munit.FunSuite:
         "forEventSourcedEntity" -> j(classOf[client.ComponentClient], "forEventSourcedEntity"),
         "forKeyValueEntity"     -> j(classOf[client.ComponentClient], "forKeyValueEntity"),
         "forWorkflow"           -> j(classOf[client.ComponentClient], "forWorkflow")
-      ) ++ rows("Calling components", "agent.AgentRuntime$")(
-        "forAgent" -> pending("T072")
+      ) ++ rows("Calling components", "agent.AgentRuntime$package$")(
+        "forAgent" -> j(
+          classOf[com.thinkmorestupidless.ankka.agent.javasdk.AgentClients],
+          "forAgent"
+        )
       ) ++ rows("Calling components", "sdk.Invocation")(
         "invoke"       -> j(classOf[client.Invocation[?, ?]], "invoke"),
         "invokeAsync"  -> j(classOf[client.Invocation[?, ?]], "invokeAsync"),
@@ -484,7 +487,7 @@ class SurfaceParitySuite extends munit.FunSuite:
         "start"     -> j(classOf[Installations], "start"),
         "transport" -> j(classOf[Installations], "pause")
       ) ++ rows("Testing", "agent.TestModelProvider")(
-        "TestModelProvider" -> pending("T072")
+        "TestModelProvider" -> pending("T074")
       )
 
   // ── The checks ────────────────────────────────────────────────────────────

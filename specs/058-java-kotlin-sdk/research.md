@@ -610,4 +610,26 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   `@ComponentId` class there the service does not register. No bytecode library: the pool's layout
   is fixed by the JVM specification. A call by component id and wire name is a string, not found
   until it is made; the reference page says so.
-
+- **What the code changed in the agent contract** (US5, T072). The agents are a module the
+  service is given, `Ankka.service("x").withModule(Agents.module().withModelProvider(p))`, in place
+  of `ServiceBuilder.withModelProvider`: `ankka-java` cannot name the agent library's types, and a
+  module is the seam (`javasdk.spi.ServiceModule`, read by `bridge/Modules`) the autonomous agents
+  and blueprints join without the SDK knowing them. An agent registered without the module is
+  refused naming it. `Agent` takes no state type: a request agent's state is its session, which
+  `Memory` reads and writes; what an agent is beside its handlers (role, tool steps, MCP servers,
+  result guardrails) is `AgentSettings`, returned by `settings()` and read once from an instance
+  built at start, because a Java class has no companion to override. Handlers are `@Command`
+  (returning `AgentEffect<R>`) and `@Stream` (returning `StreamEffect`), the SDK's own annotations.
+  `AgentEffects.reply(R)` is not written (the Scala effects have no reply without a model); it is
+  `error(String)` and `error(Problem)`. `tools(Object...)` takes a `FunctionTool`, an instance or a
+  class whose `@Tool` methods are tools; a `@Tool` method takes nothing, one record or named
+  parameters (`-parameters`), and `@Describe` on a parameter or a record component is the
+  property's description. `Tool` carries `requiresApproval` and `approvalWithin` (ISO-8601).
+  `Guardrail` has `name()` and default checks for input, output and an MCP server's result; the
+  contract's `checkToolCall` is not written, because no Scala guardrail checks a tool call.
+  `ModelSettings` is not written: a model is a `ModelProvider` from `ModelProviders`
+  (`installation(model)`, `preset(name, preset, model)`, `at(...)`), the Scala factory's two
+  forms. `AgentRef` has `call`, `ask` (an `AgentOutcome`), `stream` (a `Flow.Publisher<String>`),
+  `decide`, `decideStream` and `approvals`; `AgentModule.withCompaction` takes an optional
+  summariser, as the Scala runtime does, since one scripted model cannot serve an agent and its
+  compactor (`.claude/rules/agents.md`).

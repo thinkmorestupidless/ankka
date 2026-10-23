@@ -56,6 +56,12 @@ private[ankka] final class ActionIndex(plans: Vector[TimedActionPlan]):
       lambda.getImplMethodName,
       lambda.getImplMethodSignature
     )
+    // A lambda is refused before the adapter is read through: a Java lambda that calls one action
+    // reads exactly like Kotlin's adapter, and would be stored as that action.
+    if key._2.startsWith("lambda$") then
+      throw CallerError(
+        "a timer names its action with a method reference, such as CartTimers::expire, not a lambda"
+      )
     // Kotlin hands `Reminder::remind` over as an adapter of its own (`remind$remind`), which the
     // registry reads through to the action it calls, as it does a handler's.
     byKey
@@ -63,11 +69,8 @@ private[ankka] final class ActionIndex(plans: Vector[TimedActionPlan]):
       .orElse(Refs.throughAdapter(lambda, ref.getClass.getClassLoader).flatMap(byKey.get))
       .getOrElse(
         throw CallerError(
-          if key._2.startsWith("lambda$") then
-            "a timer names its action with a method reference, such as CartTimers::expire, not a lambda"
-          else
-            s"${key._1}::${key._2} is not a registered @Action: it has no @Action, or " +
-              s"${key._1.split('.').last} is not registered with this service"
+          s"${key._1}::${key._2} is not a registered @Action: it has no @Action, or " +
+            s"${key._1.split('.').last} is not registered with this service"
         )
       )
 

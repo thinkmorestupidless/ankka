@@ -488,6 +488,25 @@ assertion, since CI's machines vary, but it is a reviewer's checklist item.
 
 *Recorded at implementation (R13).*
 
+**Java, 2026-10-23** (`FacadeCostSuite`, `samples/shopping-cart-java`). Machine: Apple M5, 10 cores,
+OpenJDK 25.0.3, on a laptop doing other work. The Scala and Java carts were each started under
+`AnkkaTestKit`, and each took 200 `add-item` commands that were not counted, then 1,000 that were.
+The figure is the median `durationNanos` of the recorder's `shopping-cart`/`add-item` spans. Each run
+measures the two carts twice and counts only the second round: the first round gave whichever cart
+went first a colder JVM, and in a single round the Java cart measured at half the Scala one.
+
+| Run | Scala median | Java median | Java / Scala |
+|---|---|---|---|
+| 1 | 6.0 µs | 6.0 µs | 1.000 |
+| 2 | 11.0 µs | 9.0 µs | 0.822 |
+| 3 | 14.6 µs | 9.7 µs | 0.664 |
+
+SC-009's 10% bound holds in every run. The spread between runs (6 to 15 µs for the same cart) is
+larger than any difference between the languages. The span covers the handler and its effect inside
+the entity host, not the round trip. At this size the facade's reflective call and effect unwrapping
+are not measurable apart from the machine's noise, which is why the bound is asserted only under
+`-Dankka.cost.assert=true`.
+
 ## Verify at implementation
 
 1. R3: the fixtures' double and `Instant` renderings against the record codec; any fixture shape a

@@ -146,9 +146,9 @@ private[bridge] object Tools:
       arguments: Class[A],
       run: JFunction[A, String]
   ): javasdk.FunctionTool =
-    if !arguments.isRecord then
+    if !recordLike(arguments) then
       throw IllegalArgumentException(
-        s"${arguments.getSimpleName} is not a record, so it has no arguments of its own"
+        s"${arguments.getSimpleName} is not a record or a data class, so it has no arguments of its own"
       )
     val input = recordInput(arguments, arguments, Values.serializer(arguments, Map.empty))
     val spec  = ToolSpec(name, description, Mcp.objectSchema(input.schema, input.required))
@@ -299,7 +299,7 @@ private[bridge] object Tools:
     described(input, describe(p).map(p.getName -> _).toMap)
 
   /** A Java record, or a Kotlin class the SDK reads as one: a data class. */
-  private def recordLike(cls: Class[?]): Boolean =
+  private[bridge] def recordLike(cls: Class[?]): Boolean =
     cls.isRecord || (!cls.isEnum && !cls.isInterface &&
       cls.getAnnotations.exists(_.annotationType.getName == "kotlin.Metadata") &&
       com.thinkmorestupidless.ankka.javasdk.codec.RecordShapes.find(cls) != null)

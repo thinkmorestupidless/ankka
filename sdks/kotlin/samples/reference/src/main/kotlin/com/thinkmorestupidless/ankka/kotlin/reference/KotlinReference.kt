@@ -1,7 +1,8 @@
 package com.thinkmorestupidless.ankka.kotlin.reference
 
+import com.thinkmorestupidless.ankka.agent.javasdk.ModelProvider
+import com.thinkmorestupidless.ankka.agent.javasdk.conformance.AgentConformanceEntry
 import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId
-import com.thinkmorestupidless.ankka.javasdk.conformance.ConformanceEntry
 import com.thinkmorestupidless.ankka.javasdk.http.Acl
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint
 import com.thinkmorestupidless.ankka.javasdk.mcp.McpEndpoint
@@ -10,7 +11,7 @@ import com.thinkmorestupidless.ankka.javasdk.mcp.McpEndpoint
  * The reference service in Kotlin, as the conformance suite hosts it: every component and route the
  * Java reference has, translated, so the suite holds the Kotlin SDK to the same protocol.
  */
-class KotlinReference : ConformanceEntry {
+class KotlinReference : AgentConformanceEntry {
 
     override fun language(): String = "Kotlin"
 
@@ -40,6 +41,8 @@ class KotlinReference : ConformanceEntry {
             SelfCallersEndpoint::class.java,
             GrantedCallersEndpoint::class.java,
             McpKeysEndpoint::class.java,
+            AgentsEndpoint::class.java,
+            AutonomousEndpoint::class.java,
         )
 
     override fun mcpEndpoints(): List<Class<out McpEndpoint>> = listOf(CartMcp::class.java)
@@ -48,11 +51,21 @@ class KotlinReference : ConformanceEntry {
         Companion.authenticated = authenticated
     }
 
+    override fun secondModel(second: ModelProvider) {
+        Companion.second = second
+    }
+
     companion object {
         /** What the suite's verified tokens are admitted by; nobody until the suite says. */
         @Volatile
         var authenticated: Acl = Acl.denyAll()
             private set
+
+        @Volatile
+        private var second: ModelProvider? = null
+
+        /** The model the suite configured under the name `second`. */
+        fun second(): ModelProvider = checkNotNull(second) { "the suite named no second model" }
 
         private val COMPONENTS: List<Class<*>> =
             listOf(
@@ -79,6 +92,9 @@ class KotlinReference : ConformanceEntry {
                 CartGraph::class.java,
                 ProfileGraph::class.java,
                 Reminder::class.java,
+                Assistant::class.java,
+                Approver::class.java,
+                Answerer::class.java,
             )
     }
 }

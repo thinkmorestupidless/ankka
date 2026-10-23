@@ -1957,6 +1957,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // through the reference's `approver` agent and its routes: `ask` answers `{"answered": text}` or
   // `{"awaiting": [{"id", "tool", "arguments"}]}`, and `decide` the same once the turn goes on. The
   // MCP servers are `target.tickets` and `target.guarded`, played on loopback.
+  //
+  // `features/agents/languages.feature`'s rows are these cases, run once per language's reference
+  // (Scala, Java and Kotlin in process; Python and TypeScript as processes): its outlines in order
+  // are `approval.awaits`, `approval.approved-runs-once`, `auto.approval.waits-without-budget`,
+  // `svc.tool-calls-service`, `mcp.tools-offered` and `mcp.result-guardrail-withholds`.
 
   private def onlyWhereApprovals(): Unit =
     assume(!target.isModule, "a module declares no agent that waits for a person")

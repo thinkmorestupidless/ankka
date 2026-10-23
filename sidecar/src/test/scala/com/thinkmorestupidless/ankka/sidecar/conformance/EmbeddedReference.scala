@@ -49,7 +49,7 @@ trait EmbeddedReference:
 object EmbeddedReference:
 
   /** The class `-Dankka.conformance.reference=java` names: the Java reference's entry. */
-  val JavaEntry = "com.thinkmorestupidless.ankka.javasdk.reference.JavaReference"
+  val JavaEntry = "com.thinkmorestupidless.ankka.javasdk.reference.JavaAgentReference"
 
   /** The reference `ankka.conformance.reference` names; `scala` when it names none. */
   def fromProperty: EmbeddedReference =

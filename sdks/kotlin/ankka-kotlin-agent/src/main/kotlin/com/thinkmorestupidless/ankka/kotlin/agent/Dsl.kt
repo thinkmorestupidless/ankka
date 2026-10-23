@@ -10,6 +10,8 @@ import com.thinkmorestupidless.ankka.agent.javasdk.AgentNoArgRef
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentOutcome
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentRef
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentStreamRef
+import com.thinkmorestupidless.ankka.agent.javasdk.AutonomousRef
+import com.thinkmorestupidless.ankka.agent.javasdk.Notification
 import com.thinkmorestupidless.ankka.agent.javasdk.StreamEffect
 import com.thinkmorestupidless.ankka.agent.javasdk.spi.AgentComponentEffects
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient
@@ -99,6 +101,9 @@ fun <A : Agent, I : Any, O : Any> AgentRef.ask(
 /** The reply of the streaming handler [handler] names, as it is written. */
 fun <A : Agent, I : Any> AgentRef.streamFlow(handler: AgentStreamRef<A, I>, input: I): Flow<String> =
     stream(handler, input).asFlow()
+
+/** What the instance does from now on, as it happens; nothing it did before is replayed. */
+fun AutonomousRef.notificationsFlow(): Flow<Notification> = notifications().asFlow()
 
 private class NamedAgentCommand<A : Agent, I : Any, O : Any>(private val handler: KFunction<AgentEffect<O>>) :
     AgentCommandRef<A, I, O> {

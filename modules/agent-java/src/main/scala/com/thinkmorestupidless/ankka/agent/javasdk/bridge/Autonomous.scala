@@ -49,9 +49,10 @@ private[bridge] final case class JavaTaskType[R](scala: autonomous.TaskType[R])
   def description(): String = scala.description
 
   def resultConformsTo[S](`type`: Class[S]): javasdk.TaskType[S] =
-    if !`type`.isRecord then
+    if !Tools.recordLike(`type`) then
       throw IllegalArgumentException(
-        s"task type '${scala.name}': ${`type`.getSimpleName} is not a record, so it has no shape"
+        s"task type '${scala.name}': ${`type`.getSimpleName} is not a record or a data class, " +
+          "so it has no shape"
       )
     if scala.hasResultShape then
       throw IllegalArgumentException(s"task type '${scala.name}' has a result type already")
@@ -230,7 +231,8 @@ private[bridge] object Autonomous:
       record.reason.toJava,
       record.assignee.map(_.instanceId).toJava,
       record.iterations,
-      record.result.toJava
+      record.result.toJava,
+      String(autonomous.TaskEntity.stateSerializer.toBytes(record), "UTF-8")
     )
 
   def typed[R](snapshot: autonomous.TypedTaskSnapshot[R]): javasdk.TaskSnapshot[R] =
@@ -241,7 +243,8 @@ private[bridge] object Autonomous:
       snapshot.reason.toJava,
       snapshot.assignee.map(_.instanceId).toJava,
       snapshot.record.iterations,
-      snapshot.result.toJava
+      snapshot.result.toJava,
+      String(autonomous.TaskEntity.stateSerializer.toBytes(snapshot.record), "UTF-8")
     )
 
   def notification(n: autonomous.Notification): javasdk.Notification =
@@ -310,7 +313,8 @@ private[bridge] final class JavaAutonomousRef(
       s.currentTask.map(_.taskId).toJava,
       s.currentTask.map(_.iteration).getOrElse(0),
       s.queued.asJava,
-      s.awaiting.map(Outcomes.request).asJava
+      s.awaiting.map(Outcomes.request).asJava,
+      String(autonomous.AgentState.serializer.toBytes(s), "UTF-8")
     )
 
   def notifications(): Flow.Publisher[javasdk.Notification] =

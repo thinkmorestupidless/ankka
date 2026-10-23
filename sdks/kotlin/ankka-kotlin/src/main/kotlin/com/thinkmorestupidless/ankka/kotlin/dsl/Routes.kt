@@ -4,6 +4,10 @@ import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint
 import com.thinkmorestupidless.ankka.javasdk.http.Request
 import com.thinkmorestupidless.ankka.javasdk.spi.RouteRegistrar
 import com.thinkmorestupidless.ankka.kotlin.suspend.onHandlerThread
+import java.lang.reflect.Type
+import kotlin.reflect.KType
+import kotlin.reflect.javaType
+import kotlin.reflect.typeOf
 
 // Routes declared in code, the programmatic form beside the annotations:
 //
@@ -45,17 +49,22 @@ class RouteScope internal constructor() {
     /** A POST that reads no body. */
     fun post(template: String, handler: suspend RouteCall.() -> Any?) = without("POST", template, handler)
 
-    /** A POST whose body is read as [B]. */
+    /** A POST whose body is read as [B], type arguments and all (`post<List<String>>`). */
     inline fun <reified B : Any> post(template: String, noinline handler: suspend RouteCall.(B) -> Any?) =
-        with("POST", template, B::class.java, handler)
+        with("POST", template, bodyType(typeOf<B>()), handler)
 
     /** A PUT whose body is read as [B]. */
     inline fun <reified B : Any> put(template: String, noinline handler: suspend RouteCall.(B) -> Any?) =
-        with("PUT", template, B::class.java, handler)
+        with("PUT", template, bodyType(typeOf<B>()), handler)
 
     /** A PATCH whose body is read as [B]. */
     inline fun <reified B : Any> patch(template: String, noinline handler: suspend RouteCall.(B) -> Any?) =
-        with("PATCH", template, B::class.java, handler)
+        with("PATCH", template, bodyType(typeOf<B>()), handler)
+
+    // `javaType` is still marked experimental; opted into here, so no caller of the inline forms must.
+    @PublishedApi
+    @OptIn(ExperimentalStdlibApi::class)
+    internal fun bodyType(type: KType): Type = type.javaType
 
     private fun without(verb: String, template: String, handler: suspend RouteCall.() -> Any?) {
         declarations +=
@@ -68,7 +77,7 @@ class RouteScope internal constructor() {
     internal fun <B : Any> with(
         verb: String,
         template: String,
-        body: Class<B>,
+        body: Type,
         handler: suspend RouteCall.(B) -> Any?,
     ) {
         declarations +=

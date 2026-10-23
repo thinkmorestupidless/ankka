@@ -6,7 +6,8 @@ import java.util.Optional;
 /**
  * An instance as a caller is told it: its phase ({@code Idle}, {@code Working}, {@code Waiting},
  * {@code Suspended} or {@code Terminated}), the task it is working and the iteration it is on, the
- * tasks queued behind it, and the tool calls waiting for a person.
+ * tasks queued behind it, the tool calls waiting for a person, and the whole state as the JSON
+ * every SDK reads.
  */
 public record InstanceState(
     String instanceId,
@@ -16,4 +17,5 @@ public record InstanceState(
     Optional<String> currentTask,
     int iteration,
     List<String> queued,
-    List<ApprovalRequest> awaiting) {}
+    List<ApprovalRequest> awaiting,
+    String json) {}

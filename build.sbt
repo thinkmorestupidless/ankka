@@ -708,7 +708,7 @@ lazy val sidecar = project
     // The conformance suite hosts a reference written through the Java SDK, or through the Kotlin
     // one over it, whose class path then holds only what Kotlin adds (feature 058).
     sdkJava    % "test->test",
-    agentJava  % Test,
+    agentJava  % "test->test",
     operator   % "test->test;test->compile",
     testPki    % Test,
     testOllama % Test

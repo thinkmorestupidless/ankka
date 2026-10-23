@@ -535,3 +535,16 @@ assertion, since CI's machines vary, but it is a reviewer's checklist item.
   ankka module in `~/.m2`, so the template suites run `publishM2` over the published aggregate, not
   over the Java modules alone. Javadoc of a mixed module is scaladoc's, and `-parameters` must stay
   off the doc task's `javacOptions`.
+- **What the code changed in the contract** (Phase 2). `persist` takes one, two or three events and
+  `persistAll` a list, not varargs: a generic varargs parameter makes every caller's compiler warn of
+  heap pollution, which a `-Werror` build refuses. `withSerializer(Class<A>, Serializer<A>)` names
+  the type it writes, which a bare `Serializer<?>` cannot. An `EntityContext` has no `services`,
+  `secrets` or `storage`: the platform never offers them to an entity (`.claude/rules/secrets.md`).
+  The untyped call is `call(componentId, wireName, in, out)`: an `EntityRef` from
+  `forEventSourcedEntity(id)` knows no component until a method reference names one. A rejection
+  reaches a caller as `CommandException`, whose `problem()` is the `Problem` the handler returned
+  (status, title, detail). `@Manifest` lives in `javasdk.codec` beside `Serializer`, not in
+  `annotations`. The Java base classes take their state from a cell the bridge sets while
+  constructing them, so the Java surface has no setter; javac's `this-escape` lint is off for the
+  same reason.
+

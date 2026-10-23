@@ -1108,7 +1108,10 @@ lazy val javaSdkSettings = Seq(
   crossPaths := false,
   // Lint the Java a developer reads, as `-Werror` holds the Scala. Scoped to `compile` so javadoc
   // never receives it. `serial` is off: method references are Serializable by design (R2).
-  Compile / compile / javacOptions ++= Seq("-Xlint:all,-serial,-processing", "-Werror"),
+  Compile / compile / javacOptions ++= Seq(
+    "-Xlint:all,-serial,-processing,-this-escape",
+    "-Werror"
+  ),
   // Handlers' parameter names are read when a route binds a parameter by name.
   Compile / compile / javacOptions += "-parameters",
   Test / compile / javacOptions += "-parameters"

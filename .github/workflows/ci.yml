@@ -36,6 +36,7 @@ jobs:
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
       template-java: ${{ steps.filter.outputs.template-java == 'true' || github.event_name == 'workflow_dispatch' }}
+      sdk-kotlin: ${{ steps.filter.outputs.sdk-kotlin == 'true' || github.event_name == 'workflow_dispatch' }}
       features: ${{ steps.filter.outputs.features == 'true' || github.event_name == 'workflow_dispatch' }}
       web: ${{ steps.filter.outputs.web == 'true' || github.event_name == 'workflow_dispatch' }}
       cli-native: ${{ steps.filter.outputs.cli-native == 'true' || github.event_name == 'workflow_dispatch' }}
@@ -159,6 +160,15 @@ jobs:
               - 'sdks/rust/**'
               - 'cli/src/main/templates/rust/**'
               - 'cli/src/test/scala/**/cli/RustTemplateSuite.scala'
+            # The Kotlin SDK's Gradle build over this commit's Java SDK, the conformance suite against
+            # its reference (hosted in the suite's process), and `ankka init --language kotlin`.
+            sdk-kotlin:
+              - *workflow
+              - *scala-build
+              - *templates
+              - 'sdks/kotlin/**'
+              - 'cli/src/main/templates/kotlin/**'
+              - 'cli/src/test/scala/**/cli/KotlinTemplateSuite.scala'
             # The console: its workspace, the realm client it signs in as, and the route reference its
             # parity check reads. Its fakes stand in for the control plane, so no Scala is built.
             console:
@@ -353,6 +363,33 @@ jobs:
           cache: sbt
       - uses: sbt/setup-sbt@v1
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=java 'cli/testOnly *JavaTemplateSuite'
+
+  # The Kotlin SDK: its fixtures are the protocol's, its build and tests pass against this commit's
+  # Java SDK (published to ~/.m2 first by the script), the conformance suite passes against the Kotlin
+  # reference, and the Kotlin template builds, tests and makes its image.
+  sdk-kotlin:
+    needs: changes
+    if: needs.changes.outputs.sdk-kotlin == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the published version, and the one the project pins, come from tags
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('sdks/kotlin/**/*.gradle.kts', 'sdks/kotlin/gradle/wrapper/gradle-wrapper.properties') }}
+      - run: diff -r protocol/fixtures sdks/kotlin/fixtures
+      - run: sdks/kotlin/gradlew-this-commit.sh check conformance
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=kotlin 'cli/testOnly *KotlinTemplateSuite'
 
   # The check branch protection requires for the Scala template, in place of the matrix's own names.
   # A matrix job skipped by the path filter is skipped before it expands, so it reports once, under

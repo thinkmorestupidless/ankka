@@ -145,3 +145,11 @@ template-java:
 # The Kotlin SDK's build (sdks/kotlin) against this commit's Java SDK: `just kotlin check`.
 kotlin *args='check':
     sdks/kotlin/gradlew-this-commit.sh {{args}}
+
+# The conformance suite against the Kotlin reference, hosted in the suite's process.
+kotlin-conformance:
+    sdks/kotlin/gradlew-this-commit.sh :samples:reference:conformance
+
+# `ankka init --language kotlin` rendered, built and tested with its own wrapper against this commit's SDK.
+template-kotlin:
+    sbt -Dankka.cluster.tests=off -Dankka.template.tests=kotlin 'cli/testOnly *KotlinTemplateSuite'

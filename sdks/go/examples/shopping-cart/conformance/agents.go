@@ -13,6 +13,8 @@ import (
 
 // ── reminder: a timed action ──
 
+// docs:start timed-action
+
 // Reminder records on the conformance entity it is given the id of.
 var Reminder = ankka.TimedAction("reminder",
 	ankka.Action("remind", func(ctx context.Context, id string) (ankka.ActionEffect, error) {
@@ -34,7 +36,11 @@ var Reminder = ankka.TimedAction("reminder",
 	}),
 )
 
+// docs:end timed-action
+
 // ── assistant: an agent whose tool acts through the client ──
+
+// docs:start agent
 
 // LookupArguments are the lookup tool's.
 type LookupArguments struct {
@@ -81,6 +87,8 @@ var Assistant = ankka.Agent("assistant",
 	}),
 )
 
+// docs:end agent
+
 // ── approver: an agent whose tools wait for a person, with two MCP servers ──
 
 // RefundArguments are the refund tool's.
@@ -107,6 +115,7 @@ var Approver = ankka.Agent("approver",
 				}
 				return "refunded " + in.ID, nil
 			}),
+		// docs:start service-call-tool
 		// A tool calls another service as this service: the called service's ACL can admit it by name.
 		ankka.Tool("ask_scripted", "Asks the scripted service for what is at a path.", func(ctx context.Context, in PathArguments) (string, error) {
 			res, err := ankka.CallService(ctx, "scripted", ankka.ServiceRequest{Method: "GET", Path: in.Path})
@@ -118,6 +127,7 @@ var Approver = ankka.Agent("approver",
 			}
 			return string(res.Body), nil
 		}),
+		// docs:end service-call-tool
 	),
 	// Both found at ANKKA_MCP_<NAME>_URL; every tool of guarded waits for a person.
 	ankka.McpServers(ankka.McpServer("tickets"), ankka.McpServer("guarded", ankka.McpApproval(0))),
@@ -135,6 +145,8 @@ var Approver = ankka.Agent("approver",
 // docs:end approver
 
 // ── answerer: an autonomous agent, whose tool acts through the client ──
+
+// docs:start autonomous
 
 // Answer is a task's result.
 type Answer struct {
@@ -174,3 +186,5 @@ var Answerer = ankka.Autonomous("answerer", "Answers questions",
 	ankka.Guardrails(noSecrets),
 	ankka.Accepts(AnswerTask, 4),
 )
+
+// docs:end autonomous

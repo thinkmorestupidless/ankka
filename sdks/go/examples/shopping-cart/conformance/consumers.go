@@ -14,6 +14,8 @@ func subject(ctx context.Context) string {
 
 // ── checkout-recorder: a consumer that acts through the client ──
 
+// docs:start consumer
+
 // CheckoutRecorder records each checkout on the conformance entity of the cart's id.
 var CheckoutRecorder = ankka.Consumer[cart.Event]("checkout-recorder", ankka.Changes(cart.Entity),
 	func(ctx context.Context, e cart.Event) (ankka.ConsumerEffect, error) {
@@ -25,6 +27,8 @@ var CheckoutRecorder = ankka.Consumer[cart.Event]("checkout-recorder", ankka.Cha
 		}
 		return ankka.ConsumerDone(), nil
 	})
+
+// docs:end consumer
 
 // ── checkout-ends: a consumer of a workflow ──
 
@@ -77,6 +81,8 @@ var CheckoutFanout = ankka.Consumer[cart.Event]("checkout-fanout", ankka.Changes
 
 // docs:end fanout
 
+// docs:start topic-consumer
+
 func relay(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) { return ankka.Produce(m), nil }
 
 // ── topic-relay: a consumer over a topic ──
@@ -86,6 +92,8 @@ func relay(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) { return a
 var TopicRelay = ankka.Consumer[Fanned]("topic-relay", ankka.Topic("conformance-topic", ankka.StartFrom(ankka.Latest())), relay,
 	ankka.ProducesWith("conformance-topic-relayed", fannedCodec),
 )
+
+// docs:end topic-consumer
 
 // ── contract-relay: a contract, a declared broker and parallel reading ──
 
@@ -141,6 +149,8 @@ var VehicleFeed = ankka.Consumer[StepAdded]("vehicle-feed", ankka.Changes(Replic
 
 // ── cart-graph: the cart as graph deltas ──
 
+// docs:start graph-consumer
+
 func cartNode(id string, checkedOut bool) ankka.Element {
 	return ankka.Node("cart:"+id, ankka.Labels("Cart"), ankka.WithProperties(ankka.Properties{"cartId": id, "checkedOut": checkedOut}))
 }
@@ -165,6 +175,8 @@ var CartGraph = ankka.GraphConsumer[cart.Event]("cart-graph", ankka.Changes(cart
 		return ankka.Publish(ankka.NodeTombstone("cart:" + subject(ctx))), nil
 	}),
 )
+
+// docs:end graph-consumer
 
 // ── profile-graph: a graph consumer over a key value entity; its versions are revisions ──
 

@@ -41,6 +41,82 @@ An event sourced entity keeps its state as the fold of the events it persisted. 
 
 <!-- include: sdks/go/examples/first-service/cart.go#entity -->
 ```go
+import (
+	"context"
+
+	ankka "github.com/thinkmorestupidless/ankka-go"
+)
+
+type LineItem struct {
+	ProductID string `json:"productId"`
+	Name      string `json:"name"`
+	Quantity  int    `json:"quantity"`
+}
+
+type ShoppingCart struct {
+	CartID     string     `json:"cartId"`
+	Items      []LineItem `json:"items"`
+	CheckedOut bool       `json:"checkedOut"`
+}
+
+// An event is one of a closed set of types, each written under its discriminator.
+type Event interface{ cartEvent() }
+
+type ItemAdded struct {
+	Item LineItem `json:"item"`
+}
+
+type CheckedOut struct{}
+
+func (ItemAdded) cartEvent()  {}
+func (CheckedOut) cartEvent() {}
+
+var events = ankka.Cases[Event](
+	ankka.Case[Event, ItemAdded]("ItemAdded"),
+	ankka.Case[Event, CheckedOut]("CheckedOut"),
+)
+
+var ShoppingCartEntity = ankka.EventSourced[ShoppingCart, Event]("shopping-cart", events, empty, apply,
+	ankka.Command("add-item", addItem),
+	ankka.Command("checkout", checkout),
+	ankka.Query("get-cart", func(_ context.Context, cart ShoppingCart, _ ankka.Unit) (ankka.ReadOnlyEffect[ShoppingCart], error) {
+		return ankka.Reply(cart), nil
+	}),
+	ankka.StateCodec(ankka.CodecFor[ShoppingCart](ankka.Manifest("shopping-cart"))),
+	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+)
+
+func empty(cartID string) ShoppingCart { return ShoppingCart{CartID: cartID, Items: []LineItem{}} }
+
+func apply(cart ShoppingCart, event Event) ShoppingCart {
+	switch e := event.(type) {
+	case ItemAdded:
+		cart.Items = append(cart.Items, e.Item)
+	case CheckedOut:
+		cart.CheckedOut = true
+	}
+	return cart
+}
+
+type effect[R any] = ankka.Effect[ShoppingCart, Event, R]
+
+func addItem(_ context.Context, cart ShoppingCart, item LineItem) (effect[ankka.Done], error) {
+	if cart.CheckedOut {
+		return effect[ankka.Done]{}, ankka.Refuse(ankka.Conflict, "cart is already checked out")
+	}
+	if item.Quantity <= 0 {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.BadRequest, "quantity must be greater than zero, was %d", item.Quantity)
+	}
+	return ankka.Persist[ShoppingCart, Event, ankka.Done](ItemAdded{Item: item}).
+		ThenReply(func(ShoppingCart) ankka.Done { return ankka.Done{} }), nil
+}
+
+func checkout(_ context.Context, cart ShoppingCart, _ ankka.Unit) (effect[ShoppingCart], error) {
+	if cart.CheckedOut {
+		return effect[ShoppingCart]{}, ankka.Refuse(ankka.Conflict, "cart is already checked out")
+	}
+	return ankka.Persist[ShoppingCart, Event, ShoppingCart](CheckedOut{}).ThenReplyState(), nil
+}
 ```
 
 Five things in this file are true of every ankka component in Go:
@@ -66,6 +142,23 @@ An endpoint is the service's HTTP edge. Create `api.go`:
 
 <!-- include: sdks/go/examples/first-service/api.go#endpoint -->
 ```go
+import (
+	"context"
+
+	ankka "github.com/thinkmorestupidless/ankka-go"
+)
+
+var ShoppingCartEndpoint = ankka.NewEndpoint("/carts", ankka.AllowAll(),
+	ankka.Post("/{cartId}/items", func(ctx context.Context, req *ankka.Request, item LineItem) (ankka.Done, error) {
+		return ankka.Invoke[ankka.Done](ctx, "shopping-cart", req.Param("cartId"), "add-item", item)
+	}),
+	ankka.Post("/{cartId}/checkout", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ShoppingCart, error) {
+		return ankka.Invoke[ShoppingCart](ctx, "shopping-cart", req.Param("cartId"), "checkout", ankka.Unit{})
+	}),
+	ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (ShoppingCart, error) {
+		return ankka.Invoke[ShoppingCart](ctx, "shopping-cart", req.Param("cartId"), "get-cart", ankka.Unit{})
+	}),
+)
 ```
 
 A route names its template and the function that runs it; a `Post` route's function takes the decoded
@@ -83,6 +176,22 @@ Register both components and start. Create `main.go`:
 
 <!-- include: sdks/go/examples/first-service/main.go#main -->
 ```go
+import (
+	"context"
+	"fmt"
+	"os"
+
+	ankka "github.com/thinkmorestupidless/ankka-go"
+)
+
+func service() *ankka.Service { return ankka.NewService(ShoppingCartEntity, ShoppingCartEndpoint) }
+
+func main() {
+	if err := service().Start(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 ```
 
 Registration is explicit: a component that is not registered does not exist. `Start` serves the protocol
@@ -114,6 +223,27 @@ The unit test kits run a component with no sidecar and no network. Create `cart_
 
 <!-- include: sdks/go/examples/first-service/cart_test.go#unit-test -->
 ```go
+var pen = LineItem{ProductID: "p1", Name: "Pen", Quantity: 2}
+
+func TestAddingAnItemPersistsOneEvent(t *testing.T) {
+	kit := testkit.EventSourced(ShoppingCartEntity, testkit.EntityID("c1"))
+	result := kit.Command(context.Background(), "add-item", pen)
+	if len(result.Events()) != 1 || result.Events()[0] != (ItemAdded{Item: pen}) {
+		t.Fatalf("add-item persisted %v", result.Events())
+	}
+	cart := kit.Query(context.Background(), "get-cart", ankka.Unit{}).Reply().(ShoppingCart)
+	if len(cart.Items) != 1 || cart.Items[0] != pen {
+		t.Fatalf("the cart holds %v", cart.Items)
+	}
+}
+
+func TestARefusedCommandPersistsNothing(t *testing.T) {
+	kit := testkit.EventSourced(ShoppingCartEntity, testkit.EntityID("c1"))
+	result := kit.Command(context.Background(), "add-item", LineItem{ProductID: "p1", Name: "Pen"})
+	if result.Refusal() == nil || result.Refusal().Code != ankka.BadRequest || len(result.Events()) != 0 {
+		t.Fatalf("a quantity of zero answered %+v", result)
+	}
+}
 ```
 
 ```bash
@@ -131,6 +261,20 @@ and gives you an HTTP client for your routes. Add to `cart_test.go`:
 
 <!-- include: sdks/go/examples/first-service/cart_test.go#integration-test -->
 ```go
+func TestACartSurvivesARestart(t *testing.T) {
+	kit := testkit.StartT(t, service()) // skipped unless ANKKA_SLOW=1
+	ctx := t.Context()
+	if _, err := kit.HTTP().Post(ctx, "/carts/c1/items", pen); err != nil {
+		t.Fatal(err)
+	}
+	if err := kit.Restart(ctx); err != nil { // a new sidecar, the same database
+		t.Fatal(err)
+	}
+	cart, err := testkit.GetJSON[ShoppingCart](ctx, kit.HTTP(), "/carts/c1")
+	if err != nil || len(cart.Items) != 1 || cart.Items[0].Name != "Pen" {
+		t.Fatalf("after a restart the cart is %+v (%v)", cart, err)
+	}
+}
 ```
 
 ```bash

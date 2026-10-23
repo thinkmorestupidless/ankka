@@ -20,6 +20,8 @@ var (
 	ink = cart.LineItem{ProductID: "ink", Name: "Ink", Quantity: 1}
 )
 
+// docs:start unit-test
+
 func TestAddingAndRemovingItems(t *testing.T) {
 	ctx := context.Background()
 	kit := testkit.EventSourced(cart.Entity, testkit.EntityID("c1"))
@@ -41,6 +43,8 @@ func TestAddingAndRemovingItems(t *testing.T) {
 		t.Fatalf("after removing, the cart is %+v", got)
 	}
 }
+
+// docs:end unit-test
 
 func TestRefusalsChangeNothing(t *testing.T) {
 	ctx := context.Background()
@@ -104,6 +108,8 @@ func TestTheFold(t *testing.T) {
 	}
 }
 
+// docs:start endpoint-test
+
 func TestTheRoutesCallTheCart(t *testing.T) {
 	ctx := context.Background()
 	kit := testkit.Endpoint(cart.API, cart.Entity)
@@ -124,3 +130,5 @@ func TestTheRoutesCallTheCart(t *testing.T) {
 		t.Fatalf("adding to a checked out cart answered %d", r.Status)
 	}
 }
+
+// docs:end endpoint-test

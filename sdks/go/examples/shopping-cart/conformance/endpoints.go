@@ -168,6 +168,8 @@ func callerWord(c ankka.Caller) string {
 	return "local"
 }
 
+// docs:start call-another-service
+
 // serviceCall makes the call the case asks for: service, method and path from the query, the body
 // and every X-Conformance-* header sent on, and two headers no handler may send, the caller's and
 // the host, added to show they never arrive.
@@ -214,6 +216,10 @@ func serviceCall(ctx context.Context, req *ankka.Request, body string) (ServiceC
 		Answer: res.Headers.Get("X-Answer"),
 	}, nil
 }
+
+// docs:end call-another-service
+
+// docs:start storage-client
 
 // storageCall runs f on the bucket the request names (absent: the unnamed bucket), and answers
 // every refusal as a record rather than a status.
@@ -325,6 +331,8 @@ func storageGet(ctx context.Context, req *ankka.Request) (StorageRecord, error) 
 	})
 }
 
+// docs:end storage-client
+
 // outcomeOf renders a turn as every reference does: {"answered": text}, or
 // {"awaiting": [{"id", "tool", "arguments"}]} for the approval requests it waits on.
 func outcomeOf(text string, err error) (string, error) {
@@ -383,6 +391,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	// docs:start service-call
 	ankka.Post("/service-call", serviceCall),
 	// docs:end service-call
+	// docs:start secrets
 	// The secret store. The name is a query parameter because it may hold a slash.
 	ankka.Post("/secrets", func(ctx context.Context, req *ankka.Request, value string) (ankka.Done, error) {
 		return ankka.Done{}, ankka.Secrets(ctx).Put(req.Query.Get("name"), value)
@@ -398,6 +407,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	ankka.Delete("/secrets", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
 		return ankka.Done{}, ankka.Secrets(ctx).Delete(req.Query.Get("name"))
 	}),
+	// docs:end secrets
 	// docs:start storage
 	// The service's buckets. bucket names one (absent: the unnamed bucket) and name the object; op
 	// is get, stat, list (under prefix), url or signed-url (access read or keep). A post keeps its
@@ -442,6 +452,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 			}
 		}
 	}),
+	// docs:start socket
 	// Sockets (protocol 1.9). Echoes each frame; "context" is answered with the room and the
 	// opening request's tag, read after any number of frames.
 	ankka.SocketRoute("/socket/{room}", func(_ context.Context, s *ankka.Socket) error {
@@ -463,6 +474,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 			}
 		}
 	}),
+	// docs:end socket
 	ankka.SocketRoute("/socket-once", func(_ context.Context, s *ankka.Socket) error {
 		_, _ = s.Receive()
 		return nil
@@ -513,6 +525,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 		}
 		return end, err
 	}),
+	// docs:start start-and-await
 	// Starts a checkout and answers with how it ended, as one request; a failed one is 424.
 	ankka.Post("/checkout-await/{id}", func(ctx context.Context, req *ankka.Request, mode string) (string, error) {
 		end, err := ankka.SendAndAwait[Checkout](ctx, "checkout", req.Param("id"), "start", mode, 30*time.Second)
@@ -521,10 +534,14 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 		}
 		return end.Status, err
 	}),
+	// docs:start schedule
+	// docs:end start-and-await
 	ankka.Post("/remind/{id}", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
 		id := req.Param("id")
 		return ankka.Done{}, ankka.Schedule(ctx, "remind-"+id, time.Second, ankka.TimerTarget{ComponentID: "reminder", Handler: "remind"}, id)
 	}),
+	// docs:start recurring
+	// docs:end schedule
 	// A recurring timer: due at once, then every second.
 	ankka.Post("/recur/{id}", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
 		id := req.Param("id")
@@ -538,14 +555,17 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	ankka.Post("/recur/{id}/cancel", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
 		return ankka.Done{}, ankka.Cancel(ctx, "recur-"+req.Param("id"))
 	}),
+	// docs:end recurring
 	// A period of zero is refused before anything is sent: a 400.
 	ankka.Post("/recur-refused/{id}", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
 		id := req.Param("id")
 		return ankka.Done{}, ankka.ScheduleRecurring(ctx, "recur-"+id, 0, 0, tickTarget, id)
 	}),
+	// docs:start call-agent
 	ankka.Post("/ask/{session}", func(ctx context.Context, req *ankka.Request, question string) (string, error) {
 		return ankka.Invoke[string](ctx, "assistant", req.Param("session"), "ask", question)
 	}),
+	// docs:end call-agent
 	ankka.Post("/ask-second/{session}", func(ctx context.Context, req *ankka.Request, question string) (string, error) {
 		return ankka.Invoke[string](ctx, "assistant", req.Param("session"), "ask-second", question)
 	}),
@@ -569,6 +589,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	ankka.Get("/{id}/count", func(ctx context.Context, req *ankka.Request) (int, error) {
 		return ankka.Invoke[int](ctx, "conformance", req.Param("id"), "count", ankka.Unit{})
 	}),
+	// docs:start goroutine
 	// A handler that answers nothing: the call is not awaited, and the route says so with 204.
 	ankka.Post("/{id}/no-reply", func(ctx context.Context, req *ankka.Request, _ ankka.Unit) (ankka.Done, error) {
 		go func(ctx context.Context, id string) {
@@ -576,6 +597,7 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 		}(context.WithoutCancel(ctx), req.Param("id"))
 		return ankka.Done{}, nil
 	}),
+	// docs:end goroutine
 	// The generic forwarder: the body is the handler's input as text, the reply comes back as text.
 	ankka.Post("/{id}/{handler}", func(ctx context.Context, req *ankka.Request, body string) (string, error) {
 		handler := req.Param("handler")
@@ -724,6 +746,8 @@ var AutonomousAPI = ankka.NewEndpoint("/autonomous", ankka.AllowAll(),
 
 // ── /callers: caller-naming ACLs ──
 
+// docs:start callers
+
 // Callers names callers through the local caller header, since every target runs outside a
 // cluster, where this service's own identity is local/local.
 var Callers = ankka.NewEndpoint("/callers", ankka.AllowIf(ankka.Internet(), ankka.ServiceNamed("orders")),
@@ -737,6 +761,8 @@ var Callers = ankka.NewEndpoint("/callers", ankka.AllowIf(ankka.Internet(), ankk
 	// Whoever the project granted this route to.
 	ankka.Get("/granted", func(context.Context, *ankka.Request) (string, error) { return "granted", nil }).ACL(ankka.AllowIf(ankka.Granted())),
 )
+
+// docs:end callers
 
 // ── /private: a verified token's principal ──
 
@@ -835,6 +861,8 @@ var CartMcp = ankka.NewMcpEndpoint("/mcp", ankka.AnyOf(ankka.AllowClientKeys(), 
 
 // docs:end mcp-endpoint
 
+// docs:start mcp-keys
+
 // KeyRequest is what POST /mcp-keys is asked to issue: a key that never expires, for the cases.
 type KeyRequest struct {
 	Subject    string            `json:"subject"`
@@ -876,3 +904,5 @@ var McpKeys = ankka.NewEndpoint("/mcp-keys", ankka.AllowAll(),
 		return "revoked", ankka.ClientKeys(ctx).Revoke(req.Param("id"))
 	}),
 )
+
+// docs:end mcp-keys

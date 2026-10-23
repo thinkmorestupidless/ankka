@@ -12,6 +12,8 @@ import (
 
 // ── profile: a key value entity ──
 
+// docs:start key-value
+
 // ProfileState is a profile's state.
 type ProfileState struct {
 	Name string `json:"name"`
@@ -39,7 +41,11 @@ var Profile = ankka.KeyValue[ProfileState]("profile", func(string) ProfileState 
 	ankka.StateCodec(ankka.CodecFor[ProfileState](ankka.Manifest("profile"))),
 )
 
+// docs:end key-value
+
 // ── checkout: a workflow ──
+
+// docs:start workflow
 
 // Checkout is a checkout's state, in the Scala reference's shape: the id, the mode it was started
 // in and where it has got to.
@@ -108,9 +114,13 @@ var CheckoutFlow = ankka.Workflow[Checkout]("checkout", func(id string) Checkout
 		return step(s).ThenEnd(), nil
 	}),
 	ankka.StateCodec(ankka.CodecFor[Checkout](ankka.Manifest("checkout"))),
+	// docs:start workflow-settings
 	ankka.StepTimeout(10*time.Second),
 	ankka.ForStep("charge", ankka.StepRecovery(ankka.Recovery{MaxRetries: 1, FailoverTo: "compensate"})),
+	// docs:end workflow-settings
 )
+
+// docs:end workflow
 
 // ── replicated-vehicle: a replicated entity ──
 
@@ -169,9 +179,12 @@ func replicate(f func(target string) ankka.PersistBuilder[VehicleRecord, StepAdd
 	}
 }
 
+// docs:start replicated-declaration
+
 // ReplicatedVehicle is the replicated entity. The conformance service runs at installation a.
 var ReplicatedVehicle = ankka.EventSourced[VehicleRecord, StepAdded]("replicated-vehicle", nil, emptyVehicle,
 	func(s VehicleRecord, e StepAdded) VehicleRecord { return appendStep(s, e, EventPlace{Local: true}) },
+	// docs:start replicated-apply
 	ankka.ApplyWithContext(func(ctx context.Context, s VehicleRecord, e StepAdded) VehicleRecord {
 		at := EventPlace{Local: true}
 		if ev, ok := ankka.EventFrom(ctx); ok {
@@ -179,7 +192,10 @@ var ReplicatedVehicle = ankka.EventSourced[VehicleRecord, StepAdded]("replicated
 		}
 		return appendStep(s, e, at)
 	}),
+	// docs:end replicated-apply
 	ankka.Replicated(),
+	// docs:start replicated-placement
+	// docs:end replicated-declaration
 	ankka.Command("add-step", func(ctx context.Context, _ VehicleRecord, s string) (vehicleEffect[VehiclePlacement], error) {
 		// Read while the handler runs: the reply is computed once it has returned.
 		var p VehiclePlacement
@@ -188,6 +204,8 @@ var ReplicatedVehicle = ankka.EventSourced[VehicleRecord, StepAdded]("replicated
 		}
 		return vehicle[VehiclePlacement](StepAdded{Step: s}).ThenReplyValue(p), nil
 	}),
+	// docs:start replicated-effects
+	// docs:end replicated-placement
 	ankka.Command("hand-over", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
 		return vehicle[string]().HandOverTo(t)
 	})),
@@ -197,6 +215,7 @@ var ReplicatedVehicle = ankka.EventSourced[VehicleRecord, StepAdded]("replicated
 	ankka.Command("stop-replicating-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
 		return vehicle[string]().StopReplicatingTo(t)
 	})),
+	// docs:end replicated-effects
 	ankka.Query("get", func(_ context.Context, s VehicleRecord, _ ankka.Unit) (ankka.ReadOnlyEffect[VehicleRecord], error) {
 		return ankka.Reply(s), nil
 	}),

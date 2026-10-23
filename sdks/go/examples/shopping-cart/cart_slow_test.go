@@ -30,6 +30,8 @@ func status(t *testing.T, what string, r *testkit.HTTPResponse, err error, want 
 	}
 }
 
+// docs:start integration-test
+
 func TestEveryRouteAgainstARealSidecar(t *testing.T) {
 	kit := testkit.StartT(t, cart.Service())
 	ctx := t.Context()
@@ -74,6 +76,8 @@ func TestEveryRouteAgainstARealSidecar(t *testing.T) {
 		t.Fatalf("after a discard the cart is %+v (%v)", got, err)
 	}
 }
+
+// docs:end integration-test
 
 // The storage routes through a real sidecar, on the memory and the directory store, with the
 // unnamed bucket and the descriptor's public photos bucket. The process chooses its store as it

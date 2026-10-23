@@ -227,7 +227,7 @@ Subcommands:
     version
         Print the ankka version of this CLI.
     init
-        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript or Rust.
+        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
     local
         Tools for services running on this machine.
     mcp
@@ -2796,13 +2796,13 @@ Options and flags:
 ```text
 Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] <name>
 
-Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript or Rust.
+Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
 
 Options and flags:
     --help
         Display this help text.
     --language <string>, -l <string>
-        scala (the default), java, kotlin, python, typescript or rust; or web, for a user interface.
+        scala (the default), java, kotlin, python, typescript, rust or go; or web, for a user interface.
     --template <string>
         Scala only: a Giter8 template, e.g. file:///path/to/ankka.g8.
     --package <string>

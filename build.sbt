@@ -965,7 +965,7 @@ lazy val cli = project
       // Java and Kotlin are hosted in the runtime's own process, so they carry a compose file of
       // their own (Postgres only) in place of common-service's, which starts the sidecar.
       val embedded = Set("java", "kotlin")
-      Seq("python", "typescript", "rust", "web", "java", "kotlin").flatMap { language =>
+      Seq("python", "typescript", "rust", "go", "web", "java", "kotlin").flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a process service's, which a web-hosted interface and an embedded one are not.
         // `.scaffold-modes` beside a template's root names its binary and executable files.

@@ -64,21 +64,23 @@ class InitSuite extends munit.FunSuite:
     assert(!Init.sbtOnPath(Map("PATH" -> Files.createTempDirectory("nopath").toString)))
   }
 
-  test("a language is scala, java, kotlin, python, typescript, rust or web, and nothing else") {
+  test("a language is scala, java, kotlin, python, typescript, rust, go or web, and nothing else") {
     assertEquals(Language.parse("Python"), Right(Language.Python))
     assertEquals(Language.parse("ts"), Right(Language.TypeScript))
     assertEquals(Language.parse("scala"), Right(Language.Scala))
     assertEquals(Language.parse("Rust"), Right(Language.Rust))
     assertEquals(Language.parse("rs"), Right(Language.Rust))
+    assertEquals(Language.parse("Go"), Right(Language.Go))
+    assertEquals(Language.parse("golang"), Right(Language.Go))
     assertEquals(Language.parse("web"), Right(Language.Web))
     assertEquals(Language.parse("Java"), Right(Language.Java))
     assertEquals(Language.parse("kotlin"), Right(Language.Kotlin))
     assertEquals(Language.parse("kt"), Right(Language.Kotlin))
     assert(
       Language
-        .parse("go")
+        .parse("cobol")
         .left
-        .exists(_.contains("one of scala, java, kotlin, python, typescript, rust, web"))
+        .exists(_.contains("one of scala, java, kotlin, python, typescript, rust, go, web"))
     )
   }
 
@@ -223,7 +225,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("every template of a service ignores the directory store a laptop keeps objects in") {
-    for language <- Seq(Language.Python, Language.TypeScript, Language.Rust) do
+    for language <- Seq(Language.Python, Language.TypeScript, Language.Rust, Language.Go) do
       val request =
         Init.Request("probe", directory = Files.createTempDirectory("init"), language = language)
       val ignored = Files.readAllLines(Scaffold.render(request, "9.9.9").resolve(".gitignore"))
@@ -234,7 +236,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("each template renders every token, keeps GitHub's expressions, and carries its dotfiles") {
-    for language <- Seq(Language.Python, Language.TypeScript, Language.Web) do
+    for language <- Seq(Language.Python, Language.TypeScript, Language.Go, Language.Web) do
       val dir     = Files.createTempDirectory("init")
       val request = Init.Request("probe", directory = dir, language = language)
       val target  = Scaffold.render(request, "9.9.9")

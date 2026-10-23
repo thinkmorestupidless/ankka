@@ -13,6 +13,7 @@ enum Language(val id: String):
   case Rust       extends Language("rust")
   case Java       extends Language("java")
   case Kotlin     extends Language("kotlin")
+  case Go         extends Language("go")
 
   /** Not a language a service is written in: a user interface, deployed as a web-hosted service. */
   case Web extends Language("web")
@@ -25,10 +26,11 @@ object Language:
     case "rust" | "rs"       => Right(Rust)
     case "java"              => Right(Java)
     case "kotlin" | "kt"     => Right(Kotlin)
+    case "go" | "golang"     => Right(Go)
     case "web"               => Right(Web)
     case other               =>
       Left(
-        s"unknown language '$other'; one of scala, java, kotlin, python, typescript, rust, web"
+        s"unknown language '$other'; one of scala, java, kotlin, python, typescript, rust, go, web"
       )
 
 /**
@@ -36,9 +38,9 @@ object Language:
  *
  * For Scala it runs `sbt new` — Giter8, the way every Scala framework's template is expanded — with
  * the same template `sbt new thinkmorestupidless/ankka.g8` uses; the CLI carries no Scala template
- * and no template engine, so the two front doors cannot drift. For Python, TypeScript and Rust the
- * template is this CLI's own and `Scaffold` renders it (see there for why). Either way the version
- * handed to the template is this CLI's own: the CLI you run is the version you get.
+ * and no template engine, so the two front doors cannot drift. For Python, TypeScript, Rust and Go
+ * the template is this CLI's own and `Scaffold` renders it (see there for why). Either way the
+ * version handed to the template is this CLI's own: the CLI you run is the version you get.
  */
 object Init:
 
@@ -101,6 +103,10 @@ object Init:
         template(request) ++ request.pkg
           .map(_ => "--package applies to scala, java, kotlin and python only")
           .toVector ++ Scaffold.crateProblems(request.name)
+      case Language.Go =>
+        template(request) ++ request.pkg
+          .map(_ => "--package applies to scala and python only")
+          .toVector
       case Language.Web =>
         template(request) ++ request.pkg
           .map(_ => "--package applies to scala, java, kotlin and python only")

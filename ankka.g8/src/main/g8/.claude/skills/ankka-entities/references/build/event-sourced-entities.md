@@ -1,6 +1,6 @@
 # Event sourced entities
 
-> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Python or TypeScript.
+> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
 
 Source: https://docs.ankka.cloud/build/event-sourced-entities/
 An event sourced entity is a piece of state, addressed by an id, whose current value is derived by

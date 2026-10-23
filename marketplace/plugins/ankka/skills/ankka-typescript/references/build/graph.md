@@ -201,6 +201,83 @@ fn cart(id: &str, checked_out: bool) -> Element {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("cart-graph")
+public class CartGraph extends GraphConsumer<CartEvent> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected String topic() {
+    return "conformance-graph";
+  }
+
+  private GraphElement cart(String id, boolean checkedOut) {
+    return graph()
+        .node("cart:" + id, List.of("Cart"), Map.of("cartId", id, "checkedOut", checkedOut));
+  }
+
+  @Override
+  protected GraphEffect onChange(CartEvent event) {
+    var id = messageContext().subject();
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publish(cart(id, false));
+      case CartEvent.ItemRemoved ignored -> effects().publish(cart(id, false));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publish(
+                  cart(id, true),
+                  graph().node("checkout:" + id, List.of("Checkout"), Map.of("cartId", id)),
+                  graph()
+                      .edge("checked-out:" + id, "CHECKED_OUT", "cart:" + id, "checkout:" + id,
+                          Map.of()));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+
+  @Override
+  protected GraphEffect onDelete() {
+    return effects().publish(graph().tombstoneNode("cart:" + messageContext().subject()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("cart-graph")
+class CartGraph : GraphConsumer<CartEvent>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun topic(): String = "conformance-graph"
+
+    private fun cart(id: String, checkedOut: Boolean): GraphElement =
+        graph().node("cart:$id", listOf("Cart"), mapOf("cartId" to id, "checkedOut" to checkedOut))
+
+    override fun onChange(event: CartEvent): GraphEffect = effects {
+        val id = messageContext().subject()
+        when (event) {
+            is CartEvent.ItemAdded, is CartEvent.ItemRemoved -> publish(cart(id, false))
+            CartEvent.CheckedOut ->
+                publish(
+                    cart(id, true),
+                    graph().node("checkout:$id", listOf("Checkout"), mapOf("cartId" to id)),
+                    graph().edge("checked-out:$id", "CHECKED_OUT", "cart:$id", "checkout:$id", emptyMap()),
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+
+    override fun onDelete(): GraphEffect = effects { publish(graph().tombstoneNode("cart:${messageContext().subject()}")) }
+}
+```
+
 The parts are the same in every language:
 
 | | Scala | Python | TypeScript | Rust |
@@ -213,12 +290,16 @@ The parts are the same in every language:
 | Publish | `effects.publish(elements*)` | `self.effects.publish([…])` | `this.effects.publish([…])` | `graph::publish([…])` |
 | Nothing to publish | `effects.done()`, `effects.ignore()` | `self.effects.done()`, `.ignore()` | `this.effects.done()`, `.ignore()` | `graph::done()`, `graph::ignore()` |
 
+In Java and Kotlin the base is `GraphConsumer<Src>`, whose `topic()` names the topic; nodes, edges and
+tombstones are built from `graph()`, and published and skipped through `effects()`.
+
 A property value is a string, a number, a boolean, or a list of one of those that is not empty. An edge
 runs from one node's id to another's and has exactly one type. A label and an edge's type are identifiers:
 letters, digits and underscores, not starting with a digit.
 
 A graph consumer is registered like any consumer — `.register(CartGraph.descriptor)` in Scala,
-`.register(CartGraph)` in Python, TypeScript and Rust — and, because it publishes to a topic, the service
+`.register(CartGraph)` in Python, TypeScript and Rust, `.register(CartGraph.class)` in Java and
+Kotlin (`CartGraph::class.java`) — and, because it publishes to a topic, the service
 needs a broker: `ProjectionRuntime.withKafka(…)` or `ProjectionRuntime.fromEnv()` in Scala, and
 `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in the service descriptor's `env` for the others. A service with a graph
 consumer and no broker is refused at startup, naming the consumer. See [Broker topics](topics.md#connecting-to-kafka).
@@ -477,7 +558,7 @@ the event, and reads the state when it needs it.
 
 ## When the source is deleted
 
-Publish tombstones from the deletion handler: `onDelete` in Scala and TypeScript, `on_delete` in Python,
+Publish tombstones from the deletion handler: `onDelete` in Scala, Java, Kotlin and TypeScript, `on_delete` in Python,
 `on_deleted` in Rust. It runs when the source entity is deleted, at a sequence number above every earlier
 change to that entity, so a tombstone built there outranks every delta published before it. The cart graph
 marks the cart's node there.

@@ -1,6 +1,6 @@
 ---
 name: ankka-entities
-description: Write, change or test an ankka entity in Scala, Python, TypeScript or Rust — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
+description: Write, change or test an ankka entity in Scala, Java, Kotlin, Python, TypeScript or Rust — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
 ---
 
 # ankka entities
@@ -120,6 +120,36 @@ entity's deletion is `effects::delete_state()`. `const SHAPE: Shape = Shape::Sta
 state in the module between commands. Register by value (`.register(ShoppingCart)`); test with
 `EventSourcedTestKit::<C>::new(id).command(name, input)` and `KeyValueEntityTestKit`.
 
+## Java differences
+
+An entity is a class annotated `@ComponentId("shopping-cart")` extending `EventSourcedEntity<S, E>`
+(`emptyState()`, `applyEvent(state, event)`) or `KeyValueEntity<S>`, constructed by the host with no
+arguments or an `EntityContext`. Handlers are public methods whose annotation's string is the wire name:
+`@Command("add-item") public Effect<Done> addItem(LineItem item)` and `@Query("get-cart") public
+ReadOnlyEffect<Cart> getCart()`, one parameter or none. A `@Query` declared to return `Effect` is refused
+when the class is registered, as is an effect-returning method with no annotation. Effects:
+`effects().persist(e).thenDone()`, `.thenReply(s -> r)`, `.thenReplyState()`, `.thenDelete()`,
+`.expireAfter(d)`, `effects().reply(r)`, `effects().error(Problem.conflict(msg))`; key value
+`effects().updateState(s).thenDone()` and `effects().deleteEntity()`. State and events are records, the
+events a `sealed interface` of records, with `@Manifest("...")` naming what the journal stores; an absent
+field is `Optional<T>`, never `null`. Callers name the handler by method reference:
+`componentClient().forEventSourcedEntity(id).call(ShoppingCart::addItem).invoke(item)`; a lambda is
+refused. A refusal arrives as a `CommandException` carrying the handler's `Problem`. `@SnapshotEvery(n)`
+and `@Replicated` annotate the class. Test with `EventSourcedTestKit.of(ShoppingCart.class, "c1")
+.call(ShoppingCart::addItem, item)` (`reply()`, `events()`, `isError()`, `problem()`) and
+`KeyValueEntityTestKit`.
+
+## Kotlin differences
+
+The Java classes and annotations, with data classes for state and events (a `sealed interface` of data
+classes and `data object`s; every constructor parameter a `val`, a nullable one the absent value). Handlers
+build effects in a block: `@Command("add-item") fun addItem(item: LineItem): Effect<Done> = effects {
+persist(CartEvent.ItemAdded(item)).thenDone() }`, `@Query("get-cart") fun getCart(): ReadOnlyEffect<Cart> =
+effects { reply(currentState()) }`. Callers name handlers by function reference
+(`.call(ShoppingCart::addItem).invokeSuspending(item)`); a `suspend fun` handler is named through the
+Kotlin `call` overload. An `internal` handler is no handler: its JVM name carries a `\$`. Test with
+`eventSourcedTestKit(ShoppingCart::class, "c1")` and `keyValueEntityTestKit`.
+
 ## Testing
 
 `EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")` and `KeyValueEntityTestKit` (Python and TypeScript:
@@ -155,8 +185,8 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Python or TypeScript.
+- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
 - `references/build/key-value-entities.md` — Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+- `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.

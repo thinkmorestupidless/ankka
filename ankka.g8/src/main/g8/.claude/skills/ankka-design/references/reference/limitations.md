@@ -106,8 +106,8 @@ feature also says what that feature does not do.
 - **A keep through a signed URL on a developer's machine is at most 4,000,000 bytes for Python and
   TypeScript**, since the directory store's address is served through the platform's program beside the
   process. A deployed service's signed URLs are the store's, with no such bound.
-- **A Python or TypeScript service's routes read their bodies whole.** Only a Scala endpoint streams a
-  request or a response; the other languages send large objects through signed URLs.
+- **A Python or TypeScript service's routes read their bodies whole.** Only a Scala, Java or Kotlin
+  endpoint streams a request or a response; the other languages send large objects through signed URLs.
 - **A signed URL spans at most seven days.**
 - **A gRPC endpoint has no storage client.**
 - **A supplied bucket is checked on its first call**, not when the service starts: a wrong endpoint or key
@@ -180,7 +180,7 @@ feature also says what that feature does not do.
   provisioned for a service's users, and the platform administers none: the identity provider is the
   installation's or the service's to run. Only signed JSON Web Tokens whose issuer publishes its keys are
   verified, every listed issuer must name an audience, and a route accepts any of the service's issuers.
-- **Only a Scala service calls another service's gRPC endpoint.** A Python or TypeScript service calls
+- **Only a Scala, Java or Kotlin service calls another service's gRPC endpoint.** A Python or TypeScript service calls
   another service's HTTP routes as itself, through the runtime beside it, and is called over gRPC as any
   service is; it has no gRPC client of its own.
 - **Protection depends on the cluster enforcing network policy.** On a network plugin that accepts
@@ -268,8 +268,8 @@ feature also says what that feature does not do.
 - **A keyed view has one writer.** It handles one change at a time, across every source and every
   instance, so its throughput does not grow with the service's instances.
 - **Reads other than declared queries have no timeout in the database.** A declared query is ended by the
-  database when the service's ask timeout runs out; `get`, `all` and, in Scala, `where`, `ordered` and
-  `count` stop the caller waiting and leave the statement to finish.
+  database when the service's ask timeout runs out; `get`, `all`, `count` and, in Scala, `where` and
+  `ordered` stop the caller waiting and leave the statement to finish.
 - **A view's version may be raised only once every instance knows versions of views that read
   entities.** An instance from before cannot be told to stop writing during the rebuild. See
   [Upgrading](../deploy/upgrading.md).
@@ -397,7 +397,7 @@ feature also says what that feature does not do.
 - **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
 - **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
   notifications.
-- **Judgments are for Scala services' agents only.** Python, TypeScript and Rust services cannot declare a
+- **Judgments are for Scala services' agents only.** Java, Kotlin, Python, TypeScript and Rust services cannot declare a
   question, ask for a judgment or use a judged guardrail. A workflow step, an endpoint or a consumer reaches
   one by calling an agent's judgment handler, or a blueprint's judge or critique step asks one; a handler
   cannot judge and then call the text model in one reply; make two calls. Guardrails, judged or not, see a message and a reply, never the tool calls a model
@@ -448,14 +448,27 @@ feature also says what that feature does not do.
 
 ## SDKs and releases
 
-- **gRPC endpoints are for Scala services.** A Python, TypeScript or Rust service cannot declare one, and a
-  descriptor that declares gRPC with process or wasm hosting is refused.
+- **gRPC endpoints are for Scala and Java services.** A Kotlin service declares one through the Java SDK's
+  `GrpcEndpoint`, with grpc-java's generated stubs. A Python, TypeScript or Rust service cannot declare one,
+  and a descriptor that declares gRPC with process or wasm hosting is refused.
 - **The local console does not call gRPC methods.** It lists them beside a service's routes; call them with
   `grpcurl` or a client generated from the service definition.
 
 - **The TypeScript SDK declares and calls autonomous agents but cannot script one in its unit testkit.**
   Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration testkit does.
-- **Four languages.** Services are written in Scala, Python, TypeScript or Rust. Another language needs an SDK, or a
+- **The Java SDK has no agents yet.** A Java service cannot declare an agent, an autonomous agent, a
+  judgment or a blueprint: the `ankka-java-agent` library holds no component yet. Its codec reads records, sealed interfaces and enums by
+  reflection when the service starts; there is no annotation processor and no compile-time derivation,
+  and a codec is customised by handing `withSerializer` a serializer of your own, not by a given. A record
+  field of type `float`, `short`, `byte` or `char` is refused at start, naming the field, because the
+  encoding has no form for it; use `int`, `long` or `double`. A gRPC endpoint is written against
+  grpc-java's generated descriptors.
+- **The Kotlin SDK has no agents yet,** for the same reason: `ankka-kotlin-agent` holds nothing beyond the
+  Java agent library. It runs on the JVM only, with no Kotlin multiplatform or Kotlin/Native build. Data
+  classes are read by the Java SDK's codec through Kotlin reflection, not by `kotlinx.serialization`. A
+  declared query's `Flow` (`askFlow`) is cold and ends with the query's last row; a watch is the Java
+  SDK's `ViewWatch`, not a `Flow`. gRPC uses grpc-java's stubs; there are no Kotlin coroutine stubs.
+- **Six languages.** Services are written in Scala, Java, Kotlin, Python, TypeScript or Rust. Another language needs an SDK, or a
   guest library for the WebAssembly mode, that passes the conformance suite; see
   [Adding a language SDK](../contributing/language-sdks.md).
 - **The CLI has native builds for macOS and Linux only.** There is no Windows executable, no Linux

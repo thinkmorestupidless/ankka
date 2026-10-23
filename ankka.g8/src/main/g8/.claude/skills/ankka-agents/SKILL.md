@@ -131,6 +131,21 @@ notifications, and `wait` has no clock to sleep on, so it suits only a task that
 `AutonomousAgentTestKit::<C>::new(task_id)` runs `run_tool`, `check_rule` and `check_guardrail`, with no
 loop.
 
+## Java differences
+
+The Java SDK has no agent component yet: `ankka-java-agent` (package
+`com.thinkmorestupidless.ankka.agent.javasdk`) holds no agent, autonomous agent, judgment or blueprint
+type. A Java service offers its commands, queries and routes to a model as tools through an MCP endpoint
+(`McpEndpoint`, in `ankka-java`), and reaches an agent written in Scala, Python, TypeScript or Rust in
+another service through that service's endpoints (`services()`). Write the agent itself in one of those
+languages.
+
+## Kotlin differences
+
+As Java: `ankka-kotlin-agent` holds no agent type yet. An MCP endpoint's tools take suspending handlers
+(`handling<Args> { args -> ... }`), and an agent in another service is called through its endpoints with
+the suspending service client (`getSuspending`, `postSuspending`).
+
 ## Testing
 
 Script the model with `TestModelProvider` (`expectText`, `expectToolCall`, `expectParallelToolCalls`,
@@ -164,7 +179,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/workflows.md` — Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 - `references/build/agents.md` — Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 - `references/build/judgments.md` — Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
@@ -173,7 +188,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/blueprints.md` — Describe workers and the steps between them as data the platform runs — ask, work, for-each, gather, judge, critique and call steps — register it, start runs by hand or on a schedule, follow them, and test with a scripted model.
 - `references/build/mcp-servers.md` — Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+- `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy
 

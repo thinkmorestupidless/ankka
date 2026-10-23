@@ -147,6 +147,21 @@ notifications, and `wait` has no clock to sleep on, so it suits only a task that
 `AutonomousAgentTestKit::<C>::new(task_id)` runs `run_tool`, `check_rule` and `check_guardrail`, with no
 loop.
 
+## Java differences
+
+The Java SDK has no agent component yet: `ankka-java-agent` (package
+`com.thinkmorestupidless.ankka.agent.javasdk`) holds no agent, autonomous agent, judgment or blueprint
+type. A Java service offers its commands, queries and routes to a model as tools through an MCP endpoint
+(`McpEndpoint`, in `ankka-java`), and reaches an agent written in Scala, Python, TypeScript or Rust in
+another service through that service's endpoints (`services()`). Write the agent itself in one of those
+languages.
+
+## Kotlin differences
+
+As Java: `ankka-kotlin-agent` holds no agent type yet. An MCP endpoint's tools take suspending handlers
+(`handling<Args> { args -> ... }`), and an agent in another service is called through its endpoints with
+the suspending service client (`getSuspending`, `postSuspending`).
+
 ## Testing
 
 Script the model with `TestModelProvider` (`expectText`, `expectToolCall`, `expectParallelToolCalls`,

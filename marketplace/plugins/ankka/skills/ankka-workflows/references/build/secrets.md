@@ -40,7 +40,7 @@ Three operations, by name:
 - **delete(name)** removes the value. Removing nothing is not an error.
 
 Each blocks the handler until the database has answered. The components that have a store run on
-virtual threads (Scala) or call through the runtime beside them (Python, TypeScript, Rust), so the wait
+virtual threads (Scala, Java, Kotlin) or call through the runtime beside them (Python, TypeScript, Rust), so the wait
 holds nothing else up.
 
 An endpoint through which an operator enters a provider's credential, in Scala:
@@ -99,6 +99,10 @@ final class ChargeWorkflow(context: WorkflowContext) extends Workflow[ChargeStat
       .updateState(currentState.copy(credentialLength = credential.length, status = "charged"))
       .thenEnd
 ```
+
+In Java and Kotlin the store is `secrets()`, on an HTTP, gRPC or MCP endpoint, a consumer, a workflow
+and a timed action's context (`context().secrets()`); an entity and a view have no such method, and a
+workflow's command handler that calls it is refused, as in Scala.
 
 The same three operations in Python, where an endpoint, a consumer, a timed action, an agent and a
 workflow step reach the store as `self.secrets` and every call is awaited:

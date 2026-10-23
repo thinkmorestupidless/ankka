@@ -1,6 +1,6 @@
 # HTTP endpoints
 
-> Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
+> Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Java, Kotlin, Python or TypeScript.
 
 Source: https://docs.ankka.cloud/build/http-endpoints/
 An HTTP endpoint is how the outside world reaches a service. It declares routes under a path prefix,
@@ -629,7 +629,8 @@ that does not, rather than disclosing which is which.
 
 `clients.services` calls another service's endpoints as this service, by its name, so the service called
 reads this one as the caller and its access rule can admit it by name. The same client is given to a
-workflow's step, a consumer, a timed action and an agent, in Scala, Python and TypeScript.
+workflow's step, a consumer, a timed action and an agent, in Scala, Python and TypeScript; in Java and
+Kotlin to a workflow's step, a consumer and a timed action.
 [Calling other services](calling-services.md) shows the call in each language, what it answers, the four
 errors it can end in, how long it waits, and how to test it.
 

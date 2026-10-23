@@ -23,6 +23,11 @@ A consumer reads one source, declared the same way as a view's:
 | A workflow's states | `ChangeSource.stateOf(CheckoutWorkflow)` | `source = CheckoutWorkflow` | `static readonly source = CheckoutWorkflow` | `Source::of(CheckoutWorkflow)` |
 | A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | `Source::topic("stock-events")` |
 
+In Java and Kotlin a consumer's `source()` answers `ChangeSource.of(ShoppingCart.class)` for an entity of
+either kind, `ChangeSource.ofWorkflow(Checkout.class)` for a workflow and
+`ChangeSource.ofTopic("stock-events", StockEvent.class)` for a topic, and the consumer overrides
+`onChange(change)`.
+
 From a key value entity a consumer sees the latest value, and intermediate values can be skipped. Use an
 event sourced source for anything that must react to every change.
 
@@ -287,6 +292,68 @@ impl Consumer for CheckoutFanout {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-fanout")
+public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to("conformance-fanout"));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
+      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publishMessages(
+                  List.of(
+                      Outgoing.of(new Fanned(1)),
+                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
+                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-fanout")
+class CheckoutFanout : Consumer<CartEvent, Fanned>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
+        when (event) {
+            is CartEvent.ItemAdded -> publishAll(emptyList())
+            is CartEvent.ItemRemoved -> publish(Fanned(0))
+            CartEvent.CheckedOut ->
+                publishMessages(
+                    listOf(
+                        Outgoing.of(Fanned(1)),
+                        Outgoing.of(Fanned(2)).withKey("second:\${messageContext().subject()}"),
+                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
+                    )
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
 Each is an excerpt of the reference service the SDKs are tested against. The Rust one builds its messages
 with `Outgoing::of` because it names the payload's manifest itself; `consumer::message(value)` builds one
 under the manifest of the value's type, and `.key(…)` and `.metadata(…)` set the rest.
@@ -316,7 +383,8 @@ element.
 ## Calling other components
 
 A consumer can act on other components through the component client. Each of these records every
-checkout in the `CheckoutLog` key value entity:
+checkout: the Scala, Python, TypeScript and Rust ones in the `CheckoutLog` key value entity, the Java and
+Kotlin ones on the entity the reference service records its cases on:
 
 **Scala**
 
@@ -423,13 +491,52 @@ impl Consumer for CheckoutNotifier {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-recorder")
+public class CheckoutRecorder extends Consumer<CartEvent, Void> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(CartEvent event) {
+    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
+    componentClient()
+        .forEventSourcedEntity(messageContext().subject())
+        .call(ConformanceEntity::record)
+        .invoke("checkout");
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-recorder")
+class CheckoutRecorder : Consumer<CartEvent, Void>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
+        if (event != CartEvent.CheckedOut) return effects { ignore() }
+        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
+        return effects { done() }
+    }
+}
+```
+
 The client reaches the consumer differently in each. In Scala it arrives in the context the companion's
-`create` receives; in Python it is `self.client`, in TypeScript `this.client` and in Rust `ctx.client()`.
-Scala consumers run on virtual threads, so a blocking `invoke` inside `onMessage` costs nothing but the
+`create` receives; in Java and Kotlin it is `componentClient()`, in Python `self.client`, in TypeScript `this.client` and in Rust `ctx.client()`.
+Scala, Java and Kotlin consumers run on virtual threads, so a blocking `invoke` inside `onMessage` costs nothing but the
 wait. A Rust consumer that cannot act panics, which has the change delivered again.
 
-A consumer that only reacts, and publishes nothing, has `Nothing` as its output type in Scala; Python,
-TypeScript and Rust simply declare no output.
+A consumer that only reacts, and publishes nothing, has `Nothing` as its output type in Scala and `Void`
+in Java and Kotlin; Python, TypeScript and Rust declare no output.
 
 ## Making a consumer safe to repeat
 
@@ -458,6 +565,7 @@ A consumer can read a workflow, named as the source as a view names one. It is h
 workflow records, at least once and in the order recorded, with the workflow's id as the subject and the
 state's record's sequence number. With each state comes the workflow's **standing**, where the workflow
 stood once the whole effect that recorded the state was applied: `messageContext.standing` in Scala,
+`messageContext().standing()` in Java and Kotlin,
 `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust.
 
 | Standing | When a change carries it |
@@ -569,6 +677,52 @@ impl Consumer for CheckoutEnds {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-ends")
+public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
+    var standing = messageContext().standing();
+    // Running or paused: not an end, and nothing to do.
+    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
+    var lifecycle = standing.get();
+    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
+    componentClient()
+        .forKeyValueEntity("end-" + messageContext().subject())
+        .call(Profile::set)
+        .invoke(end.orElse(lifecycle.status()));
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-ends")
+class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
+        val lifecycle = messageContext().standingOrNull
+        // Running or paused: not an end, and nothing to do.
+        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
+        val end = lifecycle.failure.orNull()?.let { why -> "\${lifecycle.status}: \$why" } ?: lifecycle.status
+        componentClient().forKeyValueEntity("end-\${messageContext().subject()}").call(Profile::set).invoke(end)
+        return effects { done() }
+    }
+}
+```
+
 A transition, a pause, an end or a failure that records no state is no change, and neither is a workflow
 timing out: a consumer that must act on a failure needs the failing workflow to record a state, in a
 failover step that records the failure and then fails the workflow. A workflow's deletion runs the
@@ -605,6 +759,8 @@ change at every installation that holds the entity:
 | | Declaration |
 |---|---|
 | Scala | `override def mirroredChanges: Boolean = true` on the companion |
+| Java | `@Override protected boolean mirroredChanges() { return true; }` on the `Consumer` |
+| Kotlin | `override fun mirroredChanges() = true` on the `Consumer` |
 | Python | `mirrored_changes = True` on the class |
 | TypeScript | `static readonly mirroredChanges = true` |
 | Rust | `fn mirrored_changes() -> bool { true }` on the `Consumer` or `GraphConsumer` |
@@ -614,7 +770,7 @@ refused when the service starts.
 
 ## When the source is deleted
 
-When a source entity is deleted, the consumer's deletion handler runs: `onDelete` in Scala and
+When a source entity is deleted, the consumer's deletion handler runs: `onDelete` in Scala, Java, Kotlin and
 TypeScript, `on_delete` in Python and `on_deleted` in Rust. By default it ignores the deletion. Override
 it to react, for example to clean up something keyed by the deleted entity's id. The handler may publish,
 one message or several, as `onMessage` may.
@@ -666,6 +822,42 @@ pub fn build() -> Service {
         .register(ShoppingCart)
         .register(CheckoutLog)
         .register(CheckoutNotifier)
+}
+```
+
+**Java**
+
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+**Kotlin**
+
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
 }
 ```
 

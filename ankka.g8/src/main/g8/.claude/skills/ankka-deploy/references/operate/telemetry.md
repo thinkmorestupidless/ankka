@@ -5,8 +5,9 @@
 Source: https://docs.ankka.cloud/operate/telemetry/
 An installation names one OpenTelemetry collector, and every service deployed to it exports its
 **spans** and **metrics** there over OTLP. A service's code says nothing about telemetry, and a
-service written in Python, TypeScript or Rust exports exactly as a Scala one does, because the
-platform's own program beside it does the exporting.
+service written in Java or Kotlin exports exactly as a Scala one does, from the same runtime in the
+same JVM, and one written in Python, TypeScript or Rust does too, because the platform's own program
+beside it does the exporting.
 
 Logs are not exported. A service's logs stay on standard output, where the installation's own log
 agent gathers them, and every line a handler writes ends with the trace it belongs to, so a log store
@@ -76,7 +77,7 @@ installation that wants it lists it in place of a collector of its own.
 
 A service run with `sbt run` or `docker compose up` exports when `ANKKA_OTLP_ENDPOINT` is set in its
 environment, and not otherwise. A Scala service needs the exporter on its classpath, which a project
-made by `ankka init` already has:
+made by `ankka init` already has; the Java and Kotlin SDKs carry it themselves:
 
 ```scala
 libraryDependencies += "com.thinkmorestupidless" %% "ankka-telemetry-otlp" % ankkaVersion

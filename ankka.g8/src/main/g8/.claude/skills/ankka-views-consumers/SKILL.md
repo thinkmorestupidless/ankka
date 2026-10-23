@@ -1,6 +1,6 @@
 ---
 name: ankka-views-consumers
-description: Build the read side and the reactions of an ankka service in Scala, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a keyed view that reads several entities and names its rows by key, declared and recursive queries, rebuilding a view by its version, a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a keyed view, a declared or recursive query, a tree, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
+description: Build the read side and the reactions of an ankka service in Scala, Java, Kotlin, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a keyed view that reads several entities and names its rows by key, declared and recursive queries, rebuilding a view by its version, a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a keyed view, a declared or recursive query, a tree, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
 ---
 
 # ankka views and consumers
@@ -49,11 +49,14 @@ in a service with the projection runtime registered.
    regenerated on every publish.
 9. **Publish a stable message type, not the entity's events.** A consumer that produces to a topic
    declares its own output type and serializer (`produceTo` + `outputSerializer` in Scala,
-   `produces_to` + `out_codec` in Python, `producesTo` + `out` in TypeScript; one without the other is refused) so the domain's events can
+   `produces_to` + `out_codec` in Python, `producesTo` + `out` in TypeScript; one without the other is refused;
+   in Java and Kotlin, `publishes()` and the `Out` type parameter, and a topic with `Out` of `Void` is
+   refused) so the domain's events can
    change without breaking listeners.
 10. **Register `ProjectionRuntime()`** (Scala) or every command succeeds and every view stays empty
     forever. A topic source or output also needs a broker: `ProjectionRuntime.withKafka(servers)`, or
-    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Python, TypeScript or Rust service's descriptor `env`. A component
+    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Java, Kotlin, Python, TypeScript or Rust service's descriptor
+    `env` (a Java or Kotlin service has its projection runtime without registering it). A component
     that needs a broker in a service with none is refused at startup.
 11. **Several messages for one change are one effect.** `effects.produceAll(messages)` (`produce_all` in
     Python and Rust) publishes them in order to the consumer's one topic; each may name a **record key**,
@@ -94,7 +97,8 @@ in a service with the projection runtime registered.
   `sql"…"` and `jsonText("field")`, `jsonNumber("total")`, `jsonContains("members", "x")`; values are
   bound parameters, never spliced. `jsonText` compares as text, so a boolean compares against `"true"`
   and a number needs `jsonNumber`. A hot query needs a Postgres expression index on the same term. In
-  Python, TypeScript and Rust a view answers `get(key)`, `all()` and the queries it declares.
+  Python, TypeScript and Rust a view answers `get(key)`, `all()` and the queries it declares; in Java and
+  Kotlin, `get(key)`, `all()`, `count()` and `ask(query, values)` for each `ViewQuery` it declares.
 
 ## Before writing a consumer
 
@@ -151,6 +155,34 @@ its elements are checked when the result is dispatched. The source's id is `ctx.
 change's sequence number `ctx.sequence()`. Rows are queried with `ctx.client().query(CartRows, "all", ())`.
 `ViewTestKit`, `ConsumerTestKit` and `GraphConsumerTestKit` run them natively.
 
+## Java differences
+
+A view extends `View<Src, Row>` with `@ComponentId`: `source()` is `ChangeSource.of(ShoppingCart.class)`,
+`ChangeSource.ofWorkflow(Checkout.class)` or `ChangeSource.ofTopic("name", Notice.class)`;
+`onChange(change)` returns `effects().updateRow(row)`, `deleteRow()` or `ignore()`, reading the current
+row with `rowState()` (an `Optional`) and the source's id with `updateContext().subject()`; `onDelete()`
+removes the row by default; `version()` raises the version to rebuild. Queries are `public static final
+ViewQuery` fields, `ViewQuery.declare(name, sql)` over `ViewQuery.tableOf(CartRows.class)`, `.watched()` to
+watch; callers read `viewClient().forView(CartRows.class).get(key)`, `all()`, `count()`, `ask(query,
+values)`, `askStream`, `watch`. A keyed view extends `KeyedView<Row>` with one `@Source(...)` method per
+source. A consumer extends `Consumer<Src, Out>` (`Void` when it publishes nothing): `onChange` returns
+`effects().publish(m)`, `publish(m, key)`, `publishAll(list)`, `publishMessages(List<Outgoing<Out>>)`
+(`Outgoing.of(m).withKey(k).withMetadata(..)`), `done()` or `ignore()`; `publishes()` answers
+`Optional.of(Publication.to(topic))`; the change's subject is `messageContext().subject()`. A graph
+consumer extends `GraphConsumer<Src>` with `topic()` and returns `effects().publish(graph().node(id,
+labels, properties), graph().edge(id, type, from, to, properties), ...)`; `onDelete()` publishes
+`graph().tombstoneNode(id)`. `ViewTestKit.of(..)` (`change`, `deleted`, `row`), `KeyedViewTestKit`,
+`ConsumerTestKit.of(..)` (`onMessage`, `onDelete`) and `ConsumerTestKit.graph(..)` run them with no
+runtime.
+
+## Kotlin differences
+
+The Java classes, with effects in a block (`override fun onChange(event: CartEvent): ViewEffect<CartRow> =
+effects { updateRow(row) }`), data classes for rows and messages, and `rowState().orNull()` for the
+current row. Callers read `getOrNull(key)`, or suspend with `getSuspending(key)`, `allSuspending(limit)`,
+`askSuspending(query)`; `askFlow(query)` is a cold `Flow`, complete per call. Test with
+`viewTestKit(CartRows::class)` and `consumerTestKit(..)`.
+
 ## Testing
 
 A consumer is unit tested with nothing started in every language: `ConsumerTestKit.of(Companion)` in
@@ -200,7 +232,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/topics.md` — Read views and consumers from a Kafka topic and publish to one — start positions, groups, contracts, a topic on another broker, parallel partitions, rebuilding by version, headers, ordering, and testing without a broker.
 - `references/build/graph.md` — Publish a service's entities as nodes and edges with a graph consumer, which writes versioned graph deltas to a topic for a graph database to follow, with no key, version or JSON written by hand.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+- `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy
 

@@ -36,6 +36,10 @@ workflows:
 | A workflow's states | `ChangeSource.stateOf(CheckoutWorkflow)` | `source = CheckoutWorkflow` | `static readonly source = CheckoutWorkflow` | Each state the workflow records, in order, exactly once, with its standing; see [Reading a workflow](#reading-a-workflow). |
 | A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | At least once; see [Broker topics](topics.md). |
 
+In Java and Kotlin a view's `source()` answers `ChangeSource.of(ShoppingCart.class)` for an entity of either
+kind, `ChangeSource.ofWorkflow(Checkout.class)` for a workflow, and `ChangeSource.ofTopic("stock-events",
+StockEvent.class)` for a topic.
+
 The source is built from the source component's own declaration, so a view over the cart is typed
 against the cart's event type and decodes with the cart's own serializer. It cannot drift when the entity's
 serializer changes.
@@ -201,12 +205,102 @@ export class CartRows extends View<ShoppingCartEvent, CartRow> {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("cart-rows")
+public class CartRows extends View<CartEvent, CartRows.CartRow> {
+
+  @Manifest("cart-row")
+  public record CartRow(
+      String cartId,
+      Map<String, Integer> quantities,
+      boolean checkedOut,
+      Map<String, String> names) {}
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected ViewEffect<CartRow> onChange(CartEvent event) {
+    var current =
+        rowState().orElse(new CartRow(updateContext().subject(), Map.of(), false, Map.of()));
+    var quantities = new HashMap<>(current.quantities());
+    var names = new HashMap<>(current.names());
+    return switch (event) {
+      case CartEvent.ItemAdded added -> {
+        quantities.merge(added.item().productId(), added.item().quantity(), Integer::sum);
+        names.put(added.item().productId(), added.item().name());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.ItemRemoved removed -> {
+        quantities.remove(removed.productId());
+        names.remove(removed.productId());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .updateRow(
+                  new CartRow(current.cartId(), current.quantities(), true, current.names()));
+      // The deletion that follows removes the row: a discarded cart leaves the listing.
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
+ * checked out. The row's JSON is the Scala cart's `cart-row`.
+ */
+@ComponentId("cart-rows")
+class CartRows : View<CartEvent, CartRows.CartRow>() {
+    @Manifest("cart-row")
+    data class CartRow(
+        val cartId: String,
+        val quantities: Map<String, Int>,
+        val checkedOut: Boolean,
+        val names: Map<String, String>,
+    )
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
+
+    override fun onChange(event: CartEvent): ViewEffect<CartRow> = effects {
+        val row = rowState().orNull() ?: CartRow(updateContext().subject(), emptyMap(), false, emptyMap())
+        when (event) {
+            is CartEvent.ItemAdded ->
+                updateRow(
+                    row.copy(
+                        quantities = row.quantities + (event.item.productId to (row.quantities[event.item.productId] ?: 0) + event.item.quantity),
+                        names = row.names + (event.item.productId to event.item.name),
+                    )
+                )
+            is CartEvent.ItemRemoved ->
+                updateRow(row.copy(quantities = row.quantities - event.productId, names = row.names - event.productId))
+            CartEvent.CheckedOut -> updateRow(row.copy(checkedOut = true))
+            // The deletion that follows removes the row: a discarded cart leaves the listing.
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
 | | Scala | Python | TypeScript |
 |---|---|---|---|
 | The current row, or none | `rowState: Option[Row]` | `self.row`, `None` when there is none | `this.row`, `undefined` when there is none |
 | The source's id | `updateContext.subject` | `self.metadata.subject` | `this.subject` |
 | Handle a change | `def onChange(change: Src): Effect` | `def on_change(self, event) -> ViewEffect` | `onChange(event)` |
 | Handle a deletion | `override def onDelete: Effect` | `def on_delete(self) -> ViewEffect` | `onDelete()` |
+
+In Java and Kotlin the row is `rowState()`, an `Optional` (`rowState().orNull()` in Kotlin), the source's id
+is `updateContext().subject()`, and a view overrides `onChange(change)` and `onDelete()`.
 
 A handler returns one of three effects:
 
@@ -233,7 +327,8 @@ An entity whose state has expired is not deleted: no deletion is delivered, and 
 ## Reading a workflow
 
 A view can read a workflow as it reads a key value entity: in Scala with `ChangeSource.stateOf` of the
-workflow's companion, and in Python, TypeScript and Rust by naming the workflow where an entity would be
+workflow's companion, in Java and Kotlin with `ChangeSource.ofWorkflow` of the workflow's class, and in
+Python, TypeScript and Rust by naming the workflow where an entity would be
 named. The view is handed each state the workflow records, decoded with the workflow's own codec, in the
 order the workflow recorded them. A row and the record of how far the view has read are written in one
 transaction, so each state is applied exactly once.
@@ -241,7 +336,7 @@ transaction, so each state is applied exactly once.
 With each state comes the workflow's **standing**: where the workflow stood once the whole effect that
 recorded the state was applied. A step that records a state and ends is one change whose standing is
 completed, not a running state followed by an end. The handler reads it from its context: `updateContext.standing`
-in Scala, `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust. A change
+in Scala, `updateContext().standing()` in Java and Kotlin, `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust. A change
 from an entity or a topic has no standing.
 
 | Standing | When a change carries it |
@@ -423,6 +518,92 @@ impl View for CheckoutRows {
 }
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-rows")
+public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
+
+  @Manifest("checkout-row")
+  public record CheckoutRow(
+      String id,
+      String status,
+      String standing,
+      Optional<String> step,
+      Optional<String> failure) {}
+
+  public static final ViewQuery BY_STANDING =
+      ViewQuery.declare(
+          "by-standing",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(CheckoutRows.class)
+              + " WHERE payload::jsonb->>'standing' = :standing");
+
+  private static final WorkflowLifecycle UNKNOWN =
+      new WorkflowLifecycle("Unknown", Optional.empty(), Map.of(), Optional.empty());
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ViewEffect<CheckoutRow> onChange(Checkout.CheckoutState state) {
+    // A change from a workflow carries its standing: where it stood once the effect that
+    // recorded `state` was applied.
+    var standing = updateContext().standing().orElse(UNKNOWN);
+    return effects()
+        .updateRow(
+            new CheckoutRow(
+                updateContext().subject(),
+                state.status(),
+                standing.status(),
+                standing.pendingStep(),
+                standing.failure()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-rows")
+class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
+
+    @Manifest("checkout-row")
+    data class CheckoutRow(val id: String, val status: String, val standing: String, val step: String?, val failure: String?)
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        val standing = updateContext().standingOrNull ?: UNKNOWN
+        return effects {
+            updateRow(
+                CheckoutRow(
+                    updateContext().subject(),
+                    state.status,
+                    standing.status,
+                    standing.pendingStep.orNull(),
+                    standing.failure.orNull(),
+                )
+            )
+        }
+    }
+
+    companion object {
+        val BY_STANDING: ViewQuery =
+            ViewQuery.declare(
+                "by-standing",
+                "SELECT payload FROM \${ViewQuery.tableOf(CheckoutRows::class.java)} WHERE payload::jsonb->>'standing' = :standing",
+            )
+
+        private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
+    }
+}
+```
+
 A view over a workflow declares a version and is rebuilt by raising it, as a view over an entity is: the
 rebuild reads every state every workflow recorded, from the first. A state recorded before the platform
 stamped standings is delivered with the standing `Unknown`. When a workflow is deleted, the view's deletion
@@ -433,7 +614,8 @@ change at a time; a topic and a workflow may not be sources of one view.
 
 A view runs only in a service that has the projection runtime. In Scala, register the view's descriptor and
 add `ProjectionRuntime()` as an extension; without it, every command still succeeds and every view stays
-empty. In Python and TypeScript, register the class; the sidecar runs the projection.
+empty. In Java and Kotlin, register the view's class; the runtime in the same JVM runs the projection. In
+Python and TypeScript, register the class; the sidecar runs the projection.
 
 **Scala**
 
@@ -463,6 +645,42 @@ service = (
 const service = Ankka.service()
   .register(ShoppingCartEntity)
   .register(CartRows)
+```
+
+**Java**
+
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+**Kotlin**
+
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
+}
 ```
 
 A view over a topic also needs a broker. See [Broker topics](topics.md).
@@ -622,6 +840,66 @@ export class Nodes extends View<NodeEvent, NodeRow> {
 const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
 ```
 
+**Java**
+
+Declare a query as a `public static final ViewQuery` field of the view, naming the view's table with `ViewQuery.tableOf`:
+
+```java
+/** Every row under the row {@code row}, to any depth, by key: the same in every language. */
+public static final ViewQuery UNDER =
+    ViewQuery.declare(
+        "under",
+        "WITH RECURSIVE below AS (\n"
+            + "  SELECT row_key, payload FROM "
+            + TABLE
+            + " WHERE payload::jsonb->>'under' = :row\n"
+            + "  UNION\n"
+            + "  SELECT n.row_key, n.payload FROM "
+            + TABLE
+            + " n JOIN below b ON n.payload::jsonb->>'under' = b.row_key\n"
+            + ")\n"
+            + "SELECT payload FROM below ORDER BY row_key");
+```
+
+Ask it through the view client, with each value it takes by name:
+
+```java
+@Get("/tree/{nodeId}/below")
+public List<String> below(String nodeId) {
+  return viewClient().forView(TreeRows.class).ask(TreeRows.UNDER, Map.of("row", nodeId)).stream()
+      .map(TreeRows.TreeRow::key)
+      .toList();
+}
+```
+
+**Kotlin**
+
+Declare a query as a `ViewQuery` in the view's companion object, naming the view's table with `ViewQuery.tableOf`:
+
+```kotlin
+/** Every row under the row `row`, to any depth, by key: the same in every language. */
+val UNDER: ViewQuery =
+    ViewQuery.declare(
+        "under",
+        """
+        WITH RECURSIVE below AS (
+          SELECT row_key, payload FROM \$TABLE WHERE payload::jsonb->>'under' = :row
+          UNION
+          SELECT n.row_key, n.payload FROM \$TABLE n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+        )
+        SELECT payload FROM below ORDER BY row_key
+        """.trimIndent(),
+    )
+```
+
+Ask it through the view client, with each value it takes by name:
+
+```kotlin
+@Get("/tree/{nodeId}/below")
+fun below(nodeId: String): List<String> =
+    viewClient().forView(TreeRows::class.java).ask(TreeRows.UNDER, mapOf("row" to nodeId)).map { it.key }
+```
+
 The statement must select the rows' `payload` column: the answer is rows of the view's own row type. A
 value is text; a statement that needs a number casts it, as `(:depth)::int`. A query answers with at most
 1000 rows unless the caller gives another limit, in the order the statement gives them; asked as a
@@ -696,6 +974,30 @@ streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
 }),
 ```
 
+**Java**
+
+`askStream(query, values)` answers a `Flow.Publisher` of the rows, which an `@Sse` route serves as it is:
+
+```java
+// Every row's key, as the database yields the rows: one event each, then the end.
+@Sse("/tree/streamed")
+public Flow.Publisher<SseEvent> streamed() {
+  var rows = viewClient().forView(TreeRows.class).askStream(TreeRows.ALL_ROWS, Map.of());
+  return Wire.map(rows, row -> SseEvent.text(row.key()));
+}
+```
+
+**Kotlin**
+
+`askFlow(query, values)` answers a cold `Flow` of the rows; `asPublisher()` hands it to an `@Sse` route:
+
+```kotlin
+// Every row's key, as the database yields the rows: one event each, then the end.
+@Sse("/tree/streamed")
+fun streamed(): Flow.Publisher<SseEvent> =
+    viewClient().forView(TreeRows::class.java).askFlow(TreeRows.ALL_ROWS).map { SseEvent.text(it.key) }.asPublisher()
+```
+
 | Method | Streams |
 |---|---|
 | `allStream(limit = None)` | Every row. |
@@ -748,6 +1050,22 @@ all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-ro
 declaredQuery("all-rows", `SELECT row_key, payload FROM \${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
 ```
 
+**Java**
+
+```java
+/** Every row, by key, watchable: the same statement in every language. */
+public static final ViewQuery ALL_ROWS =
+    ViewQuery.declare("all-rows", "SELECT row_key, payload FROM " + TABLE + " ORDER BY row_key")
+        .watched();
+```
+
+**Kotlin**
+
+```kotlin
+/** Every row, by key, watchable: the same statement in every language. */
+val ALL_ROWS: ViewQuery = ViewQuery.declare("all-rows", "SELECT row_key, payload FROM \$TABLE ORDER BY row_key").watched()
+```
+
 `watch(query, values*)` watches a declared query; `watchRow(key)` watches one row by its key and needs no
 declaration. Each answers a `Source[WatchEvent[Row], NotUsed]`:
 
@@ -789,6 +1107,28 @@ an `sse` route:
 
 ```ts
 watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
+```
+
+**Java**
+
+`watch(query, values)` and `watchRow(key)` answer a `ViewWatch`, whose `asSse()` an `@Sse` route returns:
+
+```java
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+public Flow.Publisher<SseEvent> watched() {
+  return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
+}
+```
+
+**Kotlin**
+
+The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
+
+```kotlin
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
 ```
 
 A route handler reads anything it needs from the request — the caller, a path value — before it returns
@@ -1018,7 +1358,7 @@ test("the right's change notes every row holding it, found by the view's own que
 }
 ```
 
-Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape.
+Java, Kotlin, Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape.
 
 In Scala, a plain view is tested with the integration testkit, which runs the real projection against a
 real database:

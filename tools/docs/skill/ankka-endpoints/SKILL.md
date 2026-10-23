@@ -1,6 +1,6 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala, Python, TypeScript or Rust, or a gRPC endpoint in Scala — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
+description: Write, change or test an ankka HTTP endpoint in Scala, Java, Kotlin, Python, TypeScript or Rust, or a gRPC endpoint in Scala or Java — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
 pages:
   - build/calling-services.md
   - build/http-endpoints.md
@@ -92,6 +92,35 @@ after a route replaces the endpoint's for it. A handler answers `Result<R, HttpP
 value (`Done` and `()` answer 204) or a `Response`; a `CommandError` from `request.client()` becomes its
 status with `?`. The module never binds a port, and no route streams: a module answers every request whole.
 `EndpointTestKit::<E>::with_service(build())` tests the routes against the service's entities in memory.
+
+## Java differences
+
+An endpoint is a class extending `HttpEndpoint` with a no-argument constructor and a required `acl()`:
+`Acl.allowAll()`, `denyAll()`, `allowIf(request -> ...)`, `authenticate(request -> ...)`,
+`allowCallers("svc", ...)`, `clientKeys()`, `oidc()`, or `anyOf(...)`. Routes are annotated methods whose
+string is the template: `@Get("/carts/{cartId}") public Cart get(String cartId)`, `@Post`, `@Put`,
+`@Patch`, `@Delete`; path parameters bind by parameter name (compile with `-parameters`) or `@Path("name")`,
+and `@Body`, `@QueryParam` and `@Header` read the rest. `@Sse` returns a `Flow.Publisher<SseEvent>` or a
+`Stream<SseEvent>`; `@Socket` takes a `WebSocket`; `@StreamBody` takes a `StreamedBody`. The return value is
+encoded as the reply (`Done` answers 204); `throw new ProblemException(Problem.notFound(msg))` answers a
+status, and a `CommandException` from a call answers with the handler's problem. `request()`,
+`principal()`, `caller()`, `componentClient()`, `viewClient()`, `services()`, `timers()`, `secrets()` and
+`storage()` are the endpoint's own. Calls name handlers by method reference, never a lambda. Register with
+`withEndpoint(Cls.class)`; an MCP endpoint extends `McpEndpoint`, declares tools in its constructor
+(`tool("get_cart").describedAs(...).query(ShoppingCart::getCart, "cartId")`, or `.arguments(Args.class)
+.handle(args -> ...)`) and registers with `withMcpEndpoint`. A gRPC endpoint extends `GrpcEndpoint` over
+grpc-java's generated stubs. `AnkkaTestKit.start(Main.service())` with `http()` and `httpClient()` tests
+the routes against the whole service.
+
+## Kotlin differences
+
+The Java endpoint, or routes declared in code: `class CartEndpoint : HttpEndpoint(), RouteRegistrar` with
+`override fun routes() = routes { get("/carts/{cartId}") { ... path("cartId") ... };
+post<LineItem>("/carts/{cartId}/items") { item -> ... } }`. Each block is a suspending handler on the
+request's virtual thread, so `invokeSuspending()` waits without holding a thread; do not switch
+dispatcher inside it, because the request context is a thread-local of that thread. Read optional parts of
+the request with `request.queryOrNull(name)`, `headerOrNull(name)` and `principalOrNull`. An MCP tool's
+handler is `handling<Args> { args -> ... }`. `ankkaTestKit(service()) { ... }` tests the whole service.
 
 ## Testing
 

@@ -30,3 +30,12 @@ version itself: `./gradlew check -PankkaVersion=<version>`.
 
 Tests are serialised (`maxParallelForks = 1`), as the sbt build's are, because each whole-service
 kit starts a database container.
+
+## Traps
+
+- **A version passed by hand builds against whatever `~/.m2` holds at that version** (2026-10-23).
+  `sbt publishM2` publishes at sbt-dynver's version, which changes with every commit and gains a
+  timestamp while a tracked file is modified, so `-PankkaVersion=` copied from an earlier run names
+  the Java SDK as it was then. A codec change tested that way failed for a reason the change did not
+  have. After touching anything under `modules/`, run `gradlew-this-commit.sh`, which publishes first.
+

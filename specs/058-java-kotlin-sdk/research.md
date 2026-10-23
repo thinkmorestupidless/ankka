@@ -554,6 +554,15 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   on JDK 21, failed at the first assertion. R5 stands: a suspending handler's body is
   `runBlocking(AnkkaDispatcher)` on the handler's virtual thread. kotlinx-coroutines is 1.11.0;
   `kotlinx-coroutines-jdk8` has been part of core since 1.7, so the build names core only.
+- **The Kotlin reader is found by name, not by `ServiceLoader`** (T053). Phase 2 had left
+  `RecordShapes` loading readers through `ServiceLoader`, and the task said explicit registration
+  (`RecordCodec.withExtension`). Neither is quite right. Registration would leave a Kotlin service
+  started through the Java `Ankka.service`, which the contract allows, unable to read its own data
+  classes. Classpath discovery is what the family does not do. `RecordShapes.Kotlin` checks whether
+  a class carries `@kotlin.Metadata`, read by annotation name so no Kotlin class is loaded, and only
+  then loads `com.thinkmorestupidless.ankka.kotlin.codec.DataClassShapes` by that name, once. Without
+  `ankka-kotlin` the planner is told to add it. The Java SDK knows the reader's name and nothing
+  else of Kotlin.
 - **8 (R11).** `sdkJava/publishM2` with `crossPaths := false` publishes
   `com.thinkmorestupidless:ankka-java:<v>` whose pom names `ankka-core_3`, `ankka-sdk_3`,
   `ankka-runtime_3`, `ankka-http_3`, `ankka-grpc_3`, `ankka-telemetry-otlp_3`, `scala3-library_3` and

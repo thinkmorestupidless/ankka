@@ -6,15 +6,16 @@ import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ServiceLoader;
 import java.util.function.Function;
 import org.jspecify.annotations.Nullable;
 
 /**
  * How the codec reads a class as a record: its fields in order, and how to build one. A Java
- * {@code record} is read by the SDK itself; another kind of class (a Kotlin data class) is read by
- * a {@code RecordShapes} the {@link ServiceLoader} finds, which is how the Kotlin SDK plugs in
- * without the Java SDK knowing Kotlin.
+ * {@code record} is read by the SDK itself. A Kotlin class is read by the Kotlin SDK's reader,
+ * found by its one fixed name the first time a Kotlin class is met: nothing is discovered from the
+ * class path, and a Kotlin service started through {@link
+ * com.thinkmorestupidless.ankka.javasdk.Ankka#service(String)} is read the same as one started
+ * through the Kotlin SDK.
  */
 public interface RecordShapes {
 
@@ -43,26 +44,49 @@ public interface RecordShapes {
       boolean nullable,
       boolean hasDefault) {}
 
-  /** The shape of a Java record, or {@code null} for any other class; then the loaded readers. */
+  /**
+   * The shape of a Java record or a Kotlin class, or {@code null} for any other class.
+   *
+   * @throws EncodingException for a Kotlin class when the Kotlin SDK is not on the class path
+   */
   static @Nullable Shape find(Class<?> type) {
     if (type.isRecord()) return JavaRecords.shapeOf(type);
-    for (RecordShapes reader : Loaded.READERS) {
-      Shape shape = reader.shapeOf(type);
-      if (shape != null) return shape;
-    }
+    if (Kotlin.isKotlin(type)) return Kotlin.reader(type).shapeOf(type);
     return null;
   }
 
-  /** The readers on the class path, loaded once. */
-  final class Loaded {
-    static final List<RecordShapes> READERS = load();
+  /** The Kotlin SDK's reader, by name, loaded the first time a Kotlin class is met. */
+  final class Kotlin {
+    static final String READER = "com.thinkmorestupidless.ankka.kotlin.codec.DataClassShapes";
 
-    private Loaded() {}
+    private static volatile @Nullable RecordShapes reader;
 
-    private static List<RecordShapes> load() {
-      List<RecordShapes> found = new ArrayList<>();
-      ServiceLoader.load(RecordShapes.class, RecordShapes.class.getClassLoader()).forEach(found::add);
-      return List.copyOf(found);
+    private Kotlin() {}
+
+    /** Whether {@code type} was compiled by Kotlin, read without loading any Kotlin class. */
+    static boolean isKotlin(Class<?> type) {
+      for (java.lang.annotation.Annotation a : type.getDeclaredAnnotations()) {
+        if (a.annotationType().getName().equals("kotlin.Metadata")) return true;
+      }
+      return false;
+    }
+
+    static RecordShapes reader(Class<?> type) {
+      RecordShapes found = reader;
+      if (found != null) return found;
+      try {
+        ClassLoader loader = type.getClassLoader() != null ? type.getClassLoader() : RecordShapes.class.getClassLoader();
+        found = (RecordShapes) Class.forName(READER, true, loader).getDeclaredConstructor().newInstance();
+      } catch (ClassNotFoundException e) {
+        throw new EncodingException(
+            type.getName(),
+            "is a Kotlin class, which the codec reads through the Kotlin SDK: add"
+                + " com.thinkmorestupidless:ankka-kotlin to the build");
+      } catch (ReflectiveOperationException | ClassCastException e) {
+        throw new IllegalStateException("the Kotlin SDK's reader " + READER + " could not be made", e);
+      }
+      reader = found;
+      return found;
     }
   }
 

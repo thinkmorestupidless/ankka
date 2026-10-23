@@ -111,7 +111,7 @@ program that is not of the installation at all.
 The document that states how a service is to be deployed. A member applies it.
 
 ### embedded
-Of a service: written in Scala, so that the developer's program is itself the
+Of a service: written in Scala, Java or Kotlin, so that the developer's program is itself the
 platform's. The opposite of hosted as a process or as a module.
 
 ### process
@@ -3096,7 +3096,7 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years, Java, Kotlin, JDK, null, nullable, data, classes, record, merging, rename, renames, scenario
 
 ### project token
 A deploy token scoped to one project of its organization: a member of that project

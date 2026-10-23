@@ -26,6 +26,10 @@ Feature: The documentation of each language
       | TypeScript | calling a component             |
       | TypeScript | the component test kit and the test kit |
       | TypeScript | how a service runs              |
+      | Java       | each kind of component          |
+      | Java       | the component test kit and the test kit |
+      | Kotlin     | each kind of component          |
+      | Kotlin     | the component test kit and the test kit |
 
   Scenario Outline: a coding agent writing a component in a language is told how the language differs
     Given a coding agent holding the platform's skills
@@ -37,6 +41,8 @@ Feature: The documentation of each language
       | language   |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the documentation does not build when a page is out of step with what it is taken from or listed in
     Given <problem>

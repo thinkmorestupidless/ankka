@@ -3,8 +3,8 @@ Feature: Proving an SDK compatible
   conversation the protocol has, from the platform's side, and names each behaviour it checks. An
   SDK whose reference service passes it is compatible with every platform that speaks the same
   protocol version, and the platform never learns which language the SDK is written in. The Scala
-  SDK passes the same suite in the platform's own program, so the suite defines the component model
-  for every way a service is hosted.
+  and Java SDKs pass the same suite in the platform's own program, so the suite defines the component
+  model for every way a service is hosted.
 
   Scenario: the conformance suite names every behaviour it checks
     Given a reference service
@@ -24,6 +24,7 @@ Feature: Proving an SDK compatible
       | TypeScript |                                                |
       | Rust       | , with every component that has state stateless |
       | Rust       | , with every component that has state stateful  |
+      | Java       |                                                |
 
   Scenario Outline: an SDK's MCP endpoint answers as the Scala reference does
     Given the reference service written in "<language>", which declares an MCP endpoint
@@ -47,3 +48,4 @@ Feature: Proving an SDK compatible
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |

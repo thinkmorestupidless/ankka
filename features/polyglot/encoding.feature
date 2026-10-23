@@ -16,3 +16,5 @@ Feature: One encoding in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

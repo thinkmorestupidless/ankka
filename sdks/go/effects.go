@@ -589,7 +589,25 @@ type AgentEffect struct {
 	JSONReply      bool
 	SchemaHint     string
 	set            bool
+	// failure is AgentError's refusal, made before any model is called.
+	failure *Refusal
 }
+
+// Refusal is a code and a message, as an effect carries a refusal it was built with.
+type Refusal struct {
+	Code    ErrorCode
+	Message string
+}
+
+// AgentError refuses the request without calling a model.
+func AgentError(code ErrorCode, message string) AgentEffect {
+	e := newAgentEffect()
+	e.failure = &Refusal{Code: code, Message: message}
+	return e
+}
+
+// Failure is AgentError's refusal, or nil.
+func (e AgentEffect) Failure() *Refusal { return e.failure }
 
 func newAgentEffect() AgentEffect { return AgentEffect{SessionMemory: true, set: true} }
 

@@ -38,6 +38,7 @@ type declarations struct {
 	views        map[string]server.ViewHandler
 	consumers    map[string]server.ConsumerHandler
 	timedActions map[string]server.TimedActionHandler
+	agents       map[string]server.AgentHandlers
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
@@ -62,6 +63,7 @@ func newDeclarations() *declarations {
 		views:         map[string]server.ViewHandler{},
 		consumers:     map[string]server.ConsumerHandler{},
 		timedActions:  map[string]server.TimedActionHandler{},
+		agents:        map[string]server.AgentHandlers{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},

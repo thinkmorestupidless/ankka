@@ -228,6 +228,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	if len(s.decls.timedActions) > 0 {
 		server.RegisterTimedAction(g, s.decls.timedActions, s.serverOptions())
 	}
+	if len(s.decls.agents) > 0 {
+		server.RegisterAgent(g, s.decls.agents, s.serverOptions())
+	}
 	if len(s.decls.endpoints) > 0 {
 		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP}, s.serverOptions())
 	}

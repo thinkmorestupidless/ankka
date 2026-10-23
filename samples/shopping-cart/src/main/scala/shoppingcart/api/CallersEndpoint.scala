@@ -49,6 +49,11 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
     get("/rust-cart-alone")(() => s"admitted: ${describe(caller)}")
   }
 
+  // And for the service that suite deploys from the Go example, which calls it from a route.
+  withAcl(Acl.allowCallers(Callers.service("go-cart"))) {
+    get("/go-cart-alone")(() => s"admitted: ${describe(caller)}")
+  }
+
   // docs:start call-another-service
   // Calls another service in this project, as this service: `/callers/whoami` unless `path` says
   // otherwise. The answer is what that service answered, and it saw this one as the caller.

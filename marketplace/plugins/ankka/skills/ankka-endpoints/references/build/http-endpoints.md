@@ -742,7 +742,7 @@ await service.listen()
 
 ```go
 // Service is the whole inventory: registration is explicit, so nothing is found by scanning.
-func Service() *ankka.Service { return ankka.NewService(Entity, API) }
+func Service() *ankka.Service { return ankka.NewService(Entity, API, Calling) }
 ```
 
 ```go

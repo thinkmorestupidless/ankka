@@ -789,7 +789,7 @@ await service.listen()
 <!-- include: sdks/go/examples/shopping-cart/cart/api.go#service -->
 ```go
 // Service is the whole inventory: registration is explicit, so nothing is found by scanning.
-func Service() *ankka.Service { return ankka.NewService(Entity, API) }
+func Service() *ankka.Service { return ankka.NewService(Entity, API, Calling) }
 ```
 
 <!-- include: sdks/go/examples/shopping-cart/cmd/cart/main.go#main -->

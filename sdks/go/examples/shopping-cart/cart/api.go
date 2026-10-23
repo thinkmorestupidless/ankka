@@ -52,6 +52,6 @@ var API = ankka.NewEndpoint("/carts", ankka.AllowAll(),
 // docs:start service
 
 // Service is the whole inventory: registration is explicit, so nothing is found by scanning.
-func Service() *ankka.Service { return ankka.NewService(Entity, API) }
+func Service() *ankka.Service { return ankka.NewService(Entity, API, Calling) }
 
 // docs:end service

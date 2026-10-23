@@ -66,6 +66,15 @@ class CallersSuite extends munit.FunSuite with LogCapturing:
     assertEquals(get("/callers/rust-cart-alone", Some(Caller.Gateway))._1, 403)
   }
 
+  test("the route that admits the Go service admits it, and nobody else") {
+    assertEquals(
+      get("/callers/go-cart-alone", Some(Caller.Service("local", "go-cart"))),
+      (200, "admitted: local/go-cart")
+    )
+    assertEquals(get("/callers/go-cart-alone", Some(Caller.Service("local", "rust-cart")))._1, 403)
+    assertEquals(get("/callers/go-cart-alone", Some(Caller.Gateway))._1, 403)
+  }
+
   test("without a named caller every request is from this machine, and admitted") {
     assertEquals(get("/callers/whoami"), (200, "this machine"))
     assertEquals(get("/callers/only-orders")._1, 200)

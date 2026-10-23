@@ -10,9 +10,9 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /**
- * A Python, TypeScript, Rust, Java or Kotlin template's proof: `ankka init --language` — the real
- * command, through `Main.run` — renders the template into a temp directory, and the project's own
- * checks pass there.
+ * A Python, TypeScript, Rust, Go, Java or Kotlin template's proof: `ankka init --language` — the
+ * real command, through `Main.run` — renders the template into a temp directory, and the project's
+ * own checks pass there.
  *
  * The project pins the SDK at this CLI's version, which for a build of this repository is a
  * snapshot no registry has. So the suite first asserts the pin is there, then points the dependency
@@ -143,7 +143,14 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
       val paths =
         if f.startsWith(skills) then Vector()
         else
-          Vector("sdks/python", "sdks/typescript", "sdks/rust", "sdks/kotlin", "modules/sdk-java")
+          Vector(
+            "sdks/python",
+            "sdks/typescript",
+            "sdks/rust",
+            "sdks/go",
+            "sdks/kotlin",
+            "modules/sdk-java"
+          )
       (repoRoot.toString +: paths).filter(text.contains).map(w => s"$f: $w")
     }
     assertEquals(leaks, Vector.empty)

@@ -456,15 +456,17 @@ feature also says what that feature does not do.
 
 - **The TypeScript SDK declares and calls autonomous agents but cannot script one in its unit testkit.**
   Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration testkit does.
-- **The Java SDK has no agents yet.** A Java service cannot declare an agent, an autonomous agent, a
-  judgment or a blueprint: the `ankka-java-agent` library holds no component yet. Its codec reads records, sealed interfaces and enums by
+- **The Java SDK cannot script a judgment.** Its test kits script a model (`TestModelProvider`) but not a
+  judgment provider, and a `JudgmentProvider` is only one `JudgmentProviders` builds, so a Java test of a
+  judgment or a judged guardrail needs Jev itself; nor do they hold an MCP server of their own, so a test of
+  an agent's MCP tools runs a server on loopback. Its codec reads records, sealed interfaces and enums by
   reflection when the service starts; there is no annotation processor and no compile-time derivation,
   and a codec is customised by handing `withSerializer` a serializer of your own, not by a given. A record
   field of type `float`, `short`, `byte` or `char` is refused at start, naming the field, because the
   encoding has no form for it; use `int`, `long` or `double`. A gRPC endpoint is written against
   grpc-java's generated descriptors.
-- **The Kotlin SDK has no agents yet,** for the same reason: `ankka-kotlin-agent` holds nothing beyond the
-  Java agent library. It runs on the JVM only, with no Kotlin multiplatform or Kotlin/Native build. Data
+- **The Kotlin SDK has no agent test kit of its own.** A Kotlin agent is tested with the Java SDK's
+  `AgentTestKit` and `TestModelProvider`, so a judgment cannot be scripted in Kotlin either. It runs on the JVM only, with no Kotlin multiplatform or Kotlin/Native build. Data
   classes are read by the Java SDK's codec through Kotlin reflection, not by `kotlinx.serialization`. A
   declared query's `Flow` (`askFlow`) is cold and ends with the query's last row; a watch is the Java
   SDK's `ViewWatch`, not a `Flow`. gRPC uses grpc-java's stubs; there are no Kotlin coroutine stubs.

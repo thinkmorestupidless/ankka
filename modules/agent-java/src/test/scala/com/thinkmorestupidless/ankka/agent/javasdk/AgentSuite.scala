@@ -198,3 +198,14 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
     val members = refused.problems.asScala.map(_.member).toSet
     assertEquals(members, Set("answer", "pair", "talk"), refused.getMessage)
   }
+
+  test(
+    "the vendors' providers are named as Scala's are, and a preset that needs a key is refused without one"
+  ) {
+    assertEquals(ModelProviders.anthropic("claude-sonnet-5-5").name(), "anthropic")
+    assertEquals(ModelProviders.openAi("gpt-5").name(), "openai")
+    assertEquals(ModelProviders.preset("fast", "groq", "llama", "gsk-test").name(), "fast")
+    val refused =
+      intercept[IllegalArgumentException](ModelProviders.preset("fast", "groq", "llama"))
+    assert(refused.getMessage.contains("needs a key"), refused.getMessage)
+  }

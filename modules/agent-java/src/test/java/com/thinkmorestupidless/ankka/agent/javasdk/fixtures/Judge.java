@@ -22,6 +22,7 @@ public class Judge extends Agent {
     RUDE
   }
 
+  // docs:start questions
   public static final ChoiceQuestion<Tone> TONE =
       Question.choice(
           "tone",
@@ -34,6 +35,7 @@ public class Judge extends Agent {
 
   public static final YesNoQuestion ABUSIVE =
       Question.yesNo("abusive", "Is the text abusive?").describing("it is", "it is not");
+  // docs:end questions
 
   public record Verdict(String tone, int quality, boolean abusive, String model) {}
 
@@ -42,6 +44,7 @@ public class Judge extends Agent {
     return effects().judgment().state(text).question(TONE, QUALITY, ABUSIVE).thenReply();
   }
 
+  // docs:start judgment
   @Command("verdict")
   public AgentEffect<Verdict> verdict(String text) {
     return effects()
@@ -64,4 +67,5 @@ public class Judge extends Agent {
         .guardrails(Guardrail.judged("abuse").onInput(Refusal.ifYes(ABUSIVE, 0.5)))
         .thenReply();
   }
+  // docs:end judgment
 }

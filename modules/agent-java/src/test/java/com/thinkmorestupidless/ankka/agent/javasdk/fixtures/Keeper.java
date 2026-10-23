@@ -19,6 +19,7 @@ public final class Keeper {
   /** What the handler kept, as JSON, with the run it kept it for. */
   public static final List<String> KEPT = new CopyOnWriteArrayList<>();
 
+  // docs:start blueprint
   public static final Blueprint KEEPER =
       Blueprint.named("keeper")
           .input(Shape.obj(Map.of("topic", Shape.string())))
@@ -37,4 +38,5 @@ public final class Keeper {
                 }))
         .carrying(KEEPER);
   }
+  // docs:end blueprint
 }

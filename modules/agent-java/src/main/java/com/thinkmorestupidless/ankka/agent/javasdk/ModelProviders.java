@@ -12,18 +12,41 @@ public final class ModelProviders {
 
   private ModelProviders() {}
 
+  /**
+   * Anthropic's API, named {@code anthropic}, with the key in {@code ANTHROPIC_API_KEY}. Without
+   * the key the provider still exists, and every call to it fails naming the variable.
+   */
+  public static ModelProvider anthropic(String model) {
+    return AgentBridge.anthropic(model);
+  }
+
+  /**
+   * OpenAI's API, named {@code openai}, with the key in {@code OPENAI_API_KEY}. Without the key the
+   * provider still exists, and every call to it fails naming the variable.
+   */
+  public static ModelProvider openAi(String model) {
+    return AgentBridge.openAi(model);
+  }
+
   /** A model the installation's model server serves, reached with the service's certificate. */
   public static ModelProvider installation(String model) {
     return AgentBridge.installation(model);
   }
 
   /**
-   * A provider from a preset ({@code "anthropic"}, {@code "openai"}, {@code "ollama"}, ...), named
-   * {@code name}, answering with {@code model}; its key is read as a Scala service's is.
+   * A provider from a preset that needs no key ({@code "ollama"}, {@code "lmstudio"}, ...), named
+   * {@code name}, answering with {@code model}. A preset that needs a key is refused, naming it.
    */
   public static ModelProvider preset(String name, String preset, String model) {
     return AgentBridge.named(
         name, Optional.empty(), Optional.empty(), Optional.of(model), Optional.empty(),
+        Optional.of(preset));
+  }
+
+  /** A provider from a preset ({@code "groq"}, {@code "mistral"}, ...), with its key given. */
+  public static ModelProvider preset(String name, String preset, String model, String key) {
+    return AgentBridge.named(
+        name, Optional.empty(), Optional.empty(), Optional.of(model), Optional.of(key),
         Optional.of(preset));
   }
 

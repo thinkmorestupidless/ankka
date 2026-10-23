@@ -528,6 +528,159 @@ class Reminder : TimedAction() {
 Scheduling is `timers().schedule(name, delay, Reminder::remind, input)`, as in Java. See
 [Timers](../build/timers.md).
 
+## Agent
+
+Agents are the Java SDK's (`Agent`, `AutonomousAgent`, the agents module, every builder and client in
+[the Java SDK](java-sdk.md#agent)), with `ankka-kotlin-agent`'s extensions in
+`com.thinkmorestupidless.ankka.kotlin.agent` so that they read as Kotlin:
+
+| Part | Kotlin form |
+|---|---|
+| Handlers | `@Command` and `@Stream` on a `suspend fun` or a plain one, answering `AgentEffect<R>` or `StreamEffect` |
+| Effects | `effects { systemMessage(t).userMessage(t)…thenReply() }`; `thenReply<R>()` reads the answer as `R`, a data class or any type the SDK encodes; `tools<T>()` offers the `@Tool` methods of `T`, built with its constructor that takes nothing |
+| Tools | a `@Tool` method may be a `suspend fun`; a lone data class parameter's properties are the arguments, each described by `@Describe` on its constructor parameter |
+| Calling | `componentClient().forAgent(sessionId).call(Agent::handler).invokeSuspending(input)`; `.ask(Agent::handler)` for the outcome; `.streamFlow(streamRef(Agent::handler), input)`, a `Flow<String>`; `agentRef(Agent::handler)` names a handler wherever the Java API takes a reference, a plain `fun` handler's included |
+| Autonomous agents | a task type's result is a data class; `AutonomousRef.notificationsFlow()`, a `Flow<Notification>` |
+
+An agent written with suspend handlers and a suspend tool taking a data class:
+
+```kotlin
+data class Place(@Describe("the city to forecast") val city: String, val days: Int = 1)
+
+/** A tool class whose tool is a suspend fun taking a data class, built by its own constructor. */
+class WeatherTools {
+    @Tool("forecast", description = "The forecast for a city")
+    suspend fun forecast(place: Place): String {
+        delay(1)
+        ASKED.add("\${place.city}/\${place.days}")
+        return "\${place.city}: 21C"
+    }
+
+    companion object {
+        val ASKED: MutableList<String> = CopyOnWriteArrayList()
+    }
+}
+
+/** An agent written as a Kotlin developer writes one: suspend handlers and the effects DSL. */
+@ComponentId("forecaster")
+class Forecaster : Agent() {
+    @Command("ask")
+    suspend fun ask(question: String): AgentEffect<String> {
+        delay(1)
+        return effects {
+            systemMessage("You answer questions about the weather.")
+                .userMessage(question)
+                .tools<WeatherTools>()
+                .thenReply()
+        }
+    }
+
+    @Command("structured")
+    fun structured(question: String): AgentEffect<Forecast> =
+        effects { userMessage(question).thenReply<Forecast>() }
+}
+```
+
+The service gives the module its default model, as a Java service does:
+
+```kotlin
+fun guideService(model: ModelProvider): ServiceBuilder =
+    Ankka.service("guide")
+        .withModule(Agents.module().withModelProvider(model))
+        .register(Guide::class.java)
+        .register(Forecaster::class.java)
+```
+
+```kotlin
+val reply = runBlocking {
+    kit.componentClient().forAgent("s-1").call(Forecaster::ask).invokeSuspending("How warm is Oslo?")
+}
+```
+
+The Java SDK's `AgentTestKit` and `TestModelProvider` drive one turn with no runtime; `agentRef` names a
+suspend handler to it:
+
+```kotlin
+val model =
+    TestModelProvider()
+        .expectToolCall("forecast", """{"city":"Oslo","days":2}""")
+        .expectText("Oslo will be 21C")
+val kit = AgentTestKit.of(Forecaster::class.java, model)
+
+val result = kit.call(agentRef(Forecaster::ask), "How warm is Oslo?")
+
+assertEquals("Oslo will be 21C", result.reply())
+assertEquals(listOf("Oslo/2"), WeatherTools.ASKED)
+assertContains(model.lastRequest(), "Oslo: 21C")
+```
+
+See [Agents](../build/agents.md).
+
+## Autonomous agent
+
+A task type's result is a data class, whose properties are the schema the model is shown:
+
+```kotlin
+/** An answer, and the pages the agent read to reach it. */
+data class Answer(val answer: String, val sources: List<String>)
+
+/** `"answer"` is the wire name, written into every task of this type. */
+val ANSWER: TaskType<Answer> =
+    Task.named("answer")
+        .describedAs("Answer a question from the guide, citing the pages you read")
+        .resultConformsTo(Answer::class.java)
+        .rule("cites-sources") {
+            if (it.sources.isEmpty()) RuleResult.rejected("say which pages you read in sources") else RuleResult.accepted()
+        }
+```
+
+```kotlin
+/** The guide's pages, read by a suspending tool. */
+class GuideTools {
+    @Tool("read_page", description = "Reads one page of the guide.")
+    suspend fun readPage(@Describe("The page's name.") page: String): String = "the \$page page says: be brief"
+}
+
+/** Answers questions from the guide, on its own, until it completes the task with an [Answer]. */
+@ComponentId("guide")
+class Guide : AutonomousAgent() {
+    override fun definition(): AutonomousDefinition =
+        AutonomousDefinition.describedAs("Answers questions from the guide")
+            .instructions("Read the guide rather than guessing. Be brief.")
+            .guardrails(Guardrail.maxInputLength(2000))
+            .accepts(ANSWER, 5)
+
+    override fun tools(): List<Any> = listOf(GuideTools())
+}
+```
+
+Tasks and instances are reached through the Java SDK's `AgentClients`: `runSingleTask`, `tasks`,
+`forTask` and `forAutonomousAgent`, as [the Java SDK](java-sdk.md#autonomous-agent) lists them. In the
+whole-service kit the scripted model is the module's default, and a task is worked to its end:
+
+```kotlin
+val model =
+    TestModelProvider()
+        .expectToolCall("read_page", """{"page":"style"}""")
+        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
+AnkkaTestKit.start(guideService(model)).use { kit ->
+    val client = kit.componentClient()
+    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
+    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
+    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
+}
+```
+
+See [Autonomous agents](../build/autonomous-agents.md).
+
+## Judgments, blueprints and model providers
+
+Judgments, blueprints and model providers are the Java SDK's, unchanged: `Question`, `effects { judgment()… }`,
+`Blueprint`, `BlueprintRegistry`, `ModelProviders` and `JudgmentProviders`, as
+[the Java SDK](java-sdk.md#judgments) lists them. A blueprint's handler is a Kotlin lambda,
+`BlueprintHandler.of("keep") { run, input -> … }`. See [Judgments](../build/judgments.md),
+[Blueprints](../build/blueprints.md) and [Model providers](model-providers.md).
+
 ## HTTP endpoint
 
 An endpoint is the Java SDK's `HttpEndpoint`, its routes declared either way. Annotated functions, plain or

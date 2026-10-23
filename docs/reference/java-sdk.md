@@ -669,6 +669,403 @@ timer, and scheduling it again replaces what it would call and when. A timer is 
 and `error(...)` or an exception has it retried; `dueTime()` is the same for every attempt at one due time.
 See [Timers](../build/timers.md).
 
+## Agent
+
+Agents, autonomous agents, judgments and blueprints are in `ankka-java-agent`, package
+`com.thinkmorestupidless.ankka.agent.javasdk`. A service that declares any of them gives the service the
+agents module, `Agents.module()`; one that registers an agent without it refuses to start, naming the
+module.
+
+| Part | API |
+|---|---|
+| Base class | `Agent` |
+| Annotations | `@ComponentId`; `@Command` on a handler answering `AgentEffect<R>`, `@Stream` on one answering `StreamEffect` |
+| May override | `settings()`: `AgentSettings.defaults().role(r).maxToolCallSteps(n).mcpServer(s).resultGuardrail(g)` |
+| In a handler | `sessionId()`, `componentClient()`, `services()`, `secrets()`, `storage()` |
+| Effects | `effects().systemMessage(t)`, `.userMessage(t)`, `.withContext(t)`, `.model(p)`, `.memory(m)`, `.tools(t...)`, `.guardrails(g...)`, `.maxToolCallSteps(n)`, then `.thenReply()`, `.thenReply(Type.class)`, `.thenStream()`; `effects().error(message)`, `error(problem)`, `effects().judgment()` |
+| Tools | an object, or a class with a constructor taking nothing, whose methods carry `@Tool(value, description)`, optionally `requiresApproval = true` and `approvalWithin = "PT10M"`; each parameter is an argument, described by `@Describe`, and a lone record parameter's components are the arguments; `FunctionTool.of(name, description, run)` for a tool built in code |
+| MCP servers | `McpServer.named(n)`, `McpServer.at(n, url)`, `McpServer.service(n, service, path)`, then `.header(name, "ANKKA_MCP_…")`, `.requiresApproval()`, `.requiresApproval(within)` |
+| Guardrails | `Guardrail.maxInputLength(n)`, `Guardrail.forbidding(name, regex)`, `Guardrail.judged(name)`, or implement `checkInput`, `checkOutput` or `checkResult`, each answering the reason for a refusal or nothing |
+| Memory | `Memory.session()` (the default), `Memory.none()`, then `.readLast(n)`, `.readOnly()`, `.writeOnly()` |
+| Module | `Agents.module().withModelProvider(p[, timeout])`, `.withCompaction(maxHistoryBytes, keepRecentMessages[, summariser])`, given to `withModule` |
+| Calling | `AgentClients.forAgent(componentClient, sessionId).call(Agent::handler).invoke(input)`; `.stream(Agent::handler, input)`, a `Flow.Publisher<String>`; `.ask(Agent::handler).invoke(input)` answers `AgentOutcome.Answered(value)` or `AgentOutcome.AwaitingApproval(requests)`; `.decide(Agent::handler, Decision.approved(id, by))` or `Decision.refused(id, by, note)`; `.decideStream(...)` for a turn that began as a stream; `.approvals()`; `call` throws `ApprovalAwaited` when the turn waits for a person |
+
+The cart's helper reads a cart through a tool and refunds one only once a person approves:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CartHelper.java#agent -->
+```java
+/** An agent whose tool reads a cart, one that refunds only once approved, and a guarded handler. */
+@ComponentId("cart-helper")
+public class CartHelper extends Agent {
+
+  /** What the refund tool refunded. */
+  public static final List<String> REFUNDED = new CopyOnWriteArrayList<>();
+
+  public record CartQuery(@Describe("the cart to read") String cartId) {}
+
+  public record Summary(String cartId, int items) {}
+
+  public static final class Tools {
+    private final ComponentClient client;
+
+    Tools(ComponentClient client) {
+      this.client = client;
+    }
+
+    @Tool(value = "cart_items", description = "How many items a cart holds")
+    public int items(CartQuery query) {
+      return client
+          .forEventSourcedEntity(query.cartId())
+          .call(ShoppingCart::getCart)
+          .invoke()
+          .items()
+          .size();
+    }
+
+    @Tool(value = "refund", description = "Refunds a cart", requiresApproval = true)
+    public String refund(CartQuery query) {
+      REFUNDED.add(query.cartId());
+      return "refunded " + query.cartId();
+    }
+  }
+
+  @Command("ask")
+  public AgentEffect<String> ask(String question) {
+    return effects()
+        .systemMessage("You help with carts.")
+        .userMessage(question)
+        .tools(new Tools(componentClient()))
+        .thenReply();
+  }
+
+  @Command("summarise")
+  public AgentEffect<Summary> summarise(String cartId) {
+    return effects().userMessage("Summarise cart " + cartId).thenReply(Summary.class);
+  }
+
+  @Command("short")
+  public AgentEffect<String> shortQuestion(String question) {
+    return effects()
+        .userMessage(question)
+        .guardrails(Guardrail.maxInputLength(10))
+        .thenReply();
+  }
+}
+```
+
+A tool runs after the handler has returned, so a tool that calls other components is given the client
+when it is built, as `Tools` is here. The service gives the module its default model; an effect that
+names a model with `.model(p)` is answered by that one instead:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#registration -->
+```java
+/** The cart, the agent that helps with it and the one that answers questions about it. */
+public static ServiceBuilder service(ModelProvider model) {
+  return Ankka.service("shop")
+      .withModule(Agents.module().withModelProvider(model))
+      .register(ShoppingCart.class)
+      .register(CartHelper.class)
+      .register(CartAnswerer.class);
+}
+```
+
+A turn is called by the agent's session id and the handler's method reference:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#call-agent -->
+```java
+/** One turn of the session {@code session}: the model's answer, its tools run on the way. */
+public static String ask(ComponentClient client, String session, String question) {
+  return AgentClients.forAgent(client, session).call(CartHelper::ask).invoke(question);
+}
+```
+
+`AgentTestKit` runs one turn with no runtime against a scripted model, the tool's calls answered by a
+`TestClient`:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#unit-test -->
+```java
+var model =
+    new TestModelProvider()
+        .expectToolCall("cart_items", "{\"cartId\":\"c-1\"}")
+        .expectText("Cart c-1 holds 2 lines");
+var cart =
+    TestClient.of(ShoppingCart.class)
+        .stub(
+            ShoppingCart::getCart,
+            () ->
+                new CartState(
+                    "c-1", List.of(new LineItem("p", "Pen", 2), new LineItem("q", "Pad", 1)), false));
+var kit = AgentTestKit.of(CartHelper.class, model, "s-1", cart);
+
+var result = kit.call(CartHelper::ask, "How full is c-1?");
+// result.reply() is "Cart c-1 holds 2 lines"; model.lastRequest() holds what the tool answered
+```
+
+`TestModelProvider` scripts the model: `expectText(t)`, `expectToolCall(tool, argumentsJson[, callId])`,
+`expectRefusal(reason)`, `whenUserAsks(substring, text)`, and for an autonomous agent
+`expectCompleteTask(resultJson)`, `expectCompleteTaskText(t)` and `expectFailTask(reason)`; it records
+`requests()`, `lastRequest()` and `callCount()`, and a script that runs out fails the turn, naming the
+script. An `AgentResult` has `reply()`, `isError()`, `error()`, `problem()`, `isAwaiting()`, `awaiting()`
+and `messages()`, the session's length after the turn. See [Agents](../build/agents.md).
+
+## Autonomous agent
+
+| Part | API |
+|---|---|
+| Task type | `Task.named(wireName).describedAs(d)`, a text result; `.resultConformsTo(Record.class)`; `.rule(name, result -> RuleResult.accepted())` or `RuleResult.rejected(reason)` |
+| Base class | `AutonomousAgent`, with `@ComponentId`; define `definition()`, override `tools()` (a list of tool objects) |
+| Definition | `AutonomousDefinition.describedAs(d).instructions(t).guardrails(g...).model(p).mcpServers(s...).resultGuardrails(g...).accepts(type[, maxIterationsPerTask])` |
+| In a tool | `componentClient()`, `instanceId()`, `services()`, `secrets()`, `storage()`, `AutonomousAgent.currentTask()` |
+| Tasks | `AgentClients.tasks(client).create(type, instructions).withId(id).attach(name, contentType, content).attachReference(name, contentType, uri).dependsOn(ids...).create()` |
+| A task | `AgentClients.forTask(client, id).get()`, `.get(type)`, `.await(type, timeout)`, `.cancel(reason)`; a `TaskSnapshot` has `ended()`, `result()`, `reason()`, `instanceId()` and `json()`, the whole record |
+| An instance | `AgentClients.forAutonomousAgent(client, Agent.class, instanceId).assign(ids...)`, answering an `AssignResult`; `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()`, `.decide(decision)` |
+| One task | `AgentClients.runSingleTask(client, Agent.class, type, instructions)`, answering the task's id |
+
+A task type's result is a record, whose components are the schema the model is shown:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CartTasks.java#task-type -->
+```java
+/** The kinds of work the cart answerer accepts. */
+public final class CartTasks {
+
+  private CartTasks() {}
+
+  /** An answer, and what the agent looked at to reach it. */
+  public record Answer(String answer, List<String> sources) {}
+
+  /**
+   * {@code "answer"} is the wire name, written into every task of this type: renaming the field
+   * changes nothing stored.
+   */
+  public static final TaskType<Answer> ANSWER =
+      Task.named("answer")
+          .describedAs("Answer a question about a shopping cart, citing what you looked at")
+          .resultConformsTo(Answer.class)
+          .rule(
+              "cites-sources",
+              answer ->
+                  answer.sources().isEmpty()
+                      ? RuleResult.rejected("say which tools you used in sources")
+                      : RuleResult.accepted());
+}
+```
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CartAnswerer.java#agent -->
+```java
+/**
+ * Answers questions about carts, on its own: it is handed a task and works it, iteration by
+ * iteration, until it completes it with an {@code Answer} that cites its sources.
+ *
+ * <p>Its tools read the cart entity through the component client. A tool may run more than once
+ * for one request of the model — after a crash the last recorded request's tools run again — and
+ * these only read, so that costs nothing.
+ */
+@ComponentId("cart-answerer")
+public class CartAnswerer extends AutonomousAgent {
+
+  public static final class CartTools {
+    private final ComponentClient client;
+
+    CartTools(ComponentClient client) {
+      this.client = client;
+    }
+
+    private CartState cart(String cartId) {
+      return client.forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke();
+    }
+
+    @Tool(value = "cart_contents", description = "Lists what is in a cart.")
+    public String contents(@Describe("The id of the cart.") String cartId) {
+      var items = cart(cartId).items();
+      if (items.isEmpty()) return "cart " + cartId + " is empty";
+      return items.stream()
+          .map(i -> i.quantity() + " x " + i.name())
+          .collect(Collectors.joining(", "));
+    }
+
+    @Tool(value = "cart_total", description = "Counts the items in a cart.")
+    public String total(@Describe("The id of the cart.") String cartId) {
+      int total = cart(cartId).items().stream().mapToInt(LineItem::quantity).sum();
+      return "cart " + cartId + " holds " + total + " items";
+    }
+  }
+
+  @Override
+  protected AutonomousDefinition definition() {
+    return AutonomousDefinition.describedAs("Answers questions about shopping carts")
+        .instructions("Look carts up rather than guessing. Be brief.")
+        .guardrails(Guardrail.maxInputLength(2000))
+        .accepts(CartTasks.ANSWER, 5);
+  }
+
+  @Override
+  protected List<Object> tools() {
+    return List.of(new CartTools(componentClient()));
+  }
+}
+```
+
+The agents module brings the platform's own components an autonomous agent needs, so registering the
+agent is all a service does. Running a task answers its id at once; anyone holding the id reads its record:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#run-task -->
+```java
+/** Starts the work and answers at once, with the task's id. */
+public static String startAnswer(ComponentClient client, String question) {
+  return AgentClients.runSingleTask(client, CartAnswerer.class, CartTasks.ANSWER, question);
+}
+
+/** The task's record once it has ended, its result read as an {@code Answer}. */
+public static TaskSnapshot<CartTasks.Answer> answer(ComponentClient client, String taskId) {
+  return AgentClients.forTask(client, taskId).await(CartTasks.ANSWER, Duration.ofMinutes(1));
+}
+```
+
+In the whole-service kit the scripted model is the module's default, and a task is worked to its end:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#service-test -->
+```java
+var model =
+    new TestModelProvider()
+        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
+        .expectCompleteTask(
+            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
+try (var kit = AnkkaTestKit.start(service(model))) {
+  var client = kit.componentClient();
+  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
+
+  var taskId = startAnswer(client, "How many items are in cart c-1?");
+  return answer(client, taskId).result().orElseThrow();
+}
+```
+
+See [Autonomous agents](../build/autonomous-agents.md).
+
+## Judgments
+
+| Part | API |
+|---|---|
+| Questions | `Question.choice(id, instructions, ChoiceOption.of(value, key, description)...)`, `Question.score(id, instructions, levels...)`, `Question.yesNo(id, instructions).describing(yes, no)` |
+| Answers | `judgment.answer(question)`: a `ChoiceAnswer(choice, probabilities, confidence)`, a `ScoreAnswer(score, probabilities, confidence)` with `level()`, or a `YesNoAnswer(probability)`; `judgment.model()` |
+| Effect | `effects().judgment().state(text)` or `.state(value)`, `.question(q...)`, `.provider(p)`, then `.thenReply()` or `.thenReply(judgment -> value)` |
+| Module | `Agents.module().withJudgments(provider[, timeout])`, five seconds by default |
+| Providers | `JudgmentProviders.jev()`, `JudgmentProviders.jev(model)`, reading `TYPESAFE_API_KEY` and `TYPESAFE_BASE_URL` |
+| Guardrails | `Guardrail.judged(name).onInput(rules...).onOutput(rules...).onResult(rules...).provider(p)`; rules `Refusal.ifYes(q, atLeast)`, `Refusal.ifChosen(q, minConfidence, options...)`, `Refusal.ifScore(q, atLeast)`, `Refusal.when(q, answer -> refuse)` |
+
+Questions are values with wire ids, declared once and asked from any handler:
+
+<!-- include: modules/agent-java/src/test/java/com/thinkmorestupidless/ankka/agent/javasdk/fixtures/Judge.java#questions -->
+```java
+public static final ChoiceQuestion<Tone> TONE =
+    Question.choice(
+        "tone",
+        "The tone of the text",
+        ChoiceOption.of(Tone.POLITE, "polite", "Courteous"),
+        ChoiceOption.of(Tone.RUDE, "rude", "Discourteous"));
+
+public static final ScoreQuestion QUALITY =
+    Question.score("quality", "How well written the text is", "poor", "fair", "good");
+
+public static final YesNoQuestion ABUSIVE =
+    Question.yesNo("abusive", "Is the text abusive?").describing("it is", "it is not");
+```
+
+<!-- include: modules/agent-java/src/test/java/com/thinkmorestupidless/ankka/agent/javasdk/fixtures/Judge.java#judgment -->
+```java
+@Command("verdict")
+public AgentEffect<Verdict> verdict(String text) {
+  return effects()
+      .judgment()
+      .state(text)
+      .question(TONE, QUALITY, ABUSIVE)
+      .thenReply(
+          j ->
+              new Verdict(
+                  j.answer(TONE).choice().name(),
+                  j.answer(QUALITY).level(),
+                  j.answer(ABUSIVE).probability() >= 0.5,
+                  j.model()));
+}
+
+@Command("guarded")
+public AgentEffect<String> guarded(String text) {
+  return effects()
+      .userMessage(text)
+      .guardrails(Guardrail.judged("abuse").onInput(Refusal.ifYes(ABUSIVE, 0.5)))
+      .thenReply();
+}
+```
+
+See [Judgments](../build/judgments.md).
+
+## Blueprints
+
+| Part | API |
+|---|---|
+| Blueprint | `Blueprint.named(n).input(shape).worker(w).step(s).schedule(schedule).runBudget(modelCalls).timeLimit(d)`; `Blueprint.fromJson(json)`, `Blueprint.fromResource(path)`; `.json()`, `.digest()` |
+| Shapes | `Shape.string()`, `number()`, `integer()`, `bool()`, `any()`, `arr(items)`, `obj(fields)`, `enumOf(values...)`, `fromJson(schema)` |
+| Workers | `Worker.named(n).instructions(t).model(name).tools(names...).guardrails(names...).budget(modelCalls)` |
+| Steps | `Step.named(n)`, then one of `.ask(worker)`, `.work(worker)`, `.judge(questions...)`, `.call(handler)`, `.forEach(worker, over)`, `.gather(workers...)`, `.gather(worker, times)`, `.critique(drafter, verdict, rounds)`; with `.reads(names...)`, `.result(shape)`, `.each(read[, limit, keepGoing])`, `.overWorkers(workers...)`, `.times(n)`, `.until(verdict, rounds)` |
+| Schedules | `Schedule.weekly(day, time, zone)`, `Schedule.everyHours(n, zone)`, `Schedule.everyDays(n, zone)`, then `.perMissedPeriod()` |
+| Registry | `BlueprintRegistry.empty().tools(...).mcpServers(...).model(name, p).guardrail(name, g).questions(q...).handlers(BlueprintHandler.of(name, (run, inputJson) -> resultJson)...).carrying(blueprints...)`, given as `Agents.module().withBlueprints(context -> registry)` |
+| Registering | `AgentClients.blueprints(client).register(blueprint)` or `.register(json)`, `.versions(name)`, `.current(name)` |
+| Runs | `AgentClients.runs(client).start(blueprint, inputJson, runId)`, `.get(runId)`, `.await(runId, timeout)`, `.cancel(runId)`; a `RunSnapshot` has `ended()` and `stepNamed(name)` |
+
+A blueprint and the registry that carries it, a worker listing titles and a handler keeping them:
+
+<!-- include: modules/agent-java/src/test/java/com/thinkmorestupidless/ankka/agent/javasdk/fixtures/Keeper.java#blueprint -->
+```java
+public static final Blueprint KEEPER =
+    Blueprint.named("keeper")
+        .input(Shape.obj(Map.of("topic", Shape.string())))
+        .worker(Worker.named("lister").instructions("List titles on the topic.").budget(2))
+        .step(Step.named("titles").ask("lister").reads("input").result(Shape.arr(Shape.string())))
+        .step(Step.named("keep").call("keep").reads("titles").result(Shape.integer()));
+
+public static BlueprintRegistry registry(BlueprintContext context) {
+  return BlueprintRegistry.empty()
+      .handlers(
+          BlueprintHandler.of(
+              "keep",
+              (run, input) -> {
+                KEPT.add(run.blueprint() + "/" + run.step() + ":" + input);
+                return "2";
+              }))
+      .carrying(KEEPER);
+}
+```
+
+The registry is built once when the service starts, from a `BlueprintContext` holding the clients a
+handler needs; `Agents.module().withBlueprints(Keeper::registry)` gives it to the service. A run is started
+by the blueprint's name with its input as JSON:
+
+<!-- include: modules/agent-java/src/test/java/com/thinkmorestupidless/ankka/agent/javasdk/fixtures/AutonomousCalls.java#run -->
+```java
+public static RunsRef.RunSnapshot keep(ComponentClient client, String runId, String topic) {
+  var runs = AgentClients.runs(client);
+  runs.start("keeper", "{\"topic\":\"" + topic + "\"}", runId);
+  return runs.await(runId, Duration.ofMinutes(1));
+}
+```
+
+See [Blueprints](../build/blueprints.md).
+
+## Model providers
+
+| Built with | What it is |
+|---|---|
+| `ModelProviders.anthropic(model)` | Anthropic's API, with `ANTHROPIC_API_KEY`; named `anthropic` |
+| `ModelProviders.openAi(model)` | OpenAI's API, with `OPENAI_API_KEY`; named `openai` |
+| `ModelProviders.preset(name, preset, model)` | a preset that needs no key, such as `ollama` or `lmstudio` |
+| `ModelProviders.preset(name, preset, model, key)` | any preset, with its key given |
+| `ModelProviders.at(name, protocol, url, model, key)` | `anthropic` or `openai` protocol at any address, the key an `Optional` |
+| `ModelProviders.installation(model)` | a model the installation's model server serves, reached with the service's certificate |
+
+A provider built from the environment whose key is not set still exists, under its name, and every call
+to it fails naming the variable. Each refuses what it was given with an `IllegalArgumentException` naming
+the problem, under the same rules a Scala service and the sidecar apply. See
+[Model providers](model-providers.md).
+
 ## HTTP endpoint
 
 | Part | API |
@@ -861,6 +1258,7 @@ its image with Jib.
 | `ViewTestKit.of(View.class)` | A view: `change(subject, value)`, `deleted(subject)`, `row(subject)`, `rows()`; declared queries are checked as at start |
 | `KeyedViewTestKit.of(View.class)` | A keyed view: `change(Source.class, subject, value)`, `change(topic, subject, value)`, `deleted(...)`, and `answering(query, …)` for each declared query a handler asks, since nothing runs SQL |
 | `ConsumerTestKit.of(Consumer.class[, client])` | A consumer: `onMessage(...)`, `onDelete(subject)`, each answering what it would publish (`payloads()`, `messages()`, `recordKeys()`); `ConsumerTestKit.graph(...)` for a graph consumer, answering `GraphDelta`s |
+| `AgentTestKit.of(Agent.class, model[, sessionId, client])` | One turn of an agent, no runtime, against a `TestModelProvider`: `call(Agent::handler, input)` answers an `AgentResult`; the next turn reads what the last recorded |
 | `TestClient.of(Component.class...)` | The component client a kit hands a component: `.stub(Entity::handler, input -> reply)`, `.refuse(Entity::handler, problem)`; a call nobody stubbed fails, naming it |
 | `AnkkaTestKit.start(Main.service()[, settings])` | The whole service against a throwaway Postgres in Docker: `http()`, `httpClient()`, `componentClient()`, `viewClient()`, `timers()`, `restartService()`, `published(topic)`, `timerRuns()`, `eventually(within, assertion)`, `socket(path)`, `asCaller(caller)`; `installations(names...)` for a replicated group |
 

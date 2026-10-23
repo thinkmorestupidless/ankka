@@ -78,6 +78,12 @@ private[ankka] object AgentBridge:
   def installation(model: String): javasdk.ModelProvider =
     JavaModelProvider(agent.providers.ModelProviders.installation(model))
 
+  def anthropic(model: String): javasdk.ModelProvider =
+    JavaModelProvider(agent.AnthropicProvider.fromEnv(model))
+
+  def openAi(model: String): javasdk.ModelProvider =
+    JavaModelProvider(agent.openai.OpenAiProvider.fromEnv(model))
+
   def named(
       name: String,
       protocol: Optional[String],

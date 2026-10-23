@@ -18,6 +18,7 @@ class DslTest {
 
     @Test
     fun `a suspend handler offers a suspend tool, which runs with its data class argument`() {
+        // docs:start test
         val model =
             TestModelProvider()
                 .expectToolCall("forecast", """{"city":"Oslo","days":2}""")
@@ -29,6 +30,7 @@ class DslTest {
         assertEquals("Oslo will be 21C", result.reply())
         assertEquals(listOf("Oslo/2"), WeatherTools.ASKED)
         assertContains(model.lastRequest(), "Oslo: 21C")
+        // docs:end test
     }
 
     @Test
@@ -46,6 +48,6 @@ class DslTest {
         val model = TestModelProvider().expectText("""{"city":"Oslo","degrees":21}""")
         val kit = AgentTestKit.of(Forecaster::class.java, model)
 
-        assertEquals(Answer("Oslo", 21), kit.call(Forecaster::structured, "Oslo?").reply())
+        assertEquals(Forecast("Oslo", 21), kit.call(Forecaster::structured, "Oslo?").reply())
     }
 }

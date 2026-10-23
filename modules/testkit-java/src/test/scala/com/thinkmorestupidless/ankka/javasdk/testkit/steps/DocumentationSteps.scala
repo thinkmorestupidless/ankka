@@ -69,12 +69,8 @@ trait DocumentationSteps extends GherkinSuite:
   }
 
   Then("Java and Kotlin are named") { () =>
-    // A paragraph about agents names the languages an agent may be written in, which are not yet
-    // Java's or Kotlin's (docs/reference/limitations.md says so).
     val missing = places.collect {
-      case (file, paragraph)
-          if !(paragraph.contains("Java") && paragraph.contains("Kotlin")) &&
-            !paragraph.toLowerCase.contains("agent") =>
+      case (file, paragraph) if !(paragraph.contains("Java") && paragraph.contains("Kotlin")) =>
         s"${root.relativize(file)}: ${paragraph.linesIterator.find(languages.findFirstIn(_).isDefined).getOrElse(paragraph).trim}"
     }
     assert(missing.isEmpty, missing.mkString("named without Java and Kotlin:\n  ", "\n  ", ""))

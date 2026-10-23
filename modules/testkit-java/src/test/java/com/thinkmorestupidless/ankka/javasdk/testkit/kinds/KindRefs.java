@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.kinds;
 
+import com.thinkmorestupidless.ankka.agent.javasdk.AgentCommandRef;
 import com.thinkmorestupidless.ankka.javasdk.Done;
 import com.thinkmorestupidless.ankka.javasdk.cart.CartState;
 import com.thinkmorestupidless.ankka.javasdk.cart.LineItem;
@@ -18,6 +19,11 @@ public final class KindRefs {
   public static final CommandRef<ShoppingCart, LineItem, Done> addItem = ShoppingCart::addItem;
   public static final CommandRef<ShoppingCart, String, Done> removeItem = ShoppingCart::removeItem;
   public static final NoArgRef<ShoppingCart, CartState> getCart = ShoppingCart::getCart;
+  public static final AgentCommandRef<CartHelper, String, String> helperAsk = CartHelper::ask;
+  public static final AgentCommandRef<CartHelper, String, CartHelper.Summary> helperSummarise =
+      CartHelper::summarise;
+  public static final AgentCommandRef<CartHelper, String, String> helperShort =
+      CartHelper::shortQuestion;
   public static final NoArgRef<ShoppingCart, Done> checkout = ShoppingCart::checkout;
   public static final CommandRef<Checkout, Checkout.Start, Done> startCheckout = Checkout::start;
   public static final NoArgRef<Checkout, Done> confirmCheckout = Checkout::confirm;

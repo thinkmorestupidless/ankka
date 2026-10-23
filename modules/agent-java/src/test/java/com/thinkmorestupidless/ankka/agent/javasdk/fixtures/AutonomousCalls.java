@@ -58,11 +58,13 @@ public final class AutonomousCalls {
     return AgentClients.forAgent(client, session).call(Judge::guarded).invoke(text);
   }
 
+  // docs:start run
   public static RunsRef.RunSnapshot keep(ComponentClient client, String runId, String topic) {
     var runs = AgentClients.runs(client);
     runs.start("keeper", "{\"topic\":\"" + topic + "\"}", runId);
     return runs.await(runId, Duration.ofMinutes(1));
   }
+  // docs:end run
 
   public static int keeperVersions(ComponentClient client) {
     return AgentClients.blueprints(client).versions("keeper").size();

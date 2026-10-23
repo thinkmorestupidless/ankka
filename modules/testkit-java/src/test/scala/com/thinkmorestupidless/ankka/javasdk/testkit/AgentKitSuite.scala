@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit
 
 import com.thinkmorestupidless.ankka.javasdk.cart.{CartState, LineItem, ShoppingCart}
-import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.{CartHelper, KindRefs}
+import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.{
+  AgentSamples,
+  CartHelper,
+  CartTasks,
+  KindRefs
+}
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 
 /**
@@ -26,7 +31,7 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
       .expectToolCall("cart_items", """{"cartId":"c-1"}""")
       .expectText("Cart c-1 holds 2 lines")
     val kit    = AgentTestKit.of(classOf[CartHelper], model, "s-1", cart)
-    val result = kit.call(CartHelper.ASK, "How full is c-1?")
+    val result = kit.call(KindRefs.helperAsk, "How full is c-1?")
     assertEquals(result.reply, "Cart c-1 holds 2 lines")
     assert(model.lastRequest.contains("2"), model.lastRequest)
     assertEquals(model.callCount, 2)
@@ -36,13 +41,15 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
   test("a structured reply is read as the handler's record") {
     val model = TestModelProvider().expectText("""{"cartId":"c-1","items":2}""")
     val kit   = AgentTestKit.of(classOf[CartHelper], model)
-    assertEquals(kit.call(CartHelper.SUMMARISE, "c-1").reply, CartHelper.Summary("c-1", 2))
+    assertEquals(kit.call(KindRefs.helperSummarise, "c-1").reply, CartHelper.Summary("c-1", 2))
   }
 
   test("a guardrail refuses before the model is asked, as the caller would be refused") {
     val model = TestModelProvider()
     val result =
-      AgentTestKit.of(classOf[CartHelper], model).call(CartHelper.SHORT, "far too long a question")
+      AgentTestKit
+        .of(classOf[CartHelper], model)
+        .call(KindRefs.helperShort, "far too long a question")
     assert(result.isError)
     assertEquals(result.problem.status, 403)
     assertEquals(model.callCount, 0)
@@ -50,7 +57,7 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
 
   test("a tool that needs approval stops the turn before it runs") {
     val model  = TestModelProvider().expectToolCall("refund", """{"cartId":"c-1"}""")
-    val result = AgentTestKit.of(classOf[CartHelper], model).call(CartHelper.ASK, "Refund c-1")
+    val result = AgentTestKit.of(classOf[CartHelper], model).call(KindRefs.helperAsk, "Refund c-1")
     assert(result.isAwaiting)
     assertEquals(result.awaiting.get(0).tool, "refund")
     assert(CartHelper.REFUNDED.isEmpty)
@@ -59,14 +66,14 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
   test("the next turn reads what the last one recorded") {
     val model = TestModelProvider().expectText("noted").expectText("heron")
     val kit   = AgentTestKit.of(classOf[CartHelper], model)
-    kit.call(CartHelper.ASK, "The word is heron.").reply: Unit
-    kit.call(CartHelper.ASK, "What was the word?").reply: Unit
+    kit.call(KindRefs.helperAsk, "The word is heron.").reply: Unit
+    kit.call(KindRefs.helperAsk, "What was the word?").reply: Unit
     assert(model.lastRequest.contains("The word is heron."), model.lastRequest)
   }
 
   test("a script that runs out fails the turn, naming the script") {
     val kit    = AgentTestKit.of(classOf[CartHelper], TestModelProvider())
-    val thrown = intercept[Throwable](kit.call(CartHelper.ASK, "Anyone?").reply)
+    val thrown = intercept[Throwable](kit.call(KindRefs.helperAsk, "Anyone?").reply)
     assert(thrown.getMessage.toLowerCase.contains("script"), thrown.getMessage)
   }
 
@@ -75,4 +82,16 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
       AgentTestKit.of(classOf[ShoppingCart].asInstanceOf[Class[CartHelper]], TestModelProvider())
     )
     assert(refused.getMessage.contains("ShoppingCart"), refused.getMessage)
+  }
+
+  test("the documentation's turn: the tool's call answered by the kit's client") {
+    val result = AgentSamples.oneTurn()
+    assertEquals(result.reply, "Cart c-1 holds 2 lines")
+  }
+
+  test("the documentation's service: a task worked to its end by a scripted model") {
+    assertEquals(
+      AgentSamples.answerInTheService(),
+      CartTasks.Answer("Cart c-1 holds 3 items.", java.util.List.of("cart_total"))
+    )
   }

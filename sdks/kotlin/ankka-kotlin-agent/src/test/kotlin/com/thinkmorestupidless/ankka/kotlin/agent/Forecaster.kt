@@ -9,8 +9,9 @@ import com.thinkmorestupidless.ankka.javasdk.annotations.Describe
 import kotlinx.coroutines.delay
 import java.util.concurrent.CopyOnWriteArrayList
 
-data class Answer(val city: String, val degrees: Int)
+data class Forecast(val city: String, val degrees: Int)
 
+// docs:start agent
 data class Place(@Describe("the city to forecast") val city: String, val days: Int = 1)
 
 /** A tool class whose tool is a suspend fun taking a data class, built by its own constructor. */
@@ -42,6 +43,7 @@ class Forecaster : Agent() {
     }
 
     @Command("structured")
-    fun structured(question: String): AgentEffect<Answer> =
-        effects { userMessage(question).thenReply<Answer>() }
+    fun structured(question: String): AgentEffect<Forecast> =
+        effects { userMessage(question).thenReply<Forecast>() }
 }
+// docs:end agent

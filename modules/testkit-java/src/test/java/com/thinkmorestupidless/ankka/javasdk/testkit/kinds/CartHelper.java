@@ -1,7 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.kinds;
 
 import com.thinkmorestupidless.ankka.agent.javasdk.Agent;
-import com.thinkmorestupidless.ankka.agent.javasdk.AgentCommandRef;
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentEffect;
 import com.thinkmorestupidless.ankka.agent.javasdk.Guardrail;
 import com.thinkmorestupidless.ankka.agent.javasdk.Tool;
@@ -13,6 +12,7 @@ import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+// docs:start agent
 /** An agent whose tool reads a cart, one that refunds only once approved, and a guarded handler. */
 @ComponentId("cart-helper")
 public class CartHelper extends Agent {
@@ -69,9 +69,5 @@ public class CartHelper extends Agent {
         .guardrails(Guardrail.maxInputLength(10))
         .thenReply();
   }
-
-  public static final AgentCommandRef<CartHelper, String, String> ASK = CartHelper::ask;
-  public static final AgentCommandRef<CartHelper, String, Summary> SUMMARISE =
-      CartHelper::summarise;
-  public static final AgentCommandRef<CartHelper, String, String> SHORT = CartHelper::shortQuestion;
 }
+// docs:end agent

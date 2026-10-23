@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk;
 
+import com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcClients;
@@ -24,6 +25,9 @@ public interface AnkkaService extends AutoCloseable {
 
   /** Channels to other services' gRPC; refused unless the service asked for them. */
   GrpcClients grpcClients();
+
+  /** The service's client keys, for the callers of its MCP endpoints. */
+  ClientKeys clientKeys();
 
   /** The service's own secrets. */
   SecretStore secrets();

@@ -42,4 +42,17 @@ public interface Acl {
   static Acl anyOf(Acl... acls) {
     return Acls.anyOf(acls);
   }
+
+  /** Admits a caller presenting one of the service's client keys, issued for this endpoint. */
+  static Acl clientKeys() {
+    return Acls.clientKeys();
+  }
+
+  /**
+   * Admits a caller presenting a token from one of the issuers the service's environment lists
+   * ({@code ANKKA_AUTH_ISSUERS}); throws when it lists none.
+   */
+  static Acl oidc() {
+    return Acls.oidc();
+  }
 }

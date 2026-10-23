@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit;
 
+import com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys;
 import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcClients;
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
@@ -77,6 +78,11 @@ public final class AnkkaTestKit implements AutoCloseable {
   /** The service's timers; refused when it registers no timed action. */
   public Timers timers() {
     return kit.timers();
+  }
+
+  /** The service's client keys, as its handlers reach them: a test issues a key with it. */
+  public ClientKeys clientKeys() {
+    return kit.clientKeys();
   }
 
   /** The service's secret store, kept in its database under the kit's secret key. */

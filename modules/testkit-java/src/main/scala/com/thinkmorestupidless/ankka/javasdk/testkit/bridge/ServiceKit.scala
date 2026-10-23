@@ -1,10 +1,12 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.bridge
 
+import com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder
 import com.thinkmorestupidless.ankka.grpc as sgrpc
 import com.thinkmorestupidless.ankka.javasdk.bridge.{
   Clients,
   Grpc,
+  Mcp,
   JavaServiceBuilder,
   JavaTimers,
   Stores
@@ -64,6 +66,8 @@ final class ServiceKit private (
 
   def secrets(): SecretStore = Stores.secrets(kit.service.secrets)
 
+  def clientKeys(): ClientKeys = Mcp.clientKeys(kit.clientKeys)
+
   def storage(): ObjectStorage = Stores.storage(kit.service.storage)
 
   def eventually(within: Duration, assertion: Runnable): Unit =
@@ -102,22 +106,25 @@ object ServiceKit:
       builder.classes,
       builder.serializers,
       builder.endpoints,
-      grpcEndpoints = builder.grpcEndpoints
+      grpcEndpoints = builder.grpcEndpoints,
+      mcpEndpoints = builder.mcpEndpoints
     )
     val scripted =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
     val http = read.platformExtensions ++
-      (if read.endpoints.isEmpty then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0)))) ++
+      (if !read.servesHttp then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0)))) ++
       read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
     val kit =
       try
-        stk.AnkkaTestKit.start(
-          read.descriptors,
-          extensions = http,
-          settings = config,
-          localServices = scripted.view.mapValues(_.address).toMap ++
-            settings.localServices.asScala.view.mapValues(_.toString)
+        JavaServiceBuilder.problemsAtStart(
+          stk.AnkkaTestKit.start(
+            read.descriptors,
+            extensions = http,
+            settings = config,
+            localServices = scripted.view.mapValues(_.address).toMap ++
+              settings.localServices.asScala.view.mapValues(_.toString)
+          )
         )
       catch
         case e: Throwable =>

@@ -30,6 +30,10 @@ object Acls:
 
   def anyOf(acls: Array[Acl]): Acl = Held(http.Acl.AnyOf(acls.toVector.map(scalaOf)))
 
+  def clientKeys(): Acl = Held(com.thinkmorestupidless.ankka.mcp.ClientKeys.authenticate())
+
+  def oidc(): Acl = Held(com.thinkmorestupidless.ankka.auth.oidc.Oidc.authenticate())
+
   private[bridge] def scalaOf(acl: Acl): http.Acl = acl match
     case Held(scala) => scala
     case null =>
@@ -86,8 +90,11 @@ final class EndpointCell private[bridge] (
     serviceClients: ServiceClients = Services.unavailable,
     views: ViewClient = JavaViews.unavailable,
     secretStore: SecretStore = Stores.noSecrets,
-    objectStorage: ObjectStorage = Stores.noStorage
+    objectStorage: ObjectStorage = Stores.noStorage,
+    keys: com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = Mcp.noKeys
 ):
+  def clientKeys(): com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = keys
+
   def secrets(): SecretStore = secretStore
 
   def storage(): ObjectStorage = objectStorage

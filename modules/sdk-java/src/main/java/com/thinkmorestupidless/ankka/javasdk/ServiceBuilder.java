@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk;
 
+import com.thinkmorestupidless.ankka.javasdk.mcp.McpEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.codec.Serializer;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
@@ -34,6 +35,12 @@ public interface ServiceBuilder {
 
   /** Lets the service call other services' gRPC, through {@link AnkkaService#grpcClients()}. */
   ServiceBuilder withGrpcClients();
+
+  /**
+   * Serves an MCP endpoint's tools beside the HTTP endpoints; the service then keeps client keys
+   * and, for a brokered endpoint, signs people in.
+   */
+  ServiceBuilder withMcpEndpoint(Class<? extends McpEndpoint> endpoint);
 
   /**
    * A hand-written serializer for {@code type}, for a type the SDK's own codec refuses or one whose

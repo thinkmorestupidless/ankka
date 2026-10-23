@@ -1174,7 +1174,17 @@ lazy val javaSdkSettings = Seq(
 
 lazy val sdkJava = project
   .in(file("modules/sdk-java"))
-  .dependsOn(core, sdk, runtime, http, grpc, telemetryOtlp, testkit % Test, grpcFixtures % Test)
+  .dependsOn(
+    core,
+    sdk,
+    runtime,
+    http,
+    grpc,
+    mcp,
+    telemetryOtlp,
+    testkit      % Test,
+    grpcFixtures % Test
+  )
   .settings(commonSettings)
   .settings(javaSdkSettings)
   .settings(
@@ -1193,7 +1203,13 @@ lazy val agentJava = project
 /** The Java test kits over the Scala ones, sharing their reduction (feature 058). */
 lazy val testkitJava = project
   .in(file("modules/testkit-java"))
-  .dependsOn(sdkJava % "compile;test->test", agentJava, testkit)
+  .dependsOn(
+    sdkJava % "compile;test->test",
+    agentJava,
+    testkit,
+    mcp      % "test->test",
+    authOidc % "test->test"
+  )
   .settings(commonSettings)
   .settings(javaSdkSettings)
   .settings(name := "ankka-java-testkit")

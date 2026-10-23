@@ -1,7 +1,22 @@
-Feature: Kotlin on the Java SDK
-  A Kotlin developer writes a service against the Java SDK, and sees it as Kotlin: a value the Java
-  SDK may give as nothing is nullable, a value it takes may not be null, and a data class is a state
-  or an event as a Java record is, under the same encoding.
+Feature: The Kotlin SDK
+  A Kotlin developer writes a service with the Kotlin SDK, a library over the Java SDK: a component
+  is declared in Kotlin's own form and is the component the Java SDK would declare, a handler is a
+  suspending function whose calls park rather than block, a value the Java SDK may give as nothing
+  is nullable, a value it takes may not be null, and a data class is a state or an event as a Java
+  record is, under the same encoding.
+
+  Scenario: a component declared in Kotlin's own form behaves as one declared through the Java SDK
+    Given a service "shop" written in "Kotlin" whose entity "cart" is declared in Kotlin's own form
+    And the same entity "cart" declared in "Java"
+    When a caller sends the command "add-item" with the item "socks" to the cart "c1" of each
+    Then each cart "c1" has recorded the same event
+    And each caller is answered the same
+
+  Scenario: a handler written as a suspending function calls a component and is answered
+    Given a service "shop" written in "Kotlin" whose workflow step "reserve" is a suspending function that calls the entity "cart"
+    When the step calls the cart "c1"
+    Then the step is answered with the value the cart replied
+    And no thread of "shop" is held while the step waits
 
   Scenario: a value the Java SDK may give as nothing is nullable in Kotlin
     Given a service written in "Kotlin"

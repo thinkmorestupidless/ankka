@@ -100,6 +100,8 @@ Feature: Entities in every language
       | Scala      | Java       |
       | Java       | Scala      |
       | Java       | Kotlin     |
+      | Scala      | Kotlin     |
+      | Kotlin     | Scala      |
 
   Scenario Outline: a query that would record an event is refused before the service is built
     Given a service written in "<language>"

@@ -40,16 +40,32 @@ runtime, the protocol or the platform changes; what a Java service writes to the
 for byte what a Scala service writes for the same shape, so the two can share a journal, a view
 and a project.
 
-Kotlin comes nearly for free once the Java API exists, which is why the two are one feature:
-Kotlin calls Java APIs natively, and what it adds is a template, a sample, documentation, a skill
-and the small layer that makes the Java shape read as Kotlin (nullability where Java has
-`Optional`, extension functions where a Java builder reads badly).
+Kotlin builds on the Java API, which is why the two are one feature: the Kotlin SDK is a library
+over the Java SDK that gives a Kotlin developer the component model in Kotlin's own idiom, with
+component declarations written the way Kotlin libraries declare things, nullability where Java has
+`Optional`, and client calls that suspend rather than block, so a handler written as a suspending
+function reads as ordinary Kotlin. It has its own template, sample, reference service,
+documentation and skill.
 
 The cost of a language was written down when the TypeScript SDK was added: every later change to
 the component model touches one more SDK, one more test kit, one more template, one more skill. For
 Java the cost is lower than for a protocol SDK, since the facade delegates and the runtime is
 shared, and the audience on record (`ankka-brain/audiences.md`: "people who used Akka and hit the
 licence") is the largest the family names. That is the reason on record.
+
+## Clarifications
+
+### Session 2026-10-23
+
+- Q: Which component kinds does this feature carry? → A: Every kind and every capability the
+  Scala SDK has, in one feature: agents, autonomous agents, judgments, blueprints, gRPC endpoints,
+  MCP endpoints, socket routes, graph consumers, replicated entities, the storage client and the
+  secret store included.
+- Q: Which build tool does each template use? → A: Maven for Java and Gradle with the Kotlin DSL
+  for Kotlin, each what its community expects.
+- Q: Is a Kotlin library published, and of what shape? → A: A Kotlin SDK of its own: a published
+  library with its own component declarations in Kotlin's idiom and suspending client calls,
+  built on the Java SDK, with a reference service that passes the conformance suite.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -127,12 +143,16 @@ and watch the component test fail.
 
 ### User Story 3 - Every component kind the Scala SDK offers (Priority: P2)
 
-Beyond entities and endpoints, the Java developer writes views and keyed views with declared
-queries, consumers that react to changes and publish to topics, workflows with steps, pauses,
-timeouts, retries and compensation, timers and timed actions, and calls other components through
-the component client and other services through the service client, all in Java with nothing Scala
-on the surface. Every effect the Scala SDK offers for a kind is expressible in Java. Which kinds
-this feature carries, and which wait for a later one, is settled by the first clarification below.
+Beyond entities and endpoints, the Java developer writes views and keyed views with declared,
+recursive, streamed and watched queries, consumers that react to changes and publish to topics,
+graph consumers that publish deltas, workflows with steps, pauses, timeouts, retries, compensation
+and a wait for their end, timers, recurring timers and timed actions, gRPC endpoints against
+generated descriptors, MCP endpoints with tools, client keys and brokered sign-in, socket routes
+and server-sent events, replicated entities, personal fields and erasure handlers, and calls
+other components through the component client and other services through the service client,
+reads and keeps service secrets, and keeps objects through the storage client, all in Java with
+nothing Scala on the surface. Every effect the Scala SDK offers for a kind is expressible in
+Java, and every scenario the living features run for a Scala service runs for a Java one.
 
 **Why this priority**: A platform that hosts entities in Java but workflows only in Scala forces a
 Java team to keep a Scala module, which is the failure the sidecar SDKs were measured against.
@@ -153,48 +173,102 @@ sample's own living features against it.
 - changed `features/polyglot/components.feature`: a call made by a handler is nested under that handler in the trace
 - added `features/java-kotlin/embedded.feature`: the shopping cart written in Java or Kotlin passes the sample's own features
 - changed `features/polyglot/conformance.feature`: the conformance suite passes against the reference service in every language
+- changed `features/polyglot/conformance.feature`: an SDK's MCP endpoint answers as the Scala reference does
 - changed `features/polyglot/conformance.feature`: a behaviour broken in an SDK is named and no other
+- changed `features/service-calls/sdks.feature`: the conformance suite's call to another service passes for every SDK
+- changed `features/views/languages.feature`: a recursive query answers with the same rows in every language
+- changed `features/views/languages.feature`: a service whose view declares a statement that reads another table does not start in every language
+- changed `features/views/languages.feature`: a view of several sources reads every one of them in every language
+- changed `features/views/languages.feature`: a view finds the rows an event is about by asking a query of its own in every language
+- changed `features/views/languages.feature`: the topology shows a view connected to each of its sources in every language
+- changed `features/workflow-sources/languages.feature`: a view reads a workflow in every language
+- changed `features/workflow-sources/languages.feature`: a consumer is handed a failed workflow's standing in every language
+- changed `features/workflow-sources/languages.feature`: the topology shows a view connected to the workflow it reads in every language
+- changed `features/workflow-sources/languages.feature`: the component test kit hands a view a workflow change in every language
+- changed `features/awaiting-workflows/languages.feature`: a handler sends a command and is answered with the state in every language
+- changed `features/awaiting-workflows/languages.feature`: a handler that waits for a workflow that fails is answered with the failure in every language
+- changed `features/timers/languages.feature`: a recurring timer fires once for each period in every language
+- changed `features/timers/languages.feature`: a recurring timer set again keeps its next due time in every language
+- changed `features/timers/languages.feature`: a cancelled recurring timer does not fire again in every language
+- changed `features/timers/languages.feature`: a handler is told the due time of the timer that ran it in every language
+- changed `features/endpoint-acls/route-acls.feature`: a route that states no ACL answers to its endpoint's, in every language
+- changed `features/endpoint-acls/route-acls.feature`: a route's own ACL applies to that route alone, in every language
+- changed `features/service-identity/languages.feature`: an authenticated route admits a verified token in every language
+- changed `features/service-identity/languages.feature`: an authenticated route challenges a token that does not verify in every language
+- changed `features/service-identity/languages.feature`: a claim reaches the handler by name in every language
+- changed `features/sockets/languages.feature`: frames cross a socket both ways in every language
+- changed `features/sockets/languages.feature`: the handler of an authenticated socket route is told the principal in every language
+- changed `features/sockets/languages.feature`: a request to open a socket with no token is challenged in every language
+- changed `features/sockets/languages.feature`: a socket is closed when its handler finishes in every language
+- changed `features/service-calls/calling.feature`: a service in every language is admitted by name by a route that admits only it
+- changed `features/service-calls/calling.feature`: a refusal by the service called reaches the calling handler as that refusal
+- changed `features/service-calls/calling.feature`: a call to a service that cannot be found fails, naming the service, and is not sent
+- changed `features/service-calls/calling.feature`: a call is not sent to a workload that is not the service asked for
+- changed `features/service-calls/calling.feature`: on a developer's machine a service in every language calls another service running there
+- changed `features/zero-trust/callers.feature`: a service in any language is told the same calling workload
+- changed `features/topology/languages.feature`: a service declares the same connections in every language
+- changed `features/topology/languages.feature`: a call is attributed to its caller in every language
+- changed `features/secrets/languages.feature`: a service secret is kept and read in every language
+- changed `features/secrets/languages.feature`: the database holds a service secret only encrypted in every language
+- changed `features/secrets/languages.feature`: a service secret that was never kept is read as none in every language
+- changed `features/secrets/languages.feature`: keeping a service secret again replaces its value in every language
+- changed `features/storage-client/languages.feature`: an object is kept and read through the storage client in every language
+- changed `features/storage-client/languages.feature`: the storage client lists, tells what an object is and deletes in every language
+- changed `features/storage-client/languages.feature`: every SDK refuses the same object names for the same reasons
+- changed `features/storage-client/languages.feature`: the storage client in every language keeps its objects in a directory on a developer's machine
+- changed `features/replication/languages.feature`: an entity in every language is told where a change was written and whether it is at the home
+- changed `features/observability/telemetry-settings.feature`: a service exports whatever language it is written in, with no change to its code
 
 ---
 
-### User Story 4 - The same in Kotlin (Priority: P2)
+### User Story 4 - A Kotlin SDK of its own (Priority: P2)
 
 A Kotlin developer runs `ankka init cart --language kotlin` and gets the same project shape with a
-Kotlin build, then writes the same components in Kotlin against the Java API, with what Kotlin
-expects on top: a value Java gives as `Optional` is nullable, a builder that reads badly from
-Kotlin has an extension function, a data class is a state or an event as a Java record is. Nothing
-a Kotlin developer must write is Java-flavoured in a way that Kotlin idiom would not. The
-shopping cart sample is written in Kotlin too and passes the sample's features.
+Kotlin build, then writes the same components with the Kotlin SDK: a library over the Java SDK
+that declares components in Kotlin's own form, where a data class is a state or an event, a value
+the Java SDK may give as nothing is nullable, a value it takes may not be null, and a handler that
+calls a component or another service is a suspending function whose call parks rather than blocks.
+Everything the Java SDK can declare, the Kotlin SDK can, and a component declared in Kotlin's form
+is the component the Java SDK would have declared: same journal, same wire names, same effects.
+The Kotlin SDK has its own reference service, which passes the conformance suite, and the shopping
+cart sample is written in Kotlin and passes the sample's features.
 
-**Why this priority**: Kotlin is nearly free once Java exists, and leaving it out would hand
-Kotlin developers a Java-shaped API with no word on how to hold it.
+**Why this priority**: Kotlin developers would otherwise be handed a Java-shaped API, and a
+Kotlin team's first question is whether handlers can suspend.
 
 **Independent Test**: Run `ankka init` for Kotlin; build; test; run. Write the shopping cart in
-Kotlin and run the sample's features against it.
+Kotlin with suspending handlers and run the sample's features against it; run the conformance
+suite against the Kotlin reference service.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
+- added `features/java-kotlin/kotlin.feature`: a component declared in Kotlin's own form behaves as one declared through the Java SDK
+- added `features/java-kotlin/kotlin.feature`: a handler written as a suspending function calls a component and is answered
 - added `features/java-kotlin/kotlin.feature`: a value the Java SDK may give as nothing is nullable in Kotlin
 - added `features/java-kotlin/kotlin.feature`: a null given where the Java SDK takes a value is refused before the service is built
 - added `features/java-kotlin/kotlin.feature`: a data class is a state or an event as a Java record is
 - added `features/java-kotlin/kotlin.feature`: a data class's default is taken for a field that is absent, and a field with no default that is absent fails recovery
 - `features/polyglot/template.feature`: a service started from the template passes its tests with none left out
+- `features/polyglot/conformance.feature`: the conformance suite passes against the reference service in every language
 - `features/java-kotlin/embedded.feature`: the shopping cart written in Java or Kotlin passes the sample's own features
 
 ---
 
-### User Story 5 - Agents in Java and Kotlin (Priority: P3)
+### User Story 5 - Agents, judgments and blueprints in Java and Kotlin (Priority: P3)
 
 A Java developer writes an agent with a system message, tools whose schema and argument decoder
-come from one declaration, and a model from the installation's or a provider of their own; and an
-autonomous agent with tasks, guardrails and result checks. The agent loop is the runtime's, as it
-is for every language; the Java developer writes the decisions. A Kotlin developer does the same.
+come from one declaration, tools that need approval, MCP servers whose tools are offered to the
+model, guardrails and result guardrails, and a model from the installation's or a provider of
+their own; an autonomous agent with tasks, task types, guardrails and result checks; judgments
+asked of a judgment provider; and blueprints with their steps. The agent loop is the runtime's,
+as it is for every language; the Java developer writes the decisions. A Kotlin developer does
+the same with the Kotlin SDK.
 
 **Why this priority**: Agents are the platform's purpose, but the facade for them follows the one
 for entities, and a team can prove the model with entities first.
 
 **Independent Test**: Write the research digest sample's agent in Java against the scripted model
-provider; run one turn with one tool.
+provider; run one turn with one tool; run the autonomous agent through a task.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
@@ -203,6 +277,13 @@ provider; run one turn with one tool.
 - changed `features/polyglot/agents.feature`: an agent's reply reaches its caller as a stream while the model produces it
 - changed `features/polyglot/agents.feature`: a session survives a restart of the developer's code
 - changed `features/polyglot/agents.feature`: a tool that fails is told to the model and the loop goes on
+- changed `features/agents/languages.feature`: a tool that requires approval waits for a decision in every language
+- changed `features/agents/languages.feature`: an approved tool call runs once after a restart in every language
+- changed `features/agents/languages.feature`: an autonomous agent's wait for a decision uses none of the task's budget in every language
+- changed `features/agents/languages.feature`: a tool's call to another service is admitted in every language
+- changed `features/agents/languages.feature`: an MCP server's tools are offered to the model in every language
+- changed `features/agents/languages.feature`: a result guardrail keeps an MCP server's result from the model in every language
+- changed `features/autonomous-agents/documentation.feature`: the documentation shows how to build an autonomous agent in each language from tested code
 
 ---
 
@@ -266,14 +347,19 @@ coding agent holding the Java skill to write an entity and check what it writes 
 
 **The Java API**
 
-- **FR-001**: The Java SDK MUST let a developer declare components of these kinds in Java with
-  nothing on the surface that is a Scala type: event sourced entity, key value entity, HTTP
-  endpoint, and [NEEDS CLARIFICATION: which further kinds this feature carries: (A) every kind the
-  Scala SDK has, agents, gRPC, MCP, sockets, graph consumers, storage and secrets included, in one
-  feature; (B) views, keyed views, consumers, workflows, timers and timed actions, the component
-  and service clients, the secret store and object storage now, with agents, autonomous agents,
-  gRPC endpoints, MCP endpoints, socket routes and graph consumers in a follow-on spec; (C) entities,
-  endpoints, the component client and the test kits only, everything else later].
+- **FR-001**: The Java SDK MUST let a developer declare, in Java with nothing on the surface that
+  is a Scala type, every kind of component the Scala SDK has and every capability of each: event
+  sourced entities (snapshots, deletion, expiry, replication, personal fields and erasure
+  handlers), key value entities, views and keyed views (declared, recursive, streamed and watched
+  queries, versions, several sources, workflow sources), consumers and graph consumers, workflows
+  (steps, pauses, timeouts, retries, compensation, the wait for an end), timed actions and timers
+  (once and recurring), agents (tools, approvals, guardrails, result guardrails, MCP servers,
+  providers and presets, compaction), judgments, autonomous agents (tasks, task types, result
+  checks, notifications), blueprints, HTTP endpoints (routes, bodies, streams, server-sent events,
+  socket routes, ACLs, authenticated routes), gRPC endpoints, MCP endpoints (tools, client keys,
+  brokered sign-in), the component client, the service client, the secret store and the storage
+  client. The Scala SDK reference page is the list; a capability on it with no Java form is a
+  defect of this feature.
 - **FR-002**: A handler's wire name MUST be declared separately from its method name, and a
   query handler MUST be unable to persist: the Java compiler refuses it.
 - **FR-003**: Registration MUST be explicit, and the SDK MUST collect every problem with a
@@ -316,40 +402,40 @@ coding agent holding the Java skill to write an entity and check what it writes 
   with an entity, a view, an endpoint, tests at both levels, the compose file, the descriptor, a
   Dockerfile or image build, the GitHub workflows and the Claude Code skills, as the other
   templates do, pinned to the CLI's own version; the project MUST build and pass its tests with
-  only a JDK and Docker installed, carrying its build tool's wrapper, using [NEEDS CLARIFICATION:
-  which build tool each template uses: (A) Maven for Java and Gradle with the Kotlin DSL for
-  Kotlin, each what its community expects; (B) Gradle for both, one template engine and one CI
-  shape; (C) Maven for both].
+  only a JDK and Docker installed, carrying its build tool's wrapper: Maven for the Java template
+  and Gradle with the Kotlin DSL for the Kotlin template.
 - **FR-015**: Continuous integration MUST expand each template and run its tests, as it does for
   the Scala, Python, TypeScript and Rust templates, and only when a pull request touches what the
   template reads.
 - **FR-016**: The shopping cart sample MUST be written in Java and in Kotlin, every component of
   it that the feature's kinds cover, and MUST pass the sample's own living features.
-- **FR-017**: A Java reference service MUST declare the same components, wire names and routes as
-  the Scala reference service, and the conformance suite MUST pass against it in process, as it
-  does against the Scala one.
+- **FR-017**: A Java reference service and a Kotlin reference service MUST each declare the same
+  components, wire names and routes as the Scala reference service, and the conformance suite MUST
+  pass against each in process, as it does against the Scala one.
 - **FR-018**: A test MUST prove that a journal written by the Scala shopping cart is recovered by
   the Java one, and the reverse.
 
 **Kotlin**
 
-- **FR-019**: The Kotlin support MUST consist of a template, a sample, a first-service page, a
-  reference page and a skill, plus [NEEDS CLARIFICATION: whether a Kotlin library is published:
-  (A) no library, Kotlin calls the Java API directly and the documentation shows the idiom; (B) a
-  small published Kotlin library of extension functions and nullable-returning forms, nothing a
-  Java developer sees; (C) a Kotlin library with its own component DSL and suspending client
-  calls].
+- **FR-019**: The Kotlin SDK MUST be a published library over the Java SDK with component
+  declarations in Kotlin's own form for every kind FR-001 names, a template, a sample, a reference
+  service, a first-service page, a reference page and a skill. A component declared through it
+  MUST be the component the Java SDK would declare: the same wire names, effects and journal.
+- **FR-019a**: A Kotlin handler MUST be writable as a suspending function, and the Kotlin SDK's
+  component client and service client MUST offer suspending calls that park the handler rather
+  than block a thread, with the same rules about which components may call what.
 - **FR-020**: Where the Java API gives `Optional`, Kotlin MUST see a nullable type; where the Java
   API takes an object, Kotlin MUST see a non-nullable parameter, so a `null` is refused at compile
   time.
 - **FR-021**: A Kotlin data class MUST serve as a state or an event exactly as a Java record does,
-  under the same encoding.
+  under the same encoding, with a default taken for an absent field and an absent field with no
+  default failing recovery by name.
 
 **Publishing, documentation, skills**
 
-- **FR-022**: The Java SDK, its test kits and any Kotlin library MUST be published to Maven
-  Central from a release tag of this repository, with the platform's own artifacts, under the
-  same version, with no hand step.
+- **FR-022**: The Java SDK, the Kotlin SDK and their test kits MUST be published to Maven Central
+  from a release tag of this repository, with the platform's own artifacts, under the same
+  version, with no hand step.
 - **FR-023**: The documentation MUST gain a first-service page and an SDK reference page for Java
   and for Kotlin, with samples included from tested code, and every page, skill and tool
   description that names the supported languages MUST name Java and Kotlin.
@@ -365,8 +451,9 @@ coding agent holding the Java skill to write an entity and check what it writes 
 
 - **Java SDK**: the library a Java developer writes a service with; an SDK in the glossary's
   sense, the first that is hosted in the platform's own process rather than speaking the protocol.
-- **Kotlin SDK**: what a Kotlin developer writes a service with: the Java SDK, a template, a
-  sample, documentation and a skill, and whatever the third clarification settles.
+- **Kotlin SDK**: the library a Kotlin developer writes a service with: component declarations in
+  Kotlin's own form and suspending client calls over the Java SDK, with its own template, sample,
+  reference service, documentation and skill.
 - **Facade**: the Java-shaped form of a Scala SDK type: it delegates to the Scala type and shows
   nothing Scala to its caller.
 - **Component test kit**, **test kit**, **encoding**, **fixture**, **reference service**,
@@ -379,9 +466,12 @@ coding agent holding the Java skill to write an entity and check what it writes 
 - **SC-001**: Every encoding fixture published with the protocol passes through the Java default
   serializer with 0 differences, and a Java record and a Scala case class of the same shape
   produce byte-identical journal records for the sample's whole feature run.
-- **SC-002**: The conformance suite passes against the Java reference service with 0 failures and
-  0 skips, in process, and the shopping cart written in Java and in Kotlin passes every one of the
-  sample's living features.
+- **SC-002**: The conformance suite passes against the Java and the Kotlin reference services with
+  0 failures and 0 skips, in process, and the shopping cart written in Java and in Kotlin passes
+  every one of the sample's living features.
+- **SC-008**: Every living feature scenario that runs for a Scala service runs for a Java and a
+  Kotlin service and passes; a scenario with a language table that lacks a Java or Kotlin row is a
+  finding.
 - **SC-003**: A journal written by the Scala shopping cart is recovered by the Java cart with
   every cart readable, and the reverse.
 - **SC-004**: A developer with a JDK and Docker installed and no other tool goes from an empty
@@ -413,7 +503,11 @@ coding agent holding the Java skill to write an entity and check what it writes 
   scenarios of feature 009 need no Java form.
 - The audience is developers who already run services on the JVM in Java or Kotlin, including
   those who know Akka's SDK; the first-service pages explain the model from scratch all the same.
-- Agents, where this feature carries them, are the runtime's loop with Java-declared tools, system
-  messages and guardrails, against the same scripted model provider the Scala tests use; no model
-  key is needed to test them.
+- Agents are the runtime's loop with Java-declared tools, system messages and guardrails, against
+  the same scripted model provider the Scala tests use; no model key is needed to test them.
+- The Kotlin SDK's suspending calls run on the same virtual threads every handler runs on; the
+  suspension is the Kotlin developer's view of a call the runtime already parks.
+- The feature is large by decision: full parity in one spec, so that no Java or Kotlin team ever
+  needs a Scala module. The plan orders the work by the user stories' priorities so that each
+  slice is tested and reviewable on its own.
 - Windows is out of scope for the CLI and the template, as it is today.

@@ -19,6 +19,8 @@ Feature: An authenticated route in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: an authenticated route challenges a token that does not verify in every language
     Given a service "orders" written in "<language>" that lists the issuer "customers" with the audience "shop"
@@ -33,6 +35,8 @@ Feature: An authenticated route in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a claim reaches the handler by name in every language
     Given a service "orders" written in "<language>" that lists the issuer "customers" with the audience "shop"
@@ -46,6 +50,8 @@ Feature: An authenticated route in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a service with an authenticated route and no issuer listed does not start
     Given a service "orders" written in "<language>" that lists no issuer

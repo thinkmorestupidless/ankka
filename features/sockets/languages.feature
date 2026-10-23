@@ -15,6 +15,8 @@ Feature: A socket route in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the handler of an authenticated socket route is told the principal in every language
     Given an issuer "customers" that signs tokens for the audience "shop"
@@ -29,6 +31,8 @@ Feature: A socket route in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a request to open a socket with no token is challenged in every language
     Given an issuer "customers" that signs tokens for the audience "shop"
@@ -44,6 +48,8 @@ Feature: A socket route in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a socket is closed when its handler finishes in every language
     Given a service "notices" written in "<language>" that declares the socket route "/stream"
@@ -56,6 +62,8 @@ Feature: A socket route in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario: the sockets of a process that stops are closed as failed
     Given a service "notices" hosted as a process that declares the socket route "/stream"

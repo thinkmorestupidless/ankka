@@ -15,6 +15,8 @@ Feature: Service secrets in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the database holds a service secret only encrypted in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -28,6 +30,8 @@ Feature: Service secrets in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a service secret that was never kept is read as none in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -40,6 +44,8 @@ Feature: Service secrets in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: keeping a service secret again replaces its value in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -53,3 +59,5 @@ Feature: Service secrets in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

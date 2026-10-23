@@ -13,13 +13,13 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — three remain, put to Trevor: the kinds this feature carries (FR-001), the templates' build tools (FR-014), whether a Kotlin library is published (FR-019)
+- [x] No [NEEDS CLARIFICATION] markers remain — the three were answered 2026-10-23 (full parity; Maven and Gradle; a Kotlin SDK of its own) and are encoded in Clarifications, FR-001, FR-014 and FR-019
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
 - [x] All acceptance scenarios are defined — named by rule; the living features hold them
 - [x] Edge cases are identified
-- [ ] Scope is clearly bounded — bounded once FR-001 is answered
+- [x] Scope is clearly bounded — every kind and capability the Scala SDK reference lists, in both languages
 - [x] Dependencies and assumptions identified
 
 ## Feature Readiness
@@ -32,4 +32,4 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
-- The three clarifications are the first three questions of `/speckit-clarify`; the scenarios of User Stories 3 to 5 are written in full and are removed or kept once FR-001 is answered.
+- All items pass as of 2026-10-23; ready for `/speckit-clarify`.

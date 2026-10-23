@@ -65,6 +65,8 @@ Feature: Who sent a request to an HTTP endpoint
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario: on a developer's machine every request comes from the local caller, and the service says once that callers are not checked
     Given a service "orders" running on a developer's machine

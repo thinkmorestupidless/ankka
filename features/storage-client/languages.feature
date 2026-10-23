@@ -16,6 +16,8 @@ Feature: The storage client in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the storage client lists, tells what an object is and deletes in every language
     Given a deployed service "listings" written in "<language>" with a bucket
@@ -29,6 +31,8 @@ Feature: The storage client in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: no object passes through the platform's own program
     Given a deployed service "listings" written in "<language>" with a bucket
@@ -53,6 +57,8 @@ Feature: The storage client in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the storage client in every language keeps its objects in a directory on a developer's machine
     Given a service "listings" written in "<language>" running on a developer's machine with no variable of an object store
@@ -65,3 +71,5 @@ Feature: The storage client in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

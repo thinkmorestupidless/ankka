@@ -24,6 +24,8 @@ Feature: The installation says where telemetry goes
       | Scala    |
       | Python   |
       | Rust     |
+      | Java     |
+      | Kotlin   |
 
   Scenario Outline: a descriptor may not give a telemetry setting
     Given a descriptor for a service "orders" that gives the variable "<variable>"

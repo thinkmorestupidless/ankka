@@ -17,6 +17,8 @@ Feature: Replicated entities in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario: a process declaring replication beside an older runtime is refused naming the protocol version
     Given a service "fleet" written in "Python" whose entity "vehicle" declares replication

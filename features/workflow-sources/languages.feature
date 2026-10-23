@@ -17,6 +17,8 @@ Feature: Workflow sources in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a consumer is handed a failed workflow's standing in every language
     Given a service "shop" written in "<language>" with a consumer "watchdog" that reads the workflow "checkout"
@@ -30,6 +32,8 @@ Feature: Workflow sources in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario: a runtime from before workflow sources refuses a program that declares one
     Given a service "shop" written in "Python" with a view "checkouts" that reads the workflow "checkout"
@@ -48,6 +52,8 @@ Feature: Workflow sources in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the component test kit hands a view a workflow change in every language
     Given a view "checkouts" written in "<language>" that reads the workflow "checkout"
@@ -60,3 +66,5 @@ Feature: Workflow sources in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

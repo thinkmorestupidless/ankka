@@ -37,6 +37,53 @@ type Service struct {
 	ClientAt func(address string) any
 	// Redirect points the client of a service already serving at another sidecar address.
 	Redirect func(address string)
+	// Components are the declared components, by id, with their detail.
+	Components map[string]*pb.Component
+	// Input encodes a value as the input of a component's handler wire, by the handler's codec.
+	Input func(componentID, wire string, value any) (*pb.Payload, error)
+	// Reply decodes a reply of a component's handler wire, by the handler's codec.
+	Reply func(componentID, wire string, p *pb.Payload) (any, error)
+	// Views are the views and keyed views, by component id.
+	Views map[string]*View
+	// Consumers are the consumers and graph consumers, by component id.
+	Consumers map[string]*Consumer
+	// TimedActions answer TimedAction.Invoke, by component id.
+	TimedActions map[string]server.TimedActionHandler
+	// Agents answer the agent conversation, by component id.
+	Agents map[string]server.AgentHandlers
+	// Mcp run an MCP endpoint's tools, by endpoint id.
+	Mcp map[string]server.McpHandler
+	// WithClient is ctx carrying the client (an *ankka.Client) a handler's calls go through.
+	WithClient func(ctx context.Context, client any) context.Context
+}
+
+// View is what a test kit needs of a view or a keyed view.
+type View struct {
+	ID    string
+	Keyed bool
+	// Sources are the component ids or topics the view reads.
+	Sources []string
+	Handle  server.ViewHandler
+	// Change encodes a change from the source sourceID (any, for a plain view), by its codec.
+	Change func(sourceID string, value any) (*pb.Payload, error)
+	// Row decodes a row, by the view's row codec.
+	Row func(p *pb.Payload) (any, error)
+	// EncodeRow encodes a row, by the view's row codec.
+	EncodeRow func(value any) (*pb.Payload, error)
+	// WithRows is ctx carrying a keyed view's rows: get reads one, ask answers a declared query.
+	WithRows func(ctx context.Context, get func(key string) (*pb.Payload, bool), ask func(name string, values map[string]string) ([]*pb.Payload, error)) context.Context
+}
+
+// Consumer is what a test kit needs of a consumer.
+type Consumer struct {
+	ID string
+	// Graph is whether it publishes graph deltas.
+	Graph  bool
+	Handle server.ConsumerHandler
+	// Message encodes a message, by the consumer's message codec.
+	Message func(value any) (*pb.Payload, error)
+	// Out decodes what the consumer produced, by its ProducesTo codec.
+	Out func(p *pb.Payload) (any, error)
 }
 
 // EventSourced is what a test kit needs of an event sourced entity.

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/thinkmorestupidless/ankka-go/internal/kit"
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 )
 
@@ -30,6 +31,20 @@ type viewChange[Row any] interface {
 	source() Source
 	codecProblem() string
 	run(ctx context.Context, change *pb.Payload, row *Row) (ViewEffect[Row], error)
+	encodeChange(v any) (*pb.Payload, error)
+}
+
+func (o *onChangePart[Src, Row]) encodeChange(v any) (*pb.Payload, error) {
+	return encodeAs(o.codec, v)
+}
+
+// encodeAs encodes v by c, refusing a value of another type.
+func encodeAs[T any](c Codec[T], v any) (*pb.Payload, error) {
+	t, ok := v.(T)
+	if !ok {
+		return nil, fmt.Errorf("a change here is a %s, not a %T", reflect.TypeFor[T](), v)
+	}
+	return payloadOf(c, t)
 }
 
 type onChangePart[Src, Row any] struct {
@@ -225,6 +240,22 @@ func (v *ViewComponent[Row]) declare(d *declarations) {
 	}
 	d.components = append(d.components, &pb.Component{Kind: pb.Kind_VIEW, Id: v.id, Detail: &pb.Component_View{View: detail}})
 	d.views[v.id] = v.handle
+	k := &kit.View{
+		ID:        v.id,
+		Handle:    v.handle,
+		Row:       func(p *pb.Payload) (any, error) { return valueOf(v.rowCodec, p) },
+		EncodeRow: func(r any) (*pb.Payload, error) { return encodeAs(v.rowCodec, r) },
+		Change: func(_ string, c any) (*pb.Payload, error) {
+			if len(v.changes) != 1 {
+				return nil, errors.New("the view has no handler")
+			}
+			return v.changes[0].encodeChange(c)
+		},
+	}
+	if len(v.changes) == 1 {
+		k.Sources = []string{source.describe()}
+	}
+	d.viewKits[v.id] = k
 }
 
 // handle is one change to the view: its row's fate.
@@ -305,7 +336,10 @@ type keyedChange[Row any] interface {
 	codecProblem() string
 	run(ctx context.Context, change *pb.Payload, rows ViewRows[Row]) (KeyedViewEffect[Row], error)
 	deleted(ctx context.Context, rows ViewRows[Row]) (KeyedViewEffect[Row], error)
+	encodeChange(v any) (*pb.Payload, error)
 }
+
+func (o *onKeyedPart[Src, Row]) encodeChange(v any) (*pb.Payload, error) { return encodeAs(o.codec, v) }
 
 type onKeyedPart[Src, Row any] struct {
 	src       Source
@@ -424,6 +458,61 @@ func (v *KeyedViewComponent[Row]) declare(d *declarations) {
 		DeclaredQueries: declaredProblems(d, where, v.declared),
 	}}})
 	d.views[v.id] = v.handle
+	k := &kit.View{
+		ID:        v.id,
+		Keyed:     true,
+		Handle:    v.handle,
+		Row:       func(p *pb.Payload) (any, error) { return valueOf(v.rowCodec, p) },
+		EncodeRow: func(r any) (*pb.Payload, error) { return encodeAs(v.rowCodec, r) },
+		Change: func(sourceID string, c any) (*pb.Payload, error) {
+			for _, s := range v.sources {
+				if s.source().componentID == sourceID {
+					return s.encodeChange(c)
+				}
+			}
+			return nil, fmt.Errorf("the keyed view %s reads no %q", v.id, sourceID)
+		},
+		WithRows: func(ctx context.Context, get func(string) (*pb.Payload, bool), ask func(string, map[string]string) ([]*pb.Payload, error)) context.Context {
+			return context.WithValue(ctx, rowsKey{}, ViewRows[Row](kitRows[Row]{codec: v.rowCodec, get: get, ask: ask}))
+		},
+	}
+	for _, s := range v.sources {
+		k.Sources = append(k.Sources, s.source().componentID)
+	}
+	d.viewKits[v.id] = k
+}
+
+// kitRows are a keyed view's rows as a test kit keeps them.
+type kitRows[Row any] struct {
+	codec Codec[Row]
+	get   func(string) (*pb.Payload, bool)
+	ask   func(string, map[string]string) ([]*pb.Payload, error)
+}
+
+func (r kitRows[Row]) Get(key string) (Row, bool, error) {
+	var zero Row
+	p, ok := r.get(key)
+	if !ok {
+		return zero, false, nil
+	}
+	row, err := valueOf(r.codec, p)
+	return row, err == nil, err
+}
+
+func (r kitRows[Row]) Ask(name string, values map[string]string) ([]Row, error) {
+	ps, err := r.ask(name, values)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Row, 0, len(ps))
+	for _, p := range ps {
+		row, err := valueOf(r.codec, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, nil
 }
 
 func (v *KeyedViewComponent[Row]) handle(ctx context.Context, req *pb.ViewRequest) (*pb.ViewEffect, error) {

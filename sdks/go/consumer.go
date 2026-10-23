@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/thinkmorestupidless/ankka-go/internal/kit"
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 )
 
@@ -23,6 +24,7 @@ type ConsumerComponent[Msg any] struct {
 	produces  *Publication
 	graphTo   string
 	encodeOut func(v any) (*pb.Payload, error)
+	decodeOut func(p *pb.Payload) (any, error)
 	outType   reflect.Type
 	outCodec  []string
 	version   int
@@ -35,6 +37,7 @@ type producesPart struct {
 	encode    func(v any) (*pb.Payload, error)
 	outType   reflect.Type
 	codecErrs []string
+	decode    func(p *pb.Payload) (any, error)
 }
 
 func (producesPart) part() {}
@@ -58,6 +61,7 @@ func ProducesTo[Out any](topic string, opts ...PublicationOption) Part {
 			}
 			return payloadOf(c, out)
 		},
+		decode: func(p *pb.Payload) (any, error) { return valueOf(c, p) },
 	}
 }
 
@@ -87,7 +91,7 @@ func newConsumer[Msg any](id string, source Source, parts []Part) *ConsumerCompo
 		switch p := p.(type) {
 		case producesPart:
 			pub := p.pub
-			c.produces, c.encodeOut, c.outType, c.outCodec = &pub, p.encode, p.outType, p.codecErrs
+			c.produces, c.encodeOut, c.decodeOut, c.outType, c.outCodec = &pub, p.encode, p.decode, p.outType, p.codecErrs
 		case whenDeletedPart:
 			c.onDelete = p.f
 		case sourceVersionPart:
@@ -179,6 +183,29 @@ func (c *ConsumerComponent[Msg]) declare(d *declarations) {
 	}
 	d.components = append(d.components, &pb.Component{Kind: pb.Kind_CONSUMER, Id: c.id, Detail: &pb.Component_Consumer{Consumer: detail}})
 	d.consumers[c.id] = c.handle
+	d.consumerKits[c.id] = c.kitView()
+}
+
+// kitView is the consumer as a test kit drives it.
+func (c *ConsumerComponent[Msg]) kitView() *kit.Consumer {
+	return &kit.Consumer{
+		ID:     c.id,
+		Graph:  c.graph != nil,
+		Handle: c.handle,
+		Message: func(v any) (*pb.Payload, error) {
+			m, ok := v.(Msg)
+			if !ok {
+				return nil, fmt.Errorf("%s reads %s, not a %T", c.id, reflect.TypeFor[Msg](), v)
+			}
+			return payloadOf(c.codec, m)
+		},
+		Out: func(p *pb.Payload) (any, error) {
+			if c.decodeOut == nil {
+				return nil, fmt.Errorf("%s produced a message and declares no ProducesTo", c.id)
+			}
+			return c.decodeOut(p)
+		},
+	}
 }
 
 var (

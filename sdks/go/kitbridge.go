@@ -1,6 +1,7 @@
 package ankka
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -52,6 +53,27 @@ func kitOf(service any) (*kit.Service, error) {
 	for id, w := range d.wfKits {
 		out.Workflows[id] = w
 	}
+	out.Components = map[string]*pb.Component{}
+	for _, c := range d.components {
+		out.Components[c.GetId()] = c
+	}
+	out.Input = func(componentID, wire string, v any) (*pb.Payload, error) {
+		h, ok := d.handlerParts[handlerKey(componentID, wire)]
+		if !ok {
+			return nil, fmt.Errorf("%s has no handler %q", componentID, wire)
+		}
+		return h.encodeInput(v)
+	}
+	out.Reply = func(componentID, wire string, p *pb.Payload) (any, error) {
+		h, ok := d.handlerParts[handlerKey(componentID, wire)]
+		if !ok {
+			return nil, fmt.Errorf("%s has no handler %q", componentID, wire)
+		}
+		return h.decodeReply(p)
+	}
+	out.Views, out.Consumers = d.viewKits, d.consumerKits
+	out.TimedActions, out.Agents, out.Mcp = d.timedActions, d.agents, d.mcpTools
+	out.WithClient = func(ctx context.Context, c any) context.Context { return WithClient(ctx, c.(*Client)) }
 	return out, nil
 }
 

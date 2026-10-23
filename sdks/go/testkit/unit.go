@@ -64,7 +64,10 @@ func (r *Result[S, E]) ExpireAfter() time.Duration { return r.expiry }
 // Option is an option of a unit kit.
 type Option func(*options)
 
-type options struct{ entityID string }
+type options struct {
+	entityID string
+	calling  []ankka.Declaration
+}
 
 // EntityID is the id of the instance the kit drives; "test-entity" by default.
 func EntityID(id string) Option { return func(o *options) { o.entityID = id } }

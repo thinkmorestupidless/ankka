@@ -56,6 +56,9 @@ type declarations struct {
 	esKits map[string]*kit.EventSourced
 	kvKits map[string]*kit.KeyValue
 	wfKits map[string]*kit.Workflow
+	// viewKits and consumerKits are the views and consumers as the test kits drive them.
+	viewKits     map[string]*kit.View
+	consumerKits map[string]*kit.Consumer
 }
 
 func newDeclarations() *declarations {
@@ -65,6 +68,8 @@ func newDeclarations() *declarations {
 		kvKits:        map[string]*kit.KeyValue{},
 		workflows:     map[string]func(string) server.WorkflowInstance{},
 		wfKits:        map[string]*kit.Workflow{},
+		viewKits:      map[string]*kit.View{},
+		consumerKits:  map[string]*kit.Consumer{},
 		views:         map[string]server.ViewHandler{},
 		consumers:     map[string]server.ConsumerHandler{},
 		timedActions:  map[string]server.TimedActionHandler{},

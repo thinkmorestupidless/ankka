@@ -26,17 +26,23 @@ import (
 type EndpointKit struct {
 	view   *kit.Service
 	client *ankka.Client
-	conn   *grpc.ClientConn
-	server *grpc.Server
+	stop   func()
 }
 
 // Endpoint is a kit for the endpoint e and the components its routes call. It panics, naming
 // each problem, when the declarations have problems a service would refuse to start with.
 func Endpoint(e *ankka.Endpoint, components ...ankka.Declaration) *EndpointKit {
 	v := view(ankka.NewService(append([]ankka.Declaration{e}, components...)...))
+	client, stop := serveStandIn(v)
+	return &EndpointKit{view: v, client: client, stop: stop}
+}
+
+// serveStandIn serves a stand-in for the sidecar's Client service, hosting the service's entities
+// in this process, and answers a client of it and how to stop it.
+func serveStandIn(v *kit.Service) (*ankka.Client, func()) {
 	lis := bufconn.Listen(1 << 20)
 	g := grpc.NewServer()
-	pb.RegisterClientServer(g, &standIn{view: v, entities: entityHosts(v)})
+	pb.RegisterClientServer(g, &standIn{view: v, entities: entityHosts(v), keyValues: keyValueHosts(v)})
 	go func() { _ = g.Serve(lis) }()
 	conn, err := grpc.NewClient("passthrough:///testkit",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
@@ -44,14 +50,14 @@ func Endpoint(e *ankka.Endpoint, components ...ankka.Declaration) *EndpointKit {
 	if err != nil {
 		panic("testkit: " + err.Error())
 	}
-	return &EndpointKit{view: v, client: v.Client(conn).(*ankka.Client), conn: conn, server: g}
+	return v.Client(conn).(*ankka.Client), func() {
+		_ = conn.Close()
+		g.Stop()
+	}
 }
 
 // Close stops the kit's stand-in for the sidecar.
-func (k *EndpointKit) Close() {
-	_ = k.conn.Close()
-	k.server.Stop()
-}
+func (k *EndpointKit) Close() { k.stop() }
 
 // Request is one request to a route.
 type Request struct {
@@ -138,18 +144,7 @@ func (k *EndpointKit) Do(ctx context.Context, req Request) *Response {
 		}
 		in.Body, in.ContentType = body, contentType
 	}
-	if p := req.Principal; p != nil {
-		in.Principal = &pb.Principal{Subject: p.Subject, EmailVerified: p.EmailVerified, Roles: p.Roles, Claims: p.Claims}
-		if p.Name != "" {
-			in.Principal.Name = &p.Name
-		}
-		if p.Email != "" {
-			in.Principal.Email = &p.Email
-		}
-		if p.Issuer != "" {
-			in.Principal.Issuer = &p.Issuer
-		}
-	}
+	in.Principal = principalOf(req.Principal)
 	res, err := server.GuardValue(func() (*pb.HttpResponse, error) { return k.view.HTTP(ankka.WithClient(ctx, k.client), in) })
 	if err != nil {
 		return &Response{Status: http.StatusInternalServerError, Failure: err}
@@ -159,6 +154,62 @@ func (k *EndpointKit) Do(ctx context.Context, req Request) *Response {
 		header.Add(p.GetName(), p.GetValue())
 	}
 	return &Response{Status: int(res.GetStatus()), ContentType: res.GetContentType(), Header: header, Body: res.GetBody()}
+}
+
+// principalOf is p as the protocol carries it, or nil.
+func principalOf(p *ankka.Principal) *pb.Principal {
+	if p == nil {
+		return nil
+	}
+	out := &pb.Principal{Subject: p.Subject, EmailVerified: p.EmailVerified, Roles: p.Roles, Claims: p.Claims}
+	if p.Name != "" {
+		out.Name = &p.Name
+	}
+	if p.Email != "" {
+		out.Email = &p.Email
+	}
+	if p.Issuer != "" {
+		out.Issuer = &p.Issuer
+	}
+	return out
+}
+
+func keyValueHosts(v *kit.Service) map[string]*keyValueHost {
+	out := map[string]*keyValueHost{}
+	for id, e := range v.KeyValue {
+		out[id] = &keyValueHost{e: e, instances: map[string]server.KeyValueInstance{}}
+	}
+	return out
+}
+
+// keyValueHost holds a key value entity's instances, as the sidecar holds their conversations.
+type keyValueHost struct {
+	e         *kit.KeyValue
+	instances map[string]server.KeyValueInstance
+	next      int64
+}
+
+func (h *keyValueHost) command(ctx context.Context, entityID, wire string, payload *pb.Payload, md *pb.Metadata) (*pb.KeyValueOut_Reply, error) {
+	inst, ok := h.instances[entityID]
+	if !ok {
+		inst = h.e.New(entityID)
+		init := &pb.KeyValueIn_Init{ComponentId: h.e.ID, EntityId: entityID}
+		if err := server.Guard(func() error { return inst.Recover(ctx, init) }); err != nil {
+			return nil, err
+		}
+		h.instances[entityID] = inst
+	}
+	h.next++
+	reply, err := server.GuardValue(func() (*pb.KeyValueOut_Reply, error) {
+		return inst.Command(ctx, &pb.KeyValueIn_Command{Id: h.next, Name: wire, Payload: payload, Metadata: md})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if reply.GetRetention().GetDeleteNow() != nil {
+		delete(h.instances, entityID)
+	}
+	return reply, nil
 }
 
 func entityHosts(v *kit.Service) map[string]*entityHost {
@@ -172,14 +223,22 @@ func entityHosts(v *kit.Service) map[string]*entityHost {
 // standIn answers the client's calls in place of the sidecar, from the kit's own hosts.
 type standIn struct {
 	pb.UnimplementedClientServer
-	view     *kit.Service
-	mu       sync.Mutex
-	entities map[string]*entityHost
+	view      *kit.Service
+	mu        sync.Mutex
+	entities  map[string]*entityHost
+	keyValues map[string]*keyValueHost
 }
 
 func (s *standIn) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if kv, ok := s.keyValues[req.GetComponentId()]; ok {
+		reply, err := kv.command(ctx, req.GetEntityId(), req.GetName(), req.GetPayload(), req.GetMetadata())
+		if err != nil {
+			return &pb.InvokeReply{Result: &pb.InvokeReply_Error{Error: server.ErrorOf(err)}}, nil
+		}
+		return outcomeReply(reply.GetOutcome()), nil
+	}
 	h, ok := s.entities[req.GetComponentId()]
 	if !ok {
 		if _, declared := s.view.Kinds[req.GetComponentId()]; declared {
@@ -194,13 +253,18 @@ func (s *standIn) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.Invoke
 	if f := out.GetFailure(); f != nil {
 		return &pb.InvokeReply{Result: &pb.InvokeReply_Error{Error: f.GetError()}}, nil
 	}
-	switch o := out.GetReply().GetOutcome().GetOutcome().(type) {
+	return outcomeReply(out.GetReply().GetOutcome()), nil
+}
+
+// outcomeReply is a handler's outcome as the client is answered it.
+func outcomeReply(o *pb.Outcome) *pb.InvokeReply {
+	switch o := o.GetOutcome().(type) {
 	case *pb.Outcome_Reply_:
-		return &pb.InvokeReply{Result: &pb.InvokeReply_Reply{Reply: o.Reply}}, nil
+		return &pb.InvokeReply{Result: &pb.InvokeReply_Reply{Reply: o.Reply}}
 	case *pb.Outcome_Error:
-		return &pb.InvokeReply{Result: &pb.InvokeReply_Error{Error: o.Error}}, nil
+		return &pb.InvokeReply{Result: &pb.InvokeReply_Error{Error: o.Error}}
 	}
-	return &pb.InvokeReply{Result: &pb.InvokeReply_Reply{Reply: &pb.Outcome_Reply{Payload: &pb.Payload{Manifest: "done"}}}}, nil
+	return &pb.InvokeReply{Result: &pb.InvokeReply_Reply{Reply: &pb.Outcome_Reply{Payload: &pb.Payload{Manifest: "done"}}}}
 }
 
 func sortedKeys[V any](m map[string]V) []string {

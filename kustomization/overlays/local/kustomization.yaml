@@ -44,6 +44,8 @@ components:
 resources:
   - platform-configmap.yaml
   - local-ca.yaml
+  # The gateway by a stable name inside the cluster, which CoreDNS answers the base domain with.
+  - gateway-in-cluster.yaml
 
 # A laptop's instance counts; see instances.yaml.
 patches:
@@ -171,6 +173,15 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+      # The in-cluster gateway's HTTPS port, so a pod calls https://<name>.<base>:<port> with the
+      # same port a browser on the host uses. deploy-local.sh patches it when kind publishes
+      # another port, as it rewrites the redirect's. Anchored: kustomize matches the name as an
+      # unanchored pattern, and a plain `name=https` also rewrote `https-443`.
+      - select:
+          kind: Service
+          name: ankka-gateway
+        fieldPaths:
+          - spec.ports.[name=^https$].port
   # Where every workload exports its telemetry: the operator renders it onto each service, and the
   # control plane exports there itself. Empty names no collector.
   - source:

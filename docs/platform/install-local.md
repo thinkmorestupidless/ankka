@@ -16,6 +16,13 @@ The local platform is the same platform a cloud cluster runs, with three local c
 into the node rather than pulled from a registry, certificates come from a certificate authority created
 inside the cluster, and the base domain resolves to `127.0.0.1`.
 
+Inside the cluster, every name under the base domain resolves to the gateway instead, on the same port
+as on your machine. A service can therefore call another at its public hostname, such as
+`https://cart-checkout.127.0.0.1.sslip.io:8443`, and the call goes through the gateway with the same
+routes and certificates a browser meets. The deploy script adds this to the cluster's DNS, CoreDNS, with
+a stable `ankka-gateway` Service in `envoy-gateway-system` for the names to resolve to. A cloud
+installation's domain resolves publicly to its load balancer and needs neither.
+
 ## Prerequisites
 
 - Docker, with enough memory for several JVMs; 8 GB for Docker is comfortable.

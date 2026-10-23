@@ -219,6 +219,24 @@ are written once, in `kustomization/overlays/local/platform-configmap.yaml`, and
 Deployments' `ANKKA_BASE_DOMAIN` and the control plane's own `HTTPRoute`; `ANKKA_BASE_DOMAIN` on the
 script overrides the domain for a machine whose resolver blocks sslip.io.
 
+Inside the cluster the base domain resolves to the gateway, so a pod calls a service at its public
+hostname (a product's hub calling an agent, a token verified against the public issuer); on its own
+sslip.io answers 127.0.0.1 there, which is the pod itself. Two pieces: `overlays/local/gateway-in-cluster.yaml`,
+a ClusterIP `Service` `ankka-gateway` in `envoy-gateway-system` selecting the proxy pods by their
+owning-gateway labels, with `https` on `httpsPort` (replaced from `ankka-platform`, and patched by the
+script to `docker port`'s answer when that differs) and 443 and 80, all onto Envoy's shifted container
+ports 10443 and 10080; and a step in the script that inserts a `rewrite stop { name regex
+(.*)\.<base>\.?$ ankka-gateway.envoy-gateway-system.svc.cluster.local; answer auto }` block before the
+`kubernetes` plugin in the `coredns` ConfigMap's Corefile, applies it and restarts CoreDNS, once. The
+overlay cannot carry the Corefile: kubeadm owns that ConfigMap and its content moves with kind's
+version, so the script edits it in place and a re-run finds the block and changes nothing. The
+replacement's selector is `[name=^https$]`: kustomize matches a name as an unanchored pattern, and
+`[name=https]` also rewrote `https-443` (`RemoteOverlaySuite` pins it).
+
+- **A kind node that filled its disk does not heal when the disk is freed.** CNPG's controller stays in
+  `CrashLoopBackOff` and the kubelet keeps logging "probe already exists". Delete the cluster and create
+  it again. (2026-10-23, T6 run 2)
+
 It ends by `rollout restart`ing the operator and control plane. Without that a *re*-run changes
 nothing that is running: the manifests are unchanged and the tag is still `:latest`, so `kubectl
 apply` sees no difference, nothing rolls, and the pods keep executing the image they started with

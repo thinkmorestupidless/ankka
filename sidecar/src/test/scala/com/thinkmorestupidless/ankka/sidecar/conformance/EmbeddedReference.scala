@@ -6,8 +6,7 @@ import com.thinkmorestupidless.ankka.javasdk.conformance.ConformanceEntry
 import com.thinkmorestupidless.ankka.runtime.RuntimeExtension
 import com.thinkmorestupidless.ankka.sdk.TimerScheduler
 
-import java.net.URLClassLoader
-import java.nio.file.{Files, Path}
+import java.nio.file.Path
 
 /**
  * A reference service the runtime in this JVM hosts itself, with no sidecar and no protocol: the
@@ -57,8 +56,9 @@ object EmbeddedReference:
 
   /**
    * `scala`, `java`, or `classpath:<file>:<class>`, a class implementing `ConformanceEntry` in a
-   * jar or directory. Anything else is an error, never the Scala reference: a run that asked for
-   * another language and drove Scala would report Scala's result as that language's.
+   * jar, a directory, or a `.txt` listing several (`ClasspathReference`). Anything else is an
+   * error, never the Scala reference: a run that asked for another language and drove Scala would
+   * report Scala's result as that language's.
    */
   def named(value: Option[String]): EmbeddedReference =
     value.map(_.trim).filter(_.nonEmpty).getOrElse("scala") match
@@ -67,11 +67,7 @@ object EmbeddedReference:
       case other if other.startsWith("classpath:") =>
         other.stripPrefix("classpath:").split(":", 2) match
           case Array(file, cls) if file.nonEmpty && cls.nonEmpty =>
-            val path = Path.of(file)
-            if !Files.exists(path) then
-              throw IllegalArgumentException(s"ankka.conformance.reference: no file at $path")
-            val loader = URLClassLoader(Array(path.toUri.toURL), getClass.getClassLoader)
-            adapt(entry(loader, cls))
+            adapt(entry(ClasspathReference.loader(Path.of(file), getClass.getClassLoader), cls))
           case _ =>
             throw IllegalArgumentException(
               s"ankka.conformance.reference=$other: expected classpath:<file>:<class>"

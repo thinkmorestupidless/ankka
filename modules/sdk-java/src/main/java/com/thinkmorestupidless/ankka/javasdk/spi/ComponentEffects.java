@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.javasdk.bridge.EntityCell;
 import com.thinkmorestupidless.ankka.javasdk.bridge.Effects;
 import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
 import com.thinkmorestupidless.ankka.javasdk.component.EventSourcedEntity;
+import com.thinkmorestupidless.ankka.javasdk.component.GraphConsumer;
 import com.thinkmorestupidless.ankka.javasdk.component.KeyValueEntity;
 import com.thinkmorestupidless.ankka.javasdk.component.KeyedView;
 import com.thinkmorestupidless.ankka.javasdk.component.TimedAction;
@@ -11,6 +12,7 @@ import com.thinkmorestupidless.ankka.javasdk.component.View;
 import com.thinkmorestupidless.ankka.javasdk.component.Workflow;
 import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffects;
 import com.thinkmorestupidless.ankka.javasdk.effect.EventSourcedEffects;
+import com.thinkmorestupidless.ankka.javasdk.effect.GraphEffects;
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyValueEffects;
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyedViewEffects;
 import com.thinkmorestupidless.ankka.javasdk.effect.StepEffects;
@@ -45,6 +47,10 @@ public final class ComponentEffects {
 
   public static <Out> ConsumerEffects<Out> of(Consumer<?, Out> consumer) {
     return (ConsumerEffects<Out>) Effects.consumer();
+  }
+
+  public static GraphEffects of(GraphConsumer<?> consumer) {
+    return Effects.graph();
   }
 
   public static TimedActionEffects of(TimedAction action) {

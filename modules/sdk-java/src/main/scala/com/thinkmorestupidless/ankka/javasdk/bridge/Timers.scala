@@ -56,16 +56,20 @@ private[ankka] final class ActionIndex(plans: Vector[TimedActionPlan]):
       lambda.getImplMethodName,
       lambda.getImplMethodSignature
     )
-    byKey.getOrElse(
-      key,
-      throw CallerError(
-        if key._2.startsWith("lambda$") then
-          "a timer names its action with a method reference, such as CartTimers::expire, not a lambda"
-        else
-          s"${key._1}::${key._2} is not a registered @Action: it has no @Action, or " +
-            s"${key._1.split('.').last} is not registered with this service"
+    // Kotlin hands `Reminder::remind` over as an adapter of its own (`remind$remind`), which the
+    // registry reads through to the action it calls, as it does a handler's.
+    byKey
+      .get(key)
+      .orElse(Refs.throughAdapter(lambda, ref.getClass.getClassLoader).flatMap(byKey.get))
+      .getOrElse(
+        throw CallerError(
+          if key._2.startsWith("lambda$") then
+            "a timer names its action with a method reference, such as CartTimers::expire, not a lambda"
+          else
+            s"${key._1}::${key._2} is not a registered @Action: it has no @Action, or " +
+              s"${key._1.split('.').last} is not registered with this service"
+        )
       )
-    )
 
   def call(ref: ActionRef[?, ?], input: Any): sdk.DeferredCall =
     val (plan, action) = resolve(ref)

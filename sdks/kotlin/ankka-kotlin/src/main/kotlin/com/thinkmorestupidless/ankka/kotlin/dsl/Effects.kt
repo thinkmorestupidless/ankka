@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.kotlin.dsl
 
 import com.thinkmorestupidless.ankka.javasdk.component.Consumer
 import com.thinkmorestupidless.ankka.javasdk.component.EventSourcedEntity
+import com.thinkmorestupidless.ankka.javasdk.component.GraphConsumer
 import com.thinkmorestupidless.ankka.javasdk.component.KeyValueEntity
 import com.thinkmorestupidless.ankka.javasdk.component.KeyedView
 import com.thinkmorestupidless.ankka.javasdk.component.TimedAction
@@ -11,6 +12,8 @@ import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect
 import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffects
 import com.thinkmorestupidless.ankka.javasdk.effect.Effect
 import com.thinkmorestupidless.ankka.javasdk.effect.EventSourcedEffects
+import com.thinkmorestupidless.ankka.javasdk.effect.GraphEffect
+import com.thinkmorestupidless.ankka.javasdk.effect.GraphEffects
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyValueEffects
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyedViewEffect
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyedViewEffects
@@ -64,6 +67,9 @@ inline fun <Row : Any> KeyedView<Row>.effects(build: KeyedViewEffects<Row>.() ->
 inline fun <Src : Any, Out : Any> Consumer<Src, Out>.effects(
     build: ConsumerEffects<Out>.() -> ConsumerEffect<Out>
 ): ConsumerEffect<Out> = ComponentEffects.of(this).build()
+
+inline fun <Src : Any> GraphConsumer<Src>.effects(build: GraphEffects.() -> GraphEffect): GraphEffect =
+    ComponentEffects.of(this).build()
 
 inline fun TimedAction.effects(build: TimedActionEffects.() -> TimedActionEffect): TimedActionEffect =
     ComponentEffects.of(this).build()

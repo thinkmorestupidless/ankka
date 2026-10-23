@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk.client;
 
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Calls to one other service over HTTP, as this service: mutual TLS on the platform, plain HTTP to
@@ -13,12 +14,17 @@ public interface ServiceClient {
   /** The service this client reaches, as named. */
   String target();
 
-  /** Any request, answered as it came. */
-  ServiceResponse request(String method, String path, byte[] body, String contentType);
+  /** Any request, answered as it came; a null body sends none, a null content type names none. */
+  ServiceResponse request(
+      String method, String path, byte @Nullable [] body, @Nullable String contentType);
 
   /** Any request with headers of its own, such as the caller's token to pass on. */
   ServiceResponse request(
-      String method, String path, byte[] body, String contentType, Map<String, String> headers);
+      String method,
+      String path,
+      byte @Nullable [] body,
+      @Nullable String contentType,
+      Map<String, String> headers);
 
   <R> R get(String path, Class<R> reply);
 

@@ -118,6 +118,7 @@ sections and the language lists; 100% of the Go code blocks are includes; the fe
 |---|---|---|
 | 2026-10-23, T023 | the example image | 23.3 MB |
 | 2026-10-23, T024 | `ANKKA_CONFORMANCE_ONLY='*es.*'`, cart and `conformance` only | 11 passed, 1 skipped (`es.late-reply-dropped`, skipped for every target), 4 failed: the `es.replicated-*` and `es.attribution` cases need `replicated-vehicle` (T039); suite 21 s |
+| 2026-10-23, T025 | the US1 loop by hand, compose's sidecar (protocol 1.21) and Postgres | the Go cart's carts read back after `docker compose restart sidecar`; the Scala sample (`sbt shoppingCart/run`, same Postgres) read the Go cart's checked-out cart field for field and refused it 409; the Go cart's image read, totalled and checked out the cart the Scala sample wrote. `es.journal-portable` first passed in T024's run |
 | 2026-10-23, T024 | `ANKKA_CONFORMANCE_ONLY='*discovery.*'` | 1 passed (`refuses-wrong-major`), 3 failed on components T039 adds (`lists-every-component`, `read-only-flag`, `workflow-source-needs-1.16`) |
 
 ## Reviewer's checklist

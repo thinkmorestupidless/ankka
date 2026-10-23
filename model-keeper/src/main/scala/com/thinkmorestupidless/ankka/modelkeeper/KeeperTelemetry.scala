@@ -241,6 +241,6 @@ object KeeperTelemetry:
     new KeeperTelemetry(tracing, meters, parallel, source)
 
   private object Getter extends TextMapGetter[String]:
-    def keys(carrier: String): java.lang.Iterable[String] = Seq("traceparent").asJava
+    override def keys(carrier: String): java.lang.Iterable[String] = Seq("traceparent").asJava
     def get(carrier: String, key: String): String =
       if key == "traceparent" then carrier else null

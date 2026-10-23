@@ -142,7 +142,10 @@ object ServiceKit:
         descriptors,
         extensions = extensions,
         settings = config,
-        localServices = localServices
+        localServices = localServices,
+        storage =
+          if settings.storageFromEnvironment then stk.StorageBackendChoice.FromEnvironment()
+          else stk.StorageBackendChoice.Memory()
       )
     }
 

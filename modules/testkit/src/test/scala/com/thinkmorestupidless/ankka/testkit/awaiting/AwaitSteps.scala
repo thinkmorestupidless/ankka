@@ -724,7 +724,12 @@ abstract class AwaitSteps(features: String) extends GherkinSuite(features) with 
   private def languageRow(language: String): Unit =
     assume(
       language == "Scala",
-      s"the $language row is run by the $language SDK's tests (sdks/${language.toLowerCase}/examples)"
+      if language == "Java" then
+        "the Java row is the conformance suite's wf.start-and-await and wf.await-failed against " +
+          "the Java reference (modules/sdk-java: sbt -Dankka.conformance.reference=java " +
+          "'sidecar/testOnly *.ConformanceSuite')"
+      else
+        s"the $language row is run by the $language SDK's tests (sdks/${language.toLowerCase}/examples)"
     )
     if kit == null then startCluster()
 

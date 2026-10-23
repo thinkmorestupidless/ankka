@@ -109,7 +109,7 @@ class StorageClientClusterFeatures
       "every SDK refuses the same object names for the same reasons" ->
         "ConformanceSuite (sidecar): storage.rules, every row of the fixture",
       "the storage client in every language keeps its objects in a directory on a developer's machine" ->
-        "StorageLocalFeatures (testkit) for Scala; sdks/python/tests/test_storage.py, sdks/typescript/test/storage.test.ts and sdks/rust/examples/shopping-cart/tests/storage.rs for the others"
+        "StorageLocalFeatures (testkit) for Scala; LocalStorageSuite (modules/testkit-java) for Java; sdks/python/tests/test_storage.py, sdks/typescript/test/storage.test.ts and sdks/rust/examples/shopping-cart/tests/storage.rs for the others"
     )
 
   private def otherFiles: Map[String, String] =

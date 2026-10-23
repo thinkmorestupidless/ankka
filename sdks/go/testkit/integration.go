@@ -212,6 +212,8 @@ func (k *Kit) Restart(ctx context.Context) error {
 type Beside struct {
 	container *testcontainers.DockerContainer
 	http      *HTTP
+	stop      sync.Once
+	stopped   error
 }
 
 // HTTP is the other service's HTTP port.
@@ -220,8 +222,11 @@ func (b *Beside) HTTP() *HTTP { return b.http }
 // Logs is the other service's log so far.
 func (b *Beside) Logs(ctx context.Context) string { return logsOf(ctx, b.container) }
 
-// Stop stops the other service.
-func (b *Beside) Stop(ctx context.Context) error { return b.container.Terminate(ctx) }
+// Stop stops the other service; a second call answers what the first did.
+func (b *Beside) Stop(ctx context.Context) error {
+	b.stop.Do(func() { b.stopped = b.container.Terminate(ctx) })
+	return b.stopped
+}
 
 // StartBeside starts another image against the kit's database (the Scala shopping cart, say, to
 // prove the journal is shared) and waits for its health route on port 9000.
@@ -269,7 +274,7 @@ func (k *Kit) Stop(ctx context.Context) error {
 		k.serveStop = nil
 	}
 	for _, b := range besides {
-		errs = append(errs, b.container.Terminate(ctx))
+		errs = append(errs, b.Stop(ctx))
 	}
 	if sidecar != nil {
 		errs = append(errs, sidecar.Terminate(ctx))

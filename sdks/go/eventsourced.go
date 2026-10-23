@@ -40,7 +40,7 @@ type esRun[S, E any] interface {
 }
 
 // EventSourced declares an event sourced entity. events is the registration of the event
-// interface's cases; empty is the state of an entity with no events, given its id; apply folds one event into the
+// interface's cases (nil when E is a struct, a single kind of event); empty is the state of an entity with no events, given its id; apply folds one event into the
 // state and must do nothing else. The parts are its handlers (Command, Query) and options
 // (SnapshotEvery, StateCodec, EventCodec, Replicated, ApplyWithContext).
 func EventSourced[S, E any](id string, events *SumType[E], empty func(entityID string) S, apply func(state S, event E) S, parts ...Part) *EventSourcedEntity[S, E] {
@@ -168,7 +168,7 @@ func (e *EventSourcedEntity[S, E]) declare(d *declarations) {
 		where = fmt.Sprintf("event sourced entity of %s", reflect.TypeFor[S]())
 		d.problem(where, "an event sourced entity has an id")
 	}
-	if e.events == nil {
+	if e.events == nil && reflect.TypeFor[E]().Kind() == reflect.Interface {
 		d.problem(where, "an event sourced entity is given its events' cases (ankka.Cases)")
 	}
 	if e.empty == nil || e.apply == nil {

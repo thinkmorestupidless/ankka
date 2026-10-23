@@ -112,6 +112,14 @@ sections and the language lists; 100% of the Go code blocks are includes; the fe
 | the example image | size in MB; `docker run --rm --entrypoint sh` fails (no shell) |
 | the released module | `go get …@v<version>` in an empty directory: time from tag to first successful fetch |
 
+### Recorded
+
+| When | What | Result |
+|---|---|---|
+| 2026-10-23, T023 | the example image | 23.3 MB |
+| 2026-10-23, T024 | `ANKKA_CONFORMANCE_ONLY='*es.*'`, cart and `conformance` only | 11 passed, 1 skipped (`es.late-reply-dropped`, skipped for every target), 4 failed: the `es.replicated-*` and `es.attribution` cases need `replicated-vehicle` (T039); suite 21 s |
+| 2026-10-23, T024 | `ANKKA_CONFORMANCE_ONLY='*discovery.*'` | 1 passed (`refuses-wrong-major`), 3 failed on components T039 adds (`lists-every-component`, `read-only-flag`, `workflow-source-needs-1.16`) |
+
 ## Reviewer's checklist
 
 - [ ] No file under `sidecar/`, `modules/`, `operator/`, `controlplane*/`, `crd/`, `protocol/` changed, except the three language-enumerating tests FR-041 carves out (`ModelProvidersDocumentationSuite`, `McpEndpointsDocumentationSuite`, `InitSuite`), whose diff is the word `go`; the conformance suite and the fixtures are untouched (FR-041, FR-042).

@@ -101,6 +101,18 @@ func (r *Route) ACL(acl *ACL) *Route {
 	return r
 }
 
+// routeManifest names a route's body and reply codecs: they cross as HTTP and carry no manifest, so
+// an unnamed type (a list, a map) is as good a body as a named one.
+const routeManifest = "http-body"
+
+// routeCodec is a route body's or reply's default codec, given routeManifest when its type is unnamed.
+func routeCodec[T any]() Codec[T] {
+	if t := reflect.TypeFor[T](); t.Name() == "" && t.Kind() != reflect.Pointer {
+		return CodecFor[T](Manifest(routeManifest))
+	}
+	return CodecFor[T]()
+}
+
 var paramPattern = regexp.MustCompile(`\{([^{}/]*)\}`)
 
 func newRoute(method, template string) *Route {
@@ -158,7 +170,7 @@ func bodiless[R any](method, template string, f func(context.Context, *Request) 
 func withBody[B, R any](method, template string, f func(context.Context, *Request, B) (R, error)) *Route {
 	r := newRoute(method, template)
 	r.hasBody = true
-	in := CodecFor[B]()
+	in := routeCodec[B]()
 	for _, p := range CodecProblems(in) {
 		r.problems = append(r.problems, fmt.Sprintf("its body, a %s: %s", reflect.TypeFor[B](), p))
 	}
@@ -178,7 +190,7 @@ func withBody[B, R any](method, template string, f func(context.Context, *Reques
 }
 
 var (
-	rawType  = reflect.TypeFor[RawResponse]()
+	rawType = reflect.TypeFor[RawResponse]()
 )
 
 // replyEncoder is how a route's reply of type R becomes a response: Done is 204 with no body, a
@@ -198,7 +210,7 @@ func replyEncoder[R any](r *Route) func(R) (*pb.HttpResponse, error) {
 			return &pb.HttpResponse{Status: int32(status), ContentType: raw.ContentType, Body: raw.Body, Headers: pairsOf(raw.Headers)}, nil
 		}
 	}
-	c := CodecFor[R]()
+	c := routeCodec[R]()
 	for _, p := range CodecProblems(c) {
 		r.problems = append(r.problems, fmt.Sprintf("its reply, a %s: %s", t, p))
 	}

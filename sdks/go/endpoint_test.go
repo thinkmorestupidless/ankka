@@ -33,6 +33,7 @@ var tAPI = NewEndpoint("/carts", AllowAll(),
 		return Done{}, Refuse(NotFound, "no such cart")
 	}),
 	Get("/broken", func(ctx context.Context, req *Request) (Done, error) { panic("the route broke") }),
+	Get("/names", func(ctx context.Context, req *Request) ([]string, error) { return []string{"a", "b"}, nil }),
 	Get("/me", func(ctx context.Context, req *Request) (string, error) {
 		return req.Principal.Subject + " in " + req.Principal.Claim("org"), nil
 	}).ACL(Authenticate(Issuer("keycloak"))),
@@ -98,6 +99,9 @@ func TestAProblemOrARefusalSetsTheStatus(t *testing.T) {
 	if got := call(t, c, &pb.HttpRequest{RouteId: "GET /broken"}); got.GetFailure() == nil || !strings.Contains(got.GetFailure().GetError().GetMessage(), "panicked") {
 		t.Fatalf("a panicking route answered %v", got)
 	}
+	if got := call(t, c, &pb.HttpRequest{RouteId: "GET /names"}).GetResponse(); string(got.GetBody()) != `["a","b"]` {
+		t.Fatalf("an unnamed reply type answered %v", got)
+	}
 	if got := call(t, c, &pb.HttpRequest{RouteId: "GET /nothing"}).GetResponse(); got.GetStatus() != 404 {
 		t.Fatalf("an unknown route answered %v", got)
 	}
@@ -121,7 +125,7 @@ func TestThePrincipalsClaimsByName(t *testing.T) {
 func TestTheEndpointDeclaresItsRoutes(t *testing.T) {
 	spec := NewService(tAPI).Spec()
 	e := spec.GetEndpoints()[0]
-	if e.GetPrefix() != "/carts" || e.GetAcl() != pb.Endpoint_ALLOW_ALL || len(e.GetRoutes()) != 7 {
+	if e.GetPrefix() != "/carts" || e.GetAcl() != pb.Endpoint_ALLOW_ALL || len(e.GetRoutes()) != 8 {
 		t.Fatalf("got %v", e)
 	}
 	for _, r := range e.GetRoutes() {

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit;
 
+import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcClients;
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
@@ -56,6 +57,16 @@ public final class AnkkaTestKit implements AutoCloseable {
   /** A client for {@link #http()}. */
   public HttpClient httpClient() {
     return kit.httpClient();
+  }
+
+  /** Where the service's gRPC endpoints are served, as {@code host:port}. Throws when none. */
+  public String grpcAddress() {
+    return kit.grpcAddress();
+  }
+
+  /** The service's gRPC clients, when it asked for them with {@code withGrpcClients()}. */
+  public GrpcClients grpcClients() {
+    return kit.grpcClients();
   }
 
   /** Stops the service and starts it again on the same database. */

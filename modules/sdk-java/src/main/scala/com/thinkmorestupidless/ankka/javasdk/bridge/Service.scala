@@ -10,6 +10,8 @@ import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint
 import com.thinkmorestupidless.ankka.http.{EndpointClients, HttpServer}
 import com.thinkmorestupidless.ankka.javasdk.problems.{DeclarationProblem, ServiceProblems}
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers
+import com.thinkmorestupidless.ankka.grpc as sgrpc
+import com.thinkmorestupidless.ankka.javasdk.grpc.{GrpcClients, GrpcEndpoint}
 import com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
@@ -21,6 +23,7 @@ import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 import scala.jdk.FutureConverters.*
+import scala.util.chaining.*
 
 /** A Java service definition: the classes it names, read at start. */
 final case class JavaServiceBuilder private (
@@ -28,7 +31,10 @@ final case class JavaServiceBuilder private (
     classes: Vector[(Class[?], Option[String])],
     endpoints: Vector[Class[?]],
     serializers: Declarations.Serializers,
-    http: Option[(String, Int)]
+    http: Option[(String, Int)],
+    grpcEndpoints: Vector[Class[?]] = Vector.empty,
+    grpc: Option[(String, Int)] = None,
+    grpcClients: Boolean = false
 ) extends ServiceBuilder:
 
   def this(name: String) = this(name, Vector.empty, Vector.empty, Map.empty, None)
@@ -44,12 +50,23 @@ final case class JavaServiceBuilder private (
 
   def withHttp(host: String, port: Int): ServiceBuilder = copy(http = Some(host -> port))
 
+  def withGrpcEndpoint(endpoint: Class[? <: GrpcEndpoint]): ServiceBuilder =
+    copy(grpcEndpoints = grpcEndpoints :+ endpoint)
+
+  def withGrpc(host: String, port: Int): ServiceBuilder = copy(grpc = Some(host -> port))
+
+  def withGrpcClients(): ServiceBuilder = copy(grpcClients = true)
+
   def withSerializer[A](tpe: Class[A], serializer: Serializer[A]): ServiceBuilder =
     copy(serializers = serializers + (tpe -> serializer))
 
   def start(): AnkkaService =
-    val read    = JavaServiceBuilder.read(classes, serializers, endpoints)
-    val service = JavaServiceBuilder.scalaBuilder(read, http).start()
+    val read =
+      JavaServiceBuilder.read(classes, serializers, endpoints, grpcEndpoints = grpcEndpoints)
+    val service = JavaServiceBuilder
+      .scalaBuilder(read, http)
+      .pipe(b => read.grpcExtensions(grpc, grpcClients).foldLeft(b)(_.withExtension(_)))
+      .start()
     JavaAnkkaService(name, service, read)
 
 private[ankka] object JavaServiceBuilder:
@@ -63,7 +80,8 @@ private[ankka] object JavaServiceBuilder:
       serializers: Declarations.Serializers = Map.empty,
       views: Map[Class[?], (String, Views.Companion)] = Map.empty,
       consumers: Vector[ConsumerPlan] = Vector.empty,
-      actions: ActionIndex = ActionIndex.empty
+      actions: ActionIndex = ActionIndex.empty,
+      grpcs: Vector[GrpcPlan] = Vector.empty
   ):
     /**
      * The platform's extensions the read components need, which a Java service never names: the
@@ -73,6 +91,31 @@ private[ankka] object JavaServiceBuilder:
       (if views.nonEmpty || consumers.nonEmpty then Vector(runtime.ProjectionRuntime())
        else Vector.empty) ++
         (if actions.isEmpty then Vector.empty else Vector(runtime.TimerRuntime()))
+
+    /** The gRPC server of the read gRPC endpoints, and the clients, when asked for. */
+    def grpcExtensions(
+        at: Option[(String, Int)],
+        clients: Boolean
+    ): Vector[runtime.RuntimeExtension] =
+      val factories = grpcs.map { plan => (scala: EndpointClients) =>
+        Grpc.scalaEndpoint(
+          plan,
+          GrpcCell(
+            Clients.of(scala.componentClient, refs),
+            Services.of(scala.services, serializers),
+            viewClient(scala.viewClient),
+            Stores.secrets(scala.secrets),
+            Stores.storage(scala.storage)
+          )
+        )
+      }
+      val server =
+        if factories.isEmpty then Vector.empty
+        else
+          Vector(at match
+            case Some((host, port)) => sgrpc.GrpcServer.at(host, port)(factories*)
+            case None               => sgrpc.GrpcServer.of(factories*))
+      server ++ (if clients then Vector(sgrpc.GrpcClients()) else Vector.empty)
 
     /** The Java timers over a running service's scheduler. */
     def timers(scala: sdk.TimerScheduler): Timers =
@@ -108,7 +151,8 @@ private[ankka] object JavaServiceBuilder:
       serializers: Declarations.Serializers,
       endpoints: Vector[Class[?]] = Vector.empty,
       /** Off for a component test kit, which hosts one component whatever it calls. */
-      checkReferences: Boolean = true
+      checkReferences: Boolean = true,
+      grpcEndpoints: Vector[Class[?]] = Vector.empty
   ): Read =
     val (viewClasses, others) = classes.partition((cls, _) => Views.isView(cls))
     val (consumerClasses, rest) =
@@ -123,17 +167,20 @@ private[ankka] object JavaServiceBuilder:
     val consumerResults =
       consumerClasses.map((cls, id) => Consumers.read(cls, id, serializers, entities))
     val routes = endpoints.map(Routes.read(_, serializers))
+    val grpcs  = grpcEndpoints.map(Grpc.read)
     val problems = results.collect { case Left(ps) => ps }.flatten ++
       viewResults.collect { case Left(ps) => ps }.flatten ++
       consumerResults.collect { case Left(ps) => ps }.flatten ++
       actionResults.collect { case Left(ps) => ps }.flatten ++
-      routes.collect { case Left(ps) => ps }.flatten
+      routes.collect { case Left(ps) => ps }.flatten ++
+      grpcs.collect { case Left(ps) => ps }.flatten
     val registered = results.collect { case Right(plan) => plan.cls }.toSet ++
       viewResults.collect { case Right(plan) => plan.cls } ++
       consumerResults.collect { case Right(plan) => plan.cls } ++
       actionResults.collect { case Right(plan) => plan.cls }
     val checked =
-      if checkReferences then (classes.map(_._1) ++ endpoints).distinct else Vector.empty
+      if checkReferences then (classes.map(_._1) ++ endpoints ++ grpcEndpoints).distinct
+      else Vector.empty
     val unregistered = checked.flatMap { cls =>
       References.components(cls).filterNot(registered).map { component =>
         val id = component.getAnnotation(classOf[ComponentId]).value
@@ -166,7 +213,8 @@ private[ankka] object JavaServiceBuilder:
       serializers,
       views.toMap,
       consumers,
-      actions
+      actions,
+      grpcs.collect { case Right(plan) => plan }
     )
 
   /** The Scala service of the read classes, its own checks reported as declaration problems. */
@@ -196,6 +244,8 @@ private[ankka] final class JavaAnkkaService(
   def secrets(): SecretStore             = Stores.secrets(scala.secrets)
   def storage(): ObjectStorage           = Stores.storage(scala.storage)
   def identity(): ServiceIdentity        = Stores.identity(scala.identity)
+  def grpcClients(): GrpcClients =
+    scala.extension[sgrpc.GrpcClients].fold(Grpc.noClients)(Grpc.clients)
   def timers(): Timers =
     scala
       .extension[runtime.TimerRuntime]

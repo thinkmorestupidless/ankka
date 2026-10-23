@@ -1,12 +1,15 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.bridge
 
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder
+import com.thinkmorestupidless.ankka.grpc as sgrpc
 import com.thinkmorestupidless.ankka.javasdk.bridge.{
   Clients,
+  Grpc,
   JavaServiceBuilder,
   JavaTimers,
   Stores
 }
+import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcClients
 import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceResponse, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
@@ -43,6 +46,13 @@ final class ServiceKit private (
     )
 
   def httpClient(): HttpClient = client
+
+  def grpcAddress(): String =
+    kit.service.grpcAddresses.headOption
+      .getOrElse(throw IllegalStateException("the service serves no gRPC endpoint"))
+
+  def grpcClients(): GrpcClients =
+    kit.service.extension[sgrpc.GrpcClients].fold(Grpc.noClients)(Grpc.clients)
 
   def restartService(): Unit = kit.restartService()
 
@@ -88,12 +98,18 @@ object ServiceKit:
     val builder = service match
       case b: JavaServiceBuilder => b
       case other => throw IllegalArgumentException(s"$other is not a service from Ankka.service")
-    val read = JavaServiceBuilder.read(builder.classes, builder.serializers, builder.endpoints)
+    val read = JavaServiceBuilder.read(
+      builder.classes,
+      builder.serializers,
+      builder.endpoints,
+      grpcEndpoints = builder.grpcEndpoints
+    )
     val scripted =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
     val http = read.platformExtensions ++
-      (if read.endpoints.isEmpty then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0))))
+      (if read.endpoints.isEmpty then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0)))) ++
+      read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
     val kit =
       try
         stk.AnkkaTestKit.start(

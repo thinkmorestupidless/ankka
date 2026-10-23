@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
+import com.thinkmorestupidless.ankka.javasdk.grpc.GrpcClients;
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
@@ -20,6 +21,9 @@ public interface AnkkaService extends AutoCloseable {
 
   /** The service's timers; refused when it registers no timed action. */
   Timers timers();
+
+  /** Channels to other services' gRPC; refused unless the service asked for them. */
+  GrpcClients grpcClients();
 
   /** The service's own secrets. */
   SecretStore secrets();

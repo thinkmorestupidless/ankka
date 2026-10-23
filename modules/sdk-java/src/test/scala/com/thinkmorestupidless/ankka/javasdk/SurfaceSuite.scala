@@ -25,6 +25,8 @@ abstract class SurfaceChecks(anchor: Class[?], root: String) extends munit.FunSu
       "java.",
       "javax.",
       "org.jspecify.",
+      // grpc-java's own descriptors and channels: what protoc generates for a Java gRPC service.
+      "io.grpc.",
       "com.thinkmorestupidless.ankka.javasdk.",
       "com.thinkmorestupidless.ankka.agent.javasdk."
     )

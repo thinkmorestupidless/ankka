@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
+import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 
@@ -9,6 +10,9 @@ public interface AnkkaService extends AutoCloseable {
 
   /** Calls to this service's components. */
   ComponentClient componentClient();
+
+  /** Where the endpoints are served, once ready. Throws when the service has no endpoint. */
+  URI httpAddress();
 
   /** Waits until the service has joined its cluster and can answer, at most twenty seconds. */
   void awaitReady();

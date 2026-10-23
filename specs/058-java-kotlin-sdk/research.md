@@ -547,4 +547,20 @@ assertion, since CI's machines vary, but it is a reviewer's checklist item.
   `annotations`. The Java base classes take their state from a cell the bridge sets while
   constructing them, so the Java surface has no setter; javac's `this-escape` lint is off for the
   same reason.
+- **What the code changed in the contract** (US1). `ServiceBuilder.withHttp(host, port)` says where
+  the endpoints are served (port 0 for a free one) and `AnkkaService.httpAddress()` names it; the
+  contract had the address and no way to choose it. `Response.ok`, `created` and `redirect` sit
+  beside `status`, `noContent`, `html`, `bytes` and `problem`; `Response.of` became `ok`, the word
+  the status has. `Acl.allowLocal` is not written: no Scala matcher admits only the local machine,
+  and locally every caller is `Local` already. A route parameter named as a template segment is
+  bound by its name (javac `-parameters`, which the templates set); `@Path` binds one named
+  otherwise. A throwing handler is answered as a Scala one is (the entity stops; the caller's wait
+  ends at `ankka.ask-timeout`), which FR-007 asks and `.claude/rules/runtime.md` already records;
+  the documentation steers to `effects().error(...)`.
+- **An unregistered component is found in the class file** (FR-003). A method reference such as
+  `ShoppingCart::addItem` is a constant of the class that writes it, so `References` reads the
+  constant pool of every registered component and endpoint once, at start, and names each
+  `@ComponentId` class there the service does not register. No bytecode library: the pool's layout
+  is fixed by the JVM specification. A call by component id and wire name is a string, not found
+  until it is made; the reference page says so.
 

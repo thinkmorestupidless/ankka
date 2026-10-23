@@ -10,5 +10,5 @@ import java.io.Serializable;
  */
 @FunctionalInterface
 public interface CommandRef<C, I, O> extends Serializable {
-  Effect<O> apply(C component, I input);
+  Effect<O> apply(C component, I input) throws Exception;
 }

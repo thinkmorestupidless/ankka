@@ -1146,7 +1146,7 @@ lazy val testkitJava = project
 /** The shopping cart written in Java, held to the sample's own features (feature 058). */
 lazy val shoppingCartJava = project
   .in(file("samples/shopping-cart-java"))
-  .dependsOn(sdkJava, agentJava, testkitJava % Test, shoppingCart % Test)
+  .dependsOn(sdkJava % "compile;test->test", agentJava, testkitJava % Test, shoppingCart % Test)
   .settings(commonSettings)
   .settings(
     name           := "sample-shopping-cart-java",

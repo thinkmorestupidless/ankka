@@ -67,8 +67,8 @@ public final class TestClient {
     return stubs.client();
   }
 
-  /** What the kits read: the classes and the transport. */
-  public KindKits.Stubs stubs() {
+  /** What the kits read: the classes and the transport. Not surface: the kits share a package. */
+  KindKits.Stubs stubs() {
     return stubs;
   }
 }

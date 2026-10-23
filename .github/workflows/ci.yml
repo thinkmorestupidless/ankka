@@ -258,6 +258,11 @@ jobs:
             command: testkit/test
           - group: sidecar
             command: sidecar/test
+          # The conformance suite once more, against the reference written through the Java SDK
+          # (feature 058): about three minutes on its own, so a runner of its own rather than a
+          # longer `sidecar`. It re-runs a `sidecar` suite with a switch, so `rest` subtracts nothing.
+          - group: conformance-java
+            command: -Dankka.conformance.reference=java 'sidecar/testOnly *.ConformanceSuite'
           - group: rest
             command: >-
               scalafmtCheckAll scalafmtSbtCheck

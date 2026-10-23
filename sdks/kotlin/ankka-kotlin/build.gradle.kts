@@ -7,7 +7,7 @@ dependencies {
     // java.util.concurrent.Flow.Publisher to and from a kotlinx Flow
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk9:1.11.0")
 
-    testImplementation("com.thinkmorestupidless:ankka-java-testkit:$ankkaVersion")
+    testImplementation(project(":ankka-kotlin-testkit"))
 }
 
 // Two carriers for every virtual thread, so a handler that held its carrier while it waited would

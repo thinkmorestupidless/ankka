@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.javasdk.Ankka
 import com.thinkmorestupidless.ankka.javasdk.Done
 import com.thinkmorestupidless.ankka.javasdk.problems.ServiceProblems
 import com.thinkmorestupidless.ankka.javasdk.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.kotlin.testkit.platformThreads
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -52,18 +53,15 @@ class SuspendingHandlerTest {
             HttpResponse.BodyHandlers.ofString(),
         )
 
-    private fun platformThreads(): Set<String> =
-        Thread.getAllStackTraces().keys.filter { !it.isVirtual }.map { "${it.name}#${it.threadId()}" }.toSet()
-
     @Test
     fun `a suspending route waits holding no platform thread and is answered by the entity it calls`() {
         assertEquals(200, waitThenAdd("warm-up").join().statusCode())
-        val before = platformThreads()
+        val before = kit.platformThreads
         val started = System.nanoTime()
 
         val waiting = (1..50).map { waitThenAdd("tally-$it") }
         Thread.sleep(WaitingEndpoint.WAIT_MILLIS / 2)
-        val during = platformThreads()
+        val during = kit.platformThreads
         val answers = waiting.map { it.join() }
         val elapsed = Duration.ofNanos(System.nanoTime() - started)
 
@@ -73,8 +71,7 @@ class SuspendingHandlerTest {
         }
         // The service's own pools may grow by a few threads under fifty connections; a handler that
         // held a thread while it waited would add one per handler.
-        val added = during - before
-        assertTrue(added.size < 10, "${added.size} platform threads appeared while 50 handlers waited: $added")
+        assertTrue(during - before < 10, "platform threads went from $before to $during while 50 handlers waited")
         assertTrue(
             elapsed < Duration.ofSeconds(5),
             "50 handlers each waiting ${WaitingEndpoint.WAIT_MILLIS} ms on two carriers took $elapsed",

@@ -1,0 +1,6 @@
+{
+  "manifest": "task-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiQ3JlYXRlZCIsImlkIjoidC0xIiwidHlwZU5hbWUiOiJhbnN3ZXIiLCJpbnN0cnVjdGlvbnMiOiJIb3cgbWFueSByZWQgaXRlbXM/IiwiYXR0YWNobWVudHMiOltdLCJkZXBlbmRlbmNpZXMiOlsidC0wIl0sImF0IjoxfQ==",
+  "value": {"type":"Created","id":"t-1","typeName":"answer","instructions":"How many red items?","attachments":[],"dependencies":["t-0"],"at":1}
+}

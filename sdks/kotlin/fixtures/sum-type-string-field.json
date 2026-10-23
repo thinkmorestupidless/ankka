@@ -1,0 +1,6 @@
+{
+  "manifest": "shopping-cart-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiSXRlbVJlbW92ZWQiLCJwcm9kdWN0SWQiOiJwMSJ9",
+  "value": {"type":"ItemRemoved","productId":"p1"}
+}

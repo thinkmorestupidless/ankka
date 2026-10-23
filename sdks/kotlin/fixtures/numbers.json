@@ -1,0 +1,6 @@
+{
+  "manifest": "numbers",
+  "content_type": "application/json",
+  "bytes_base64": "eyJiaWciOjkwMDcxOTkyNTQ3NDA5OTMsImhhbGYiOjEuNSwidGVuQmlsbGlvbiI6MS4wRTEwLCJ0ZW50aCI6MC4xLCJuZWdhdGl2ZSI6LTd9",
+  "value": {"big":9007199254740993,"half":1.5,"tenBillion":1.0E10,"tenth":0.1,"negative":-7}
+}

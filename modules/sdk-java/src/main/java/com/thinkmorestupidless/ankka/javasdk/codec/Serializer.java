@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.codec;
 import java.lang.reflect.Type;
 import java.util.Objects;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 
 /**
  * How a value crosses a boundary: into the journal, to another component, onto a topic.
@@ -14,8 +15,11 @@ import java.util.function.Function;
  * #of(Class)}), writing exactly what the Scala SDK writes for the same shape. Supply one of your own
  * with {@link #of(String, Function, Function)} for a type the derivation refuses; portability with
  * other languages is then yours to keep.
+ *
+ * <p>{@code A} may be a nullable type: the serializer of {@code Void} (the reply of a handler that
+ * answers nothing) reads every value as {@code null}.
  */
-public interface Serializer<A> {
+public interface Serializer<A extends @Nullable Object> {
 
   /** The logical type name written beside the bytes. */
   String manifest();

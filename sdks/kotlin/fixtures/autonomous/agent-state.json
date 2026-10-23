@@ -1,0 +1,6 @@
+{
+  "manifest": "agent-state",
+  "content_type": "application/json",
+  "bytes_base64": "eyJjb21wb25lbnRJZCI6ImFuc3dlcmVyIiwiaW5zdGFuY2VJZCI6ImktMSIsInBoYXNlIjoid29ya2luZyIsInN1c3BlbmRlZCI6ZmFsc2UsInRlcm1pbmF0ZWQiOmZhbHNlLCJjdXJyZW50VGFzayI6eyJ0YXNrSWQiOiJ0LTEiLCJpdGVyYXRpb24iOjIsImJ1ZGdldCI6NX0sInF1ZXVlZCI6WyJ0LTIiXSwidXNhZ2UiOnsiaW5wdXRUb2tlbnMiOjEyMCwib3V0cHV0VG9rZW5zIjozMH0sInRhc2tVc2FnZSI6eyJpbnB1dFRva2VucyI6MTIwLCJvdXRwdXRUb2tlbnMiOjMwfX0=",
+  "value": {"componentId":"answerer","instanceId":"i-1","phase":"working","suspended":false,"terminated":false,"currentTask":{"taskId":"t-1","iteration":2,"budget":5},"queued":["t-2"],"usage":{"inputTokens":120,"outputTokens":30},"taskUsage":{"inputTokens":120,"outputTokens":30}}
+}

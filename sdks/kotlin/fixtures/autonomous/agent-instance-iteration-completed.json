@@ -1,0 +1,6 @@
+{
+  "manifest": "agent-instance-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiSXRlcmF0aW9uQ29tcGxldGVkIiwiaXRlcmF0aW9uIjoyLCJ1c2FnZSI6eyJpbnB1dFRva2VucyI6MTIwLCJvdXRwdXRUb2tlbnMiOjMwfSwiYXQiOjN9",
+  "value": {"type":"IterationCompleted","iteration":2,"usage":{"inputTokens":120,"outputTokens":30},"at":3}
+}

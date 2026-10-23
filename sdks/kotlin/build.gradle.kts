@@ -40,6 +40,13 @@ subprojects {
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         maxParallelForks = 1
+        systemProperty("ankka.fixtures", rootProject.file("fixtures").absolutePath)
         testLogging { events("failed"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
     }
+}
+
+// The fixtures are a copy of protocol/fixtures, which every SDK reads; this says when they differ.
+tasks.register<Exec>("checkFixtures") {
+    description = "Fails when fixtures/ differs from the repository's protocol/fixtures"
+    commandLine("diff", "-r", rootProject.file("../../protocol/fixtures").absolutePath, rootProject.file("fixtures").absolutePath)
 }

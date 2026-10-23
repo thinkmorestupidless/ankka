@@ -1,0 +1,6 @@
+{
+  "manifest": "agent-notification",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiQXBwcm92YWxSZXF1ZXN0ZWQiLCJjb21wb25lbnRJZCI6Im9wZXJhdG9yIiwiaW5zdGFuY2VJZCI6ImktMSIsInRhc2tJZCI6InQtMSIsImFwcHJvdmFsSWQiOiJhLTEiLCJ0b29sIjoicmVzdGFydF9zZXJ2aWNlIiwiYXJndW1lbnRzIjoie1wic2VydmljZVwiOlwiY2FydFwifSIsImV4cGlyZXNBdCI6MTgwNSwiYXQiOjV9",
+  "value": {"type":"ApprovalRequested","componentId":"operator","instanceId":"i-1","taskId":"t-1","approvalId":"a-1","tool":"restart_service","arguments":"{\"service\":\"cart\"}","expiresAt":1805,"at":5}
+}

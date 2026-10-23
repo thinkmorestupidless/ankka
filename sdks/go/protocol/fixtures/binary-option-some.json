@@ -1,0 +1,6 @@
+{
+  "manifest": "option[int]",
+  "content_type": "application/octet-stream",
+  "bytes_base64": "ATQy",
+  "value": 42
+}

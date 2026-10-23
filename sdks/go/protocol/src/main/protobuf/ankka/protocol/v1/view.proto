@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service View { rpc Handle (ViewRequest) returns (ViewEffect); }
+
+message ViewRequest {
+  string component_id = 1;
+  Payload event = 2;                            // absent when deleted
+  Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence
+  optional Payload row = 4;                     // the current row, if any
+  bool deleted = 5;                             // the source was deleted: no event, the row is the process's to keep or drop
+  optional string source_id = 6;                // 1.13: a keyed view: the component this change is from. A keyed view is sent no `row`
+  optional WorkflowStanding standing = 7;       // 1.16: a change from a workflow source: where it stood once the effect was applied
+}
+
+message ViewEffect {
+  oneof effect {
+    Payload update_row = 1;
+    Empty delete_row = 2;
+    Empty ignore = 3;
+    RowChanges rows = 4;                        // 1.13: a keyed view's answer; empty is nothing
+  }
+}
+
+// 1.13: the rows one change writes and deletes, in order; a later change to a key wins.
+message RowChanges { repeated RowChange changes = 1; }
+message RowChange {
+  string key = 1;
+  oneof change { Payload upsert = 2; Empty delete = 3; }
+}

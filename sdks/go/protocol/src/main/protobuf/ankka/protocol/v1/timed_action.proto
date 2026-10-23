@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service TimedAction { rpc Invoke (TimedActionRequest) returns (TimedActionEffect); }
+
+message TimedActionRequest { string component_id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }
+
+message TimedActionEffect { oneof effect { Empty done = 1; Error fail = 2; } }

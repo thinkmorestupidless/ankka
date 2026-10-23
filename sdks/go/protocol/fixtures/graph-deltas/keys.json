@@ -1,0 +1,99 @@
+[
+  {
+    "delta": {
+      "kind": "node",
+      "id": "cart:cart-1",
+      "version": 1790627790360,
+      "labels": [
+        "Cart"
+      ],
+      "properties": {
+        "cartId": "cart-1"
+      }
+    },
+    "key": "node:cart:cart-1"
+  },
+  {
+    "delta": {
+      "kind": "edge",
+      "id": "checked-out:cart-1:1790627790360",
+      "version": 1790627790360,
+      "type": "CHECKED_OUT",
+      "from": "cart:cart-1",
+      "to": "checkout:cart-1:1790627790360",
+      "properties": {}
+    },
+    "key": "edge:checked-out:cart-1:1790627790360"
+  },
+  {
+    "delta": {
+      "kind": "tombstone",
+      "element": "node",
+      "id": "cart:cart-1",
+      "version": 1790627800000
+    },
+    "key": "node:cart:cart-1"
+  },
+  {
+    "delta": {
+      "kind": "tombstone",
+      "element": "edge",
+      "id": "checked-out:cart-1:1790627790360",
+      "version": 1790627800000,
+      "type": "CHECKED_OUT",
+      "from": "cart:cart-1",
+      "to": "checkout:cart-1:1790627790360"
+    },
+    "key": "edge:checked-out:cart-1:1790627790360"
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "same-id",
+      "version": 1,
+      "labels": [],
+      "properties": {}
+    },
+    "key": "node:same-id"
+  },
+  {
+    "delta": {
+      "kind": "edge",
+      "id": "same-id",
+      "version": 1,
+      "type": "LINKS",
+      "from": "a",
+      "to": "b",
+      "properties": {}
+    },
+    "key": "edge:same-id"
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "a:b:c:d",
+      "version": 2,
+      "labels": [
+        "Thing"
+      ],
+      "properties": {
+        "n": 1
+      }
+    },
+    "key": "node:a:b:c:d"
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "café:žluťoučký",
+      "version": 3,
+      "labels": [
+        "Thing"
+      ],
+      "properties": {
+        "name": "žluťoučký kůň"
+      }
+    },
+    "key": "node:café:žluťoučký"
+  }
+]

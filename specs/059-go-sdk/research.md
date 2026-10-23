@@ -364,3 +364,27 @@ and the `go get` of the released module in an empty directory.
 | V6 | The sidecar's `SdkInfo.name` `ankka-go` appears in the console and in `services get` with no platform change | quickstart tier 6, a kind deployment |
 | V7 | The Scala double renderer's edge cases (`1.0E-5`, `9.999999999999999E22`, `-0.0`, `NaN`/`Infinity` refused) match the fixtures and a wider property test against the JVM's `Double.toString` | the fixture test plus a one-off comparison table generated from the JVM and checked in as a test fixture of the SDK's own |
 | V8 | `GracefulStop` under a `SIGTERM` from the operator's rolling restart ends the process within the pod's termination grace period with no request refused | the deploying scenario on kind (tier 6); the kit's restart test locally |
+
+### Answers (2026-10-23)
+
+- **V1, holds.** A grpc-go v1.84 server, stubs from protoc-gen-go v1.36 and protoc-gen-go-grpc v1.6.2,
+  served `ankka-sidecar:0.13.0` over plain HTTP/2 with no option set: discovery, an HTTP route, and an
+  event sourced entity reached through the sidecar's `Client.Invoke`. The stream opened with `Init`,
+  carried commands with ids from 1, and when the sidecar passivated the instance `Recv` returned
+  `io.EOF` and the stream's context was cancelled. After `docker restart` of the sidecar the process
+  was discovered again and a new stream replayed both events before the next command. The local image
+  reported protocol `1.21`: it was built before spec 057, so the slow suites need it rebuilt
+  (`sbt sidecar/docker:publishLocal`) or `ANKKA_SIDECAR_IMAGE` pointed at a current one.
+- **V1, generation.** The protocol declares a message `McpServer` (discovery) and a service `Mcp`, whose
+  generated server interface is also `McpServer`, in one Go package. `scripts/proto.sh` renames the
+  service's server identifiers in `mcp_grpc.pb.go` to `McpServiceServer`; protoc-gen-go-grpc has no
+  option for it. The protos carry no `go_package`, so `buf.gen.yaml` sets it in managed mode.
+- **V3, holds.** testcontainers-go v0.44.0 declares `go 1.25.0`; grpc v1.84.0 `go 1.25.0`; protobuf
+  v1.36.12 `go 1.23`. The SDK's floor of 1.26 stands. buf v1.75.0 needs 1.26.7, which is why the
+  generators live in the nested tools module and never in a service's graph.
+- **V5, holds.** A program requiring the SDK at `v0.9.9` with a `replace` to the checkout reports that
+  version with `Replace != nil`; one fetched from a file module proxy serving a copy as `v0.13.0`
+  reports `v0.13.0` with no replacement.
+- **V7, oracle written.** `sdks/go/testdata/doubles.txt` holds 321 values rendered by the JVM's
+  `Double.toString`, which Scala's calls (JDK 19 and later print the shortest representation; the
+  file was made on JDK 25 and JDK 21 agrees).

@@ -1,0 +1,19 @@
+# Generates the protocol's Go stubs into internal/pb from the SDK's copy of the protocol.
+# Run by scripts/proto.sh, which builds the plugins from tools/go.mod first.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      value: github.com/thinkmorestupidless/ankka-go/internal/pb
+inputs:
+  - directory: protocol/src/main/protobuf
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt:
+      - module=github.com/thinkmorestupidless/ankka-go
+  - local: protoc-gen-go-grpc
+    out: .
+    opt:
+      - module=github.com/thinkmorestupidless/ankka-go

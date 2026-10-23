@@ -393,7 +393,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
       # Reporting only, for now. Specs 025 onwards keep their scenarios in the spec, so every run
       # finds them. Remove `continue-on-error` once those scenarios live in `features/`.
       - id: check
@@ -408,7 +408,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.12"
       - run: uv run --project tools/docs pytest tools/docs
@@ -436,7 +436,7 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.12"
       # The SDK carries a copy of the protocol artifact so it can be built alone; a drift between

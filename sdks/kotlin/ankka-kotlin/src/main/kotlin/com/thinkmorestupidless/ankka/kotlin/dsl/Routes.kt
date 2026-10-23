@@ -42,6 +42,9 @@ class RouteScope internal constructor() {
 
     fun delete(template: String, handler: suspend RouteCall.() -> Any?) = without("DELETE", template, handler)
 
+    /** A POST that reads no body. */
+    fun post(template: String, handler: suspend RouteCall.() -> Any?) = without("POST", template, handler)
+
     /** A POST whose body is read as [B]. */
     inline fun <reified B : Any> post(template: String, noinline handler: suspend RouteCall.(B) -> Any?) =
         with("POST", template, B::class.java, handler)

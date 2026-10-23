@@ -53,6 +53,29 @@ private[ankka] object Invocable:
       )
     else None
 
+  /**
+   * `m` as a call taking its one input or none, decided once rather than on every call: whether it
+   * is a `suspend fun` and how many parameters it has are read here, so a handler's call costs one
+   * reflective invocation and nothing more. A handler's own exception is rethrown as itself.
+   */
+  def caller(m: Method): (AnyRef, Any) => Any =
+    val takesInput = parameterCount(m) == 1
+    if suspending(m) then
+      (instance, input) =>
+        val arguments: Array[AnyRef] =
+          if takesInput then Array(input.asInstanceOf[AnyRef]) else Array.empty[AnyRef]
+        adapter(m) match
+          case Right(a)  => a.call(m, instance, arguments)
+          case Left(why) => throw IllegalStateException(why)
+    else if takesInput then
+      (instance, input) =>
+        try m.invoke(instance, input.asInstanceOf[AnyRef])
+        catch case e: InvocationTargetException => throw e.getCause
+    else
+      (instance, _) =>
+        try m.invoke(instance)
+        catch case e: InvocationTargetException => throw e.getCause
+
   /** Calls `m` on `instance`; a handler's own exception is rethrown as itself. */
   def invoke(m: Method, instance: AnyRef, arguments: AnyRef*): Any =
     if suspending(m) then

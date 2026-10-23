@@ -98,7 +98,8 @@ just docs                                   # every page checks; the six new pag
 just docs-sync && git status --short        # nothing drifts
 python3 .github/ci-coverage.py             # every new path claimed, every new pattern matches
 just features                               # speckit-bdd: features, glossary and specs agree
-sbt 'testkitJava/testOnly *FacadeCostSuite'   # R13: 1,000 add-item to the Scala, Java and Kotlin carts; prints the medians from the recorder's spans
+(cd sdks/kotlin && ./gradlew-this-commit.sh :samples:reference:conformanceClasspath)
+sbt -Dankka.cost.kotlin=$PWD/sdks/kotlin/samples/reference/build/conformance-classpath.txt 'shoppingCartJava/testOnly *FacadeCostSuite'   # R13: 1,000 add-item to the Scala, Java and Kotlin carts; prints the medians from the recorder's spans
 ```
 
 Expected: `FacadeCostSuite` prints three medians; Java and Kotlin are each within 10% of Scala
@@ -107,13 +108,13 @@ suite asserts the bound only when `-Dankka.cost.assert=true` (a developer's mach
 
 ## Reviewer's checklist
 
-- [ ] `git diff --stat -- modules/runtime protocol sidecar/src/main operator controlplane controlplane-api crd` is empty (FR-026); `modules/testkit` shows only the three added kits (R9).
-- [ ] `SurfaceSuite` green on all three Java jars; the Kotlin surface check green.
-- [ ] Every fixture passes in Java and in Kotlin with none skipped; `diff -r protocol/fixtures sdks/kotlin/fixtures` empty.
-- [ ] Conformance green for Scala, Java and Kotlin references, each reported `embedded`.
-- [ ] Both template suites green in CI (`template-java`, `sdk-kotlin`), `cli-native` smoke renders six templates.
-- [ ] `ci-coverage.py` green; branch protection names `sdk-kotlin` and `template-java`.
-- [ ] `limitations.md` names what each SDK lacks; `akka-divergences.md` has the Java section; `docs check` green; every Java and Kotlin code block is an include.
-- [ ] Every place that named four languages names six (`grep -rn "Scala, Python, TypeScript" docs README.md cli tools | wc -l` is 0).
-- [ ] `research.md` Measurements filled; SC-009 holds on the recording machine.
+- [ ] `git diff --stat -- modules/runtime protocol sidecar/src/main operator controlplane controlplane-api crd` is empty (FR-026); `modules/testkit` shows only the three added kits (R9). *Not met as written:* three `private[ankka]` accessors in `modules/runtime` (`ShardingTransport.actorSystem`, `ViewClient.actorSystem`, `WorkflowHost.applyEvent`), no behaviour changed; the control plane diffs are test suites naming the new languages. `modules/testkit` adds `WorkflowTestKit`, `ViewTestKit`, `AgentTestKit`, `ClasspathReference` and small `private[ankka]` doors in `AnkkaTestKit`, `ConsumerTestKit`, `TestTransport`.
+- [X] `SurfaceSuite` green on all three Java jars; the Kotlin surface check green.
+- [X] Every fixture passes in Java and in Kotlin with none skipped; `diff -r protocol/fixtures sdks/kotlin/fixtures` empty.
+- [X] Conformance green for Scala, Java and Kotlin references, each reported `embedded`. Each reports `in-process, <language>`: 177 passed, 0 failed, 7 skipped (process-only) for all three.
+- [ ] Both template suites green in CI (`template-java`, `sdk-kotlin`), `cli-native` smoke renders six templates. Green locally (Java 9, Kotlin 10); CI after the PR. `native-smoke.sh` now renders six templates (Kotlin was missing); it runs in CI's `cli-native`.
+- [ ] `ci-coverage.py` green; branch protection names `sdk-kotlin` and `template-java`. The script is green; branch protection is the user's to set.
+- [X] `limitations.md` names what each SDK lacks; `akka-divergences.md` has the Java section; `docs check` green; every Java and Kotlin code block is an include.
+- [X] Every place that named four languages names six (`grep -rn "Scala, Python, TypeScript" docs README.md cli tools | wc -l` is 0). Outside build output the one hit, `docs/build/consumers.md`, names Java and Kotlin in the same sentence.
+- [ ] `research.md` Measurements filled; SC-009 holds on the recording machine. Filled; SC-009 not shown (see Measurements).
 - [ ] The release job for Kotlin is reviewed against `sdk-rust`'s; the first tag after merge is watched (the agent never tags).

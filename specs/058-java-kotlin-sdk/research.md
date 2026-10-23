@@ -517,6 +517,23 @@ the entity host, not the round trip. At this size the facade's reflective call a
 are not measurable apart from the machine's noise, which is why the bound is asserted only under
 `-Dankka.cost.assert=true`.
 
+**Java and Kotlin, 2026-10-23, at T078.** Same machine and method, with the Kotlin cart (the Kotlin
+reference's, loaded from its Gradle build's listing) measured beside the Scala one in the same run.
+Before T078 the Java cart measured 1.38, 1.29 and 1.43 in three runs: every call had begun reading
+whether its method was a Kotlin `suspend fun`, copying the method's parameter array twice, since the
+Kotlin handlers were added. The plan now decides that once (`Invocable.caller`). After the change:
+
+| Run | Scala | Java | Java / Scala | Scala (Kotlin round) | Kotlin | Kotlin / Scala |
+|---|---|---|---|---|---|---|
+| 1 | 4.3 µs | 5.0 µs | 1.165 | 1.6 µs | 3.8 µs | 2.421 |
+| 2 | 5.1 µs | 4.8 µs | 0.951 | 3.5 µs | 3.4 µs | 0.988 |
+| 3 | 4.8 µs | 4.9 µs | 1.026 | 3.1 µs | 3.7 µs | 1.189 |
+
+**SC-009 is not shown to hold.** Java is within 10% in two runs of three, Kotlin in one. The Scala
+cart's own median moves from 1.6 to 5.1 µs between runs, a spread several times the bound, so on this
+machine, busy with other work, the suite cannot tell a 10% difference from the machine. It needs a
+quiet machine: `sbt -Dankka.cost.assert=true -Dankka.cost.kotlin=<listing> 'shoppingCartJava/testOnly *FacadeCostSuite'`.
+
 ## Verify at implementation
 
 1. R3: the fixtures' double and `Instant` renderings against the record codec; any fixture shape a
@@ -564,6 +581,32 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   on JDK 21, failed at the first assertion. R5 stands: a suspending handler's body is
   `runBlocking(AnkkaDispatcher)` on the handler's virtual thread. kotlinx-coroutines is 1.11.0;
   `kotlinx-coroutines-jdk8` has been part of core since 1.7, so the build names core only.
+- **3 (R8).** The classloader form held. The conformance suite stays a test of `sidecar`; the Kotlin
+  build writes its runtime classpath, less ankka's and Scala's artifacts, to
+  `build/conformance-classpath.txt` and the suite loads the reference through `ClasspathReference`
+  (`-Dankka.conformance.reference=classpath:<listing>:<class>`). No loopback target was needed, and
+  the report says `embedded (Kotlin)`.
+- **4 (R10).** The Java template builds its image with Jib (`./mvnw package jib:dockerBuild`, no
+  Dockerfile); the Kotlin template has a Dockerfile that copies `./gradlew installDist`'s output, so the
+  image holds what the host built (which is how a snapshot SDK from `~/.m2` reaches it) and, with no
+  `RUN`, builds both architectures without emulating either. Maven wrapper 3.3.4 over Maven
+  3.9.12; Gradle wrapper 9.8.1.
+- **5 (R2).** The bridge reaches handlers and constructors with `setAccessible(true)`, not
+  `MethodHandles.privateLookupIn`; both work on a module-less classpath, and the templates are
+  classpath builds. Every tested handler is public, so a package-private handler is not proved, and a
+  service that adds `module-info.java` must open its package to ankka.
+- **6 (R9).** The Scala `WorkflowTestKit` applies the engine's own fold (`WorkflowHost.applyEvent`,
+  opened to `private[ankka]`) and stops where a step pauses, reporting each step it moved to; a timeout
+  is not fired by a clock, and a test sends the next command, as the Python kit does.
+- **7 (R11).** The reference's loader is child-first for the listing's jars and finds ankka and Scala in
+  its parent: the listing leaves out every module the Java SDKs bring, so no ankka or Scala class is
+  loaded twice. `kotlin-reflect` is in the listing and is found there. Kotlin's own libraries are always
+  in the listing, because the suite's classpath can hold an older `kotlin-stdlib` than the compiler needs.
+- **9 (R10).** The Maven wrapper's `only-script` distribution needs no jar; the Gradle wrapper does, and
+  `Scaffold`'s `binary` entries copy it byte for byte (`exec` keeps `mvnw` and `gradlew` executable).
+  `native-smoke.sh` renders both templates from the native image and checks the scripts are
+  executable and the Gradle jar is not empty (its Kotlin half, left for later when the Java half
+  was written, was added at T078).
 - **The Kotlin reader is found by name, not by `ServiceLoader`** (T053). Phase 2 had left
   `RecordShapes` loading readers through `ServiceLoader`, and the task said explicit registration
   (`RecordCodec.withExtension`). Neither is quite right. Registration would leave a Kotlin service

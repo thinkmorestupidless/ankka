@@ -39,10 +39,10 @@ private[ankka] final case class HandlerPlan(
   def javaKey: (String, String, String) =
     (method.getDeclaringClass.getName, method.getName, Declarations.descriptor(method))
 
+  private val call = Invocable.caller(method)
+
   /** Calls the handler on `instance`; a handler's own exception is rethrown as itself. */
-  def invoke(instance: AnyRef, input: Any): Any =
-    if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
-    else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
+  def invoke(instance: AnyRef, input: Any): Any = call(instance, input)
 
 /** One workflow step, read from its `@Step` method. */
 private[ankka] final case class StepPlan(
@@ -53,9 +53,9 @@ private[ankka] final case class StepPlan(
   def javaKey: (String, String, String) =
     (method.getDeclaringClass.getName, method.getName, Declarations.descriptor(method))
 
-  def invoke(instance: AnyRef, input: Any): Any =
-    if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
-    else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
+  private val call = Invocable.caller(method)
+
+  def invoke(instance: AnyRef, input: Any): Any = call(instance, input)
 
 /** A component class, read once: everything the hosts and the client need, or its problems. */
 private[ankka] final case class ComponentPlan(

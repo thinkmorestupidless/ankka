@@ -7,6 +7,8 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createServer, type AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { fakeControlPlane, fakeIssuer, type FakeControlPlane, type FakeIssuer } from "ankka-console/testing";
@@ -14,6 +16,19 @@ import { createConsoleServer, type ConsoleServer } from "../src/server/create-co
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const hostDir = fileURLToPath(new URL("./fixture-host/", import.meta.url));
+
+/**
+ * React Router's command line as Node would find it from the fixture host: the nearest
+ * `node_modules` that holds it. npm may install it in the workspace's root or under this package,
+ * depending on how the lockfile was last resolved, so no path to it is written down.
+ */
+function reactRouterCli(): string {
+  for (let dir = hostDir; ; dir = dirname(dir)) {
+    const cli = join(dir, "node_modules", "@react-router", "dev", "bin.cjs");
+    if (existsSync(cli)) return cli;
+    if (dirname(dir) === dir) throw new Error(`no @react-router/dev above ${hostDir}`);
+  }
+}
 
 async function freePort(): Promise<number> {
   const s = createServer();
@@ -108,7 +123,7 @@ describe("a second host built on the package", () => {
 
   before(async () => {
     execFileSync(process.execPath, ["scripts/build.ts"], { cwd: packageDir, stdio: "pipe" });
-    execFileSync(process.execPath, [fileURLToPath(new URL("../../node_modules/@react-router/dev/bin.cjs", import.meta.url)), "build"], {
+    execFileSync(process.execPath, [reactRouterCli(), "build"], {
       cwd: hostDir,
       stdio: "pipe",
     });

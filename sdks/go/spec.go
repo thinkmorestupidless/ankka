@@ -34,6 +34,7 @@ type declarations struct {
 
 	eventSourced map[string]func(entityID string) server.EventSourcedInstance
 	keyValue     map[string]func(entityID string) server.KeyValueInstance
+	workflows    map[string]func(workflowID string) server.WorkflowInstance
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
@@ -45,6 +46,7 @@ type declarations struct {
 	// esKits are the event sourced entities as the test kits drive them, by id.
 	esKits map[string]*kit.EventSourced
 	kvKits map[string]*kit.KeyValue
+	wfKits map[string]*kit.Workflow
 }
 
 func newDeclarations() *declarations {
@@ -52,6 +54,8 @@ func newDeclarations() *declarations {
 		eventSourced:  map[string]func(string) server.EventSourcedInstance{},
 		keyValue:      map[string]func(string) server.KeyValueInstance{},
 		kvKits:        map[string]*kit.KeyValue{},
+		workflows:     map[string]func(string) server.WorkflowInstance{},
+		wfKits:        map[string]*kit.Workflow{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},

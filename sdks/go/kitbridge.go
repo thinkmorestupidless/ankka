@@ -48,6 +48,10 @@ func kitOf(service any) (*kit.Service, error) {
 	for id, e := range d.kvKits {
 		out.KeyValue[id] = e
 	}
+	out.Workflows = map[string]*kit.Workflow{}
+	for id, w := range d.wfKits {
+		out.Workflows[id] = w
+	}
 	return out, nil
 }
 

@@ -19,6 +19,8 @@ type Service struct {
 	EventSourced map[string]*EventSourced
 	// KeyValue are the key value entities, by component id.
 	KeyValue map[string]*KeyValue
+	// Workflows are the workflows, by component id.
+	Workflows map[string]*Workflow
 	// Kinds are the protocol kinds of the components, by id.
 	Kinds map[string]pb.Kind
 	// Route finds the route a request names: its endpoint id, route id and path arguments.
@@ -70,6 +72,23 @@ type KeyValue struct {
 	// Empty is the empty state of the instance entityID, encoded by the state codec.
 	Empty func(entityID string) (*pb.Payload, error)
 	// Handlers are the entity's wire names, each with whether it is read-only.
+	Handlers map[string]bool
+}
+
+// Workflow is what a test kit needs of a workflow.
+type Workflow struct {
+	ID string
+	// New is a fresh instance of the workflow, before its Init.
+	New func(workflowID string) server.WorkflowInstance
+	// Input encodes a value as the input of the command wire, by the command's codec.
+	Input func(wire string, value any) (*pb.Payload, error)
+	// Reply decodes the reply of the command wire, by the command's codec.
+	Reply func(wire string, p *pb.Payload) (any, error)
+	// State decodes the state, by the workflow's state codec.
+	State func(p *pb.Payload) (any, error)
+	// Empty is the empty state of the workflow workflowID, encoded by the state codec.
+	Empty func(workflowID string) (*pb.Payload, error)
+	// Handlers are the workflow's command wire names, each with whether it is read-only.
 	Handlers map[string]bool
 }
 

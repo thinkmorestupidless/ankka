@@ -216,6 +216,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	if len(s.decls.keyValue) > 0 {
 		server.RegisterKeyValue(g, s.keyValueHost, s.serverOptions())
 	}
+	if len(s.decls.workflows) > 0 {
+		server.RegisterWorkflow(g, s.workflowHost, s.serverOptions())
+	}
 	if len(s.decls.endpoints) > 0 {
 		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP}, s.serverOptions())
 	}
@@ -236,6 +239,14 @@ func (s *Service) keyValueHost(componentID, entityID string) (server.KeyValueIns
 		return nil, fmt.Errorf("this process hosts no key value entity %q", componentID)
 	}
 	return f(entityID), nil
+}
+
+func (s *Service) workflowHost(componentID, workflowID string) (server.WorkflowInstance, error) {
+	f, ok := s.decls.workflows[componentID]
+	if !ok {
+		return nil, fmt.Errorf("this process hosts no workflow %q", componentID)
+	}
+	return f(workflowID), nil
 }
 
 func (s *Service) discover(_ context.Context, info *pb.SidecarInfo) (*pb.Spec, error) {

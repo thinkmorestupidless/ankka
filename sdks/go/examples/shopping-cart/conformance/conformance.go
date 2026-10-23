@@ -52,9 +52,7 @@ var Entity = ankka.EventSourced[Recordings, Recorded]("conformance", recordedCas
 		}
 		return persist[string](events...).ThenReply(doneText), nil
 	}),
-	ankka.Command("refuse", func(_ context.Context, _ Recordings, _ string) (effect[string], error) {
-		return effect[string]{}, ankka.Refuse(ankka.Conflict, "refused on purpose")
-	}),
+	ankka.Command("refuse", refuse),
 	ankka.Command("no-reply", func(_ context.Context, _ Recordings, _ string) (effect[string], error) {
 		return persist[string](Recorded{Input: "silent"}).ThenNoReply(), nil
 	}),
@@ -78,6 +76,8 @@ var Entity = ankka.EventSourced[Recordings, Recorded]("conformance", recordedCas
 // reference is the service Service last made, whose reported problems the problems route answers.
 var reference atomic.Pointer[ankka.Service]
 
+// docs:start reference-service
+
 // Service is the reference: the cart and every conformance component and endpoint, registered
 // explicitly.
 func Service() *ankka.Service {
@@ -93,3 +93,5 @@ func Service() *ankka.Service {
 	reference.Store(s)
 	return s
 }
+
+// docs:end reference-service

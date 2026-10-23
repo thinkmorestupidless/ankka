@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.component;
 
+import com.thinkmorestupidless.ankka.javasdk.client.WorkflowLifecycle;
 import java.util.Optional;
 
 /** The change a view or consumer is handling. */
@@ -16,4 +17,10 @@ public interface ChangeContext {
 
   /** The installation the change was made in, when the source is replicated. */
   Optional<String> installation();
+
+  /**
+   * Where the workflow stood once the effect that recorded this state was applied, for a change
+   * read from a workflow; empty for any other source.
+   */
+  Optional<WorkflowLifecycle> standing();
 }

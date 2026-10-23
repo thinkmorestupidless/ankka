@@ -152,6 +152,9 @@ trait ConformanceTarget:
   /** True for a WebAssembly module, which answers every call whole and so cannot stream. */
   def isModule: Boolean = false
 
+  /** Cases this target's reference cannot run yet, by name, each with the reason it says. */
+  def ranOutside: Map[String, String] = Map.empty
+
   /** What the process was told through `ReportError`; empty in-process. */
   def problems: Vector[String]
 
@@ -468,7 +471,8 @@ object ConformanceTarget:
       kit.service.registry.components.map(_.componentId.toString).toSet --
         AgentRuntime.descriptors.map(_.componentId.toString) --
         McpRuntime.descriptors.map(_.componentId.toString)
-    def readOnlyHandlers: Set[(String, String)] = reference.readOnlyHandlers
+    def readOnlyHandlers: Set[(String, String)]  = reference.readOnlyHandlers
+    override def ranOutside: Map[String, String] = reference.ranOutside
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None

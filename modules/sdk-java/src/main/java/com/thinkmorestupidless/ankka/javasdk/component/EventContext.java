@@ -13,4 +13,10 @@ public interface EventContext {
 
   /** Its position in the entity's journal. */
   long sequenceNumber();
+
+  /** Who acted on the command that wrote it, as the command was told; empty when nobody said. */
+  Optional<String> attribution();
+
+  /** The installation the command that wrote it was forwarded from, when it was forwarded. */
+  Optional<String> forwardedFrom();
 }

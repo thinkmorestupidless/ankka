@@ -167,14 +167,17 @@ object ServiceKit:
     )
     val scripted =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
-    val config = ConfigFactory.parseMap(settings.config)
-    val probe  = stk.TimerProbe()
-    val broker = runtime.InMemoryBroker()
+    val config       = ConfigFactory.parseMap(settings.config)
+    val probe        = stk.TimerProbe()
+    val broker       = runtime.InMemoryBroker()
+    val timerRuntime = runtime.TimerRuntime(pollInterval = 200.millis, observer = probe)
     val http = read.platformExtensionsWith(
       runtime.ProjectionRuntime.withBroker(broker, broker),
-      runtime.TimerRuntime(pollInterval = 200.millis, observer = probe)
+      timerRuntime
     ) ++
-      (if !read.servesHttp then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0)))) ++
+      (if !read.servesHttp then Nil
+       else
+         Seq(read.httpServer(Some("127.0.0.1" -> 0), read.endpointTimers(() => timerRuntime)))) ++
       read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
     val kit =
       try

@@ -62,3 +62,5 @@ private final case class JavaChangeContext(ctx: ChangeContext) extends JavaChang
   def localOrigin(): Boolean = ctx.localOrigin
   def installation(): Optional[String] =
     ctx.installation.fold(Optional.empty[String]())(Optional.of(_))
+  def standing(): Optional[com.thinkmorestupidless.ankka.javasdk.client.WorkflowLifecycle] =
+    ctx.standing.fold(Optional.empty())(l => Optional.of(Clients.javaLifecycle(l)))

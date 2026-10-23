@@ -5,7 +5,9 @@ import com.thinkmorestupidless.ankka.javasdk.client.{
   ServiceClient,
   ServiceClients,
   ServiceResponse,
-  ServiceUnreachable
+  ServiceIdentityMismatch,
+  ServiceUnanswered,
+  ServiceUnresolvable
 }
 import com.thinkmorestupidless.ankka.javasdk.codec.{RecordCodec, Serializer}
 import com.thinkmorestupidless.ankka.sdk
@@ -60,6 +62,9 @@ private final class JavaServiceClient(
 
   def getText(path: String): String = send("GET", path, None).text
 
+  def getText(path: String, headers: JMap[String, String]): String =
+    send("GET", path, None, headers.asScala.toSeq).text
+
   def post[B, R](path: String, body: B, reply: Class[R]): R =
     decoded(send("POST", path, Some(encoded(body))), reply)
 
@@ -82,15 +87,17 @@ private final class JavaServiceClient(
   private def send(
       method: String,
       path: String,
-      body: Option[(Array[Byte], String)]
+      body: Option[(Array[Byte], String)],
+      headers: Seq[(String, String)] = Nil
   ): sdk.ServiceResponse =
-    val r = calling(scala.request(method, path, body.map(_._1), body.map(_._2)))
+    val r = calling(scala.request(method, path, body.map(_._1), body.map(_._2), headers))
     if r.status / 100 != 2 then throw ServiceCallFailed(scala.target, r.status, r.text)
     r
 
   private def calling(call: => sdk.ServiceResponse): sdk.ServiceResponse =
     try call
     catch
-      case e: sdk.ServiceUnresolvable     => throw ServiceUnreachable(e.service, e.getMessage, e)
-      case e: sdk.ServiceIdentityMismatch => throw ServiceUnreachable(e.service, e.getMessage, e)
-      case e: sdk.ServiceUnanswered       => throw ServiceUnreachable(e.service, e.getMessage, e)
+      case e: sdk.ServiceUnresolvable => throw ServiceUnresolvable(e.service, e.getMessage, e)
+      case e: sdk.ServiceIdentityMismatch =>
+        throw ServiceIdentityMismatch(e.service, e.getMessage, e)
+      case e: sdk.ServiceUnanswered => throw ServiceUnanswered(e.service, e.getMessage, e)

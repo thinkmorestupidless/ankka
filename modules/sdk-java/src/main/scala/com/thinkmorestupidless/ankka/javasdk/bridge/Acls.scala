@@ -19,6 +19,9 @@ object Acls:
   def denyAll(): Acl  = Held(http.Acl.DenyAll)
   def allowAll(): Acl = Held(http.Acl.AllowAll)
 
+  /** A Scala ACL as a Java one: what a conformance target that already built one hands over. */
+  private[ankka] def fromScala(acl: http.Acl): Acl = Held(acl)
+
   def allowIf(test: Predicate[Request]): Acl =
     Held(http.Acl.AllowIf(ctx => test.test(JavaRequest(ctx))))
 
@@ -110,8 +113,10 @@ private[bridge] final class JavaRequest(ctx: http.RequestContext) extends Reques
       .getOrElse(throw ProblemException(Problem.badRequest(s"query parameter '$name' is required")))
   def flag(name: String): Boolean            = ctx.query.flag(name)
   def header(name: String): Optional[String] = ctx.header(name).toJava
-  def caller(): Caller                       = Acls.javaCaller(ctx.caller)
-  def principal(): Optional[Principal]       = ctx.principal.map(Acls.javaPrincipal).toJava
+  def headers(): java.util.List[java.util.Map.Entry[String, String]] =
+    ctx.headers.map((n, v) => java.util.Map.entry(n, v)).asJava
+  def caller(): Caller                 = Acls.javaCaller(ctx.caller)
+  def principal(): Optional[Principal] = ctx.principal.map(Acls.javaPrincipal).toJava
 
 /** What a Java endpoint reads: the request on this thread, and its client. */
 final class EndpointCell private[bridge] (
@@ -120,8 +125,11 @@ final class EndpointCell private[bridge] (
     views: ViewClient = JavaViews.unavailable,
     secretStore: SecretStore = Stores.noSecrets,
     objectStorage: ObjectStorage = Stores.noStorage,
-    keys: com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = Mcp.noKeys
+    keys: com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = Mcp.noKeys,
+    timerz: () => com.thinkmorestupidless.ankka.javasdk.timer.Timers = () => JavaTimers.unavailable
 ):
+  def timers(): com.thinkmorestupidless.ankka.javasdk.timer.Timers = timerz()
+
   def clientKeys(): com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = keys
 
   def secrets(): SecretStore = secretStore

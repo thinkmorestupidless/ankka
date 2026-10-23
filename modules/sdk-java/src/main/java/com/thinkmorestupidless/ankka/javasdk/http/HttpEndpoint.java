@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients;
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore;
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage;
+import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import java.util.Optional;
 
@@ -80,5 +81,10 @@ public abstract class HttpEndpoint {
   /** The service's buckets. */
   protected final ObjectStorage storage() {
     return cell.storage();
+  }
+
+  /** The service's timers; refused when it registers no timed action. */
+  protected final Timers timers() {
+    return cell.timers();
   }
 }

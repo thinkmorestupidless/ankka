@@ -125,7 +125,14 @@ private[ankka] object JavaServiceBuilder:
      * projections behind its views and consumers, and the timers its timed actions are run by.
      */
     def platformExtensions: Vector[runtime.RuntimeExtension] =
-      platformExtensionsWith(runtime.ProjectionRuntime.fromEnv(), runtime.TimerRuntime())
+      platformExtensionsWith(runtime.ProjectionRuntime.fromEnv(), timerRuntime)
+
+    /** The timers the platform's extensions run, which the endpoints schedule through. */
+    lazy val timerRuntime: runtime.TimerRuntime = runtime.TimerRuntime()
+
+    /** The Java timers over `scheduler`'s, refused when the service has no timed action. */
+    def endpointTimers(scheduler: () => runtime.TimerRuntime): () => Timers =
+      () => if actions.isEmpty then JavaTimers.unavailable else timers(scheduler().timerScheduler)
 
     /**
      * As [[platformExtensions]], with the projections and timers given: a deployed service is told
@@ -176,7 +183,22 @@ private[ankka] object JavaServiceBuilder:
     def viewClient(scala: runtime.ViewClient): ViewClient = JavaViews.client(scala, views)
 
     /** The HTTP server of the read endpoints: on `at`, or where the configuration says. */
-    def httpServer(at: Option[(String, Int)]): HttpServer =
+    def httpServer(
+        at: Option[(String, Int)],
+        timers: () => Timers = endpointTimers(() => timerRuntime)
+    ): HttpServer =
+      val factories = endpointFactories(timers)
+      at match
+        case Some((host, port)) => HttpServer.at(host, port)(factories*)
+        case None               => HttpServer.of(factories*)
+
+    /**
+     * The Scala endpoints the read endpoints are served as: one for every route, then one for each
+     * MCP endpoint. A host that serves other endpoints beside them passes these to its own server.
+     */
+    def endpointFactories(
+        timers: () => Timers
+    ): Vector[EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint] =
       def keys(clients: EndpointClients) = Mcp.clientKeys(clients.clientKeys)
       val mcpFactories = mcps.map { plan => (clients: EndpointClients) =>
         Mcp.scalaEndpoint(
@@ -202,15 +224,13 @@ private[ankka] object JavaServiceBuilder:
               viewz,
               Stores.secrets(clients.secrets),
               Stores.storage(clients.storage),
-              keys(clients)
+              keys(clients),
+              timers
             )
           )(plan.construct())
           served ++ Routes.scalaRoutes(plan, instance.asInstanceOf[HttpEndpoint], serializers)
         })
-      val factories = (if endpoints.isEmpty then Vector.empty else Vector(factory)) ++ mcpFactories
-      at match
-        case Some((host, port)) => HttpServer.at(host, port)(factories*)
-        case None               => HttpServer.of(factories*)
+      (if endpoints.isEmpty then Vector.empty else Vector(factory)) ++ mcpFactories
 
   /** Reads every class, or throws every problem at once. */
   def read(

@@ -43,6 +43,9 @@ trait EmbeddedReference:
    */
   def relay(n: Int): Option[Int]
 
+  /** Cases this reference cannot run yet, by name, each with the reason the suite reports. */
+  def ranOutside: Map[String, String] = Map.empty
+
 object EmbeddedReference:
 
   /** The class `-Dankka.conformance.reference=java` names: the Java reference's entry. */
@@ -91,9 +94,5 @@ object EmbeddedReference:
       )
     cls.getDeclaredConstructor().newInstance().asInstanceOf[ConformanceEntry]
 
-  /** A Java entry as an embedded reference: written with the Java reference, by T046. */
-  private def adapt(entry: ConformanceEntry): EmbeddedReference =
-    throw UnsupportedOperationException(
-      s"${entry.getClass.getName}: a reference written through the Java SDK cannot be hosted yet " +
-        "(spec 058, T046)"
-    )
+  /** A Java entry as an embedded reference. */
+  private def adapt(entry: ConformanceEntry): EmbeddedReference = JavaReference(entry)

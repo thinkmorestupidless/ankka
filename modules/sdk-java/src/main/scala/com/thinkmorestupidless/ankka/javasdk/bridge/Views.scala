@@ -297,6 +297,8 @@ private final class JavaKeyedChange(change: sdk.KeyedChange[Any], plan: ViewPlan
     extends KeyedChange[Any]:
   def subject(): String      = change.subject
   def sequenceNumber(): Long = change.sequenceNumber
+  def standing(): Optional[com.thinkmorestupidless.ankka.javasdk.client.WorkflowLifecycle] =
+    change.standing.fold(Optional.empty())(l => Optional.of(Clients.javaLifecycle(l)))
   def rows(): ViewRows[Any] = new ViewRows[Any]:
     def get(key: String): Optional[Any] =
       change.rows.get(key).fold(Optional.empty[Any]())(Optional.of(_))
@@ -326,15 +328,16 @@ private[ankka] object JavaViews:
     private def queries[Row](view: Class[?]): ViewQueries[Row] =
       views.get(view) match
         case Some((id, Views.Companion.Plain(c))) =>
-          JavaViewQueries(id, scala.forView(c), scala.actorSystem)
+          JavaViewQueries(id, scala.forView(c), c.rowSerializer, scala.actorSystem)
         case Some((id, Views.Companion.Keyed(c))) =>
-          JavaViewQueries(id, scala.forView(c), scala.actorSystem)
+          JavaViewQueries(id, scala.forView(c), c.rowSerializer, scala.actorSystem)
         case None =>
           throw CallerError(s"${view.getName} is not a view this service registers")
 
 private final class JavaViewQueries[Row](
     componentId: String,
     scala: runtime.ViewQueries[Any],
+    rowSerializer: com.thinkmorestupidless.ankka.core.Serializer[Any],
     system: org.apache.pekko.actor.typed.ActorSystem[?]
 ) extends ViewQueries[Row]:
 
@@ -385,3 +388,70 @@ private final class JavaViewQueries[Row](
       .askStream(JavaViews.declared(componentId, query), values.asScala.toSeq*)
       .asInstanceOf[org.apache.pekko.stream.scaladsl.Source[Row, ?]]
       .runWith(JavaFlowSupport.Sink.asPublisher[Row](fanout = false))(using Materializer(system))
+
+  def watch(
+      query: ViewQuery,
+      values: java.util.Map[String, String]
+  ): com.thinkmorestupidless.ankka.javasdk.client.ViewWatch[Row] =
+    JavaViewWatch(
+      () => scala.watch(JavaViews.declared(componentId, query), values.asScala.toSeq*),
+      rowSerializer,
+      system
+    )
+
+  def watchRow(key: String): com.thinkmorestupidless.ankka.javasdk.client.ViewWatch[Row] =
+    JavaViewWatch(() => scala.watchRow(key), rowSerializer, system)
+
+/** A Scala watch, read as Java events or as server-sent events, each from a fresh watch. */
+private final class JavaViewWatch[Row](
+    open: () => org.apache.pekko.stream.scaladsl.Source[sdk.WatchEvent[Any], ?],
+    rowSerializer: com.thinkmorestupidless.ankka.core.Serializer[Any],
+    system: org.apache.pekko.actor.typed.ActorSystem[?]
+) extends com.thinkmorestupidless.ankka.javasdk.client.ViewWatch[Row]:
+  import com.thinkmorestupidless.ankka.javasdk.client.WatchEvent as JW
+  import com.thinkmorestupidless.ankka.javasdk.http.SseEvent
+
+  private def publish[A](source: org.apache.pekko.stream.scaladsl.Source[A, ?]): Flow.Publisher[A] =
+    source.runWith(JavaFlowSupport.Sink.asPublisher[A](fanout = false))(using Materializer(system))
+
+  def events(): Flow.Publisher[JW[Row]] =
+    publish(
+      open()
+        .map[JW[Row]] {
+          case sdk.WatchEvent.Row(key, row) => JW.Written[Row](key, row.asInstanceOf[Row])
+          case sdk.WatchEvent.Removed(key)  => JW.Removed[Row](key)
+          case sdk.WatchEvent.CaughtUp      => JW.CaughtUp[Row]()
+        }
+        .recover { case sdk.WatchEnded(reason) => JW.Ended[Row](reason.wire) }
+    )
+
+  def asSse(): Flow.Publisher[SseEvent] =
+    publish(
+      open()
+        .map {
+          case sdk.WatchEvent.Row(key, row) =>
+            val json = String(rowSerializer.toBytes(row), java.nio.charset.StandardCharsets.UTF_8)
+            SseEvent.named("row", s"""{"key":${JavaViewWatch.quoted(key)},"row":$json}""")
+          case sdk.WatchEvent.Removed(key) =>
+            SseEvent.named("removed", s"""{"key":${JavaViewWatch.quoted(key)}}""")
+          case sdk.WatchEvent.CaughtUp => SseEvent.named("caught-up", "{}")
+        }
+        .recover { case sdk.WatchEnded(reason) =>
+          SseEvent.named("ended", s"""{"reason":${JavaViewWatch.quoted(reason.wire)}}""")
+        }
+    )
+
+private object JavaViewWatch:
+  /** A string as a JSON string. */
+  def quoted(text: String): String =
+    val out = StringBuilder("\"")
+    text.foreach {
+      case '"'          => out.append("\\\"")
+      case '\\'         => out.append("\\\\")
+      case '\n'         => out.append("\\n")
+      case '\r'         => out.append("\\r")
+      case '\t'         => out.append("\\t")
+      case c if c < ' ' => out.append(f"\\u${c.toInt}%04x")
+      case c            => out.append(c)
+    }
+    out.append('"').toString

@@ -24,6 +24,9 @@ public interface ServiceClient {
 
   String getText(String path);
 
+  /** As {@link #getText(String)}, with these headers sent beside the platform's own. */
+  String getText(String path, Map<String, String> headers);
+
   <B, R> R post(String path, B body, Class<R> reply);
 
   <B, R> R put(String path, B body, Class<R> reply);

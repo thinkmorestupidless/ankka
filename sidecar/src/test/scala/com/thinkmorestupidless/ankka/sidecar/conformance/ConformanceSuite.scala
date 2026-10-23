@@ -44,6 +44,22 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ConformanceTarget.secretManager.fold("postgres")(_ => "secret-manager") +
         ", storage on " + ConformanceTarget.garage.fold("memory")(_ => "garage")
     )
+    // munit prints no skipped case's reason, so the report says once what this target cannot run.
+    target.ranOutside.groupMap(_._2)(_._1).foreach { (why, cases) =>
+      println(s"skipped, ${cases.size} cases: $why: ${cases.toVector.sorted.mkString(", ")}")
+    }
+
+  // A case the target's reference cannot run yet is reported skipped with the reason it names,
+  // never run against another language's components under this one's name.
+  override def munitTestTransforms: List[TestTransform] =
+    super.munitTestTransforms :+ new TestTransform(
+      "ranOutside",
+      t =>
+        t.withBody { () =>
+          target.ranOutside.get(t.name).foreach(why => assume(false, why))
+          t.body()
+        }
+    )
 
   override def afterAll(): Unit =
     if target != null then target.stop()
@@ -167,10 +183,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       "MCP /mcp add_item",
       "MCP /mcp checkout"
     ).foreach { r =>
-      assert(
-        routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
-        s"$r not in $routes"
-      )
+      // A trailing slash is no segment: `/private/` and `/private` match the same requests, and
+      // a reference that declares its paths whole (Java) lists the one without it.
+      def shape(route: String) = route.replaceAll("\\{[^}]+\\}", "{}").stripSuffix("/")
+      assert(routes.exists(shape(_) == shape(r)), s"$r not in $routes")
     }
   }
 

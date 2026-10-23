@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk.http;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -29,6 +30,9 @@ public interface Request {
   boolean flag(String name);
 
   Optional<String> header(String name);
+
+  /** Every header the request carries, in order, a name as many times as it was sent. */
+  List<Map.Entry<String, String>> headers();
 
   Caller caller();
 

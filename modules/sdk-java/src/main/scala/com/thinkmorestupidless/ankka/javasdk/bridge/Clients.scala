@@ -64,13 +64,16 @@ private[ankka] object Clients:
     def toBytes(value: Any): Array[Byte] =
       throw UnsupportedOperationException("a workflow's lifecycle is only ever read")
     def fromBytes(bytes: Array[Byte]): Any =
-      val l = sdk.WorkflowLifecycle.serializer.fromBytes(bytes)
-      WorkflowLifecycle(
-        l.status,
-        l.pendingStep.toJava,
-        l.retries.view.mapValues(Int.box).toMap.asJava,
-        l.failure.toJava
-      )
+      javaLifecycle(sdk.WorkflowLifecycle.serializer.fromBytes(bytes))
+
+  /** A workflow's lifecycle as the Java record. */
+  private[ankka] def javaLifecycle(l: sdk.WorkflowLifecycle): WorkflowLifecycle =
+    WorkflowLifecycle(
+      l.status,
+      l.pendingStep.toJava,
+      l.retries.view.mapValues(Int.box).toMap.asJava,
+      l.failure.toJava
+    )
 
   /** A copy's replication status as the Java record. */
   private[bridge] val replication: Serializer[Any] = new Serializer[Any]:

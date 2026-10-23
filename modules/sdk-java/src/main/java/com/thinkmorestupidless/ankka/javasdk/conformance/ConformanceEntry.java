@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.conformance;
 
+import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.mcp.McpEndpoint;
 import java.util.List;
@@ -31,4 +32,10 @@ public interface ConformanceEntry {
 
   /** The MCP endpoints. */
   List<Class<? extends McpEndpoint>> mcpEndpoints();
+
+  /**
+   * The suite's ACL for a verified token from its own test issuer, handed over before any endpoint
+   * is built: the reference's authenticated routes admit what it admits.
+   */
+  void authenticateWith(Acl authenticated);
 }

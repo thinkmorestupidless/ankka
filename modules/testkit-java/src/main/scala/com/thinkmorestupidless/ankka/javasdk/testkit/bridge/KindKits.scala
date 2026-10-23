@@ -168,13 +168,7 @@ object KindKits:
     def deleted(): Boolean                = kit.isDeleted
     def failedStep(): Optional[String]    = kit.failedStep.toJava
 
-  private def lifecycle(l: sdk.WorkflowLifecycle): WorkflowLifecycle =
-    WorkflowLifecycle(
-      l.status,
-      l.pendingStep.toJava,
-      l.retries.view.mapValues(Int.box).toMap.asJava,
-      l.failure.toJava
-    )
+  private def lifecycle(l: sdk.WorkflowLifecycle): WorkflowLifecycle = Clients.javaLifecycle(l)
 
   private final case class JavaStepResult[S, O](scala: stk.StepResult[Any, ?])
       extends StepResult[S, O]:

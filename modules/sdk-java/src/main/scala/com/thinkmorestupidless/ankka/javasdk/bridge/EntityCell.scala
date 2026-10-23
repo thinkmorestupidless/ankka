@@ -82,6 +82,10 @@ private final class EventFacts(e: sdk.EventContext) extends EventContext:
     e.installation.fold(Optional.empty[String]())(Optional.of(_))
   def isLocal(): Boolean     = e.isLocal
   def sequenceNumber(): Long = e.sequenceNumber
+  def attribution(): Optional[String] =
+    e.attribution.fold(Optional.empty[String]())(Optional.of(_))
+  def forwardedFrom(): Optional[String] =
+    e.forwardedFrom.fold(Optional.empty[String]())(Optional.of(_))
 
 private final class CellContext(cell: EntityCell) extends EntityContext:
   private def command: CommandContext =

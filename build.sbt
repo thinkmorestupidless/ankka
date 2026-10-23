@@ -703,9 +703,11 @@ lazy val sidecar = project
     // developers write no telemetry code. test->test for the fake collector.
     telemetryOtlp % "compile;test->test",
     testkit       % Test,
-    operator      % "test->test;test->compile",
-    testPki       % Test,
-    testOllama    % Test
+    // The conformance suite hosts a reference written through the Java SDK (feature 058).
+    sdkJava    % "test->test",
+    operator   % "test->test;test->compile",
+    testPki    % Test,
+    testOllama % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)

@@ -670,6 +670,9 @@ jobs:
       - if: matrix.go == '1.27'
         working-directory: sdks/go/examples/shopping-cart
         run: go run ./cmd/conformance
+      # The suite against a reference with its refusal broken: exactly the cases reading it fail.
+      - if: matrix.go == '1.27'
+        run: scripts/conformance-broken.sh
       # `ankka init --language go`, rendered and made to pass its own vet and tests, the slow one
       # included, against this SDK and the sidecar image.
       - if: matrix.go == '1.27'

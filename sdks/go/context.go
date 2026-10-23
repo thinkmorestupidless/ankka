@@ -23,7 +23,15 @@ const (
 	configKey
 	metadataKey
 	eventKey
+	// withoutSecretsKey marks a context whose handler is not offered the secret store: an
+	// entity's, a view's or a workflow command's.
+	withoutSecretsKey
 )
+
+// withoutSecrets is ctx for a handler the secret store is not offered to, named by who.
+func withoutSecrets(ctx context.Context, who string) context.Context {
+	return context.WithValue(ctx, withoutSecretsKey, who)
+}
 
 // Request is what an endpoint handler sees of its HTTP request.
 type Request struct {

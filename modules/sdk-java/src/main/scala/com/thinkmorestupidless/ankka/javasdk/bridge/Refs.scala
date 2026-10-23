@@ -27,7 +27,9 @@ private[ankka] final class Refs(plans: Iterable[ComponentPlan]):
     if known != null then known
     else
       val found = lookup(Refs.serialized(ref))
-      cache.put(ref.getClass, found)
+      // A method reference's class is a hidden class of its own; any other class (the Kotlin SDK's
+      // reference to a KFunction) may stand for many handlers, and is read every time.
+      if ref.getClass.isHidden then cache.put(ref.getClass, found): Unit
       found
 
   private def lookup(lambda: SerializedLambda): (ComponentPlan, HandlerPlan) =

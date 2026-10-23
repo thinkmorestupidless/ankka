@@ -19,7 +19,7 @@ import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
 import com.thinkmorestupidless.ankka.javasdk.timer.Timers
 import com.thinkmorestupidless.ankka.sdk
 
-import java.lang.reflect.{InvocationTargetException, Method, Modifier}
+import java.lang.reflect.{Method, Modifier}
 import java.time.{Clock, Duration, Instant}
 
 /** One `@Action` method of a timed action. */
@@ -32,10 +32,8 @@ private[ankka] final case class ActionPlan(
     (method.getDeclaringClass.getName, method.getName, Declarations.descriptor(method))
 
   def invoke(instance: AnyRef, input: Any): Any =
-    try
-      if method.getParameterCount == 0 then method.invoke(instance)
-      else method.invoke(instance, input.asInstanceOf[AnyRef])
-    catch case e: InvocationTargetException => throw e.getCause
+    if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
+    else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
 
 /** A timed action class, read once. */
 private[ankka] final case class TimedActionPlan(
@@ -220,19 +218,20 @@ private[ankka] object TimedActions:
               case None => seen(name) = member
           if Modifier.isStatic(m.getModifiers) then
             reader.problem(member, "is static; an action is an instance method")
-          if m.getReturnType != classOf[TimedActionEffect] then
+          Invocable.problem(m).foreach(reader.problem(member, _))
+          val params = Invocable.parameterCount(m)
+          if Invocable.returnType(m) != classOf[TimedActionEffect] then
             reader.problem(member, "must return a TimedActionEffect built by effects()")
-          if m.getParameterCount > 1 then
+          if params > 1 then
             reader.problem(
               member,
-              s"takes ${m.getParameterCount} parameters; an action takes one or none (use a record)"
+              s"takes $params parameters; an action takes one or none (use a record)"
             )
           val input =
-            if m.getParameterCount == 1 then
-              reader.serializer(m.getGenericParameterTypes()(0), member, "input")
+            if params == 1 then reader.serializer(Invocable.parameterTypes(m)(0), member, "input")
             else None
           m.setAccessible(true)
-          if m.getParameterCount == 0 || input.isDefined then actions += ActionPlan(name, m, input)
+          if params == 0 || input.isDefined then actions += ActionPlan(name, m, input)
     }
     val found = actions.result()
     if found.isEmpty then reader.problem("", "is a timed action with no @Action method")

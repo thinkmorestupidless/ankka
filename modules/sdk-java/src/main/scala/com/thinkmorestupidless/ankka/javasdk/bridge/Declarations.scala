@@ -41,10 +41,8 @@ private[ankka] final case class HandlerPlan(
 
   /** Calls the handler on `instance`; a handler's own exception is rethrown as itself. */
   def invoke(instance: AnyRef, input: Any): Any =
-    try
-      if method.getParameterCount == 0 then method.invoke(instance)
-      else method.invoke(instance, input.asInstanceOf[AnyRef])
-    catch case e: InvocationTargetException => throw e.getCause
+    if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
+    else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
 
 /** One workflow step, read from its `@Step` method. */
 private[ankka] final case class StepPlan(
@@ -56,10 +54,8 @@ private[ankka] final case class StepPlan(
     (method.getDeclaringClass.getName, method.getName, Declarations.descriptor(method))
 
   def invoke(instance: AnyRef, input: Any): Any =
-    try
-      if method.getParameterCount == 0 then method.invoke(instance)
-      else method.invoke(instance, input.asInstanceOf[AnyRef])
-    catch case e: InvocationTargetException => throw e.getCause
+    if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
+    else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
 
 /** A component class, read once: everything the hosts and the client need, or its problems. */
 private[ankka] final case class ComponentPlan(
@@ -172,20 +168,21 @@ private[ankka] object Declarations:
               case None        => seen(wire) = member
           if Modifier.isStatic(m.getModifiers) then
             problem(member, "is static; a handler is an instance method")
-          if !classOf[Effect[?]].isAssignableFrom(m.getReturnType) then
+          Invocable.problem(m).foreach(problem(member, _))
+          val params = Invocable.parameterCount(m)
+          if !classOf[Effect[?]].isAssignableFrom(Invocable.returnType(m)) then
             problem(member, "must return an Effect built by effects()")
-          if readOnly && !classOf[ReadOnlyEffect[?]].isAssignableFrom(m.getReturnType) then
+          if readOnly && !classOf[ReadOnlyEffect[?]].isAssignableFrom(Invocable.returnType(m)) then
             problem(member, "is a @Query, so it must return a ReadOnlyEffect, which cannot persist")
-          if m.getParameterCount > 1 then
+          if params > 1 then
             problem(
               member,
-              s"takes ${m.getParameterCount} parameters; a handler takes one or none (use a record)"
+              s"takes $params parameters; a handler takes one or none (use a record)"
             )
           val input =
-            if m.getParameterCount == 1 then
-              serializer(m.getGenericParameterTypes()(0), member, "parameter")
+            if params == 1 then serializer(Invocable.parameterTypes(m)(0), member, "parameter")
             else None
-          val reply = replyType(m.getGenericReturnType) match
+          val reply = replyType(Invocable.genericReturnType(m)) match
             case Some(t) => serializer(t, member, "reply")
             case None =>
               problem(member, "must name its reply type, such as Effect<Done>")
@@ -193,7 +190,7 @@ private[ankka] object Declarations:
           m.setAccessible(true)
           for
             out <- reply
-            if m.getParameterCount <= 1 && (m.getParameterCount == 0 || input.isDefined)
+            if params <= 1 && (params == 0 || input.isDefined)
           do handlers += HandlerPlan(wire, m, input, out, readOnly)
     }
 
@@ -219,19 +216,17 @@ private[ankka] object Declarations:
             }
           if Modifier.isStatic(m.getModifiers) then
             problem(member, "is static; a step is an instance method")
-          if m.getReturnType != classOf[StepEffect] then
+          Invocable.problem(m).foreach(problem(member, _))
+          val params = Invocable.parameterCount(m)
+          if Invocable.returnType(m) != classOf[StepEffect] then
             problem(member, "must return a StepEffect built by stepEffects()")
-          if m.getParameterCount > 1 then
-            problem(
-              member,
-              s"takes ${m.getParameterCount} parameters; a step takes one or none (use a record)"
-            )
+          if params > 1 then
+            problem(member, s"takes $params parameters; a step takes one or none (use a record)")
           val input =
-            if m.getParameterCount == 1 then
-              serializer(m.getGenericParameterTypes()(0), member, "input")
+            if params == 1 then serializer(Invocable.parameterTypes(m)(0), member, "input")
             else None
           m.setAccessible(true)
-          if m.getParameterCount == 0 || input.isDefined then steps += StepPlan(name, m, input)
+          if params == 0 || input.isDefined then steps += StepPlan(name, m, input)
     }
 
     val settings =

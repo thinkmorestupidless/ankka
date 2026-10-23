@@ -162,12 +162,12 @@ private[ankka] object Routes:
           catch case e: EncodingException => Left(e.getMessage)
 
     def replyOf(m: Method): Either[String, Option[Serializer[Any]]] =
-      val raw = m.getReturnType
+      val raw = Invocable.returnType(m)
       if raw == java.lang.Void.TYPE || raw == classOf[Void] || raw == classOf[Done] ||
         raw == classOf[Response]
       then Right(None)
       else
-        serializer(m.getGenericReturnType)
+        serializer(Invocable.genericReturnType(m))
           .map(s => Option(s))
           .left
           .map(why => s"its reply has no serializer: $why")
@@ -202,7 +202,8 @@ private[ankka] object Routes:
           val bound        = mutable.Set.empty[String]
           var bodies       = 0
           val specials     = mutable.ArrayBuffer.empty[(Int, Class[?])]
-          val binders = m.getParameters.toVector.zipWithIndex.flatMap { (p, i) =>
+          Invocable.problem(m).foreach(problem(member, _))
+          val binders = Invocable.parameters(m).toVector.zipWithIndex.flatMap { (p, i) =>
             if p.getType == classOf[WebSocket] || p.getType == classOf[StreamedBody] then
               specials += i -> p.getType
               Some(((_, _, _) => null): Binder)
@@ -226,8 +227,8 @@ private[ankka] object Routes:
               handed.distinct.foreach(c =>
                 problem(member, s"takes a ${c.getSimpleName}, which only ${handedBy(c)} is handed")
               )
-              if m.getReturnType != classOf[Flow.Publisher[?]] &&
-                m.getReturnType != classOf[java.util.stream.Stream[?]]
+              if Invocable.returnType(m) != classOf[Flow.Publisher[?]] &&
+                Invocable.returnType(m) != classOf[java.util.stream.Stream[?]]
               then
                 problem(
                   member,
@@ -241,7 +242,7 @@ private[ankka] object Routes:
                   member,
                   "is an @Socket route; besides its WebSocket it binds path parameters only"
                 )
-              if m.getReturnType != java.lang.Void.TYPE then
+              if Invocable.returnType(m) != java.lang.Void.TYPE then
                 problem(
                   member,
                   "is an @Socket route; it returns nothing, and the socket closes when it returns"
@@ -509,13 +510,10 @@ private[ankka] object Routes:
     else http.SseEvent.text(e.text.get)
 
   private def invoke(m: Method, instance: AnyRef, params: Vector[AnyRef]): Any =
-    try m.invoke(instance, params*)
+    try Invocable.invoke(m, instance, params*)
     catch
-      case e: InvocationTargetException =>
-        e.getCause match
-          case p: ProblemException => throw problem(p.problem)
-          case c: CommandException => throw problem(c.problem)
-          case other               => throw other
+      case p: ProblemException => throw problem(p.problem)
+      case c: CommandException => throw problem(c.problem)
 
   private def problem(p: Problem): HttpProblem =
     HttpProblem(p.status, if p.detail.isEmpty then p.title else p.detail)

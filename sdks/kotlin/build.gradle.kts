@@ -24,6 +24,8 @@ subprojects {
         jvmToolchain(21)
         compilerOptions {
             allWarningsAsErrors.set(true)
+            // Parameter names in the class files: a route binds a path parameter by its name.
+            javaParameters.set(true)
             // The Java SDK's packages are @NullMarked: read its types as non-null, and fail on a misuse.
             freeCompilerArgs.add("-Xjspecify-annotations=strict")
         }

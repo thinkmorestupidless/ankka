@@ -10,8 +10,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 
-version="$(sbt -batch -no-colors -Dankka.cluster.tests=off -Dankka.template.tests=kotlin \
-  cli/templateArtifacts 'print sdkJava/version' | tail -n 1 | tr -d '[:space:]')"
+# On a failure sbt's own output is the only explanation, so it is printed rather than swallowed.
+out="$(sbt -batch -no-colors -Dankka.cluster.tests=off -Dankka.template.tests=kotlin \
+  cli/templateArtifacts 'print sdkJava/version' 2>&1)" || { echo "$out" >&2; exit 1; }
+version="$(printf '%s\n' "$out" | tail -n 1 | tr -d '[:space:]')"
 case "$version" in
   [0-9]*) ;;
   *) echo "could not read the Java SDK's version from sbt (got '$version')" >&2; exit 1 ;;

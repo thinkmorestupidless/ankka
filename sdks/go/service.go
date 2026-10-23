@@ -232,7 +232,10 @@ func (s *Service) grpcServer() *grpc.Server {
 		server.RegisterAgent(g, s.decls.agents, s.serverOptions())
 	}
 	if len(s.decls.endpoints) > 0 {
-		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP}, s.serverOptions())
+		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP, Stream: s.decls.handleStream, Socket: s.decls.handleSocket}, s.serverOptions())
+	}
+	if len(s.decls.mcpTools) > 0 {
+		server.RegisterMcp(g, s.decls.mcpTools, s.serverOptions())
 	}
 	return g
 }

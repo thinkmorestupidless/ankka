@@ -86,6 +86,10 @@ func errorToPb(err error) *pb.Error {
 	return &pb.Error{Message: err.Error(), Code: pb.ErrorCode_INTERNAL}
 }
 
+// ProtocolError is the refusal as the protocol's error, so a servicer that fails with it keeps its
+// code.
+func (e *RefusalError) ProtocolError() *pb.Error { return errorToPb(e) }
+
 // errorFromPb is the refusal a protocol error describes.
 func errorFromPb(e *pb.Error) *RefusalError {
 	return &RefusalError{Code: ErrorCode(e.GetCode()), Message: e.GetMessage(), Details: e.GetDetails()}

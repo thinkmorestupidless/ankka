@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 )
@@ -23,7 +24,40 @@ type handlerPart interface {
 	describe() string
 	encodeInput(v any) (*pb.Payload, error)
 	decodeReply(p *pb.Payload) (any, error)
+	// takesNoInput reports whether the input is Unit or Done, so a caller gives none.
+	takesNoInput() bool
+	// inputSchema is the input's JSON Schema, for a tool that runs the handler.
+	inputSchema() (map[string]any, []string)
+	// inputFromJSON is a JSON value read as the input and encoded by the input's codec.
+	inputFromJSON(data []byte) (*pb.Payload, error)
+	// streams reports whether the handler answers as a stream.
+	streams() bool
 }
+
+func (h handlerBase[I, R]) takesNoInput() bool {
+	t := reflect.TypeFor[I]()
+	return t == unitType || t == doneType
+}
+
+func (h handlerBase[I, R]) inputSchema() (map[string]any, []string) {
+	return schemaOf(reflect.TypeFor[I]())
+}
+
+func (h handlerBase[I, R]) inputFromJSON(data []byte) (*pb.Payload, error) {
+	p, problems := planFor(reflect.TypeFor[I]())
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	var in I
+	if err := decodeJSON(p, data, reflect.ValueOf(&in).Elem()); err != nil {
+		return nil, err
+	}
+	return payloadOf(h.in, in)
+}
+
+func (h handlerBase[I, R]) streams() bool { return false }
+
+func (a *askPart[I]) streams() bool { return a.stream }
 
 // handlerBase is the wire name and the input and reply codecs every handler has.
 type handlerBase[I, R any] struct {
@@ -103,6 +137,7 @@ func (q *queryPart[S, I, R]) runQuery(ctx context.Context, state S, payload *pb.
 func handlerProblems(d *declarations, componentID string, handlers []handlerPart) {
 	seen := map[string]int{}
 	for _, h := range handlers {
+		d.handlerParts[handlerKey(componentID, h.wire())] = h
 		if h.wire() == "" {
 			d.problem(componentID, "a handler has no wire name: %s", h.describe())
 		}

@@ -42,6 +42,11 @@ type declarations struct {
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
+	// handlerParts are every component's handlers, keyed by handlerKey, for an MCP tool that runs one.
+	handlerParts map[string]handlerPart
+	// mcpDecls are the MCP endpoints by id, resolved once every component is declared.
+	mcpDecls map[string]*McpEndpoint
+	mcpTools map[string]server.McpHandler
 
 	// routes are each endpoint's routes by route id; endpointDecls the endpoints by id.
 	routes        map[string]map[string]*Route
@@ -65,6 +70,9 @@ func newDeclarations() *declarations {
 		timedActions:  map[string]server.TimedActionHandler{},
 		agents:        map[string]server.AgentHandlers{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
+		handlerParts:  map[string]handlerPart{},
+		mcpDecls:      map[string]*McpEndpoint{},
+		mcpTools:      map[string]server.McpHandler{},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},
 		esKits:        map[string]*kit.EventSourced{},
@@ -103,6 +111,10 @@ func gather(decls []Declaration) *declarations {
 			continue
 		}
 		decl.declare(d)
+	}
+	// An MCP endpoint's references name components and routes, which may be declared after it.
+	for _, id := range sortedKeys(d.mcpDecls) {
+		d.mcpDecls[id].resolve(d)
 	}
 	ids := map[string]int{}
 	for _, c := range d.components {

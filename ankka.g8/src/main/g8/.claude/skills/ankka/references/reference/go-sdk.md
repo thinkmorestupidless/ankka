@@ -1135,6 +1135,7 @@ A sidecar older than something the service declares is refused at discovery, nam
 | `testkit.TimedAction(action)` | A timed action's handlers |
 | `testkit.Agent(agent, session, testkit.NewScriptedModel())` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out |
 | `testkit.Endpoint(endpoint, components…)`, `testkit.Mcp(endpoint, components…)` | An endpoint's routes, or an MCP endpoint's tools, with no sidecar |
+| `testkit.Calling(components…)`, `testkit.AnswerService(name, answer)` | Options of the component kits: the components a handler calls, and the answer a call to another service gets; a call to a service no `AnswerService` names fails as unresolvable |
 | `testkit.StartT(t, service)` | The whole service through the real sidecar image and a throwaway Postgres; `Restart(ctx)` starts a new sidecar on the same database; skipped unless `ANKKA_SLOW=1` |
 
 ```go

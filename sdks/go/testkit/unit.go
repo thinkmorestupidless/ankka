@@ -67,6 +67,7 @@ type Option func(*options)
 type options struct {
 	entityID string
 	calling  []ankka.Declaration
+	services map[string]ServiceAnswer
 }
 
 // EntityID is the id of the instance the kit drives; "test-entity" by default.

@@ -20,6 +20,23 @@ func Calling(components ...ankka.Declaration) Option {
 	return func(o *options) { o.calling = append(o.calling, components...) }
 }
 
+// ServiceAnswer answers a call to another service in a unit kit, in place of the service. An
+// *ankka.ServiceError it returns is the failure the caller is given; any other error is the
+// service unanswered.
+type ServiceAnswer func(ankka.ServiceRequest) (*ankka.ServiceResponse, error)
+
+// AnswerService has the kit answer its handlers' calls to service ("project/service" for another
+// project's) with answer, as ankka.CallService would be answered. A call to a service no
+// AnswerService names fails as unresolvable, naming it.
+func AnswerService(service string, answer ServiceAnswer) Option {
+	return func(o *options) {
+		if o.services == nil {
+			o.services = map[string]ServiceAnswer{}
+		}
+		o.services[service] = answer
+	}
+}
+
 // hosted is a service of one component and the ones it calls, and the client its handlers use.
 type hosted struct {
 	view   *kit.Service
@@ -29,7 +46,7 @@ type hosted struct {
 
 func host(component ankka.Declaration, o options) *hosted {
 	v := view(ankka.NewService(append([]ankka.Declaration{component}, o.calling...)...))
-	client, stop := serveStandIn(v)
+	client, stop := serveStandIn(v, o.services)
 	return &hosted{view: v, client: client, stop: stop}
 }
 

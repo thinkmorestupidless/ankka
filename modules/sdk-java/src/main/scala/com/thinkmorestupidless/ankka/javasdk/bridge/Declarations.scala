@@ -71,7 +71,9 @@ private[ankka] final case class ComponentPlan(
     event: Option[Serializer[Any]],
     construct: EntityContext => AnyRef,
     steps: Vector[StepPlan] = Vector.empty,
-    settings: sdk.WorkflowSettings = sdk.WorkflowSettings.default
+    settings: sdk.WorkflowSettings = sdk.WorkflowSettings.default,
+    snapshotEvery: Option[Int] = Some(100),
+    replicated: Boolean = false
 )
 
 /** Reads a component class once, at start, collecting every problem rather than the first. */
@@ -106,6 +108,14 @@ private[ankka] object Declarations:
 
     if Modifier.isAbstract(cls.getModifiers) then
       problem("", "is abstract; register a concrete class")
+
+    val replicated    = cls.isAnnotationPresent(classOf[annotations.Replicated])
+    val snapshotEvery = Option(cls.getAnnotation(classOf[annotations.SnapshotEvery])).map(_.value)
+    if (replicated || snapshotEvery.isDefined) && kind.exists(_ != JavaKind.EventSourced) then
+      problem("", "is @Replicated or @SnapshotEvery, which only an event sourced entity can be")
+    snapshotEvery.filter(_ < 0).foreach { n =>
+      problem("", s"snapshots every $n events; name a positive number, or 0 for never")
+    }
 
     val construct = constructor(cls) match
       case Right(c)  => Some(c)
@@ -249,7 +259,9 @@ private[ankka] object Declarations:
           event,
           construct.get,
           steps.toVector,
-          settings
+          settings,
+          snapshotEvery = snapshotEvery.fold(Some(100))(n => Option.when(n > 0)(n)),
+          replicated = replicated
         )
       )
 

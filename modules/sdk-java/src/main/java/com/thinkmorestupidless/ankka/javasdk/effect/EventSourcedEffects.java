@@ -23,6 +23,22 @@ public interface EventSourcedEffects<S, E> {
   /** Delete the entity, with no event of its own. */
   PersistBuilder<S, E> deleteEntity();
 
+  /**
+   * Hand a replicated entity's home to {@code installation}, which must be in its replication
+   * set, with no event of its own. The handover is recorded once the new home holds everything
+   * before it; until then this home goes on as home.
+   */
+  PersistBuilder<S, E> handOverTo(String installation);
+
+  /** Add {@code installation} to a replicated entity's replication set. */
+  PersistBuilder<S, E> replicateTo(String installation);
+
+  /** Take {@code installation} out of a replicated entity's replication set; it keeps its copy. */
+  PersistBuilder<S, E> stopReplicatingTo(String installation);
+
+  /** Persist nothing and send no reply: the caller is answered by no one and times out. */
+  <R> ReadOnlyEffect<R> noReply();
+
   /** Reply without persisting. */
   <R> ReadOnlyEffect<R> reply(R reply);
 

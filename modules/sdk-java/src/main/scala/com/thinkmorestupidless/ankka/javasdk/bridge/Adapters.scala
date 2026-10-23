@@ -49,6 +49,9 @@ private[ankka] object Adapters:
         val cell = EntityCell(ctx.entityId, plan.componentId, Clients.of(ctx.componentClient, refs))
         JavaEventSourcedHost(construct(plan, cell), cell)
 
+      override def snapshotEvery: Option[Int] = plan.snapshotEvery
+      override def replicated: Boolean        = plan.replicated
+
       plan.handlers.foreach { h =>
         val run = invoker(plan, h)
         val out = CodecBridge.toScala(h.output)
@@ -135,8 +138,11 @@ private[ankka] object Adapters:
 /** A Java event sourced entity, hosted. */
 private[ankka] final class JavaEventSourcedHost(val java: AnyRef, cell: EntityCell)
     extends sdk.EventSourcedEntity[Any, Any]:
-  def emptyState: Any             = Adapters.Hooks.emptyEventSourced(java)
-  def applyEvent(event: Any): Any = Adapters.Hooks.applyEvent(java, currentState, event)
+  def emptyState: Any = Adapters.Hooks.emptyEventSourced(java)
+  def applyEvent(event: Any): Any =
+    cell.event = scala.util.Try(eventContext).toOption
+    try Adapters.Hooks.applyEvent(java, currentState, event)
+    finally cell.event = None
 
   override private[ankka] def _setState(state: Any): Unit =
     super._setState(state)

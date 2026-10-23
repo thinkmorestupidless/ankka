@@ -19,6 +19,21 @@ public interface PersistBuilder<S, E> {
   /** Reply {@link Done}. */
   Effect<Done> thenDone();
 
+  /** Persist, and send no reply. */
+  <R> Effect<R> thenNoReply();
+
+  /**
+   * Persist, then hand a replicated entity's home to {@code installation}. Cannot be combined
+   * with a change to the replication set on one command.
+   */
+  PersistBuilder<S, E> handOverTo(String installation);
+
+  /** Persist, then add {@code installation} to the replication set. */
+  PersistBuilder<S, E> replicateTo(String installation);
+
+  /** Persist, then take {@code installation} out of the replication set. */
+  PersistBuilder<S, E> stopReplicatingTo(String installation);
+
   /** Persist the events, then delete the entity. */
   PersistBuilder<S, E> thenDelete();
 

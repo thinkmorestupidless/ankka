@@ -30,6 +30,12 @@ public class CartLines extends Consumer<CartEvent, CartLines.Line> {
     return Optional.of(Publication.to("cart-lines"));
   }
 
+  /** Published once from wherever a replicated cart's events are written, at every installation. */
+  @Override
+  protected boolean mirroredChanges() {
+    return true;
+  }
+
   @Override
   protected ConsumerEffect<Line> onChange(CartEvent event) {
     String cart = messageContext().subject();

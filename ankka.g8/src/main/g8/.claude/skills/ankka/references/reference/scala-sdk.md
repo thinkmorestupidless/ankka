@@ -78,7 +78,7 @@ need a `Serializer` in scope; `Codecs.serializer[A]("manifest")` derives a JSON 
 | Effects | `effects.persist(e, more*)`, `persistAll(events)`, `deleteEntity()`, then `.thenReply(s => r)`, `.thenReplyState`, `.thenNoReply`, `.deleteEntity()`, `.expireAfter(d)`; `effects.reply(r)`, `effects.error(msg, code)`, `effects.noReply` |
 | Types | A command returns `Effect[R]`; a query returns `ReadOnlyEffect[R]` |
 | Snapshots | `snapshotEvery: Option[Int]`, `Some(100)` by default |
-| Replication | `override def replicated = true` on the companion; effects `effects.handOverTo(installation)`, `.replicateTo(installation)`, `.stopReplicatingTo(installation)`, alone or after `persist`; `commandContext.installation`, `commandContext.isHome`; `eventContext` (`installation`, `isLocal`, `sequence`) in `applyEvent` |
+| Replication | `override def replicated = true` on the companion; effects `effects.handOverTo(installation)`, `.replicateTo(installation)`, `.stopReplicatingTo(installation)`, alone or after `persist`; `commandContext.installation`, `commandContext.isHome`; `eventContext` (`installation`, `isLocal`, `sequenceNumber`) in `applyEvent` |
 | Calls | `forEventSourcedEntity(id).replication(Companion)`, a copy's `ReplicationStatus`; `.awaitHandover(Companion, installation, timeout)` |
 
 See [Event sourced entities](../build/event-sourced-entities.md) and

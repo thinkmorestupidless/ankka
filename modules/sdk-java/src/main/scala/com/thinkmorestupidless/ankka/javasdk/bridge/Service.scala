@@ -125,10 +125,18 @@ private[ankka] object JavaServiceBuilder:
      * projections behind its views and consumers, and the timers its timed actions are run by.
      */
     def platformExtensions: Vector[runtime.RuntimeExtension] =
-      (if views.nonEmpty || consumers.nonEmpty then Vector(runtime.ProjectionRuntime())
-       else Vector.empty) ++
-        (if actions.isEmpty && mcps.isEmpty then Vector.empty
-         else Vector(runtime.TimerRuntime())) ++
+      platformExtensionsWith(runtime.ProjectionRuntime.fromEnv(), runtime.TimerRuntime())
+
+    /**
+     * As [[platformExtensions]], with the projections and timers given: a deployed service is told
+     * of its broker by its environment, a test kit gives one in memory and watches its timers.
+     */
+    def platformExtensionsWith(
+        projections: => runtime.ProjectionRuntime,
+        timers: => runtime.TimerRuntime
+    ): Vector[runtime.RuntimeExtension] =
+      (if views.nonEmpty || consumers.nonEmpty then Vector(projections) else Vector.empty) ++
+        (if actions.isEmpty && mcps.isEmpty then Vector.empty else Vector(timers)) ++
         // Client keys, and the brokered sign-in's records, which its timers forget.
         (if mcps.isEmpty then Vector.empty else Vector(smcp.McpRuntime()))
 

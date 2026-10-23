@@ -16,4 +16,7 @@ public interface WorkflowBuilder<S> {
   Effect<S> thenReplyState();
 
   Effect<Done> thenDone();
+
+  /** Make the change, and send no reply. */
+  <R> Effect<R> thenNoReply();
 }

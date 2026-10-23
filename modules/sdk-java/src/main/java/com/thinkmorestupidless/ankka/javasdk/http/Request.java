@@ -17,6 +17,17 @@ public interface Request {
 
   List<String> queryAll(String name);
 
+  /**
+   * A query parameter the handler cannot proceed without; its absence answers 400 naming it.
+   */
+  String requiredQuery(String name);
+
+  /**
+   * Whether a flag is set: present with no value counts as {@code true}, so {@code ?verbose} and
+   * {@code ?verbose=true} agree.
+   */
+  boolean flag(String name);
+
   Optional<String> header(String name);
 
   Caller caller();

@@ -65,7 +65,7 @@ object SseEvent:
     )
 
   /** Whether `event` ends a wait's stream. */
-  private[http] def endsAWait(event: SseEvent): Boolean =
+  private[ankka] def endsAWait(event: SseEvent): Boolean =
     event.name.exists(Set("ended", "failed", "timed-out"))
 
   /** A named event carrying a value as JSON. */

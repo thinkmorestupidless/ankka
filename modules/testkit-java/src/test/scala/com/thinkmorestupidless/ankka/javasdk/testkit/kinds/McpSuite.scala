@@ -5,7 +5,7 @@ import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig, TestIssuer}
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.javasdk.Ankka
 import com.thinkmorestupidless.ankka.javasdk.bridge.TestAcls
-import com.thinkmorestupidless.ankka.javasdk.cart.{CartState, ShoppingCart}
+import com.thinkmorestupidless.ankka.javasdk.cart.{CartEndpoint, CartState, ShoppingCart}
 import com.thinkmorestupidless.ankka.javasdk.client.CommandException
 import com.thinkmorestupidless.ankka.javasdk.mcp.{ClientKeyRequest, Expiry}
 import com.thinkmorestupidless.ankka.javasdk.problems.ServiceProblems
@@ -39,6 +39,8 @@ class McpSuite extends munit.FunSuite with LogCapturing:
         .register(classOf[ShoppingCart])
         .withMcpEndpoint(classOf[CartTools])
         .withMcpEndpoint(classOf[KeyedTools])
+        .withEndpoint(classOf[CartEndpoint])
+        .withMcpEndpoint(classOf[RouteTools])
     )
     issuer = TestIssuer.serving("customers", "shop")
     issuer.registeredClients.put(BrokerClientId, None)
@@ -213,6 +215,22 @@ class McpSuite extends munit.FunSuite with LogCapturing:
     val untouched =
       kit.componentClient().forEventSourcedEntity("c3").call(KindRefs.getCart).invoke()
     assertEquals(untouched.items.size, 0)
+  }
+
+  test("a tool naming a route calls it with its path parameters and its body") {
+    val item = Json.obj(
+      "productId" -> Json.str("p9"),
+      "name"      -> Json.str("gloves"),
+      "quantity"  -> Json.num(2)
+    )
+    val added =
+      call(kit, "/routes", "add_by_route", Json.obj("id" -> Json.str("c9"), "body" -> item))
+    assert(!isError(added), added.render)
+    val read = call(kit, "/routes", "read_cart", Json.obj("id" -> Json.str("c9")))
+    assert(text(read).contains("gloves"), read.render)
+    val state: CartState =
+      kit.componentClient().forEventSourcedEntity("c9").call(KindRefs.getCart).invoke()
+    assertEquals(state.items.asScala.map(_.name).toVector, Vector("gloves"))
   }
 
   test("a handler's refusal is a tool error carrying the problem's detail") {

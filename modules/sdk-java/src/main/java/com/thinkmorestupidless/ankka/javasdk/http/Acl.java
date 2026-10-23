@@ -38,6 +38,14 @@ public interface Acl {
     return Acls.allowCallers(services);
   }
 
+  /**
+   * Only the callers {@code matchers} name, built by {@link Callers}: {@code
+   * Acl.allowCallers(Callers.internet(), Callers.service("orders"))}.
+   */
+  static Acl allowCallers(CallerMatcher... matchers) {
+    return Acls.allowCallers(matchers);
+  }
+
   /** A caller any of {@code acls} admits. */
   static Acl anyOf(Acl... acls) {
     return Acls.anyOf(acls);

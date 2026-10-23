@@ -47,6 +47,8 @@ class TimersSuite extends munit.FunSuite with LogCapturing:
     eventually("the run")(runs("t-once").nonEmpty)
     assertEquals(runs("t-once"), Vector(CartTimers.Run("t-once", "cart-9", 0)))
     eventually("the timer is gone")(!timers.exists("t-once"))
+    // The row is removed before the sweeper tells its observer, so wait for the record itself.
+    eventually("the run recorded")(probe.fired("t-once").nonEmpty)
     assertEquals(probe.fired("t-once").size, 1)
   }
 

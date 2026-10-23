@@ -14,6 +14,7 @@ import com.thinkmorestupidless.ankka.sdk
 
 import java.lang.reflect.Method
 import java.util.{Optional, OptionalInt}
+import scala.jdk.OptionConverters.*
 
 /** A Java consumer or graph consumer, read once when the service starts. */
 private[ankka] final case class ConsumerPlan(
@@ -25,7 +26,8 @@ private[ankka] final case class ConsumerPlan(
     graphTopic: Option[String],
     version: Option[Int],
     parallelism: Int,
-    construct: () => AnyRef
+    construct: () => AnyRef,
+    mirrored: Boolean = false
 )
 
 private[ankka] object Consumers:
@@ -46,6 +48,8 @@ private[ankka] object Consumers:
     val source      = reader.declaredSource(hooks.source)
     val version     = reader.version(hooks.version)
     val parallelism = reader.parallelism(hooks.parallelism)
+    val mirrored =
+      !graph && reader.hook("mirroredChanges")(Hooks.mirrored).contains(true)
 
     val (publication, output, topic) =
       if graph then
@@ -72,7 +76,14 @@ private[ankka] object Consumers:
             case None    => None
         }
         val scalaPublication =
-          publishes.map(p => sdk.Publication(p.topic, project = Option(p.project.orElse(null))))
+          publishes.map(p =>
+            sdk.Publication(
+              p.topic,
+              contract = p.contract.toScala.map(Topics.scala),
+              broker = p.broker.toScala,
+              project = p.project.toScala
+            )
+          )
         (scalaPublication, output, None)
 
     if reader.problems.nonEmpty then Left(reader.problems)
@@ -87,7 +98,8 @@ private[ankka] object Consumers:
           topic,
           version,
           parallelism,
-          reader.construct.get
+          reader.construct.get,
+          mirrored
         )
       )
 
@@ -120,6 +132,7 @@ private[ankka] object Consumers:
               : Option[com.thinkmorestupidless.ankka.core.Serializer[Any]] =
             plan.output.map(CodecBridge.toScala)
           override def produces: Option[sdk.Publication] = plan.publication
+          override def mirroredChanges: Boolean          = plan.mirrored
           override def parallelism: Int                  = plan.parallelism
           override def version: Option[Int]              = plan.version
         .descriptor
@@ -168,6 +181,11 @@ private[ankka] object Consumers:
     def publishes(c: AnyRef): Optional[JavaPublication] =
       Views.Hooks.call(publishesM, c).asInstanceOf[Optional[JavaPublication]]
     def topic(c: AnyRef): String = Views.Hooks.call(topicM, c).asInstanceOf[String]
+
+    private val mirroredM =
+      val m = classOf[Consumer[?, ?]].getDeclaredMethod("mirroredChanges"); m.setAccessible(true); m
+    def mirrored(c: AnyRef): Boolean =
+      Views.Hooks.call(mirroredM, c).asInstanceOf[java.lang.Boolean].booleanValue
 
 /** A Java consumer, hosted by the Scala projection runtime. */
 private[ankka] final class JavaConsumerHost(plan: ConsumerPlan, cell: ViewCell)

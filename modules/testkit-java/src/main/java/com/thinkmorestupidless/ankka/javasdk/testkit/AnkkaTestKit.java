@@ -8,7 +8,11 @@ import com.thinkmorestupidless.ankka.javasdk.timer.Timers;
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
+import com.thinkmorestupidless.ankka.javasdk.http.Caller;
+import com.thinkmorestupidless.ankka.javasdk.testkit.bridge.InstallationsKit;
 import com.thinkmorestupidless.ankka.javasdk.testkit.bridge.ServiceKit;
+import java.util.List;
+import java.util.Map;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -29,7 +33,7 @@ public final class AnkkaTestKit implements AutoCloseable {
 
   private final ServiceKit kit;
 
-  private AnkkaTestKit(ServiceKit kit) {
+  AnkkaTestKit(ServiceKit kit) {
     this.kit = kit;
   }
 
@@ -39,6 +43,33 @@ public final class AnkkaTestKit implements AutoCloseable {
 
   public static AnkkaTestKit start(ServiceBuilder service, Settings settings) {
     return new AnkkaTestKit(ServiceKit.start(service, settings));
+  }
+
+  /**
+   * A group of installations of one service, each on its own database, replicating through
+   * the runtime's own transport. Start each with {@link Installations#start}.
+   */
+  public static Installations installations(String... names) {
+    return new Installations(InstallationsKit.of(names));
+  }
+
+  /**
+   * The header that makes a request to this service arrive as {@code caller}, for testing an
+   * ACL that names callers without a cluster. A request without it arrives as {@link
+   * Caller.Local}, which every caller-naming ACL admits.
+   */
+  public Map.Entry<String, String> asCaller(Caller caller) {
+    return kit.asCaller(caller);
+  }
+
+  /** Opens a socket to {@code path}; throws {@link TestSocket.Refused} when it is refused. */
+  public TestSocket socket(String path) {
+    return socket(path, Map.of(), List.of());
+  }
+
+  /** {@link #socket(String)} with headers on the opening request and subprotocols offered. */
+  public TestSocket socket(String path, Map<String, String> headers, List<String> subprotocols) {
+    return new TestSocket(kit.socket(path, headers, subprotocols));
   }
 
   public ComponentClient componentClient() {
@@ -78,6 +109,19 @@ public final class AnkkaTestKit implements AutoCloseable {
   /** The service's timers; refused when it registers no timed action. */
   public Timers timers() {
     return kit.timers();
+  }
+
+  /**
+   * What the service's consumers published to {@code topic}, oldest first. The kit holds a broker
+   * in memory, so a consumer that publishes runs without one.
+   */
+  public java.util.List<Published> published(String topic) {
+    return kit.published(topic);
+  }
+
+  /** What the service's timers did: each run of a timer, and a timer as the database holds it. */
+  public TimerRuns timerRuns() {
+    return new TimerRuns(kit.timerRuns());
   }
 
   /** The service's client keys, as its handlers reach them: a test issues a key with it. */

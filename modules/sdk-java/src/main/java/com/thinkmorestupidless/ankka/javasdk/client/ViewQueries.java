@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.client;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 
 /**
@@ -21,6 +22,18 @@ public interface ViewQueries<Row> {
 
   /** How many rows the view holds. */
   long count();
+
+  /** As {@link #get}, without waiting: the row, once read. */
+  CompletionStage<Optional<Row>> getAsync(String key);
+
+  /** As {@link #all(int)}, without waiting. */
+  CompletionStage<List<Row>> allAsync(int limit);
+
+  /** As {@link #count}, without waiting. */
+  CompletionStage<Long> countAsync();
+
+  /** As {@link #ask(ViewQuery, Map)}, without waiting. */
+  CompletionStage<List<Row>> askAsync(ViewQuery query, Map<String, String> values);
 
   /** A declared query of this view, each value it takes by name; at most a thousand rows. */
   List<Row> ask(ViewQuery query, Map<String, String> values);

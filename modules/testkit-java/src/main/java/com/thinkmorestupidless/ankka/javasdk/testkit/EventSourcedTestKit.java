@@ -37,6 +37,40 @@ public final class EventSourcedTestKit<S, E> {
     return new EventSourcedTestKit<>(EntityKits.eventSourced(entity, "test-entity", events));
   }
 
+  /**
+   * A replicated entity's copy as its home, at {@code installation}: every command runs, and a
+   * handover or a change to the replication set is reported on the result.
+   */
+  public static <S, E> EventSourcedTestKit<S, E> home(
+      Class<? extends EventSourcedEntity<S, E>> entity, String entityId, String installation) {
+    return new EventSourcedTestKit<>(
+        EntityKits.eventSourced(entity, entityId, List.of(), null, installation));
+  }
+
+  /**
+   * A replicated entity's copy as a follower of {@code home}, at {@code installation}: a
+   * command that may persist is refused 421, and a query is answered from what {@link
+   * #replay(String, List)} gave it.
+   */
+  public static <S, E> EventSourcedTestKit<S, E> follower(
+      Class<? extends EventSourcedEntity<S, E>> entity,
+      String entityId,
+      String home,
+      String installation) {
+    return new EventSourcedTestKit<>(
+        EntityKits.eventSourced(entity, entityId, List.of(), home, installation));
+  }
+
+  /** Gives the copy {@code events}, as written at its own installation. */
+  public void replay(List<? extends E> events) {
+    kit.replay(null, events);
+  }
+
+  /** Gives the copy {@code events}, as written at {@code installation}. */
+  public void replay(String installation, List<? extends E> events) {
+    kit.replay(installation, events);
+  }
+
   /** Sends a command to the handler {@code handler} names. */
   public <C, I, O> Result<O> call(CommandRef<C, I, O> handler, I input) {
     return kit.call(handler, input);

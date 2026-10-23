@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.javasdk.testkit;
 
 import com.thinkmorestupidless.ankka.javasdk.http.Problem;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * What one command did in a component test kit: its reply or its refusal, the events it persisted
@@ -25,4 +27,13 @@ public interface Result<O> {
 
   /** The state after the command. */
   Object state();
+
+  /** The installation a replicated entity's home is handed to, when the command asked. */
+  Optional<String> handover();
+
+  /** The installations the command added to a replicated entity's replication set. */
+  Set<String> replicatedTo();
+
+  /** The installations the command took out of a replicated entity's replication set. */
+  Set<String> stoppedReplicatingTo();
 }

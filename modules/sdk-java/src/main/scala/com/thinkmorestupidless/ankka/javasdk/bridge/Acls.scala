@@ -28,6 +28,23 @@ object Acls:
   def allowCallers(services: Array[String]): Acl =
     Held(http.Acl.AllowCallers(services.toVector.map(http.CallerMatcher.NamedService(None, _))))
 
+  private[bridge] final case class HeldMatcher(scala: http.CallerMatcher) extends CallerMatcher
+
+  def allowCallers(matchers: Array[CallerMatcher]): Acl =
+    Held(http.Acl.AllowCallers(matchers.toVector.map {
+      case HeldMatcher(m) => m
+      case other => throw IllegalArgumentException(s"$other is not a caller built by Callers")
+    }))
+
+  def internet(): CallerMatcher            = HeldMatcher(http.Callers.internet)
+  def service(name: String): CallerMatcher = HeldMatcher(http.Callers.service(name))
+  def service(project: String, name: String): CallerMatcher =
+    HeldMatcher(http.Callers.service(project, name))
+  def anyInProject(): CallerMatcher = HeldMatcher(http.Callers.anyInProject)
+  def self(): CallerMatcher         = HeldMatcher(http.Callers.self)
+  def anyService(): CallerMatcher   = HeldMatcher(http.Callers.anyService)
+  def granted(): CallerMatcher      = HeldMatcher(http.Callers.granted)
+
   def anyOf(acls: Array[Acl]): Acl = Held(http.Acl.AnyOf(acls.toVector.map(scalaOf)))
 
   def clientKeys(): Acl = Held(com.thinkmorestupidless.ankka.mcp.ClientKeys.authenticate())
@@ -68,6 +85,13 @@ object Acls:
       p.issuer.toJava
     )
 
+  /** A Java caller as the server names it; a test kit makes a request arrive as one. */
+  private[ankka] def scalaCaller(c: Caller): http.Caller = c match
+    case _: Caller.Gateway => http.Caller.Gateway
+    case s: Caller.Service => http.Caller.Service(s.project, s.name)
+    case m: Caller.Machine => http.Caller.Machine(m.organization, m.name)
+    case _: Caller.Local   => http.Caller.Local
+
   private[bridge] def javaCaller(c: http.Caller): Caller = c match
     case http.Caller.Gateway                => Caller.Gateway()
     case http.Caller.Service(project, name) => Caller.Service(project, name)
@@ -80,9 +104,14 @@ private[bridge] final class JavaRequest(ctx: http.RequestContext) extends Reques
   def path(): String                                 = ctx.path
   def query(name: String): Optional[String]          = ctx.query.raw(name).toJava
   def queryAll(name: String): java.util.List[String] = ctx.query.rawAll(name).asJava
-  def header(name: String): Optional[String]         = ctx.header(name).toJava
-  def caller(): Caller                               = Acls.javaCaller(ctx.caller)
-  def principal(): Optional[Principal]               = ctx.principal.map(Acls.javaPrincipal).toJava
+  def requiredQuery(name: String): String =
+    ctx.query
+      .raw(name)
+      .getOrElse(throw ProblemException(Problem.badRequest(s"query parameter '$name' is required")))
+  def flag(name: String): Boolean            = ctx.query.flag(name)
+  def header(name: String): Optional[String] = ctx.header(name).toJava
+  def caller(): Caller                       = Acls.javaCaller(ctx.caller)
+  def principal(): Optional[Principal]       = ctx.principal.map(Acls.javaPrincipal).toJava
 
 /** What a Java endpoint reads: the request on this thread, and its client. */
 final class EndpointCell private[bridge] (

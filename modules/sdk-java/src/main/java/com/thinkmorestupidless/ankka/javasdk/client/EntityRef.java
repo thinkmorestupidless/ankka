@@ -1,5 +1,8 @@
 package com.thinkmorestupidless.ankka.javasdk.client;
 
+import java.time.Duration;
+import com.thinkmorestupidless.ankka.javasdk.component.EventSourcedEntity;
+
 /** One entity instance, to call. */
 public interface EntityRef {
 
@@ -15,4 +18,16 @@ public interface EntityRef {
    */
   <I, O> Invocation<I, O> call(
       String componentId, String wireName, Class<I> input, Class<O> output);
+
+  /** How the copy of the replicated entity {@code entity} at this installation stands. */
+  ReplicationStatus replication(Class<? extends EventSourcedEntity<?, ?>> entity);
+
+  /**
+   * Waits until a handover of this replicated entity's home to {@code installation} has
+   * completed, as the copy at this installation records it, for at most {@code timeout}. Throws
+   * {@link CommandException} with 503 when the handover was abandoned or never asked for, and 504
+   * when it is still waiting when {@code timeout} passes.
+   */
+  void awaitHandover(
+      Class<? extends EventSourcedEntity<?, ?>> entity, String installation, Duration timeout);
 }

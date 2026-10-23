@@ -30,7 +30,10 @@ import java.lang.reflect.{InvocationTargetException, Method, Modifier}
 import java.util.{Optional, OptionalInt}
 import java.util.concurrent.Flow
 import scala.collection.mutable
+import java.util.concurrent.CompletionStage
+import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
+import scala.jdk.FutureConverters.*
 
 /** One source of a keyed view: the method for its changes, the one for its deletions, or both. */
 private[ankka] final case class KeyedSourcePlan(
@@ -347,6 +350,25 @@ private final class JavaViewQueries[Row](
   def all(): java.util.List[Row]           = guarded(rows(scala.all()))
   def all(limit: Int): java.util.List[Row] = guarded(rows(scala.all(limit)))
   def count(): Long                        = guarded(scala.count())
+
+  private def async[A, B](run: => Future[A])(to: A => B): CompletionStage[B] =
+    run
+      .transform(to, Clients.javaFailure)(using ExecutionContext.parasitic)
+      .asJava
+
+  def getAsync(key: String): CompletionStage[Optional[Row]] =
+    async(scala.getAsync(key))(found =>
+      found.fold(Optional.empty[Row]())(r => Optional.of(r.asInstanceOf[Row]))
+    )
+  def allAsync(limit: Int): CompletionStage[java.util.List[Row]] =
+    async(scala.allAsync(limit))(rows)
+  def countAsync(): CompletionStage[java.lang.Long] =
+    async(scala.countAsync())(n => java.lang.Long.valueOf(n))
+  def askAsync(
+      query: ViewQuery,
+      values: java.util.Map[String, String]
+  ): CompletionStage[java.util.List[Row]] =
+    async(scala.askAsync(JavaViews.declared(componentId, query), values.asScala.toSeq*))(rows)
 
   def ask(query: ViewQuery, values: java.util.Map[String, String]): java.util.List[Row] =
     guarded(rows(scala.ask(JavaViews.declared(componentId, query), values.asScala.toSeq*)))

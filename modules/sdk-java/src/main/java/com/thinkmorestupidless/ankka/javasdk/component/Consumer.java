@@ -40,6 +40,15 @@ public abstract class Consumer<Src, Out> {
     return Optional.empty();
   }
 
+  /**
+   * Whether a consumer that publishes is given a replicated entity's changes written at other
+   * installations too. Off unless overridden: each change is then published once, from the
+   * installation that wrote it. A consumer that publishes nothing is given every change.
+   */
+  protected boolean mirroredChanges() {
+    return false;
+  }
+
   /** The consumer's version; raising it reads a topic source again under a new group. */
   protected OptionalInt version() {
     return OptionalInt.empty();

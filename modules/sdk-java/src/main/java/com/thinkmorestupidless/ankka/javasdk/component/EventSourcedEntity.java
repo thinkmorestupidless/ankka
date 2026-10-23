@@ -53,6 +53,14 @@ public abstract class EventSourcedEntity<S, E> {
     return cell.entityContext();
   }
 
+  /**
+   * Where the event being applied was written, and whether here. Only inside {@code applyEvent};
+   * read anywhere else, it throws.
+   */
+  protected final EventContext eventContext() {
+    return cell.eventContext();
+  }
+
   /** The effects a handler returns. */
   @SuppressWarnings("unchecked")
   protected final EventSourcedEffects<S, E> effects() {

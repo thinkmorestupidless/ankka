@@ -13,6 +13,7 @@ import com.thinkmorestupidless.ankka.javasdk.http.{
   ProblemException,
   Request,
   Response,
+  SocketClosed,
   SseEvent,
   StreamedBody,
   WebSocket
@@ -467,9 +468,13 @@ private[ankka] object Routes:
               r.template,
               needsBody = false,
               (args, body) =>
-                val events = invoke(r.method, instance, params(r, args, body)) match
+                invoke(r.method, instance, params(r, args, body)) match
+                  // A wait for a workflow's end: already the Scala events, made where it was asked.
+                  case held: HeldEvents => held.scala
                   case p: Flow.Publisher[?] =>
-                    JavaFlowSupport.Source.fromPublisher(p.asInstanceOf[Flow.Publisher[SseEvent]])
+                    JavaFlowSupport.Source
+                      .fromPublisher(p.asInstanceOf[Flow.Publisher[SseEvent]])
+                      .map(scalaEvent)
                   // Pulled as the client reads, and closed when the stream ends or is cancelled.
                   case s: java.util.stream.Stream[?] =>
                     val stream = s.asInstanceOf[java.util.stream.Stream[SseEvent]]
@@ -478,9 +483,9 @@ private[ankka] object Routes:
                       .watchTermination()((_, done) =>
                         done.onComplete(_ => stream.close())(using parasitic)
                       )
+                      .map(scalaEvent)
                   case _ =>
                     throw IllegalStateException(s"${r.method.getName} returned no events")
-                events.map(scalaEvent)
               ,
               acl
             )
@@ -561,7 +566,9 @@ private[ankka] final class JavaHttpEndpoint(served: Served) extends http.HttpEnd
 /** The Scala socket, as a Java route is handed it. */
 private final class JavaSocket(scala: http.Socket) extends WebSocket:
   def receive(): Optional[String] = scala.receive().fold(Optional.empty[String]())(Optional.of)
-  def send(text: String): Unit    = scala.send(text)
+  def send(text: String): Unit =
+    try scala.send(text)
+    catch case closed: http.SocketClosed => throw SocketClosed(closed.reason)
 
 /** Reads an endpoint's protected `acl()`. */
 private object EndpointAcl:

@@ -150,6 +150,7 @@ private[bridge] final class JavaWorkflowEffects(steps: StepIndex) extends Workfl
     def thenReply[R](reply: R): Effect[R] = Effects.Held(scala.thenReply(reply))
     def thenReplyState(): Effect[Any]     = Effects.Held(scala.thenReplyState)
     def thenDone(): Effect[Done]          = Effects.Held(scala.thenReply(Done.DONE))
+    def thenNoReply[R](): Effect[R]       = Effects.Held(scala.thenNoReply)
 
 private[bridge] final class JavaStepEffects(steps: StepIndex) extends StepEffects[Any]:
   private val effects = new se.WorkflowStepEffects[Any]()

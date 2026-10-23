@@ -84,6 +84,20 @@ class ViewsSuite extends munit.FunSuite with LogCapturing:
     assertEquals(limited.size, 2)
   }
 
+  test("each query has a form that does not wait, answered as the waiting one is") {
+    place("as-1", "async")
+    place("as-2", "async")
+    eventually("both rows")(nodes.get("as-2").isPresent && nodes.get("as-1").isPresent)
+    def now[A](stage: java.util.concurrent.CompletionStage[A]): A =
+      stage.toCompletableFuture.get(20, TimeUnit.SECONDS)
+    assertEquals(now(nodes.getAsync("as-1")).get, Nodes.Row("as-1", "async", ""))
+    assert(now(nodes.getAsync("nowhere")).isEmpty)
+    assertEquals(now(nodes.countAsync()).longValue, nodes.count())
+    assertEquals(now(nodes.allAsync(1000)).size, nodes.all().size)
+    val named = now(nodes.askAsync(Nodes.NAMED, Map("name" -> "async").asJava))
+    assertEquals(named.asScala.map(_.id).toSet, Set("as-1", "as-2"))
+  }
+
   test("a declared query's rows as a stream, read as the subscriber asks") {
     place("s-1", "streamed")
     place("s-2", "streamed")

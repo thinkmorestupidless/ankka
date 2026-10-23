@@ -4,8 +4,9 @@ import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient as JavaClien
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients
 import com.thinkmorestupidless.ankka.javasdk.secret.SecretStore
 import com.thinkmorestupidless.ankka.javasdk.storage.ObjectStorage
-import com.thinkmorestupidless.ankka.javasdk.component.EntityContext
+import com.thinkmorestupidless.ankka.javasdk.component.{EntityContext, EventContext}
 import com.thinkmorestupidless.ankka.sdk.CommandContext
+import com.thinkmorestupidless.ankka.sdk
 
 import java.util.Optional
 
@@ -22,6 +23,7 @@ final class EntityCell private[bridge] (
   private[bridge] var state: Any                      = null
   private[bridge] var stateSet: Boolean               = false
   private[bridge] var command: Option[CommandContext] = None
+  private[bridge] var event: Option[sdk.EventContext] = None
   private val context                                 = CellContext(this)
 
   /** A workflow's steps, which its effects resolve step references through. */
@@ -50,6 +52,12 @@ final class EntityCell private[bridge] (
       throw IllegalStateException("currentState() is only available inside a handler or applyEvent")
     state
 
+  /** Where the event being applied was written; read by the Java base class. */
+  def eventContext(): EventContext = event match
+    case Some(e) => EventFacts(e)
+    case None =>
+      throw IllegalStateException("eventContext() is only available inside applyEvent")
+
   /** The instance's context; read by the Java base class. */
   def entityContext(): EntityContext = context
 
@@ -68,6 +76,12 @@ object EntityCell:
     constructing.set(cell)
     try build
     finally constructing.remove()
+
+private final class EventFacts(e: sdk.EventContext) extends EventContext:
+  def installation(): Optional[String] =
+    e.installation.fold(Optional.empty[String]())(Optional.of(_))
+  def isLocal(): Boolean     = e.isLocal
+  def sequenceNumber(): Long = e.sequenceNumber
 
 private final class CellContext(cell: EntityCell) extends EntityContext:
   private def command: CommandContext =

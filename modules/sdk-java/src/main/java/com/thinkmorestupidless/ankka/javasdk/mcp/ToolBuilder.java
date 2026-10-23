@@ -75,6 +75,17 @@ public final class ToolBuilder {
     return cell.reference(name, description, acl, handler, id, null, true);
   }
 
+  /**
+   * A route of one of the service's HTTP endpoints, named by the endpoint's {@code prefix}, its
+   * {@code method} and the route's whole {@code path} as declared, prefix and template ({@code
+   * /carts/{cartId}}). Its path parameters are the tool's arguments, and a {@code body} argument
+   * is the request's body, as JSON. The call runs as a call from the tool, under the caller the
+   * tool was called by, so the route's own ACL still applies.
+   */
+  public McpTool route(String prefix, String method, String path) {
+    return cell.route(name, description, acl, prefix, method, path);
+  }
+
   /** A tool whose arguments are one record. */
   public static final class Arguments<A> {
 

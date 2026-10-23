@@ -229,7 +229,14 @@ object Effects:
       Persist(effects.persist(first, second, third))
     def persistAll(events: java.util.List[? <: Any]): PersistBuilder[Any, Any] =
       Persist(effects.persistAll(events.asScala.toVector))
-    def deleteEntity(): PersistBuilder[Any, Any]      = Persist(effects.deleteEntity())
+    def deleteEntity(): PersistBuilder[Any, Any] = Persist(effects.deleteEntity())
+    def handOverTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(effects.handOverTo(installation))
+    def replicateTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(effects.replicateTo(installation))
+    def stopReplicatingTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(effects.stopReplicatingTo(installation))
+    def noReply[R](): ReadOnlyEffect[R]               = Held(effects.noReply)
     def reply[R](reply: R): ReadOnlyEffect[R]         = Held(effects.reply(reply))
     def error[R](message: String): ReadOnlyEffect[R]  = Held(effects.error(message))
     def error[R](problem: Problem): ReadOnlyEffect[R] = Held(effects.error(toCommandError(problem)))
@@ -241,6 +248,13 @@ object Effects:
     def thenReplyState(): Effect[Any]                    = Held(builder.thenReplyState)
     def thenDone(): Effect[Done]                         = Held(builder.thenReply(_ => Done.DONE))
     def thenDelete(): PersistBuilder[Any, Any]           = Persist(builder.deleteEntity())
+    def thenNoReply[R](): Effect[R]                      = Held(builder.thenNoReply)
+    def handOverTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(builder.handOverTo(installation))
+    def replicateTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(builder.replicateTo(installation))
+    def stopReplicatingTo(installation: String): PersistBuilder[Any, Any] =
+      Persist(builder.stopReplicatingTo(installation))
     def expireAfter(after: Duration): PersistBuilder[Any, Any] =
       Persist(builder.expireAfter(finite(after)))
 
@@ -249,6 +263,7 @@ object Effects:
 
     def updateState(state: Any): UpdateBuilder[Any]   = Update(effects.updateState(state))
     def deleteEntity(): UpdateBuilder[Any]            = Update(effects.deleteEntity())
+    def noReply[R](): ReadOnlyEffect[R]               = Held(effects.noReply)
     def reply[R](reply: R): ReadOnlyEffect[R]         = Held(effects.reply(reply))
     def error[R](message: String): ReadOnlyEffect[R]  = Held(effects.error(message))
     def error[R](problem: Problem): ReadOnlyEffect[R] = Held(effects.error(toCommandError(problem)))
@@ -258,6 +273,7 @@ object Effects:
     def thenReply[R](reply: R): Effect[R]                = Held(builder.thenReply(_ => reply))
     def thenReplyState(): Effect[Any]                    = Held(builder.thenReplyState)
     def thenDone(): Effect[Done]                         = Held(builder.thenReply(_ => Done.DONE))
+    def thenNoReply[R](): Effect[R]                      = Held(builder.thenNoReply)
     def expireAfter(after: Duration): UpdateBuilder[Any] = Update(
       builder.expireAfter(finite(after))
     )

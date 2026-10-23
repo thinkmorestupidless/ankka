@@ -72,6 +72,16 @@ final class McpCell private[bridge] (
   def handle(name: String, description: String, acl: Acl, handler: Supplier[?]): McpTool =
     add(name, description, acl, _.handle(() => Mcp.refusals(handler.get(): Any))(using Mcp.output))
 
+  def route(
+      name: String,
+      description: String,
+      acl: Acl,
+      prefix: String,
+      method: String,
+      path: String
+  ): McpTool =
+    add(name, description, acl, _.route(prefix, method, path))
+
   def arguments[A](
       name: String,
       description: String,

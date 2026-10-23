@@ -64,6 +64,11 @@ public class Checkout extends Workflow<Checkout.State> {
         .thenDone();
   }
 
+  @Command("cancel")
+  public Effect<Done> cancel() {
+    return effects().delete().thenDone();
+  }
+
   @Query("get")
   public ReadOnlyEffect<State> get() {
     return effects().reply(currentState());

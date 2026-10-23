@@ -134,6 +134,47 @@ class ConsumersSuite extends munit.FunSuite with LogCapturing:
     assert(e.getMessage.contains("the property 'at' is a java.time.Instant"), e.getMessage)
   }
 
+  test("a topic's contract, broker and parallel handling reach the runtime, at both ends") {
+    val read = JavaServiceBuilder.read(Vector(classOf[Contracted] -> None), Map.empty)
+    val consumer = read.descriptors.collect {
+      case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?] => c
+    }.head
+    val options = consumer.source match
+      case t: com.thinkmorestupidless.ankka.sdk.ChangeSource.Topic[?] => t.options
+      case other => fail(s"not a topic: $other")
+    assertEquals(options.contract.map(_.name), Some("orders"))
+    assertEquals(options.contract.map(_.fingerprint), Some("sha256:0a1b"))
+    assertEquals(options.broker, Some("events"))
+    assert(options.parallel, "parallel")
+    val publication = consumer.produces.get
+    assertEquals(publication.contract.map(_.name), Some("order-lines"))
+    assertEquals(publication.broker, Some("events"))
+  }
+
+  test("a contract is made from its schema, or refused naming why") {
+    val made = com.thinkmorestupidless.ankka.javasdk.component.Contract
+      .fromSchema("orders", """{"type":"object"}""".getBytes(UTF_8))
+    assertEquals(made.name, "orders")
+    assert(made.fingerprint.nonEmpty)
+    val refused = intercept[IllegalArgumentException](
+      com.thinkmorestupidless.ankka.javasdk.component.Contract
+        .fromSchema("Orders!", "{}".getBytes(UTF_8))
+    )
+    assert(refused.getMessage.contains("contract name 'Orders!'"), refused.getMessage)
+  }
+
+  test("a consumer that asks for mirrored changes says so to the runtime, and only that one") {
+    val mirrored = read.descriptors.collect {
+      case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?] if c.mirroredChanges =>
+        c.componentId.toString
+    }
+    val cartLines =
+      classOf[CartLines]
+        .getAnnotation(classOf[com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId])
+        .value
+    assertEquals(mirrored.toSet, Set(cartLines))
+  }
+
   test("a consumer declared wrongly stops the start, saying what is wrong with each") {
     val e = intercept[ServiceProblems](
       JavaServiceBuilder.read(

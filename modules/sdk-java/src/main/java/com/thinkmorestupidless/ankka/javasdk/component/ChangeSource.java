@@ -43,6 +43,9 @@ public final class ChangeSource<Src> {
   private final @Nullable Class<?> type;
   private final @Nullable Start start;
   private final @Nullable Instant startAt;
+  private final @Nullable Contract contract;
+  private final @Nullable String broker;
+  private final boolean parallel;
 
   private ChangeSource(
       Kind kind,
@@ -50,7 +53,7 @@ public final class ChangeSource<Src> {
       @Nullable String topic,
       @Nullable String project,
       @Nullable Class<?> type) {
-    this(kind, component, topic, project, type, null, null);
+    this(kind, component, topic, project, type, null, null, null, null, false);
   }
 
   private ChangeSource(
@@ -60,7 +63,10 @@ public final class ChangeSource<Src> {
       @Nullable String project,
       @Nullable Class<?> type,
       @Nullable Start start,
-      @Nullable Instant startAt) {
+      @Nullable Instant startAt,
+      @Nullable Contract contract,
+      @Nullable String broker,
+      boolean parallel) {
     this.kind = kind;
     this.component = component;
     this.topic = topic;
@@ -68,6 +74,9 @@ public final class ChangeSource<Src> {
     this.type = type;
     this.start = start;
     this.startAt = startAt;
+    this.contract = contract;
+    this.broker = broker;
+    this.parallel = parallel;
   }
 
   /**
@@ -116,10 +125,42 @@ public final class ChangeSource<Src> {
     return starting(Start.AT, Objects.requireNonNull(time));
   }
 
+  /** This topic source, its messages keeping {@code contract}. */
+  public ChangeSource<Src> withContract(Contract contract) {
+    topicOnly("a contract");
+    return new ChangeSource<>(
+        kind, component, topic, project, type, start, startAt, Objects.requireNonNull(contract),
+        broker, parallel);
+  }
+
+  /** This topic source, on the broker the service declares as {@code broker}. */
+  public ChangeSource<Src> onBroker(String broker) {
+    topicOnly("a broker");
+    return new ChangeSource<>(
+        kind, component, topic, project, type, start, startAt, contract,
+        Objects.requireNonNull(broker), parallel);
+  }
+
+  /**
+   * This topic source, its messages handled in parallel rather than in order for each subject: for a
+   * consumer whose messages do not depend on each other.
+   */
+  public ChangeSource<Src> parallel() {
+    topicOnly("parallel handling");
+    return new ChangeSource<>(
+        kind, component, topic, project, type, start, startAt, contract, broker, true);
+  }
+
   private ChangeSource<Src> starting(Start start, @Nullable Instant at) {
     if (kind != Kind.TOPIC)
       throw new IllegalStateException("only a topic source has a start position: " + this);
-    return new ChangeSource<>(kind, component, topic, project, type, start, at);
+    return new ChangeSource<>(
+        kind, component, topic, project, type, start, at, contract, broker, parallel);
+  }
+
+  private void topicOnly(String what) {
+    if (kind != Kind.TOPIC)
+      throw new IllegalStateException("only a topic source has " + what + ": " + this);
   }
 
   public Kind kind() {
@@ -148,6 +189,18 @@ public final class ChangeSource<Src> {
 
   public @Nullable Instant startAt() {
     return startAt;
+  }
+
+  public @Nullable Contract contract() {
+    return contract;
+  }
+
+  public @Nullable String broker() {
+    return broker;
+  }
+
+  public boolean isParallel() {
+    return parallel;
   }
 
   @Override

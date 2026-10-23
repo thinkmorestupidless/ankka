@@ -22,6 +22,16 @@ public final class KindRefs {
   public static final CommandRef<Checkout, Checkout.Start, Done> startCheckout = Checkout::start;
   public static final NoArgRef<Checkout, Done> confirmCheckout = Checkout::confirm;
   public static final NoArgRef<Checkout, Checkout.State> getCheckout = Checkout::get;
+  public static final NoArgRef<Checkout, Done> cancelCheckout = Checkout::cancel;
+  public static final CommandRef<Ledger, String, Ledger.State> enter = Ledger::enter;
+  public static final CommandRef<Ledger, String, Done> share = Ledger::share;
+  public static final CommandRef<Ledger, String, Done> unshare = Ledger::unshare;
+  public static final CommandRef<Ledger, String, Done> handOver = Ledger::handOver;
+  public static final CommandRef<Ledger, String, Done> enterAndHandOver = Ledger::enterAndHandOver;
+  public static final NoArgRef<Ledger, Done> forget = Ledger::forget;
+  public static final NoArgRef<Ledger, Ledger.State> ledger = Ledger::get;
+  public static final NoArgRef<Ledger, String> where = Ledger::where;
+  public static final NoArgRef<Ledger, String> ignore = Ledger::ignore;
   public static final ActionRef<CartTimers, String> expireTimer = CartTimers::expire;
   public static final NoArgActionRef<CartTimers> tick = CartTimers::tick;
   public static final NoArgActionRef<CartTimers> flaky = CartTimers::flaky;

@@ -122,7 +122,12 @@ private[bridge] final class Reader(
               case JavaSource.Start.LATEST   => sdk.StartFrom.Latest
               case JavaSource.Start.AT       => sdk.StartFrom.At(java.startAt)
             },
-            TopicOptions(project = Option(java.project))
+            TopicOptions(
+              contract = Option(java.contract).map(Topics.scala),
+              broker = Option(java.broker),
+              parallel = java.isParallel,
+              project = Option(java.project)
+            )
           )
         }
 

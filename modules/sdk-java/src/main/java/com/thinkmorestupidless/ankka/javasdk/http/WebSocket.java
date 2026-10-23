@@ -11,6 +11,6 @@ public interface WebSocket {
   /** The next text frame, waiting for it; empty once the client has closed the socket. */
   Optional<String> receive();
 
-  /** Sends a text frame; throws once the socket is closed. */
+  /** Sends a text frame; throws {@link SocketClosed} once the socket is closed. */
   void send(String text);
 }

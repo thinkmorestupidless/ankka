@@ -90,6 +90,40 @@ class WorkflowsSuite extends munit.FunSuite with LogCapturing:
     assertEquals(state("w-slow").status, "awaiting")
   }
 
+  test("the engine says where a workflow has got to: paused, then completed") {
+    start("w-life", "cart-6")
+    eventually("awaiting confirmation")(state("w-life").status == "awaiting")
+    val paused = checkout("w-life").lifecycle(classOf[Checkout]).invoke()
+    assert(paused.isPaused && !paused.isTerminal, paused.toString)
+    checkout("w-life").call(KindRefs.confirmCheckout).invoke(): Unit
+    checkout("w-life").awaitEnd(classOf[Checkout], longWait): Unit
+    assert(checkout("w-life").lifecycle(classOf[Checkout]).invoke().isCompleted)
+  }
+
+  test("a command and a wait for the end, as one call, answer the state the workflow ended with") {
+    val ended = checkout("w-one-call")
+      .callThenAwaitEnd[
+        Checkout,
+        Checkout.State,
+        Checkout.Start,
+        com.thinkmorestupidless.ankka.javasdk.Done
+      ](
+        KindRefs.startCheckout,
+        longWait
+      )
+      .invoke(Checkout.Start("cart-7", 200))
+    assertEquals(ended.status, "expired")
+  }
+
+  test("a wait for a workflow that was deleted is refused, saying it was deleted") {
+    start("w-cancel", "cart-8")
+    eventually("awaiting confirmation")(state("w-cancel").status == "awaiting")
+    checkout("w-cancel").call(KindRefs.cancelCheckout).invoke(): Unit
+    val e = intercept[CommandException](checkout("w-cancel").awaitEnd(classOf[Checkout], longWait))
+    val failure = e.workflowFailure.orElseThrow(() => AssertionError(s"no failure on $e"))
+    assert(failure.deleted, failure.toString)
+  }
+
   test("a view reads the workflow's state after each transition") {
     val rows = read.viewClient(kit.service.viewClient).forView(classOf[CheckoutRows])
     start("w-view", "cart-5", confirmWithinMillis = 200)

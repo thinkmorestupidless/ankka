@@ -11,6 +11,9 @@ public interface KeyValueEffects<S> {
   /** Delete the state, then choose the reply. */
   UpdateBuilder<S> deleteEntity();
 
+  /** Change nothing and send no reply. */
+  <R> ReadOnlyEffect<R> noReply();
+
   <R> ReadOnlyEffect<R> reply(R reply);
 
   <R> ReadOnlyEffect<R> error(String message);

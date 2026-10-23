@@ -10,6 +10,10 @@ public record Problem(int status, String title, String detail) {
     return new Problem(400, "Bad Request", detail);
   }
 
+  public static Problem unauthorized(String detail) {
+    return new Problem(401, "Unauthorized", detail);
+  }
+
   public static Problem notFound(String detail) {
     return new Problem(404, "Not Found", detail);
   }

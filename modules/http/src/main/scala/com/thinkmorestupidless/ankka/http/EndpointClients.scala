@@ -92,7 +92,7 @@ final class EndpointClients private[ankka] (
 object EndpointClients:
 
   /** A state's bytes as JSON: JSON as it is, a text state as a JSON string. */
-  private[http] def asJson(bytes: Array[Byte], metadata: Metadata): String =
+  private[ankka] def asJson(bytes: Array[Byte], metadata: Metadata): String =
     val text = String(bytes, UTF_8)
     if metadata.get(PayloadKeys.ContentType).forall(_ == Payload.Json) then text
     else JsonText.encode(text)

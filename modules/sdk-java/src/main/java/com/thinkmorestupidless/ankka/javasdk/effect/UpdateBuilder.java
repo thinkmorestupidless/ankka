@@ -15,6 +15,9 @@ public interface UpdateBuilder<S> {
 
   Effect<Done> thenDone();
 
+  /** Make the change, and send no reply. */
+  <R> Effect<R> thenNoReply();
+
   /** Delete the entity once {@code after} passes with no further update. */
   UpdateBuilder<S> expireAfter(Duration after);
 }

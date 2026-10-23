@@ -35,6 +35,8 @@ type declarations struct {
 	eventSourced map[string]func(entityID string) server.EventSourcedInstance
 	keyValue     map[string]func(entityID string) server.KeyValueInstance
 	workflows    map[string]func(workflowID string) server.WorkflowInstance
+	views        map[string]server.ViewHandler
+	consumers    map[string]server.ConsumerHandler
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
@@ -56,6 +58,8 @@ func newDeclarations() *declarations {
 		kvKits:        map[string]*kit.KeyValue{},
 		workflows:     map[string]func(string) server.WorkflowInstance{},
 		wfKits:        map[string]*kit.Workflow{},
+		views:         map[string]server.ViewHandler{},
+		consumers:     map[string]server.ConsumerHandler{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},

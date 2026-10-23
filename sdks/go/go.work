@@ -4,6 +4,7 @@ go 1.26.7
 
 use (
 	.
-	./tools
+	./examples/first-service
 	./examples/shopping-cart
+	./tools
 )

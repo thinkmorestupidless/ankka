@@ -652,9 +652,9 @@ jobs:
       - run: diff -r ../../protocol/fixtures protocol/fixtures
       - run: diff ../../protocol/ENCODING.md protocol/ENCODING.md
       - run: scripts/proto.sh --check
-      - run: go vet ./... ./examples/shopping-cart/...
+      - run: go vet ./... ./examples/shopping-cart/... ./examples/first-service/...
       - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - run: go test -count=1 ./... ./examples/shopping-cart/...
+      - run: go test -count=1 ./... ./examples/shopping-cart/... ./examples/first-service/...
       # The module as the proxy would serve it, built alone, and a stranger's program that imports it
       # without the test kit's dependencies.
       - run: scripts/pack-smoke.sh
@@ -664,7 +664,7 @@ jobs:
         working-directory: .
         run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off sidecar/docker:publishLocal shoppingCart/docker:publishLocal
       - if: matrix.go == '1.27'
-        run: go test -count=1 ./... ./examples/shopping-cart/...
+        run: go test -count=1 ./... ./examples/shopping-cart/... ./examples/first-service/...
         env:
           ANKKA_SLOW: "1"
       - if: matrix.go == '1.27'

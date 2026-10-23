@@ -30,7 +30,7 @@ object Dependencies {
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
     val gherkin             = "42.0.1"
     val cucumberExpressions = "20.1.0"
-    val testcontainers      = "1.21.4"
+    val testcontainers      = "2.0.5"
     val r2dbcPostgres       = "1.1.3.RELEASE"
     val fabric8             = "7.9.0"
     val decline             = "2.6.2"

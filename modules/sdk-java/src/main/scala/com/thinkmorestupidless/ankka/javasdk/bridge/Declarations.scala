@@ -154,7 +154,7 @@ private[ankka] object Declarations:
         case (Some(_), Some(_)) =>
           problem(member, "is both @Command and @Query; it is one or the other")
         case (None, None) =>
-          if !m.isSynthetic && !m.isBridge && classOf[Effect[?]].isAssignableFrom(m.getReturnType)
+          if declaredByHand(m) && classOf[Effect[?]].isAssignableFrom(m.getReturnType)
           then problem(member, "returns an effect but has no @Command or @Query")
         case _ =>
           val readOnly = query.isDefined
@@ -199,7 +199,7 @@ private[ankka] object Declarations:
       val member = m.getName
       Option(m.getAnnotation(classOf[annotations.Step])).map(_.value) match
         case None =>
-          if !m.isSynthetic && !m.isBridge && classOf[StepEffect].isAssignableFrom(m.getReturnType)
+          if declaredByHand(m) && classOf[StepEffect].isAssignableFrom(m.getReturnType)
           then problem(member, "returns a StepEffect but has no @Step")
         case Some(_) if !kind.contains(JavaKind.Workflow) =>
           problem(member, "is a @Step, which only a workflow has")
@@ -259,6 +259,13 @@ private[ankka] object Declarations:
           replicated = replicated
         )
       )
+
+  /**
+   * Whether the developer wrote `m`, rather than a compiler: not synthetic, not a bridge, and with
+   * no `$` in its name, which Kotlin gives the methods it makes of lambdas without marking them so.
+   */
+  private[bridge] def declaredByHand(m: Method): Boolean =
+    !m.isSynthetic && !m.isBridge && !m.getName.contains('$')
 
   /** A no-argument constructor or one taking the context, of any visibility. */
   private[bridge] def constructor(cls: Class[?]): Either[String, EntityContext => AnyRef] =

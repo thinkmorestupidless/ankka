@@ -207,7 +207,7 @@ private[ankka] object TimedActions:
       val member = m.getName
       Option(m.getAnnotation(classOf[annotations.Action])).map(_.value) match
         case None =>
-          if !m.isSynthetic && !m.isBridge && m.getReturnType == classOf[TimedActionEffect] then
+          if Declarations.declaredByHand(m) && m.getReturnType == classOf[TimedActionEffect] then
             reader.problem(member, "returns a TimedActionEffect but has no @Action")
         case Some(name) =>
           if name.isEmpty then reader.problem(member, "has an empty action name")

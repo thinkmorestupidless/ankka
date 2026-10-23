@@ -35,14 +35,16 @@ private[ankka] final class StepIndex(workflow: Class[?], steps: Vector[StepPlan]
       lambda.getImplMethodName,
       lambda.getImplMethodSignature
     )
-    byKey.getOrElse(
-      key,
-      throw CallerError(
-        if key._2.startsWith("lambda$") then
-          "a step is named by a method reference, such as Checkout::charge, not a lambda"
-        else s"${key._1}::${key._2} is not a @Step of ${workflow.getSimpleName}"
+    byKey
+      .get(key)
+      .orElse(Refs.throughAdapter(lambda, ref.getClass.getClassLoader).flatMap(byKey.get))
+      .getOrElse(
+        throw CallerError(
+          if key._2.startsWith("lambda$") then
+            "a step is named by a method reference, such as Checkout::charge, not a lambda"
+          else s"${key._1}::${key._2} is not a @Step of ${workflow.getSimpleName}"
+        )
       )
-    )
 
   def to(ref: StepRef[?, ?], input: Any): se.StepRef =
     val step = plan(ref)

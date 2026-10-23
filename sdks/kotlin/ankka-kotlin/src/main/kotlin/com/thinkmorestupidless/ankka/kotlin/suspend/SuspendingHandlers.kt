@@ -18,10 +18,7 @@ import kotlinx.coroutines.withContext
 class SuspendingHandlers : HandlerAdapter {
 
     override fun call(method: Method, instance: Any, arguments: Array<Any?>): Any? =
-        runBlocking {
-            val loop = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher
-            withContext(HandlerThread(loop)) { callSuspending(method, instance, arguments) }
-        }
+        onHandlerThread { callSuspending(method, instance, arguments) }
 
     private suspend fun callSuspending(method: Method, instance: Any, arguments: Array<Any?>): Any? =
         suspendCoroutineUninterceptedOrReturn { continuation ->
@@ -32,3 +29,14 @@ class SuspendingHandlers : HandlerAdapter {
             }
         }
 }
+
+/**
+ * Runs [block] on the calling thread, a handler's virtual thread, which parks while the block
+ * waits; [AnkkaDispatcher] inside it is this thread.
+ */
+@PublishedApi
+internal fun <T> onHandlerThread(block: suspend () -> T): T =
+    runBlocking {
+        val loop = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher
+        withContext(HandlerThread(loop)) { block() }
+    }

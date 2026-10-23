@@ -18,7 +18,8 @@ import com.thinkmorestupidless.ankka.javasdk.http.{
   StreamedBody,
   WebSocket
 }
-import com.thinkmorestupidless.ankka.javasdk.problems.DeclarationProblem
+import com.thinkmorestupidless.ankka.javasdk.problems.{DeclarationProblem, ServiceProblems}
+import com.thinkmorestupidless.ankka.javasdk.spi.RouteRegistrar
 
 import java.lang.reflect.{
   InvocationTargetException,
@@ -422,7 +423,7 @@ private[ankka] object Routes:
       r.binders.map(_(named, body, ctx))
     def handing(r: RoutePlan, values: Vector[AnyRef], handed: AnyRef): Vector[AnyRef] =
       r.special.fold(values)(i => values.updated(i, handed))
-    plan.routes.foldLeft(Served()) { (served, r) =>
+    val annotated = plan.routes.foldLeft(Served()) { (served, r) =>
       r.kind match
         case RouteKind.Plain =>
           served.copy(routes =
@@ -504,6 +505,82 @@ private[ankka] object Routes:
             )
           )
     }
+    instance match
+      case registrar: RouteRegistrar => annotated ++ declared(plan, registrar, acl, serializers)
+      case _                         => annotated
+
+  private val DeclaredVerbs = Set("GET", "POST", "PUT", "DELETE", "PATCH")
+
+  /** The routes an endpoint declares in code, each checked as an annotated route is. */
+  private def declared(
+      plan: EndpointPlan,
+      registrar: RouteRegistrar,
+      acl: Option[http.Acl],
+      serializers: Declarations.Serializers
+  ): Served =
+    val name     = plan.cls.getSimpleName
+    val problems = mutable.ArrayBuffer.empty[DeclarationProblem]
+    val seen     = mutable.Map.empty[(String, String), String]
+    plan.routes.foreach(r => seen((r.verb, r.template.render)) = r.method.getName)
+    val routes = registrar.routes().asScala.toVector.flatMap { d =>
+      val member = s"${d.verb} ${d.template}"
+      def refuse(message: String): Option[Route] =
+        problems += DeclarationProblem(name, member, message)
+        None
+      val template =
+        try Some(PathTemplate.parse(d.template))
+        catch
+          case e: IllegalArgumentException =>
+            refuse(e.getMessage)
+            None
+      val body = Option(d.body).map { t =>
+        Planner.rawClass(t).flatMap(serializers.get) match
+          case Some(s) => Right(s.asInstanceOf[Serializer[Any]])
+          case None =>
+            try Right(RecordCodec.forType(t).asInstanceOf[Serializer[Any]])
+            catch case e: EncodingException => Left(e.getMessage)
+      }
+      (template, body) match
+        case _ if !DeclaredVerbs.contains(d.verb) =>
+          refuse(s"'${d.verb}' is not one of ${DeclaredVerbs.toVector.sorted.mkString(", ")}")
+        case (None, _)            => None
+        case (_, Some(Left(why))) => refuse(s"its body has no serializer: $why")
+        case (Some(t), read) =>
+          seen.get((d.verb, t.render)) match
+            case Some(other) => refuse(s"is also $other's route")
+            case None =>
+              seen((d.verb, t.render)) = member
+              val reader = read.flatMap(_.toOption)
+              Some(
+                Route(
+                  d.verb,
+                  t,
+                  reader.isDefined,
+                  (args, bytes) =>
+                    val path = t.parameterNames.zip(args).toMap.asJava
+                    val input = reader.map { s =>
+                      try s.fromBytes(bytes).asInstanceOf[AnyRef]
+                      catch
+                        case e: EncodingException =>
+                          throw HttpProblem.badRequest(s"the body: ${e.getMessage}")
+                    }
+                    val request = JavaRequest(
+                      http.RequestScope.currentContext
+                        .getOrElse(throw IllegalStateException("no request"))
+                    )
+                    val answer =
+                      try d.handler.handle(request, path, input.orNull)
+                      catch
+                        case p: ProblemException => throw problem(p.problem)
+                        case c: CommandException => throw problem(c.problem)
+                    respond(answer, None, serializers)
+                  ,
+                  acl
+                )
+              )
+    }
+    if problems.nonEmpty then throw ServiceProblems(problems.asJava)
+    Served(routes = routes)
 
   private def scalaEvent(e: SseEvent): http.SseEvent =
     if e.name.isPresent then http.SseEvent.named(e.name.get, e.json.get)

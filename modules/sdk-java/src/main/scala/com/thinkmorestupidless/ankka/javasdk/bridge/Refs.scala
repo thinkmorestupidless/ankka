@@ -26,13 +26,13 @@ private[ankka] final class Refs(plans: Iterable[ComponentPlan]):
     val known = cache.get(ref.getClass)
     if known != null then known
     else
-      val found = lookup(Refs.serialized(ref))
+      val found = lookup(Refs.serialized(ref), ref.getClass.getClassLoader)
       // A method reference's class is a hidden class of its own; any other class (the Kotlin SDK's
       // reference to a KFunction) may stand for many handlers, and is read every time.
       if ref.getClass.isHidden then cache.put(ref.getClass, found): Unit
       found
 
-  private def lookup(lambda: SerializedLambda): (ComponentPlan, HandlerPlan) =
+  private def lookup(lambda: SerializedLambda, loader: ClassLoader): (ComponentPlan, HandlerPlan) =
     val implClass = lambda.getImplClass.replace('/', '.')
     val method    = lambda.getImplMethodName
     if method.startsWith("lambda$") then
@@ -40,15 +40,33 @@ private[ankka] final class Refs(plans: Iterable[ComponentPlan]):
         s"a call in ${lambda.getCapturingClass.replace('/', '.')} names its handler with a lambda; " +
           "name it with a method reference, such as ShoppingCart::addItem"
       )
-    byKey.getOrElse(
-      (implClass, method, lambda.getImplMethodSignature),
-      throw CallerError(
-        s"$implClass::$method is not a registered handler: it has no @Command or @Query, or " +
-          s"${implClass.split('.').last} is not registered with this service"
+    byKey
+      .get((implClass, method, lambda.getImplMethodSignature))
+      .orElse(Refs.throughAdapter(lambda, loader).flatMap(byKey.get))
+      .getOrElse(
+        throw CallerError(
+          s"$implClass::$method is not a registered handler: it has no @Command or @Query, or " +
+            s"${implClass.split('.').last} is not registered with this service"
+        )
       )
-    )
 
 private[ankka] object Refs:
+
+  /**
+   * What a compiler-made adapter (Kotlin's `_init_$getCart`, a method with `$` in its name) calls,
+   * as the class, method and descriptor a method reference to it would have named.
+   */
+  def throughAdapter(
+      lambda: SerializedLambda,
+      loader: ClassLoader
+  ): Option[(String, String, String)] =
+    val implClass = lambda.getImplClass.replace('/', '.')
+    if !lambda.getImplMethodName.contains('$') then None
+    else
+      try
+        val cls = Class.forName(implClass, false, loader)
+        References.adapted(cls, lambda.getImplMethodName, lambda.getImplMethodSignature)
+      catch case _: ClassNotFoundException | _: LinkageError => None
 
   /** The `SerializedLambda` a serializable lambda writes in place of itself. */
   def serialized(ref: AnyRef): SerializedLambda =

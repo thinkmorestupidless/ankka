@@ -734,6 +734,64 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       )
   }
 
+  private def inClusterGateway(render: String): Option[java.util.Map[String, Any]] =
+    documentsOfKind(render, "Service")
+      .map(yamlOf)
+      .find(s => at(s, "metadata", "name") == "ankka-gateway")
+
+  private def gatewayPorts(service: java.util.Map[String, Any]): Map[String, (Int, Int)] =
+    at(service, "spec", "ports")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .asScala
+      .map(p =>
+        p.get("name").toString -> (p.get("port").toString.toInt, p.get("targetPort").toString.toInt)
+      )
+      .toMap
+
+  test("inside a local cluster the gateway is a Service on the host's HTTPS port, and only there") {
+    // CoreDNS answers the base domain with this Service (deploy-local.sh), so a pod reaches a
+    // service at its public hostname, on the port a browser uses. The shipped value equals the
+    // literal, so a copy of the overlay with another port proves the replacement arrives.
+    val service = inClusterGateway(local).getOrElse(fail("local: no ankka-gateway Service"))
+    assertEquals(at(service, "metadata", "namespace"), "envoy-gateway-system")
+    assertEquals(
+      at(service, "spec", "selector").asInstanceOf[java.util.Map[String, Any]].asScala.toMap,
+      Map(
+        "app.kubernetes.io/component"                    -> "proxy",
+        "gateway.envoyproxy.io/owning-gateway-name"      -> "ankka",
+        "gateway.envoyproxy.io/owning-gateway-namespace" -> "ankka-gateway"
+      )
+    )
+    assertEquals(
+      gatewayPorts(service),
+      Map(
+        "https"     -> (platformValue(local, "httpsPort").toInt, 10443),
+        "https-443" -> (443, 10443),
+        "http"      -> (80, 10080)
+      )
+    )
+    assert(inClusterGateway(remote).isEmpty, "a real installation's domain resolves publicly")
+
+    val probe =
+      repoRoot.resolve(s"kustomization/overlays/.gateway-probe-${ProcessHandle.current.pid}")
+    val source = repoRoot.resolve("kustomization/overlays/local")
+    Files.createDirectories(probe)
+    try
+      Files.list(source).iterator.asScala.foreach(f => Files.copy(f, probe.resolve(f.getFileName)))
+      val configMap = probe.resolve("platform-configmap.yaml")
+      Files.writeString(
+        configMap,
+        Files.readString(configMap).replace("  httpsPort: \"8443\"", "  httpsPort: \"9443\"")
+      )
+      val rendered = Process(Seq("kubectl", "kustomize", probe.toString)).!!
+      val ports    = gatewayPorts(inClusterGateway(rendered).getOrElse(fail("probe: no Service")))
+      assertEquals(ports("https"), (9443, 10443), "the https port is ankka-platform's httpsPort")
+      assertEquals(ports("https-443"), (443, 10443), "and only that port is replaced")
+    finally
+      Files.list(probe).iterator.asScala.foreach(Files.delete)
+      Files.delete(probe)
+  }
+
   // ── The console (feature 017) ─────────────────────────────────────────────
 
   private def platformValue(render: String, key: String): String =

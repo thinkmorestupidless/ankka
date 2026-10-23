@@ -213,6 +213,44 @@ kubectl kustomize "$OVERLAY" \
         -e "s|console\.${BASE_DOMAIN}:8443|console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}|g" \
   | kubectl apply -f - --server-side --force-conflicts
 
+echo "==> resolving the base domain to the gateway inside the cluster"
+# On this machine every name under the base domain is 127.0.0.1, which is the host and the gateway's
+# published port. Inside a pod the same name was 127.0.0.1 too, which is the pod itself, so a service
+# calling another at its public hostname (or verifying a token against the public issuer) reached
+# nothing. CoreDNS now answers every such name with the overlay's ankka-gateway Service, so a pod goes
+# through the gateway on the same port and with the same certificate a browser does. A real
+# installation's domain resolves publicly to its load balancer and needs none of this.
+#
+# The Corefile is edited here, not carried by the overlay: kubeadm owns the coredns ConfigMap and its
+# content moves with kind's version. Idempotent: a re-run finds the block and changes nothing.
+corefile="$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
+if ! grep -qF 'ankka-gateway.envoy-gateway-system' <<<"$corefile"; then
+  corefile_file="$(mktemp)"
+  # Through the environment, not `awk -v`, which would read the regex's backslashes as escapes.
+  DOMAIN_REGEX="${BASE_DOMAIN//./\\.}" awk '
+    /^[[:space:]]*kubernetes / && !done {
+      print "    rewrite stop {"
+      print "        name regex (.*)\\." ENVIRON["DOMAIN_REGEX"] "\\.?$ ankka-gateway.envoy-gateway-system.svc.cluster.local"
+      print "        answer auto"
+      print "    }"
+      done = 1
+    }
+    { print }
+  ' <<<"$corefile" > "$corefile_file"
+  kubectl create configmap coredns -n kube-system --from-file=Corefile="$corefile_file" --dry-run=client -o yaml \
+    | kubectl apply --server-side --force-conflicts -f -
+  rm -f "$corefile_file"
+  kubectl -n kube-system rollout restart deployment/coredns
+  kubectl -n kube-system rollout status deployment/coredns --timeout=120s
+fi
+# The overlay's replacement writes ankka-platform's 8443 into the Service's https port; the port
+# `docker port` found wins, as it does for the redirect, so a cluster published on another port is
+# reached on that port inside too.
+if [[ "$HTTPS_HOST_PORT" != "8443" ]]; then
+  kubectl -n envoy-gateway-system patch service ankka-gateway --type=json \
+    -p "[{\"op\":\"replace\",\"path\":\"/spec/ports/0/port\",\"value\":${HTTPS_HOST_PORT}}]"
+fi
+
 echo "==> restarting the operator and control plane onto the images just loaded"
 # Without this a *re*-run of this script changes nothing that is running. The manifests are
 # unchanged and the tag is still :latest, so `kubectl apply` sees no difference, the Deployments do

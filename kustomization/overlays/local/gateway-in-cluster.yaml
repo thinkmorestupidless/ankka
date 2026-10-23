@@ -1,0 +1,35 @@
+# The gateway as a pod inside the cluster reaches it: every name under the base domain resolves
+# here (deploy-local.sh rewrites it in CoreDNS), so a service calls another at its public hostname
+# and goes through the gateway exactly as a browser does, on the port the host publishes.
+#
+# In envoy-gateway-system because the proxy pods are there, not in the Gateway's namespace. Envoy
+# Gateway names its own Service with a hash (`envoy-ankka-gateway-ankka-<hash>`) and gives it 80 and
+# 443 only, so this one is stable by name and carries the host's HTTPS port as well. Envoy Gateway
+# shifts a listener below 1024 by 10000: 443 is container port 10443, 80 is 10080.
+#
+# A real installation's domain resolves publicly to its load balancer and needs none of this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ankka-gateway
+  namespace: envoy-gateway-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: proxy
+    gateway.envoyproxy.io/owning-gateway-name: ankka
+    gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+  ports:
+    # First, so deploy-local.sh can patch it by index; its port is ankka-platform's httpsPort.
+    - name: https
+      port: 8443
+      targetPort: 10443
+      protocol: TCP
+    - name: https-443
+      port: 443
+      targetPort: 10443
+      protocol: TCP
+    - name: http
+      port: 80
+      targetPort: 10080
+      protocol: TCP

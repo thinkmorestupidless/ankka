@@ -113,6 +113,18 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
 
 ## Traps
 
+- **An actor timer re-armed on recovery is not durable when nothing wakes the entity** (2026-10-23).
+  A pause's deadline was journalled and `onRecovered` re-armed its timer, but sharding passivates an
+  entity idle for `idle-entity.timeout` (120s) and a timer's message to self is not traffic: a workflow
+  paused longer stopped with its timer and stayed paused until some other call reached it, found
+  running a product's provisioning on kind. A pause with a deadline is now also a timer row,
+  `PauseWake.timerName`, written by `PauseWakes` off the actor after the persist, one write after
+  another; the sweeper calls the reserved `ankka:pause-wake` (`PauseWake.Method`) with the deadline,
+  and the engine ends the pause only when it is still paused on that deadline. Leaving the pause any
+  way removes the row (`syncWake`). `Ankka.host` adds a `TimerRuntime` to a service with a workflow
+  that declared none, since only its sweeper runs the row. `WorkflowPauseWakeSuite` (testkit) runs at
+  a one-second idle timeout and reads a side channel rather than the workflow: a query would start
+  the stopped entity and hide the fault.
 - **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers
   selects `due_at <= now` and deletes by name after a run, so a finite `due_at` is fired once and deleted
   by the old sweeper — which during a rolling update is the one running, on the oldest pod. Never "tidy" it

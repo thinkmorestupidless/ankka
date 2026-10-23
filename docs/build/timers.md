@@ -17,7 +17,9 @@ timer that calls a timed action handler, which calls the order entity.
 Timers are stored in the service's Postgres database, not in memory. A timer outlives the process that
 set it, a restart, and a redeployment. One instance of the service runs a sweeper, as a cluster
 singleton, that polls for due timers once a second and runs them. The poll interval bounds how late a
-timer can be, not how precisely it fires.
+timer can be, not how precisely it fires. A service with a workflow runs the sweeper even when it
+registers no `TimerRuntime`, because a paused workflow's deadline is a timer too
+([Workflows](workflows.md)).
 
 ## Delivery is at least once
 

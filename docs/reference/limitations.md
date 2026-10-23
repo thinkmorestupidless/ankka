@@ -348,6 +348,12 @@ feature also says what that feature does not do.
   workflow's end as an unknown handler, and the caller is told so; a process beside a runtime before
   protocol 1.18 is refused when it waits. During a rolling update, a wait can fail this way until every
   instance is at the release.
+- **A paused workflow's deadline needs the sweeper and the workflow at the same release.** An instance
+  from before durable pauses drops a pause's timer when it holds the sweeper, and answers a wake as an
+  unknown handler when it hosts the workflow, which the sweeper retries. During a rolling update a paused
+  workflow that is not in memory can therefore resume only when it is next called. A workflow whose id is
+  longer than about 1,000 bytes has no timer for its pause, since a timer's payload is at most 1,024
+  bytes; it resumes on time only while it stays in memory, and the service logs a warning.
 - **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
   open: presence, fan-out and catching a reconnecting client up are a service's own entities and

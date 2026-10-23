@@ -53,7 +53,11 @@ final class TimerRuntime private (
       else new DatabaseTimerScheduler(database, clock)
     )
 
-    if actions.isEmpty then
+    // A paused workflow's wake is a row this sweeper runs, so a workflow needs it as much as a
+    // timed action does.
+    val workflows = TimerRuntime.workflowsOf(service.registry.components)
+
+    if actions.isEmpty && workflows.isEmpty then
       system.log.debug("no timed actions registered; timers can still be scheduled and cancelled")
     else
       val byId = actions.map(a => a.componentId -> a).toMap
@@ -69,14 +73,15 @@ final class TimerRuntime private (
             service.conversation,
             pollInterval,
             observer,
-            clock
+            clock,
+            workflows
           ),
           "ankka-timer-sweeper"
         )
       )
       system.log.info(
         "timer sweeper started for {} ({} poll interval)",
-        actions.map(_.componentId).mkString(", "),
+        (actions.map(_.componentId) ++ workflows).mkString(", "),
         pollInterval
       )
 
@@ -92,6 +97,17 @@ object TimerRuntime:
       clock: Clock = Clock.systemUTC()
   ): TimerRuntime =
     new TimerRuntime(pollInterval, clock, observer)
+
+  /** The workflows among `components`, whose pauses this runtime's sweeper wakes. */
+  private[ankka] def workflowsOf(components: Seq[ComponentDescriptor]): Set[ComponentId] =
+    components.collect { case w: WorkflowDescriptor[?, ?] => w.componentId }.toSet
+
+  /**
+   * Whether a service of `components` needs a timer runtime it did not declare: one with a
+   * workflow, whose pauses are woken by the sweeper.
+   */
+  private[ankka] def neededBy(components: Seq[ComponentDescriptor]): Boolean =
+    workflowsOf(components).nonEmpty
 
   /** The documented ceiling on a timer payload. */
   val MaxPayloadBytes: Int = 1024

@@ -292,8 +292,17 @@ final class ServiceBuilder private[ankka] (
       transportFactory,
       replication.LoopbackReplication.local(system)
     )
+    // A paused workflow's wake is a timer row, and only a timer runtime's sweeper runs one: a
+    // service with a workflow and none of its own is given one, so a pause outlives its entity.
+    val timers =
+      if TimerRuntime.neededBy(registry.components) && !declaredExtensions.exists {
+          case _: TimerRuntime => true
+          case _               => false
+        }
+      then Vector(TimerRuntime())
+      else Vector.empty
     val extensions =
-      replicating.map(replication.ReplicationRuntime(_)).toVector ++ declaredExtensions
+      replicating.map(replication.ReplicationRuntime(_)).toVector ++ declaredExtensions ++ timers
     val sharding = ClusterSharding(system)
 
     // What the service declared, before anything can call anything: a name in a call's metadata is

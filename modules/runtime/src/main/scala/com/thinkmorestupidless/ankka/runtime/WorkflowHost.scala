@@ -106,6 +106,15 @@ private[ankka] object WorkflowHost:
             java.util.concurrent.TimeUnit.MILLISECONDS
           )
 
+        // A pause's wake is a timer row, written on first need. A service without a database is
+        // refused a workflow at start; the guard keeps a host built some other way from writing.
+        val system = ctx.system
+        val wakes =
+          if NoDatabase.declared(system.settings.config) then None
+          else
+            lazy val scheduler = DatabaseTimerScheduler(Database()(using system))
+            Some(PauseWakes(descriptor.componentId, workflowId, () => scheduler))
+
         val engine = WorkflowEngine(
           descriptor,
           workflowId,
@@ -114,7 +123,8 @@ private[ankka] object WorkflowHost:
           ctx,
           timers,
           (state, event) => applyEvent(empty, state, event),
-          holdBound
+          holdBound,
+          wakes
         )
 
         EventSourcedBehavior[EntityProtocol.Command, Event[S], Run[S]](

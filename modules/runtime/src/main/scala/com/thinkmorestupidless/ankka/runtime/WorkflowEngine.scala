@@ -28,7 +28,9 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     timers: TimerScheduler[EntityProtocol.Command],
     fold: (Run[S], Event[S]) => Run[S],
     /** The longest one ask for the workflow's end is held before it is told "not yet". */
-    holdBound: FiniteDuration
+    holdBound: FiniteDuration,
+    /** The durable wake of a pause with a deadline; none where the service keeps no timers. */
+    wakes: Option[PauseWakes]
 ):
   import EntityProtocol.*
 
@@ -140,6 +142,10 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           ctx.self ! RunPendingStep
         case Status.Paused if state.pauseDeadlineMillis > 0L =>
           armPauseTimeout(state)
+          // A deadline already passed is ended now, by the timer just armed; one still to come is
+          // written again, in case the process stopped before its row was.
+          if state.pauseDeadlineMillis > System.currentTimeMillis() then
+            wakes.foreach(_.recovered(state.pauseDeadlineMillis))
         case _ => ()
 
   // ── External commands ─────────────────────────────────────────────────────
@@ -147,6 +153,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
   private def onInvoke(state: Run[S], invoke: Invoke): PekkoEffect[Event[S], Run[S]] =
     if invoke.method == WorkflowLifecycle.AwaitEnd then onAwaitEnd(state, invoke)
     else if invoke.method == WorkflowLifecycle.Method then onLifecycleQuery(state, invoke)
+    else if invoke.method == PauseWake.Method then onPauseWake(state, invoke)
     else
       descriptor.handler(MethodName(invoke.method)) match
         case None =>
@@ -242,9 +249,10 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
                   val nextValue = effect.stateChange.getOrElse(state.value)
 
+                  // A command may end a pause early, by a transition or a deletion: its wake goes.
                   val persisting: EffectBuilder[Event[S], Run[S]] =
                     if toPersist.isEmpty then PekkoEffect.none
-                    else PekkoEffect.persist(toPersist.toList)
+                    else PekkoEffect.persist(toPersist.toList).thenRun(syncWake)
                   // A deletion is an end to whoever waits: answered once it is journalled.
                   val builder =
                     if effect.deleting then persisting.thenRun(updated => answerWaiters(updated))
@@ -268,6 +276,21 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
                         )
                       }
                     case _ => withStep.thenNoReply()
+
+  /**
+   * A pause's durable wake, sent by the timer sweeper once its deadline has passed: the workflow
+   * may have been passivated or restarted since, and nothing else would start it. Ends the pause
+   * only when the workflow is still paused on the deadline the wake names; a wake for a pause that
+   * already ended, or for an earlier pause than this one, is answered and changes nothing.
+   */
+  private def onPauseWake(state: Run[S], invoke: Invoke): PekkoEffect[Event[S], Run[S]] =
+    val done = EntityProtocol.Succeeded(Array.emptyByteArray, Vector.empty)
+    PauseWake.deadlineOf(invoke.payload) match
+      case Some(deadline)
+          if state.status == Status.Paused && state.pauseDeadlineMillis == deadline =>
+        ctx.log.info("workflow '{}' woken at the end of its pause", workflowId)
+        pauseTimedOut(state).thenReply(invoke.replyTo)(_ => done)
+      case _ => PekkoEffect.reply(invoke.replyTo)(done)
 
   /**
    * Answers the engine's own lifecycle query.
@@ -398,8 +421,12 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
               ).toList
             )
             // The timeout target is read back from the persisted state, not held in a
-            // field, so it survives a restart while the workflow is paused.
-            .thenRun(updated => armPauseTimeout(updated))
+            // field, so it survives a restart while the workflow is paused. The actor timer
+            // ends the pause while the workflow is awake; the wake row, when it is not.
+            .thenRun { updated =>
+              armPauseTimeout(updated)
+              syncWake(updated)
+            }
 
         case StepOutcome.End =>
           PekkoEffect
@@ -483,16 +510,22 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
   private def onPauseTimedOut(state: Run[S]): PekkoEffect[Event[S], Run[S]] =
     if state.status != Status.Paused then PekkoEffect.none
-    else
-      state.pauseOnTimeout match
-        case Some(step) =>
-          PekkoEffect
-            .persist(Event.TransitionedTo(StepRef(step, None)))
-            .thenRun(_ => ctx.self ! RunPendingStep)
-        case None =>
-          PekkoEffect
-            .persist(Event.Failed("paused workflow timed out with no timeout handler", None))
-            .thenRun(ended)
+    else pauseTimedOut(state)
+
+  private def pauseTimedOut(state: Run[S]): EffectBuilder[Event[S], Run[S]] =
+    timers.cancel(PauseTimerKey)
+    state.pauseOnTimeout match
+      case Some(step) =>
+        PekkoEffect
+          .persist(Event.TransitionedTo(StepRef(step, None)))
+          .thenRun { updated =>
+            syncWake(updated)
+            ctx.self ! RunPendingStep
+          }
+      case None =>
+        PekkoEffect
+          .persist(Event.Failed("paused workflow timed out with no timeout handler", None))
+          .thenRun(ended)
 
   /**
    * Arms the global timeout against the *original* start, not against now — so a workflow that
@@ -520,7 +553,18 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
   /** After an end is journalled: nothing more is due, and whoever waits is answered. */
   private def ended(run: Run[S]): Unit =
     cancelLifecycleTimers()
+    syncWake(run)
     answerWaiters(run)
+
+  /** After a persist: the wake row says the pause `run` is in, or is removed when it is in none. */
+  private def syncWake(run: Run[S]): Unit =
+    wakes.foreach(
+      _.sync(
+        Option.when(run.status == Status.Paused && run.pauseDeadlineMillis > 0L)(
+          run.pauseDeadlineMillis
+        )
+      )
+    )
 
   // ── Waiting for the end ───────────────────────────────────────────────────
 

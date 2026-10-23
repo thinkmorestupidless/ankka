@@ -467,6 +467,14 @@ until a command transitions it. With `thenPause(after, onTimeout)` the runtime t
 `onTimeout` if nothing else has by then, which is how a workflow gives up on an approval that never
 comes. The Python checkout's `wait` step pauses and then resumes at `charge` on its own.
 
+A pause with a deadline outlives the instance that paused. The deadline is journalled with the pause and
+kept as a timer in the service's database, under the name `ankka-pause-<component id>-<workflow id>`, so
+the workflow moves to `onTimeout` on time even when nothing else reaches it: after it was removed from
+memory for being idle, after a restart and across a redeployment. Every service with a workflow runs the
+timer sweeper for this, whether or not it registers `TimerRuntime` itself. A workflow that was not in
+memory resumes up to one poll of the sweeper after its deadline, a second by default. A command that ends
+the pause first removes its timer, and a deadline that is no longer the workflow's does nothing.
+
 ## Queries while a step runs
 
 A workflow keeps answering commands and queries while a step is running. A status query does not wait

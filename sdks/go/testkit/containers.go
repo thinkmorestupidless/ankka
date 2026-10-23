@@ -63,6 +63,17 @@ func databaseEnv() map[string]string {
 	}
 }
 
+// RunLabel is the label on every container a kit starts, its value the same for one kit and
+// different for every other: what a kit started can be told from what other tests on the same
+// engine started, which share testcontainers' session when go test runs packages at once.
+const RunLabel = "com.thinkmorestupidless.ankka.testkit.run"
+
+func runID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
+
 func startNetwork(ctx context.Context) (*testcontainers.DockerNetwork, error) {
 	nw, err := network.New(ctx)
 	if err != nil {
@@ -72,8 +83,9 @@ func startNetwork(ctx context.Context) (*testcontainers.DockerNetwork, error) {
 }
 
 // startPostgres starts the database on the kit's network, made from the schema files.
-func startPostgres(ctx context.Context, image string, nw *testcontainers.DockerNetwork, ddl []string) (*postgres.PostgresContainer, error) {
+func startPostgres(ctx context.Context, image string, nw *testcontainers.DockerNetwork, ddl []string, run string) (*postgres.PostgresContainer, error) {
 	c, err := postgres.Run(ctx, image,
+		testcontainers.WithLabels(map[string]string{RunLabel: run}),
 		postgres.WithDatabase("ankka"), postgres.WithUsername("ankka"), postgres.WithPassword("ankka"),
 		postgres.WithOrderedInitScripts(ddl...),
 		network.WithNetwork([]string{databaseHost}, nw),
@@ -91,7 +103,7 @@ func startPostgres(ctx context.Context, image string, nw *testcontainers.DockerN
 // startSidecar starts the sidecar on the kit's network, pointed at the process on the host's port
 // processPort, and waits until its routes are served and its callback port listens: the health
 // route answers once HTTP is bound, which can be before the callback server listens.
-func startSidecar(ctx context.Context, image string, nw *testcontainers.DockerNetwork, processPort int, env map[string]string, ready time.Duration) (*testcontainers.DockerContainer, error) {
+func startSidecar(ctx context.Context, image string, nw *testcontainers.DockerNetwork, processPort int, env map[string]string, ready time.Duration, run string) (*testcontainers.DockerContainer, error) {
 	all := databaseEnv()
 	all["ANKKA_PROCESS_ADDRESS"] = "host.docker.internal:" + strconv.Itoa(processPort)
 	all["ANKKA_SIDECAR_BIND"] = "0.0.0.0"
@@ -100,12 +112,12 @@ func startSidecar(ctx context.Context, image string, nw *testcontainers.DockerNe
 	for k, v := range env {
 		all[k] = v
 	}
-	return startContainer(ctx, image, nw, all, ready, true)
+	return startContainer(ctx, image, nw, all, ready, true, run)
 }
 
 // startContainer runs image on the kit's network with env, exposing the HTTP port (and the callback
 // port, for a sidecar), and waits for its health route.
-func startContainer(ctx context.Context, image string, nw *testcontainers.DockerNetwork, env map[string]string, ready time.Duration, sidecar bool) (*testcontainers.DockerContainer, error) {
+func startContainer(ctx context.Context, image string, nw *testcontainers.DockerNetwork, env map[string]string, ready time.Duration, sidecar bool, run string) (*testcontainers.DockerContainer, error) {
 	ports := []string{strconv.Itoa(httpPort) + "/tcp"}
 	waits := []wait.Strategy{wait.ForHTTP("/_ankka/health").WithPort(ports[0]).WithStatusCodeMatcher(func(s int) bool { return s == 200 })}
 	if sidecar {
@@ -114,6 +126,7 @@ func startContainer(ctx context.Context, image string, nw *testcontainers.Docker
 	}
 	c, err := testcontainers.Run(ctx, image,
 		testcontainers.WithEnv(env),
+		testcontainers.WithLabels(map[string]string{RunLabel: run}),
 		testcontainers.WithExposedPorts(ports...),
 		network.WithNetwork(nil, nw),
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {

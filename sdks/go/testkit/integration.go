@@ -24,6 +24,8 @@ type startOptions struct {
 	image, postgresImage string
 	env                  map[string]string
 	ready                time.Duration
+	// run labels every container the kit starts, as RunLabel; a fresh value for each kit.
+	run string
 }
 
 // Image is the sidecar image; SidecarImage() by default.
@@ -69,7 +71,7 @@ type Kit struct {
 // sidecar image carries, then the sidecar pointed at the service, and answers once the sidecar's
 // routes are served. A start that fails stops everything it started.
 func Start(ctx context.Context, service *ankka.Service, opts ...StartOption) (*Kit, error) {
-	o := startOptions{postgresImage: PostgresImage, env: map[string]string{}, ready: 2 * time.Minute}
+	o := startOptions{postgresImage: PostgresImage, env: map[string]string{}, ready: 2 * time.Minute, run: runID()}
 	for _, f := range opts {
 		f(&o)
 	}
@@ -114,7 +116,7 @@ func (k *Kit) start(ctx context.Context) error {
 	if k.network, err = startNetwork(ctx); err != nil {
 		return err
 	}
-	if k.database, err = startPostgres(ctx, k.opts.postgresImage, k.network, files); err != nil {
+	if k.database, err = startPostgres(ctx, k.opts.postgresImage, k.network, files, k.opts.run); err != nil {
 		return err
 	}
 	// All interfaces: the sidecar is in a container and dials in through the host's gateway.
@@ -132,7 +134,7 @@ func (k *Kit) start(ctx context.Context) error {
 }
 
 func (k *Kit) startSidecar(ctx context.Context) error {
-	c, err := startSidecar(ctx, k.opts.image, k.network, k.port, k.opts.env, k.opts.ready)
+	c, err := startSidecar(ctx, k.opts.image, k.network, k.port, k.opts.env, k.opts.ready, k.opts.run)
 	if err != nil {
 		return err
 	}
@@ -240,7 +242,7 @@ func (k *Kit) StartBeside(ctx context.Context, image string, env map[string]stri
 	for key, v := range env {
 		all[key] = v
 	}
-	c, err := startContainer(ctx, image, k.network, all, k.opts.ready, false)
+	c, err := startContainer(ctx, image, k.network, all, k.opts.ready, false, k.opts.run)
 	if err != nil {
 		return nil, err
 	}

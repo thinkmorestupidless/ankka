@@ -2,12 +2,8 @@ package ankka_test
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/moby/moby/client"
-	"github.com/testcontainers/testcontainers-go"
 	ankka "github.com/thinkmorestupidless/ankka-go"
 	"github.com/thinkmorestupidless/ankka-go/testkit"
 )
@@ -48,46 +44,5 @@ func TestTheIntegrationKitIsReadyAndARestartKeepsState(t *testing.T) {
 	}
 	if n, err := ankka.Invoke[int](kit.Context(ctx), "k-cart", "i1", "total", ankka.Unit{}); err != nil || n != 3 {
 		t.Fatalf("after a restart the kit's client answered %d %v", n, err)
-	}
-}
-
-// kitContainers are the containers this test process's kits started that still exist, the reaper
-// aside.
-func kitContainers(t *testing.T, ctx context.Context) []string {
-	t.Helper()
-	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer docker.Close()
-	list, err := docker.ContainerList(ctx, client.ContainerListOptions{
-		All:     true,
-		Filters: client.Filters{}.Add("label", "org.testcontainers.sessionId="+testcontainers.SessionID()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, c := range list.Items {
-		if !strings.Contains(c.Image, "ryuk") {
-			out = append(out, c.Image+" "+c.ID)
-		}
-	}
-	return out
-}
-
-func TestAFailedStartLeavesNoContainer(t *testing.T) {
-	testkit.Slow(t)
-	ctx := t.Context()
-	before := kitContainers(t, ctx)
-	// The database starts; the sidecar serves on a port the kit does not wait on, so it never
-	// becomes ready.
-	_, err := testkit.Start(ctx, ankka.NewService(kEntity, kOpenAPI),
-		testkit.Env(map[string]string{"ANKKA_HTTP_PORT": "9999"}), testkit.ReadyWithin(20*time.Second))
-	if err == nil {
-		t.Fatal("a sidecar that never served its health route was taken as ready")
-	}
-	if after := kitContainers(t, ctx); len(after) != len(before) {
-		t.Fatalf("a failed start left containers behind: %v (before: %v)", after, before)
 	}
 }

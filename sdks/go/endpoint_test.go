@@ -135,7 +135,7 @@ func TestTheEndpointDeclaresItsRoutes(t *testing.T) {
 }
 
 func TestStartRefusesNamingAllFour(t *testing.T) {
-	dup := EventSourced[tState, tEvent]("t-cart", tEvents, func() tState { return tState{} }, tApply,
+	dup := EventSourced[tState, tEvent]("t-cart", tEvents, func(string) tState { return tState{} }, tApply,
 		Query("total", func(context.Context, tState, Unit) (ReadOnlyEffect[int], error) { return Reply(0), nil }),
 		Query("total", func(context.Context, tState, Unit) (ReadOnlyEffect[int], error) { return Reply(0), nil }),
 	)

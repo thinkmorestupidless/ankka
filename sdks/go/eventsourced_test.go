@@ -49,7 +49,7 @@ func tTotal(s tState) int {
 	return n
 }
 
-var tCartEntity = EventSourced[tState, tEvent]("t-cart", tEvents, func() tState { return tState{} }, tApply,
+var tCartEntity = EventSourced[tState, tEvent]("t-cart", tEvents, func(string) tState { return tState{} }, tApply,
 	Command("add-item", func(ctx context.Context, s tState, item tItem) (Effect[tState, tEvent, int], error) {
 		if item.Quantity <= 0 {
 			return Effect[tState, tEvent, int]{}, Refuse(BadRequest, "quantity must be positive")
@@ -220,7 +220,7 @@ func TestAnEntityDeclaresItselfAndItsProblems(t *testing.T) {
 		}
 	}
 	type other struct{}
-	bad := EventSourced[tState, tEvent]("bad", tEvents, func() tState { return tState{} }, tApply,
+	bad := EventSourced[tState, tEvent]("bad", tEvents, func(string) tState { return tState{} }, tApply,
 		Command("same", func(context.Context, tState, Unit) (Effect[tState, tEvent, Done], error) {
 			return Persist[tState, tEvent, Done]().ThenNoReply(), nil
 		}),

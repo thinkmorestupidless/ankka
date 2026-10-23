@@ -16,7 +16,7 @@ import (
 type EventSourcedEntity[S, E any] struct {
 	id            string
 	events        *SumType[E]
-	empty         func() S
+	empty         func(entityID string) S
 	apply         func(context.Context, S, E) S
 	commands      []esCommand[S, E]
 	queries       []stateQuery[S]
@@ -40,10 +40,10 @@ type esRun[S, E any] interface {
 }
 
 // EventSourced declares an event sourced entity. events is the registration of the event
-// interface's cases; empty is the state of an entity with no events; apply folds one event into the
+// interface's cases; empty is the state of an entity with no events, given its id; apply folds one event into the
 // state and must do nothing else. The parts are its handlers (Command, Query) and options
 // (SnapshotEvery, StateCodec, EventCodec, Replicated, ApplyWithContext).
-func EventSourced[S, E any](id string, events *SumType[E], empty func() S, apply func(state S, event E) S, parts ...Part) *EventSourcedEntity[S, E] {
+func EventSourced[S, E any](id string, events *SumType[E], empty func(entityID string) S, apply func(state S, event E) S, parts ...Part) *EventSourcedEntity[S, E] {
 	e := &EventSourcedEntity[S, E]{id: id, events: events, empty: empty, stateCodec: CodecFor[S](), eventCodec: CodecFor[E]()}
 	if apply != nil {
 		e.apply = func(_ context.Context, s S, ev E) S { return apply(s, ev) }
@@ -228,7 +228,7 @@ func (i *esInstance[S, E]) Recover(_ context.Context, init *pb.EventSourcedIn_In
 		i.state, i.sequence = s, snap.GetSequence()
 		return nil
 	}
-	i.state = i.e.empty()
+	i.state = i.e.empty(i.entityID)
 	return nil
 }
 

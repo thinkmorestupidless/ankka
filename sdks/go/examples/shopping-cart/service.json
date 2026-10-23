@@ -1,0 +1,12 @@
+{
+  "name": "cart",
+  "service": {
+    "image": "sample-shopping-cart-go:latest",
+    "hosting": "process",
+    "protocol": "1.22",
+    "provisionObjectStorage": true,
+    "buckets": [
+      { "name": "photos", "exposure": "public" }
+    ]
+  }
+}

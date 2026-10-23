@@ -54,8 +54,19 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
       val code = Main.run(args, PrintStream(out), PrintStream(err))
       assertEquals(code, 0, s"ankka init failed:\n$out\n$err")
 
+  /**
+   * The project's text files: not a wrapper's jar (Gradle's is binary, and a template carries it
+   * whole), and not a suite's own tool home (`.test-gradle-home`), which holds downloads.
+   */
   protected def files: Vector[Path] =
-    Files.walk(project).iterator().asScala.filter(Files.isRegularFile(_)).toVector
+    Files
+      .walk(project)
+      .iterator()
+      .asScala
+      .filter(Files.isRegularFile(_))
+      .filterNot(_.getFileName.toString.endsWith(".jar"))
+      .filterNot(f => project.relativize(f).getName(0).toString.startsWith(".test-"))
+      .toVector
 
   /** Runs a command in the project, its output passed through, and returns the output too. */
   protected def run(command: String*): (Int, String) =

@@ -1,0 +1,27 @@
+# Postgres for running {{name}} locally: the event journal, snapshots, durable state, view tables
+# and projection offsets all live here. The service runs in its own JVM (`./gradlew run`): Kotlin
+# is hosted by the runtime directly, so nothing else needs starting.
+#
+# The schema comes from build/ddl, which `./gradlew schema` fills from the ankka-runtime artifact;
+# run that first. Postgres applies an init directory only when its data volume is empty, so after
+# an ankka upgrade: `docker compose down -v`, `./gradlew schema`, `docker compose up -d`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ankka
+      POSTGRES_PASSWORD: ankka
+      POSTGRES_DB: ankka
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./build/ddl/ankka/ddl:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ankka -d ankka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:

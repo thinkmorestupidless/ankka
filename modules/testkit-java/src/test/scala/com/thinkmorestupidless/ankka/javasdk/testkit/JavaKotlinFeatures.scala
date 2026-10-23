@@ -53,9 +53,7 @@ class JavaKotlinFeatures
   )
 
   /** Suites named above that a later story of spec 058 writes, each with its story. */
-  private val notYet = Map(
-    "KotlinTemplateSuite" -> "US4"
-  )
+  private val notYet = Map.empty[String, String]
 
   test("every suite this feature names exists") {
     val named = ranElsewhere.values.flatMap(_.split(" and ")).toSet

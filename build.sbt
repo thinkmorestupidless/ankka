@@ -703,8 +703,10 @@ lazy val sidecar = project
     // developers write no telemetry code. test->test for the fake collector.
     telemetryOtlp % "compile;test->test",
     testkit       % Test,
-    // The conformance suite hosts a reference written through the Java SDK (feature 058).
+    // The conformance suite hosts a reference written through the Java SDK, or through the Kotlin
+    // one over it, whose class path then holds only what Kotlin adds (feature 058).
     sdkJava    % "test->test",
+    agentJava  % Test,
     operator   % "test->test;test->compile",
     testPki    % Test,
     testOllama % Test
@@ -961,7 +963,7 @@ lazy val cli = project
       // Java and Kotlin are hosted in the runtime's own process, so they carry a compose file of
       // their own (Postgres only) in place of common-service's, which starts the sidecar.
       val embedded = Set("java", "kotlin")
-      Seq("python", "typescript", "rust", "web", "java").flatMap { language =>
+      Seq("python", "typescript", "rust", "web", "java", "kotlin").flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a process service's, which a web-hosted interface and an embedded one are not.
         // `.scaffold-modes` beside a template's root names its binary and executable files.
@@ -1036,6 +1038,21 @@ lazy val cli = project
           (sdkJava / publishM2).value
           (agentJava / publishM2).value
           (testkitJava / publishM2).value
+          // The Kotlin SDK is Gradle's to build: published beside the Java one, at its version.
+          val v   = (sdkJava / version).value
+          val dir = (ThisBuild / baseDirectory).value / "sdks" / "kotlin"
+          if (named.contains("kotlin")) {
+            val gradle = Seq(
+              "./gradlew",
+              "--no-daemon",
+              "-q",
+              s"-PankkaVersion=$v",
+              s"-Pversion=$v",
+              "publishToMavenLocal"
+            )
+            if (scala.sys.process.Process(gradle, dir).! != 0)
+              sys.error(s"${gradle.mkString(" ")} failed in $dir")
+          }
           ()
         }
       else if (selected.exists(s => s == "off" || !named.contains("scala")))

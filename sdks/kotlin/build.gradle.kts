@@ -1,3 +1,5 @@
+import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.publish.maven.MavenPublication
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
@@ -39,6 +41,16 @@ subprojects {
     }
 
     // Serialised, as the sbt build's suites are: each kit starts a database container.
+    // The three libraries a Kotlin service depends on, as `com.thinkmorestupidless:<project>`;
+    // `publishToMavenLocal -Pversion=<v>` puts them where a template's build finds them.
+    if (!path.startsWith(":samples")) {
+        apply(plugin = "maven-publish")
+        extensions.configure<JavaPluginExtension> { withSourcesJar() }
+        extensions.configure<PublishingExtension> {
+            publications { create<MavenPublication>("maven") { from(components["java"]) } }
+        }
+    }
+
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         maxParallelForks = 1

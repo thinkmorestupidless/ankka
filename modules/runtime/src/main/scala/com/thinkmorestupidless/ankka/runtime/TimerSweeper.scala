@@ -49,7 +49,9 @@ private[ankka] object TimerSweeper:
       conversation: Option[Conversation],
       pollInterval: FiniteDuration,
       observer: TimerObserver = TimerObserver.none,
-      clock: Clock = Clock.systemUTC()
+      clock: Clock = Clock.systemUTC(),
+      /** The workflows whose pauses' wakes this sweeper runs. */
+      workflows: Set[ComponentId] = Set.empty
   ): Behavior[Nothing] =
     Behaviors
       .setup[Command] { ctx =>
@@ -69,7 +71,8 @@ private[ankka] object TimerSweeper:
           ctx.system.executionContext,
           Observability(ctx.system),
           observer,
-          clock
+          clock,
+          workflows
         )
 
         Behaviors.withTimers { timers =>
@@ -116,7 +119,8 @@ private[ankka] final class Sweep(
     ec: ExecutionContext,
     observability: Observability,
     observer: TimerObserver = TimerObserver.none,
-    clock: Clock = Clock.systemUTC()
+    clock: Clock = Clock.systemUTC(),
+    workflows: Set[ComponentId] = Set.empty
 ):
   private given ExecutionContext = ec
 
@@ -166,6 +170,41 @@ private[ankka] final class Sweep(
       .flatMap(due => Future.sequence(due.map(fire)).map(_.count(identity)))
 
   private def fire(timer: DueTimer): Future[Boolean] =
+    if timer.method == PauseWake.Method && workflows.contains(timer.componentId) then wake(timer)
+    else fireAction(timer)
+
+  /**
+   * A paused workflow's wake: the reserved call on the instance the payload names, which ends the
+   * pause when the workflow is still paused on the deadline it names. Sharding starts the instance
+   * if it was passivated or the service restarted, which is the point. A refusal or no answer is
+   * retried with the backoff of any timer; an instance of an older runtime, which has no such
+   * method, refuses until the deploy reaches it.
+   */
+  private def wake(timer: DueTimer): Future[Boolean] =
+    PauseWake.read(timer.payload) match
+      case None =>
+        notHere(timer, s"a workflow of '${timer.componentId}' its payload does not name")
+      case Some((workflowId, deadline)) =>
+        componentClient.transportRef
+          .ask(
+            timer.componentId,
+            workflowId,
+            PauseWake.Method,
+            PauseWake.callPayload(deadline),
+            Metadata.empty
+          )
+          .transformWith {
+            case Success(_) => succeeded(timer)
+            case Failure(NonFatal(failure)) =>
+              log.warn(
+                s"timer '${timer.name}' could not wake workflow '$workflowId' " +
+                  s"(${failure.getMessage}); rescheduling with backoff"
+              )
+              failed(timer)
+            case Failure(fatal) => Future.failed(fatal)
+          }
+
+  private def fireAction(timer: DueTimer): Future[Boolean] =
     actions.get(timer.componentId) match
       case None =>
         // The action was removed while a timer for it was still scheduled — or, for a recurring

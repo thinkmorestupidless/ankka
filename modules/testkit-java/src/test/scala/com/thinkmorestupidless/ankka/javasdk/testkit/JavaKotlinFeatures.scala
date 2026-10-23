@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit
 
-import com.thinkmorestupidless.ankka.javasdk.testkit.steps.EmbeddedSteps
+import com.thinkmorestupidless.ankka.javasdk.testkit.steps.{DocumentationSteps, EmbeddedSteps}
 import com.thinkmorestupidless.ankka.testkit.{GherkinSuite, LogCapturing}
 
 import java.nio.file.{Files, Path, Paths}
@@ -14,6 +14,7 @@ import scala.util.Using
 class JavaKotlinFeatures
     extends GherkinSuite("../../features/java-kotlin")
     with EmbeddedSteps
+    with DocumentationSteps
     with LogCapturing:
 
   protected lazy val kotlinSuite = "KotlinFeaturesTest"
@@ -45,11 +46,7 @@ class JavaKotlinFeatures
     "the first service in Java or Kotlin needs a JDK and Docker and nothing else" ->
       "the docs check builds the first-service pages from the template's compiled sources",
     "a change to the template is proven on the template before it is merged" ->
-      "ci.yml's template-java and template-kotlin jobs, required by branch protection",
-    "the documentation says where ankka's Java differs from Akka's" -> "the docs check",
-    "every place that names the languages a service may be written in names Java and Kotlin" ->
-      "the docs check",
-    "the limitations name what the Java and Kotlin SDKs do not offer" -> "the docs check"
+      "ci.yml's template-java and sdk-kotlin jobs, required by branch protection"
   )
 
   /** Suites named above that a later story of spec 058 writes, each with its story. */

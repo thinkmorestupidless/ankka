@@ -22,6 +22,9 @@ type Endpoint struct {
 	routes  []*Route
 	issuers []string
 	options []Part
+	// ident and reserved are the SDK's own endpoint's: an id of its own, and leave to sit under /_ankka.
+	ident    string
+	reserved bool
 }
 
 // EndpointOption is an option of NewEndpoint, given among its routes.
@@ -254,7 +257,12 @@ func textResponse(status int, text string) *pb.HttpResponse {
 // routeID is how the sidecar names a route back on each request.
 func (r *Route) routeID() string { return r.method + " " + r.template }
 
-func (e *Endpoint) id() string { return e.prefix }
+func (e *Endpoint) id() string {
+	if e.ident != "" {
+		return e.ident
+	}
+	return e.prefix
+}
 
 func (e *Endpoint) declare(d *declarations) {
 	where := "endpoint " + e.prefix
@@ -268,7 +276,7 @@ func (e *Endpoint) declare(d *declarations) {
 	if !strings.HasPrefix(e.prefix, "/") {
 		d.problem(where, "the prefix starts with /")
 	}
-	if e.prefix == "/_ankka" || strings.HasPrefix(e.prefix, "/_ankka/") {
+	if !e.reserved && (e.prefix == "/_ankka" || strings.HasPrefix(e.prefix, "/_ankka/")) {
 		d.problem(where, "/_ankka is the platform's")
 	}
 	if len(e.routes) == 0 {

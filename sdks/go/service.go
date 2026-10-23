@@ -29,6 +29,7 @@ type Service struct {
 	seen     map[string]bool
 	sidecar  string // the protocol the sidecar stated at its last discovery
 	client   *Client
+	storage  Storage
 }
 
 // Client is the service's client of its sidecar, once Start or Serve has begun; nil before.
@@ -48,6 +49,12 @@ func (s *Service) serverOptions() server.Options {
 func (s *Service) scope(ctx context.Context) context.Context {
 	if c := s.Client(); c != nil {
 		ctx = WithClient(ctx, c)
+	}
+	s.mu.Lock()
+	store := s.storage
+	s.mu.Unlock()
+	if store != nil {
+		ctx = WithStorage(ctx, store)
 	}
 	return withConfig(ctx, environment())
 }
@@ -98,7 +105,16 @@ type startSettings struct {
 	sidecar string
 	grace   time.Duration
 	log     *slog.Logger
+	storage Storage
+	dir     string
 }
+
+// StorageOf gives the service's handlers store in place of the one the environment chooses.
+func StorageOf(store Storage) StartOption { return func(s *startSettings) { s.storage = store } }
+
+// ServiceDirectory is the directory that holds service.json, whose buckets the directory store
+// refuses names beside, and under which ANKKA_STORAGE_DIR is read; the working directory by default.
+func ServiceDirectory(dir string) StartOption { return func(s *startSettings) { s.dir = dir } }
 
 // Host is the address the process listens on: loopback (the default) or "0.0.0.0", which the
 // integration test kit needs for a sidecar in a container. Any other is refused.
@@ -178,6 +194,9 @@ func (s *Service) Serve(ctx context.Context, lis net.Listener, opts ...StartOpti
 
 func (s *Service) serve(ctx context.Context, lis net.Listener, st startSettings) error {
 	s.log = st.log
+	if err := s.chooseStore(st); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.client == nil {
 		s.client = &Client{address: st.sidecar, decls: s.decls}
@@ -203,6 +222,43 @@ func (s *Service) serve(ctx context.Context, lis net.Listener, st startSettings)
 	if err := <-done; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		return err
 	}
+	return nil
+}
+
+// chooseStore sets the service's buckets: the store given, or the one the environment chooses. A
+// directory store's URLs are answered by an endpoint this process declares at /_ankka/storage.
+func (s *Service) chooseStore(st startSettings) error {
+	s.mu.Lock()
+	chosen := s.storage != nil
+	s.mu.Unlock()
+	if chosen {
+		return nil
+	}
+	backend, store := StorageBackend("given"), st.storage
+	if store == nil {
+		dir := st.dir
+		if dir == "" {
+			wd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("the process cannot read its working directory: %w", err)
+			}
+			dir = wd
+		}
+		var err error
+		if backend, store, err = chooseStorage(environment(), dir); err != nil {
+			return fmt.Errorf("the service cannot reach its buckets: %w", err)
+		}
+	}
+	where := ""
+	if d, ok := store.(*DirectoryStorage); ok {
+		storageEndpoint(d).declare(s.decls)
+		where = d.Root()
+	}
+	s.mu.Lock()
+	s.storage = store
+	s.mu.Unlock()
+	setProcessStorage(store)
+	s.log.Info("ankka: object storage", "backend", string(backend), "root", where)
 	return nil
 }
 
@@ -273,7 +329,16 @@ func (s *Service) discover(_ context.Context, info *pb.SidecarInfo) (*pb.Spec, e
 	s.mu.Lock()
 	s.sidecar = info.GetProtocolVersion()
 	s.mu.Unlock()
-	return s.Spec(), nil
+	spec := s.Spec()
+	// A runtime before 1.21 refuses a process's endpoint under /_ankka; the directory store's URLs
+	// then go unanswered, and nothing else of the store needs the runtime.
+	if minor, ok := protocolMinor(info.GetProtocolVersion()); !ok || minor < storageSince {
+		if _, served := s.decls.endpointDecls[storageEndpointID]; served {
+			s.log.Warn("ankka: the sidecar's protocol is too old to serve the directory store's URLs", "sidecarProtocol", info.GetProtocolVersion(), "needs", "1.21", "path", storagePath)
+			spec = withoutStorageEndpoint(spec)
+		}
+	}
+	return spec, nil
 }
 
 // report logs a problem the first time it is seen and keeps it.

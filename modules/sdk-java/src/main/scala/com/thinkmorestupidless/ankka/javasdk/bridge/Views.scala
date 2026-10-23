@@ -9,7 +9,7 @@ import com.thinkmorestupidless.ankka.javasdk.client.{
   ViewQueries,
   ViewQuery
 }
-import com.thinkmorestupidless.ankka.javasdk.codec.{EncodingException, RecordCodec, Serializer}
+import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
 import com.thinkmorestupidless.ankka.javasdk.component.{
   ChangeSource as JavaSource,
   KeyedChange,
@@ -21,12 +21,12 @@ import com.thinkmorestupidless.ankka.javasdk.effect.KeyedViewEffect
 import com.thinkmorestupidless.ankka.javasdk.problems.DeclarationProblem
 import com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.sdk
-import com.thinkmorestupidless.ankka.sdk.{DeclaredQuery, TopicOptions, ViewComponentContext}
+import com.thinkmorestupidless.ankka.sdk.{DeclaredQuery, ViewComponentContext}
 
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.JavaFlowSupport
 
-import java.lang.reflect.{InvocationTargetException, Method, Modifier, Type}
+import java.lang.reflect.{InvocationTargetException, Method, Modifier}
 import java.util.{Optional, OptionalInt}
 import java.util.concurrent.Flow
 import scala.collection.mutable
@@ -64,130 +64,25 @@ private[ankka] object Views:
       cls: Class[?],
       idOverride: Option[String],
       serializers: Declarations.Serializers,
-      entities: Vector[ComponentPlan]
+      entities: Vector[ComponentPlan],
+      workflows: Vector[(Class[?], String, sdk.ChangeSource[Any])] = Vector.empty
   ): Either[Vector[DeclarationProblem], ViewPlan] =
-    val name     = cls.getSimpleName
-    val problems = mutable.ArrayBuffer.empty[DeclarationProblem]
-    def problem(member: String, message: String): Unit =
-      problems += DeclarationProblem(name, member, message)
-
-    val keyed       = classOf[KeyedView[?]].isAssignableFrom(cls)
-    val annotated   = Option(cls.getAnnotation(classOf[annotations.ComponentId])).map(_.value)
-    val componentId = idOverride.orElse(annotated).filter(_.nonEmpty)
-    if componentId.isEmpty then
-      problem("", "has no component id: annotate it @ComponentId(\"...\") or register(cls, id)")
-    if Modifier.isAbstract(cls.getModifiers) then
-      problem("", "is abstract; register a concrete class")
-
-    val construct = cls.getDeclaredConstructors.find(_.getParameterCount == 0) match
-      case Some(c) =>
-        c.setAccessible(true)
-        Some(() =>
-          try c.newInstance().asInstanceOf[AnyRef]
-          catch case e: InvocationTargetException => throw e.getCause
-        )
-      case None =>
-        problem("", "has no constructor taking nothing")
-        None
-
-    val bindings = Declarations.typeBindings(cls)
-    def serializer(tpe: Type, member: String, what: String): Option[Serializer[Any]] =
-      val resolved = Declarations.resolve(tpe, bindings)
-      Planner.rawClass(resolved).flatMap(serializers.get) match
-        case Some(explicit) => Some(explicit.asInstanceOf[Serializer[Any]])
-        case None =>
-          try Some(RecordCodec.forType(resolved).asInstanceOf[Serializer[Any]])
-          catch
-            case e: EncodingException =>
-              problem(member, s"its $what has no serializer: ${e.getMessage}")
-              None
+    val reader = Reader(cls, idOverride, serializers, entities, workflows)
+    import reader.problem
+    val keyed = classOf[KeyedView[?]].isAssignableFrom(cls)
 
     val row =
       if keyed then
-        Declarations
-          .superArguments(classOf[KeyedView[?]], bindings)
+        reader
+          .arguments(classOf[KeyedView[?]])
           .headOption
-          .flatMap(serializer(_, "", "row type"))
+          .flatMap(reader.serializer(_, "", "row type"))
       else
-        Declarations
-          .superArguments(classOf[View[?, ?]], bindings)
-          .lift(1)
-          .flatMap(serializer(_, "", "row type"))
+        reader.arguments(classOf[View[?, ?]]).lift(1).flatMap(reader.serializer(_, "", "row type"))
 
-    def resolveSource(java: JavaSource[?], member: String): Option[sdk.ChangeSource[Any]] =
-      java.kind match
-        case JavaSource.Kind.ENTITY =>
-          entities.find(_.cls == java.component) match
-            case Some(plan) if plan.kind == JavaKind.EventSourced =>
-              Some(
-                sdk.ChangeSource.EventSourced(
-                  ComponentId(plan.componentId),
-                  CodecBridge.toScala(plan.event.get)
-                )
-              )
-            case Some(plan) =>
-              Some(
-                sdk.ChangeSource.KeyValue(
-                  ComponentId(plan.componentId),
-                  CodecBridge.state(plan.state)
-                )
-              )
-            case None =>
-              problem(
-                member,
-                s"reads ${java.component.getSimpleName}, which the service does not register " +
-                  "as an entity"
-              )
-              None
-        case JavaSource.Kind.WORKFLOW =>
-          problem(
-            member,
-            s"reads the workflow ${java.component.getSimpleName}, which the service does not " +
-              "register"
-          )
-          None
-        case JavaSource.Kind.TOPIC =>
-          serializer(java.`type`, member, "topic's message type").map { decoder =>
-            sdk.ChangeSource.Topic(
-              java.topic,
-              CodecBridge.toScala(decoder),
-              None,
-              TopicOptions(project = Option(java.project))
-            )
-          }
-
-    // The view's own hooks are read from one instance, made here as the host makes them.
-    val probe = construct.flatMap { make =>
-      try Some(ViewCell.constructing(ViewCell())(make()))
-      catch
-        case e: Exception =>
-          problem("", s"could not be constructed: $e")
-          None
-    }
-    def hook[A](what: String)(read: AnyRef => A): Option[A] =
-      probe.flatMap { instance =>
-        try Some(read(instance))
-        catch
-          case e: Exception =>
-            problem(what, s"threw $e")
-            None
-      }
-
-    val version = hook("version")(i => Hooks.version(i, keyed)).flatMap { v =>
-      if v.isPresent && v.getAsInt < 1 then
-        problem("version", s"is ${v.getAsInt}; a version is 1 or more")
-      if v.isPresent then Some(v.getAsInt) else None
-    }
-
-    val source =
-      if keyed then None
-      else
-        hook("source")(Hooks.source).flatMap {
-          case null => problem("source", "returned null"); None
-          case s    => resolveSource(s, "source")
-        }
-
-    val keyedSources = if !keyed then None else Some(keyedPlans(cls, problem, resolveSource))
+    val version      = reader.version(i => Hooks.version(i, keyed))
+    val source       = if keyed then None else reader.declaredSource(Hooks.source)
+    val keyedSources = if !keyed then None else Some(keyedPlans(cls, problem, reader.source))
 
     val queries = cls.getDeclaredFields.toVector
       .filter(f => f.getType == classOf[ViewQuery] && Modifier.isStatic(f.getModifiers))
@@ -202,29 +97,28 @@ private[ankka] object Views:
     queries.groupBy(_.name).foreach { (query, same) =>
       if same.size > 1 then problem("", s"declares the query '$query' ${same.size} times")
     }
-    for id <- idOverride; declared <- annotated if id != declared && queries.nonEmpty do
+    for id <- idOverride; declared <- reader.annotated if id != declared && queries.nonEmpty do
       problem(
         "",
         s"is registered as '$id' but its queries name the table of '$declared'; register it " +
           "under its @ComponentId"
       )
 
-    val parallelism = if keyed then 1 else hook("parallelism")(Hooks.parallelism).getOrElse(1)
-    if parallelism < 1 then problem("parallelism", s"is $parallelism; it is 1 or more")
+    val parallelism = if keyed then 1 else reader.parallelism(Hooks.parallelism)
 
-    if problems.nonEmpty then Left(problems.toVector)
+    if reader.problems.nonEmpty then Left(reader.problems)
     else
       Right(
         ViewPlan(
           cls,
-          componentId.get,
+          reader.componentId.get,
           source,
           keyedSources,
           row.get,
           queries,
           version,
           parallelism,
-          construct.get
+          reader.construct.get
         )
       )
 

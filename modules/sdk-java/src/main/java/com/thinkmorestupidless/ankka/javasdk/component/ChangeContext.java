@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.component;
 import java.util.Optional;
 
 /** The change a view or consumer is handling. */
-public interface ViewContext {
+public interface ChangeContext {
 
   /** The source id: the entity's or workflow's id, or the message's subject. */
   String subject();

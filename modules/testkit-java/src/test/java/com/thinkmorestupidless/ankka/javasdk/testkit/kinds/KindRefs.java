@@ -13,5 +13,6 @@ public final class KindRefs {
   public static final CommandRef<TreeNode, TreeNode.Placed, Done> place = TreeNode::place;
   public static final NoArgRef<TreeNode, Done> remove = TreeNode::remove;
   public static final CommandRef<ShoppingCart, LineItem, Done> addItem = ShoppingCart::addItem;
+  public static final CommandRef<ShoppingCart, String, Done> removeItem = ShoppingCart::removeItem;
   public static final NoArgRef<ShoppingCart, Done> checkout = ShoppingCart::checkout;
 }

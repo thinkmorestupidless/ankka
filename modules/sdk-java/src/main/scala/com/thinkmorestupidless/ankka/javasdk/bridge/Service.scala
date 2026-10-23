@@ -57,14 +57,16 @@ private[ankka] object JavaServiceBuilder:
       refs: Refs,
       endpoints: Vector[EndpointPlan] = Vector.empty,
       serializers: Declarations.Serializers = Map.empty,
-      views: Map[Class[?], (String, Views.Companion)] = Map.empty
+      views: Map[Class[?], (String, Views.Companion)] = Map.empty,
+      consumers: Vector[ConsumerPlan] = Vector.empty
   ):
     /**
      * The platform's extensions the read components need, which a Java service never names: the
-     * projections behind its views.
+     * projections behind its views and consumers.
      */
     def platformExtensions: Vector[runtime.RuntimeExtension] =
-      if views.nonEmpty then Vector(runtime.ProjectionRuntime()) else Vector.empty
+      if views.nonEmpty || consumers.nonEmpty then Vector(runtime.ProjectionRuntime())
+      else Vector.empty
 
     /** The Java view client over a running service's. */
     def viewClient(scala: runtime.ViewClient): ViewClient = JavaViews.client(scala, views)
@@ -92,17 +94,23 @@ private[ankka] object JavaServiceBuilder:
       /** Off for a component test kit, which hosts one component whatever it calls. */
       checkReferences: Boolean = true
   ): Read =
-    val (viewClasses, entityClasses) = classes.partition((cls, _) => Views.isView(cls))
+    val (viewClasses, others) = classes.partition((cls, _) => Views.isView(cls))
+    val (consumerClasses, entityClasses) =
+      others.partition((cls, _) => Consumers.isConsumer(cls))
     val results  = entityClasses.map((cls, id) => Declarations.read(cls, id, serializers))
     val entities = results.collect { case Right(plan) => plan }
     // A view is read after the entities, since its source names one of them.
     val viewResults = viewClasses.map((cls, id) => Views.read(cls, id, serializers, entities))
-    val routes      = endpoints.map(Routes.read(_, serializers))
+    val consumerResults =
+      consumerClasses.map((cls, id) => Consumers.read(cls, id, serializers, entities))
+    val routes = endpoints.map(Routes.read(_, serializers))
     val problems = results.collect { case Left(ps) => ps }.flatten ++
       viewResults.collect { case Left(ps) => ps }.flatten ++
+      consumerResults.collect { case Left(ps) => ps }.flatten ++
       routes.collect { case Left(ps) => ps }.flatten
     val registered = results.collect { case Right(plan) => plan.cls }.toSet ++
-      viewResults.collect { case Right(plan) => plan.cls }
+      viewResults.collect { case Right(plan) => plan.cls } ++
+      consumerResults.collect { case Right(plan) => plan.cls }
     val checked =
       if checkReferences then (classes.map(_._1) ++ endpoints).distinct else Vector.empty
     val unregistered = checked.flatMap { cls =>
@@ -122,14 +130,18 @@ private[ankka] object JavaServiceBuilder:
     val views = viewResults.collect { case Right(plan) =>
       plan.cls -> (plan.componentId, Views.companion(plan))
     }
-    val descriptors = plans.map(Adapters.descriptor(_, refs)) ++ views.map(_._2._2.descriptor)
+    val consumers = consumerResults.collect { case Right(plan) => plan }
+    val descriptors = plans.map(Adapters.descriptor(_, refs)) ++
+      views.map(_._2._2.descriptor) ++
+      consumers.map(Consumers.descriptor(_, refs, serializers))
     Read(
       plans,
       descriptors,
       refs,
       routes.collect { case Right(plan) => plan },
       serializers,
-      views.toMap
+      views.toMap,
+      consumers
     )
 
   /** The Scala service of the read classes, its own checks reported as declaration problems. */

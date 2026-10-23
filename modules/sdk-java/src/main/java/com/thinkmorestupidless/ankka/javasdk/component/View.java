@@ -53,7 +53,7 @@ public abstract class View<Src, Row> {
   }
 
   /** The change being handled: its source id and position. */
-  protected final ViewContext updateContext() {
+  protected final ChangeContext updateContext() {
     return cell.context();
   }
 

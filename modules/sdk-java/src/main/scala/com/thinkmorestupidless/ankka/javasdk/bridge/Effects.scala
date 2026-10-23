@@ -1,7 +1,9 @@
 package com.thinkmorestupidless.ankka.javasdk.bridge
 
-import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, Metadata}
 import com.thinkmorestupidless.ankka.core.effect as se
+import com.thinkmorestupidless.ankka.core.graph.PropertyValue
+import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.javasdk.Done
 import com.thinkmorestupidless.ankka.javasdk.effect.*
 import com.thinkmorestupidless.ankka.javasdk.http.Problem
@@ -10,6 +12,7 @@ import java.time.Duration
 import java.util.function.Function
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
+import scala.jdk.OptionConverters.*
 
 /**
  * The Java effects: each holds the Scala effect the same handler would have returned in Scala, so
@@ -85,6 +88,99 @@ object Effects:
     def and(other: KeyedViewEffect[R]): KeyedViewEffect[R] = other match
       case o: HeldKeyed[R] @unchecked => HeldKeyed(scala ++ o.scala)
       case _ => throw IllegalArgumentException(s"$other is not an effect built by effects()")
+
+  def consumer(): ConsumerEffects[?] = Consumer
+
+  def graph(): GraphEffects = Graph
+
+  def graphElements(): GraphElements = Elements
+
+  private[bridge] final class HeldConsumer[R](val scala: se.ConsumerEffect[Any])
+      extends ConsumerEffect[R]
+      with Holding
+
+  private[bridge] final class HeldGraph(val scala: sdk.graph.GraphEffect)
+      extends GraphEffect
+      with Holding
+
+  private object Consumer extends ConsumerEffects[Any]:
+    private val effects = new se.ConsumerEffects[Any]()
+
+    private def outgoing(o: Outgoing[Any]): se.Outgoing[Any] =
+      val withKey =
+        o.key.toScala.fold(effects.message(o.payload))(effects.message(o.payload).withKey)
+      withKey.withMetadata(
+        o.metadata.asScala.foldLeft(Metadata.empty)((m, kv) => m.add(kv._1, kv._2))
+      )
+
+    def publish(message: Any): ConsumerEffect[Any] = HeldConsumer(effects.produce(message))
+    def publish(message: Any, key: String): ConsumerEffect[Any] =
+      HeldConsumer(effects.produceAll(Seq(effects.message(message).withKey(key))))
+    def publishAll(messages: java.util.List[Any]): ConsumerEffect[Any] =
+      HeldConsumer(effects.produceAll(messages.asScala.toVector.map(effects.message)))
+    def publishMessages(messages: java.util.List[Outgoing[Any]]): ConsumerEffect[Any] =
+      HeldConsumer(effects.produceAll(messages.asScala.toVector.map(outgoing)))
+    def done(): ConsumerEffect[Any]   = HeldConsumer(effects.done())
+    def ignore(): ConsumerEffect[Any] = HeldConsumer(effects.ignore())
+
+  private[bridge] final case class HeldElement(scala: sdk.graph.GraphElement) extends GraphElement:
+    def at(version: Long): GraphElement = HeldElement(scala.at(version))
+    def kind(): String                  = scala.kind
+    def id(): String                    = scala.id
+    def key(): String                   = scala.key
+    override def toString: String       = scala.toString
+
+  private object Graph extends GraphEffects:
+    private val effects = new sdk.graph.GraphEffects()
+    private def scalaOf(e: GraphElement): sdk.graph.GraphElement = e match
+      case HeldElement(scala) => scala
+      case other => throw IllegalArgumentException(s"$other is not an element built by graph()")
+    def publish(elements: GraphElement*): GraphEffect =
+      HeldGraph(effects.publish(elements.map(scalaOf)*))
+    def publish(elements: java.util.List[GraphElement]): GraphEffect =
+      HeldGraph(effects.publish(elements.asScala.toVector.map(scalaOf)*))
+    def done(): GraphEffect   = HeldGraph(effects.done())
+    def ignore(): GraphEffect = HeldGraph(effects.ignore())
+
+  private object Elements extends GraphElements:
+    private val graph = new sdk.graph.GraphElements()
+
+    private def value(name: String, v: Any): PropertyValue = v match
+      case s: String            => s
+      case b: java.lang.Boolean => b.booleanValue
+      case i: java.lang.Integer => i.intValue
+      case l: java.lang.Long    => l.longValue
+      case d: java.lang.Double  => d.doubleValue
+      case items: java.util.List[?] =>
+        items.asScala.toVector.map(value(name, _)).map {
+          case scalar: (String | Boolean | Int | Long | Double) => scalar
+          case _ => throw IllegalArgumentException(s"the property '$name' nests a list in a list")
+        }
+      case other =>
+        throw IllegalArgumentException(
+          s"the property '$name' is a ${Option(other).fold("null")(_.getClass.getName)}; a " +
+            "property is a String, Boolean, Integer, Long, Double or a List of one of those"
+        )
+
+    private def properties(ps: java.util.Map[String, Object]): Map[String, PropertyValue] =
+      ps.asScala.toMap.map((k, v) => k -> value(k, v))
+
+    private def built(element: sdk.graph.GraphElement): GraphElement = HeldElement(element)
+    def node(
+        id: String,
+        labels: java.util.List[String],
+        ps: java.util.Map[String, Object]
+    ): GraphElement = built(graph.node(id, labels.asScala.toVector, properties(ps)))
+    def edge(
+        id: String,
+        `type`: String,
+        from: String,
+        to: String,
+        ps: java.util.Map[String, Object]
+    ): GraphElement = built(graph.edge(id, `type`, from, to, properties(ps)))
+    def tombstoneNode(id: String): GraphElement = built(graph.tombstoneNode(id))
+    def tombstoneEdge(id: String, `type`: String, from: String, to: String): GraphElement =
+      built(graph.tombstoneEdge(id, `type`, from, to))
 
   def view(): ViewEffects[?] = View
 

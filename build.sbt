@@ -282,7 +282,7 @@ lazy val runtime = project
     // The Pekko HTTP family as *direct* dependencies, not only the build-wide
     // `dependencyOverrides` in commonSettings: an override never reaches a POM, so an application
     // resolving the published ankka-runtime would still get pekko-http-spray-json 1.1.0 from
-    // pekko-management beside pekko-http 1.4.0 — and Pekko HTTP refuses to start on a mixed
+    // pekko-management beside pekko-http 1.4.2 — and Pekko HTTP refuses to start on a mixed
     // family. Found by the first build outside this repository (feature 006). A direct dependency
     // at the family version is what a consumer's eviction honours.
     libraryDependencies ++= pekkoHttpFamily.filterNot(_.name == "pekko-http-testkit"),

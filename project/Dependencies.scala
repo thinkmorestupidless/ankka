@@ -125,7 +125,7 @@ object Dependencies {
 
   /**
    * Pinned everywhere, not just where ankka uses pekko-http. pekko-management 1.2.1 declares
-   * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.0 wherever
+   * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.2 wherever
    * `http` is on the classpath but nothing lifts the latter, and Pekko HTTP checks at startup that
    * every artifact in its family is the same version — a mixed set fails the first ActorSystem.
    */

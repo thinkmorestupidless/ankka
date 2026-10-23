@@ -227,3 +227,34 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assertEquals(pod.getContainers.size, 2)
     assert(deployment(process).getSpec.getTemplate.getSpec.getImagePullSecrets.isEmpty)
   }
+
+  // features/polyglot/deploying.feature, "a service written in another language is exposed, paused
+  // and resumed like any other service", the exposed rows: exposure is rendered from the resource,
+  // never from the hosting, so a process-hosted service gets the embedded one's route, field for
+  // field, to the sidecar's port on the pod the two containers share.
+  test("an exposed process-hosted service renders the same route as an embedded one") {
+    val exposing = settings.copy(baseDomain = Some("example.test"))
+    def route(spec: AnkkaServiceSpec) =
+      Rendering
+        .render(resource(spec.copy(exposed = true)), exposing, ProvisioningPlan.Supplied)
+        .toOption
+        .get
+        .collectFirst {
+          case Action.EnsureHttpRoute(r) if r.getMetadata.getName == "cart" => r
+        }
+        .getOrElse(fail(s"no route was rendered for $spec"))
+    val ofProcess = route(process)
+    assertEquals(ofProcess.getSpec, route(embedded).getSpec)
+    assertEquals(
+      ofProcess.getSpec.getHostnames.asScala.toVector,
+      Vector("cart-checkout.example.test")
+    )
+    val backend = ofProcess.getSpec.getRules.get(0).getBackendRefs.get(0)
+    assertEquals((backend.getName, backend.getPort.intValue), ("cart", 9000))
+    val sidecar =
+      containers(process).find(_.getName == "cart").getOrElse(fail("no sidecar container"))
+    assert(
+      sidecar.getPorts.asScala.exists(_.getContainerPort.intValue == 9000),
+      sidecar.getPorts.toString
+    )
+  }

@@ -682,6 +682,19 @@ Go differs.
 - **The documentation follows the TypeScript trail page for page**: getting started, reference, a
   skill, and differences sections. The docs tooling already accepts sample markers in any comment
   syntax and needs no change beyond `go` in its language vocabulary.
+- **What implementation settled** (2026-10-23):
+  - The floor is Go 1.26, both 1.26 and 1.27 in CI; the generators are a nested module of their own,
+    because buf needs 1.26.7, so they never enter a service's graph.
+  - The image is a static executable on a distroless base, about 26 MB, with no shell.
+  - The SDK and its test kits are one module; a service that imports only the SDK downloads no
+    container library (measured by the pack smoke).
+  - The SDK a deployed service was built with is said in the process's own log, not by the platform:
+    the platform shows no process SDK's name (research V6).
+  - The personal envelope (spec 042) is not in this feature: no SDK outside Scala has it, and the
+    limitations page says so.
+  - The platform's code is unchanged. Its tests gained Go cases where a suite lists the languages
+    (SidecarClusterSuite, the process rendering, the two documentation suites, the three carve-outs),
+    and the Scala sample gained one route a Go caller is admitted by.
 - **The limitations of the Python and TypeScript SDKs are the Go SDK's**: routes read their bodies
   whole and large objects go through signed URLs, a process's own log lines carry no trace,
   judgments and gRPC endpoints are Scala's, and a handler names a configured model provider rather

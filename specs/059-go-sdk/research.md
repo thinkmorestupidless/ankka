@@ -392,6 +392,14 @@ and the `go get` of the released module in an empty directory.
 - **V5, holds.** A program requiring the SDK at `v0.9.9` with a `replace` to the checkout reports that
   version with `Replace != nil`; one fetched from a file module proxy serving a copy as `v0.13.0`
   reports `v0.13.0` with no replacement.
+- **V2, holds.** The `sdk-go` CI job on `ubuntu-24.04` ran every slow test and the conformance run
+  against the kit's Postgres, its DDL copied out of the sidecar image and mounted readable.
+- **V6, does not hold.** The sidecar never reads `SdkInfo`, and neither `services get` nor the console
+  shows it. A deployed Go process says `sdk=ankka-go version=<v>` in its own serving line, which is
+  what SidecarClusterSuite asserts. Showing it on a platform surface is a platform change, out of this
+  feature's scope; the same is true of every process SDK.
+- **V8, settled by SidecarClusterSuite's Go restart case**: a rolling restart of three instances
+  refuses no request, on amd64 and arm64 (the `cluster` workflow, run 39943706748).
 - **V7, oracle written.** `sdks/go/testdata/doubles.txt` holds 321 values rendered by the JVM's
   `Double.toString`, which Scala's calls (JDK 19 and later print the shortest representation; the
   file was made on JDK 25 and JDK 21 agrees).

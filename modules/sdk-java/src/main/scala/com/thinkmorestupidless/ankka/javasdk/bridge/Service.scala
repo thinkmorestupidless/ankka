@@ -76,14 +76,18 @@ private[ankka] object JavaServiceBuilder:
   def read(
       classes: Vector[(Class[?], Option[String])],
       serializers: Declarations.Serializers,
-      endpoints: Vector[Class[?]] = Vector.empty
+      endpoints: Vector[Class[?]] = Vector.empty,
+      /** Off for a component test kit, which hosts one component whatever it calls. */
+      checkReferences: Boolean = true
   ): Read =
     val results = classes.map((cls, id) => Declarations.read(cls, id, serializers))
     val routes  = endpoints.map(Routes.read(_, serializers))
     val problems = results.collect { case Left(ps) => ps }.flatten ++
       routes.collect { case Left(ps) => ps }.flatten
     val registered = results.collect { case Right(plan) => plan.cls }.toSet
-    val unregistered = (classes.map(_._1) ++ endpoints).distinct.flatMap { cls =>
+    val checked =
+      if checkReferences then (classes.map(_._1) ++ endpoints).distinct else Vector.empty
+    val unregistered = checked.flatMap { cls =>
       References.components(cls).filterNot(registered).map { component =>
         val id = component.getAnnotation(classOf[ComponentId]).value
         DeclarationProblem(

@@ -56,7 +56,6 @@ class JavaKotlinFeatures
   private val notYet = Map(
     "JavaTemplateSuite"          -> "US2",
     "KotlinTemplateSuite"        -> "US4",
-    "ShoppingCartJavaFeatures"   -> "US2",
     "ShoppingCartKotlinFeatures" -> "US4",
     "KotlinFeaturesTest"         -> "US4"
   )

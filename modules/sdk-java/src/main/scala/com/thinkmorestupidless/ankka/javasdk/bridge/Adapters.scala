@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.javasdk.bridge
 
-import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentId, MethodName}
+import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentId}
 import com.thinkmorestupidless.ankka.javasdk.component.{EventSourcedEntity, KeyValueEntity}
 import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.sdk.*
@@ -21,63 +21,92 @@ private[ankka] object Adapters:
       plan: ComponentPlan,
       refs: Refs
   ): EventSourcedEntityDescriptor[JavaEventSourcedHost, Any, Any] =
-    EventSourcedEntityDescriptor(
-      ComponentId(plan.componentId),
-      CodecBridge.toScala(plan.state),
-      CodecBridge.toScala(plan.event.get),
-      ctx =>
-        val cell = EntityCell(ctx.entityId, plan.componentId, Clients.of(ctx.componentClient, refs))
-        JavaEventSourcedHost(construct(plan, cell), cell)
-      ,
-      snapshotEvery = Some(100),
-      handlers = bindings[JavaEventSourcedHost](plan, _.java)
-    )
+    eventSourcedCompanion(plan, refs).descriptor
 
   def keyValue(plan: ComponentPlan, refs: Refs): KeyValueEntityDescriptor[JavaKeyValueHost, Any] =
-    KeyValueEntityDescriptor(
+    keyValueCompanion(plan, refs).descriptor
+
+  /**
+   * A Java event sourced entity as the Scala SDK's own companion: its handlers declared through
+   * `command` and `query` as a Scala entity's are, so the runtime and the Scala test kits take it
+   * unchanged.
+   */
+  def eventSourcedCompanion(
+      plan: ComponentPlan,
+      refs: Refs
+  ): sdk.EventSourcedEntity.Companion[JavaEventSourcedHost, Any, Any] =
+    new sdk.EventSourcedEntity.Companion[JavaEventSourcedHost, Any, Any](
       ComponentId(plan.componentId),
       CodecBridge.toScala(plan.state),
-      ctx =>
+      CodecBridge.toScala(plan.event.get)
+    ):
+      def create(ctx: EventSourcedEntityContext): JavaEventSourcedHost =
+        val cell = EntityCell(ctx.entityId, plan.componentId, Clients.of(ctx.componentClient, refs))
+        JavaEventSourcedHost(construct(plan, cell), cell)
+
+      plan.handlers.foreach { h =>
+        val run = invoker(plan, h)
+        val out = CodecBridge.toScala(h.output)
+        (h.input, h.readOnly) match
+          case (Some(in), false) =>
+            command[Any, Any](h.wireName)(host => i => effect(run(host.java, i)))(using
+              CodecBridge.toScala(in),
+              out
+            ): Unit
+          case (Some(in), true) =>
+            query[Any, Any](h.wireName)(host => i => effect(run(host.java, i)))(using
+              CodecBridge.toScala(in),
+              out
+            ): Unit
+          case (None, false) =>
+            command[Any](h.wireName)(host => effect(run(host.java, null)))(using out): Unit
+          case (None, true) =>
+            query[Any](h.wireName)(host => effect(run(host.java, null)))(using out): Unit
+      }
+
+  /** A Java key value entity as the Scala SDK's own companion. */
+  def keyValueCompanion(
+      plan: ComponentPlan,
+      refs: Refs
+  ): sdk.KeyValueEntity.Companion[JavaKeyValueHost, Any] =
+    new sdk.KeyValueEntity.Companion[JavaKeyValueHost, Any](
+      ComponentId(plan.componentId),
+      CodecBridge.toScala(plan.state)
+    ):
+      def create(ctx: KeyValueEntityContext): JavaKeyValueHost =
         val cell = EntityCell(ctx.entityId, plan.componentId, Clients.of(ctx.componentClient, refs))
         JavaKeyValueHost(construct(plan, cell), cell)
-      ,
-      bindings[JavaKeyValueHost](plan, _.java)
-    )
+
+      plan.handlers.foreach { h =>
+        val run = invoker(plan, h)
+        val out = CodecBridge.toScala(h.output)
+        (h.input, h.readOnly) match
+          case (Some(in), false) =>
+            command[Any, Any](h.wireName)(host => i => effect(run(host.java, i)))(using
+              CodecBridge.toScala(in),
+              out
+            ): Unit
+          case (Some(in), true) =>
+            query[Any, Any](h.wireName)(host => i => effect(run(host.java, i)))(using
+              CodecBridge.toScala(in),
+              out
+            ): Unit
+          case (None, false) =>
+            command[Any](h.wireName)(host => effect(run(host.java, null)))(using out): Unit
+          case (None, true) =>
+            query[Any](h.wireName)(host => effect(run(host.java, null)))(using out): Unit
+      }
+
+  /** The Scala effect a Java handler returned, as whichever effect type the caller expects. */
+  private def effect[A](value: Any): A = value.asInstanceOf[A]
+
+  private def invoker(plan: ComponentPlan, h: HandlerPlan): (AnyRef, Any) => Any =
+    val where = s"${plan.cls.getSimpleName}.${h.method.getName}"
+    (java, input) => Effects.unwrap(h.invoke(java, input), where)
 
   private[bridge] def construct(plan: ComponentPlan, cell: EntityCell): AnyRef =
     EntityCell.constructing(cell)(plan.construct(cell.entityContext()))
 
-  /** One Scala handle per Java handler, whose `run` calls the method and unwraps its effect. */
-  private[bridge] def bindings[H](
-      plan: ComponentPlan,
-      java: H => AnyRef
-  ): Map[MethodName, HandlerBinding[H]] =
-    plan.handlers.map { h =>
-      val where = s"${plan.cls.getSimpleName}.${h.method.getName}"
-      val name  = MethodName(h.wireName)
-      val out   = CodecBridge.toScala(h.output)
-      val binding: HandlerBinding[H] = h.input match
-        case Some(in) =>
-          new CommandHandle[H, Any, Any](
-            ComponentId(plan.componentId),
-            name,
-            h.readOnly,
-            CodecBridge.toScala(in),
-            out,
-            (host, input) => Effects.unwrap(h.invoke(java(host), input), where)
-          )
-        case None =>
-          new NoArgHandle[H, Any](
-            ComponentId(plan.componentId),
-            name,
-            h.readOnly,
-            out,
-            host => Effects.unwrap(h.invoke(java(host), null), where)
-          )
-      name -> binding
-    }.toMap
-
-  /** The Java base classes' protected methods, called on the instance. */
   private[bridge] object Hooks:
     private def method(cls: Class[?], name: String, params: Class[?]*): Method =
       val m = cls.getDeclaredMethod(name, params*)

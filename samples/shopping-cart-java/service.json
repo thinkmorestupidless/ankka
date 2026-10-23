@@ -1,0 +1,6 @@
+{
+  "name": "shopping-cart-java",
+  "service": {
+    "image": "sample-shopping-cart-java:latest"
+  }
+}

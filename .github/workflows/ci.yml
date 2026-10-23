@@ -208,6 +208,9 @@ jobs:
               - '.github/cluster-suites.py'
               - '.github/cluster-sampler.py'   # cluster.yml's resource sampler
               - '.github/workflows/gcs.yml'   # GcsCompatibilitySuite against a real bucket, nightly and on demand
+              - '.github/workflows/scala-steward.yml'   # weekly and on demand; its pull requests run the jobs here
+              - '.scala-steward.conf'
+              - '.github/dependabot.yml'          # read by GitHub, not by a job; its pull requests run the jobs here
               - '.githooks/**'                    # the pre-commit hook runs on a developer's machine
               - 'Justfile'                        # thin wrappers over commands the jobs run directly
               - '.gitignore'

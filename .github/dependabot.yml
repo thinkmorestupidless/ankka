@@ -1,0 +1,49 @@
+# Dependabot: new versions for everything outside the sbt build, which Scala Steward covers
+# (`.scala-steward.conf`). Weekly, one grouped pull request per ecosystem and directory for minor and
+# patch updates; a major update gets a pull request of its own. The templates under
+# `cli/src/main/templates/` are not listed: they are rendered by `ankka init` and carry no lockfile.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directories:
+      - /sdks/python
+      - /tools/docs
+    schedule:
+      interval: weekly
+    labels: [dependencies, python]
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories:
+      - /sdks/typescript
+      - /console
+      - /samples/shopping-cart-web
+    schedule:
+      interval: weekly
+    labels: [dependencies, typescript]
+    groups:
+      npm:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directories:
+      - /sdks/rust
+      - /sidecar/src/test/rust/spike-guest
+    schedule:
+      interval: weekly
+    labels: [dependencies, rust]
+    groups:
+      cargo:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        update-types: [minor, patch]

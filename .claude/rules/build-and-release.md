@@ -299,6 +299,15 @@ written. Undeclared is unchecked. The rule lives in `controlplane-api` so the CL
 print it without the control plane. **A consequence for DDL changes**: within a supported range
 the schema is additive — a running application must never lose a table or column it needs.
 
+**Dependency updates are pull requests from two bots.** Scala Steward (`.github/workflows/scala-steward.yml`,
+weekly) owns the sbt build under `.scala-steward.conf`: Pekko in one group because its families
+check versions at startup, fabric8 with jackson for the reason `V.jackson` gives, and pins that keep
+pekko-management on 1.x, ScalaPB on 0.11 and sbt on 1.x. It signs in as a GitHub App because a pull
+request opened with `GITHUB_TOKEN` triggers no workflow, so `ci` would never run on it. Dependabot
+(`.github/dependabot.yml`) owns uv, npm, cargo and the workflows' actions. Neither touches the
+templates' pins, which follow the CLI's version, nor the Docker base images, whose majors are
+decisions. A Pekko bump merged here is then mirrored across the family (`ankka-brain/family.md`).
+
 ## Traps
 
 - **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**

@@ -1,0 +1,32 @@
+# Scala Steward: pull requests for new versions of the sbt build's dependencies and plugins, under
+# the rules in `.scala-steward.conf`. It signs in as a GitHub App rather than with GITHUB_TOKEN,
+# because a pull request opened with GITHUB_TOKEN does not trigger `ci.yml`, and branch protection
+# would then hold every update with no checks run. The App needs Contents and Pull requests (read
+# and write) and Metadata (read) on this repository; its id, installation id and private key are
+# the three secrets below.
+name: scala-steward
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: scala-steward
+
+jobs:
+  scala-steward:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: sbt/setup-sbt@v1
+      - uses: scala-steward-org/scala-steward-action@v2
+        with:
+          github-app-id: ${{ secrets.STEWARD_APP_ID }}
+          github-app-installation-id: ${{ secrets.STEWARD_APP_INSTALLATION_ID }}
+          github-app-key: ${{ secrets.STEWARD_APP_PRIVATE_KEY }}
+          github-app-auth-only: 'true'
+          github-repository: ${{ github.repository }}

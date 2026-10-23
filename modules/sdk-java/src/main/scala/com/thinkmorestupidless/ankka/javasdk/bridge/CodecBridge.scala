@@ -17,6 +17,22 @@ private[ankka] object CodecBridge:
     case ToScala(java) => java
     case _             => FromScala(scala)
 
+  /**
+   * An entity's state serializer, for the host. A Java entity's state before anything is written is
+   * `null` unless the entity says otherwise, and the host writes that state when the entity is
+   * deleted; the record codec refuses a `null`, so it is written as no bytes and read back as
+   * `null`. A deleted record is never decoded, so the empty form is read only for such a state.
+   */
+  def state[A](java: JavaSerializer[A]): core.Serializer[A] = NullableState(toScala(java))
+
+  private final case class NullableState[A](scala: core.Serializer[A]) extends core.Serializer[A]:
+    def manifest: String = scala.manifest
+    def toBytes(value: A): Array[Byte] =
+      if value == null then Array.emptyByteArray else scala.toBytes(value)
+    def fromBytes(bytes: Array[Byte]): A =
+      if bytes.isEmpty then null.asInstanceOf[A] else scala.fromBytes(bytes)
+    override def toString: String = s"Nullable($scala)"
+
   private final case class ToScala[A](java: JavaSerializer[A]) extends core.Serializer[A]:
     def manifest: String                 = java.manifest
     def toBytes(value: A): Array[Byte]   = java.toBytes(value)

@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.javasdk.testkit;
 
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
+import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import com.thinkmorestupidless.ankka.javasdk.testkit.bridge.ServiceKit;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -37,6 +38,11 @@ public final class AnkkaTestKit implements AutoCloseable {
 
   public ComponentClient componentClient() {
     return kit.componentClient();
+  }
+
+  /** Queries of the service's views. */
+  public ViewClient viewClient() {
+    return kit.viewClient();
   }
 
   /** Where the service's endpoints are served. Throws when it serves none. */

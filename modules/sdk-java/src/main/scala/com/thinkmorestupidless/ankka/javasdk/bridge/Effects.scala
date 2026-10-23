@@ -24,7 +24,7 @@ object Effects:
 
   /** The Scala effect a Java handler returned. */
   private[ankka] def unwrap(effect: Any, where: => String): Any = effect match
-    case held: Held[?] => held.scala
+    case held: Holding => held.scala
     case null          => throw IllegalStateException(s"$where returned null rather than an effect")
     case other =>
       throw IllegalStateException(
@@ -70,8 +70,42 @@ object Effects:
   private def fn[S, R](f: Function[S, R]): S => R = s => f.apply(s)
 
   /** One class holds every Java effect; which interfaces it presents is the only difference. */
-  private[bridge] final class Held[R](val scala: Any) extends ReadOnlyEffect[R]:
+  /** A Scala effect, held behind one of the Java effect interfaces. */
+  private[bridge] trait Holding:
+    def scala: Any
     override def toString: String = s"Effect($scala)"
+
+  private[bridge] final class Held[R](val scala: Any) extends ReadOnlyEffect[R] with Holding
+
+  private final class HeldView[R](val scala: se.ViewEffect[Any]) extends ViewEffect[R] with Holding
+
+  private final class HeldKeyed[R](val scala: se.KeyedViewEffect[Any])
+      extends KeyedViewEffect[R]
+      with Holding:
+    def and(other: KeyedViewEffect[R]): KeyedViewEffect[R] = other match
+      case o: HeldKeyed[R] @unchecked => HeldKeyed(scala ++ o.scala)
+      case _ => throw IllegalArgumentException(s"$other is not an effect built by effects()")
+
+  def view(): ViewEffects[?] = View
+
+  def keyedView(): KeyedViewEffects[?] = Keyed
+
+  private object View extends ViewEffects[Any]:
+    private val effects                      = new se.ViewEffects[Any]()
+    def updateRow(row: Any): ViewEffect[Any] = HeldView(effects.updateRow(row))
+    def deleteRow(): ViewEffect[Any]         = HeldView(effects.deleteRow())
+    def ignore(): ViewEffect[Any]            = HeldView(effects.ignore())
+
+  private object Keyed extends KeyedViewEffects[Any]:
+    private val effects = new se.KeyedViewEffects[Any]()
+    def updateRow(key: String, row: Any): KeyedViewEffect[Any] =
+      HeldKeyed(effects.updateRow(key, row))
+    def deleteRow(key: String): KeyedViewEffect[Any] = HeldKeyed(effects.deleteRow(key))
+    def updateRows(rows: java.util.Map[String, Any]): KeyedViewEffect[Any] =
+      HeldKeyed(effects.updateRows(rows.asScala.toVector))
+    def deleteRows(keys: java.util.Collection[String]): KeyedViewEffect[Any] =
+      HeldKeyed(effects.deleteRows(keys.asScala.toVector))
+    def ignore(): KeyedViewEffect[Any] = HeldKeyed(effects.ignore())
 
   private type AnyES = se.EventSourcedEffects[Any, Any]
 

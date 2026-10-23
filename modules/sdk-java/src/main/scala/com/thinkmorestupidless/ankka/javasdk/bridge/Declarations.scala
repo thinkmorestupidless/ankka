@@ -179,7 +179,7 @@ private[ankka] object Declarations:
       )
 
   /** A no-argument constructor or one taking the context, of any visibility. */
-  private def constructor(cls: Class[?]): Either[String, EntityContext => AnyRef] =
+  private[bridge] def constructor(cls: Class[?]): Either[String, EntityContext => AnyRef] =
     val constructors                                  = cls.getDeclaredConstructors.toVector
     def accessible(c: Constructor[?]): Constructor[?] = { c.setAccessible(true); c }
     def build(c: Constructor[?], args: EntityContext => Array[AnyRef]): EntityContext => AnyRef =
@@ -221,7 +221,7 @@ private[ankka] object Declarations:
   // ── Type arguments, resolved through the class hierarchy ──────────────────
 
   /** Every type variable in `cls`'s superclasses, bound to what `cls` gives it. */
-  private def typeBindings(cls: Class[?]): Map[TypeVariable[?], Type] =
+  private[bridge] def typeBindings(cls: Class[?]): Map[TypeVariable[?], Type] =
     val out           = mutable.Map.empty[TypeVariable[?], Type]
     var current: Type = cls.getGenericSuperclass
     while current != null do
@@ -236,13 +236,13 @@ private[ankka] object Declarations:
         case _           => current = null
     out.toMap
 
-  private def superArguments(
+  private[bridge] def superArguments(
       base: Class[?],
       bindings: Map[TypeVariable[?], Type]
   ): Vector[Type] =
     base.getTypeParameters.toVector.flatMap(v => bindings.get(v))
 
-  private def resolve(t: Type, bindings: Map[TypeVariable[?], Type]): Type = t match
+  private[bridge] def resolve(t: Type, bindings: Map[TypeVariable[?], Type]): Type = t match
     case v: TypeVariable[?] => bindings.getOrElse(v, v)
     case _                  => t
 

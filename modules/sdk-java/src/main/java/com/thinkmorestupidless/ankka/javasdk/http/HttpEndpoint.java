@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.http;
 import com.thinkmorestupidless.ankka.javasdk.bridge.EndpointCell;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceClients;
+import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import java.util.Optional;
 
 /**
@@ -51,6 +52,11 @@ public abstract class HttpEndpoint {
   /** Calls to this service's components. */
   protected final ComponentClient componentClient() {
     return cell.componentClient();
+  }
+
+  /** Queries of this service's views. */
+  protected final ViewClient viewClient() {
+    return cell.viewClient();
   }
 
   /** Calls to other services, by name. */

@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk.bridge
 
 import com.thinkmorestupidless.ankka.http
-import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceClients}
+import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceClients, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.http.*
 
 import java.util.Optional
@@ -81,8 +81,11 @@ private[bridge] final class JavaRequest(ctx: http.RequestContext) extends Reques
 /** What a Java endpoint reads: the request on this thread, and its client. */
 final class EndpointCell private[bridge] (
     client: ComponentClient,
-    serviceClients: ServiceClients = Services.unavailable
+    serviceClients: ServiceClients = Services.unavailable,
+    views: ViewClient = JavaViews.unavailable
 ):
+  def viewClient(): ViewClient = views
+
   def request(): Request =
     http.RequestScope.currentContext match
       case Some(ctx) => JavaRequest(ctx)

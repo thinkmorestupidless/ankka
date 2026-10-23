@@ -37,7 +37,7 @@ private[ankka] object Adapters:
   ): sdk.EventSourcedEntity.Companion[JavaEventSourcedHost, Any, Any] =
     new sdk.EventSourcedEntity.Companion[JavaEventSourcedHost, Any, Any](
       ComponentId(plan.componentId),
-      CodecBridge.toScala(plan.state),
+      CodecBridge.state(plan.state),
       CodecBridge.toScala(plan.event.get)
     ):
       def create(ctx: EventSourcedEntityContext): JavaEventSourcedHost =
@@ -71,7 +71,7 @@ private[ankka] object Adapters:
   ): sdk.KeyValueEntity.Companion[JavaKeyValueHost, Any] =
     new sdk.KeyValueEntity.Companion[JavaKeyValueHost, Any](
       ComponentId(plan.componentId),
-      CodecBridge.toScala(plan.state)
+      CodecBridge.state(plan.state)
     ):
       def create(ctx: KeyValueEntityContext): JavaKeyValueHost =
         val cell = EntityCell(ctx.entityId, plan.componentId, Clients.of(ctx.componentClient, refs))

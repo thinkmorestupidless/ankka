@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.javasdk.testkit.bridge
 
 import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder
 import com.thinkmorestupidless.ankka.javasdk.bridge.{Clients, JavaServiceBuilder}
-import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceResponse}
+import com.thinkmorestupidless.ankka.javasdk.client.{ComponentClient, ServiceResponse, ViewClient}
 import com.thinkmorestupidless.ankka.javasdk.testkit.{ScriptedService, Settings}
 import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.testkit as stk
@@ -23,6 +23,9 @@ final class ServiceKit private (
   private lazy val client = HttpClient.newHttpClient()
 
   def componentClient(): ComponentClient = Clients.of(kit.componentClient, read.refs)
+
+  // Read from the running service each time: restartService replaces it.
+  def viewClient(): ViewClient = read.viewClient(kit.service.viewClient)
 
   def http(): URI =
     URI.create(
@@ -70,8 +73,8 @@ object ServiceKit:
     val scripted =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
-    val http =
-      if read.endpoints.isEmpty then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0)))
+    val http = read.platformExtensions ++
+      (if read.endpoints.isEmpty then Nil else Seq(read.httpServer(Some("127.0.0.1" -> 0))))
     val kit =
       try
         stk.AnkkaTestKit.start(

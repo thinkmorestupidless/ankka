@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
+import com.thinkmorestupidless.ankka.javasdk.client.ViewClient;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -10,6 +11,9 @@ public interface AnkkaService extends AutoCloseable {
 
   /** Calls to this service's components. */
   ComponentClient componentClient();
+
+  /** Queries of this service's views. */
+  ViewClient viewClient();
 
   /** Where the endpoints are served, once ready. Throws when the service has no endpoint. */
   URI httpAddress();

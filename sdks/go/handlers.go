@@ -21,6 +21,8 @@ type handlerPart interface {
 	codecProblems() []string
 	declareInput(d *declarations, componentID string)
 	describe() string
+	encodeInput(v any) (*pb.Payload, error)
+	decodeReply(p *pb.Payload) (any, error)
 }
 
 // handlerBase is the wire name and the input and reply codecs every handler has.

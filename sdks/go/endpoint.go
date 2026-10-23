@@ -86,8 +86,10 @@ type Route struct {
 	problems []string
 	describe string
 	run      func(ctx context.Context, req *Request) (*pb.HttpResponse, error)
-	stream   func(ctx context.Context, req *Request, send func(*pb.StreamFrame) error) error
-	socket   func(ctx context.Context, req *Request, s *Socket) error
+	// encodeBody encodes a value as the route's body, for the endpoint test kit.
+	encodeBody func(v any) ([]byte, string, error)
+	stream     func(ctx context.Context, req *Request, send func(*pb.StreamFrame) error) error
+	socket     func(ctx context.Context, req *Request, s *Socket) error
 }
 
 func (*Route) routeOrOption() {}
@@ -171,6 +173,14 @@ func withBody[B, R any](method, template string, f func(context.Context, *Reques
 	r := newRoute(method, template)
 	r.hasBody = true
 	in := routeCodec[B]()
+	r.encodeBody = func(v any) ([]byte, string, error) {
+		b, ok := v.(B)
+		if !ok {
+			return nil, "", fmt.Errorf("%s takes a %s body, not a %T", r.describe, reflect.TypeFor[B](), v)
+		}
+		data, err := in.Encode(b)
+		return data, in.ContentType(), err
+	}
 	for _, p := range CodecProblems(in) {
 		r.problems = append(r.problems, fmt.Sprintf("its body, a %s: %s", reflect.TypeFor[B](), p))
 	}

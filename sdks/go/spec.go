@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/thinkmorestupidless/ankka-go/internal/kit"
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 	"github.com/thinkmorestupidless/ankka-go/internal/server"
 )
@@ -39,6 +40,9 @@ type declarations struct {
 	// routes are each endpoint's routes by route id; endpointDecls the endpoints by id.
 	routes        map[string]map[string]*Route
 	endpointDecls map[string]*Endpoint
+
+	// esKits are the event sourced entities as the test kits drive them, by id.
+	esKits map[string]*kit.EventSourced
 }
 
 func newDeclarations() *declarations {
@@ -47,6 +51,7 @@ func newDeclarations() *declarations {
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},
+		esKits:        map[string]*kit.EventSourced{},
 	}
 }
 

@@ -203,6 +203,7 @@ func (e *EventSourcedEntity[S, E]) declare(d *declarations) {
 		d.require(19, "%s declares replication", e.id)
 	}
 	d.eventSourced[e.id] = func(entityID string) server.EventSourcedInstance { return e.instance(entityID) }
+	d.esKits[e.id] = e.kitView()
 }
 
 // esInstance is one loaded entity: its state and the sequence of its last event.

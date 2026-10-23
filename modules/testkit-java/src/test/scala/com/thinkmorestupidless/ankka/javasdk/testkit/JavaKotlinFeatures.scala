@@ -36,7 +36,7 @@ class JavaKotlinFeatures
     "a state declared in Java and the same state declared in Scala are written the same" ->
       "CrossLanguageBytesSuite",
     "the shopping cart written in Java or Kotlin passes the sample's own features" ->
-      "ShoppingCartJavaFeatures and ShoppingCartKotlinFeatures"
+      "ShoppingCartJavaFeatures and CartFeaturesTest"
   )
 
   override protected def ranOutside: Map[String, String] = Map(
@@ -54,9 +54,7 @@ class JavaKotlinFeatures
 
   /** Suites named above that a later story of spec 058 writes, each with its story. */
   private val notYet = Map(
-    "KotlinTemplateSuite"        -> "US4",
-    "ShoppingCartKotlinFeatures" -> "US4",
-    "KotlinFeaturesTest"         -> "US4"
+    "KotlinTemplateSuite" -> "US4"
   )
 
   test("every suite this feature names exists") {

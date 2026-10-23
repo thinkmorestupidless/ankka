@@ -106,6 +106,14 @@ public final class AnkkaTestKit implements AutoCloseable {
     kit.restartService();
   }
 
+  /**
+   * Stops the service and starts {@code service} on the same database, as a later version of it, or
+   * the same service written in another language, would start on what this one recorded.
+   */
+  public void restartService(ServiceBuilder service) {
+    kit.restartService(service);
+  }
+
   /** The service's timers; refused when it registers no timed action. */
   public Timers timers() {
     return kit.timers();

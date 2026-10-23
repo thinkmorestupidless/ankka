@@ -42,10 +42,10 @@ import scala.jdk.OptionConverters.*
 /** The Java service kit over the Scala `AnkkaTestKit`. */
 final class ServiceKit private (
     kit: stk.AnkkaTestKit,
-    read: JavaServiceBuilder.Read,
+    private var read: JavaServiceBuilder.Read,
     scripted: Map[String, stk.ScriptedService],
-    probe: stk.TimerProbe,
-    broker: runtime.InMemoryBroker
+    private var probe: stk.TimerProbe,
+    private var broker: runtime.InMemoryBroker
 ):
   def timerRuns(): TimerRunsKit = TimerRunsKit(probe.bind(kit))
 
@@ -82,6 +82,16 @@ final class ServiceKit private (
     kit.service.extension[sgrpc.GrpcClients].fold(Grpc.noClients)(Grpc.clients)
 
   def restartService(): Unit = kit.restartService()
+
+  /** Stops the service and starts `service` on the same database. */
+  def restartService(service: ServiceBuilder): Unit =
+    val next = ServiceKit.prepare(service)
+    kit.stopService()
+    kit.startService(next.extensions, descriptors = next.read.descriptors)
+    JavaServiceBuilder.problemsAtStart(kit): Unit
+    read = next.read
+    probe = next.probe
+    broker = next.broker
 
   // Each read from the running service, as viewClient is.
   def timers(): Timers =
@@ -149,15 +159,15 @@ object ServiceKit:
       )
     }
 
-  /** The service read and its extensions built, then started by `launch`. */
-  private[bridge] def startWith(service: ServiceBuilder, settings: Settings)(
-      launch: (
-          Seq[ComponentDescriptor],
-          Seq[RuntimeExtension],
-          com.typesafe.config.Config,
-          Map[String, String]
-      ) => stk.AnkkaTestKit
-  ): ServiceKit =
+  private final case class Prepared(
+      read: JavaServiceBuilder.Read,
+      probe: stk.TimerProbe,
+      broker: runtime.InMemoryBroker,
+      extensions: Seq[RuntimeExtension]
+  )
+
+  /** The service read, and the extensions it is started with. */
+  private def prepare(service: ServiceBuilder): Prepared =
     val builder = service match
       case b: JavaServiceBuilder => b
       case other => throw IllegalArgumentException(s"$other is not a service from Ankka.service")
@@ -168,13 +178,10 @@ object ServiceKit:
       grpcEndpoints = builder.grpcEndpoints,
       mcpEndpoints = builder.mcpEndpoints
     )
-    val scripted =
-      settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
-    val config       = ConfigFactory.parseMap(settings.config)
     val probe        = stk.TimerProbe()
     val broker       = runtime.InMemoryBroker()
     val timerRuntime = runtime.TimerRuntime(pollInterval = 200.millis, observer = probe)
-    val http = read.platformExtensionsWith(
+    val extensions = read.platformExtensionsWith(
       runtime.ProjectionRuntime.withBroker(broker, broker),
       timerRuntime
     ) ++
@@ -182,6 +189,21 @@ object ServiceKit:
        else
          Seq(read.httpServer(Some("127.0.0.1" -> 0), read.endpointTimers(() => timerRuntime)))) ++
       read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
+    Prepared(read, probe, broker, extensions)
+
+  /** The service read and its extensions built, then started by `launch`. */
+  private[bridge] def startWith(service: ServiceBuilder, settings: Settings)(
+      launch: (
+          Seq[ComponentDescriptor],
+          Seq[RuntimeExtension],
+          com.typesafe.config.Config,
+          Map[String, String]
+      ) => stk.AnkkaTestKit
+  ): ServiceKit =
+    val Prepared(read, probe, broker, http) = prepare(service)
+    val scripted =
+      settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
+    val config = ConfigFactory.parseMap(settings.config)
     val kit =
       try
         JavaServiceBuilder.problemsAtStart(

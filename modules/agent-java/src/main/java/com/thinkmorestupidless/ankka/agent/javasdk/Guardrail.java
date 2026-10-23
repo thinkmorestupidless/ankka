@@ -36,4 +36,9 @@ public interface Guardrail {
   static Guardrail maxInputLength(int maxChars) {
     return AgentBridge.maxInputLength(maxChars);
   }
+
+  /** A guardrail that asks questions of the text; add its rules with {@code onInput} and the rest. */
+  static JudgedGuardrail judged(String name) {
+    return AgentBridge.judged(name);
+  }
 }

@@ -2,6 +2,9 @@ package com.thinkmorestupidless.ankka.agent.javasdk.bridge
 
 import com.thinkmorestupidless.ankka.agent
 import com.thinkmorestupidless.ankka.agent.javasdk
+import com.thinkmorestupidless.ankka.agent.{autonomous, judgment}
+import com.thinkmorestupidless.ankka.agent.autonomous.forAutonomousAgent
+import com.thinkmorestupidless.ankka.agent.blueprint as bp
 import com.thinkmorestupidless.ankka.agent.{
   Agent,
   AgentCalls,
@@ -105,27 +108,171 @@ private[ankka] object AgentBridge:
   /** A Java model provider over a Scala one: what the test kit's scripted provider is. */
   def provider(scala: agent.ModelProvider): javasdk.ModelProvider = JavaModelProvider(scala)
 
-  def forAgent(client: ComponentClient, sessionId: String): javasdk.AgentRef = client match
-    case java: JavaComponentClient =>
-      val plan = java.refs
-        .module(classOf[AgentsPlan])
-        .getOrElse(
-          throw CallerError(
-            "this service has no agents: give it withModule(Agents.module()) and register them"
-          )
-        )
-      JavaAgentRef(java.transport, plan, sessionId)
+  def forAgent(client: ComponentClient, sessionId: String): javasdk.AgentRef =
+    val (java, plan) = planOf(client)
+    JavaAgentRef(java.transport, plan, sessionId)
+
+  private def javaClient(client: ComponentClient): JavaComponentClient = client match
+    case java: JavaComponentClient => java
     case _ =>
       throw IllegalStateException(
         "an agent is called through the component client a service or a test kit gave"
       )
 
+  private def planOf(client: ComponentClient): (JavaComponentClient, AgentsPlan) =
+    val java = javaClient(client)
+    val plan = java.refs
+      .module(classOf[AgentsPlan])
+      .getOrElse(
+        throw CallerError(
+          "this service has no agents: give it withModule(Agents.module()) and register them"
+        )
+      )
+    java -> plan
+
+  private def scalaClient(client: ComponentClient): ScalaClient =
+    ScalaClient(javaClient(client).transport)
+
+  // ── Judgments ──
+
+  def choice[T](
+      id: String,
+      instructions: String,
+      options: java.util.List[javasdk.ChoiceOption[T]]
+  ): javasdk.ChoiceQuestion[T] = Judgments.choice(id, instructions, options)
+
+  def score(
+      id: String,
+      instructions: String,
+      levels: java.util.List[String]
+  ): javasdk.ScoreQuestion =
+    JavaScore(judgment.Question.score(id, instructions)(levels.asScala.toSeq*))
+
+  def yesNo(id: String, instructions: String): javasdk.YesNoQuestion =
+    JavaYesNo(judgment.Question.yesNo(id, instructions))
+
+  def jev(model: Optional[String]): javasdk.JudgmentProvider =
+    JavaJudgmentProvider(
+      model.toScala.fold(judgment.JevProvider.fromEnv())(m => judgment.JevProvider.fromEnv(m))
+    )
+
+  /** A Java judgment provider over a Scala one: what the test kit's scripted provider is. */
+  def judgmentProvider(scala: judgment.JudgmentProvider): javasdk.JudgmentProvider =
+    JavaJudgmentProvider(scala)
+
+  /** The Scala question under a Java one: what a test scripts its answers against. */
+  def scalaQuestion(question: javasdk.Question[?]): judgment.Question[?] =
+    Judgments.scalaQuestion(question)
+
+  def judged(name: String): javasdk.JudgedGuardrail = JavaJudged(agent.Guardrail.judged(name))
+
+  def ifYes(question: javasdk.YesNoQuestion, atLeast: Double): javasdk.Refusal = question match
+    case JavaYesNo(s) => JavaRefusal(judgment.Refuse.ifYes(s, atLeast))
+    case other        => throw IllegalArgumentException(s"$other is not a question Question made")
+
+  def ifChosen[T](
+      question: javasdk.ChoiceQuestion[T],
+      minConfidence: Double,
+      options: java.util.List[T]
+  ): javasdk.Refusal = Judgments.ifChosen(question, minConfidence, options)
+
+  def ifScore(question: javasdk.ScoreQuestion, atLeast: Double): javasdk.Refusal = question match
+    case JavaScore(s) => JavaRefusal(judgment.Refuse.ifScore(s, atLeast))
+    case other        => throw IllegalArgumentException(s"$other is not a question Question made")
+
+  def when[A](
+      question: javasdk.Question[A],
+      refuse: java.util.function.Predicate[A]
+  ): javasdk.Refusal =
+    Judgments.when(question, refuse)
+
+  // ── Autonomous agents and tasks ──
+
+  def definition(description: String): javasdk.AutonomousDefinition = JavaDefinition(description)
+
+  def taskType(name: String, description: String): javasdk.TaskType[String] =
+    JavaTaskType(autonomous.Task.named(name).describedAs(description))
+
+  def tasks(client: ComponentClient): javasdk.TasksRef = JavaTasksRef(scalaClient(client))
+
+  def forTask(client: ComponentClient, taskId: String): javasdk.TaskRef =
+    JavaTaskRef(scalaClient(client), taskId)
+
+  def forAutonomousAgent(
+      client: ComponentClient,
+      agentClass: Class[? <: javasdk.AutonomousAgent],
+      instanceId: String
+  ): javasdk.AutonomousRef =
+    val (java, plan) = planOf(client)
+    JavaAutonomousRef(
+      ScalaClient(java.transport),
+      java.transport,
+      plan.autonomous(agentClass).componentId,
+      instanceId
+    )
+
+  def runSingleTask(
+      client: ComponentClient,
+      agentClass: Class[? <: javasdk.AutonomousAgent],
+      taskType: javasdk.TaskType[?],
+      instructions: String
+  ): String =
+    val (java, plan) = planOf(client)
+    Outcomes.answering(
+      ScalaClient(java.transport)
+        .forAutonomousAgent(plan.autonomous(agentClass))
+        .runSingleTask(Autonomous.scalaType(taskType), instructions)
+    )
+
+  // ── Blueprints ──
+
+  def blueprint(name: String): javasdk.Blueprint             = JavaBlueprint(bp.Blueprint(name))
+  def blueprintFromJson(json: String): javasdk.Blueprint     = Blueprints.fromJson(json)
+  def blueprintFromResource(path: String): javasdk.Blueprint = Blueprints.fromResource(path)
+  def worker(name: String): javasdk.Worker                   = JavaWorker(bp.Worker(name))
+  def step(name: String): javasdk.Step.Start                 = JavaStart(bp.Step(name))
+  def critic(worker: String): javasdk.Verdict = JavaVerdict(bp.Verdict.critic(worker))
+  def verdictJudgment(question: String): javasdk.Verdict = JavaVerdict(
+    bp.Verdict.judgment(question)
+  )
+  def shape(kind: String): javasdk.Shape       = Blueprints.shapeNamed(kind)
+  def arr(items: javasdk.Shape): javasdk.Shape = JavaShape(bp.Shape.arr(Blueprints.shape(items)))
+  def obj(fields: java.util.Map[String, javasdk.Shape]): javasdk.Shape = Blueprints.obj(fields)
+  def enumOf(values: Array[String]): javasdk.Shape = JavaShape(bp.Shape.enumOf(values.toSeq*))
+  def shapeFromJson(schema: String): javasdk.Shape = Blueprints.shapeFromJson(schema)
+
+  def weekly(
+      day: java.time.DayOfWeek,
+      time: java.time.LocalTime,
+      zone: java.time.ZoneId
+  ): javasdk.Schedule =
+    JavaSchedule(bp.Schedule.weekly(day, time, zone))
+  def everyHours(hours: Int, zone: java.time.ZoneId): javasdk.Schedule =
+    JavaSchedule(bp.Schedule.everyHours(hours, zone))
+  def everyDays(days: Int, zone: java.time.ZoneId): javasdk.Schedule =
+    JavaSchedule(bp.Schedule.everyDays(days, zone))
+
+  def registry(): javasdk.BlueprintRegistry = JavaRegistry()
+
+  def handler(
+      name: String,
+      run: java.util.function.BiFunction[javasdk.RunRef, String, String]
+  ): javasdk.BlueprintHandler = Blueprints.handler(name, run)
+
+  def blueprints(client: ComponentClient): javasdk.BlueprintsRef =
+    JavaBlueprintsRef(Outcomes.answering(planOf(client)._2.hostRuntime.blueprints))
+
+  def runs(client: ComponentClient): javasdk.RunsRef =
+    JavaRunsRef(Outcomes.answering(planOf(client)._2.hostRuntime.runs))
+
 // ── The module ─────────────────────────────────────────────────────────────────────────────────
 
 /** The agents module: the default model, compaction, and the reader of the service's agents. */
-private final case class JavaAgentModule(
+private[bridge] final case class JavaAgentModule(
     model: Option[(agent.ModelProvider, FiniteDuration)] = None,
-    compaction: Option[(Int, Int, Option[agent.ModelProvider])] = None
+    compaction: Option[(Int, Int, Option[agent.ModelProvider])] = None,
+    judgments: Option[(judgment.JudgmentProvider, Option[FiniteDuration])] = None,
+    blueprints: Option[JFunction[javasdk.BlueprintContext, javasdk.BlueprintRegistry]] = None
 ) extends javasdk.AgentModule
     with JavaModule:
 
@@ -147,22 +294,49 @@ private final case class JavaAgentModule(
       Some((maxHistoryBytes, keepRecentMessages, Some(Values.scalaModel(summariser))))
     )
 
+  def withJudgments(provider: javasdk.JudgmentProvider): javasdk.AgentModule =
+    copy(judgments = Some(Judgments.scalaProvider(provider) -> None))
+
+  def withJudgments(provider: javasdk.JudgmentProvider, timeout: Duration): javasdk.AgentModule =
+    copy(judgments = Some(Judgments.scalaProvider(provider) -> Some(Effects.finite(timeout))))
+
+  def withBlueprints(
+      registry: JFunction[javasdk.BlueprintContext, javasdk.BlueprintRegistry]
+  ): javasdk.AgentModule = copy(blueprints = Some(registry))
+
   def name: String = "Agents.module()"
 
-  def claims(cls: Class[?]): Boolean = classOf[javasdk.Agent].isAssignableFrom(cls)
+  def claims(cls: Class[?]): Boolean =
+    classOf[javasdk.Agent].isAssignableFrom(cls) ||
+      classOf[javasdk.AutonomousAgent].isAssignableFrom(cls)
 
   def read(
       classes: Vector[(Class[?], Option[String])],
       serializers: Declarations.Serializers
   ): Either[Vector[DeclarationProblem], ModulePlan] =
     val problems = mutable.ArrayBuffer.empty[DeclarationProblem]
-    val plans = classes.flatMap { (cls, id) =>
+    val (autonomousClasses, agentClasses) =
+      classes.partition((cls, _) => classOf[javasdk.AutonomousAgent].isAssignableFrom(cls))
+    val plans = agentClasses.flatMap { (cls, id) =>
       AgentReader.read(cls, id, serializers) match
         case Right(plan) => Some(plan)
         case Left(ps)    => problems ++= ps; None
     }
-    val runtime = agentRuntime(problems)
     val refs    = RefsHolder()
+    val runtime = agentRuntime(problems, refs, serializers)
+    val autonomousCompanions = autonomousClasses.flatMap { (cls, id) =>
+      AutonomousReader.read(cls, id) match
+        case Left(ps) => problems ++= ps; None
+        case Right(plan) =>
+          try
+            val companion = JavaAutonomousCompanion(plan, refs, serializers)
+            companion.descriptor: Unit
+            Some(companion)
+          catch
+            case e: IllegalArgumentException =>
+              problems += DeclarationProblem(cls.getSimpleName, "definition", e.getMessage)
+              None
+    }
     val companions = plans.flatMap { plan =>
       try
         val companion = JavaAgentCompanion(plan, refs, serializers)
@@ -174,12 +348,23 @@ private final case class JavaAgentModule(
           None
     }
     if problems.nonEmpty then Left(problems.toVector)
-    else Right(AgentsPlan(companions, runtime.get, refs))
+    else Right(AgentsPlan(companions, autonomousCompanions, runtime.get, refs))
 
-  private def agentRuntime(problems: mutable.Buffer[DeclarationProblem]): Option[AgentRuntime] =
-    val base = model match
+  private def agentRuntime(
+      problems: mutable.Buffer[DeclarationProblem],
+      refs: RefsHolder,
+      serializers: Declarations.Serializers
+  ): Option[AgentRuntime] =
+    val modelled = model match
       case Some((provider, timeout)) => AgentRuntime.withDefaultModel(provider, timeout)
       case None                      => AgentRuntime()
+    val judged = judgments match
+      case Some((provider, Some(timeout))) => modelled.withJudgments(provider, timeout)
+      case Some((provider, None))          => modelled.withJudgments(provider)
+      case None                            => modelled
+    val base = blueprints match
+      case Some(build) => judged.withBlueprints(Blueprints.registry(build, refs, serializers))
+      case None        => judged
     compaction match
       case None => Some(base)
       case Some((_, _, None)) if model.isEmpty =>
@@ -204,21 +389,36 @@ private final case class JavaAgentModule(
             None
 
 /** The refs every agent's Java client resolves its calls with, known once the service is read. */
-private final class RefsHolder:
+private[bridge] final class RefsHolder:
   @volatile var refs: Refs = Refs(Nil)
 
 /** The service's agents, read: their components, the runtime that hosts them, their handlers. */
 private[ankka] final class AgentsPlan(
     companions: Vector[JavaAgentCompanion],
+    autonomousAgents: Vector[JavaAutonomousCompanion],
     agents: AgentRuntime,
     refs: RefsHolder
 ) extends ModulePlan:
 
-  val classes: Set[Class[?]] = companions.map(_.plan.cls).toSet
+  val classes: Set[Class[?]] =
+    (companions.map(_.plan.cls) ++ autonomousAgents.map(_.plan.cls)).toSet
+
+  /** The runtime that hosts the agents: where blueprints and runs are reached. */
+  def hostRuntime: AgentRuntime = agents
+
+  /** The autonomous agent `cls` is, as registered with this service. */
+  def autonomous(cls: Class[?]): JavaAutonomousCompanion =
+    autonomousAgents
+      .find(_.plan.cls == cls)
+      .getOrElse(
+        throw CallerError(
+          s"${cls.getSimpleName} is not an autonomous agent registered with this service"
+        )
+      )
 
   def descriptors(refs: Refs, serializers: Declarations.Serializers): Vector[ComponentDescriptor] =
     this.refs.refs = refs
-    companions.map(_.descriptor) ++ agents.descriptors
+    companions.map(_.descriptor) ++ autonomousAgents.map(_.descriptor) ++ agents.descriptors
 
   def extensions: Vector[runtime.RuntimeExtension] = Vector(agents)
 
@@ -250,7 +450,7 @@ private[ankka] final class AgentsPlan(
 
 // ── Reading an agent class ─────────────────────────────────────────────────────────────────────
 
-private final case class AgentHandler(
+private[bridge] final case class AgentHandler(
     wireName: String,
     method: Method,
     stream: Boolean,
@@ -264,7 +464,7 @@ private final case class AgentHandler(
     if Invocable.parameterCount(method) == 0 then Invocable.invoke(method, instance)
     else Invocable.invoke(method, instance, input.asInstanceOf[AnyRef])
 
-private final case class AgentClassPlan(
+private[bridge] final case class AgentClassPlan(
     cls: Class[?],
     componentId: String,
     construct: () => AnyRef,
@@ -272,7 +472,7 @@ private final case class AgentClassPlan(
     settings: javasdk.AgentSettings
 )
 
-private object AgentReader:
+private[bridge] object AgentReader:
 
   def read(
       cls: Class[?],
@@ -379,12 +579,12 @@ private object AgentReader:
 // ── Hosting ────────────────────────────────────────────────────────────────────────────────────
 
 /** The Scala agent a Java one runs as: it holds the Java instance and lends it its effects. */
-private final class Shell extends Agent:
+private[bridge] final class Shell extends Agent:
   @volatile var java: AnyRef           = null
   def scalaEffects: agent.AgentEffects = effects
 
 /** The Scala declaration of one Java agent. */
-private final class JavaAgentCompanion(
+private[bridge] final class JavaAgentCompanion(
     val plan: AgentClassPlan,
     refs: RefsHolder,
     serializers: Declarations.Serializers
@@ -444,10 +644,11 @@ private final class JavaAgentCompanion(
 
 // ── Effects ────────────────────────────────────────────────────────────────────────────────────
 
-private final case class Held[R](scala: agent.AgentEffect[?])       extends javasdk.AgentEffect[R]
-private final case class HeldStream(scala: agent.AgentStreamEffect) extends javasdk.StreamEffect
+private[bridge] final case class Held[R](scala: agent.AgentEffect[?]) extends javasdk.AgentEffect[R]
+private[bridge] final case class HeldStream(scala: agent.AgentStreamEffect)
+    extends javasdk.StreamEffect
 
-private final class JavaEffects(
+private[bridge] final class JavaEffects(
     scala: () => agent.AgentEffects,
     serializers: Declarations.Serializers
 ) extends javasdk.AgentEffects:
@@ -457,12 +658,13 @@ private final class JavaEffects(
   def userMessage(text: String): javasdk.AgentBuilder   = builder(scala().userMessage(text))
   def model(provider: javasdk.ModelProvider): javasdk.AgentBuilder =
     builder(scala().model(Values.scalaModel(provider)))
+  def judgment(): javasdk.JudgmentBuilder = JavaJudgmentBuilder(scala().judgment, serializers)
   def error[R](message: String): javasdk.AgentEffect[R] = Held(scala().error[R](message))
   def error[R](problem: Problem): javasdk.AgentEffect[R] =
     val error = Effects.toCommandError(problem)
     Held(scala().error[R](error.message, error.code))
 
-private final class JavaBuilder(
+private[bridge] final class JavaBuilder(
     effect: agent.AgentEffect[String],
     serializers: Declarations.Serializers
 ) extends javasdk.AgentBuilder:
@@ -489,8 +691,11 @@ private final class JavaBuilder(
 
 // ── Calls ──────────────────────────────────────────────────────────────────────────────────────
 
-private final class JavaAgentRef(transport: CallTransport, plan: AgentsPlan, session: String)
-    extends javasdk.AgentRef:
+private[bridge] final class JavaAgentRef(
+    transport: CallTransport,
+    plan: AgentsPlan,
+    session: String
+) extends javasdk.AgentRef:
 
   private val calls = AgentCalls(transport, SessionId(session))
 
@@ -584,7 +789,7 @@ private final class JavaAgentRef(transport: CallTransport, plan: AgentsPlan, ses
     Outcomes.answering(calls.approvals()).map(Outcomes.request).asJava
 
 /** A call to an agent as a Java invocation: the same timeout, metadata and failures as any. */
-private final case class AgentInvocation[I, O](
+private[bridge] final case class AgentInvocation[I, O](
     send: (I, Metadata) => Future[Any],
     timeout: FiniteDuration,
     metadata: Metadata = Metadata.empty
@@ -604,7 +809,7 @@ private final case class AgentInvocation[I, O](
   def withMetadata(key: String, value: String): Invocation[I, O] =
     copy(metadata = metadata.add(key, value))
 
-private object Outcomes:
+private[bridge] object Outcomes:
 
   /** What `run` answers, or its failure as a Java caller sees it. */
   def answering[A](run: => A): A =

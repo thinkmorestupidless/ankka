@@ -633,3 +633,16 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   `decide`, `decideStream` and `approvals`; `AgentModule.withCompaction` takes an optional
   summariser, as the Scala runtime does, since one scripted model cannot serve an agent and its
   compactor (`.claude/rules/agents.md`).
+- **What the code changed in the autonomous contract** (US5, T073). A rule is a function given to
+  `TaskType.rule(name, check)`, answering `RuleResult.accepted()` or `rejected(reason)`, not an `@Rule`
+  method: the Scala rule is a value on the type, and a type is shared by the agents that accept it and
+  the callers that read its result, neither of which owns a method for it. There is no `Budget`:
+  `accepts(type, maxIterationsPerTask)` is the only budget the Scala definition takes per type, and the
+  instance's settings (`AutonomousAgentSettings`) keep their defaults, unexposed until a Java user asks.
+  A notification is one record (kind, instance, task, time, and the JSON every SDK reads) rather than
+  twenty Java types mirroring the Scala enum. A blueprint's input, a step's result and a handler's
+  input and output cross as JSON text, since the Scala `Json` has no Java form and a Java service
+  already holds a JSON library of its choosing. Every call is a static method on `AgentClients`, as
+  `forAgent` is, because the Java component client cannot be extended from another module. Assigning
+  a task of a type the agent does not accept refuses the whole call with a `CommandException`, as the
+  Scala host answers; `AssignResult.refused` names only tasks refused one by one.

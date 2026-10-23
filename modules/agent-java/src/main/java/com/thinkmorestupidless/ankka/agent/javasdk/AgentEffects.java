@@ -14,6 +14,9 @@ public interface AgentEffects {
   /** Answers this interaction with {@code provider} rather than the module's default. */
   AgentBuilder model(ModelProvider provider);
 
+  /** Asks typed questions of a state, answered by the module's judgment provider. */
+  JudgmentBuilder judgment();
+
   /** Refuses the request without calling a model, as a bad request. */
   <R> AgentEffect<R> error(String message);
 

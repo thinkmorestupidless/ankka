@@ -2,11 +2,13 @@ package com.thinkmorestupidless.ankka.agent.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.spi.ServiceModule;
 import java.time.Duration;
+import java.util.function.Function;
 
 /**
- * The agents of a service, and what they share: the model an effect that names none is answered by,
- * how long a model may take, and whether long sessions are compacted. Each method returns a new
- * module; the one given to the service is the one used.
+ * The agents and autonomous agents of a service, and what they share: the model an effect that names
+ * none is answered by, how long a model may take, whether long sessions are compacted, who answers a
+ * judgment, and what blueprints may name. Each method returns a new module; the one given to the
+ * service is the one used.
  */
 public interface AgentModule extends ServiceModule {
 
@@ -25,4 +27,19 @@ public interface AgentModule extends ServiceModule {
 
   /** As {@link #withCompaction(int, int)}, the summary written by {@code summariser}. */
   AgentModule withCompaction(int maxHistoryBytes, int keepRecentMessages, ModelProvider summariser);
+
+  /**
+   * The provider judgments and judged guardrails are answered by, waited for five seconds at most:
+   * a judgment is meant to be quick, and the limit bounds a provider's retries too.
+   */
+  AgentModule withJudgments(JudgmentProvider provider);
+
+  /** As {@link #withJudgments(JudgmentProvider)}, waited for {@code timeout} at most. */
+  AgentModule withJudgments(JudgmentProvider provider, Duration timeout);
+
+  /**
+   * What this service's blueprints may name: tools, models, guardrails, questions and handlers,
+   * built once when the service starts from what a tool may need to call.
+   */
+  AgentModule withBlueprints(Function<BlueprintContext, BlueprintRegistry> registry);
 }

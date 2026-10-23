@@ -22,13 +22,14 @@ private[ankka] final case class JavaModelProvider(scala: agent.ModelProvider)
   def name(): String = scala.name
 
 /** A Java memory over the Scala one. */
-private final case class JavaMemory(scala: MemoryProvider) extends javasdk.Memory:
+private[bridge] final case class JavaMemory(scala: MemoryProvider) extends javasdk.Memory:
   def readLast(count: Int): javasdk.Memory = JavaMemory(scala.readLast(count))
   def readOnly(): javasdk.Memory           = JavaMemory(scala.readOnly)
   def writeOnly(): javasdk.Memory          = JavaMemory(scala.writeOnly)
 
 /** A Java MCP server over the Scala declaration. */
-private final case class JavaMcpServer(scala: agent.mcp.McpServer) extends javasdk.McpServer:
+private[bridge] final case class JavaMcpServer(scala: agent.mcp.McpServer)
+    extends javasdk.McpServer:
   def header(name: String, variable: String): javasdk.McpServer =
     JavaMcpServer(scala.header(name, variable))
   def requiresApproval(): javasdk.McpServer = JavaMcpServer(scala.requiresApproval)
@@ -36,21 +37,21 @@ private final case class JavaMcpServer(scala: agent.mcp.McpServer) extends javas
     JavaMcpServer(scala.requiresApproval(Effects.finite(within)))
 
 /** A tool declared in code, over the Scala tool. */
-private final case class JavaFunctionTool(scala: FunctionTool) extends javasdk.FunctionTool:
+private[bridge] final case class JavaFunctionTool(scala: FunctionTool) extends javasdk.FunctionTool:
   def name(): String                           = scala.name
   def requiresApproval(): javasdk.FunctionTool = JavaFunctionTool(scala.requiresApproval)
   def requiresApproval(within: Duration): javasdk.FunctionTool =
     JavaFunctionTool(scala.requiresApproval(Effects.finite(within)))
 
 /** One of the Scala guardrails, offered to Java as the Java interface. */
-private final case class ScalaGuardrail(scala: agent.Guardrail) extends javasdk.Guardrail:
+private[bridge] final case class ScalaGuardrail(scala: agent.Guardrail) extends javasdk.Guardrail:
   def name(): String                                       = scala.name
   override def checkInput(text: String): Optional[String]  = Values.reason(scala.checkInput(text))
   override def checkOutput(text: String): Optional[String] = Values.reason(scala.checkOutput(text))
   override def checkResult(text: String): Optional[String] = Values.reason(scala.checkResult(text))
 
 /** A Java guardrail as the Scala loop runs it. */
-private final class JavaGuardrail(java: javasdk.Guardrail) extends agent.Guardrail:
+private[bridge] final class JavaGuardrail(java: javasdk.Guardrail) extends agent.Guardrail:
   // Read once, as a value: the loop names a refusal by it, and a Java name that changed between
   // calls would make two refusals of one guardrail look like two guardrails.
   private val declaredName: String                            = java.name()
@@ -65,7 +66,7 @@ private final class JavaGuardrail(java: javasdk.Guardrail) extends agent.Guardra
  * A Java serializer as the codec a structured reply is read with. The reply's JSON is handed to the
  * serializer as it came, so a record is read exactly as the service's own records are.
  */
-private final class SerializerCodec[A](serializer: Serializer[A]) extends JsonValueCodec[A]:
+private[bridge] final class SerializerCodec[A](serializer: Serializer[A]) extends JsonValueCodec[A]:
   def decodeValue(in: JsonReader, default: A): A = serializer.fromBytes(in.readRawValAsBytes())
   def encodeValue(x: A, out: JsonWriter): Unit   = out.writeRawVal(serializer.toBytes(x))
   def nullValue: A                               = null.asInstanceOf[A]
@@ -79,6 +80,7 @@ private[bridge] object Values:
 
   def scalaGuardrail(g: javasdk.Guardrail): agent.Guardrail = g match
     case ScalaGuardrail(scala) => scala
+    case JavaJudged(scala)     => scala
     case java                  => JavaGuardrail(java)
 
   def scalaMemory(m: javasdk.Memory): MemoryProvider = m match
@@ -98,11 +100,13 @@ private[bridge] object Values:
 
   /** The serializer of `tpe`: the service's own for its class, or the record codec's. */
   def serializer(tpe: Type, serializers: Declarations.Serializers): Serializer[Any] =
-    com.thinkmorestupidless.ankka.javasdk.bridge.Planner
-      .rawClass(tpe)
-      .flatMap(serializers.get) match
-      case Some(explicit) => explicit.asInstanceOf[Serializer[Any]]
-      case None           => RecordCodec.forType(tpe).asInstanceOf[Serializer[Any]]
+    val raw = com.thinkmorestupidless.ankka.javasdk.bridge.Planner.rawClass(tpe)
+    // A judgment is the platform's, stored as the Scala SDK's is.
+    if raw.contains(classOf[javasdk.Judgment]) then JudgmentSerializer.asInstanceOf[Serializer[Any]]
+    else
+      raw.flatMap(serializers.get) match
+        case Some(explicit) => explicit.asInstanceOf[Serializer[Any]]
+        case None           => RecordCodec.forType(tpe).asInstanceOf[Serializer[Any]]
 
   def codec[A](cls: Class[A], serializers: Declarations.Serializers): JsonValueCodec[A] =
     SerializerCodec(serializer(cls, serializers).asInstanceOf[Serializer[A]])
@@ -134,6 +138,13 @@ private[bridge] object Tools:
         input.decode(asObject(json)).map(a => run.apply(a.asInstanceOf[A]))
       )
     )
+
+  /**
+   * The schema of a record, as a tool's arguments are offered: each component's `@Describe` too.
+   */
+  def recordSchema(record: Class[?]): Json =
+    val input = recordInput(record, record, Values.serializer(record, Map.empty))
+    Mcp.objectSchema(input.schema, input.required)
 
   /** What a builder's `tools(...)` was given, as the Scala tools. */
   def of(items: Seq[AnyRef], serializers: Declarations.Serializers): Vector[FunctionTool] =

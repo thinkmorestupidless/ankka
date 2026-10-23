@@ -6,7 +6,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** A WebSocket route; the method takes a {@code Socket}. */
+/** A WebSocket route; the method takes a {@code WebSocket} and returns when it is done with it. */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)

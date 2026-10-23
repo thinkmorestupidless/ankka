@@ -86,7 +86,7 @@ private[ankka] object JavaServiceBuilder:
       val factory = (clients: EndpointClients) =>
         val java  = Clients.of(clients.componentClient, refs)
         val viewz = viewClient(clients.viewClient)
-        JavaHttpEndpoint(endpoints.flatMap { plan =>
+        JavaHttpEndpoint(endpoints.foldLeft(Served()) { (served, plan) =>
           val instance = EndpointCell.constructing(
             EndpointCell(
               java,
@@ -96,7 +96,7 @@ private[ankka] object JavaServiceBuilder:
               Stores.storage(clients.storage)
             )
           )(plan.construct())
-          Routes.scalaRoutes(plan, instance.asInstanceOf[HttpEndpoint], serializers)
+          served ++ Routes.scalaRoutes(plan, instance.asInstanceOf[HttpEndpoint], serializers)
         })
       at match
         case Some((host, port)) => HttpServer.at(host, port)(factory)

@@ -6,7 +6,10 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** A server-sent events route; the method returns a {@code Flow.Publisher<SseEvent>}. */
+/**
+ * A server-sent events route; the method returns a {@code Flow.Publisher<SseEvent>}, or a {@code
+ * Stream<SseEvent>} pulled as the client reads and closed when it ends.
+ */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)

@@ -12,7 +12,10 @@ import com.thinkmorestupidless.ankka.javasdk.http.{
   Problem,
   ProblemException,
   Request,
-  Response
+  Response,
+  SseEvent,
+  StreamedBody,
+  WebSocket
 }
 import com.thinkmorestupidless.ankka.javasdk.problems.DeclarationProblem
 
@@ -25,7 +28,10 @@ import java.lang.reflect.{
   Type
 }
 import java.nio.charset.StandardCharsets.UTF_8
-import java.util.{Optional, UUID}
+import java.util.{Optional, OptionalLong, UUID}
+import java.util.concurrent.Flow
+import org.apache.pekko.stream.scaladsl.{JavaFlowSupport, Source}
+import scala.concurrent.ExecutionContext.parasitic
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
@@ -40,8 +46,24 @@ private[ankka] final case class RoutePlan(
     method: Method,
     binders: Vector[Binder],
     needsBody: Boolean,
-    reply: Option[Serializer[Any]]
+    reply: Option[Serializer[Any]],
+    kind: RouteKind = RouteKind.Plain,
+    /** The parameter handed the socket or the streamed body, which no binder fills. */
+    special: Option[Int] = None
 )
+
+/** What a route answers with: one response, a stream of events, or a socket. */
+private[ankka] enum RouteKind:
+  case Plain, Sse, Socket, Streamed
+
+/** The Scala routes of one or more Java endpoints, by kind. */
+private[ankka] final case class Served(
+    routes: Vector[Route] = Vector.empty,
+    streams: Vector[http.StreamRoute] = Vector.empty,
+    sockets: Vector[http.SocketRoute] = Vector.empty
+):
+  def ++(other: Served): Served =
+    Served(routes ++ other.routes, streams ++ other.streams, sockets ++ other.sockets)
 
 /** An endpoint class, read once: its routes, and how to build it. */
 private[ankka] final case class EndpointPlan(
@@ -53,14 +75,58 @@ private[ankka] final case class EndpointPlan(
 /** Reads an endpoint class's routes once, at start, collecting every problem. */
 private[ankka] object Routes:
 
-  private val verbs
-      : Vector[(Class[? <: java.lang.annotation.Annotation], String, Method => String)] =
+  private val verbs: Vector[
+    (Class[? <: java.lang.annotation.Annotation], String, Method => String, RouteKind)
+  ] =
     Vector(
-      (classOf[annotations.Get], "GET", _.getAnnotation(classOf[annotations.Get]).value),
-      (classOf[annotations.Post], "POST", _.getAnnotation(classOf[annotations.Post]).value),
-      (classOf[annotations.Put], "PUT", _.getAnnotation(classOf[annotations.Put]).value),
-      (classOf[annotations.Delete], "DELETE", _.getAnnotation(classOf[annotations.Delete]).value),
-      (classOf[annotations.Patch], "PATCH", _.getAnnotation(classOf[annotations.Patch]).value)
+      (
+        classOf[annotations.Get],
+        "GET",
+        _.getAnnotation(classOf[annotations.Get]).value,
+        RouteKind.Plain
+      ),
+      (
+        classOf[annotations.Post],
+        "POST",
+        _.getAnnotation(classOf[annotations.Post]).value,
+        RouteKind.Plain
+      ),
+      (
+        classOf[annotations.Put],
+        "PUT",
+        _.getAnnotation(classOf[annotations.Put]).value,
+        RouteKind.Plain
+      ),
+      (
+        classOf[annotations.Delete],
+        "DELETE",
+        _.getAnnotation(classOf[annotations.Delete]).value,
+        RouteKind.Plain
+      ),
+      (
+        classOf[annotations.Patch],
+        "PATCH",
+        _.getAnnotation(classOf[annotations.Patch]).value,
+        RouteKind.Plain
+      ),
+      (
+        classOf[annotations.Sse],
+        "GET",
+        _.getAnnotation(classOf[annotations.Sse]).value,
+        RouteKind.Sse
+      ),
+      (
+        classOf[annotations.Socket],
+        "SOCKET",
+        _.getAnnotation(classOf[annotations.Socket]).value,
+        RouteKind.Socket
+      ),
+      (
+        classOf[annotations.StreamBody],
+        "POST",
+        _.getAnnotation(classOf[annotations.StreamBody]).value,
+        RouteKind.Streamed
+      )
     )
 
   def read(
@@ -108,9 +174,9 @@ private[ankka] object Routes:
     val routes = mutable.ArrayBuffer.empty[RoutePlan]
     val seen   = mutable.Map.empty[(String, String), String]
     cls.getDeclaredMethods.sortBy(_.getName).foreach { m =>
-      val declared = verbs.filter((a, _, _) => m.isAnnotationPresent(a))
+      val declared = verbs.filter((a, _, _, _) => m.isAnnotationPresent(a))
       if declared.sizeIs > 1 then problem(m.getName, "has more than one verb annotation")
-      declared.headOption.foreach { (_, verb, raw) =>
+      declared.headOption.foreach { (_, verb, raw, kind) =>
         val member = m.getName
         val parsed =
           try Some(PathTemplate.parse(raw(m)))
@@ -134,31 +200,87 @@ private[ankka] object Routes:
           val placeholders = template.parameterNames.toSet
           val bound        = mutable.Set.empty[String]
           var bodies       = 0
-          val binders = m.getParameters.toVector.flatMap { p =>
-            binder(p, placeholders, serializer) match
-              case Right((b, path, body)) =>
-                path.foreach(bound += _)
-                if body then bodies += 1
-                Some(b)
-              case Left(why) =>
-                problem(member, why)
-                None
+          val specials     = mutable.ArrayBuffer.empty[(Int, Class[?])]
+          val binders = m.getParameters.toVector.zipWithIndex.flatMap { (p, i) =>
+            if p.getType == classOf[WebSocket] || p.getType == classOf[StreamedBody] then
+              specials += i -> p.getType
+              Some(((_, _, _) => null): Binder)
+            else
+              binder(p, placeholders, serializer) match
+                case Right((b, path, body)) =>
+                  path.foreach(bound += _)
+                  if body then bodies += 1
+                  Some(b)
+                case Left(why) =>
+                  problem(member, why)
+                  None
           }
+          val handed = specials.map(_._2).toVector
+          kind match
+            case RouteKind.Plain =>
+              handed.distinct.foreach(c =>
+                problem(member, s"takes a ${c.getSimpleName}, which only ${handedBy(c)} is handed")
+              )
+            case RouteKind.Sse =>
+              handed.distinct.foreach(c =>
+                problem(member, s"takes a ${c.getSimpleName}, which only ${handedBy(c)} is handed")
+              )
+              if m.getReturnType != classOf[Flow.Publisher[?]] &&
+                m.getReturnType != classOf[java.util.stream.Stream[?]]
+              then
+                problem(
+                  member,
+                  "is an @Sse route; it returns a Flow.Publisher<SseEvent> or a Stream<SseEvent>"
+                )
+            case RouteKind.Socket =>
+              if handed != Vector(classOf[WebSocket]) then
+                problem(member, "is an @Socket route; it takes one WebSocket")
+              if binders.size - handed.size > bound.size then
+                problem(
+                  member,
+                  "is an @Socket route; besides its WebSocket it binds path parameters only"
+                )
+              if m.getReturnType != java.lang.Void.TYPE then
+                problem(
+                  member,
+                  "is an @Socket route; it returns nothing, and the socket closes when it returns"
+                )
+            case RouteKind.Streamed =>
+              if handed != Vector(classOf[StreamedBody]) then
+                problem(member, "is a @StreamBody route; it takes one StreamedBody")
+              if bodies > 0 then
+                problem(
+                  member,
+                  "is a @StreamBody route, whose body is its StreamedBody; it has no @Body"
+                )
           if bodies > 1 then problem(member, "has more than one @Body")
           (placeholders -- bound)
             .foreach(p => problem(member, s"binds nothing to {$p}: add a parameter @Path(\"$p\")"))
-          val reply = replyOf(m) match
+          val reply = (if kind == RouteKind.Sse || kind == RouteKind.Socket then Right(None)
+                       else replyOf(m)) match
             case Right(r) => r
             case Left(why) =>
               problem(member, why)
               None
           m.setAccessible(true)
-          routes += RoutePlan(verb, template, m, binders, bodies > 0, reply)
+          routes += RoutePlan(
+            verb,
+            template,
+            m,
+            binders,
+            bodies > 0,
+            reply,
+            kind,
+            specials.headOption.map(_._1)
+          )
         }
       }
     }
     if problems.nonEmpty then Left(problems.toVector)
     else Right(EndpointPlan(cls, routes.toVector, construct.get))
+
+  private def handedBy(c: Class[?]): String =
+    if c == classOf[WebSocket] then "an @Socket route" else "a @StreamBody route"
 
   /** A parameter's binder, the template segment it reads if any, and whether it is the body. */
   private def binder(
@@ -287,23 +409,99 @@ private[ankka] object Routes:
       plan: EndpointPlan,
       instance: HttpEndpoint,
       serializers: Declarations.Serializers
-  ): Vector[Route] =
-    val acl = Acls.scalaOf(EndpointAcl(instance))
-    plan.routes.map { r =>
-      Route(
-        r.verb,
-        r.template,
-        r.needsBody,
-        (args, body) =>
-          val ctx =
-            http.RequestScope.currentContext.getOrElse(throw IllegalStateException("no request"))
-          val named  = r.template.parameterNames.zip(args).toMap
-          val params = r.binders.map(_(named, body, ctx))
-          respond(invoke(r.method, instance, params), r.reply, serializers)
-        ,
-        Some(acl)
-      )
+  ): Served =
+    val acl = Some(Acls.scalaOf(EndpointAcl(instance)))
+    def context: http.RequestContext =
+      http.RequestScope.currentContext.getOrElse(throw IllegalStateException("no request"))
+    def params(r: RoutePlan, args: Vector[String], body: Array[Byte]): Vector[AnyRef] =
+      val named = r.template.parameterNames.zip(args).toMap
+      // A socket's opening request has no request scope; its parameters are path parameters only.
+      val ctx = if r.kind == RouteKind.Socket then null else context
+      r.binders.map(_(named, body, ctx))
+    def handing(r: RoutePlan, values: Vector[AnyRef], handed: AnyRef): Vector[AnyRef] =
+      r.special.fold(values)(i => values.updated(i, handed))
+    plan.routes.foldLeft(Served()) { (served, r) =>
+      r.kind match
+        case RouteKind.Plain =>
+          served.copy(routes =
+            served.routes :+ Route(
+              r.verb,
+              r.template,
+              r.needsBody,
+              (args, body) =>
+                respond(invoke(r.method, instance, params(r, args, body)), r.reply, serializers),
+              acl
+            )
+          )
+        case RouteKind.Streamed =>
+          served.copy(routes =
+            served.routes :+ Route(
+              r.verb,
+              r.template,
+              needsBody = false,
+              (_, _) =>
+                throw IllegalStateException("a streamed route is handed its body as a stream"),
+              acl,
+              streamedBody = Some((args, streamed) =>
+                val body = StreamedBody(
+                  streamed.contentType,
+                  streamed.length.fold(OptionalLong.empty())(OptionalLong.of),
+                  streamed.body
+                )
+                respond(
+                  invoke(
+                    r.method,
+                    instance,
+                    handing(r, params(r, args, Array.emptyByteArray), body)
+                  ),
+                  r.reply,
+                  serializers
+                )
+              )
+            )
+          )
+        case RouteKind.Sse =>
+          served.copy(streams =
+            served.streams :+ http.StreamRoute(
+              "GET",
+              r.template,
+              needsBody = false,
+              (args, body) =>
+                val events = invoke(r.method, instance, params(r, args, body)) match
+                  case p: Flow.Publisher[?] =>
+                    JavaFlowSupport.Source.fromPublisher(p.asInstanceOf[Flow.Publisher[SseEvent]])
+                  // Pulled as the client reads, and closed when the stream ends or is cancelled.
+                  case s: java.util.stream.Stream[?] =>
+                    val stream = s.asInstanceOf[java.util.stream.Stream[SseEvent]]
+                    Source
+                      .fromIterator(() => stream.iterator().asScala)
+                      .watchTermination()((_, done) =>
+                        done.onComplete(_ => stream.close())(using parasitic)
+                      )
+                  case _ =>
+                    throw IllegalStateException(s"${r.method.getName} returned no events")
+                events.map(scalaEvent)
+              ,
+              acl
+            )
+          )
+        case RouteKind.Socket =>
+          served.copy(sockets =
+            served.sockets :+ http.SocketRoute(
+              r.template,
+              args =>
+                // The path is read on the opening request, so a bad argument is a 400 before any socket.
+                val values = params(r, args, Array.emptyByteArray)
+                socket => invoke(r.method, instance, handing(r, values, JavaSocket(socket))): Unit
+              ,
+              acl
+            )
+          )
     }
+
+  private def scalaEvent(e: SseEvent): http.SseEvent =
+    if e.name.isPresent then http.SseEvent.named(e.name.get, e.json.get)
+    else http.SseEvent.text(e.text.get)
 
   private def invoke(m: Method, instance: AnyRef, params: Vector[AnyRef]): Any =
     try m.invoke(instance, params*)
@@ -354,9 +552,16 @@ private[ankka] object Routes:
         EncodedResponse(200, s.contentType.mediaType, s.toBytes(other))
 
 /** Every Java endpoint of a service, served as one Scala endpoint whose routes carry their ACLs. */
-private[ankka] final class JavaHttpEndpoint(served: Vector[Route]) extends http.HttpEndpoint(""):
-  def acl: http.Acl                                 = http.Acl.DenyAll
-  override private[ankka] def routes: Vector[Route] = served
+private[ankka] final class JavaHttpEndpoint(served: Served) extends http.HttpEndpoint(""):
+  def acl: http.Acl                                                  = http.Acl.DenyAll
+  override private[ankka] def routes: Vector[Route]                  = served.routes
+  override private[ankka] def streamRoutes: Vector[http.StreamRoute] = served.streams
+  override private[ankka] def socketRoutes: Vector[http.SocketRoute] = served.sockets
+
+/** The Scala socket, as a Java route is handed it. */
+private final class JavaSocket(scala: http.Socket) extends WebSocket:
+  def receive(): Optional[String] = scala.receive().fold(Optional.empty[String]())(Optional.of)
+  def send(text: String): Unit    = scala.send(text)
 
 /** Reads an endpoint's protected `acl()`. */
 private object EndpointAcl:

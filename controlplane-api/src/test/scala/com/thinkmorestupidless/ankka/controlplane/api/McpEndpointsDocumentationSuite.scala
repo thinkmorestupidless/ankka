@@ -29,7 +29,14 @@ class McpEndpointsDocumentationSuite extends munit.FunSuite:
     "the documentation describes declaring an MCP endpoint, its ACL and its client keys in every language"
   ) {
     // declaring an endpoint and its tools in each language
-    Seq("/// tab | Scala", "/// tab | Python", "/// tab | TypeScript", "/// tab | Rust")
+    Seq(
+      "/// tab | Scala",
+      "/// tab | Java",
+      "/// tab | Kotlin",
+      "/// tab | Python",
+      "/// tab | TypeScript",
+      "/// tab | Rust"
+    )
       .foreach(says(Guide, _))
     says(Guide, "extends McpEndpoint(\"/mcp\")")
     says(Guide, "## A command, query or route as a tool")
@@ -57,7 +64,8 @@ class McpEndpointsDocumentationSuite extends munit.FunSuite:
         s"${m.group(1)} has no region ${m.group(2)}"
       )
     }
-    val fences = "(?m)^```(scala|python|typescript|rust)$".r.findAllMatchIn(page(Guide)).size
+    val fences =
+      "(?m)^```(scala|java|kotlin|python|typescript|rust)$".r.findAllMatchIn(page(Guide)).size
     assertEquals(fences, includes.size, "a code sample on the page is not taken from a file")
   }
 

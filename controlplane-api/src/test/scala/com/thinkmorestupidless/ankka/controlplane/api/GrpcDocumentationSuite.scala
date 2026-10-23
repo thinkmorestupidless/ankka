@@ -57,7 +57,7 @@ class GrpcDocumentationSuite extends munit.FunSuite:
   }
 
   test("the documentation says what gRPC does not do") {
-    says("reference/limitations.md", "gRPC endpoints are for Scala services.")
+    says("reference/limitations.md", "gRPC endpoints are for Scala and Java services.")
     says("reference/limitations.md", "A web page cannot call a gRPC endpoint")
     says("reference/limitations.md", "The local console does not call gRPC methods.")
     // ...and no page says a service serves HTTP only, as the documentation once did.

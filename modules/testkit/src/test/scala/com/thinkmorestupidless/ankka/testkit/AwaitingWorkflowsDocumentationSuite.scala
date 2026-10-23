@@ -37,6 +37,8 @@ class AwaitingWorkflowsDocumentationSuite extends munit.FunSuite:
       "<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/awaiting/QuoteEndpoint.scala#start-and-await -->",
       "<!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-and-await -->",
       "<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#start-and-await -->",
+      "<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#start-and-await -->",
+      "<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#start-and-await -->",
       "<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/awaiting/QuoteEndpoint.scala#await-later -->",
       "<!-- include: sdks/python/examples/shopping_cart/endpoint.py#await-later -->",
       "<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#await-later -->"

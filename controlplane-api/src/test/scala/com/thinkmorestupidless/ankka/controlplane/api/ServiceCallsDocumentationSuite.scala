@@ -32,6 +32,8 @@ class ServiceCallsDocumentationSuite extends munit.FunSuite:
         "samples/shopping-cart/src/main/scala/shoppingcart/api/CallersEndpoint.scala#call-another-service",
         "sdks/python/examples/shopping_cart/calling.py#call-another-service",
         "sdks/typescript/examples/shopping-cart/calling.ts#call-another-service",
+        "samples/shopping-cart-java/src/test/java/shoppingcart/javasdk/Neighbour.java#call-another-service",
+        "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#call-another-service",
         "modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ServiceCallComponents.scala#step-calls-service",
         "sdks/python/tests/test_services.py#step-calls-service",
         "sdks/typescript/test/services.test.ts#step-calls-service"
@@ -63,7 +65,10 @@ class ServiceCallsDocumentationSuite extends munit.FunSuite:
       assert(!read(p).contains(claim), s"${repoRoot.relativize(p)} still says: $claim")
     // And the limitations page says what is still true, so the check above is not passing on a
     // page that was emptied.
-    says("reference/limitations.md", "Only a Scala service calls another service's gRPC endpoint.")
+    says(
+      "reference/limitations.md",
+      "Only a Scala, Java or Kotlin service calls another service's gRPC endpoint."
+    )
   }
 
   test("every page about calling another service is listed and carried by a skill") {

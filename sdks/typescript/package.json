@@ -51,7 +51,7 @@
     "@bufbuild/protobuf": "^2.15.0",
     "@connectrpc/connect": "^2.2.0",
     "@connectrpc/connect-node": "^2.2.0",
-    "canonicalize": "^2.1.0"
+    "canonicalize": "^5.1.0"
   },
   "peerDependencies": {
     "@testcontainers/postgresql": "^12.1.0",

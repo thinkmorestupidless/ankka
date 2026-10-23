@@ -2,14 +2,16 @@ package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.Quantity
 import io.fabric8.kubernetes.api.model.apps.Deployment
+import io.fabric8.kubernetes.api.model.rbac.ClusterRole
 import io.fabric8.kubernetes.client.KubernetesClientBuilder
 
 import scala.jdk.CollectionConverters.*
 
 /**
  * The operator's own Deployment as shipped (`components/operator/operator.yaml`): how its JVM is
- * sized against its limit, and the probes that restart it when it stops reconciling. No k3s suite
- * deploys this Deployment (they run the operator in-process), so these are the checks it has.
+ * sized against its limit, the probes that restart it when it stops reconciling, and the one grant
+ * whose verbs the API server reads in a way the k3s suites' admin credentials never show. No k3s
+ * suite deploys this Deployment (they run the operator in-process), so these are the checks it has.
  */
 class OperatorManifestSuite extends munit.FunSuite:
 
@@ -22,16 +24,25 @@ class OperatorManifestSuite extends munit.FunSuite:
    */
   private val NonHeapMiB = 160
 
-  private lazy val deployment: Deployment =
+  private lazy val shipped =
     val client = new KubernetesClientBuilder().build()
     try
       client
         .load(getClass.getResourceAsStream("/ankka/install/operator.yaml"))
         .items()
         .asScala
-        .collectFirst { case d: Deployment if d.getMetadata.getName == "ankka-operator" => d }
-        .getOrElse(fail("no ankka-operator Deployment in operator.yaml"))
+        .toVector
     finally client.close()
+
+  private lazy val deployment: Deployment =
+    shipped
+      .collectFirst { case d: Deployment if d.getMetadata.getName == "ankka-operator" => d }
+      .getOrElse(fail("no ankka-operator Deployment in operator.yaml"))
+
+  private lazy val role: ClusterRole =
+    shipped
+      .collectFirst { case r: ClusterRole if r.getMetadata.getName == "ankka-operator" => r }
+      .getOrElse(fail("no ankka-operator ClusterRole in operator.yaml"))
 
   private lazy val container =
     deployment.getSpec.getTemplate.getSpec.getContainers.asScala
@@ -92,4 +103,15 @@ class OperatorManifestSuite extends munit.FunSuite:
     // only slow; the check names a stall only after `stallBound`, so a minute of failures is enough.
     val liveness = container.getLivenessProbe
     assert(liveness.getPeriodSeconds * liveness.getFailureThreshold >= 60, liveness)
+  }
+
+  // Exec runs over WebSockets since Kubernetes 1.31, and the API server authorises that path as a
+  // `get` on `pods/exec` as well as the `create`; with `create` alone every psql the operator runs
+  // in a database's pod was refused 403 on 1.35, and nothing the k3s suites do (admin credentials)
+  // would have shown it.
+  test("psql in a database's pod is granted as both create and get on pods/exec") {
+    val rules = role.getRules.asScala.filter(_.getResources.asScala.contains("pods/exec"))
+    assert(rules.nonEmpty, "no pods/exec rule on the operator's ClusterRole")
+    val verbs = rules.flatMap(_.getVerbs.asScala).toSet
+    assertEquals(verbs, Set("create", "get"))
   }

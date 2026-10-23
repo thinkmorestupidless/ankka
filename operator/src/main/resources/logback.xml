@@ -1,0 +1,21 @@
+<configuration>
+  <!-- The operator's logging, as the control plane's and the sidecar's: INFO, with the clients it
+       uses at WARN. Without this file logback logs everything at DEBUG, which on a cluster was
+       fabric8's two lines per custom resource it reads (`CustomResource#setKind doesn't do
+       anything`), netty's and vert.x's start-up and every TLS handshake, and the operator's own
+       per-object lines, written by the same process that runs out of memory at its limit. A pass
+       that fails is a WARN from `ankka.operator.queue`, and one that threw an Error an ERROR. -->
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{24} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <logger name="ankka.operator" level="INFO"/>
+  <logger name="com.thinkmorestupidless.ankka" level="INFO"/>
+  <logger name="io.fabric8" level="WARN"/>
+  <logger name="io.netty" level="WARN"/>
+  <logger name="io.vertx" level="WARN"/>
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

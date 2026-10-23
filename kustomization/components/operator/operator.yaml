@@ -262,7 +262,38 @@ spec:
         - name: ankka-operator
           image: ankka-operator:latest
           imagePullPolicy: IfNotPresent
+          ports:
+            # The operator's own health check, GET /healthz, for the probes below and nothing else.
+            - name: health
+              containerPort: 8081
+          # Restarts an operator that has stopped reconciling: an informer stopped for good, a queue
+          # with a worker gone, or work waiting or running longer than ten minutes. Without it such a
+          # process went on watching and logging, and an installation could start or update nothing
+          # until someone restarted it by hand. The start gets five minutes to list everything.
+          startupProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
           env:
+            # The JVM sized to the container, read by the image's start script. A quarter of the
+            # limit for the heap, both percentages: under about 500Mi the JVM ignores
+            # MaxRAMPercentage and takes half (MinRAMPercentage), which at 256Mi was a 126 MiB heap
+            # beside ~130 MiB of metaspace, code and symbols and was killed at the limit every few
+            # minutes. The C1 compiler alone, as the proxy and the keeper run, for a smaller code
+            # cache and no C2 arenas (28 MiB at peak, measured); and an exhausted heap ends the
+            # process, so the kubelet restarts it, rather than leaving whichever thread it hit dead.
+            - name: JAVA_OPTS
+              value: "-XX:MaxRAMPercentage=25 -XX:MinRAMPercentage=25 -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"
+            # glibc's malloc keeps an arena per thread that allocates, up to eight per processor,
+            # and each keeps what was freed in it: about 55 MiB beyond what the JVM itself accounts
+            # for, measured at 256Mi. Two arenas keep it small.
+            - name: MALLOC_ARENA_MAX
+              value: "2"
             # Must match the control plane's namespace-prefix. A mismatch presents as every
             # service reporting that no operator has reported on it.
             - name: ANKKA_K8S_NAMESPACE_PREFIX
@@ -338,10 +369,14 @@ spec:
               value: "2m"
             - name: ANKKA_CLOUD_ROTATION_GRACE
               value: "1h"
+          # 384Mi, a 96 MiB heap. Measured on kind with the flags above (2026-10-23): resident anonymous
+          # memory 196 MiB at most with three services under a 256Mi limit, 203 MiB with ten under
+          # this one; the live heap after a full collection was 25 MiB. At 256Mi with no flags it was
+          # killed three times in thirteen minutes. OperatorManifestSuite holds the budget.
           resources:
             requests:
               cpu: "100m"
-              memory: "256Mi"
+              memory: "384Mi"
             limits:
               cpu: "500m"
-              memory: "256Mi"
+              memory: "384Mi"

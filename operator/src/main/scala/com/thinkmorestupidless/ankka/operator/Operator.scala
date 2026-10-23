@@ -43,7 +43,7 @@ final class Operator(
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator")
 
-  private val queue = new WorkQueue(settings, reconciler.reconcile)
+  private val queue = new WorkQueue(settings, reconciler.reconcile, "services")
   reconciler.requeueWith(queue.enqueueAfter)
 
   /**
@@ -52,7 +52,7 @@ final class Operator(
    */
   private val projectReconciler: Reconciler =
     projects.getOrElse(ProjectReconciler(client, settings))
-  private val projectQueue = new WorkQueue(settings, projectReconciler.reconcile)
+  private val projectQueue = new WorkQueue(settings, projectReconciler.reconcile, "projects")
 
   /**
    * Registered machines' broker users (feature 040), on a queue of their own, keyed by the
@@ -60,9 +60,11 @@ final class Operator(
    */
   private val machineReconciler =
     new MachineReconciler(client, settings, new Fabric8Executor(client))
-  private val machineQueue = new WorkQueue(settings, machineReconciler.reconcile)
+  private val machineQueue = new WorkQueue(settings, machineReconciler.reconcile, "machines")
 
-  private var informers: Vector[SharedIndexInformer[?]] = Vector.empty
+  /** Each informer by the kind it watches, for the health check. */
+  @volatile private var informers: Vector[(String, SharedIndexInformer[?])] = Vector.empty
+  @volatile private var started                                             = false
 
   /** Only namespaces this operator is responsible for. */
   private def watched(namespace: String): Boolean =
@@ -261,8 +263,8 @@ final class Operator(
           None
     val databaseInformers =
       Vector(
-        databaseInformer(classOf[cnpg.PostgresCluster]),
-        databaseInformer(classOf[cnpg.PostgresBackup])
+        databaseInformer(classOf[cnpg.PostgresCluster]).map("CNPG Cluster" -> _),
+        databaseInformer(classOf[cnpg.PostgresBackup]).map("CNPG Backup" -> _)
       ).flatten
 
     // As for AnkkaProject: a cluster without the type has its services reconciled all the same.
@@ -286,17 +288,35 @@ final class Operator(
           )
           None
 
-    informers = Vector(services, deployments) ++ projectInformer ++ cloudInformer ++
-      databaseInformers ++ machineInformer
+    informers = Vector("AnkkaService" -> services, "Deployment" -> deployments) ++
+      projectInformer.map("AnkkaProject" -> _) ++ cloudInformer.map("CloudResource" -> _) ++
+      databaseInformers ++ machineInformer.map("AnkkaMachine" -> _)
     queue.start()
     projectQueue.start()
     machineQueue.start()
+    started = true
 
     log.info(
       "operator watching namespaces '{}-*' (resync every {})",
       settings.namespacePrefix,
       settings.resyncInterval
     )
+
+  /**
+   * What is wrong with this operator, empty when nothing is; the health check answers it. A started
+   * informer stops for good when its watch closes with an error other than 410 Gone (fabric8's
+   * default exception handler retries a failed list, never a `WatcherException`), and nothing in
+   * the process starts it again. Its resync goes on over the cache it had, so what it held is still
+   * looked at every five minutes, but no change, new resource or deletion reaches a queue again. A
+   * queue's own problems are `WorkQueue.problems`.
+   */
+  def problems: Vector[String] =
+    if !started then Vector("the operator has not finished starting")
+    else
+      informers.collect {
+        case (kind, informer) if !informer.isRunning => s"the $kind informer has stopped"
+        case (kind, informer) if !informer.hasSynced => s"the $kind informer has not synced"
+      } ++ Vector(queue, projectQueue, machineQueue).flatMap(_.problems)
 
   /** Waits until the process is interrupted. The informers do the work on their own threads. */
   def awaitTermination(): Unit =
@@ -335,7 +355,8 @@ final class Operator(
 
   def close(): Unit =
     platform.foreach(_.shutdownNow()): Unit
-    informers.foreach(_.close())
+    started = false
+    informers.foreach(_._2.close())
     informers = Vector.empty
     queue.stop()
     projectQueue.stop()

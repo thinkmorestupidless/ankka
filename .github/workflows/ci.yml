@@ -1,8 +1,8 @@
 # The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
 # worth, each starting a Kubernetes node in a container) are not run on a pull request: the `cluster`
 # workflow runs them nightly and on demand, a runner per suite. The Scala template suite runs in its
-# own job, the Java template's in its own, and the Python, TypeScript and Rust template suites in
-# their SDK's job.
+# own job, the Java template's in its own, and the Python, TypeScript, Rust and Go template suites
+# in their SDK's job.
 #
 # Only what a change can break is built. The `changes` job maps the files a pull request touched
 # onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
@@ -33,6 +33,7 @@ jobs:
       sdk-python: ${{ steps.filter.outputs.sdk-python == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-typescript: ${{ steps.filter.outputs.sdk-typescript == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-rust: ${{ steps.filter.outputs.sdk-rust == 'true' || github.event_name == 'workflow_dispatch' }}
+      sdk-go: ${{ steps.filter.outputs.sdk-go == 'true' || github.event_name == 'workflow_dispatch' }}
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
       template-java: ${{ steps.filter.outputs.template-java == 'true' || github.event_name == 'workflow_dispatch' }}
@@ -169,6 +170,13 @@ jobs:
               - 'sdks/kotlin/**'
               - 'cli/src/main/templates/kotlin/**'
               - 'cli/src/test/scala/**/cli/KotlinTemplateSuite.scala'
+            sdk-go:
+              - *workflow
+              - *scala-build
+              - *templates
+              - 'sdks/go/**'
+              - 'cli/src/main/templates/go/**'
+              - 'cli/src/test/scala/**/cli/GoTemplateSuite.scala'
             # The console: its workspace, the realm client it signs in as, and the route reference its
             # parity check reads. Its fakes stand in for the control plane, so no Scala is built.
             console:
@@ -607,6 +615,66 @@ jobs:
       # against this SDK (built above) and the sidecar image. See the Python job.
       - if: matrix.node == 24
         run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=typescript 'cli/testOnly *TypeScriptTemplateSuite'
+
+  # The Go SDK, a process beside the sidecar: the fast tests on the floor and the newest line, then
+  # on the newest the module as the proxy would serve it, the slow tests against the sidecar and the
+  # Scala cart of this commit, the conformance suite against the Go reference, and the template.
+  sdk-go:
+    needs: changes
+    if: needs.changes.outputs.sdk-go == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.26", "1.27"]
+    defaults:
+      run:
+        working-directory: sdks/go
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        if: matrix.go == '1.27'
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+        if: matrix.go == '1.27'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: sdks/go/**/go.sum
+      # The module carries a copy of the protocol artifact so the mirror builds alone; the copy is the
+      # original, and the committed stubs are what the copy generates.
+      - run: diff -r ../../protocol/src/main/protobuf protocol/src/main/protobuf
+      - run: diff -r ../../protocol/fixtures protocol/fixtures
+      - run: diff ../../protocol/ENCODING.md protocol/ENCODING.md
+      - run: scripts/proto.sh --check
+      - run: go vet ./... ./examples/shopping-cart/...
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go test -count=1 ./... ./examples/shopping-cart/...
+      # The module as the proxy would serve it, built alone, and a stranger's program that imports it
+      # without the test kit's dependencies.
+      - run: scripts/pack-smoke.sh
+      # Docker-backed. `sidecar/docker:publishLocal` tags the images `:latest`, which is what the test
+      # kit names for an unreleased SDK.
+      - if: matrix.go == '1.27'
+        working-directory: .
+        run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off sidecar/docker:publishLocal shoppingCart/docker:publishLocal
+      - if: matrix.go == '1.27'
+        run: go test -count=1 ./... ./examples/shopping-cart/...
+        env:
+          ANKKA_SLOW: "1"
+      - if: matrix.go == '1.27'
+        working-directory: sdks/go/examples/shopping-cart
+        run: go run ./cmd/conformance
+      # `ankka init --language go`, rendered and made to pass its own vet and tests, the slow one
+      # included, against this SDK and the sidecar image.
+      - if: matrix.go == '1.27'
+        working-directory: .
+        run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=go 'cli/testOnly *GoTemplateSuite'
 
   # A user interface deployed as a web-hosted service (feature 021): the shopping cart's interface
   # passes its own checks, and `ankka init --language web`'s project is rendered, made to pass its

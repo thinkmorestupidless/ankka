@@ -21,6 +21,17 @@ final class EntityCell private[bridge] (
   private[bridge] var command: Option[CommandContext] = None
   private val context                                 = CellContext(this)
 
+  /** A workflow's steps, which its effects resolve step references through. */
+  private[bridge] var steps: StepIndex = StepIndex.empty
+  private lazy val workflow            = JavaWorkflowEffects(steps)
+  private lazy val step                = JavaStepEffects(steps)
+
+  /** A workflow's command effects; read by the Java base class. */
+  def workflowEffects(): AnyRef = workflow
+
+  /** A workflow's step effects; read by the Java base class. */
+  def stepEffects(): AnyRef = step
+
   /** The state; read by the Java base class. */
   def currentState(): Any =
     if !stateSet then

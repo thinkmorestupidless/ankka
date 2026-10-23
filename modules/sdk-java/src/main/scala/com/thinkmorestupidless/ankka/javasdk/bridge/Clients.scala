@@ -4,11 +4,13 @@ import com.thinkmorestupidless.ankka.core.{
   CommandError,
   ComponentId,
   EntityId,
+  ErrorCode,
   Metadata,
   MethodName
 }
 import com.thinkmorestupidless.ankka.javasdk.client.*
 import com.thinkmorestupidless.ankka.javasdk.codec.{RecordCodec, Serializer}
+import com.thinkmorestupidless.ankka.javasdk.component.Workflow
 import com.thinkmorestupidless.ankka.sdk.{CallTransport, ComponentClient as ScalaClient}
 
 import java.time.Duration
@@ -27,6 +29,7 @@ private[ankka] object Clients:
   val unavailable: ComponentClient = new ComponentClient:
     def forEventSourcedEntity(entityId: String): EntityRef = refuse
     def forKeyValueEntity(entityId: String): EntityRef     = refuse
+    def forWorkflow(workflowId: String): WorkflowRef       = refuse
     private def refuse =
       throw IllegalStateException("this component was not built by a service or a test kit")
 
@@ -40,6 +43,8 @@ private final class JavaComponentClient(transport: CallTransport, refs: Refs)
     extends ComponentClient:
   def forEventSourcedEntity(entityId: String): EntityRef = JavaEntityRef(transport, refs, entityId)
   def forKeyValueEntity(entityId: String): EntityRef     = JavaEntityRef(transport, refs, entityId)
+  def forWorkflow(workflowId: String): WorkflowRef =
+    JavaWorkflowRef(JavaEntityRef(transport, refs, workflowId), transport, refs, workflowId)
 
 private final class JavaEntityRef(transport: CallTransport, refs: Refs, entityId: String)
     extends EntityRef:
@@ -80,6 +85,51 @@ private final class JavaEntityRef(transport: CallTransport, refs: Refs, entityId
       ),
       entityId
     )
+
+private final class JavaWorkflowRef(
+    calls: JavaEntityRef,
+    transport: CallTransport,
+    refs: Refs,
+    workflowId: String
+) extends WorkflowRef:
+  export calls.call
+
+  def awaitEnd[S](workflow: Class[? <: Workflow[S]], timeout: Duration): S =
+    try
+      ScalaClient
+        .await(future(workflow, timeout), Effects.finite(timeout) + transport.askTimeout)
+        .asInstanceOf[S]
+    catch case t: Throwable => throw Clients.javaFailure(t)
+
+  def awaitEndAsync[S](workflow: Class[? <: Workflow[S]], timeout: Duration): CompletionStage[S] =
+    future(workflow, timeout)
+      .transform(identity, Clients.javaFailure)(using ExecutionContext.parasitic)
+      .asInstanceOf[Future[S]]
+      .asJava
+
+  private def future(workflow: Class[?], timeout: Duration): Future[Any] =
+    val plan = refs
+      .plan(workflow)
+      .filter(_.kind == JavaKind.Workflow)
+      .getOrElse(
+        throw CallerError(s"${workflow.getSimpleName} is not a workflow this service registers")
+      )
+    if timeout.isNegative || timeout.isZero then
+      Future.failed(
+        CommandError(
+          s"a wait for a workflow's end needs a timeout of more than zero, not $timeout",
+          ErrorCode.BadRequest
+        )
+      )
+    else
+      transport
+        .awaitEnd(
+          ComponentId(plan.componentId),
+          EntityId(workflowId),
+          Effects.finite(timeout),
+          Metadata.empty
+        )
+        .map((bytes, _) => plan.state.fromBytes(bytes))(using ExecutionContext.parasitic)
 
 /** Where a call goes and how its input and reply cross. */
 private final case class Target(

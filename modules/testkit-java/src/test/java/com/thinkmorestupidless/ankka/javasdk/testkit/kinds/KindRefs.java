@@ -15,4 +15,7 @@ public final class KindRefs {
   public static final CommandRef<ShoppingCart, LineItem, Done> addItem = ShoppingCart::addItem;
   public static final CommandRef<ShoppingCart, String, Done> removeItem = ShoppingCart::removeItem;
   public static final NoArgRef<ShoppingCart, Done> checkout = ShoppingCart::checkout;
+  public static final CommandRef<Checkout, Checkout.Start, Done> startCheckout = Checkout::start;
+  public static final NoArgRef<Checkout, Done> confirmCheckout = Checkout::confirm;
+  public static final NoArgRef<Checkout, Checkout.State> getCheckout = Checkout::get;
 }

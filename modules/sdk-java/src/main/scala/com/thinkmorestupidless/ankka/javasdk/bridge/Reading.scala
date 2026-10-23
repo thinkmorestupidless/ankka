@@ -22,8 +22,7 @@ private[bridge] final class Reader(
     val cls: Class[?],
     idOverride: Option[String],
     serializers: Declarations.Serializers,
-    entities: Vector[ComponentPlan],
-    workflows: Vector[(Class[?], String, sdk.ChangeSource[Any])] = Vector.empty
+    entities: Vector[ComponentPlan]
 ):
   private val found = mutable.ArrayBuffer.empty[DeclarationProblem]
 
@@ -80,11 +79,18 @@ private[bridge] final class Reader(
                 CodecBridge.toScala(plan.event.get)
               )
             )
-          case Some(plan) =>
+          case Some(plan) if plan.kind == JavaKind.KeyValue =>
             Some(
               sdk.ChangeSource
                 .KeyValue(ComponentId(plan.componentId), CodecBridge.state(plan.state))
             )
+          case Some(_) =>
+            problem(
+              member,
+              s"reads ${java.component.getSimpleName} as an entity, but it is a workflow; " +
+                "read it with ChangeSource.ofWorkflow"
+            )
+            None
           case None =>
             problem(
               member,
@@ -93,8 +99,12 @@ private[bridge] final class Reader(
             )
             None
       case JavaSource.Kind.WORKFLOW =>
-        workflows.find(_._1 == java.component) match
-          case Some((_, _, source)) => Some(source)
+        entities.find(p => p.cls == java.component && p.kind == JavaKind.Workflow) match
+          case Some(plan) =>
+            Some(
+              sdk.ChangeSource
+                .Workflow(ComponentId(plan.componentId), CodecBridge.state(plan.state))
+            )
           case None =>
             problem(
               member,

@@ -64,10 +64,9 @@ private[ankka] object Views:
       cls: Class[?],
       idOverride: Option[String],
       serializers: Declarations.Serializers,
-      entities: Vector[ComponentPlan],
-      workflows: Vector[(Class[?], String, sdk.ChangeSource[Any])] = Vector.empty
+      entities: Vector[ComponentPlan]
   ): Either[Vector[DeclarationProblem], ViewPlan] =
-    val reader = Reader(cls, idOverride, serializers, entities, workflows)
+    val reader = Reader(cls, idOverride, serializers, entities)
     import reader.problem
     val keyed = classOf[KeyedView[?]].isAssignableFrom(cls)
 

@@ -13,4 +13,6 @@ public interface ComponentClient {
   EntityRef forEventSourcedEntity(String entityId);
 
   EntityRef forKeyValueEntity(String entityId);
+
+  WorkflowRef forWorkflow(String workflowId);
 }

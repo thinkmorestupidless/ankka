@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.javasdk.component.KeyedView;
 import com.thinkmorestupidless.ankka.javasdk.component.View;
 import com.thinkmorestupidless.ankka.javasdk.effect.KeyedViewEffect;
 import com.thinkmorestupidless.ankka.javasdk.effect.ViewEffect;
+import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.Checkout;
 import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.TreeNode;
 
 /** Views declared wrongly, each in a way the service refuses at start. */
@@ -44,6 +45,20 @@ public final class BrokenViews {
 
     @Source(value = TreeNode.class, topic = "nodes")
     public KeyedViewEffect<Row> both(TreeNode.Placed p) {
+      return effects().ignore();
+    }
+  }
+
+  /** Reads a workflow with the entity factory. */
+  @ComponentId("reads-workflow-as-entity")
+  public static class ReadsWorkflowAsEntity extends View<Checkout.State, Row> {
+    @Override
+    protected ChangeSource<Checkout.State> source() {
+      return ChangeSource.of(Checkout.class);
+    }
+
+    @Override
+    protected ViewEffect<Row> onChange(Checkout.State state) {
       return effects().ignore();
     }
   }

@@ -37,10 +37,9 @@ private[ankka] object Consumers:
       cls: Class[?],
       idOverride: Option[String],
       serializers: Declarations.Serializers,
-      entities: Vector[ComponentPlan],
-      workflows: Vector[(Class[?], String, sdk.ChangeSource[Any])] = Vector.empty
+      entities: Vector[ComponentPlan]
   ): Either[Vector[DeclarationProblem], ConsumerPlan] =
-    val reader = Reader(cls, idOverride, serializers, entities, workflows)
+    val reader = Reader(cls, idOverride, serializers, entities)
     val graph  = classOf[GraphConsumer[?]].isAssignableFrom(cls)
     val hooks  = if graph then Hooks.graph else Hooks.plain
 

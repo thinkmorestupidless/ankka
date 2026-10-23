@@ -17,6 +17,11 @@ private[ankka] final class Refs(plans: Iterable[ComponentPlan]):
 
   private val cache = ConcurrentHashMap[Class[?], (ComponentPlan, HandlerPlan)]()
 
+  private val byClass: Map[Class[?], ComponentPlan] = plans.iterator.map(p => p.cls -> p).toMap
+
+  /** The plan of a registered component class. */
+  def plan(cls: Class[?]): Option[ComponentPlan] = byClass.get(cls)
+
   def resolve(ref: AnyRef): (ComponentPlan, HandlerPlan) =
     val known = cache.get(ref.getClass)
     if known != null then known

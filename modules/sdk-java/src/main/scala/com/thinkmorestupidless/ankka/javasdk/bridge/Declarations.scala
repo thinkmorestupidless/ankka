@@ -5,9 +5,11 @@ import com.thinkmorestupidless.ankka.javasdk.codec.{EncodingException, RecordCod
 import com.thinkmorestupidless.ankka.javasdk.component.{
   EntityContext,
   EventSourcedEntity,
-  KeyValueEntity
+  KeyValueEntity,
+  Workflow
 }
-import com.thinkmorestupidless.ankka.javasdk.effect.{Effect, ReadOnlyEffect}
+import com.thinkmorestupidless.ankka.javasdk.effect.{Effect, ReadOnlyEffect, StepEffect}
+import com.thinkmorestupidless.ankka.sdk
 import com.thinkmorestupidless.ankka.javasdk.problems.DeclarationProblem
 
 import java.lang.reflect.{
@@ -23,7 +25,7 @@ import scala.collection.mutable
 
 /** The kinds of Java component the bridge hosts. */
 private[ankka] enum JavaKind:
-  case EventSourced, KeyValue
+  case EventSourced, KeyValue, Workflow
 
 /** One handler, read from its method. */
 private[ankka] final case class HandlerPlan(
@@ -44,6 +46,21 @@ private[ankka] final case class HandlerPlan(
       else method.invoke(instance, input.asInstanceOf[AnyRef])
     catch case e: InvocationTargetException => throw e.getCause
 
+/** One workflow step, read from its `@Step` method. */
+private[ankka] final case class StepPlan(
+    name: String,
+    method: Method,
+    input: Option[Serializer[Any]]
+):
+  def javaKey: (String, String, String) =
+    (method.getDeclaringClass.getName, method.getName, Declarations.descriptor(method))
+
+  def invoke(instance: AnyRef, input: Any): Any =
+    try
+      if method.getParameterCount == 0 then method.invoke(instance)
+      else method.invoke(instance, input.asInstanceOf[AnyRef])
+    catch case e: InvocationTargetException => throw e.getCause
+
 /** A component class, read once: everything the hosts and the client need, or its problems. */
 private[ankka] final case class ComponentPlan(
     cls: Class[?],
@@ -52,7 +69,9 @@ private[ankka] final case class ComponentPlan(
     handlers: Vector[HandlerPlan],
     state: Serializer[Any],
     event: Option[Serializer[Any]],
-    construct: EntityContext => AnyRef
+    construct: EntityContext => AnyRef,
+    steps: Vector[StepPlan] = Vector.empty,
+    settings: sdk.WorkflowSettings = sdk.WorkflowSettings.default
 )
 
 /** Reads a component class once, at start, collecting every problem rather than the first. */
@@ -74,9 +93,10 @@ private[ankka] object Declarations:
     val kind =
       if classOf[EventSourcedEntity[?, ?]].isAssignableFrom(cls) then Some(JavaKind.EventSourced)
       else if classOf[KeyValueEntity[?]].isAssignableFrom(cls) then Some(JavaKind.KeyValue)
+      else if classOf[Workflow[?]].isAssignableFrom(cls) then Some(JavaKind.Workflow)
       else None
     if kind.isEmpty then
-      problem("", "is not a component: extend EventSourcedEntity or KeyValueEntity")
+      problem("", "is not a component: extend EventSourcedEntity, KeyValueEntity or Workflow")
 
     val componentId = idOverride
       .orElse(Option(cls.getAnnotation(classOf[annotations.ComponentId])).map(_.value))
@@ -112,6 +132,9 @@ private[ankka] object Declarations:
         )
       case Some(JavaKind.KeyValue) =>
         val args = superArguments(classOf[KeyValueEntity[?]], bindings)
+        (args.lift(0).flatMap(serializer(_, "", "state type")), None)
+      case Some(JavaKind.Workflow) =>
+        val args = superArguments(classOf[Workflow[?]], bindings)
         (args.lift(0).flatMap(serializer(_, "", "state type")), None)
       case None => (None, None)
 
@@ -164,6 +187,56 @@ private[ankka] object Declarations:
           do handlers += HandlerPlan(wire, m, input, out, readOnly)
     }
 
+    val steps = mutable.ArrayBuffer.empty[StepPlan]
+    cls.getDeclaredMethods.sortBy(m => (m.getName, descriptor(m))).foreach { m =>
+      val member = m.getName
+      Option(m.getAnnotation(classOf[annotations.Step])).map(_.value) match
+        case None =>
+          if !m.isSynthetic && !m.isBridge && classOf[StepEffect].isAssignableFrom(m.getReturnType)
+          then problem(member, "returns a StepEffect but has no @Step")
+        case Some(_) if !kind.contains(JavaKind.Workflow) =>
+          problem(member, "is a @Step, which only a workflow has")
+        case Some(name) =>
+          if name.isEmpty then problem(member, "has an empty step name")
+          else if name.startsWith(sdk.WorkflowLifecycle.MethodPrefix) then
+            problem(
+              member,
+              s"'$name' uses the platform's reserved '${sdk.WorkflowLifecycle.MethodPrefix}' prefix"
+            )
+          else
+            steps.find(_.name == name).foreach { other =>
+              problem(member, s"has the step name '$name', as ${other.method.getName} does")
+            }
+          if Modifier.isStatic(m.getModifiers) then
+            problem(member, "is static; a step is an instance method")
+          if m.getReturnType != classOf[StepEffect] then
+            problem(member, "must return a StepEffect built by stepEffects()")
+          if m.getParameterCount > 1 then
+            problem(
+              member,
+              s"takes ${m.getParameterCount} parameters; a step takes one or none (use a record)"
+            )
+          val input =
+            if m.getParameterCount == 1 then
+              serializer(m.getGenericParameterTypes()(0), member, "input")
+            else None
+          m.setAccessible(true)
+          if m.getParameterCount == 0 || input.isDefined then steps += StepPlan(name, m, input)
+    }
+
+    val settings =
+      if !kind.contains(JavaKind.Workflow) || problems.nonEmpty then sdk.WorkflowSettings.default
+      else
+        WorkflowSettingsReader
+          .read(cls, componentId.get, construct.get, steps.toVector)
+          .fold(
+            found => {
+              found.foreach((member, message) => problem(member, message));
+              sdk.WorkflowSettings.default
+            },
+            identity
+          )
+
     if problems.nonEmpty then Left(problems.toVector)
     else
       Right(
@@ -174,7 +247,9 @@ private[ankka] object Declarations:
           handlers.toVector,
           state.get,
           event,
-          construct.get
+          construct.get,
+          steps.toVector,
+          settings
         )
       )
 

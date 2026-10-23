@@ -16,6 +16,7 @@ private[ankka] object Adapters:
   def descriptor(plan: ComponentPlan, refs: Refs): ComponentDescriptor = plan.kind match
     case JavaKind.EventSourced => eventSourced(plan, refs)
     case JavaKind.KeyValue     => keyValue(plan, refs)
+    case JavaKind.Workflow     => Workflows.companion(plan, refs).descriptor
 
   def eventSourced(
       plan: ComponentPlan,

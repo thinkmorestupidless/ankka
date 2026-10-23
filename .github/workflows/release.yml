@@ -173,7 +173,7 @@ jobs:
       # The arm64 half of every image is built here, on an amd64 runner: QEMU registers the
       # emulator and buildx gets a docker-container builder, since the default `docker` driver
       # cannot push a multi-platform image.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish proxy/Docker/publish storageMover/Docker/publish modelKeeper/Docker/publish
       # The console (feature 017) is a Node image built by buildx from console/, for the same two

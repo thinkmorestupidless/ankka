@@ -646,3 +646,4 @@ are not measurable apart from the machine's noise, which is why the bound is ass
   `forAgent` is, because the Java component client cannot be extended from another module. Assigning
   a task of a type the agent does not accept refuses the whole call with a `CommandException`, as the
   Scala host answers; `AssignResult.refused` names only tasks refused one by one.
+- **The agent test kit** (US5, T074). R9 asked for one turn against the scripted provider with no runtime; there was no Scala `AgentTestKit` to wrap, so one was added to `modules/testkit` first and the Java kit wraps it, as every other Java kit wraps a Scala one. Its session is a real session memory entity, not a stub, so history, memory windows and a turn waiting for approval read as they do in a service. The Java `TestModelProvider` is a plain `ModelProvider` registered with the agent bridge when built, because an interface from the bridge on a public test kit class would break R12.

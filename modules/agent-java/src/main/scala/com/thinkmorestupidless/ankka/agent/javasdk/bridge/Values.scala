@@ -17,6 +17,21 @@ import java.util.function.{Function as JFunction, Supplier}
 import scala.jdk.OptionConverters.*
 
 /** A Java model provider over the Scala one it stands for. */
+/**
+ * Java model providers that stand for a Scala one, as the test kit's scripted model does. A
+ * registry rather than an interface, so the test kit's public class names nothing of the bridge.
+ */
+object ScalaModels:
+  private val known = java.util.Collections.synchronizedMap(
+    java.util.WeakHashMap[javasdk.ModelProvider, agent.ModelProvider]()
+  )
+
+  def register(java: javasdk.ModelProvider, scala: AnyRef): Unit =
+    known.put(java, scala.asInstanceOf[agent.ModelProvider]): Unit
+
+  private[bridge] def of(java: javasdk.ModelProvider): Option[agent.ModelProvider] =
+    Option(known.get(java))
+
 private[ankka] final case class JavaModelProvider(scala: agent.ModelProvider)
     extends javasdk.ModelProvider:
   def name(): String = scala.name
@@ -90,9 +105,13 @@ private[bridge] object Values:
   def scalaModel(p: javasdk.ModelProvider): agent.ModelProvider = p match
     case JavaModelProvider(scala) => scala
     case other =>
-      throw IllegalArgumentException(
-        s"${other.name()} is not a model provider ModelProviders or the test kit made"
-      )
+      ScalaModels
+        .of(other)
+        .getOrElse(
+          throw IllegalArgumentException(
+            s"${other.name()} is not a model provider ModelProviders or the test kit made"
+          )
+        )
 
   def scalaMcp(m: javasdk.McpServer): agent.mcp.McpServer = m match
     case JavaMcpServer(scala) => scala

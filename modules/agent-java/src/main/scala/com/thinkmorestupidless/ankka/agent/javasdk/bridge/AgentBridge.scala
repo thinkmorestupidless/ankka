@@ -105,6 +105,10 @@ private[ankka] object AgentBridge:
   def mcpService(name: String, service: String, path: String): javasdk.McpServer =
     JavaMcpServer(agent.mcp.McpServer.service(name, service, path))
 
+  /** A Scala approval request as the Java one: what the agent test kit's result lists. */
+  def approvalRequest(request: agent.ApprovalRequest): javasdk.ApprovalRequest =
+    Outcomes.request(request)
+
   /** A Java model provider over a Scala one: what the test kit's scripted provider is. */
   def provider(scala: agent.ModelProvider): javasdk.ModelProvider = JavaModelProvider(scala)
 
@@ -405,6 +409,14 @@ private[ankka] final class AgentsPlan(
 
   /** The runtime that hosts the agents: where blueprints and runs are reached. */
   def hostRuntime: AgentRuntime = agents
+
+  /** The agent `cls` is, as registered with this service: what the agent test kit drives. */
+  def companionOf(cls: Class[?]): Agent.Companion[?] =
+    companions
+      .find(_.plan.cls == cls)
+      .getOrElse(
+        throw CallerError(s"${cls.getSimpleName} is not an agent registered with this service")
+      )
 
   /** The autonomous agent `cls` is, as registered with this service. */
   def autonomous(cls: Class[?]): JavaAutonomousCompanion =

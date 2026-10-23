@@ -37,7 +37,6 @@ class SurfaceParitySuite extends munit.FunSuite:
 
   private def j(cls: Class[?], member: String): Java = Java.Member(cls, Some(member))
   private def j(cls: Class[?]): Java                 = Java.Member(cls, None)
-  private def pending(task: String): Java            = Java.Pending(task)
   private def byDesign(why: String): Java            = Java.ByDesign(why)
 
   /** One declaration the page names: its section, the Scala type and member, the Java form. */
@@ -487,7 +486,7 @@ class SurfaceParitySuite extends munit.FunSuite:
         "start"     -> j(classOf[Installations], "start"),
         "transport" -> j(classOf[Installations], "pause")
       ) ++ rows("Testing", "agent.TestModelProvider")(
-        "TestModelProvider" -> pending("T074")
+        "TestModelProvider" -> j(classOf[TestModelProvider])
       )
 
   // ── The checks ────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ yourself** — a plan made before any matching file is opened has not seen it ye
 | `wasm.md` | the WebAssembly module mode and the Rust crate |
 | `sdk-typescript.md` | the TypeScript SDK under Node type stripping, Connect, packing |
 | `sdk-java.md` | the Java and Kotlin SDKs: the facade, method references, the record codec, suspend handlers, the Gradle build |
+| `sdk-go.md` | the Go SDK, its template, the module layout, the committed stubs, the mirror and its never-moved tag |
 | `grpc.md` | gRPC endpoints, balancing, status mapping, streaming tests |
 | `web-hosting.md` | `"hosting": "web"`, the proxy, `proxy-core` |
 | `console.md` | the `ankka-console` package and host, Playwright, the fake control plane |
@@ -84,10 +85,11 @@ sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:90
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
 cd sdks/rust && cargo test --workspace && cargo test -p shopping-cart --features slow && ./conformance.sh   # the Rust crate, end to end
+cd sdks/go && go vet ./... && go test ./... && ANKKA_SLOW=1 go test ./... && (cd examples/shopping-cart && go run ./cmd/conformance)   # the Go SDK, end to end
 sbt 'sidecar/testOnly *WasmHostSuite'   # the module mode's host; its end-to-end case needs cargo on PATH
 sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure steps, run as bash
 sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`
-                                   # (typescript, rust likewise); needs uv, node and npm, or cargo
+                                   # (typescript, rust, go likewise); needs uv, node and npm, cargo, or go
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # warning-free by construction: -Werror (compile only, not doc), -Wunused is on
 just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
@@ -152,7 +154,7 @@ owns the logic and the guards. A recipe that reimplements a step becomes a secon
 
 **CI builds pull requests, and only the parts a pull request touched.** The `changes` job in
 `.github/workflows/ci.yml` maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
-`sdk-typescript`, `sdk-rust`, `console`, `template-scala`, `cli-native`); a skipped job counts as a
+`sdk-typescript`, `sdk-rust`, `sdk-go`, `console`, `template-scala`, `cli-native`); a skipped job counts as a
 pass. Branch protection names a matrix job by its *summary* job (`template-scala`, `cli-native`), never
 by the matrix's expanded names. `build` is
 a matrix too, for speed — `build (testkit)`, `build (sidecar)`, `build (rest)` behind a required `build`

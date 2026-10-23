@@ -66,7 +66,7 @@ class ModelProvidersDocumentationSuite extends munit.FunSuite:
       "deploy/local-models.md",
       "ollama pull qwen3:8b",
       "## In a Scala service",
-      "## In a Python, TypeScript or Rust service",
+      "## In a Python, TypeScript, Rust or Go service",
       "ANKKA_MODEL_LOCAL_PRESET=ollama",
       "http://host.docker.internal:11434/v1",
       "## Which models call tools",

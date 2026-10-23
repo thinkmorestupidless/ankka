@@ -12,6 +12,7 @@
 | Kotlin | [![kotlin 2.4+](https://img.shields.io/badge/kotlin-2.4%2B-7F52FF?logo=kotlin&logoColor=white)](docs/get-started/install.md) | [![maven central](https://img.shields.io/maven-central/v/com.thinkmorestupidless/ankka-kotlin?label=maven%20central&logo=apachemaven&logoColor=white)](https://central.sonatype.com/artifact/com.thinkmorestupidless/ankka-kotlin) |
 | Python | [![python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](docs/get-started/install.md) | [![pypi](https://img.shields.io/pypi/v/ankka?label=pypi&logo=pypi&logoColor=white)](https://pypi.org/project/ankka/) |
 | TypeScript | [![node 22.22+](https://img.shields.io/badge/node-22.22%2B-5FA04E?logo=nodedotjs&logoColor=white)](docs/get-started/install.md) | [![npm](https://img.shields.io/npm/v/ankka?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/ankka) |
+| Go | [![go 1.26+](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go&logoColor=white)](docs/get-started/install.md) | [![pkg.go.dev](https://img.shields.io/github/v/tag/thinkmorestupidless/ankka-go?label=pkg.go.dev&logo=go&logoColor=white)](https://pkg.go.dev/github.com/thinkmorestupidless/ankka-go) |
 | Rust | [![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-000000?logo=rust&logoColor=white)](docs/get-started/install.md) | [![crates.io](https://img.shields.io/crates/v/ankka?label=crates.io&logo=rust&logoColor=white)](https://crates.io/crates/ankka) |
 
 **Documentation: [docs.ankka.cloud](https://docs.ankka.cloud/)**
@@ -19,7 +20,7 @@
 ankka is a serverless platform for stateful services and agentic AI. You write components — entities,
 workflows, views, agents, endpoints — and the platform runs them: distributed, durable, secured and
 observed, on Kubernetes, with a database it provisions for you. Services are written in Scala, Java,
-Kotlin, Python, TypeScript or Rust.
+Kotlin, Python, TypeScript, Go or Rust.
 
 ![The ankka console showing the shopping cart sample deployed: the cart service is Ready, exposed on the installation's gateway at its own hostname, running one instance with its database provisioned, beside its web interface cart-web in the same project.](assets/console-service.png)
 
@@ -118,7 +119,7 @@ yes or no — with probabilities.
 
 ### Your language, one platform
 
-Scala, Java and Kotlin services run in the runtime's own JVM. Python and TypeScript services run beside it as a sidecar,
+Scala, Java and Kotlin services run in the runtime's own JVM. Python, TypeScript and Go services run beside it as a sidecar,
 and Rust services are WebAssembly modules loaded into it — the same components, the same guarantees and
 the same deployment in each. A user interface in any language deploys beside them as a web-hosted service.
 
@@ -134,13 +135,14 @@ on purpose, [Divergences from Akka](docs/reference/akka-divergences.md) says why
 
 ```bash
 brew install thinkmorestupidless/tap/ankka
-ankka init cart                         # or --language java, kotlin, python, typescript, rust
+ankka init cart                         # or --language java, kotlin, python, typescript, go, rust
 ```
 
 [Install the tools](docs/get-started/install.md) covers every platform and language, then write a first
 service in [Scala](docs/get-started/first-service-scala.md), [Java](docs/get-started/first-service-java.md),
 [Kotlin](docs/get-started/first-service-kotlin.md), [Python](docs/get-started/first-service-python.md),
-[TypeScript](docs/get-started/first-service-typescript.md) or [Rust](docs/get-started/first-service-rust.md),
+[TypeScript](docs/get-started/first-service-typescript.md), [Go](docs/get-started/first-service-go.md) or
+[Rust](docs/get-started/first-service-rust.md),
 and [deploy it to a local platform](docs/get-started/deploy-locally.md).
 
 ## Documentation

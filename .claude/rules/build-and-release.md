@@ -324,6 +324,19 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
 
 ## Traps
 
+- **A Maven or Gradle build of an unreleased version needs every ankka module in `~/.m2`** (2026-10-23).
+  `ankka-java`'s pom names `ankka-core_3`, `ankka-sdk_3`, `ankka-runtime_3` and the rest at compile scope,
+  so `publishM2` of the three Java modules alone leaves a template build that cannot resolve; the
+  template suites and `gradlew-this-commit.sh` publish the aggregate (`cli/templateArtifacts`). A
+  `crossPaths := false` module with `_3` dependencies publishes correctly with no `pomPostProcess`.
+- **The Java and Kotlin templates carry binary files** (2026-10-23): the Maven and Gradle wrappers' jars,
+  and `mvnw` and `gradlew` must stay executable. `Scaffold` reads and writes text, so `index.txt` marks
+  those entries `binary` (copied as they are) or `exec` (made executable); a new binary file in a template needs the same mark, or it is
+  written corrupted and the build fails on the first `./mvnw`.
+- **The Kotlin SDK's release runs after sbt's**, in the release workflow's own job, and cannot be proved
+  before a tag: it signs and uploads `build/staging` through the Central Portal as `publish` does, and its
+  guard asks repo1 for the version's pom.
+
 - **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**
   `pekko-http` goes to 1.4.0 but `pekko-http-spray-json` stays, and Pekko HTTP checks family
   versions at startup — every HTTP suite died in `beforeAll`. `dependencyOverrides ++=

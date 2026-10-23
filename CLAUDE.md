@@ -23,6 +23,7 @@ yourself** — a plan made before any matching file is opened has not seen it ye
 | `sidecar.md` | the polyglot sidecar, remote hosts, conformance, the Python SDK, Docker quirks |
 | `wasm.md` | the WebAssembly module mode and the Rust crate |
 | `sdk-typescript.md` | the TypeScript SDK under Node type stripping, Connect, packing |
+| `sdk-java.md` | the Java and Kotlin SDKs: the facade, method references, the record codec, suspend handlers, the Gradle build |
 | `grpc.md` | gRPC endpoints, balancing, status mapping, streaming tests |
 | `web-hosting.md` | `"hosting": "web"`, the proxy, `proxy-core` |
 | `console.md` | the `ankka-console` package and host, Playwright, the fake control plane |

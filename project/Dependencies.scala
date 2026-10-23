@@ -7,7 +7,7 @@ object Dependencies {
     val scala = "3.9.0"
 
     val pekko          = "1.7.1"
-    val pekkoHttp      = "1.4.0"
+    val pekkoHttp      = "1.4.2"
     val pekkoR2dbc     = "1.2.0"
     val pekkoProj      = "1.1.0"
     val pekkoProjR2dbc = "1.2.0"

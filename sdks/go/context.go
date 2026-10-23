@@ -155,8 +155,14 @@ type EventScope struct {
 
 // TimerScope is what a timed action sees of the timer that fired it.
 type TimerScope struct {
+	// Name is the timer's id.
 	Name string
-	Due  time.Time
+	// Due is the due time this run is for: the same on every retry of one due time, and for a
+	// recurring timer a whole number of periods after the one before. Zero on a runtime before
+	// protocol 1.12, which does not send it.
+	Due time.Time
+	// Attempts is how many times the timer has fired for this due time.
+	Attempts int
 }
 
 // RequestFrom is the endpoint request ctx carries, or nil outside an endpoint handler.

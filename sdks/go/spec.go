@@ -37,6 +37,7 @@ type declarations struct {
 	workflows    map[string]func(workflowID string) server.WorkflowInstance
 	views        map[string]server.ViewHandler
 	consumers    map[string]server.ConsumerHandler
+	timedActions map[string]server.TimedActionHandler
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
@@ -60,6 +61,7 @@ func newDeclarations() *declarations {
 		wfKits:        map[string]*kit.Workflow{},
 		views:         map[string]server.ViewHandler{},
 		consumers:     map[string]server.ConsumerHandler{},
+		timedActions:  map[string]server.TimedActionHandler{},
 		inputs:        map[string]func(any) (*pb.Payload, error){},
 		routes:        map[string]map[string]*Route{},
 		endpointDecls: map[string]*Endpoint{},

@@ -72,6 +72,42 @@ func (s *consumerServer) Handle(ctx context.Context, req *pb.ConsumerRequest) (*
 	return out, nil
 }
 
+// TimedActionHandler handles one timer's call for the timed action it was declared for.
+type TimedActionHandler func(ctx context.Context, req *pb.TimedActionRequest) (*pb.TimedActionEffect, error)
+
+type timedActionServer struct {
+	pb.UnimplementedTimedActionServer
+	actions map[string]TimedActionHandler
+	opts    Options
+}
+
+// RegisterTimedAction serves the timed action conversation on s for the timed actions given.
+func RegisterTimedAction(s grpc.ServiceRegistrar, actions map[string]TimedActionHandler, opts Options) {
+	pb.RegisterTimedActionServer(s, &timedActionServer{actions: actions, opts: opts})
+}
+
+// Invoke answers every failure as a failed effect, which the sweeper retries, never as a
+// failed call.
+func (s *timedActionServer) Invoke(ctx context.Context, req *pb.TimedActionRequest) (*pb.TimedActionEffect, error) {
+	fail := func(code pb.ErrorCode, message string) *pb.TimedActionEffect {
+		return &pb.TimedActionEffect{Effect: &pb.TimedActionEffect_Fail{Fail: &pb.Error{Code: code, Message: message}}}
+	}
+	h, ok := s.actions[req.GetComponentId()]
+	if !ok {
+		return fail(pb.ErrorCode_NOT_FOUND, fmt.Sprintf("this process hosts no timed action %q", req.GetComponentId())), nil
+	}
+	ctx = s.opts.scope(ctx)
+	out, err := GuardValue(func() (*pb.TimedActionEffect, error) { return h(ctx, req) })
+	if err != nil {
+		s.opts.log().Warn("ankka: a timed action failed", "component", req.GetComponentId(), "action", req.GetName(), "error", err)
+		return fail(pb.ErrorCode_INTERNAL, err.Error()), nil
+	}
+	if f := out.GetFail(); f != nil {
+		s.opts.log().Warn("ankka: a timed action failed", "component", req.GetComponentId(), "action", req.GetName(), "error", f.GetMessage())
+	}
+	return out, nil
+}
+
 // entry is the value of the metadata entry key, or "".
 func entry(md *pb.Metadata, key string) string {
 	for _, e := range md.GetEntries() {

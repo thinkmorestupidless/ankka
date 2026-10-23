@@ -6,15 +6,15 @@ object Dependencies {
   object V {
     val scala = "3.9.0"
 
-    val pekko          = "1.7.0"
-    val pekkoHttp      = "1.4.0"
+    val pekko          = "1.7.1"
+    val pekkoHttp      = "1.4.2"
     val pekkoR2dbc     = "1.2.0"
     val pekkoProj      = "1.1.0"
     val pekkoProjR2dbc = "1.2.0"
     val pekkoKafka     = "1.2.0"
 
     /**
-     * Pekko Management's own line. 1.2.1 is the last 1.x and was verified against Pekko 1.7.0
+     * Pekko Management's own line. 1.2.1 is the last 1.x and was verified against Pekko 1.7.1
      * during feature 004's planning; the 2.0.0 milestones pull a different Pekko. Bump these
      * together.
      */
@@ -125,7 +125,7 @@ object Dependencies {
 
   /**
    * Pinned everywhere, not just where ankka uses pekko-http. pekko-management 1.2.1 declares
-   * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.0 wherever
+   * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.2 wherever
    * `http` is on the classpath but nothing lifts the latter, and Pekko HTTP checks at startup that
    * every artifact in its family is the same version — a mixed set fails the first ActorSystem.
    */

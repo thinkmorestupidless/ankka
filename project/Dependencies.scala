@@ -34,7 +34,7 @@ object Dependencies {
     val r2dbcPostgres       = "1.1.2.RELEASE"
     val fabric8             = "7.9.0"
     val decline             = "2.6.2"
-    val nimbusJoseJwt       = "10.9.1"
+    val nimbusJoseJwt       = "10.10"
 
     /**
      * Reads a view's declared statements, so the runtime can refuse one that writes or reads

@@ -221,10 +221,14 @@ func TestAnEntityDeclaresItselfAndItsProblems(t *testing.T) {
 	}
 	type other struct{}
 	bad := EventSourced[tState, tEvent]("bad", tEvents, func() tState { return tState{} }, tApply,
-		Command("same", func(context.Context, tState, Unit) (Effect[tState, tEvent, Done], error) { return Persist[tState, tEvent, Done]().ThenNoReply(), nil }),
+		Command("same", func(context.Context, tState, Unit) (Effect[tState, tEvent, Done], error) {
+			return Persist[tState, tEvent, Done]().ThenNoReply(), nil
+		}),
 		Query("same", func(context.Context, tState, Unit) (ReadOnlyEffect[Done], error) { return NoReply[Done](), nil }),
 		Query("elsewhere", func(context.Context, other, Unit) (ReadOnlyEffect[Done], error) { return NoReply[Done](), nil }),
-		Command("unsigned", func(context.Context, tState, uint) (Effect[tState, tEvent, Done], error) { return Persist[tState, tEvent, Done]().ThenNoReply(), nil }),
+		Command("unsigned", func(context.Context, tState, uint) (Effect[tState, tEvent, Done], error) {
+			return Persist[tState, tEvent, Done]().ThenNoReply(), nil
+		}),
 		Replicated(),
 	)
 	msg := (&ProblemsError{Problems: NewService(bad).Problems()}).Error()

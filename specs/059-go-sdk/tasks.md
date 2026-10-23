@@ -89,7 +89,7 @@ across a sidecar restart, in the same journal records the Scala cart writes.
 
 ### The endpoint (mirror `TS/endpoint.ts`, `TS/server/http.ts`)
 
-- [ ] T021 [US1] Write `GO/endpoint.go` and `GO/acl.go`: `NewEndpoint(prefix, acl, routes...)` with `Issuers(...)`, `Get/Post/Put/Delete/Patch[B, R]` with `.ACL(acl)`, path templates with `{param}`, `AllowAll`, `DenyAll`, `AllowIf`, `Authenticate(Issuer(...))`, `AnyOf`; the problems (a `nil` ACL naming the endpoint, a shared prefix, an authenticated route with no issuer, a body or reply type the codec refuses). `SRV/http.go`: `Http.Handle` (decode the body by its codec, run the route with `RequestFrom` populated, encode the reply, `HttpProblem` to a status, an error to 500 with the message logged). `GO/endpoint_test.go`: a route round trip, `Param` and `Query`, a problem's status, the principal's claims by name.
+- [X] T021 [US1] Write `GO/endpoint.go` and `GO/acl.go`: `NewEndpoint(prefix, acl, routes...)` with `Issuers(...)`, `Get/Post/Put/Delete/Patch[B, R]` with `.ACL(acl)`, path templates with `{param}`, `AllowAll`, `DenyAll`, `AllowIf`, `Authenticate(Issuer(...))`, `AnyOf`; the problems (a `nil` ACL naming the endpoint, a shared prefix, an authenticated route with no issuer, a body or reply type the codec refuses). `SRV/http.go`: `Http.Handle` (decode the body by its codec, run the route with `RequestFrom` populated, encode the reply, `HttpProblem` to a status, an error to 500 with the message logged). `GO/endpoint_test.go`: a route round trip, `Param` and `Query`, a problem's status, the principal's claims by name.
 
 ### The example, the runner, the loop
 

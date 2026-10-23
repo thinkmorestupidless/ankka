@@ -213,6 +213,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	if len(s.decls.eventSourced) > 0 {
 		server.RegisterEventSourced(g, s.eventSourcedHost, s.serverOptions())
 	}
+	if len(s.decls.endpoints) > 0 {
+		server.RegisterHttp(g, server.HttpHost{Handle: s.decls.handleHTTP}, s.serverOptions())
+	}
 	return g
 }
 

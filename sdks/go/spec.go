@@ -35,12 +35,18 @@ type declarations struct {
 
 	// inputs encode a call's input by the codec its handler declares, keyed by handlerKey.
 	inputs map[string]func(any) (*pb.Payload, error)
+
+	// routes are each endpoint's routes by route id; endpointDecls the endpoints by id.
+	routes        map[string]map[string]*Route
+	endpointDecls map[string]*Endpoint
 }
 
 func newDeclarations() *declarations {
 	return &declarations{
-		eventSourced: map[string]func(string) server.EventSourcedInstance{},
-		inputs:       map[string]func(any) (*pb.Payload, error){},
+		eventSourced:  map[string]func(string) server.EventSourcedInstance{},
+		inputs:        map[string]func(any) (*pb.Payload, error){},
+		routes:        map[string]map[string]*Route{},
+		endpointDecls: map[string]*Endpoint{},
 	}
 }
 

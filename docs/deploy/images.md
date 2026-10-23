@@ -1,14 +1,14 @@
 ---
 title: Build an image
-description: Package a Scala, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+description: Package a Scala, Java, Kotlin, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 kind: guide
-languages: [scala, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust]
 related: [deploy/deploy-a-service.md, deploy/run-locally.md, platform/install-local.md]
 ---
 
 # Build an image
 
-A service is deployed as a container image, and the descriptor names that image. A Scala service's image
+A service is deployed as a container image, and the descriptor names that image. A Scala, Java or Kotlin service's image
 holds the service and the ankka runtime in one JVM. A Python or TypeScript service's image holds only your
 process and the SDK; the platform supplies the runtime as a sidecar container beside it. A Rust service's
 image holds only its WebAssembly module; the platform copies the module out of it and runs its own runtime
@@ -47,6 +47,32 @@ you change how the build is versioned.
 
 Set `Docker / dockerRepository` to a registry, for example `registry.example.com/acme`, to tag the image
 for that registry, and `sbt Docker/publish` to push it there.
+
+## A Java service
+
+A service created by `ankka init --language java` is packaged by Jib, with no Dockerfile:
+
+```bash
+./mvnw package jib:dockerBuild                       # into the local Docker daemon
+./mvnw package jib:build -Dimage=registry.example.com/acme/orders:1.4.2   # to a registry
+```
+
+The image is based on `eclipse-temurin:21-jre`, exposes port 9000 and starts the service's main class.
+Without `-Dimage` it is named `<service>:local`. The project's `Dockerfile` builds the same image in two
+stages with the project's own Maven wrapper, for a build machine that has Docker and nothing else.
+
+## A Kotlin service
+
+A service created by `ankka init --language kotlin` is laid out by Gradle's `application` plugin and
+copied into an image by the project's `Dockerfile`:
+
+```bash
+./gradlew installDist
+docker build -t orders:0.1.0 .
+```
+
+The image is based on `eclipse-temurin:21-jre`, exposes port 9000 and starts the script `installDist`
+wrote. The image only copies files, so one build serves both architectures.
 
 ## A Python service
 
@@ -158,7 +184,8 @@ service's image is yours to build, and an image built on an amd64 laptop runs on
 | Hosting | How to build for both, or for the one your cluster has |
 |---|---|
 | Scala | `ANKKA_IMAGE_PLATFORMS=linux/amd64,linux/arm64 sbt Docker/publish`. The template's build reads the variable; unset, the image is this machine's architecture, which is what `kind load` wants. A multi-platform build pushes and cannot be loaded, so it needs `Docker / dockerRepository` set. |
-| Python, TypeScript, web | `docker buildx build --platform linux/amd64,linux/arm64 --push -t registry.example.com/acme/orders:1.4.2 .` |
+| Java | `./mvnw package jib:build -Dimage=…`; Jib builds for the platforms its `<from><platforms>` lists, `linux/amd64` unless set. |
+| Kotlin, Python, TypeScript, web | `docker buildx build --platform linux/amd64,linux/arm64 --push -t registry.example.com/acme/orders:1.4.2 .` |
 | Rust | nothing: a WebAssembly module has no architecture, and the runtime that loads it is the platform's. |
 
 Building for the architecture your machine is not needs buildx with a `docker-container` builder

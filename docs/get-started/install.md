@@ -1,9 +1,9 @@
 ---
 title: Install the tools
-description: Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python, TypeScript and Rust SDKs available to your projects.
+description: Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Java, Kotlin, Python, TypeScript and Rust SDKs available to your projects.
 kind: tutorial
-languages: [scala, python, typescript, rust]
-related: [get-started/first-service-scala.md, get-started/first-service-python.md, get-started/first-service-typescript.md, get-started/first-service-rust.md, reference/limitations.md]
+languages: [scala, java, kotlin, python, typescript, rust]
+related: [get-started/first-service-scala.md, get-started/first-service-java.md, get-started/first-service-kotlin.md, get-started/first-service-python.md, get-started/first-service-typescript.md, get-started/first-service-rust.md, reference/limitations.md]
 ---
 
 # Install the tools
@@ -12,8 +12,9 @@ ankka is used through three things: libraries your service depends on, the `ankk
 and a platform to deploy to. This page installs the first two. The third has its own page,
 [Install a local platform](../platform/install-local.md), and you need it only once you want to deploy.
 
-The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI, the
-TypeScript SDK from npm and the Rust crate from crates.io. One piece is not yet packaged: the sidecar image that hosts a Python or TypeScript
+The CLI is installed with Homebrew, or unpacked from a release; the Scala libraries and the Java and
+Kotlin SDKs come from Maven Central, the Python SDK from PyPI, the TypeScript SDK from npm and the Rust
+crate from crates.io. One piece is not yet packaged: the sidecar image that hosts a Python or TypeScript
 service is built from the repository,
 and this page says where that applies.
 
@@ -21,7 +22,7 @@ and this page says where that applies.
 
 | Tool | Needed for | Version |
 |---|---|---|
-| JDK | Scala services, the CLI (Homebrew installs its own), building the platform's images | 21 |
+| JDK | Scala, Java and Kotlin services, the CLI (Homebrew installs its own), building the platform's images | 21 |
 | [sbt](https://www.scala-sbt.org/) | Scala services, and `ankka init` for one | any recent 1.x |
 | Docker | running Postgres locally, integration tests, building images | any recent |
 | [uv](https://docs.astral.sh/uv/) and Python | Python services | Python 3.12 |
@@ -44,8 +45,9 @@ ankka version
 ```
 
 `brew upgrade ankka` moves to a newer release. `ankka init` needs `sbt` on the `PATH` for a Scala service,
-because it runs `sbt new` to expand the Scala template; a Python or TypeScript service, and every other
-command, works without it.
+because it runs `sbt new` to expand the Scala template; a service in any other language, and every other
+command, works without it. A Java project carries the Maven wrapper and a Kotlin project the Gradle
+wrapper, so neither needs a build tool installed.
 
 Anywhere else, releases after 0.6.4 carry the CLI as a single native executable for each platform, with
 no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, each on the
@@ -115,6 +117,23 @@ sbt publishLocal                                     # the six, and the control 
 
 Run it again whenever you pull a newer version of the repository and want your projects to use it.
 
+## Make the Java and Kotlin SDKs available
+
+The Java SDK is three artifacts under `com.thinkmorestupidless`, built on the Scala libraries above:
+`ankka-java` (the SDK), `ankka-java-testkit` and `ankka-java-agent`. The Kotlin SDK is three more over
+them: `ankka-kotlin`, `ankka-kotlin-testkit` and `ankka-kotlin-agent`. All six are on Maven Central at
+every release, with the platform's version, and a project made by `ankka init --language java` or
+`--language kotlin` names that version in its `pom.xml` or `gradle.properties`. A Java or Kotlin service
+runs in the runtime's own JVM, so it needs no sidecar image.
+
+To use a Java SDK that is not released yet, publish it from a checkout into the local Maven repository,
+`~/.m2`, with the Scala libraries it is built on; the Kotlin SDK is a Gradle build in `sdks/kotlin`, whose
+README says how to build it against that publication:
+
+```bash
+sbt publishM2                                        # the Scala libraries and the Java SDK, into ~/.m2
+```
+
 ## Install the Python SDK
 
 The Python SDK is the package [`ankka`](https://pypi.org/project/ankka/) on PyPI, published at every
@@ -180,10 +199,13 @@ of the repository, `ankka = { path = "/path/to/ankka/sdks/rust/ankka" }`; it is 
 ## What you have now
 
 - `ankka` on your `PATH`, for creating services, running the local console and operating a platform.
-- The Scala libraries resolvable by sbt, or the Python or TypeScript SDK or the Rust crate in your project.
+- The Scala libraries resolvable by sbt, the Java or Kotlin SDK resolvable by Maven or Gradle, or the
+  Python or TypeScript SDK or the Rust crate in your project.
 - For Python, TypeScript or Rust, the `ankka-sidecar` image, pulled from `ghcr.io/thinkmorestupidless/ankka-sidecar`.
 
 Continue with [your first service in Scala](first-service-scala.md),
+[your first service in Java](first-service-java.md),
+[your first service in Kotlin](first-service-kotlin.md),
 [your first service in Python](first-service-python.md),
 [your first service in TypeScript](first-service-typescript.md) or
 [your first service in Rust](first-service-rust.md).

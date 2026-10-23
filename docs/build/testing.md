@@ -1,8 +1,8 @@
 ---
 title: Testing
-description: Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+description: Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 kind: guide
-languages: [scala, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/effects.md, build/agents.md, get-started/first-service-scala.md, get-started/first-service-python.md]
 ---
@@ -100,8 +100,41 @@ fn a_refused_command_persists_nothing() {
 
 ///
 
-Scala names the handler with the typed value its companion declared; Python, TypeScript and Rust name it
-by its wire name or its handler reference. What each kit hands back differs a little by language.
+/// tab | Java
+
+<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ShoppingCartTest.java#entity-test -->
+```java
+@Test
+void anItemAddedIsInTheCart() {
+  var cart = EventSourcedTestKit.of(ShoppingCart.class, "c1");
+  var result = cart.call(ShoppingCart::addItem, new LineItem("p1", "Pen", 2));
+  assertEquals(Done.DONE, result.reply());
+  assertEquals(List.of(new CartEvent.ItemAdded(new LineItem("p1", "Pen", 2))), result.events());
+  assertEquals(2, cart.state().totalQuantity());
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ShoppingCartTest.kt#entity-test -->
+```kotlin
+@Test
+fun `an item added is in the cart`() {
+    val cart = eventSourcedTestKit(ShoppingCart::class, "c1")
+    val result = cart.call(ShoppingCart::addItem, LineItem("p1", "Pen", 2))
+    assertEquals(Done.DONE, result.reply())
+    assertEquals(listOf<CartEvent>(CartEvent.ItemAdded(LineItem("p1", "Pen", 2))), result.events())
+    assertEquals(2, cart.state().totalQuantity)
+}
+```
+
+///
+
+Scala names the handler with the typed value its companion declared; Java and Kotlin name it by a method
+reference (`ShoppingCart::addItem`); Python, TypeScript and Rust name it by its wire name or its handler
+reference. What each kit hands back differs a little by language.
 
 ### What a Scala kit gives you
 
@@ -538,6 +571,63 @@ fn the_cart_through_the_runtime_survives_a_restart() {
 
 ///
 
+/// tab | Java
+
+<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ServiceTest.java#service-test -->
+```java
+@Test
+void anItemAddedOverHttpIsReadBackAfterARestart() throws Exception {
+  var added =
+      send(
+          HttpRequest.newBuilder(kit.http().resolve("/carts/c1/items"))
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofString(
+                  "{\"productId\":\"p1\",\"name\":\"Pen\",\"quantity\":2}")));
+  assertEquals(204, added.statusCode(), added.body());
+
+  kit.restartService();
+
+  var cart = send(HttpRequest.newBuilder(kit.http().resolve("/carts/c1")).GET());
+  assertEquals(200, cart.statusCode(), cart.body());
+  assertTrue(cart.body().contains("\"quantity\":2"), cart.body());
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ServiceTest.kt#service-test -->
+```kotlin
+@Test
+fun `an item added over HTTP is read back after a restart, and reaches the view`() =
+    ankkaTestKit(service()) {
+        val added =
+            send(
+                HttpRequest.newBuilder(http().resolve("/carts/c1/items"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("""{"productId":"p1","name":"Pen","quantity":2}"""))
+            )
+        assertEquals(204, added.statusCode(), added.body())
+
+        restartService()
+
+        val cart = send(HttpRequest.newBuilder(http().resolve("/carts/c1")).GET())
+        assertEquals(200, cart.statusCode(), cart.body())
+        assertTrue(cart.body().contains("\"quantity\":2"), cart.body())
+
+        runBlocking {
+            eventually {
+                val row = send(HttpRequest.newBuilder(http().resolve("/carts/c1/row")).GET())
+                assertEquals(200, row.statusCode(), row.body())
+                assertTrue(row.body().contains("\"p1\":2"), row.body())
+            }
+        }
+    }
+```
+
+///
+
 `restartService()` stops the service and starts a new one against the same database, so every entity
 must rebuild itself from the journal. A test that passes across a restart has proved durability. One
 that does not restart has only proved that something was in memory.
@@ -576,6 +666,10 @@ A test of something that happens in time — a timer a week away, a schedule, an
 `stopService()`, whatever happens while the service is down (moving the clock, say), then
 `startService()`, with other extensions if the service comes back changed; `restartService(extensions =
 …, whileStopped = …)` is the three in one. The kit's clients are not usable while the service is stopped.
+
+In Java and Kotlin the kit is the Scala one underneath: `AnkkaTestKit.start(service)` (in Kotlin,
+`ankkaTestKit(service) { … }`, which closes it) starts the whole service in the test's JVM against
+Postgres, and `restartService()` drops everything held in memory.
 
 In Python and TypeScript the kit starts the real sidecar image beside Postgres, serves your
 components from the test process, and drives the routes through the sidecar. `restart()` replaces the
@@ -685,8 +779,8 @@ kit.replay(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame"))
 ```
 
 As the home, `mode = EventSourcedTestKit.Mode.Home`, every command runs and the handover or change to
-the replication set a command asks for is on its result. Python, TypeScript and Rust have the same two
-modes; see [Event sourced entities](event-sourced-entities.md#testing-a-replicated-entity).
+the replication set a command asks for is on its result. Java (`EventSourcedTestKit.home` and
+`follower`), Kotlin, Python, TypeScript and Rust have the same two modes; see [Event sourced entities](event-sourced-entities.md#testing-a-replicated-entity).
 
 ## A test must be able to fail
 

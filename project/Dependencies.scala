@@ -89,7 +89,7 @@ object Dependencies {
      * client: OkHttp is not on the classpath of `runtime` or the control plane, and a sender is one
      * more thing an image would carry for nothing.
      */
-    val openTelemetry = "1.66.0"
+    val openTelemetry = "1.67.0"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────

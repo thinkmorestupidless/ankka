@@ -22,6 +22,8 @@ func TestWhatMustNotCompileDoesNot(t *testing.T) {
 	cases := []struct{ file, says string }{
 		{"query_persists.go", "as ankka.ReadOnlyEffect"},
 		{"endpoint_without_acl.go", "as *ankka.ACL value"},
+		// A component of a kind the platform cannot host: the kind is named, as ankka.Declaration.
+		{"unknown_kind.go", "does not implement ankka.Declaration"},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {

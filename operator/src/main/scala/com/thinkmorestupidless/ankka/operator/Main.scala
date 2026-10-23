@@ -34,7 +34,14 @@ object Main:
         .build()
 
       val operator = new Operator(client, settings, ServiceReconciler(client, settings))
+      // Before the start, so a start that hangs reads as one: the probe answers "not finished
+      // starting" until the informers have synced and the workers run.
+      val health =
+        Option.when(settings.healthPort > 0)(
+          HealthCheck.serve(settings.healthPort, () => operator.problems)
+        )
       Runtime.getRuntime.addShutdownHook(new Thread(() =>
+        health.foreach(_.close())
         operator.close()
         client.close()
       ))

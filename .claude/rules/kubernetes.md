@@ -192,6 +192,55 @@ The `broker-external` component exposes the broker to machines: an `external` OA
 from four `ankka-platform` keys. The cloud overlay lists it; the local one does not, and kind publishes
 9094 only on a cluster created with `kind.yaml`'s `30094` mapping, which kind fixes at creation.
 
+## The operator's own process: memory, logging and liveness (2026-10-23)
+
+Found on kind: the operator was OOMKilled 32 times in five hours at its 256Mi limit, and after one
+restart reconciled nothing for fourteen minutes while it logged its informers' resyncs.
+
+**Where the memory went** (measured: the node's cgroup files, and native memory tracking through
+`JAVA_OPTS` with `jcmd` run from a JDK container sharing the pod's process namespace, on a throwaway
+kind cluster with three services). The image ran with no JVM flags. Under about 500Mi the JVM sizes
+its heap by `MinRAMPercentage` (50), not `MaxRAMPercentage` (25): a 126 MiB heap ceiling at 256Mi.
+Beside it, about 120 MiB the JVM accounts for (metaspace 48, code 24 with C2, symbols 16, shared
+classes 12, class space 7, other 8, and C2's compiler arenas peaking at 28) and about 55 MiB it does
+not (glibc keeps what is freed in an arena per allocating thread). The live set after a full GC was
+25 MiB, so nothing grew: SerialGC lets the heap fill to its ceiling before collecting the old
+generation, and heap plus the rest crossed 256 MiB within minutes (three kills in thirteen minutes
+with three idle services). Nothing in the operator grows with time: its per-process sets are keyed by
+resources, its informers hold six kinds (two of them CNPG's, cluster-wide), and the one structure that
+did grow was the timers (below). Now `JAVA_OPTS` sets both percentages to 25, C1 only and
+`ExitOnOutOfMemoryError`, `MALLOC_ARENA_MAX=2`, and `OperatorManifestSuite` holds the budget.
+
+**Why a restarted operator could reconcile nothing.** Three paths, none restarted by anything until
+the liveness probe: a pass that threw an `Error` ended its worker's loop silently (a virtual thread's
+task keeps its throwable in a `Future` nobody reads), was never retried, and a `LinkageError` such as
+"Could not initialize class" repeats on every pass, so the workers go one by one; a worker interrupted
+outside `stop` re-set its flag and spun on `take`; and a started fabric8 informer stops for good on a
+`WatcherException` other than 410 Gone (its default handler retries lists, not those), while its
+resync goes on over the old cache. The earlier pod's logs were gone, so which one run 6 met is not
+known; all three now end in a restart. `GET /healthz` on 8081 (`HealthCheck`, a platform thread)
+answers 503 for a stopped informer, a queue short of a worker, or work waiting or running past
+`stallBound` (ten minutes); a startup probe allows five minutes, the liveness probe one more.
+
+**The log level.** `operator/src/main/resources` had no `logback.xml`, so logback's default was
+DEBUG: fabric8's two `CustomResource#setKind` lines per custom resource read, netty's and vert.x's
+start-up, every TLS handshake. It now has the family's (INFO, clients at WARN).
+
+- **Never start a second JVM in the operator's container to look at it** (`java -version`, `jcmd`).
+  Near its limit the cgroup kills the whole container (2026-10-23: one restart of the shared kind
+  cluster's operator). Read memory from the node (`docker exec <node> cat
+  /sys/fs/cgroup/kubelet.slice/…/cri-containerd-<id>.scope/memory.stat`) and run `jcmd` from a
+  container of its own beside it, on a cluster of your own.
+- **`memory.current` counts page cache; the kill is about `anon`.** The operator's cgroup read 255 of
+  256 MiB both before and after the fix; `anon` went from 225–248 (and three kills) to 196 at most,
+  and with ten services under the shipped 384Mi it was 203.
+- **A pass that asks to be looked at again must not add a timer each time.** `WorkQueue.enqueueAfter`
+  keeps one per resource, the earliest; before, every event-caused pass during a wait added one and
+  every timer's pass added the next, so a long wait was reconciled ever more often.
+- **The operator's `pods/exec` grant is `create` alone, and Kubernetes 1.35 refuses its WebSocket
+  exec without `get`**: every `psql` in `DatabaseQueries` answers 403 (`WebSocket upgrade failure:
+  403`, an ERROR from fabric8 each project pass). Not fixed here: it is a permission change.
+
 ## Deploying locally
 
 ```bash

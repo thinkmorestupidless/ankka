@@ -126,7 +126,18 @@ final case class Settings(
      * The installation's model server, when it has one (feature 053). `None` renders nothing for
      * it, and a service naming an installation model is failed saying this cluster has none.
      */
-    models: Option[ModelServerSettings] = None
+    models: Option[ModelServerSettings] = None,
+    /**
+     * The port of the operator's own health check, `GET /healthz`, which the Deployment's probes
+     * ask. Plain HTTP on the pod, read by the kubelet alone; 0 serves none.
+     */
+    healthPort: Int = 8081,
+    /**
+     * How long a resource may wait in a queue, or one pass may run, before the health check says
+     * the operator is stuck. Ten minutes: the longest wait a pass makes on purpose is a
+     * transition's 90 seconds, and every call it makes is bounded.
+     */
+    stallBound: FiniteDuration = 10.minutes
 ):
   /**
    * The store new buckets are made in (research R1a D1): the backend the installation names, else
@@ -253,6 +264,13 @@ object Settings:
         "ankka.operator.max-concurrent-reconciles",
         "ANKKA_OPERATOR_MAX_CONCURRENT_RECONCILES",
         default.maxConcurrentReconciles
+      ),
+      healthPort =
+        int("ankka.operator.health-port", "ANKKA_OPERATOR_HEALTH_PORT", default.healthPort),
+      stallBound = seconds(
+        "ankka.operator.stall-seconds",
+        "ANKKA_OPERATOR_STALL_SECONDS",
+        default.stallBound
       ),
       databaseStorageSize = string(
         "ankka.operator.database-storage-size",

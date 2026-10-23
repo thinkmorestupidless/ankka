@@ -11,6 +11,8 @@ enum Language(val id: String):
   case Python     extends Language("python")
   case TypeScript extends Language("typescript")
   case Rust       extends Language("rust")
+  case Java       extends Language("java")
+  case Kotlin     extends Language("kotlin")
 
   /** Not a language a service is written in: a user interface, deployed as a web-hosted service. */
   case Web extends Language("web")
@@ -21,8 +23,13 @@ object Language:
     case "python" | "py"     => Right(Python)
     case "typescript" | "ts" => Right(TypeScript)
     case "rust" | "rs"       => Right(Rust)
+    case "java"              => Right(Java)
+    case "kotlin" | "kt"     => Right(Kotlin)
     case "web"               => Right(Web)
-    case other => Left(s"unknown language '$other'; one of scala, python, typescript, rust, web")
+    case other =>
+      Left(
+        s"unknown language '$other'; one of scala, java, kotlin, python, typescript, rust, web"
+      )
 
 /**
  * `ankka init <name>`: a new service from the platform's template.
@@ -81,17 +88,22 @@ object Init:
     val options = request.language match
       case Language.Scala  => Vector.empty
       case Language.Python => template(request) ++ Scaffold.moduleProblems(Scaffold.module(request))
+      case Language.Java | Language.Kotlin =>
+        template(request) ++ Scaffold.packageProblems(
+          Scaffold.jvmPackage(request),
+          request.language
+        )
       case Language.TypeScript =>
         template(request) ++ request.pkg
-          .map(_ => "--package applies to scala and python only")
+          .map(_ => "--package applies to scala, java, kotlin and python only")
           .toVector
       case Language.Rust =>
         template(request) ++ request.pkg
-          .map(_ => "--package applies to scala and python only")
+          .map(_ => "--package applies to scala, java, kotlin and python only")
           .toVector ++ Scaffold.crateProblems(request.name)
       case Language.Web =>
         template(request) ++ request.pkg
-          .map(_ => "--package applies to scala and python only")
+          .map(_ => "--package applies to scala, java, kotlin and python only")
           .toVector
     name ++ occupied ++ options
 

@@ -956,13 +956,32 @@ lazy val cli = project
           .filter(f => f.isFile && !litter(f))
           .flatMap(f => IO.relativize(dir, f).map(_ -> f))
       IO.delete(out)
-      Seq("python", "typescript", "rust", "web").flatMap { language =>
+      // Java and Kotlin are hosted in the runtime's own process, so they carry a compose file of
+      // their own (Postgres only) in place of common-service's, which starts the sidecar.
+      val embedded = Set("java", "kotlin")
+      Seq("python", "typescript", "rust", "web", "java").flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
-        // only a service's, which a web-hosted interface is not.
+        // only a process service's, which a web-hosted interface and an embedded one are not.
+        // `.scaffold-modes` beside a template's root names its binary and executable files.
+        val modesFile = templates / language / ".scaffold-modes"
+        val modes: Map[String, String] =
+          if (!modesFile.exists) Map.empty
+          else
+            IO.readLines(modesFile)
+              .map(_.trim)
+              .filter(l => l.nonEmpty && !l.startsWith("#"))
+              .map { line =>
+                line.split("\\s+") match {
+                  case Array(path, mode) if mode == "binary" || mode == "exec" => path -> mode
+                  case _ => sys.error(s"$modesFile: '$line' is not 'path binary' or 'path exec'")
+                }
+              }
+              .toMap
         val files = (
           filesUnder(templates / "common") ++
-            (if (language == "web") Nil else filesUnder(templates / "common-service")) ++
-            filesUnder(templates / language) ++
+            (if (language == "web" || embedded(language)) Nil
+             else filesUnder(templates / "common-service")) ++
+            filesUnder(templates / language).filterNot(_._1 == ".scaffold-modes") ++
             filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
         ).sortBy(_._1)
         val duplicated =
@@ -974,8 +993,16 @@ lazy val cli = project
           IO.copyFile(file, target)
           target
         }
+        val unlisted = modes.keySet -- files.map(_._1)
+        if (unlisted.nonEmpty)
+          sys.error(s"$modesFile names ${unlisted.mkString(", ")}, which the template lacks")
         val index = out / language / "index.txt"
-        IO.write(index, files.map(_._1).mkString("", "\n", "\n"))
+        IO.write(
+          index,
+          files
+            .map { case (relative, _) => modes.get(relative).fold(relative)(m => s"$relative  $m") }
+            .mkString("", "\n", "\n")
+        )
         index +: copied
       }
     }.taskValue,
@@ -985,9 +1012,31 @@ lazy val cli = project
     // list that does not name scala (`=python`). On both `test` and `testOnly`: the second is how a
     // single suite is run, and it does not go through the first.
     templateArtifacts := Def.taskDyn {
-      // The switch also takes a list of languages (TemplateSwitch); only `scala` needs the publish.
+      // The switch also takes a list of languages (TemplateSwitch); `scala` needs the Ivy publish,
+      // `java` and `kotlin` the Maven one (their builds resolve from ~/.m2), nothing else either.
       val selected = sys.props.get("ankka.template.tests")
-      if (selected.exists(s => s == "off" || !s.split(',').map(_.trim).contains("scala")))
+      val named    = selected.toSeq.flatMap(_.split(',').map(_.trim))
+      val jvm      = named.exists(l => l == "java" || l == "kotlin")
+      if (jvm)
+        // Everything ankka-java, ankka-java-agent and ankka-java-testkit reach, as POMs and jars
+        // in ~/.m2/repository, so `./mvnw` and `./gradlew` resolve this commit's SDK.
+        Def.task {
+          (core / publishM2).value
+          (sdk / publishM2).value
+          (runtime / publishM2).value
+          (http / publishM2).value
+          (grpc / publishM2).value
+          (telemetryOtlp / publishM2).value
+          (agent / publishM2).value
+          (authOidc / publishM2).value
+          (mcp / publishM2).value
+          (testkit / publishM2).value
+          (sdkJava / publishM2).value
+          (agentJava / publishM2).value
+          (testkitJava / publishM2).value
+          ()
+        }
+      else if (selected.exists(s => s == "off" || !named.contains("scala")))
         Def.task(())
       else
         // Eight of the ten by name: a task dependency on the root's publishLocal runs only the
@@ -1114,7 +1163,13 @@ lazy val javaSdkSettings = Seq(
   ),
   // Handlers' parameter names are read when a route binds a parameter by name.
   Compile / compile / javacOptions += "-parameters",
-  Test / compile / javacOptions += "-parameters"
+  Test / compile / javacOptions += "-parameters",
+  // javadoc refuses a module with no class in it ("No public or protected classes found"), which
+  // a module holding only its package-info is; its doc jar is then empty rather than a failure.
+  Compile / doc / sources := {
+    val all = (Compile / doc / sources).value
+    if (all.forall(_.getName == "package-info.java")) Nil else all
+  }
 )
 
 lazy val sdkJava = project

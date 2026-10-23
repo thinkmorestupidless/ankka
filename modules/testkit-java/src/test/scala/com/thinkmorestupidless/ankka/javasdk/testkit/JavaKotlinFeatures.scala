@@ -54,7 +54,6 @@ class JavaKotlinFeatures
 
   /** Suites named above that a later story of spec 058 writes, each with its story. */
   private val notYet = Map(
-    "JavaTemplateSuite"          -> "US2",
     "KotlinTemplateSuite"        -> "US4",
     "ShoppingCartKotlinFeatures" -> "US4",
     "KotlinFeaturesTest"         -> "US4"

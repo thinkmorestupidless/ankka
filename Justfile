@@ -137,3 +137,7 @@ docs-test:
 # the model presets.
 docs-reference:
     sbt -Dankka.docs.update=true -Dankka.template.tests=off 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite' 'agent/testOnly *ModelPresetsReferenceSuite'
+
+# `ankka init --language java` rendered, built and tested with its own wrapper against this commit's SDK.
+template-java:
+    sbt -Dankka.cluster.tests=off -Dankka.template.tests=java 'cli/testOnly *JavaTemplateSuite'

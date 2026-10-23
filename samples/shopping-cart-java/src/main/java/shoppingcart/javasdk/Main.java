@@ -8,7 +8,15 @@ public final class Main {
 
   // docs:start service
   public static ServiceBuilder service() {
-    return Ankka.service("shopping-cart").register(ShoppingCart.class).withEndpoint(CartEndpoint.class);
+    return Ankka.service("shopping-cart")
+        .register(ShoppingCart.class)
+        .register(CartRows.class)
+        .register(CheckoutNotifier.class)
+        .register(CheckoutsSeen.class)
+        .withEndpoint(CartEndpoint.class)
+        .withEndpoint(CheckoutsSeenEndpoint.class)
+        .withEndpoint(CartKeysEndpoint.class)
+        .withMcpEndpoint(CartMcpEndpoint.class);
   }
   // docs:end service
 

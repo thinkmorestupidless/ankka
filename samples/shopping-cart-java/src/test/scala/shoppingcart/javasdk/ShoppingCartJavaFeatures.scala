@@ -11,9 +11,8 @@ import scala.concurrent.duration.DurationInt
  * The Scala cart's own living features, run against the cart written in Java: each step is the
  * request a customer's client makes over HTTP, as `CartFeatures` sends it to the Scala cart.
  *
- * The cart's tools and its checkout notice need an MCP endpoint, a consumer and a view in Java,
- * which arrive with every component kind (user story 3); until then their steps are skipped by
- * name, never passed.
+ * Every scenario runs, the cart's tools and its checkout notice included: the Java cart has the
+ * Scala cart's MCP endpoint, consumer and views.
  */
 class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features") with LogCapturing:
 
@@ -24,12 +23,32 @@ class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features")
   /** The answer to the last request a `When` step made. */
   private var last: (Int, String) = (0, "")
 
-  override def beforeAll(): Unit = kit = AnkkaTestKit.start(Main.service())
+  /** The key the customer's assistant carries to the cart's tools. */
+  private var assistantKey = ""
+
+  override def beforeAll(): Unit =
+    kit = AnkkaTestKit.start(Main.service())
+    // The assistant holds the customer's key, issued as the sample issues one; until the keys
+    // have loaded, the issue is answered 503.
+    val asked    = Some("""{"subject":"customer","label":"the customer's assistant"}""")
+    val deadline = 30.seconds.fromNow
+    var issued   = send("POST", "/mcp-keys", asked)
+    while issued._1 == 503 && deadline.hasTimeLeft() do
+      Thread.sleep(50)
+      issued = send("POST", "/mcp-keys", asked)
+    assertEquals(issued._1, 200, issued._2)
+    assistantKey = """"clientKey":"([^"]+)"""".r.findFirstMatchIn(issued._2).map(_.group(1)).get
 
   override def afterAll(): Unit = if kit != null then kit.close()
 
-  private def send(method: String, path: String, body: Option[String] = None): (Int, String) =
+  private def send(
+      method: String,
+      path: String,
+      body: Option[String] = None,
+      headers: Seq[(String, String)] = Nil
+  ): (Int, String) =
     val builder = JdkRequest.newBuilder(kit.http.resolve(path)).timeout(Duration.ofSeconds(30))
+    headers.foreach((name, value) => builder.header(name, value): Unit)
     body match
       case Some(json) =>
         builder.header("Content-Type", "application/json")
@@ -65,9 +84,6 @@ class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features")
   private def refused(status: Int, words: String): Unit =
     assertEquals(last._1, status, s"expected a refusal with $status: ${last._2}")
     assert(last._2.contains(words), s"refused, but not because $words: ${last._2}")
-
-  private def notYet(): Unit =
-    assume(false, "needs a Java MCP endpoint, consumer and view: user story 3")
 
   Given("an empty cart")(() => ())
 
@@ -106,7 +122,17 @@ class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features")
     last = send("DELETE", cart)
   }
 
-  Then("the checkout notice of the cart is read from the topic")(() => notYet())
+  Then("the checkout notice of the cart is read from the topic") { () =>
+    // Read through a topic and a projection, so it arrives a moment after the checkout answers.
+    val deadline = 30.seconds.fromNow
+    var seen     = send("GET", s"/checkouts-seen/$scenarioId")
+    while seen._1 != 200 && deadline.hasTimeLeft() do
+      Thread.sleep(200)
+      seen = send("GET", s"/checkouts-seen/$scenarioId")
+    assertEquals(seen._1, 200, s"no checkout notice of the cart was read: ${seen._2}")
+    assert(seen._2.contains(s""""cartId":"$scenarioId""""), seen._2)
+    assert(seen._2.contains(""""notices":1"""), seen._2)
+  }
 
   Then("the cart holds {int} item(s) in total") { (total: Int) =>
     val (status, body) = send("GET", s"$cart/total")
@@ -143,21 +169,62 @@ class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features")
     refused(400, "cannot check out an empty cart")
   }
 
-  When("the customer's assistant asks for the cart's tools")(() => notYet())
+  // ── The cart's tools, as an assistant calls them ─────────────────────────
+
+  private var told: Vector[String] = Vector.empty
+
+  /** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
+  private def mcp(method: String, params: String): String =
+    val (status, body) = send(
+      "POST",
+      "/mcp",
+      Some(s"""{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}"""),
+      Seq("Authorization" -> s"Bearer $assistantKey")
+    )
+    assertEquals(status, 200, body)
+    body
+
+  private def callTool(name: String, arguments: String): Unit =
+    last = (0, mcp("tools/call", s"""{"name":"$name","arguments":$arguments}"""))
+
+  When("the customer's assistant asks for the cart's tools") { () =>
+    told =
+      """"name":"([a-z_]+)"""".r.findAllMatchIn(mcp("tools/list", "{}")).map(_.group(1)).toVector
+  }
+
   Then("the assistant is told the tools {string}, {string} and {string}") {
-    (_: String, _: String, _: String) => notYet()
+    (a: String, b: String, c: String) => assertEquals(told, Vector(a, b, c))
   }
+
   When("the customer's assistant adds {int} of {string} with the tool {string}") {
-    (_: Int, _: String, _: String) => notYet()
+    (quantity: Int, product: String, tool: String) =>
+      callTool(
+        tool,
+        s"""{"cartId":"$scenarioId","productId":"${id(product)}","quantity":$quantity}"""
+      )
   }
-  When("the customer's assistant reads the cart with the tool {string}")((_: String) => notYet())
-  When("the customer's assistant checks the cart out with the tool {string}") { (_: String) =>
-    notYet()
+
+  When("the customer's assistant reads the cart with the tool {string}") { (tool: String) =>
+    callTool(tool, s"""{"cartId":"$scenarioId"}""")
   }
-  Then("the assistant is told the cart holds {int} of {string}") { (_: Int, _: String) =>
-    notYet()
+
+  When("the customer's assistant checks the cart out with the tool {string}") { (tool: String) =>
+    callTool(tool, s"""{"cartId":"$scenarioId"}""")
+    assert(last._2.contains("\"isError\":false"), last._2)
   }
-  Then("the assistant is told {string}")((_: String) => notYet())
+
+  Then("the assistant is told the cart holds {int} of {string}") {
+    (quantity: Int, product: String) =>
+      assert(last._2.contains("\"isError\":false"), last._2)
+      // The structured content is the cart itself, as the cart's own read answers it.
+      val structured = last._2.substring(last._2.indexOf("\"structuredContent\""))
+      assertEquals(quantityIn(structured, product), quantity)
+  }
+
+  Then("the assistant is told {string}") { (words: String) =>
+    assert(last._2.contains("\"isError\":true"), last._2)
+    assert(last._2.contains(words), last._2)
+  }
 
   for change <- Seq("addition", "removal", "checkout", "discard") do
     Then(s"the $change is refused because the cart is checked out") { () =>

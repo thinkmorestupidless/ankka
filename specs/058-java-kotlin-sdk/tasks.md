@@ -1,0 +1,287 @@
+# Tasks: Java and Kotlin SDKs
+
+**Input**: Design documents from `/specs/058-java-kotlin-sdk/`
+
+**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md),
+[data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md)
+
+**Tests**: included. The living features under `features/java-kotlin/` and the Java and Kotlin rows
+in about twenty-five other feature files are the acceptance scenarios; the encoding fixtures and
+the conformance suite already exist; so most of this feature's tests are written before its code
+and the work is making them pass. Every suite named below must be seen red once before it is
+green (CLAUDE.md, "could this pass while the thing it checks is false?").
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: can run in parallel: different files, no dependency on an incomplete task
+- **[Story]**: US1 (an entity and an endpoint in Java), US2 (the template and the test kits), US3
+  (every component kind), US4 (a Kotlin SDK of its own), US5 (agents, judgments, blueprints), US6
+  (documentation, skills, the honest list)
+
+Paths are repository-relative. Abbreviations: `SJ` = `modules/sdk-java`; `JAVA` =
+`modules/sdk-java/src/main/java/com/thinkmorestupidless/ankka/java`; `BRIDGE` =
+`modules/sdk-java/src/main/scala/com/thinkmorestupidless/ankka/java/bridge`; `JT` =
+`modules/sdk-java/src/test`; `AJ` = `modules/agent-java`; `TJ` = `modules/testkit-java`; `KT` =
+`sdks/kotlin`; `KSRC` = `sdks/kotlin/ankka-kotlin/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin`;
+`CLI` = `cli/src/main/scala/com/thinkmorestupidless/ankka/cli`; `CONF` =
+`sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance`; `SK` = `tools/docs/skill`.
+Where a Scala file is named as the model, read it first and write the Java that says the same
+thing in Java's form (plan, "Structure Decision").
+
+---
+
+## Phase 1: Setup — verify first, then the skeleton (research "Verify at implementation" 1, 2, 5, 8, 9)
+
+**Purpose**: settle the assumptions the design rests on, and put the three modules in the build.
+Each spike's *answer* is the deliverable, recorded in research.md; its code is thrown away unless
+a task below names it.
+
+- [ ] T001 Declare `sdkJava`, `agentJava`, `testkitJava` and `shoppingCartJava` in `build.sbt` as `contracts/plumbing.md` gives them (`crossPaths := false`, `Compile / compile / javacOptions ++= Seq("-Xlint:all", "-Werror")`, jspecify pinned in `project/Dependencies.scala`), add them to `root.aggregate`, add `sidecar.dependsOn(sdkJava % Test)`, forward `ankka.conformance.reference` in `Test / javaOptions`, and create the four directories with an empty `package-info.java` each so `sbt compile` passes; add `sbt sdkJava/test` and the Kotlin commands to `CLAUDE.md`'s Commands block.
+- [ ] T002 Spike (verify 8) in the scratch directory: `sbt publishM2` for a `crossPaths := false` module depending on `_3` modules; confirm `~/.m2/repository/com/thinkmorestupidless/ankka-java/<v>/` holds a pom whose dependencies name `ankka-sdk_3` and that a scratch `pom.xml` resolves it from `mavenLocal`. Record the answer in `research.md` under R11; if the pom is wrong, fix with `pomPostProcess` in T001.
+- [ ] T003 [P] Spike (verify 2) in `JT/scala/.../java/SpikeSuite.scala` (throwaway): on a virtual thread, `kotlinx.coroutines.runBlocking` awaiting a `CompletableFuture` completed from another thread; assert with `Thread.getAllStackTraces` that no new platform thread appeared and the virtual thread parked (`jdk.tracePinnedThreads` empty). Record the answer under R5; if `runBlocking` pins, switch R5 to a `Continuation`-based bridge before T054. Delete the spike.
+- [ ] T004 [P] Spike (verify 5) in the same throwaway suite: `MethodHandles.privateLookupIn` on a package-private method of a class in another package on the classpath (no `module-info`); and `SerializedLambda` extraction from a `Serializable` functional interface's method reference, lambda and bound method reference (`cart::addItem`), recording which shapes resolve. Record under R2. Delete the spike.
+- [ ] T005 [P] Spike (verify 9) in the scratch directory: `mvn wrapper:wrapper -Dtype=only-script` produces `mvnw` with no jar and builds offline-cached; `gradle wrapper` produces `gradle-wrapper.jar`; copy both through `Files.readString`/`writeString` and confirm the jar is corrupted (so `Scaffold` needs binary entries, T030). Record under R10; also decide Jib versus Dockerfile by building a scratch Java project's image both ways without a Docker daemon for Jib.
+
+**Checkpoint**: `sbt compile` passes with the four empty modules; spikes answered in research.md.
+
+---
+
+## Phase 2: Foundational — the codec, the declaration reader, the effects, the adapters, the service
+
+**Purpose**: what every story needs. Blocks all stories. Nothing here knows about a kind beyond
+the two entities US1 needs; the rest of the kinds are US3's.
+
+### The record codec (R3, data-model.md "The codec plan")
+
+- [ ] T006 Write `JAVA/codec/Serializer.java`, `ContentType.java`, `Manifest.java` (annotation), `EncodingException.java` (with `path()`), as `contracts/java-sdk.md` gives them; write `BRIDGE/CodecBridge.scala` adapting a Java `Serializer<A>` to the Scala `Serializer[A]` trait (`modules/core/.../Serializer.scala:15`) and back.
+- [ ] T007 Write `JAVA/codec/Plan.java` (sealed interface of plan nodes: `RecordNode`, `SumNode`, `EnumNode`, `OptionNode`, `SeqNode`, `MapNode`, the leaves) and `JAVA/codec/Planner.java`: builds a plan from a `java.lang.reflect.Type` once, cached by type, refusing what data-model.md's table refuses (a non-`String` map key, `float`/`short`/`byte`/`char`, a case or component named `type`, an unsupported class) with the path to the offending member; `JT/java/.../codec/PlannerTest.java` (munit via `munit-java`? no: use munit from Scala in `JT/scala/.../codec/PlannerSuite.scala` driving the Java classes) covering each refusal and the recursion guard for a self-referencing record.
+- [ ] T008 Write `JAVA/codec/JsonWriter.java`: plan-directed writer producing `ENCODING.md`'s bytes (every component written; `null` for an empty `Optional`; `"type"` first for a sum case; `{"type":"A"}` for an enum as a field; longs as digits; doubles via a `DoubleRenderer` matching jsoniter's shortest round-trip with the `1.0`/`1.0E10` thresholds the fixtures show; `Instant.toString`; base64 for `byte[]`), refusing a `null` component with `EncodingException("ShoppingCart.items[2].discount")` (FR-009); `JT/scala/.../codec/JsonWriterSuite.scala` for each rule including the double thresholds and the null refusal naming the field.
+- [ ] T009 Write `JAVA/codec/JsonReader.java`: a recursive-descent reader over the plan (lenient on unknown fields; absent `Optional` → empty; a bare string for an enum; strict on a missing required component, an unknown `type`, a non-integer for `int`/`long`, with the path); `JT/scala/.../codec/JsonReaderSuite.scala` including `9007199254740993` exactly and a nested path in the error.
+- [ ] T010 Write `JAVA/codec/RecordCodec.java` (`forType`, `schemaOf` producing the JSON Schema per data-model.md, the text payload codecs `string`/`int`/`long`/`double`/`boolean`/`duration-millis`, the binary `done`/`unit`/`bytes`/`option[<m>]`) and `JAVA/Done.java`; `JT/scala/.../codec/RecordCodecFixturesSuite.scala` mirroring `modules/core/src/test/.../EncodingFixturesSuite.scala`'s reading side: one test per file under `protocol/fixtures` (and its subdirectories), decode with the Java shapes redeclared as records/sealed interfaces/enums in `JT/java/.../codec/Shapes.java`, compare with `value`, re-encode and compare bytes; a fixture with no Java shape **fails**; a final test asserts every file was named. Make it pass: this is SC-001 and the riskiest task.
+
+### The declaration reader (R2, data-model.md "Declarations", "The declaration plan")
+
+- [ ] T011 [P] Write the annotations in `JAVA/annotations/`: `ComponentId`, `Manifest` (moved from T006 if written there), `Command`, `Query`, `Step`, `Action`, `Stream`, `Rule`, `Source`, `Get`, `Post`, `Put`, `Delete`, `Patch`, `Sse`, `Socket`, `StreamBody` (the `@Stream("/upload")` route form, named apart from the agent's `@Stream`), `Path`, `QueryParam`, `Header`, `Body`, `Describe`, each `@Retention(RUNTIME)` with the targets `contracts/java-sdk.md` gives.
+- [ ] T012 [P] Write `JAVA/problems/DeclarationProblem.java` (record) and `ServiceProblems.java` (exception listing them, one per line in registration order), `JAVA/client/CommandRef.java`, `NoArgRef.java`, `StepRef.java`, `NoInputStepRef.java` (serializable functional interfaces) and `JAVA/client/CallerError.java`.
+- [ ] T013 Write `BRIDGE/Declarations.scala`: `read(cls: Class[?], componentId: Option[String]): ComponentPlan` once per class (`getDeclaredMethods`, `MethodHandles.privateLookupIn`), building `HandlerPlan`s and collecting every `DeclarationProblem` from data-model.md's validation list (no name, duplicate wire name, handler-shaped method with no annotation, `@Query` whose return type is not `ReadOnlyEffect`, more than one parameter, no serializer for a type, abstract or non-public class, no usable constructor); `JT/scala/.../bridge/DeclarationSuite.scala` with one broken class per rule in `JT/java/.../broken/` and an assertion that **no** problem escapes as an exception from a request path (the plan is built, problems listed, nothing invoked).
+- [ ] T014 Write `BRIDGE/Refs.scala`: resolves a `CommandRef`/`NoArgRef`/`StepRef` through its `SerializedLambda` to `(implClass, implMethod, implSignature)` and then to the wire name in the registered plans, cached per lambda class; a non-method-reference lambda or an unregistered method is a `CallerError` naming the call site; `JT/scala/.../bridge/RefsSuite.scala` covering a method reference, a bound reference, a lambda (refused), a renamed method (resolves to the annotation's wire name, the scenario "a handler's name is declared apart from the function that handles it" in unit form).
+
+### Effects, contexts, the two entities and the service (R1, R4)
+
+- [ ] T015 Write `JAVA/effect/Effect.java`, `ReadOnlyEffect.java`, `EventSourcedEffects.java`, `PersistBuilder.java`, `KeyValueEffects.java`, `UpdateBuilder.java`, `JAVA/http/Problem.java` and `BRIDGE/Effects.scala`: the single package-private implementations holding the Scala effect values built through `EventSourcedEffects`/`PersistBuilder`/`KeyValueEffects` (`modules/core/.../effect/EventSourcedEffect.scala:102,152`, `KeyValueEffect.scala:63`), converting `Function<S,R>` to `Function1`, varargs and `List` to `Seq`, and `unwrap` for the bridge and the kits; `JT/scala/.../bridge/EffectsSuite.scala` asserting a `ReadOnlyEffect` is never produced by `persist(...)` (compile-time, via a `@ts-expect-error`-like negative compile test in `JT/java/.../negative/` compiled by the suite with `javax.tools.JavaCompiler` and asserted to **fail**) and that `unwrap` of each builder equals the Scala builder's value.
+- [ ] T016 Write `JAVA/component/EventSourcedEntity.java`, `KeyValueEntity.java`, `EntityContext.java`, `Caller.java`, `JAVA/timer/Timers.java` (interface only; implementation in US3), and `BRIDGE/Adapters.scala`: `JavaEventSourcedEntity[S, E] extends EventSourcedEntity[S, E]` and `JavaKeyValueEntity[S]`, constructed by the plan's `create`, forwarding `_setState`/`_setContext`/`_applyEvent` (`modules/sdk/.../EventSourcedEntity.scala:68-78`, `KeyValueEntity.scala:39`) to the Java instance's injected fields, building `EventSourcedEntityDescriptor`/`KeyValueEntityDescriptor` with `CommandHandle`/`NoArgHandle` whose `run` calls the `MethodHandle` and unwraps the returned Java effect; serializers from `CodecBridge` over `RecordCodec` for the class's type arguments, or a registered `Serializer`.
+- [ ] T017 Write `JAVA/Ankka.java`, `ServiceBuilder.java`, `AnkkaService.java` and `BRIDGE/Service.scala` over `Ankka.service` (`modules/runtime/.../Ankka.scala:108`): `register` reads the plan at once, `start()` throws `ServiceProblems` with every collected problem plus the Scala registry's (`ComponentRegistry.from`), binds nothing before; `withSerializer`, `withEndpoint` (stub until T022), `httpAddress`, `awaitReady`, `whenTerminated`, `terminate`, `close`; `JT/scala/.../bridge/ServiceSuite.scala`: a service with two broken components reports both problems and binds no port (assert the HTTP port stays closed), and a correct service starts on `127.0.0.1:0`.
+- [ ] T018 Write `JAVA/client/ComponentClient.java`, `EntityRef.java`, `Invocation.java` and `BRIDGE/Clients.scala` over the Scala `ComponentClient` (`modules/sdk/.../ComponentClient.scala`), `invoke` blocking and `invokeAsync` through `scala.jdk.javaapi.FutureConverters.asJava`, `withTimeout`, the untyped `call(wireName, in, out)` form; `JT/scala/.../bridge/ClientsSuite.scala` through `AnkkaTestKit` (Scala, from `testkit % Test`): a Java entity called by method reference and by wire name, both answered.
+- [ ] T019 Write `JT/scala/.../SurfaceSuite.scala` (R12): over the packaged classes directory of `sdkJava` (`Compile / classDirectory`), every public class under `com.thinkmorestupidless.ankka.java` excluding `.bridge`, each public member's types, supertypes and annotation element types, failing on `scala.`, `org.apache.pekko.`, `com.github.plokhotnyuk.` and ankka packages outside the allowed set in `contracts/java-sdk.md`; parameterised to run over `agentJava` and `testkitJava` later (T088, T046). Break it once by adding a `scala.Option` parameter to a Java interface and see it red.
+
+**Checkpoint**: tier 1 of the quickstart is green: fixtures, declaration problems, surface.
+
+---
+
+## Phase 3: User Story 1 — An entity and an endpoint in Java, in the same process (Priority: P1) 🎯 MVP
+
+**Goal**: a Java developer writes a shopping cart entity and an HTTP endpoint, runs them embedded,
+sends a command through HTTP and sees it answered; a wrong declaration fails at start; a Java and
+a Scala state of one shape are written the same.
+
+**Independent Test**: `sbt 'sdkJava/testOnly *EntityEndpointSuite *CrossLanguageBytesSuite'` and
+the Java rows of the first eight scenarios of `features/java-kotlin/embedded.feature` through
+`JavaKotlinFeatures` (T026).
+
+- [ ] T020 [P] [US1] Write `JAVA/http/Acl.java`, `Request.java`, `Response.java`, `ProblemException.java`, `Principal.java`, `AuthDecision.java` and `BRIDGE/Acls.scala` mapping onto the Scala `Acl` enum (`modules/http/.../codecs.scala:86`) and `RequestContext`.
+- [ ] T021 [P] [US1] Write `JAVA/http/HttpEndpoint.java` (abstract `acl()`, `request()`, `caller()`, `principal()`, `componentClient()`, `services()` as `contracts/java-sdk.md`) and `JAVA/client/ServiceClients.java`, `ServiceClient.java` over the Scala service client.
+- [ ] T022 [US1] Write `BRIDGE/Routes.scala`: reads an endpoint class's `@Get`/`@Post`/… methods once, binds `@Path`/`@QueryParam`/`@Header`/`@Body` parameters by name and type through `RecordCodec`, builds Scala `Route`s and overrides `routes` on a `JavaHttpEndpoint extends HttpEndpoint` adapter (`modules/http/.../HttpEndpoint.scala:346`), maps a returned value, `Response`, `Done` and `ProblemException` onto `ToResponse` (`codecs.scala:51`) and `HttpProblem`; route declaration problems (unparseable template, `@Path` not in the template, duplicate verb and template, no `acl()` reachable) into `DeclarationProblem`s; wire `ServiceBuilder.withEndpoint`; `JT/scala/.../bridge/RoutesSuite.scala` through `HttpServer.at("127.0.0.1", 0)`: literal outranks parameter, each binding kind, each return kind, a 4xx from `ProblemException`, `DenyAll` refuses.
+- [ ] T023 [US1] Write the Java shopping cart as a test fixture first: `JT/java/.../cart/ShoppingCart.java` (records `CartState`, `LineItem`, sealed `CartEvent` with `ItemAdded`, `ItemRemoved`, `CheckedOut`; `@Command("add-item")`, `@Command("remove-item")`, `@Command("checkout")`, `@Query("get-cart")`), `CartEndpoint.java` (`@Post("/carts/{id}/items")`, `@Delete`, `@Post("/carts/{id}/checkout")`, `@Get("/carts/{id}")`, `acl()` allow-all) and `JT/scala/.../EntityEndpointSuite.scala` through the Scala `AnkkaTestKit` with `HttpServer.at(..., 0)`: a command through HTTP answered, state read back, `restartService()` and the cart recovered (the scenario "a service written in Java or Kotlin is embedded", unit form).
+- [ ] T024 [US1] Write `JT/scala/.../CrossLanguageBytesSuite.scala`: the Java `CartState` record and the Scala `samples/shopping-cart`'s `ShoppingCart` state of the same values written by each SDK's default serializer are byte-identical, and each reads the other's bytes (the scenario "a state declared in Java and the same state declared in Scala are written the same"); the same for the events.
+- [ ] T025 [US1] Write `JT/scala/.../StartFailuresSuite.scala` driving `Ankka.service(...).start()` on the broken fixtures of T013 plus an endpoint calling an unregistered entity: "shop" does not start, the message names `add-item`, the function, or `cart`, and a probe confirms no request was needed (the four "fails at start" scenarios in `embedded.feature`).
+- [ ] T026 [US1] Write `TJ/src/test/scala/.../JavaKotlinFeatures.scala` as `GherkinSuite("features/java-kotlin")` with step definitions in `TJ/src/test/scala/.../steps/EmbeddedSteps.scala` for the Java rows of the scenarios T023, T024 and T025 cover (`ranElsewhere` for the Kotlin rows naming `KotlinFeaturesTest`, `ranOutside` for the measurement scenario naming research.md's Measurements, and for the template, documentation and CI scenarios naming `JavaTemplateSuite`, `KotlinTemplateSuite`, `docs check` and `ci.yml`; names that do not exist fail the suite). Place `JavaKotlinFeatures` in `TJ` now (module exists from T001) so later stories only add steps. Fields the maps read are `lazy val`s (`.claude/rules/testing.md`).
+
+**Checkpoint**: US1 independently testable; the MVP is a Java cart and endpoint running embedded.
+
+---
+
+## Phase 4: User Story 2 — Starting from the template, tested at both levels (Priority: P1)
+
+**Goal**: `ankka init shop --language java` writes a Maven project that builds and tests with a
+JDK and Docker only; the two Java test kits drive the entity without a runtime and the service
+against a throwaway database; CI proves the template.
+
+**Independent Test**: `sbt 'testkitJava/test'` and `sbt -Dankka.template.tests=java 'cli/testOnly *JavaTemplateSuite'`.
+
+### The test kits (R9)
+
+- [ ] T027 [P] [US2] Write `TJ/src/main/java/.../testkit/EventSourcedTestKit.java`, `KeyValueEntityTestKit.java`, `Result.java` and `TJ/src/main/scala/.../testkit/bridge/EntityKits.scala` wrapping the Scala `EventSourcedTestKit.of` (`modules/testkit/.../EventSourcedTestKit.scala:246`) and `KeyValueEntityTestKit:86`: `call(CommandRef, in)` resolves through `Refs`, drives the Scala kit, unwraps the Java effect to the same `materialise`; `state()`, `events()`, `restart()`, `withEvents`; `TJ/src/test/scala/.../EntityKitsSuite.scala` driving the Java cart of T023 (moved to `TJ/src/test/java/.../cart/` as a shared fixture, or kept in `SJ` with `testkitJava.dependsOn(sdkJava % "test->test")`) and asserting the kit's result equals the running service's for the same commands.
+- [ ] T028 [P] [US2] Write `TJ/src/main/java/.../testkit/AnkkaTestKit.java`, `Settings.java`, `TimerProbe.java`, `ScriptedService.java` and `TJ/src/main/scala/.../testkit/bridge/ServiceKit.scala` over the Scala `AnkkaTestKit.start` (`:326`): `start(ServiceBuilder)` boots the Java service against a throwaway database on `127.0.0.1:0`, `componentClient()`, `http()`, `httpClient()`, `restartService()`, `eventually(Duration, Runnable)`, `timers()`, `secrets()`, `storage()`, `service(name)`, `close()`; `TJ/src/test/scala/.../ServiceKitSuite.scala`: the Java cart survives `restartService()`, `eventually` retries on the value and asserts the identity.
+- [ ] T029 [US2] Write `samples/shopping-cart-java/` as an sbt sample (`build.sbt` entry from T001): `src/main/java/.../{Main,ShoppingCart,CartEndpoint,CartView}.java` ported from `samples/shopping-cart/src/main/scala` kind for kind, `service.json`, `README.md`; `src/test/scala/.../CartFeatures.scala` as `GherkinSuite("samples/shopping-cart/features")` with steps in `src/test/java/.../steps/` through the Java kits, so the Java cart passes the sample's own features with none left out (the scenario "the shopping cart written in Java or Kotlin passes the sample's own features", Java row); wire the Java row's step in T026 to this suite via `ranElsewhere`.
+
+### The template (R10, contracts/plumbing.md)
+
+- [ ] T030 [US2] Change `CLI/Scaffold.scala`: `index.txt` mode column (`binary`, `exec`), byte-for-byte copy for binary entries, owner-execute bit for exec entries, tokens `{{package}}` and `{{package_path}}`; change the template resource generator in `build.sbt` to read `.scaffold-modes` beside each template root and write the mode column, and to list `java` and `kotlin` skipping `common-service`; `cli/src/test/scala/.../ScaffoldSuite.scala` (or the existing one): a binary entry round-trips a jar's bytes, an exec entry is executable, the new tokens replace in paths.
+- [ ] T031 [US2] Change `CLI/Init.scala` (`Language.Java`, `Language.Kotlin`, aliases, `--package` validation as `contracts/plumbing.md`, the error string), `CLI/Main.scala` `initCommand` (two `Scaffold.render` branches and their next steps), `cli/src/test/scala/.../InitSuite.scala:67-71` (parse cases for `java`, `kotlin`, `kt`, a bad `--package`), `cli/native-smoke.sh:53-60` (render `java` and `kotlin`, check `mvnw`/`gradlew` executable and the wrapper jar non-empty), `cli/mcp/AnkkaTools.scala:364,531` (six languages).
+- [ ] T032 [US2] Write `cli/src/main/templates/java/` as `contracts/plumbing.md` lists it: `pom.xml` (ankka-java `{{ankka_version}}`, ankka-java-testkit and junit-jupiter test scope, surefire, exec, the image plugin T005 chose), `mvnw` and `.mvn/wrapper/maven-wrapper.properties` (from T005), `src/main/java/{{package_path}}/{Main,ShoppingCart,CartEndpoint}.java` (a copy of the sample's three with `docs:start`/`docs:end` markers for the first-service page), `src/test/java/{{package_path}}/{ShoppingCartTest,ServiceTest}.java` (JUnit 6.1), `service.json` (embedded: `runtime`, no `protocol`), `docker-compose.yml` (Postgres only), `Dockerfile`, `.github/workflows/{ci,deploy}.yml`, `.gitignore`, `README.md`, `.scaffold-modes`; `.mcp.json` and the skills come from `common` and the marketplace copy as for every template.
+- [ ] T033 [US2] Change `build.sbt`'s `templateArtifacts` hook: when `-Dankka.template.tests` names `java` or `kotlin`, `publishM2` the JVM module set `contracts/plumbing.md` lists (hooked on `Test / test` and `Test / testOnly` as the Scala case is); add `just template-java`, `template-kotlin`, `kotlin`, `kotlin-conformance` recipes to `Justfile` (one command each).
+- [ ] T034 [US2] Change `cli/src/test/scala/.../PolyglotTemplateSuite.scala`: the embedded branch (descriptor valid with no `protocol`, `runtime` equal to `Version.current`, compose holds Postgres and no sidecar; the two-`ANKKA_SERVICE_NAME` check only for process templates), repository paths list gains `sdks/kotlin` and `modules/sdk-java`, leftover-token check gains the two tokens; write `cli/src/test/scala/.../JavaTemplateSuite.scala extends PolyglotTemplateSuite("java", "java")`: pin equals `Version.current`, `./mvnw -B -q verify` with `MAVEN_USER_HOME` under the temp dir, surefire report counts both tests and none skipped, image build, one command over HTTP against compose Postgres (as `TemplateSuite` does for Scala). Run it red first against a template missing `mvnw`'s exec bit.
+- [ ] T035 [US2] Change `.github/workflows/ci.yml`: `template-java` filter and job (`contracts/plumbing.md`), `changes` output line; change `.github/ci-coverage.py`'s map so `cli/src/main/templates/java/**`, `modules/sdk-java/**`, `modules/agent-java/**`, `modules/testkit-java/**`, `samples/shopping-cart-java/**` are claimed; run `python3 .github/ci-coverage.py` green. Note in the PR that branch protection must name `template-java` (the user's action).
+
+**Checkpoint**: tiers 2 and 6 (Java half) of the quickstart green; `ankka init shop --language java && cd shop && ./mvnw test` passes with no Maven installed.
+
+---
+
+## Phase 5: User Story 3 — Every component kind the Scala SDK offers (Priority: P2)
+
+**Goal**: views, keyed views, consumers, graph consumers, workflows, timers and timed actions,
+secrets, object storage, service calls, gRPC, MCP, SSE, sockets, streamed bodies, replication and
+topology facts in Java; the Java reference service passes the conformance suite in process; every
+Java row in the other features' outlines runs.
+
+**Independent Test**: `sbt -Dankka.conformance.reference=java 'sidecar/testOnly *ConformanceSuite'`
+green with `embedded (Java)` in its report; every Java row across `features/` green or named as run
+by this suite.
+
+### Kinds
+
+- [ ] T036 [P] [US3] Views: `JAVA/component/View.java`, `KeyedView.java`, `ViewContext.java`, `ChangeSource.java` (static factories `of`, `ofTopic`, `ofWorkflow`, `ofService`), `JAVA/effect/ViewEffect.java`, `ViewEffects.java`, `KeyedViewEffects.java`, `JAVA/client/ViewClient.java`, `ViewQuery.java` (`sql(...)`, declared and recursive queries as `@Query` static methods), `BRIDGE/Views.scala` building `ViewDescriptor`/`KeyedViewDescriptor` (`modules/sdk/.../View.scala:137`, `KeyedView.scala:183`) with `_setRow`, `@Source` dispatch per source type, `Flow.Publisher` over the streamed query; `JT/scala/.../kinds/ViewsSuite.scala` through the Scala `AnkkaTestKit`: a row per source id, tombstone on delete, a declared query, a recursive query, a stream, a view version rebuild (`.claude/rules/messaging.md`).
+- [ ] T037 [P] [US3] Consumers and graph consumers: `JAVA/component/Consumer.java`, `GraphConsumer.java`, `ConsumerContext.java`, `JAVA/effect/ConsumerEffect.java`, `ConsumerEffects.java`, `GraphEffect.java`, `GraphEffects.java`, `BRIDGE/Consumers.scala` (`ConsumerDescriptor`, `Consumer.scala:115`; `publish`, `publish(key)`, `publishAll`, the graph delta builders); `JT/scala/.../kinds/ConsumersSuite.scala`: a consumer calls a component and publishes to a topic (testcontainers Kafka as the Scala suites do), a graph consumer's deltas match the Scala reference's for one entity.
+- [ ] T038 [P] [US3] Workflows: `JAVA/component/Workflow.java`, `WorkflowContext.java`, `RecoverStrategy.java`, `JAVA/effect/WorkflowEffect.java`, `ReadOnlyWorkflowEffect.java`, `WorkflowEffects.java`, `WorkflowBuilder.java`, `StepEffect.java`, `StepEffects.java`, `StepBuilder.java`, `JAVA/client/WorkflowRef.java` (`awaitEnd`), `BRIDGE/Workflows.scala` building `WorkflowDescriptor` (`Workflow.scala:311`) with `StepHandle`/`NoInputStepHandle` (`:128-158`) from `@Step` methods, `StepRef` resolution through `Refs`, timeouts and `onTimeout`, pause and end, the workflow as a view source; `JT/scala/.../kinds/WorkflowsSuite.scala`: a checkout with a pause, a timeout step, compensation, `awaitEnd`.
+- [ ] T039 [P] [US3] Timers and timed actions: `JAVA/component/TimedAction.java`, `TimerContext.java`, `JAVA/effect/TimedActionEffect.java`, `TimedActionEffects.java`, `JAVA/timer/Timers.java` implementation over the Scala `TimerScheduler` (`schedule`, `scheduleRecurring`, `cancel`, with `java.time.Duration`), `JAVA/client/TimedActionRef.java`, `BRIDGE/Timers.scala` (`TimedActionDescriptor`, `TimedAction.scala:206`); `JT/scala/.../kinds/TimersSuite.scala` with the Scala `TimerProbe`: a timer fires an `@Action`, a recurring timer, cancel.
+- [ ] T040 [P] [US3] Secrets, storage, services, identity, topology: `JAVA/secret/SecretStore.java`, `JAVA/storage/ObjectStorage.java`, `Bucket.java`, `StoredObject.java` (streamed bodies as `Flow.Publisher<ByteBuffer>`), `JAVA/ServiceIdentity.java` (the service's own name, project, installation facts the Scala SDK exposes), `JAVA/client/ServiceClient.java` completed (typed `call`, `get`, `stream`, the caller's token), `BRIDGE/Stores.scala`; `JT/scala/.../kinds/StoresSuite.scala` with `InMemorySecretStore` and `InMemoryObjectStorage`: read a secret, put and stream an object, call a `ScriptedService`.
+- [ ] T041 [P] [US3] SSE, sockets and streamed bodies on endpoints: `JAVA/http/SseEvent.java`, `Socket.java`, `Frame.java`, `StreamedBody.java`; extend `BRIDGE/Routes.scala` for `@Sse` (`Flow.Publisher<SseEvent>` → the Scala SSE route), `@Socket` (a `Socket` handler on one virtual thread for its life, as `socketRoutes`), `@StreamBody`; `JT/scala/.../kinds/StreamsSuite.scala` with the Scala `TestSocket`: an SSE stream of three events, a socket echo and close, a streamed upload to storage without holding the body (run under `http`'s heap rule only if the body is large; otherwise assert the publisher is consumed incrementally).
+- [ ] T042 [P] [US3] gRPC: `JAVA/http/GrpcEndpoint.java`, `GrpcClients.java`, `BRIDGE/Grpc.scala` over `modules/grpc/.../GrpcEndpoint.scala:24` with `io.grpc.ServerServiceDefinition`s bound through `grpc/Binding`, `Flow.Publisher` ↔ Pekko `Source` for streams, status mapping unchanged; `JT/scala/.../kinds/GrpcSuite.scala` using `grpc-fixtures`' generated Java stubs: unary, server stream, client stream, a mapped status.
+- [ ] T043 [P] [US3] MCP: `JAVA/http/McpEndpoint.java`, `McpTool.java`, `McpReference.java`, `McpCall.java`, `ToolBuilder.java` (`tool(name).describedAs().arguments(Record.class).handle(f)`, `.command(ref, idFromCall)`), `BRIDGE/Mcp.scala` over `ToolBuilder.raw` (`modules/http/.../mcp/ToolBuilder.scala:107`) with the schema from `RecordCodec.schemaOf`; `JT/scala/.../kinds/McpSuite.scala`: list tools, call a built tool, call a command tool, a bad argument refused with the schema's path.
+- [ ] T044 [US3] Replication and the remaining Scala SDK surface: read `docs/reference/scala-sdk.md` end to end and list, in `JT/scala/.../SurfaceParitySuite.scala`, every public SDK declaration the page names (as a hand-kept list the suite checks against the Scala classes by reflection so it cannot go stale) and assert each has a Java counterpart in `JAVA/` by a mapping table in the suite; add what is missing (replicated entity declarations `@Replicated`/`ReplicationSettings`, awaiting-workflow calls, caller identity facts, topology facts, telemetry settings). FR-001: "a capability on it with no Java form is a defect".
+
+### The reference service and the conformance target (R8, R11)
+
+- [ ] T045 [US3] Generalise `CONF/ConformanceTarget.scala`: `EmbeddedReference` trait, `InProcess(reference)`, `fromProperty` reading `ankka.conformance.reference` (`scala` default, `java`, `classpath:<file>:<class>` with an unknown value an **error**, never a fall-through), `hosting` → `embedded` for every `InProcess`, the report naming the language; move `CONF/ConformanceReference.scala`'s descriptors, extensions, `componentIds`, `readOnlyHandlers` into its `EmbeddedReference` value without changing a case; write `JAVA/conformance/ConformanceEntry.java` (Java interface: descriptors as `List<Class<?>>` plus ids, endpoints, extensions) in `SJ`'s main (small; or a `sdkJavaConformance` test artifact if T073 needs it published); run the Scala suite unchanged and green.
+- [ ] T046 [US3] Write the Java reference service in `JT/java/.../reference/` mirroring `ConformanceReference.scala:1482-1634` component for component (cart, conformance, profile, checkout workflow and its views, the consumers and topics, tree-node recursive views, replicated-vehicle, joined keyed view, graph consumers, reminder, the agent components stubbed until US5 with the same ids and wire names) and the endpoints (`/carts`, `/tree`, `/vehicles`, `/joined`, `/conformance`, `/private`, `/callers`, `/autonomous`, `/mcp-keys`, `/mcp`), plus `JavaReference.java implements ConformanceEntry`; `CONF/JavaReference.scala` adapts it; run `sbt -Dankka.conformance.reference=java 'sidecar/testOnly *ConformanceSuite'` to green (SC-002, Java half), the agent cases excepted until T089 (list them in the task's note; do not skip them silently: mark `ranOutside` with the task number so the suite reports them).
+- [ ] T047 [US3] Run `SurfaceSuite` (T019) over `testkitJava` and extend `.github/workflows/ci.yml`'s `sidecar` build group with the Java conformance invocation (or a `conformance-java` matrix entry subtracted from `rest`, by measured duration), and add `ankka.conformance.reference` to `cluster.yml` only if a cluster suite reads it (it does not; note it).
+
+### Cross-language and the other features' Java rows
+
+- [ ] T048 [US3] Write `JT/scala/.../JournalPortabilitySuite.scala`: the Scala cart (`samples/shopping-cart`) writes a journal into one database, the Java cart (`samples/shopping-cart-java`) is started on it and recovers every cart with identical state, then the reverse (SC-003, FR-018, the Scala/Java and Java/Scala rows of `features/polyglot/entities.feature`); the `ranElsewhere` entry for those rows names this suite.
+- [ ] T049 [US3] Make every Java row in the other features run: change `AwaitSteps.languageRow` (`modules/.../AwaitSteps.scala:724-729`) and the equivalents listed in R11 (`ReplicationSteps.scala:1460-1475`'s command map, `StorageClientClusterFeatures.scala:76-112`, the `assume(language == "Scala")` pattern wherever it occurs: `grep -rn 'language == "Scala"' modules sidecar controlplane`) so the `Java` row runs through the Java reference or cart in the same suite where the component exists, and where it cannot, names `modules/sdk-java` and the Java suite that owns it in `ranElsewhere` (never a path under `sdks/`); run each affected `GherkinSuite` and confirm the Java rows are green, not ignored, except where listed.
+- [ ] T050 [US3] Write `TJ/src/test/scala/.../FacadeCostSuite.scala` (R13): start the Scala and Java carts in turn under `AnkkaTestKit`, 1,000 `add-item` to a cart each, read the entity handler's server spans from the recorder, print the medians; assert the 10% bound only under `-Dankka.cost.assert=true`; record the numbers and the machine in `research.md`'s Measurements (SC-009, Java half; the Kotlin half is T075).
+
+**Checkpoint**: tiers 3 and 4 of the quickstart green; every Java row in `features/` green or named.
+
+---
+
+## Phase 6: User Story 4 — A Kotlin SDK of its own (Priority: P2)
+
+**Goal**: a Kotlin developer declares components in Kotlin's form (data classes, nullable types,
+the DSL, suspending handlers and calls), from a Gradle template, with Kotlin test kits, a Kotlin
+cart passing the sample's features and a Kotlin reference passing conformance in process; CI and
+release jobs of its own.
+
+**Independent Test**: `cd sdks/kotlin && ./gradlew check conformance` and `sbt -Dankka.template.tests=kotlin 'cli/testOnly *KotlinTemplateSuite'`.
+
+- [ ] T051 [US4] Create the Gradle build `KT/settings.gradle.kts`, `build.gradle.kts`, `gradle.properties` (`version=0.0.0`, `ankkaVersion=0.0.0`), `gradle/wrapper/` (pinned Gradle 9.6 line), `gradlew`, `gradlew.bat`, `ankka-kotlin/build.gradle.kts`, `ankka-kotlin-agent/`, `ankka-kotlin-testkit/`, `samples/shopping-cart/`, `samples/reference/` as `contracts/kotlin-sdk.md` gives them (Kotlin 2.4, `jvmToolchain(21)`, `kotlin-reflect`, kotlinx-coroutines pinned, JUnit 6.1, `maxParallelForks = 1`, `mavenLocal()` before `mavenCentral()`), `KT/README.md`; add `sdks/kotlin/.gradle/`, `sdks/kotlin/**/build/` to `.gitignore`; `./gradlew --no-daemon help` passes after `sbt publishM2`.
+- [ ] T052 [P] [US4] Add JSpecify `@NullMarked` to every `package-info.java` under `JAVA/` and `AJ`, `TJ` mains, and `@Nullable` where a Java method may return or accept null (none expected on the surface; `Optional` is used), so Kotlin sees non-null types (FR-020); the `SurfaceSuite` allows `org.jspecify`.
+- [ ] T053 [P] [US4] Data classes in the codec: extend `JAVA/codec/Planner.java` with a `KotlinSupport` hook (an SPI interface `PlanExtension` in `JAVA/codec/`, discovered **explicitly** by `RecordCodec.withExtension`, not by `ServiceLoader`) and implement `KSRC/codec/DataClassPlans.kt`: a `RecordNode` from a data class's primary constructor through `kotlin.reflect`, a parameter's default taken for an absent field (`callBy` with the present arguments), no default and absent → `EncodingException` naming the parameter (FR-021), a nullable parameter as `OptionNode`, a `sealed interface`/`sealed class` with `data object` cases as `SumNode`; `KT/ankka-kotlin/src/test/kotlin/.../codec/DataClassCodecTest.kt`: the two data class scenarios of `features/java-kotlin/kotlin.feature`, and the Kotlin fixtures run (T055).
+- [ ] T054 [P] [US4] Nullability and suspension: `KSRC/Nullability.kt` (the `OrNull` extensions `contracts/kotlin-sdk.md` lists), `KSRC/suspend/AnkkaDispatcher.kt`, `Invocations.kt` (`invokeSuspending`, `querySuspending`, `streamFlow`, `asPublisher`), and the suspending-handler registration: `KSRC/Declarations.kt` registers a Kotlin class's `suspend fun` handlers with the bridge as Java handlers whose body is `runBlocking(AnkkaDispatcher) { ... }` (through a `HandlerAdapter` SPI the bridge exposes in `JAVA/spi/`, explicit, as T053's), with the Kotlin start-time rules (`suspend` handler with a non-effect return type; `@Query` on a `suspend fun` not returning `ReadOnlyEffect`) as `DeclarationProblem`s; `KT/ankka-kotlin/src/test/kotlin/.../suspend/SuspendingHandlerTest.kt`: the scenario "a handler written as a suspending function calls a component and is answered", asserting the platform thread count does not rise while the step waits (counted in the test from `Thread.getAllStackTraces` until T057 adds `platformThreads`, then switched to it).
+- [ ] T055 [P] [US4] Copy `protocol/fixtures` to `KT/fixtures/`, add `./gradlew checkFixtures` (a `diff -r` task) and `KT/ankka-kotlin/src/test/kotlin/.../codec/EncodingFixturesTest.kt` reading every fixture through the Java `RecordCodec` with Kotlin data-class shapes, failing on a fixture with no shape (SC-001 for Kotlin).
+- [ ] T056 [US4] The DSL: `KSRC/dsl/Effects.kt` (`effects { persist(e) thenReply { Done } }` and the entity, key value, workflow, step, view, consumer and timed action scopes), `Routes.kt` (`routes { get("/carts/{id}") { ... } }` as the programmatic form over a `RouteRegistrar` SPI the bridge exposes), `Refs.kt` (`KFunction` → serializable Java `CommandRef`/`StepRef`, resolved through the same registry), `Mcp.kt`; `KT/ankka-kotlin/src/test/kotlin/.../dsl/DslTest.kt`: each DSL form produces the same Java effect value as the chained form (the scenario "a component declared in Kotlin's own form behaves as one declared through the Java SDK").
+- [ ] T057 [US4] Kotlin test kits: `KT/ankka-kotlin-testkit/src/main/kotlin/.../testkit/Kits.kt` (`ankkaTestKit { }`, suspending `eventually`, `eventSourcedTestKit(KClass)`, `platformThreads`), over the Java kits; tests in `KT/ankka-kotlin-testkit/src/test/kotlin/`.
+- [ ] T058 [US4] The Kotlin shopping cart `KT/samples/shopping-cart/src/main/kotlin/.../{Main,ShoppingCart,CartEndpoint,CartView}.kt` (data classes, the DSL, one suspending step so the sample shows it; `docs:start` markers for the first-service page) and `src/test/kotlin/.../CartFeaturesTest.kt` running `../../../../samples/shopping-cart/features` through a Gherkin runner for JUnit (cucumber-jvm, or a small reader over the `gherkin` parser; one dependency, test scope) with steps through the Kotlin kits: every scenario passes, none left out (the "passes the sample's own features" scenario, Kotlin row).
+- [ ] T059 [US4] `KT/ankka-kotlin/src/test/kotlin/.../KotlinFeaturesTest.kt`: runs `../../features/java-kotlin/*.feature` with the `<language>` rows filtered to Kotlin and the Kotlin-only scenarios of `kotlin.feature`, steps in `.../steps/`; the Kotlin rows of `embedded.feature` (embedded, rename, two handlers one name, wrongly declared handler, unregistered component, null field absent) all green; this is the suite `JavaKotlinFeatures`' `ranElsewhere` names (T026).
+- [ ] T060 [US4] The Kotlin reference `KT/samples/reference/src/main/kotlin/.../reference/` mirroring the Java reference (T046) in Kotlin's form, with `KotlinReference : ConformanceEntry`; the `conformance` Gradle task writes the runtime classpath minus ankka and Scala artifacts to `build/conformance-classpath.txt` and runs `sbt -Dankka.conformance.reference=classpath:<file>:...KotlinReference 'sidecar/testOnly *ConformanceSuite'` from the repository root; implement `CONF/ClasspathReference.scala` (`URLClassLoader` with the suite's loader as parent; verify 7); green with `embedded (Kotlin)` in the report (SC-002, Kotlin half). If the classloader form fails for a reason the task cannot fix, fall back to the loopback target and amend `research.md` R8 and `plan.md`'s claim, saying so in the PR.
+- [ ] T061 [US4] The Kotlin API surface check `KT/ankka-kotlin/src/test/kotlin/.../SurfaceTest.kt` (allowing `kotlin.`, `kotlinx.`, `java.`, `org.jspecify.`, the Java SDK's packages) and `KT/ankka-kotlin/src/test/kotlin/.../NullSafetyTest.kt`: a Kotlin source passing `null` where the Java API takes a value does not compile (compile a snippet with `kotlin-compiler-embeddable` or `kotlin.script`, assert the error; the scenario "a null given where the Java SDK takes a value is refused before build").
+- [ ] T062 [US4] Write `cli/src/main/templates/kotlin/` (`build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar` binary, `gradle-wrapper.properties`, `src/main/kotlin/{{package_path}}/{Main,ShoppingCart,CartEndpoint}.kt`, `src/test/kotlin/{{package_path}}/{ShoppingCartTest,ServiceTest}.kt`, `service.json`, `docker-compose.yml`, `Dockerfile`, workflows, `.gitignore`, `README.md`, `.scaffold-modes`), and `cli/src/test/scala/.../KotlinTemplateSuite.scala extends PolyglotTemplateSuite("kotlin", "java")` (`./gradlew --quiet --no-daemon test` with `GRADLE_USER_HOME` under the temp dir, the JUnit XML report counted, image build, one command); red first against a corrupt wrapper jar, then green.
+- [ ] T063 [US4] CI: `.github/workflows/ci.yml` `sdk-kotlin` filter, output and job (`contracts/plumbing.md`: setup-java 21, caches, `diff -r protocol/fixtures sdks/kotlin/fixtures`, `sbt publishM2`, `./gradlew --no-daemon check conformance`, then the Kotlin template suite); `.github/ci-coverage.py` claims `sdks/kotlin/**` and `cli/src/main/templates/kotlin/**`; green. Note in the PR that branch protection must name `sdk-kotlin`.
+- [ ] T064 [US4] Release: `.github/workflows/release.yml` `sdk-kotlin` job after `publish` as `contracts/plumbing.md` gives it (checkout the tag, `sbt publishM2` at the tag's version, `sed` the two `0.0.0` lines in `sdks/kotlin/gradle.properties` in the checkout only, `./gradlew check`, the repo1 probe, signed `./gradlew publish` to the Central Portal under the existing `PGP_*`/`SONATYPE_*` secrets, or the Central publishing Gradle plugin: verify, record under R11); `KT/build.gradle.kts` `maven-publish` and `signing` blocks with pom metadata matching `build.sbt:6-20`; `.claude/rules/build-and-release.md` gains the Kotlin channel and the module count; the `WorkflowShapeSuite` (`cli/src/test/.../WorkflowShapeSuite.scala`) extended if it pins SDK jobs (read it; the inventory says it pins images only).
+
+**Checkpoint**: tier 5 and the Kotlin half of tier 6 green; `ankka init shop --language kotlin && cd shop && ./gradlew test` passes with no Gradle installed.
+
+---
+
+## Phase 7: User Story 6 — The documentation, the skills and the honest list (Priority: P2)
+
+**Goal**: a developer finds a first-service page and a reference page for each language, every
+place that names the languages names Java and Kotlin, the limitations say what the SDKs lack, the
+divergences page says where Java adopts Akka's annotated handlers, and the skills exist.
+
+**Independent Test**: `just docs` and `just docs-sync` clean; the three documentation scenarios of
+`embedded.feature` green through the docs check and a grep in `JavaKotlinFeatures`.
+
+- [ ] T065 [P] [US6] Write `docs/get-started/first-service-java.md` and `first-service-kotlin.md` with the Rust page's headings (`docs/get-started/first-service-rust.md`), every code block an `<!-- include: cli/src/main/templates/java/...#region -->` from the template or the sample (T032, T062 markers), frontmatter `languages: [java]`/`[kotlin]`; add both to `mkdocs.yml`'s nav at `:157` and the facet at `:85`.
+- [ ] T066 [P] [US6] Write `docs/reference/java-sdk.md` with `docs/reference/rust-sdk.md`'s headings plus "Method references and wire names", "Module system", "Supplying a serializer"; and `docs/reference/kotlin-sdk.md` plus "Data classes", "Nullability", "Suspension"; includes from `samples/shopping-cart-java`, `JT/java/.../reference`, `KT/samples`; nav entries at `mkdocs.yml:251`.
+- [ ] T067 [P] [US6] Change `docs/reference/limitations.md` ("Four languages" → six at `:458`; a bullet each for the Java and Kotlin SDKs' gaps as `contracts/plumbing.md` and `contracts/kotlin-sdk.md` list them; the gRPC "for Scala services" bullet now says Scala and Java); change `docs/reference/akka-divergences.md` (Summary row and the new section "The Java SDK adopts Akka's annotated handlers": the annotation's string is the wire name, method references resolve through the registry, what still differs); change `docs/contributing/language-sdks.md` (the embedded route as the third way, with the checklist's five items reread for it).
+- [ ] T068 [P] [US6] Name Java and Kotlin everywhere the four languages are named: `README.md:13,20,120,140` (badges row per language), `docs/index.md:19,26,129,180` (the component table gains Java and Kotlin columns), `docs/concepts/polyglot.md`, `docs/get-started/install.md`, `docs/build/{testing,secrets,timers,calling-services,views,consumers,graph}.md`, `docs/deploy/{images,local-models}.md`, `docs/operate/telemetry.md`, `docs/reference/model-providers.md`, with `/// tab | Java` and `Kotlin` blocks where a page shows code per language (each an include; the tab check refuses identical code); then `grep -rn "Scala, Python, TypeScript" docs README.md cli tools modules --include=*.md --include=*.scala | grep -v specs/` must be empty.
+- [ ] T069 [P] [US6] Change the docs-checking suites for the new tabs and includes: `controlplane-api/src/test/.../McpEndpointsDocumentationSuite.scala:32,60`, `ServiceCallsDocumentationSuite.scala:34-37`, `modules/testkit/src/test/.../ViewStreamsDocumentationSuite.scala:47`, `ModelProvidersDocumentationSuite.scala:41,69`, `AwaitingWorkflowsDocumentationSuite.scala:39-42`; each green.
+- [ ] T070 [P] [US6] Write `SK/ankka-java/SKILL.md` and `SK/ankka-kotlin/SKILL.md` modelled on `SK/ankka-rust/SKILL.md` (Rules, Development loop, Mistakes to check for: a lambda where a method reference is needed; `null` in a record; a `@Query` returning `Effect`; `module-info` without `opens`; switching dispatcher inside a suspending handler), `pages:` naming T065 and T066's pages; add "Java differences" and "Kotlin differences" to `SK/ankka-agents` (`:106-129`), `SK/ankka-endpoints:85`, `SK/ankka-entities:120`, `SK/ankka-views-consumers:150`, `SK/ankka-workflows:102`; the umbrella `SK/ankka/SKILL.md` description names six languages; `just docs-sync` renders them into `marketplace/plugins/ankka/skills` and `ankka.g8`.
+- [ ] T071 [US6] Run `just docs` and `just docs-sync`, commit the synced includes; add steps to `JavaKotlinFeatures` (T026) for "the documentation says where ankka's Java differs from Akka's" (reads `akka-divergences.md` for the section and at least one "because"), "every place that names the languages … names Java and Kotlin" (the grep of T068 over `docs/`, `README.md` and `marketplace/plugins/ankka/skills`), and "the limitations name what the Java and Kotlin SDKs do not offer" (reads the two bullets); each red before its page exists.
+
+**Checkpoint**: tier 7's docs half green.
+
+---
+
+## Phase 8: User Story 5 — Agents, judgments and blueprints in Java and Kotlin (Priority: P3)
+
+**Goal**: an agent with tools and guardrails, an autonomous agent with rules, judgments and
+blueprints in Java and Kotlin; the agent cases of the conformance suite pass against both
+references; the agent test kit.
+
+**Independent Test**: `sbt 'agentJava/test'` and the agent cases of
+`sbt -Dankka.conformance.reference=java 'sidecar/testOnly *ConformanceSuite'`.
+
+- [ ] T072 [P] [US5] Write `AJ/src/main/java/com/thinkmorestupidless/ankka/agent/java/Agent.java`, `AgentContext.java`, `AgentEffect.java`, `AgentEffects.java`, `AgentBuilder.java`, `Tool.java` (annotation), `FunctionTool.java`, `Guardrail.java`, `ToolCall.java`, `ModelSettings.java`, `Memory.java`, `ModelProvider.java`, `ModelProviders.java`, `AgentClients.java`, `AgentRef.java` as `contracts/java-sdk.md`; `AJ/src/main/scala/.../agent/java/bridge/AgentBridge.scala` in package `com.thinkmorestupidless.ankka.agent.java.bridge` (reaches `private[agent]`: `AgentEffect`'s builders `AgentEffect.scala:86-137`, `FunctionTool.raw:81`, `StreamHandle.raw`, `Agent.Companion.command/stream:120,146`), `@Tool` methods → `FunctionTool.raw` with the schema and decoder from `RecordCodec`'s plan over the parameter record, `Guardrail`'s `Optional<String>` → `Either`, `forAgent(SessionId)`; `AJ/src/test/scala/.../AgentSuite.scala` with the Scala `TestModelProvider`: a turn with a tool call, a guardrail refusal, a stream of tokens, approval within a duration.
+- [ ] T073 [P] [US5] Autonomous agents, judgments, blueprints: `AJ/src/main/java/.../AutonomousAgent.java`, `Task.java`, `Budget.java`, `Rule.java` (annotation moved from T011 if there), `RuleResult.java`, `AutonomousRef.java`, `TasksRef.java`, `Judgment.java`, `Question.java`, `Blueprint.java`; the bridge over `autonomous/Task.scala:39,161`, `autonomous/Calls.scala:323-340`, `judgment/Question.scala:47-73`, `blueprint/Blueprint.scala:219`; `AJ/src/test/scala/.../AutonomousSuite.scala`: a task runs to a rule's verdict, a judgment of each kind, a blueprint composed and run.
+- [ ] T074 [P] [US5] `TJ`: `AgentTestKit.java`, `TestModelProvider.java` (scripted, fails loudly when the script runs out), `AgentResult.java` wrapping the Scala `TestModelProvider` and a new Scala `AgentTestKit` added to `modules/testkit` (one turn against the scripted provider, no runtime; R9); `TJ/src/test/scala/.../AgentKitSuite.scala`; `testkitJava.dependsOn(agentJava)`; run `SurfaceSuite` over `agentJava` (T019).
+- [ ] T075 [US5] Kotlin: `KT/ankka-kotlin-agent/src/main/kotlin/.../agent/Dsl.kt` (`agentEffects { systemMessage(...); tools<WeatherTools>(); thenReply<Answer>() }`, suspending `@Tool` methods through the same `HandlerAdapter`), tests in `KT/ankka-kotlin-agent/src/test/kotlin/`; the Kotlin `FacadeCostSuite` half: add a Kotlin cart run to `FacadeCostSuite` (T050) through the classpath form of T060, record the Kotlin median in `research.md` (SC-009, Kotlin half).
+- [ ] T076 [US5] Complete the agent components of the Java reference (T046: assistant, approver, answerer) and the Kotlin reference (T060), remove their `ranOutside` entries, and run both conformance invocations to full green (SC-002 complete); add the Java and Kotlin rows' steps for `features/agents/languages.feature` and `features/autonomous-agents/documentation.feature` as T049 did for the others.
+- [ ] T077 [US5] Add the agent sections to `docs/reference/java-sdk.md` and `kotlin-sdk.md` (Agent, Autonomous agent, Judgments, Blueprints, Model providers) with includes from `AJ`'s tests and the references, and the "Java differences"/"Kotlin differences" agent content to `SK/ankka-agents` (T070 left placeholders); `docs/reference/model-providers.md`'s tabs gain Java and Kotlin; `just docs` green.
+
+**Checkpoint**: every story independently testable; conformance fully green for three references.
+
+---
+
+## Phase 9: Polish and cross-cutting
+
+- [ ] T078 [P] Run the full quickstart tiers 1 to 7 in order on one machine and tick the reviewer's checklist in `quickstart.md`; fill `research.md`'s Measurements (Scala, Java, Kotlin medians, the machine, the date) and the answers to every "Verify at implementation" item, amending the R-entries whose assumptions did not hold.
+- [ ] T079 [P] `git diff --stat -- modules/runtime protocol sidecar/src/main operator controlplane controlplane-api crd` is empty (FR-026); `modules/testkit` shows only `WorkflowTestKit`, `ViewTestKit`, `AgentTestKit` and their suites (R9); `sbt -Dankka.cluster.tests=off test` green (SC-007); `just features` green with the Java and Kotlin scenarios referenced by `spec.md` all present.
+- [ ] T080 [P] Add the traps this feature cost time to: `.claude/rules/build-and-release.md` (publishM2 and `crossPaths := false`, the Kotlin release order, `Scaffold` binary entries), `.claude/rules/sdk-java.md` (new rule file with `paths: [modules/sdk-java/**, modules/agent-java/**, modules/testkit-java/**, sdks/kotlin/**, cli/src/main/templates/java/**, cli/src/main/templates/kotlin/**]`: `SerializedLambda` shapes, `privateLookupIn`, the record codec's refusals, `runBlocking` on a virtual thread, the classloader conformance form, the `-Werror` javac scoping), and the rule-file table in `CLAUDE.md`; `.github/ci-coverage.py` claims the new rule file as the others are claimed.
+- [ ] T081 Open the pull request as a **draft** against `main` from `058-java-kotlin-sdk` with the spec's summary, the quickstart's tiers as the test plan, the two branch-protection names the user must add (`template-java`, `sdk-kotlin`) and the one thing that cannot be proven before a tag (the Kotlin Central publication); mark ready only when every CI job is green (`ankka-brain/conventions.md`, "The feature workflow"). The agent never merges, tags or publishes.
+
+---
+
+## Dependencies
+
+```
+Phase 1 (T001–T005) → Phase 2 (T006–T019) → US1 (T020–T026) → US2 (T027–T035)
+                                                     ↘ US3 (T036–T050)  [T045 before T046; T046 before T047, T048; T044 any time after T036–T043]
+US1, US2, US3 → US4 (T051–T064)  [T051 first; T053, T054, T055 after T051; T056 after T054; T057 after T056; T058 after T057; T059 after T058; T060 after T045/T046 and T059; T062 after T030–T034; T063 after T062; T064 after T063]
+US3, US4 → US6 (T065–T071)  [T071 last]
+US3, US4, US6 → US5 (T072–T077)  [T076 after T072–T075; T077 after T070, T076]
+everything → Polish (T078–T081)
+```
+
+US6 (P2) precedes US5 (P3) by priority; US5 adds its own documentation (T077) so US6 does not wait
+for it. US3 and US4 are both P2; US4 depends on US3's reference service and conformance target, so
+US3 comes first.
+
+## Parallel execution examples
+
+- **Phase 1**: T003, T004, T005 together after T001.
+- **Phase 2**: T011 and T012 beside T006–T010 (codec); T015 and T016 after T013/T014.
+- **US2**: T027 and T028 (kits) beside T030–T032 (template plumbing).
+- **US3**: T036–T043 (eight kinds) all at once by eight workers, each with its own suite; then T044–T050 in order.
+- **US4**: T052, T053, T054, T055 after T051; T062 beside T056–T061.
+- **US6**: T065–T070 all at once; T071 closes.
+- **US5**: T072, T073, T074 together; T075–T077 after.
+
+## Implementation strategy
+
+1. **MVP** is Phase 1 to US1: a Java cart and endpoint embedded, failing at start for a wrong
+   declaration, byte-identical to Scala. Reviewable on its own.
+2. **US2** makes it a product a developer can start from (`ankka init`, the kits, CI on the
+   template). After US2 the Java SDK could ship behind a "not yet every kind" limitation.
+3. **US3** completes parity and conformance; **US4** adds Kotlin; **US6** documents; **US5** adds
+   agents last because its module is opt-in and its conformance cases are the fewest.
+4. Each phase ends with its checkpoint green; nothing is marked done with a red suite, and no
+   suite is marked green that was never seen red.
+
+## Format validation
+
+Every task line is `- [ ] Tnnn [P?] [USn?] description with a path`; setup, foundational and
+polish tasks carry no story label; US tasks carry theirs; `[P]` only where the files differ and no
+incomplete task is depended on.

@@ -60,17 +60,19 @@ export function Graph({
         transform={`translate(${x} ${y})`}
         tabIndex={0}
         role="button"
-        aria-label={`${n.label}: ${kind}`}
         onClick={() => onSelect(n.id)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") onSelect(n.id);
         }}
       >
+        {/* The name in full, as a tooltip and as what a screen reader says: the lines drawn are clipped to
+            the box, so they are hidden from assistive technology rather than read as a shorter name. */}
+        <title>{`${n.label}: ${kind}`}</title>
         <rect width={GRID.width} height={GRID.height} rx={12} filter="url(#ac-topology-shadow)" />
-        <text x={10} y={16} className="ac-topology-name">
+        <text x={10} y={16} className="ac-topology-name" aria-hidden="true">
           {clip(n.label, 22)}
         </text>
-        <text x={10} y={30} className="ac-topology-kind">
+        <text x={10} y={30} className="ac-topology-kind" aria-hidden="true">
           {clip(kind, 28)}
         </text>
       </g>

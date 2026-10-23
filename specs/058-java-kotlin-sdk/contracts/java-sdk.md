@@ -49,7 +49,7 @@ Configuration is read from the same `ANKKA_*` variables and `service.json` as a 
 | `@Rule("has-answer")` | method | `value` | an autonomous agent's result check |
 | `@Source` | method | | a keyed view's per-source handler (the source type is the parameter's) |
 | `@Get("/carts/{id}")`, `@Post`, `@Put`, `@Delete`, `@Patch` | method | `value` | an HTTP route; literals outrank parameters as the server does |
-| `@Sse("/events")`, `@Socket("/live")`, `@Stream("/upload")` | method | `value` | SSE, WebSocket and streamed-body routes |
+| `@Sse("/events")`, `@Socket("/live")`, `@StreamBody("/upload")` | method | `value` | SSE, WebSocket and streamed-body routes (`@StreamBody` is named apart from the agent's `@Stream`) |
 | `@Path("id")`, `@QueryParam("q")`, `@Header("x-id")`, `@Body` | parameter | `value` | where a route parameter comes from; `@Body` at most once |
 | `@Describe("…")` | type, method, parameter | `value` | descriptions for tools and MCP |
 

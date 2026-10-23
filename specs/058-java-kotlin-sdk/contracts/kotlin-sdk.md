@@ -46,6 +46,7 @@ object AnkkaDispatcher : CoroutineDispatcher()        // runs continuations on t
 suspend fun <I, O> Invocation<I, O>.invokeSuspending(input: I): O = invokeAsync(input).await()
 suspend fun <O> Invocation<Void, O>.invokeSuspending(): O
 suspend fun <Row> ViewClient<Row>.querySuspending(name: String, vararg args: Any): List<Row>
+suspend fun <I, O> ServiceClient.callSuspending(path: String, body: I, reply: KClass<O>): O   // the service client, parked not blocked (FR-019a)
 fun <Row> ViewClient<Row>.streamFlow(name: String, vararg args: Any): Flow<Row>     // kotlinx Flow over Flow.Publisher
 fun <T> Flow<T>.asPublisher(): java.util.concurrent.Flow.Publisher<T>              // for @Sse routes
 ```

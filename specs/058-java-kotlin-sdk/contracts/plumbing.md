@@ -46,9 +46,10 @@ Created shop (Java, Maven). Next:
 
 ```
 pom.xml                       groupId {{package}}; artifactId {{name}}; java.version 21; dependencies ankka-java {{ankka_version}}, ankka-java-testkit (test), junit-jupiter 6.1.x (test);
-                              plugins: maven-surefire (JUnit platform), exec-maven-plugin (main class), jib-maven-plugin (image {{name}}:local, base eclipse-temurin:21-jre) [Jib vs Dockerfile: R10 verify]
+                              plugins: maven-enforcer (requireJavaVersion [21,), so an older JDK refuses the build naming the version), maven-surefire (JUnit platform), exec-maven-plugin (main class), jib-maven-plugin (image {{name}}:local, base eclipse-temurin:21-jre) [Jib vs Dockerfile: R10 verify]
 mvnw, mvnw.cmd, .mvn/wrapper/maven-wrapper.properties   (the script-only wrapper distribution, no jar: verify, R10)
-src/main/java/{{package_path}}/Main.java                 Ankka.service("{{name}}").register(ShoppingCart.class).withEndpoint(CartEndpoint.class).start().awaitReady()
+src/main/java/{{package_path}}/Main.java                 Ankka.service("{{name}}").register(ShoppingCart.class).register(CartView.class).withEndpoint(CartEndpoint.class).start().awaitReady()
+src/main/java/{{package_path}}/CartView.java             the view (one row per cart, a declared query by owner), as the Scala template has
 src/main/java/{{package_path}}/ShoppingCart.java         the entity (records CartState, LineItem; sealed CartEvent)
 src/main/java/{{package_path}}/CartEndpoint.java         the endpoint
 src/test/java/{{package_path}}/ShoppingCartTest.java     EventSourcedTestKit, JUnit
@@ -67,7 +68,7 @@ The same files with `build.gradle.kts` (`kotlin("jvm")`, `application` with `mai
 plugin, `ankka-kotlin` at `{{ankka_version}}`, `ankka-kotlin-testkit` and JUnit for tests,
 `useJUnitPlatform()`), `settings.gradle.kts`, `gradle.properties`, `gradlew`, `gradlew.bat`,
 `gradle/wrapper/gradle-wrapper.jar` (binary), `gradle/wrapper/gradle-wrapper.properties` (the
-pinned Gradle distribution URL), `src/main/kotlin/{{package_path}}/{Main,ShoppingCart,CartEndpoint}.kt`
+pinned Gradle distribution URL), `src/main/kotlin/{{package_path}}/{Main,ShoppingCart,CartView,CartEndpoint}.kt`
 (data classes, the DSL, one suspending step or client call so the template shows it),
 `src/test/kotlin/{{package_path}}/{ShoppingCartTest,ServiceTest}.kt`.
 

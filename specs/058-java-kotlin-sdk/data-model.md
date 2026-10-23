@@ -25,7 +25,7 @@ with a wire name. The base class fixes the kind; the annotations fix the handler
 | Timed action | `TimedAction` | `@Action("name")` | `TimedActionEffect m(I in)` |
 | Agent | `Agent<S>` | `@Command`, `@Stream` | `AgentEffect<R>`; tools are `@Tool("name")` methods on a `Tools` class |
 | Autonomous agent | `AutonomousAgent` | `@Rule("name")` result checks | `RuleResult m(R result)` |
-| HTTP endpoint | `HttpEndpoint` | `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`, `@Sse`, `@Socket`, `@Stream` on methods; `@Path`, `@Body`, `@QueryParam`, `@Header` on parameters | abstract `Acl acl()` |
+| HTTP endpoint | `HttpEndpoint` | `@Get`, `@Post`, `@Put`, `@Delete`, `@Patch`, `@Sse`, `@Socket`, `@StreamBody` on methods; `@Path`, `@Body`, `@QueryParam`, `@Header` on parameters | abstract `Acl acl()` |
 | gRPC endpoint | `GrpcEndpoint` | none: `services()` returns bound io.grpc service definitions | |
 | MCP endpoint | `McpEndpoint` | none: `tools()` built with `ToolBuilder` | |
 

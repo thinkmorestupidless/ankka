@@ -154,7 +154,7 @@ The protocol, encoding, conformance cases and descriptor contracts are unchanged
 modules/sdk-java/                                   # NEW sbt module, artifact ankka-java, crossPaths := false
 ├── src/main/java/com/thinkmorestupidless/ankka/java/
 │   ├── Ankka.java, AnkkaService.java, ServiceBuilder.java
-│   ├── annotations/     Command, Query, Step, Action, Rule, Get, Post, Put, Delete, Patch, Sse, Socket, Stream, Body, Path, QueryParam, Header
+│   ├── annotations/     Command, Query, Step, Action, Stream, Rule, Get, Post, Put, Delete, Patch, Sse, Socket, StreamBody, Body, Path, QueryParam, Header
 │   ├── component/       EventSourcedEntity, KeyValueEntity, View, KeyedView, Consumer, GraphConsumer, Workflow, TimedAction, contexts
 │   ├── effect/          Effect, ReadOnlyEffect, PersistBuilder, UpdateBuilder, StepEffect, ConsumerEffect, ViewEffect, TimedActionEffect
 │   ├── codec/           Serializer, RecordCodec, Manifest, Json (the value tree the codec reads to), EncodingException

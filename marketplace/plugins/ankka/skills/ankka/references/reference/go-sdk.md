@@ -828,10 +828,6 @@ conversation ends, so anything a handler still does after that cannot reach it.
 
 ## Calling components
 
-```go
-cart, err := ankka.Invoke[cart.Cart](ctx, "shopping-cart", cartID, "get-cart", ankka.Unit{})
-```
-
 | Call | Does |
 |---|---|
 | `ankka.Invoke[R](ctx, componentID, id, wire, input)` | an entity's, a workflow's or an agent's handler, by wire name |

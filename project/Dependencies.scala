@@ -155,14 +155,14 @@ object Dependencies {
   val openaiJava    = "com.openai"    % "openai-java"    % V.openai
 
   // ── Misc ─────────────────────────────────────────────────────────────────
-  val logback             = "ch.qos.logback"     % "logback-classic"      % V.logback
-  val munit               = "org.scalameta"     %% "munit"                % V.munit
-  val gherkin             = "io.cucumber"        % "gherkin"              % V.gherkin
-  val cucumberExpressions = "io.cucumber"        % "cucumber-expressions" % V.cucumberExpressions
-  val testcontainersPg    = "org.testcontainers" % "postgresql"           % V.testcontainers
-  val testcontainersKafka = "org.testcontainers" % "kafka"                % V.testcontainers
-  val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
-  val testcontainers      = "org.testcontainers" % "testcontainers"       % V.testcontainers
+  val logback             = "ch.qos.logback" % "logback-classic"      % V.logback
+  val munit               = "org.scalameta" %% "munit"                % V.munit
+  val gherkin             = "io.cucumber"    % "gherkin"              % V.gherkin
+  val cucumberExpressions = "io.cucumber"    % "cucumber-expressions" % V.cucumberExpressions
+  val testcontainersPg    = "org.testcontainers" % "testcontainers-postgresql" % V.testcontainers
+  val testcontainersKafka = "org.testcontainers" % "testcontainers-kafka"      % V.testcontainers
+  val testcontainersK3s   = "org.testcontainers" % "testcontainers-k3s"        % V.testcontainers
+  val testcontainers      = "org.testcontainers" % "testcontainers"            % V.testcontainers
 
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8" % "kubernetes-client" % V.fabric8

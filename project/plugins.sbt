@@ -1,4 +1,4 @@
-addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.11.7")
+addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.13.0")
 addSbtPlugin("org.scalameta"  % "sbt-scalafmt"        % "2.6.2")
 // Releases: sbt-ci-release bundles sbt-dynver (the version comes from the git tag, never a file),
 // sbt-pgp (signing) and sbt-sonatype (the Central Portal). `sbt ci-release` on a tag publishes the

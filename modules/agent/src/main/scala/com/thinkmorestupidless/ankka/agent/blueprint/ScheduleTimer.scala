@@ -48,13 +48,19 @@ final class ScheduleTimer(context: TimedActionContext) extends TimedAction:
                 effects.done()
               case _ =>
                 val dueAt = Instant.ofEpochMilli(due.at)
-                val lastEnd =
+                val recorded =
                   record.lastPeriodEnd.map(Instant.ofEpochMilli).getOrElse(schedule.previous(dueAt))
-                val now = context.clock.instant()
-                val missed = schedule.dueTimes(
-                  after = lastEnd,
-                  upTo = if now.isAfter(dueAt) then now else dueAt
-                )
+                val now  = context.clock.instant()
+                val upTo = if now.isAfter(dueAt) then now else dueAt
+                // A firing that started its runs and stopped before moving the schedule on left
+                // runs the record does not show; the latest of them ends the last period, or the
+                // next period would cover theirs again.
+                val lastEnd = schedule
+                  .dueTimes(after = recorded, upTo = upTo)
+                  .reverseIterator
+                  .find(d => started(client, runId(due.blueprint, d)))
+                  .getOrElse(recorded)
+                val missed = schedule.dueTimes(after = lastEnd, upTo = upTo)
                 if missed.isEmpty then
                   // Advanced already past this due time; only the next timer could be missing.
                   ensure(context.timers, context.clock, due.blueprint, schedule.next(lastEnd))
@@ -107,6 +113,15 @@ object ScheduleTimer
   /** The run a due time starts; the same whichever instance, or firing, starts it. */
   def runId(blueprint: String, due: Instant): String =
     s"${RunEntity.SchedulePrefix}$blueprint:${due.toEpochMilli}"
+
+  /**
+   * Whether the run exists: a scheduled run's id is its due time's, so this says it was started.
+   */
+  private def started(client: ComponentClient, runId: String): Boolean =
+    try
+      client.forEventSourcedEntity(EntityId(runId)).call(RunEntity.get).invoke(): Unit
+      true
+    catch case e: CommandError if e.code == ErrorCode.NotFound => false
 
   /** Sets the occurrence's timer, when it is not set already; one due already is due at once. */
   private[blueprint] def ensure(

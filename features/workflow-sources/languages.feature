@@ -1,6 +1,6 @@
 Feature: Workflow sources in every language
   A view or a consumer declares a workflow as its source where it would name an entity, whether
-  the service is written in Scala, Python, TypeScript or Rust, and is handed the same change: the
+  the service is written in Scala, Python, TypeScript, Rust or Go, and is handed the same change: the
   state as the workflow's codec reads it and the standing. A runtime that does not know a workflow
   source refuses the component when the service is discovered, naming the protocol version it
   needs, rather than starting a view that writes nothing.
@@ -19,6 +19,7 @@ Feature: Workflow sources in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a consumer is handed a failed workflow's standing in every language
     Given a service "shop" written in "<language>" with a consumer "watchdog" that reads the workflow "checkout"
@@ -34,6 +35,7 @@ Feature: Workflow sources in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario: a runtime from before workflow sources refuses a program that declares one
     Given a service "shop" written in "Python" with a view "checkouts" that reads the workflow "checkout"
@@ -54,6 +56,7 @@ Feature: Workflow sources in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the component test kit hands a view a workflow change in every language
     Given a view "checkouts" written in "<language>" that reads the workflow "checkout"
@@ -68,3 +71,4 @@ Feature: Workflow sources in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

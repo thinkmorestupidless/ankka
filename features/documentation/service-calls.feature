@@ -6,7 +6,7 @@ Feature: The documentation of calling another service
   Scenario: one page shows a call to another service in every language
     Given the published documentation
     When a reader reads about calling another service
-    Then the documentation shows the call in "Scala", "Python" and "TypeScript", from an endpoint and from a workflow's step
+    Then the documentation shows the call in "Scala", "Python", "TypeScript" and "Go", from an endpoint and from a workflow's step
     And every call shown there is taken from code a test runs
 
   Scenario: the documentation does not say that a service in some languages cannot call another as itself

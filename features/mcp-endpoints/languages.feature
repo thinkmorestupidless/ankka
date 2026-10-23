@@ -1,5 +1,5 @@
 Feature: An MCP endpoint in every language
-  A Python, TypeScript or Rust service declares an MCP endpoint in its own idiom, and the platform's
+  A Python, TypeScript, Rust or Go service declares an MCP endpoint in its own idiom, and the platform's
   own program answers the protocol for it: it verifies the credential, checks the arguments and asks
   the service's own code to run the tool. The service's own code reads the principal and never the
   credential, and issues, lists and revokes client keys through its client.
@@ -15,6 +15,7 @@ Feature: An MCP endpoint in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service's own code is asked to run a tool with typed arguments and the principal, and never sees the credential
     Given a service "cart" written in "<language>" with an MCP endpoint whose tool is "get_cart" and whose ACL admits client keys
@@ -28,6 +29,7 @@ Feature: An MCP endpoint in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service's own code issues, lists and revokes client keys through its client
     Given a service "cart" written in "<language>" with an MCP endpoint whose tool is "get_cart" and whose ACL admits client keys
@@ -45,3 +47,6 @@ Feature: An MCP endpoint in every language
       | Rust       | issues a client key for the subject "acme"       | a request carrying the client key runs "get_cart" as the subject "acme" |
       | Rust       | lists the client keys of "cart"                   | each client key is listed with its id and subject and never itself      |
       | Rust       | revokes a client key                             | a request carrying the client key is refused                            |
+      | Go         | issues a client key for the subject "acme"       | a request carrying the client key runs "get_cart" as the subject "acme" |
+      | Go         | lists the client keys of "cart"                   | each client key is listed with its id and subject and never itself      |
+      | Go         | revokes a client key                             | a request carrying the client key is refused                            |

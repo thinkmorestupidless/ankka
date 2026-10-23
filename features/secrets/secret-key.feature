@@ -29,6 +29,7 @@ Feature: The secret key of a deployed service
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario: a module is not shown the secret key
     Given a service "payments" written in "Rust" with a secret key

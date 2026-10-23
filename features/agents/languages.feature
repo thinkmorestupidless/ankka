@@ -18,6 +18,7 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an approved tool call runs once after a restart in every language
     Given a service "support" written in "<language>" with an agent "helper"
@@ -33,6 +34,7 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an autonomous agent's wait for a decision uses none of the task's budget in every language
     Given a service "ops" written in "<language>" with an autonomous agent "operator" working on a task
@@ -48,6 +50,7 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a tool's call to another service is admitted in every language
     Given a service "support" written in "<language>" and deployed in the project "shop" with an agent "helper"
@@ -63,6 +66,7 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an MCP server's tools are offered to the model in every language
     Given an MCP server "tickets" with the tools "create" and "search"
@@ -77,6 +81,7 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a result guardrail keeps an MCP server's result from the model in every language
     Given an MCP server "tickets" with the tools "create" and "search"
@@ -94,3 +99,4 @@ Feature: Approvals, service calls and MCP servers in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |

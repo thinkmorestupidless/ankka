@@ -66,6 +66,7 @@ Feature: Every read of a secret leaves a record
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario: a read record whose retention has passed is removed
     Given an installation whose retention is "1 year"

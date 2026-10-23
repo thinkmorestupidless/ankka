@@ -18,6 +18,7 @@ Feature: Testing a service written in any language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a value the encoding cannot write fails in the component test kit
     Given an entity "cart" written in "<language>" whose state can hold a value its declared types cannot encode
@@ -31,6 +32,7 @@ Feature: Testing a service written in any language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the component test kit follows a workflow to where it waits for a command
     Given a workflow "checkout" written in "<language>" that waits for the command "approve" after its step "reserve"
@@ -45,6 +47,7 @@ Feature: Testing a service written in any language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the test kit is ready before the test begins
     Given a service "shop" written in "<language>"
@@ -60,6 +63,7 @@ Feature: Testing a service written in any language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the test kit restarts the platform's own program on the same database
     Given a test kit running "shop" written in "<language>", whose cart "c1" has recorded 3 items
@@ -74,3 +78,4 @@ Feature: Testing a service written in any language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

@@ -1,6 +1,6 @@
 Feature: Service secrets in every language
   A service keeps and reads service secrets the same way whether it is written in Scala, Python,
-  TypeScript or Rust, because the platform's own program holds the secret key and the secret
+  TypeScript, Rust or Go, because the platform's own program holds the secret key and the secret
   store, and the developer's program asks it.
 
   Scenario Outline: a service secret is kept and read in every language
@@ -17,6 +17,7 @@ Feature: Service secrets in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the database holds a service secret only encrypted in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -32,6 +33,7 @@ Feature: Service secrets in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a service secret that was never kept is read as none in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -46,6 +48,7 @@ Feature: Service secrets in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: keeping a service secret again replaces its value in every language
     Given a service "payments" written in "<language>" with a secret key
@@ -61,3 +64,4 @@ Feature: Service secrets in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

@@ -67,6 +67,7 @@ Feature: A topic source's group
       | python     |
       | typescript |
       | rust       |
+      | go         |
 
   Scenario: no project is named "local"
     When a project named "local" is created

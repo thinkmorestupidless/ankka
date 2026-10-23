@@ -14,6 +14,7 @@ Feature: View streams in every language that can read one
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: a watcher is given the rows now and then a row that comes to match in every language that can read one
     Given a service "shop" written in "<language>" with a view "carts" that declares the query "open-carts"
@@ -26,6 +27,7 @@ Feature: View streams in every language that can read one
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario: a runtime from before view streams refuses a program that asks for one
     Given a service "shop" written in "Python" whose view "carts" declares the query "open-carts" as one that can be watched

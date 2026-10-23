@@ -5,7 +5,7 @@ Feature: The documentation of socket routes
   Scenario: the documentation describes a socket route in every language that has one
     Given the published documentation
     When a developer reads about HTTP endpoints
-    Then the documentation describes how a socket route is declared in "Scala", in "Python" and in "TypeScript"
+    Then the documentation describes how a socket route is declared in "Scala", in "Python", in "TypeScript" and in "Go"
     And the documentation says that the ACL of a socket route is decided when the socket is opened
     And the documentation describes how a browser sends a token when it opens a socket
 

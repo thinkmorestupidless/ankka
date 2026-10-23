@@ -18,3 +18,4 @@ Feature: One encoding in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

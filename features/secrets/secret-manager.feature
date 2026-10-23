@@ -65,3 +65,4 @@ Feature: Service secrets kept in Secret Manager
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |

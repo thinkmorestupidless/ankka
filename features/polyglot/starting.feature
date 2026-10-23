@@ -14,6 +14,7 @@ Feature: Starting a service written in another language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: a service whose code declares what the platform cannot host does not start
     Given a service "shop" written in "<language>" whose code declares <problem>
@@ -26,15 +27,19 @@ Feature: Starting a service written in another language
       | Python     | two components named "cart"                   | the name "cart"           |
       | TypeScript | two components named "cart"                   | the name "cart"           |
       | Rust       | two components named "cart"                   | the name "cart"           |
+      | Go         | two components named "cart"                   | the name "cart"           |
       | Python     | a component of a kind the platform cannot host | the kind                 |
       | TypeScript | a component of a kind the platform cannot host | the kind                 |
       | Rust       | a component of a kind the platform cannot host | the kind                 |
+      | Go         | a component of a kind the platform cannot host | the kind                 |
       | Python     | two handlers of "cart" named "add-item"       | the handler "add-item"    |
       | TypeScript | two handlers of "cart" named "add-item"       | the handler "add-item"    |
       | Rust       | two handlers of "cart" named "add-item"       | the handler "add-item"    |
+      | Go         | two handlers of "cart" named "add-item"       | the handler "add-item"    |
       | Python     | an endpoint with no ACL                       | the endpoint              |
       | TypeScript | an endpoint with no ACL                       | the endpoint              |
       | Rust       | an endpoint with no ACL                       | the endpoint              |
+      | Go         | an endpoint with no ACL                       | the endpoint              |
 
   Scenario Outline: a service whose code declares several problems is told every one at once
     Given a service "shop" written in "<language>" whose code declares two components named "cart" and an endpoint with no ACL
@@ -47,6 +52,7 @@ Feature: Starting a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service whose code speaks a protocol version the platform does not is refused, naming both
     Given a service "shop" written in "<language>" whose code speaks the protocol version "9.0"
@@ -59,3 +65,4 @@ Feature: Starting a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |

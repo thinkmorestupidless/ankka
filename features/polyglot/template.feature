@@ -1,5 +1,5 @@
 Feature: Starting a service in another language from the template
-  A developer starts a service in Java, Kotlin, Python, TypeScript or Rust from the template the
+  A developer starts a service in Java, Kotlin, Python, TypeScript, Rust or Go from the template the
   platform gives,
   and has a service that passes its tests and runs on their machine beside the platform's own
   program of the same version as the template, with nothing written by hand.
@@ -17,6 +17,7 @@ Feature: Starting a service in another language from the template
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a service started from the template runs beside the platform's own program of the template's version
     Given a service "shop" written in "<language>" started from the template
@@ -29,3 +30,4 @@ Feature: Starting a service in another language from the template
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |

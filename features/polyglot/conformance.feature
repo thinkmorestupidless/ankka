@@ -26,6 +26,7 @@ Feature: Proving an SDK compatible
       | Rust       | , with every component that has state stateful  |
       | Java       |                                                |
       | Kotlin     |                                                |
+      | Go         |                                                |
 
   Scenario Outline: an SDK's MCP endpoint answers as the Scala reference does
     Given the reference service written in "<language>", which declares an MCP endpoint
@@ -39,6 +40,7 @@ Feature: Proving an SDK compatible
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a behaviour broken in an SDK is named and no other
     Given the reference service written in "<language>", with one behaviour broken
@@ -53,3 +55,4 @@ Feature: Proving an SDK compatible
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

@@ -1,5 +1,5 @@
 Feature: A service's topology in every language
-  A service is written in Scala, Python, TypeScript or Rust. Whatever it is written in, its topology
+  A service is written in Scala, Python, TypeScript, Rust or Go. Whatever it is written in, its topology
   shows the same declared connections for the same components, and attributes its calls to the
   component that made them.
 
@@ -18,6 +18,7 @@ Feature: A service's topology in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a call is attributed to its caller in every language
     Given a service written in "<language>" with an event sourced entity "cart" and an event sourced entity "ledger"
@@ -34,3 +35,4 @@ Feature: A service's topology in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

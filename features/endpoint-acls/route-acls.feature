@@ -46,6 +46,7 @@ Feature: A route's own ACL
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a route's own ACL applies to that route alone, in every language
     Given the service "cart" is written in "<language>"
@@ -63,3 +64,4 @@ Feature: A route's own ACL
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

@@ -16,3 +16,4 @@ Feature: A personal field in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |

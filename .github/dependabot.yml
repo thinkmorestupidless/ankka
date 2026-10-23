@@ -24,6 +24,11 @@ updates:
     schedule:
       interval: weekly
     labels: [dependencies, typescript]
+    # The type definitions follow the Node line the code targets (24, the `engines` floor and
+    # the documented line), not the newest Node.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     groups:
       npm:
         update-types: [minor, patch]

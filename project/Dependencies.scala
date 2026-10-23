@@ -6,7 +6,7 @@ object Dependencies {
   object V {
     val scala = "3.9.0"
 
-    val pekko          = "1.7.0"
+    val pekko          = "1.7.1"
     val pekkoHttp      = "1.4.0"
     val pekkoR2dbc     = "1.2.0"
     val pekkoProj      = "1.1.0"
@@ -14,7 +14,7 @@ object Dependencies {
     val pekkoKafka     = "1.2.0"
 
     /**
-     * Pekko Management's own line. 1.2.1 is the last 1.x and was verified against Pekko 1.7.0
+     * Pekko Management's own line. 1.2.1 is the last 1.x and was verified against Pekko 1.7.1
      * during feature 004's planning; the 2.0.0 milestones pull a different Pekko. Bump these
      * together.
      */

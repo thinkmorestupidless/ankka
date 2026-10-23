@@ -26,9 +26,8 @@ type Client struct {
 	address string
 	decls   *declarations
 
-	once sync.Once
+	mu   sync.Mutex
 	conn *grpc.ClientConn
-	err  error
 	rpc  pb.ClientClient
 }
 
@@ -36,24 +35,38 @@ type Client struct {
 // test, or a tool. The service's own client is handed to its handlers on their contexts.
 func NewClient(address string) *Client { return &Client{address: address} }
 
-// Close closes the client's channel, if it opened one.
+// Close closes the client's channel, if it opened one; a later call opens another.
 func (c *Client) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn := c.conn
+	c.conn, c.rpc = nil, nil
+	if conn != nil {
+		return conn.Close()
 	}
 	return nil
 }
 
+// redirect points the client at another address: the integration test kit's sidecar, replaced by
+// a restart, answers on a new port. The next call dials it.
+func (c *Client) redirect(address string) {
+	_ = c.Close()
+	c.mu.Lock()
+	c.address = address
+	c.mu.Unlock()
+}
+
 func (c *Client) stub() (pb.ClientClient, error) {
-	c.once.Do(func() {
-		c.conn, c.err = grpc.NewClient(c.address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if c.err == nil {
-			c.rpc = pb.NewClientClient(c.conn)
-		}
-	})
-	if c.err != nil {
-		return nil, fmt.Errorf("the sidecar's client at %s cannot be reached: %w", c.address, c.err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rpc != nil {
+		return c.rpc, nil
 	}
+	conn, err := grpc.NewClient(c.address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("the sidecar's client at %s cannot be reached: %w", c.address, err)
+	}
+	c.conn, c.rpc = conn, pb.NewClientClient(conn)
 	return c.rpc, nil
 }
 

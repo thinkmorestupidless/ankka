@@ -26,9 +26,13 @@ func kitOf(service any) (*kit.Service, error) {
 		Body:         d.encodeBody,
 		HTTP:         d.handleHTTP,
 		Client: func(conn grpc.ClientConnInterface) any {
-			c := &Client{address: "a test kit", decls: d, rpc: pb.NewClientClient(conn)}
-			c.once.Do(func() {})
-			return c
+			return &Client{address: "a test kit", decls: d, rpc: pb.NewClientClient(conn)}
+		},
+		ClientAt: func(address string) any { return &Client{address: address, decls: d} },
+		Redirect: func(address string) {
+			if c := s.Client(); c != nil {
+				c.redirect(address)
+			}
 		},
 	}
 	for _, p := range d.problems {

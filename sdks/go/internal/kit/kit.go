@@ -28,6 +28,11 @@ type Service struct {
 	// Client is the service's client over conn, a stand-in for the sidecar's Client service; the
 	// value is an *ankka.Client.
 	Client func(conn grpc.ClientConnInterface) any
+	// ClientAt is a client of the sidecar at address that knows the service's declarations; the
+	// value is an *ankka.Client.
+	ClientAt func(address string) any
+	// Redirect points the client of a service already serving at another sidecar address.
+	Redirect func(address string)
 }
 
 // EventSourced is what a test kit needs of an event sourced entity.

@@ -12,7 +12,7 @@ import scala.util.Using
  * a component the service does not register is found before any request. A call by wire name is a
  * string, and is not found here.
  */
-private[bridge] object References:
+private[ankka] object References:
 
   def components(cls: Class[?]): Vector[Class[?]] =
     classNames(cls).iterator

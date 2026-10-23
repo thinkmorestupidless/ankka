@@ -225,11 +225,11 @@ class SurfaceParitySuite extends munit.FunSuite:
       ) ++ rows("Graph consumer", "core.graph.GraphElementRefused")(
         "why" -> byDesign("a refused element is an IllegalArgumentException whose message is why")
       ) ++ rows("Graph consumer", "core.graph.GraphDelta")(
-        "read"        -> pending("T044a"),
-        "serializer"  -> pending("T044a"),
-        "nodeKey"     -> pending("T044a"),
-        "edgeKey"     -> pending("T044a"),
-        "isTombstone" -> pending("T044a")
+        "read"        -> j(classOf[component.GraphDelta], "read"),
+        "serializer"  -> j(classOf[component.GraphDelta], "serializer"),
+        "nodeKey"     -> j(classOf[component.GraphDelta], "nodeKey"),
+        "edgeKey"     -> j(classOf[component.GraphDelta], "edgeKey"),
+        "isTombstone" -> j(classOf[component.GraphDelta], "isTombstone")
       ) ++
       // Workflow
       rows("Workflow", "sdk.Workflow")(
@@ -436,11 +436,45 @@ class SurfaceParitySuite extends munit.FunSuite:
         "Follower" -> j(classOf[EventSourcedTestKit[?, ?]], "follower")
       ) ++ rows("Testing", "testkit.KeyValueEntityTestKit$")(
         "of" -> j(classOf[KeyValueEntityTestKit[?]], "of")
+      ) ++ rows("Testing", "testkit.WorkflowTestKit$")(
+        "of" -> j(classOf[WorkflowTestKit[?]], "of")
+      ) ++ rows("Testing", "testkit.WorkflowTestKit")(
+        "call"    -> j(classOf[WorkflowTestKit[?]], "call"),
+        "timeOut" -> j(classOf[WorkflowTestKit[?]], "timeOut")
+      ) ++ rows("Testing", "testkit.StepResult")(
+        "steps"        -> j(classOf[StepResult[?, ?]], "steps"),
+        "state"        -> j(classOf[StepResult[?, ?]], "state"),
+        "lifecycle"    -> j(classOf[StepResult[?, ?]], "lifecycle"),
+        "pauseTimeout" -> j(classOf[StepResult[?, ?]], "pausedFor")
+      ) ++ Seq(
+        Row(
+          "Testing",
+          S + "testkit.ViewTestKit$",
+          "apply",
+          j(classOf[ViewTestKit[?, ?]], "of"),
+          Some("ViewTestKit")
+        ),
+        Row(
+          "Testing",
+          S + "testkit.KeyedViewTestKit$",
+          "apply",
+          j(classOf[KeyedViewTestKit[?]], "of"),
+          Some("KeyedViewTestKit")
+        )
+      ) ++ rows("Testing", "testkit.ViewTestKit")(
+        "change"  -> j(classOf[ViewTestKit[?, ?]], "change"),
+        "deleted" -> j(classOf[ViewTestKit[?, ?]], "deleted"),
+        "rows"    -> j(classOf[ViewTestKit[?, ?]], "rows"),
+        "row"     -> j(classOf[ViewTestKit[?, ?]], "row")
+      ) ++ rows("Testing", "testkit.KeyedViewTestKit")(
+        "change"    -> j(classOf[KeyedViewTestKit[?]], "change"),
+        "deleted"   -> j(classOf[KeyedViewTestKit[?]], "deleted"),
+        "answering" -> j(classOf[KeyedViewTestKit[?]], "answering")
       ) ++ rows("Testing", "testkit.ConsumerTestKit$")(
-        "of"    -> pending("T044a"),
-        "graph" -> pending("T044a")
+        "of"    -> j(classOf[ConsumerTestKit[?, ?]], "of"),
+        "graph" -> j(classOf[ConsumerTestKit[?, ?]], "graph")
       ) ++ rows("Testing", "testkit.TestTransport")(
-        "client" -> pending("T044a")
+        "client" -> j(classOf[TestClient], "client")
       ) ++ rows("Testing", "testkit.AnkkaTestKit$")(
         "start"         -> j(classOf[AnkkaTestKit], "start"),
         "installations" -> j(classOf[AnkkaTestKit], "installations")

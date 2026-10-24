@@ -40,6 +40,14 @@ In Java and Kotlin a view's `source()` answers `ChangeSource.of(ShoppingCart.cla
 kind, `ChangeSource.ofWorkflow(Checkout.class)` for a workflow, and `ChangeSource.ofTopic("stock-events",
 StockEvent.class)` for a topic.
 
+A view over a topic must also say where it starts, and is refused when the service starts if it does not;
+see [Where a source starts](topics.md#where-a-source-starts). When the project declares the topic with a
+[contract](topics.md#contracts), the view states the same contract, in Scala with
+`TopicOptions(contract = Some(orders))` on `ChangeSource.fromTopic`, or the service is refused at start
+naming the topic and the contract the project declares. A topic source may also name
+[a broker the project declares](topics.md#a-topic-on-another-broker) and ask to read its partitions
+[in parallel](topics.md#reading-partitions-in-parallel).
+
 The source is built from the source component's own declaration, so a view over the cart is typed
 against the cart's event type and decodes with the cart's own serializer. It cannot drift when the entity's
 serializer changes.

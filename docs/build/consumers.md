@@ -158,7 +158,7 @@ final class CheckoutFanout extends Consumer[ShoppingCartEvent, Fanned]:
   def onMessage(event: ShoppingCartEvent): Effect = event match
     case _: ItemAdded   => effects.produceAll(Nil)
     case _: ItemRemoved => effects.produce(Fanned(0))
-    case CheckedOut =>
+    case CheckedOut     =>
       effects.produceAll(
         Seq(
           effects.message(Fanned(1)),

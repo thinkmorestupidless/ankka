@@ -339,10 +339,10 @@ its own beside the cart's:
 final class CartContentsGraph(client: ComponentClient) extends GraphConsumer[ShoppingCartEvent]:
 
   def onMessage(event: ShoppingCartEvent): Effect = event match
-    case Discarded => effects.ignore()
+    case Discarded                                  => effects.ignore()
     case ItemAdded(_) | ItemRemoved(_) | CheckedOut =>
       val cartId = messageContext.subject
-      val cart = client
+      val cart   = client
         .forEventSourcedEntity(EntityId(cartId))
         .call(ShoppingCartEntity.getCart)
         .invoke()

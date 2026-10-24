@@ -244,9 +244,10 @@ class TemplateSuite extends munit.FunSuite:
          |  unary(GreeterGrpc.METHOD_GREET) { request => GreetReply(s"hello, $${request.name}") }
          |""".stripMargin
     )
-    val mainText     = Files.readString(main)
-    val httpRegister = ".withExtension(HttpServer.of("
-    assert(mainText.contains(httpRegister), mainText)
+    val mainText = Files.readString(main)
+    // Registered beside the others, before `.start()`: the one anchor no formatting of the chain moves.
+    val start = "\n    .start()"
+    assert(mainText.contains(start), mainText)
     Files.writeString(
       main,
       mainText
@@ -256,10 +257,7 @@ class TemplateSuite extends munit.FunSuite:
             "import com.thinkmorestupidless.ankka.http.HttpServer\n" +
             s"import $pkg.api.GreeterEndpoint"
         )
-        .replace(
-          httpRegister,
-          ".withExtension(GrpcServer.of(_ => GreeterEndpoint()))\n    " + httpRegister
-        )
+        .replace(start, "\n    .withExtension(GrpcServer.of(_ => GreeterEndpoint()))" + start)
     )
     val tests = files.find(_.endsWith("ItemHttpSuite.scala")).getOrElse(fail("no ItemHttpSuite"))
     Files.writeString(

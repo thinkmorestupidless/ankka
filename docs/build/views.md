@@ -315,7 +315,7 @@ object CheckoutRows
       rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
     ):
   def create(ctx: ViewComponentContext) = new CheckoutRowsView
-  val byStanding = query("by-standing")(
+  val byStanding                        = query("by-standing")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
   )
 ```

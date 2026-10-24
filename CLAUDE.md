@@ -174,7 +174,9 @@ class in a test file that reads `ankka.cluster.tests`, so a new suite runs unlis
 script on every pull request. Each runner is `sbt '<project>/testOnly <class>'`, which builds that
 module's images. The longest Gherkin suites run as several jobs, a few scenarios each (the script's
 `SHARDS`, passed to the suite as `-Dankka.features.only=<file>:<line>,…`; a grouping must name every
-feature file of its directory, or the script fails). The nightly run passes `-Dankka.coldstarts=20` (SC-002; five by default). Check a
+scenario of its file or every feature file of its directory, or the script fails). About 34 jobs run
+at once, so a run takes at least its runner-minutes over 34, and every shard pays the compile, images
+and fixture again: the table aims at about 100 jobs, not the most shards. The nightly run passes `-Dankka.coldstarts=20` (SC-002; five by default). Check a
 platform change before merging with `gh workflow run cluster --ref <branch>`, one suite with
 `-f suite=<Name>`. Under `CI` the sidecar suite fails, rather than skips, when the Rust module does not
 build.

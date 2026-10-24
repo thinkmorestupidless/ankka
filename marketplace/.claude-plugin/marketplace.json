@@ -13,6 +13,12 @@
       "source": "./plugins/ankka",
       "description": "The ankka documentation as skills — design, entities, views and consumers, workflows, agents, endpoints, Python, deploying, the platform — and the ankka mcp server.",
       "version": "0.0.0"
+    },
+    {
+      "name": "pr-review",
+      "source": "./plugins/pr-review",
+      "description": "Code review as skills: the general checklist every pull request is checked against, then the checklist of each language the diff touches (Scala, Java, Kotlin, Go, Python, Rust, TypeScript); findings labelled by severity with a verdict. Needs nothing from ankka.",
+      "version": "0.0.0"
     }
   ]
 }

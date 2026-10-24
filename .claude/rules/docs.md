@@ -50,9 +50,11 @@ bite:
   `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
 - **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
   fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
-  which holds one plugin per project (ankka's, satisfactory's, ankka-flow's). The release workflow's `marketplace` job
-  clones that repository, replaces `plugins/ankka/` and ankka's manifest entry only, and pushes an
+  which holds one plugin per project (ankka's, satisfactory's, ankka-flow's) plus `pr-review`, the code
+  review skills, which this repository owns and which need nothing from ankka (hand-written under
+  `marketplace/plugins/pr-review/`, not rendered from `docs/`). The release workflow's `marketplace` job
+  clones that repository, replaces `plugins/ankka/`, `plugins/pr-review/` and their two manifest entries only, and pushes an
   ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
-  the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
+  each plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
   plane route fails the JVM suites until `just docs-reference` has run and the route has a
   hand-written section.

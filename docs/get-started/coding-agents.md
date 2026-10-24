@@ -58,6 +58,12 @@ your `PATH` for the tools to start. [Install the tools](install.md) covers build
 marketplace is published from the ankka repository on every release, so the plugin's version is the
 platform version whose documentation it holds.
 
+The same marketplace carries `pr-review`, code review as skills, which needs nothing from ankka:
+`/plugin install pr-review@ankka`. It reviews a pull request, branch or working tree against a general
+checklist and then against the checklist of each language the change touches (Scala, Java, Kotlin, Go,
+Python, Rust, TypeScript), reading the repository's own instructions and rule files first, and reports
+findings labelled by severity with a verdict.
+
 ## The MCP server
 
 `ankka mcp` is an MCP server over standard input and output. It offers three groups of tools, and the

@@ -381,8 +381,28 @@ class AfterRestoreClusterFeatures
     Thread.sleep(3000)
     moment = Instant.now()
     Thread.sleep(2000)
+    awaitViewCaughtUp()
     brokerBefore = brokerState
   }
+
+  /**
+   * The view's group has committed to the end of the topic. On a cluster where "totals" has just
+   * been deployed, as it is when this scenario runs first, its group is still joining when the
+   * checkout is published, and a snapshot of the broker taken then sees the position move from 0 to
+   * 1 on its own, which is not the platform's doing.
+   */
+  private def awaitViewCaughtUp(): Unit =
+    val deadline          = System.currentTimeMillis() + 90000
+    def caughtUp: Boolean =
+      val state    = brokerState
+      val end      = ends(state).flatMap(_.split(':').lastOption)
+      val position = groups(state).flatMap(_.split(' ').lastOption)
+      end.nonEmpty && end == position
+    while !caughtUp && System.currentTimeMillis() < deadline do Thread.sleep(2000)
+    assert(
+      caughtUp,
+      s"the view's group did not reach the end of the topic within 90s:\n$brokerState"
+    )
 
   When("the restore of {string} completes")((_: String) => restoreAt(moment))
 

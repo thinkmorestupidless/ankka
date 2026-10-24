@@ -227,7 +227,8 @@ image (`docker/setup-buildx-action` makes a `docker-container` one; locally `doc
 
 **The k3s suites run on both architectures** (`cluster.yml`): `.github/cluster-suites.py` lists each
 suite once per architecture with its runner (`ubuntu-24.04`, `ubuntu-24.04-arm`), each leg builds its
-own images natively, and a job is named `<Suite> (<arch>)`. `-f arch=arm64` narrows a run to one leg.
+own images natively, and a job is named `<Suite> (<arch>)`, or `<Suite>: <shard> (<arch>)` for a suite
+the script's `SHARDS` runs as several jobs. `-f arch=arm64` narrows a run to one leg.
 
 **The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
 job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the

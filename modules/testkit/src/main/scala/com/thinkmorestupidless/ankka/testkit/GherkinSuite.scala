@@ -127,7 +127,37 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
       }
   }
 
-  parsed.pickles.foreach { case Located(pickle, uri, line, stepLines) =>
+  /**
+   * The scenarios this run is held to, from `-Dankka.features.only`: a comma-separated list of
+   * selectors, each a feature file by the end of its path (`databases/restoring.feature`) or one
+   * scenario by its file and the line its test name carries (`restoring.feature:47`; an outline's
+   * row is at the row's line). The cluster workflow runs a long suite as several jobs this way,
+   * each a few of its scenarios. Unset, every scenario runs. A selection that names no scenario
+   * fails the suite: a shard that ran nothing has checked nothing, and a selector outlives a
+   * scenario that moved.
+   */
+  private val only: Vector[String] =
+    sys.props
+      .get("ankka.features.only")
+      .toVector
+      .flatMap(_.split(','))
+      .map(_.trim)
+      .filter(_.nonEmpty)
+
+  private def selected(uri: String, line: Int): Boolean =
+    only.isEmpty || only.exists { selector =>
+      def matches(key: String) = key == selector || key.endsWith("/" + selector)
+      matches(uri) || matches(s"$uri:$line")
+    }
+
+  private val chosen = parsed.pickles.filter(p => selected(p.uri, p.line))
+
+  if only.nonEmpty && chosen.isEmpty && parsed.errors.isEmpty then
+    test(s"$features holds a scenario of ${only.mkString(", ")}") {
+      fail(s"ankka.features.only selects no scenario under ${directory.toAbsolutePath}")
+    }
+
+  chosen.foreach { case Located(pickle, uri, line, stepLines) =>
     val elsewhere = ranElsewhere.get(pickle.getName)
     val outside   = ranOutside.get(pickle.getName)
     val name      = (elsewhere, outside) match

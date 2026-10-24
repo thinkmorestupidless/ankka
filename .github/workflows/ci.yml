@@ -643,7 +643,7 @@ jobs:
           cache: sbt
       - uses: sbt/setup-sbt@v1
         if: matrix.go == '1.27'
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           cache-dependency-path: sdks/go/**/go.sum

@@ -152,6 +152,11 @@ names both versions, and no instance starts. A descriptor with no `runtime` is n
 means a platform can be upgraded one minor version ahead of its services, and each service then has until
 the platform's next minor release to follow.
 
+A descriptor is checked by the CLI and by the control plane with the same rules, and a field either does
+not know is refused by name rather than dropped. So a descriptor written for a newer release than the
+installation runs is refused by `ankka services apply` until the installation is upgraded; the refusal
+names the field.
+
 ## Installing the broker
 
 An installation that adds the `broker` component to a platform already running services gives every

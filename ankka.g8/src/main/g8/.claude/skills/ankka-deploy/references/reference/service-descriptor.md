@@ -77,6 +77,12 @@ name is refused with `service name must not be empty`; any other invalid name wi
 The project is not part of the descriptor. It comes from `--project`, `ANKKA_PROJECT` or the saved
 settings, so one descriptor can be applied to several projects.
 
+A field this page does not list is refused, at every level, with
+`the descriptor names a field the platform does not know: "<field>"`. That is how a misspelt field is
+caught before the service runs with the default, and how an attempt to choose what is the platform's
+to choose, such as the image or version of the program it runs beside your process, is refused rather
+than ignored. A field a newer release of ankka knows needs the installation upgraded first.
+
 ## The service object
 
 | Field | Type | Default | Meaning |

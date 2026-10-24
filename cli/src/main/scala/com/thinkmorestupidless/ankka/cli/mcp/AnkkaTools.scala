@@ -257,8 +257,10 @@ private[cli] final class AnkkaTools(
         case Some(value)         => value.render
         case None                => throw IllegalArgumentException("`descriptor` is required")
       val descriptor =
-        try readFromString[ServiceDescriptor](text)
+        try readFromString(text)(using Wire.strictDescriptorCodec)
         catch
+          case failure: com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException =>
+            throw IllegalArgumentException(Wire.descriptorProblem(failure))
           case e: Exception =>
             throw IllegalArgumentException(s"not a service descriptor: ${e.getMessage}")
       descriptor.problems match

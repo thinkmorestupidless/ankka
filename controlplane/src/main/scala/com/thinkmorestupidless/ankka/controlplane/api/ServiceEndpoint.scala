@@ -129,6 +129,23 @@ final class ServiceEndpoint(
         )
 
   /**
+   * A descriptor applied here is read through `Wire.strictDescriptorCodec`: a field the platform
+   * does not know is a 400 naming it, never dropped in silence. Only this body; every other
+   * descriptor on the wire is read leniently.
+   */
+  private given strictDescriptorBody: FromBody[ServiceDescriptor] = new FromBody[ServiceDescriptor]:
+    val contentType                                                 = "application/json"
+    def read(bytes: Array[Byte]): Either[String, ServiceDescriptor] =
+      try
+        Right(
+          com.github.plokhotnyuk.jsoniter_scala.core
+            .readFromArray(bytes)(using Wire.strictDescriptorCodec)
+        )
+      catch
+        case failure: com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException =>
+          Left(Wire.descriptorProblem(failure))
+
+  /**
    * The organization is asked for the capacity first (feature 015): a refusal for quota changes
    * nothing, and an apply that then fails puts back what the service counted before — nothing, for
    * a new one. The refusals the entity would make anyway (a descriptor naming another service, an

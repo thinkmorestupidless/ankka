@@ -6,7 +6,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.monovore.decline.{Command, Opts}
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.api.Deploy.withImage
-import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
 import com.thinkmorestupidless.ankka.cli.console.{ConsoleServer, LocalSource}
 
@@ -1849,8 +1848,13 @@ private[cli] object Descriptors:
         Files.readString(path)
 
     val descriptor =
-      try readFromString[ServiceDescriptor](text)
+      try readFromString(text)(using Wire.strictDescriptorCodec)
       catch
+        case failure: com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException =>
+          throw ApiError(
+            0,
+            s"could not read $file as a service descriptor: ${Wire.descriptorProblem(failure)}"
+          )
         case error: Exception =>
           throw ApiError(0, s"could not read $file as a service descriptor: ${error.getMessage}")
 

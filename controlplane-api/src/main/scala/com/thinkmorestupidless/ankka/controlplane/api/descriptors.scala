@@ -2239,8 +2239,41 @@ object InstallationSecrets:
   val AuditLogOff: String     = "off"
   val AuditLogUnknown: String = "unknown"
 
+/**
+ * The strict derivation lives outside `Wire` on purpose: inside it, `Wire.specCodec` is in implicit
+ * scope, the derivation would take it for the nested `service` and a field under `service` would be
+ * skipped in silence again, as it was. Only the enum codecs in their companions are meant to be
+ * found.
+ */
+private object StrictDescriptor:
+  val codec: JsonValueCodec[ServiceDescriptor] = Codecs.strict[ServiceDescriptor]
+
 object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
+
+  /**
+   * The codec a descriptor is *applied* through (`services apply`, the MCP tool, `PUT
+   * /services/{project}/{name}`): a field the platform does not know, at any level, is refused and
+   * named by `descriptorProblem`. `descriptorCodec` stays lenient, as the journal's serializer
+   * does, because a descriptor a newer release wrote carries fields this one does not know and must
+   * still read where it is only read back.
+   */
+  val strictDescriptorCodec: JsonValueCodec[ServiceDescriptor] = StrictDescriptor.codec
+
+  /**
+   * The refusal for a descriptor `strictDescriptorCodec` could not read, for the person who wrote
+   * it.
+   */
+  def descriptorProblem(
+      failure: com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
+  ): String =
+    UnknownField.findFirstMatchIn(failure.getMessage) match
+      case Some(found) =>
+        s"the descriptor names a field the platform does not know: \"${found.group(1)}\"; " +
+          "a field a newer release knows needs the installation upgraded first"
+      case None => s"not a service descriptor: ${failure.getMessage}"
+
+  private val UnknownField                                 = """unexpected field "([^"]*)"""".r
   given specCodec: JsonValueCodec[ServiceSpec]             = Codecs.make[ServiceSpec]
   given statusCodec: JsonValueCodec[ServiceStatus]         = Codecs.make[ServiceStatus]
   given mountStatusCodec: JsonValueCodec[MountStatus]      = Codecs.make[MountStatus]

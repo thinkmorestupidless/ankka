@@ -128,6 +128,7 @@ restart it, and see every cart survive.
 - added `features/polyglot/deploying.feature`: a process that stops is started again while its instance stays in the cluster
 - `features/secrets/platform-settings.feature`: a descriptor may not give a variable the platform alone sets, however it gives it
 - added `features/polyglot/deploying.feature`: a deployed service runs the platform's own program at the installation's version
+- added `features/polyglot/deploying.feature`: a descriptor that names an image for the platform's own program is refused
 
 ---
 

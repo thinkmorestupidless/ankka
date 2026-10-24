@@ -68,7 +68,10 @@ final class ProjectionRuntime private (
     declarations: Either[String, Option[ProjectDeclarations]] = Right(None),
     // The declared brokers (feature 037), by name: a connection each, beside the installation's.
     declaredBrokers: Map[String, ActorSystem[?] => (MessagePublisher, MessageSubscriber)] =
-      Map.empty
+      Map.empty,
+    // The connection `withKafka` was given, kept so `start` can check it against the environment
+    // the platform gave the service; `None` for a runtime with no broker or a publisher handed in.
+    installation: Option[KafkaConnection] = None
 ) extends RuntimeExtension:
 
   /** The same runtime with a declared broker a component may name for a topic. */
@@ -82,7 +85,8 @@ final class ProjectionRuntime private (
       subscriberFactory,
       ownsPublisher,
       declarations,
-      declaredBrokers.updated(name, _ => (publisher, subscriber))
+      declaredBrokers.updated(name, _ => (publisher, subscriber)),
+      installation
     )
 
   private def withDeclaredKafka(name: String, connection: KafkaConnection): ProjectionRuntime =
@@ -98,7 +102,8 @@ final class ProjectionRuntime private (
             KafkaPublisher(connection)(using system),
             KafkaSubscriber(connection, 1.second, 30.seconds)(using system)
           )
-      )
+      ),
+      installation
     )
 
   @volatile private var brokers: Map[String, (MessagePublisher, MessageSubscriber)] = Map.empty
@@ -118,7 +123,8 @@ final class ProjectionRuntime private (
       subscriberFactory,
       ownsPublisher,
       Right(Some(declared)),
-      declaredBrokers
+      declaredBrokers,
+      installation
     )
 
   /** The same runtime, refusing to start because the declarations file could not be read. */
@@ -128,7 +134,8 @@ final class ProjectionRuntime private (
       subscriberFactory,
       ownsPublisher,
       Left(why),
-      declaredBrokers
+      declaredBrokers,
+      installation
     )
 
   // Factories rather than instances: a Kafka client needs an ActorSystem, which does not
@@ -157,6 +164,12 @@ final class ProjectionRuntime private (
     given system: ActorSystem[?] = service.system
     replication = service.replication
     val client = service.componentClient
+
+    // Before a client is opened: a plaintext client against the installation's TLS listener dies
+    // of heap exhaustion, with nothing to say what it was (issue #108).
+    installation
+      .flatMap(ProjectionRuntime.plaintextAgainstTls(_, sys.env))
+      .foreach(StartRefusal.refuse(_, IllegalStateException(_)))
 
     publisher = publisherFactory.map(_(system))
     brokers = declaredBrokers.map((name, make) => name -> make(system))
@@ -1438,8 +1451,31 @@ object ProjectionRuntime:
     new ProjectionRuntime(
       Some(system => KafkaPublisher(connection)(using system)),
       Some(system => KafkaSubscriber(connection, 1.second, 30.seconds)(using system)),
-      ownsPublisher = true
+      ownsPublisher = true,
+      installation = Some(connection)
     )
+
+  /**
+   * Why a connection in the clear must refuse to start where the platform gave the service the
+   * installation's broker, which only the operator does, and only as TLS
+   * (`ANKKA_KAFKA_TLS_DIRECTORY`). A plaintext Kafka client reads the TLS handshake as a message
+   * length of hundreds of megabytes and dies of `Java heap space` at every instance size, which
+   * reads as a sizing problem and cost a day to find (issue #108). `None` when the connection
+   * carries a certificate or a credential, or the environment names no TLS directory: a descriptor
+   * that supplies its own broker is given none.
+   */
+  def plaintextAgainstTls(connection: KafkaConnection, env: Map[String, String]): Option[String] =
+    val tlsDirectory =
+      env.get(KafkaConnection.TlsDirectoryVariable).map(_.trim).filter(_.nonEmpty)
+    val plaintext = connection.tlsDirectory.isEmpty && connection.credential.isEmpty
+    tlsDirectory.filter(_ => plaintext).map { directory =>
+      s"the broker at ${connection.bootstrapServers} is reached in the clear " +
+        "(ProjectionRuntime.withKafka), but this service runs on an installation whose broker is " +
+        s"TLS (${KafkaConnection.TlsDirectoryVariable}=$directory): a plaintext client reads the TLS " +
+        "handshake as a message of hundreds of megabytes and dies of Java heap space. Use " +
+        "ProjectionRuntime.fromEnv(), which reads the broker, its certificate and the topic prefix " +
+        "from the environment; a broker of your own is declared on the project (build/topics.md)"
+    }
 
   /**
    * The variable [[fromEnv]] reads, and a process-hosted service's sidecar reads, for the broker.

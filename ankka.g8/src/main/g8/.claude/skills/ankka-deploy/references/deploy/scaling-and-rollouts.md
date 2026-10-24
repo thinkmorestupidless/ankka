@@ -53,6 +53,17 @@ container is sized by the descriptor's `resources.process`, requests equal to li
 CPU and 128Mi memory when the descriptor says nothing; see
 [the service descriptor](../reference/service-descriptor.md#the-process-container).
 
+### What a JVM service needs
+
+A Scala service is a JVM, and the JVM takes a quarter of the instance's memory as its heap by default.
+The rest of what it uses is outside the heap: class metadata, compiled code, thread stacks, and the
+buffers of the cluster, the database driver and a Kafka client. Measured on a service of about twenty
+components with a topic view and a producer: about 500 MB resident in a `small` instance, at the edge of
+its limit, settling at about 450 MB in `medium`. So `small` suits a service of a few components, and a
+service with a topic view or a producer should ask for `medium`. To give the heap another share, set
+`JAVA_TOOL_OPTIONS` in the descriptor's `env`, for example `-XX:MaxRAMPercentage=50`; the JVM reads it
+at start.
+
 ## Deploys roll without downtime
 
 Applying a descriptor that changes what the instances run, such as the image or an environment variable,

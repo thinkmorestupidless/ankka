@@ -60,6 +60,11 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   workflow. `RemoteWorkflowHost` throws on a `Failure`, a timeout and a wrong id, and reserves the
   `Fail` outcome for what the process answered on purpose. Settings the engine enforces (timeouts,
   recovery) are declared in discovery (`WorkflowDetail.Settings`), since the process cannot.
+- **A conversation that ends with a fault is logged with its cause chain** (`GrpcConversation.
+  describe`, 2026-10-24). grpc-java's `CANCELLED: Failed to stream message` means a message this side
+  could not send, and what failed (a `null` field, a stream already ended) is the exception's cause,
+  not its message; issue #87 was one such line with nothing behind it. Read the WARN's `caused by`
+  before suspecting the process.
 - **A sidecar's `Main.run` must block on `whenTerminated`.** Returning after start exits the JVM,
   and coordinated shutdown has the node leave the cluster it just joined while it is still answering
   HTTP.

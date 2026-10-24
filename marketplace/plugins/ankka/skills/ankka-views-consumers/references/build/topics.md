@@ -438,6 +438,12 @@ Ankka.service
   .start()
 ```
 
+On an installation `fromEnv()` is required, not only convenient. The installation's broker is TLS, and the
+environment carries the certificate to present beside the address; a service that passes that address to
+`withKafka` connects in the clear, and a plaintext Kafka client reads the TLS handshake as a message of
+hundreds of megabytes and dies of `Java heap space`, at every instance size. The runtime refuses to start
+such a service, naming `fromEnv()`.
+
 ### The installation's broker
 
 An installation of the platform has one broker, which it provides for every project, as it provides each

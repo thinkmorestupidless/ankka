@@ -791,6 +791,16 @@ ConfigMap for nothing.
   scenario each night (issue #162); the suite now reads a conflict ending as what it is, not as a
   removal. Re-reading the owner before writing children shrinks the window without closing it.
   (2026-10-24)
+- **kindnet stops enforcing new policies once its informers die, and nothing restarts it.** Under a
+  first install's load its list calls time out (`TLS handshake timeout` on `*v1.NetworkPolicy`), the
+  log goes quiet, and from then on every policy is stored and ignored: the deploy script's own probe
+  refused a cluster that had passed it before, and a deny-all policy left for 80 seconds still
+  connected. `kubectl -n kube-system rollout restart daemonset/kindnet` heals it within seconds, so
+  `deploy-local.sh` restarts it once and probes again before refusing (issue #108). (2026-10-24)
+- **CNPG's webhook serves a moment after its Deployment has rolled out.** An overlay applied in
+  between fails `failed calling webhook "mcluster.cnpg.io" … connection refused`; `deploy-local.sh`
+  now dry-runs a `Cluster` server-side until the webhook answers. The first run's database waits are
+  ten minutes, since the node pulls the Postgres image while loading every other image. (2026-10-24)
 
 ## Backups and recovery (feature 041)
 

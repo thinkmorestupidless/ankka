@@ -46,6 +46,23 @@ import scala.concurrent.duration.*
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
 
+object GrpcConversation:
+
+  /**
+   * A fault as one line: its message, then each cause's class and message, outermost first. A
+   * `StatusRuntimeException` reads `CODE: description`, which is its message; the cause chain is
+   * bounded, since a cause can refer back to its own exception.
+   */
+  def describe(t: Throwable): String =
+    def line(e: Throwable) = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+    val causes             = Iterator
+      .iterate(t.getCause)(_.getCause)
+      .takeWhile(_ != null)
+      .take(8)
+      .map(c => s"${c.getClass.getSimpleName}: ${line(c)}")
+      .toVector
+    if causes.isEmpty then line(t) else s"${line(t)}, caused by ${causes.mkString(", caused by ")}"
+
 /**
  * The `Conversation` a remote host speaks, over grpc-java to the developer's process.
  *
@@ -120,6 +137,25 @@ final class GrpcConversation(
       java.util.concurrent.TimeUnit.MILLISECONDS
     )
 
+  /**
+   * What a session's callers are told when the process's stream ends with a fault, and the log line
+   * saying why. grpc-java's `CANCELLED: Failed to stream message` is a message *this* side could
+   * not send — a `null` in a field, a stream already ended — and what failed is the exception's
+   * cause, which its message does not carry; a step of a Python workflow once ended that way in CI
+   * with nothing else in the log (issue #87). The chain is logged with the stack, so the next
+   * occurrence says what it was.
+   */
+  private def closedBy(init: Init, t: Throwable): CommandError =
+    val why = GrpcConversation.describe(t)
+    log.warn(
+      "{}/{}: the process closed the conversation: {}",
+      init.componentId,
+      init.entityId,
+      why,
+      t
+    )
+    CommandError(s"the process closed the conversation: $why", ErrorCode.Unavailable)
+
   def open(init: Init): InstanceSession =
     val pending = new AtomicReference[Option[Pending]](None)
     // A workflow's stream carries commands and steps, and the engine keeps answering commands
@@ -159,12 +195,7 @@ final class GrpcConversation(
             case EventSourcedOut.Message.Empty => ()
           def onError(t: Throwable): Unit =
             closed = true
-            failPending(
-              CommandError(
-                s"the process closed the conversation: ${t.getMessage}",
-                ErrorCode.Unavailable
-              )
-            )
+            failPending(closedBy(init, t))
           def onCompleted(): Unit =
             closed = true
             failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))
@@ -263,12 +294,7 @@ final class GrpcConversation(
             case KeyValueOut.Message.Empty => ()
           def onError(t: Throwable): Unit =
             closed = true
-            failPending(
-              CommandError(
-                s"the process closed the conversation: ${t.getMessage}",
-                ErrorCode.Unavailable
-              )
-            )
+            failPending(closedBy(init, t))
           def onCompleted(): Unit =
             closed = true
             failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))
@@ -347,12 +373,7 @@ final class GrpcConversation(
             case WorkflowOut.Message.Empty => ()
           def onError(t: Throwable): Unit =
             closed = true
-            failPending(
-              CommandError(
-                s"the process closed the conversation: ${t.getMessage}",
-                ErrorCode.Unavailable
-              )
-            )
+            failPending(closedBy(init, t))
           def onCompleted(): Unit =
             closed = true
             failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))

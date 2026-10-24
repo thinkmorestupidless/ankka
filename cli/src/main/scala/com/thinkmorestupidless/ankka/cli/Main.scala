@@ -981,8 +981,21 @@ object Main:
     }
 
     val get = Opts.subcommand("get", "Show one service.") {
-      (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
-        Output.service(ctx.client.getService(ctx.project, name), ctx.format)
+      (
+        Opts.argument[String]("name"),
+        Opts
+          .flag(
+            "descriptor",
+            "Print the descriptor the service runs instead, as JSON to change and apply again."
+          )
+          .orFalse,
+        contextOpt
+      ).mapN { (name, descriptor, ctx) => () =>
+        val status = ctx.client.getService(ctx.project, name)
+        // The status says which generation runs; the descriptor route holds every generation's.
+        if descriptor then
+          Output.descriptor(ctx.client.serviceDescriptor(ctx.project, name, status.generation))
+        else Output.service(status, ctx.format)
       }
     }
 

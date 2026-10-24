@@ -247,7 +247,8 @@ jobs:
               - '.scala-steward.conf'
               - '.git-blame-ignore-revs'          # read by git blame and GitHub's blame view, never built
               - '.github/dependabot.yml'          # read by GitHub, not by a job; its pull requests run the jobs here
-              - '.githooks/**'                    # the pre-commit hook runs on a developer's machine
+              - '.githooks/**'                    # the pre-commit and commit-msg hooks run on a developer's machine
+              - '.github/pull_request_template.md'   # read by GitHub when a pull request is opened
               - 'Justfile'                        # thin wrappers over commands the jobs run directly
               - '.gitignore'
               - 'LICENSE.md'

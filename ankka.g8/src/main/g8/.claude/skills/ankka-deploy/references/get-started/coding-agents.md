@@ -54,6 +54,38 @@ your `PATH` for the tools to start. [Install the tools](install.md) covers build
 marketplace is published from the ankka repository on every release, so the plugin's version is the
 platform version whose documentation it holds.
 
+### Code review as a skill
+
+The same marketplace carries `pr-review`, code review as skills, which needs nothing from ankka:
+`/plugin install pr-review@ankka`. `/pr-review 123` reviews a pull request, `/pr-review feature/x` a
+branch, `/pr-review main..HEAD` a range and `/pr-review --working-tree` the uncommitted changes:
+against a general checklist, then against the checklist of each language the change touches (Scala,
+Java, Kotlin, Go, Python, Rust, TypeScript), reading the repository's own instructions and rule files
+first, and it reports findings labelled by severity with a verdict. It posts nothing unless asked.
+
+A repository shapes the review without forking the plugin, in three layers, each beating the one
+below and all of them beating the bundled checklists:
+
+1. **Its instruction and rule files.** `CLAUDE.md`, `AGENTS.md` and `.claude/rules/*.md` are read
+   before the code, and a rule they state overrules any item in the skills.
+2. **A `REVIEW.md`.** At the root, or in a directory for the changes under it, it is the repository's
+   own checklist, applied beside the general one. An optional `## pr-review` section says what of the
+   plugin not to use, or what to use as well:
+
+   ```markdown
+   ## pr-review
+   - skip: pr-review-typescript            # the repository's own TypeScript rules stand
+   - skip: general/Commit and PR hygiene
+   - load: acme-review-rules               # a project or personal skill, loaded as well
+   ```
+
+3. **A skill of its own.** A project or personal skill named `pr-review-<language>` replaces the
+   bundled one for that language.
+
+Repositories built with spec-kit can run the review as a hook at the end of `/speckit-implement`, in
+the worktree and before anything is pushed; the plugin's README says how, and how to disable or
+replace it.
+
 ## The MCP server
 
 `ankka mcp` is an MCP server over standard input and output. It offers three groups of tools, and the

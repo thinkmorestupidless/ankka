@@ -106,8 +106,17 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
       "Dockerfile",
       "README.md",
       ".claude/skills/ankka/SKILL.md",
-      ".mcp.json"
+      ".mcp.json",
+      ".github/pull_request_template.md",
+      ".githooks/commit-msg",
+      ".githooks/check-commits"
     ).foreach(path => assert(Files.exists(project.resolve(path)), s"missing $path"))
+    // git runs only an executable hook, and a resource copied out of a jar has no mode of its own.
+    assert(Files.isExecutable(project.resolve(".githooks/commit-msg")), "commit-msg not executable")
+    assert(
+      Files.isExecutable(project.resolve(".githooks/check-commits")),
+      "check-commits not executable"
+    )
   }
 
   test("a project made from a template states its service's name") {

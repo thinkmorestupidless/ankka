@@ -1,0 +1,23 @@
+{
+  "name": "pr-review",
+  "version": "0.0.0",
+  "description": "Code review as skills: the general checklist every pull request is checked against, then the checklist of each language the diff touches (Scala, Java, Kotlin, Go, Python, Rust, TypeScript); findings labelled by severity with a verdict. Needs nothing from ankka.",
+  "author": {
+    "name": "thinkmorestupidless",
+    "url": "https://github.com/thinkmorestupidless/ankka"
+  },
+  "homepage": "https://github.com/thinkmorestupidless/ankka-marketplace",
+  "repository": "https://github.com/thinkmorestupidless/ankka-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "code-review",
+    "pull-request",
+    "scala",
+    "java",
+    "kotlin",
+    "go",
+    "python",
+    "rust",
+    "typescript"
+  ]
+}

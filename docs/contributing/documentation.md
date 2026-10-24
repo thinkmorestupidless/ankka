@@ -293,5 +293,7 @@ pages with their descriptions, and the pages themselves under `references/`.
 A page may belong to several skills, and every public page must belong to at least one, so adding a
 page means naming the skill it serves or `docs check` fails. A page with a good description is therefore
 a page an agent can find. The rendered skills are committed in two places and checked against the
-sources: the plugin under `marketplace/`, which the release workflow pushes to the
+sources: the `ankka` plugin under `marketplace/plugins/ankka/`, which the release workflow pushes to the
 `thinkmorestupidless/ankka-marketplace` repository on every tag, and the template's `.claude/skills/`.
+The `pr-review` plugin beside it is hand-written, not rendered from pages, and is pushed by the same
+job.

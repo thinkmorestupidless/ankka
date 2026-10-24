@@ -197,19 +197,32 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
     if !passed then fail(s"$what did not happen within $timeout\n${clusterState()}")
 
   /**
-   * What the cluster looked like when a wait gave up: the services as the operator reported them,
-   * every workload and pod, and the most recent events. A wait that only says it ran out of time
-   * cannot say what was stuck, and a k3s failure on CI cannot be looked at afterwards.
+   * What the cluster looked like when a wait gave up: the operator's own health, the services as
+   * the operator reported them, every workload and pod, and the most recent events. A wait that
+   * only says it ran out of time cannot say what was stuck, and a k3s failure on CI cannot be
+   * looked at afterwards.
+   *
+   * The operator first. Its informers stop for good on a watch error, and the suite's operator has
+   * no liveness probe to restart it; a stopped Deployment informer looks exactly like a case whose
+   * change was never noticed (case 10 waited its 120 s twice with nothing logged at all). The
+   * health check's reasons tell the two apart, and the suite's log cannot: the capture discards
+   * what a passing case logged, and the watch may have ended under one.
    */
   private def clusterState(): String =
     def run(title: String, args: String*): String =
       val shown =
         try
-          val result = k3s.execInContainer(("kubectl" +: args)*)
+          val result = PkiStack.exec(k3s, 1.minute, ("kubectl" +: args)*)
           if result.getExitCode == 0 then result.getStdout else result.getStderr
         catch case e: Exception => s"(could not ask: $e)"
       s"---- $title\n${shown.linesIterator.toVector.takeRight(80).mkString("\n")}"
+    val health =
+      val problems =
+        try if operator == null then Vector("no operator") else operator.problems
+        catch case e: Exception => Vector(s"(could not ask: $e)")
+      s"---- operator\n${if problems.isEmpty then "healthy" else problems.mkString("\n")}"
     Vector(
+      health,
       run(
         "services",
         "get",

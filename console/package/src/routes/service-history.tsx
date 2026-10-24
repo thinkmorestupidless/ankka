@@ -133,7 +133,7 @@ export default function ServiceHistory() {
                       {h.digest ? (
                         <ConsoleLink
                           to={`projects/${encodeURIComponent(projectId)}/services/apply?name=${encodeURIComponent(name)}&generation=${h.generation}`}
-                          aria-label={`Generation ${h.generation}'s descriptor`}
+                          aria-label={`${h.digest.slice(0, 12)}, generation ${h.generation}'s descriptor`}
                         >
                           <code title={h.digest}>{h.digest.slice(0, 12)}</code>
                         </ConsoleLink>

@@ -1,20 +1,12 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.{DockerImageName, MountableFile}
 
 import java.util.concurrent.{Executors, ScheduledFuture, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.util.control.NonFatal
-
-/**
- * Concrete subclass purely to pin testcontainers' `SELF` type parameter.
- * `PostgreSQLContainer[SELF <: PostgreSQLContainer[SELF]]` is a Java self-type idiom that Scala
- * infers as `Nothing`, which makes the fluent setters unusable.
- */
-private final class AnkkaPostgres(image: DockerImageName)
-    extends PostgreSQLContainer[AnkkaPostgres](image)
 
 /** One kit's database: its own, in the shared server. */
 private[testkit] final case class TestDatabase(host: String, port: Int, name: String):
@@ -48,7 +40,7 @@ private[testkit] object SharedPostgres:
     "/ankka/ddl/50-recovery-postgres.sql"   -> "/docker-entrypoint-initdb.d/50-recovery.sql"
   )
 
-  private var container: AnkkaPostgres                = null
+  private var container: PostgreSQLContainer          = null
   private var leases                                  = 0
   private var pendingStop: Option[ScheduledFuture[?]] = None
   private val databases                               = AtomicInteger()
@@ -100,8 +92,8 @@ private[testkit] object SharedPostgres:
     pendingStop = None
   }
 
-  private def startContainer(): AnkkaPostgres =
-    val started = AnkkaPostgres(DockerImageName.parse(Image))
+  private def startContainer(): PostgreSQLContainer =
+    val started = PostgreSQLContainer(DockerImageName.parse(Image))
       .withDatabaseName(Template)
       .withUsername("ankka")
       .withPassword("ankka")

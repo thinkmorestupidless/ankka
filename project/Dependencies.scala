@@ -30,7 +30,7 @@ object Dependencies {
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
     val gherkin             = "42.0.1"
     val cucumberExpressions = "20.1.0"
-    val testcontainers      = "1.21.4"
+    val testcontainers      = "2.0.5"
     val r2dbcPostgres       = "1.1.3.RELEASE"
     val fabric8             = "7.9.0"
     val decline             = "2.6.2"
@@ -155,14 +155,14 @@ object Dependencies {
   val openaiJava    = "com.openai"    % "openai-java"    % V.openai
 
   // ── Misc ─────────────────────────────────────────────────────────────────
-  val logback             = "ch.qos.logback"     % "logback-classic"      % V.logback
-  val munit               = "org.scalameta"     %% "munit"                % V.munit
-  val gherkin             = "io.cucumber"        % "gherkin"              % V.gherkin
-  val cucumberExpressions = "io.cucumber"        % "cucumber-expressions" % V.cucumberExpressions
-  val testcontainersPg    = "org.testcontainers" % "postgresql"           % V.testcontainers
-  val testcontainersKafka = "org.testcontainers" % "kafka"                % V.testcontainers
-  val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
-  val testcontainers      = "org.testcontainers" % "testcontainers"       % V.testcontainers
+  val logback             = "ch.qos.logback" % "logback-classic"      % V.logback
+  val munit               = "org.scalameta" %% "munit"                % V.munit
+  val gherkin             = "io.cucumber"    % "gherkin"              % V.gherkin
+  val cucumberExpressions = "io.cucumber"    % "cucumber-expressions" % V.cucumberExpressions
+  val testcontainersPg    = "org.testcontainers" % "testcontainers-postgresql" % V.testcontainers
+  val testcontainersKafka = "org.testcontainers" % "testcontainers-kafka"      % V.testcontainers
+  val testcontainersK3s   = "org.testcontainers" % "testcontainers-k3s"        % V.testcontainers
+  val testcontainers      = "org.testcontainers" % "testcontainers"            % V.testcontainers
 
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8" % "kubernetes-client" % V.fabric8

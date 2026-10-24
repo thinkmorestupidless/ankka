@@ -247,11 +247,14 @@ final class ServiceBuilder private[ankka] (
     val system = ActorSystem(Behaviors.empty, name, ClusterConfig.layered(config))
     // A service that cannot start — an invalid registry, a malformed secret key — must not leave
     // the actor system it was given running behind the exception.
-    try host(system, ownsSystem = true)
-    catch
-      case failure: Throwable =>
-        system.terminate()
-        throw failure
+    val service =
+      try host(system, ownsSystem = true)
+      catch
+        case failure: Throwable =>
+          system.terminate()
+          throw failure
+    service.endWith(Thread.currentThread())
+    service
 
   /** Hosts every registered component on an existing actor system. */
   def startWith(system: ActorSystem[?]): AnkkaService =
@@ -810,6 +813,25 @@ final class AnkkaService private[ankka] (
   def terminate(): Unit =
     Await.ready(extensionsStopped, Duration.Inf): Unit
     if ownsSystem then system.terminate()
+
+  /**
+   * Ends this service when `thread`, the one that started it, dies of an exception. A `main` that
+   * throws after `start()` — a client it builds next, a port already in use — otherwise leaves the
+   * JVM running: the actor system's threads are not daemon threads, so the process idles with its
+   * ports bound and nothing to say, and the next run fails with `Address already in use` (issue
+   * #108). The handler the thread had, or its group's, runs afterwards, so the stack trace is
+   * printed as it always was. Only the thread that called `start()` is affected.
+   */
+  private[runtime] def endWith(thread: Thread): Unit =
+    val previous = thread.getUncaughtExceptionHandler
+    thread.setUncaughtExceptionHandler { (t, failure) =>
+      system.log.error(
+        "the thread that started the service ended with an exception; terminating the service so the process exits rather than idling",
+        failure
+      )
+      terminate()
+      previous.uncaughtException(t, failure)
+    }
 
 object ServiceBuilder:
 

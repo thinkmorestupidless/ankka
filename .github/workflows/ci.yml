@@ -482,7 +482,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.1
       - run: .github/features-check.sh
 
   docs:
@@ -491,7 +491,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.1
         with:
           python-version: "3.12"
       - run: uv run --project tools/docs pytest tools/docs
@@ -519,7 +519,7 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.1
         with:
           python-version: "3.12"
       # The SDK carries a copy of the protocol artifact so it can be built alone; a drift between

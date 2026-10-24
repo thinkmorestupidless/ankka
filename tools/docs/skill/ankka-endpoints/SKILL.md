@@ -1,6 +1,6 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala, Java, Kotlin, Python, TypeScript or Rust, or a gRPC endpoint in Scala or Java — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
+description: Write, change or test an ankka HTTP endpoint in Scala, Java, Kotlin, Python, TypeScript, Go or Rust, or a gRPC endpoint in Scala or Java — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
 pages:
   - build/calling-services.md
   - build/http-endpoints.md
@@ -67,9 +67,9 @@ an ACL. Exposing a service changes who can *reach* an endpoint, never who is *al
    `clients.awaitEnd(id, Companion, timeout)` serves through `sseEvents` as a heartbeat then one end
    event, so it outlasts the idle timeout. A workflow that failed answers 424 with its step and reason in
    the problem's `details`.
-10. **In Python and TypeScript the process never binds a port.** The sidecar serves the declared routes, applies
+10. **In Python, TypeScript and Go the process never binds a port.** The sidecar serves the declared routes, applies
     the ACL and forwards. In Python pass `self.request.metadata` with `with_metadata` so the handler's calls
-    appear under the request's trace; in TypeScript `this.client` is already scoped to the request. `Acl.AUTHENTICATED` answers 503 for now.
+    appear under the request's trace; in TypeScript `this.client` is already scoped to the request; in Go the handler's `ctx` carries it. `Acl.AUTHENTICATED` answers 503 for now.
 
 ## Before writing an endpoint
 
@@ -121,6 +121,22 @@ request's virtual thread, so `invokeSuspending()` waits without holding a thread
 dispatcher inside it, because the request context is a thread-local of that thread. Read optional parts of
 the request with `request.queryOrNull(name)`, `headerOrNull(name)` and `principalOrNull`. An MCP tool's
 handler is `handling<Args> { args -> ... }`. `ankkaTestKit(service()) { ... }` tests the whole service.
+
+## Go differences
+
+An endpoint is `ankka.NewEndpoint(prefix, acl, routes...)`, the ACL positional and required (a nil one is
+refused at registration): `ankka.AllowAll()`, `DenyAll()`, `Authenticate(ankka.Issuer("name"))`,
+`AllowIf(ankka.ServiceNamed("x"), ankka.Internet(), …)`, `AnyOf(…)`. Routes are `ankka.Get[R](template,
+f)` and `ankka.Delete`, `f` being `func(ctx, *ankka.Request) (R, error)`, and `ankka.Post[B, R]`, `Put`,
+`Patch`, whose `f` also takes the decoded body; `.ACL(acl)` on a route replaces the endpoint's for it.
+`req.Param("cartId")`, `req.Query`, `req.Header(name)`, `req.Principal` (claims by name). `ankka.Done`
+answers 204, a string `text/plain`, anything else its codec's JSON; `&ankka.HttpProblem{Status, Message}`
+returned as the error sets a status, and a `*ankka.RefusalError` from `ankka.Invoke[R](ctx, componentID, id,
+wire, input)` answers its code's status when returned as it is. `ankka.SSE(template, f)` streams an
+`iter.Seq2[string, error]`, `ankka.SSEEvents` named events, `ankka.SocketRoute` a WebSocket; an MCP
+endpoint is `ankka.NewMcpEndpoint(path, acl, ankka.McpTool(…), ankka.McpCommandRef(…))`. The process never
+binds a port. `testkit.Endpoint(API, Entity)` tests the routes against the components in memory
+(`kit.Post(ctx, path, body)`, `testkit.JSON[T](resp)`).
 
 ## Testing
 

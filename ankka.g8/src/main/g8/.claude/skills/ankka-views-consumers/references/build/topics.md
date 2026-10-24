@@ -91,7 +91,7 @@ export class StockLevels extends View<StockEvent, StockRow> {
 ```
 
 A consumer reads a topic the same way: `ChangeSource.fromTopic(...)` in Scala, `topic = "..."` in Python,
-`static readonly topic` in TypeScript and `Source::topic("...")` in Rust. A consumer must also say where it
+`static readonly topic` in TypeScript, `Source::topic("...")` in Rust and `ankka.Topic("...")` in Go. A consumer must also say where it
 starts; see the next section.
 
 The view's row is keyed by the message's CloudEvents subject, the `ce-subject` header, falling back to the
@@ -285,6 +285,32 @@ impl Consumer for TopicRelay {
 `start_from()` returns `StartFrom::Earliest`, `StartFrom::Latest` or `StartFrom::AtMillis(millis)`, or
 `StartFrom::at(system_time)`. A component is declared before any handler runs, so a start time is
 stated, not read.
+
+**Go**
+
+```go
+// TopicRows is the latest message about each subject. It declares no start, so it reads from the
+// earliest.
+var TopicRows = ankka.View[Fanned]("topic-rows",
+	ankka.OnChange(ankka.Topic("conformance-topic"), func(_ context.Context, m Fanned, _ *Fanned) (ankka.ViewEffect[Fanned], error) {
+		return ankka.UpdateRow(m), nil
+	}),
+	ankka.SourceVersion(2),
+	ankka.RowCodec(fannedCodec),
+)
+```
+
+```go
+func relay(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) { return ankka.Produce(m), nil }
+
+// ── topic-relay: a consumer over a topic ──
+
+// TopicRelay republishes what it reads, from the latest: none of what the topic held when it
+// started.
+var TopicRelay = ankka.Consumer[Fanned]("topic-relay", ankka.Topic("conformance-topic", ankka.StartFrom(ankka.Latest())), relay,
+	ankka.ProducesWith("conformance-topic-relayed", fannedCodec),
+)
+```
 
 ## Rebuilding by version
 
@@ -704,6 +730,20 @@ fn produces() -> Option<Publication> {
 }
 ```
 
+**Go**
+
+```go
+// ContractRelay reads conformance-contracts as order.v1 on broker legacy, partitions in parallel,
+// and publishes one more.
+var ContractRelay = ankka.Consumer[Fanned]("contract-relay",
+	ankka.Topic("conformance-contracts", ankka.StartFrom(ankka.Earliest()), ankka.ExpectContract(orderContract), ankka.OnBroker("legacy"), ankka.Parallel()),
+	func(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) {
+		return ankka.Produce(Fanned{N: m.N + 1}), nil
+	},
+	ankka.ProducesWith("conformance-contracted", fannedCodec, ankka.StatesContract(orderContract), ankka.ToBroker("legacy")),
+)
+```
+
 ### What a refusal says
 
 The platform hands every service its project's declarations, and the runtime compares them with what
@@ -791,6 +831,20 @@ fn source() -> Source {
 }
 ```
 
+**Go**
+
+```go
+// ContractRelay reads conformance-contracts as order.v1 on broker legacy, partitions in parallel,
+// and publishes one more.
+var ContractRelay = ankka.Consumer[Fanned]("contract-relay",
+	ankka.Topic("conformance-contracts", ankka.StartFrom(ankka.Earliest()), ankka.ExpectContract(orderContract), ankka.OnBroker("legacy"), ankka.Parallel()),
+	func(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) {
+		return ankka.Produce(Fanned{N: m.N + 1}), nil
+	},
+	ankka.ProducesWith("conformance-contracted", fannedCodec, ankka.StatesContract(orderContract), ankka.ToBroker("legacy")),
+)
+```
+
 On a declared broker a topic is named exactly as the component names it, with no project prefix, and
 nothing is made there: its topics are the broker owner's. The consumer group is the service's usual one.
 A component naming a broker the project has not declared is refused when the service starts, naming the
@@ -861,6 +915,17 @@ fn produces() -> Option<Publication> {
 }
 ```
 
+**Go**
+
+```go
+// PartnerRelay reads conformance-shared of project partner from the earliest, and republishes to
+// its other.
+var PartnerRelay = ankka.Consumer[Fanned]("partner-relay",
+	ankka.Topic("conformance-shared", ankka.FromProject("partner"), ankka.StartFrom(ankka.Earliest())), relay,
+	ankka.ProducesWith("conformance-shared-relayed", fannedCodec, ankka.ToProject("partner")),
+)
+```
+
 The broker holds the topic as `spinvibe.casino.players`, whichever project reads it. The reader's
 consumer group stays its own, named as *Consumer groups* describes, so it reads under nothing the
 granting project owns. The reader's project declarations are not consulted for another project's topic,
@@ -927,6 +992,20 @@ static readonly parallel = true
 fn source() -> Source {
     Source::topic("events").start_from(StartFrom::Earliest).parallel()
 }
+```
+
+**Go**
+
+```go
+// ContractRelay reads conformance-contracts as order.v1 on broker legacy, partitions in parallel,
+// and publishes one more.
+var ContractRelay = ankka.Consumer[Fanned]("contract-relay",
+	ankka.Topic("conformance-contracts", ankka.StartFrom(ankka.Earliest()), ankka.ExpectContract(orderContract), ankka.OnBroker("legacy"), ankka.Parallel()),
+	func(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) {
+		return ankka.Produce(Fanned{N: m.N + 1}), nil
+	},
+	ankka.ProducesWith("conformance-contracted", fannedCodec, ankka.StatesContract(orderContract), ankka.ToBroker("legacy")),
+)
 ```
 
 Each partition is a lane of its own: a message that cannot be handled is handed to the handler again,

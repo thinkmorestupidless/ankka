@@ -51,6 +51,7 @@ Feature: Where a topic source starts
       | python     |
       | typescript |
       | rust       |
+      | go         |
 
   Scenario: a consumer whose service cannot declare a start position starts at the earliest message
     Given a service built on a release of ankka that cannot declare a start position
@@ -70,6 +71,7 @@ Feature: Where a topic source starts
       | python     |
       | typescript |
       | rust       |
+      | go         |
 
   Scenario: a start position earlier than every retained message starts at the earliest
     When a view declaring a start position earlier than every retained message subscribes for the first time

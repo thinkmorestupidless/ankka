@@ -1,16 +1,16 @@
 ---
 title: Services in other languages
-description: How ankka hosts a service in Java, Kotlin, Python, TypeScript or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
+description: How ankka hosts a service in Java, Kotlin, Python, TypeScript, Go or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
 kind: concept
-languages: [java, kotlin, python, typescript, rust]
-related: [get-started/first-service-java.md, get-started/first-service-kotlin.md, get-started/first-service-python.md, get-started/first-service-typescript.md, get-started/first-service-rust.md, reference/java-sdk.md, reference/kotlin-sdk.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/rust-sdk.md, reference/sidecar-protocol.md, reference/wasm-abi.md, contributing/language-sdks.md]
+languages: [java, kotlin, python, typescript, go, rust]
+related: [get-started/first-service-java.md, get-started/first-service-kotlin.md, get-started/first-service-python.md, get-started/first-service-typescript.md, get-started/first-service-go.md, get-started/first-service-rust.md, reference/java-sdk.md, reference/kotlin-sdk.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/go-sdk.md, reference/rust-sdk.md, reference/sidecar-protocol.md, reference/wasm-abi.md, contributing/language-sdks.md]
 ---
 
 # Services in other languages
 
-A service written in Python or TypeScript is hosted by the same runtime as one written in Scala, with the same
+A service written in Python, TypeScript or Go is hosted by the same runtime as one written in Scala, with the same
 components, journal, cluster, deployment and console. What differs is where the code runs. A Scala
-service compiles into one JVM with the runtime. A Python or TypeScript service runs as its own process, and the ankka
+service compiles into one JVM with the runtime. A Python, TypeScript or Go service runs as its own process, and the ankka
 runtime runs beside it as a **sidecar**, booted from a conversation with that process instead of from a
 Scala builder. A Rust service is built to a **WebAssembly module**, and the same runtime loads the module
 into its own process instead of running beside one; see
@@ -60,19 +60,21 @@ The protocol is versioned `MAJOR.MINOR`, and a process-hosted service declares t
 speaks. The platform accepts a declaration with the same major version and a minor version no higher
 than its own. See [Sidecar protocol](../reference/sidecar-protocol.md).
 
-## One journal, six languages
+## One journal, seven languages
 
-Stored data does not record which language wrote it. The Java, Kotlin, Python, TypeScript and Rust SDKs' default encoding produces the same
+Stored data does not record which language wrote it. The Java, Kotlin, Python, TypeScript, Go and Rust SDKs' default encoding produces the same
 JSON the Scala SDK does: records with every field present, sum types with a `"type"` discriminator
 naming the case, `null` for an absent optional value, and primitives such as a string or an integer as
 plain text. The mapping is written down in the protocol's
 [ENCODING.md](https://github.com/thinkmorestupidless/ankka/blob/main/protocol/ENCODING.md) and checked by
 shared fixtures that every SDK must pass.
 
-So a cart written by a Scala service can be read by a Java, Kotlin, Python, TypeScript or Rust service on the same database,
+So a cart written by a Scala service can be read by a Java, Kotlin, Python, TypeScript, Go or Rust service on the same database,
 and the reverse. Field names are the contract. A Python dataclass or a TypeScript shape that stores a field
 as `product_id` does not read a journal that says `productId`, which is why the Python and TypeScript
-samples use the stored spelling.
+samples use the stored spelling. A Go struct's field is stored under its `json` tag, or else under its
+name with the leading capitals lowered, so an untagged `ProductID` is `productID`; the Go samples tag
+every field with the stored spelling.
 
 ## Deployed, a service is two containers
 
@@ -153,7 +155,7 @@ A second language is compatible when it behaves the same, not when it looks the 
 with a conformance suite: one case per behaviour, from "a deleted entity written to again starts empty"
 to "a query answered while a workflow step runs", run against the Scala reference in-process and against
 any process through the real sidecar, against any module loaded by the real runtime, in both guest
-shapes, and against a Java or Kotlin reference hosted in-process. The Python, TypeScript and Rust SDKs pass
+shapes, and against a Java or Kotlin reference hosted in-process. The Python, TypeScript, Go and Rust SDKs pass
 it, and so do the Java and Kotlin SDKs apart from the cases that drive an agent. A further language arrives by passing it with its
 own reference service, plus the encoding fixtures. The platform needs no change to host it.
 See [Adding a language SDK](../contributing/language-sdks.md).

@@ -1416,14 +1416,14 @@ object Main:
   private val initCommand = Opts.subcommand(
     "init",
     "Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, " +
-      "Python, TypeScript or Rust."
+      "Python, TypeScript, Rust or Go."
   ) {
     (
       Opts.argument[String]("name"),
       Opts
         .option[String](
           "language",
-          "scala (the default), java, kotlin, python, typescript or rust; or web, for a user interface.",
+          "scala (the default), java, kotlin, python, typescript, rust or go; or web, for a user interface.",
           "l"
         )
         .mapValidated(text => Validated.fromEither(Language.parse(text)).toValidatedNel)
@@ -1478,6 +1478,9 @@ object Main:
         case Language.Rust =>
           Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
           s"created $where\n\n  cd $name\n  cargo test\n  cargo module && docker compose up -d runtime\n\nsee README.md for the rest"
+        case Language.Go =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          s"created $where\n\n  cd $name\n  go mod tidy\n  go vet ./...\n  go test ./...\n  ANKKA_SLOW=1 go test ./...\n  docker compose up -d && go run .\n\nsee README.md for the rest"
         case Language.Web =>
           Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
           s"created $where\n\n  cd $name\n  npm install\n  npm test\n  ankka local web -- npm run dev\n\nsee README.md for the rest"

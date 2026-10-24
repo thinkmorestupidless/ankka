@@ -52,6 +52,7 @@ Run the project's own tests first; a service whose tests fail is not inspected.
 | Scala | `sbt test` | `sbt schema`, `docker compose up -d`, then `sbt run` (HTTP on 9000) |
 | Python | `uv run pytest` | `docker compose up -d` (Postgres and the sidecar), then the process: `uv run python -m <module>.main` |
 | TypeScript | `npm test` | `docker compose up -d`, then `npm start` |
+| Go | `go vet ./...`, `go test ./...`, then `ANKKA_SLOW=1 go test ./...` | `docker compose up -d`, then `go run .` |
 | Rust | `cargo test` | `cargo module`, then `docker compose up -d runtime` |
 
 Run the service in the background and keep its output. Then call `list_local_services`: the service must

@@ -16,6 +16,7 @@ Feature: Deploying a service written in another language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: a deployed service says which SDK its code was built with
     Given a service "shop" written in "<language>", built with the SDK at the version "1.4.0"
@@ -29,6 +30,7 @@ Feature: Deploying a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a deployed service runs the platform's own program at the installation's version
     Given a descriptor for the service "shop" written in "<language>"
@@ -40,6 +42,7 @@ Feature: Deploying a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service written in another language scales into one cluster without replacing an instance
     Given a service "shop" written in "<language>" deployed with 1 instance
@@ -52,6 +55,7 @@ Feature: Deploying a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service written in another language is restarted one instance at a time and refuses no request
     Given a service "shop" written in "<language>" deployed with 3 instances
@@ -65,6 +69,7 @@ Feature: Deploying a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a service written in another language is exposed, paused and resumed like any other service
     Given a service "shop" written in "<language>" deployed in the project "store", <state>
@@ -82,6 +87,9 @@ Feature: Deploying a service written in another language
       | Python     | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
       | TypeScript | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
       | Rust       | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
+      | Go         | not exposed     | exposes "shop"  | "shop" answers a request sent to its hostname                |
+      | Go         | with 1 instance | pauses "shop"   | the lifecycle of "shop" is "Paused" and "shop" has no instances |
+      | Go         | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
 
   Scenario Outline: the trace of a deployed service attributes each handler's time to the component that did the work
     Given a service "shop" written in "<language>" deployed in the project "store"
@@ -93,6 +101,7 @@ Feature: Deploying a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario Outline: a process that stops is started again while its instance stays in the cluster
     Given a service "shop" written in "<language>" deployed with 2 instances
@@ -105,3 +114,4 @@ Feature: Deploying a service written in another language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |

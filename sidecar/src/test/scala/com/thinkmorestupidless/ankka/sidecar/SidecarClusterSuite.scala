@@ -56,10 +56,18 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
   private val NoCopyImage   = s"ankka-wasm-no-copy:${BuildInfo.imageTag}"
   private val RustService   = "rust-cart"
   private var rustBuilt     = false
-  private val Prefix        = "ankka"
-  private val Project       = "checkout"
-  private val Namespace     = s"$Prefix-$Project"
-  private val Service       = "cart"
+
+  /**
+   * The Go shopping cart, built against the SDK released at `GoSdkVersion` from a file proxy (see
+   * `buildGoImage`), so the version its build records is one a developer's would.
+   */
+  private val GoImage      = s"sample-shopping-cart-go:${BuildInfo.imageTag}"
+  private val GoService    = "go-cart"
+  private val GoSdkVersion = "1.4.0"
+  private val Prefix       = "ankka"
+  private val Project      = "checkout"
+  private val Namespace    = s"$Prefix-$Project"
+  private val Service      = "cart"
 
   /**
    * Feature 022: a Python service with one authenticated route, built on the sample's image, and
@@ -124,12 +132,14 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
 
       buildModuleImages()
       buildAuthImage()
+      buildGoImage()
 
       k3s = new K3sContainer(DockerImageName.parse(K3sImage))
       k3s.start()
       ClusterImages.importInto(k3s, SidecarImage)
       ClusterImages.importInto(k3s, PythonImage)
       ClusterImages.importInto(k3s, AuthImage)
+      ClusterImages.importInto(k3s, GoImage)
       // A public image, so pulled rather than assumed: a machine that had never pulled it (a fresh
       // CI runner) failed the import, while every laptop that had passed.
       docker(repositoryRoot, "pull", "-q", KeysImage)
@@ -359,6 +369,49 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
         "CMD [\"python\", \"-m\", \"examples.auth_probe\"]\n"
     )
     docker(dir, "build", "-q", "-t", AuthImage, ".")
+
+  /**
+   * The Go example's image, built entirely inside Docker (no Go on the host). The context holds the
+   * SDK's sources as `scripts/image.sh` stages them, the example, and `go-released/`'s Dockerfile
+   * and helper, which publish the SDK into a file proxy at `GoSdkVersion` and build the example
+   * against that release rather than through its `replace`: a replaced dependency records no
+   * version, so the image `image.sh` builds always says 0.0.0, and the scenario is about the
+   * version it was built with.
+   */
+  private def buildGoImage(): Unit =
+    val sdk                              = repositoryRoot.resolve("sdks/go")
+    val example                          = sdk.resolve("examples/shopping-cart")
+    val context                          = Files.createTempDirectory("go-cart")
+    def copy(from: Path, to: Path): Unit =
+      Files.createDirectories(to.getParent)
+      Files.copy(from, to): Unit
+    def files(dir: Path, deep: Boolean): Vector[Path] =
+      val stream = if deep then Files.walk(dir) else Files.list(dir)
+      try stream.iterator.asScala.filter(Files.isRegularFile(_)).toVector
+      finally stream.close()
+    def source(p: Path) =
+      val name = p.getFileName.toString
+      name.endsWith(".go") && !name.endsWith("_test.go")
+    Vector("go.mod", "go.sum").foreach(n => copy(sdk.resolve(n), context.resolve(s"sdk/$n")))
+    (files(sdk, deep = false) ++ files(sdk.resolve("internal"), deep = true))
+      .filter(source)
+      .foreach(p => copy(p, context.resolve("sdk").resolve(sdk.relativize(p).toString)))
+    files(example, deep = true)
+      .filterNot(p => p.toString.endsWith(".test") || p.toString.endsWith(".out"))
+      .foreach(p => copy(p, context.resolve("example").resolve(example.relativize(p).toString)))
+    val released = repositoryRoot.resolve("sidecar/src/test/resources/go-released")
+    files(released, deep = true)
+      .foreach(p => copy(p, context.resolve(released.relativize(p).toString)))
+    docker(
+      context,
+      "build",
+      "-q",
+      "--build-arg",
+      s"SDK_VERSION=$GoSdkVersion",
+      "-t",
+      GoImage,
+      "."
+    )
 
   /**
    * The test issuer's published keys, served inside the cluster from a ConfigMap by busybox's web
@@ -1368,4 +1421,359 @@ spec:
         val (_, described) = kubectl("get", "pods", "-n", Namespace, "-o", "wide")
         val status         = statusOf(RustService).map(_.toString).getOrElse("no status")
         fail(s"${e.getMessage}\nlast answer: $lastAnswer\nstatus: $status\n$described")
+  }
+
+  // ── a service written in Go (spec 059): features/polyglot/deploying.feature's Go rows ─────────
+  //
+  // Last, so the services before it have left the node: the Go cart's sidecars are JVMs too, and a
+  // node running every case's JVMs answers in seconds. Its own database, and its own prober, holding
+  // its own certificate, so the cases run alone as well as after the others.
+
+  private var goStarted    = false
+  private var goProberHeld = false
+
+  /**
+   * The prober, holding the Go service's certificate; made again after a case lent it elsewhere.
+   */
+  private def goProber(): String =
+    if !goProberHeld then
+      com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, GoService): Unit
+      goProberHeld = true
+    "prober"
+
+  private def goSpec(
+      instances: Int = 1,
+      restarts: Int = 0,
+      paused: Boolean = false
+  ): AnkkaServiceSpec =
+    spec(instances, restarts).copy(
+      serviceName = GoService,
+      image = GoImage,
+      env = database("postgres-go"),
+      paused = paused
+    )
+
+  private def startGo(): Unit =
+    if !goStarted then
+      Vector(Service, RustService, OrdersService).foreach(name =>
+        scala.util.Try(resources.withName(name).delete()): Unit
+      )
+      deployPostgres("postgres-go")
+      applyAs(GoService, goSpec())
+      waitFor(300.seconds)(readyReplicasOf(GoService) >= 1)
+      // The cart every later case reads, so each holds alone too.
+      var added = (0, "")
+      waitFor(60.seconds) {
+        added = goHttp("/carts/g1/items", Some("""{"productId":"p1","name":"Pen","quantity":2}"""))
+        added._1 / 100 == 2
+      }
+      goStarted = true
+
+  private def goHttp(
+      path: String,
+      post: Option[String] = None,
+      diagnose: Boolean = false
+  ): (Int, String) =
+    com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      goProber(),
+      s"https://$GoService.$Namespace.svc.cluster.local:9000$path",
+      method = if post.isDefined then "POST" else "GET",
+      body = post,
+      maxSeconds = if diagnose then DiagnoseSeconds else 10,
+      timings = diagnose
+    )
+
+  private def goPod(name: String) = podsOf(GoService).find(_.getMetadata.getName == name)
+
+  private def containerStatus(pod: String, container: String) =
+    goPod(pod)
+      .flatMap(p => Option(p.getStatus.getContainerStatuses))
+      .flatMap(_.asScala.find(_.getName == container))
+
+  /**
+   * A container's process as the node sees it, in one pod: `--name` is a regular expression, so it
+   * is anchored, and the pod's label picks one instance of several.
+   */
+  private def hostPidIn(pod: String, container: String): Int =
+    val (_, ids) = nodeExec(
+      "crictl",
+      "ps",
+      "-q",
+      "--name",
+      s"^$container$$",
+      "--label",
+      s"io.kubernetes.pod.name=$pod"
+    )
+    val running = ids.linesIterator.map(_.trim).filter(_.nonEmpty).toVector
+    assertEquals(running.size, 1, s"containers $container in $pod: $ids")
+    val (_, pid) = nodeExec(
+      "crictl",
+      "inspect",
+      "-o",
+      "go-template",
+      "--template",
+      "{{.info.pid}}",
+      running.head
+    )
+    pid.trim.toInt
+
+  /** A process's environment, read from the node: the Go image has no shell and no `env`. */
+  private def environmentOf(pod: String, container: String): Vector[String] =
+    val (code, out) = nodeExec("cat", s"/proc/${hostPidIn(pod, container)}/environ")
+    assertEquals(code, 0, out)
+    out.split('\u0000').toVector.filter(_.nonEmpty)
+
+  /**
+   * The fields of the line the Go process logged with `message` (`ankka: serving`), as slog's text
+   * form writes them: `key=value`, a value quoted when it needs to be.
+   */
+  private def goLogFields(pod: String, message: String): Map[String, String] =
+    val (_, log) = kubectl("logs", "-n", Namespace, pod, "-c", s"$GoService-app")
+    val line     = log.linesIterator
+      .find(_.contains(s" $message "))
+      .getOrElse(fail(s"the process never logged '$message':\n$log"))
+    """(\w+)=("(?:[^"\\]|\\.)*"|\S+)""".r
+      .findAllMatchIn(line)
+      .map(m => m.group(1) -> m.group(2).stripPrefix("\"").stripSuffix("\""))
+      .toMap
+
+  test(
+    "a service hosted as a process runs beside the platform's own program and is ready only when both are (Go)"
+  ) {
+    startGo()
+    val pod        = podsOf(GoService).head
+    val name       = pod.getMetadata.getName
+    val containers = pod.getSpec.getContainers.asScala.toVector
+    assertEquals(containers.map(_.getName), Vector(GoService, s"$GoService-app"))
+    assertEquals(containers.map(_.getImage), Vector(SidecarImage, GoImage))
+    waitFor(60.seconds)(statusOf(GoService).exists(_.lifecycle == "Ready"))
+    val (added, addBody) =
+      goHttp("/carts/g1/items", Some("""{"productId":"p1","name":"Pen","quantity":2}"""))
+    assertEquals(added / 100, 2, addBody)
+    val (code, body) = goHttp("/carts/g1")
+    assertEquals(code, 200, body)
+    assert(body.contains("\"productId\":\"p1\""), body)
+    // Ready only while both are: with the platform's own program running, a frozen process, whose
+    // connection stays up, takes the instance out of readiness, and its requests fail, until it
+    // answers again.
+    val sidecarId = containerStatus(name, GoService).map(_.getContainerID)
+    signal(hostPidIn(name, s"$GoService-app"), "STOP")
+    try
+      waitFor(30.seconds)(goPod(name).exists(!readyOf(_)))
+      val (frozen, frozenBody) = goHttp("/carts/g1")
+      assert(frozen / 100 != 2, s"a request to a frozen process was answered: $frozenBody")
+      assertEquals(containerStatus(name, GoService).map(_.getContainerID), sidecarId)
+    finally signal(hostPidIn(name, s"$GoService-app"), "CONT")
+    waitFor(60.seconds)(goPod(name).exists(readyOf))
+  }
+
+  test("a deployed service says which SDK its code was built with (Go)") {
+    startGo()
+    val pod    = podsOf(GoService).find(readyOf).get.getMetadata.getName
+    val fields = goLogFields(pod, "ankka: serving")
+    assertEquals(
+      (fields.get("sdk"), fields.get("version")),
+      (Some("ankka-go"), Some(GoSdkVersion)),
+      fields.toString
+    )
+    // The scenario's request goes through the gateway, which this suite does not install; the
+    // request here takes the Service's address, as every case of the suite does.
+    val (code, body) = goHttp("/carts/g1")
+    assertEquals(code, 200, body)
+  }
+
+  test("a deployed service runs the platform's own program at the installation's version (Go)") {
+    startGo()
+    val pod = podsOf(GoService).find(readyOf).get
+    // The installation's own: the image the operator was configured with, which the descriptor
+    // cannot name.
+    val sidecar = pod.getSpec.getContainers.asScala.find(_.getName == GoService).get
+    assertEquals(sidecar.getImage, settings.sidecarImage)
+    // At its version: what the sidecar told the process in discovery is this build's.
+    val fields = goLogFields(pod.getMetadata.getName, "ankka: discovery")
+    assertEquals(fields.get("runtime"), Some(BuildInfo.version), fields.toString)
+  }
+
+  test(
+    "the trace of a deployed service attributes each handler's time to the component that did the work (Go)"
+  ) {
+    startGo()
+    // A request that adds an item to the cart, through its route; the sidecar exports the spans.
+    val (added, addBody) =
+      goHttp("/carts/g1/items", Some("""{"productId":"p2","name":"Ink","quantity":1}"""))
+    assertEquals(added / 100, 2, addBody)
+    val cart                                                                 = "shopping-cart"
+    def handled(s: com.thinkmorestupidless.ankka.operator.CollectorLog.Span) =
+      s.service == GoService &&
+        s.attributes.get("ankka.component").contains(cart) &&
+        s.attributes.get("ankka.handler").contains("add-item")
+    val seen = com.thinkmorestupidless.ankka.operator.CollectorStack
+      .waitFor(k3s, s"a span of $cart add-item from $GoService")(_.exists(handled))
+    val span = seen.find(handled).get
+    assertEquals(span.attributes.get("ankka.outcome"), Some("ok"), span.toString)
+    assert(
+      span.startNanos > 0 && span.durationMillis >= 0,
+      s"the handler's time is not stamped: $span"
+    )
+    // In the request's trace, under the route that called it, not a root of its own.
+    assert(
+      seen.exists(s => s.traceId == span.traceId && s.spanId == span.parentId),
+      s"the handler's span has no parent in its trace: $span\n${seen.filter(_.traceId == span.traceId)}"
+    )
+  }
+
+  test("the process of a deployed service is not given the secret key (Go)") {
+    startGo()
+    val pod                        = podsOf(GoService).find(readyOf).get.getMetadata.getName
+    def keyIn(env: Vector[String]) = env.exists(_.startsWith("ANKKA_SECRET_KEY="))
+    // The sidecar beside it holds one, so the read below could have found it.
+    assert(keyIn(environmentOf(pod, GoService)), "the platform's own program has no secret key")
+    val process = environmentOf(pod, s"$GoService-app")
+    assert(process.exists(_.startsWith("ANKKA_SIDECAR_ADDRESS=")), process.mkString("\n"))
+    assert(!keyIn(process), process.mkString("\n"))
+  }
+
+  test(
+    "a service in every language is admitted by name by a route that admits only it (Go, on a cluster)"
+  ) {
+    startGo()
+    startCallers()
+    val route = "/callers/go-cart-alone"
+    // Asked by a prober holding the certificate of `carts` itself: the route admits the Go service
+    // alone, so even its own service is refused, and the admission below is by name.
+    com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, CartsService): Unit
+    goProberHeld = false
+    val (refusedCode, refusedBody) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      "prober",
+      s"https://$CartsService.$Namespace.svc.cluster.local:9000$route"
+    )
+    assertEquals(refusedCode, 403, refusedBody)
+    // The Go cart's `/calling` admits only itself; its handler calls `carts` as `go-cart`.
+    assertEquals(
+      goHttp(s"/calling/call/$CartsService?path=$route"),
+      (200, s"admitted: $Project/$GoService")
+    )
+    // The services this case needed leave the node before the rollout cases.
+    Vector(CartsService, OrdersService).foreach(name =>
+      scala.util.Try(resources.withName(name).delete()): Unit
+    )
+  }
+
+  test(
+    "a service written in another language scales into one cluster without replacing an instance (Go)"
+  ) {
+    startGo()
+    val first = podsOf(GoService).head.getMetadata.getName
+    applyAs(GoService, goSpec(instances = 3))
+    waitFor(300.seconds)(readyReplicasOf(GoService) == 3)
+    assert(
+      podsOf(GoService).exists(p => p.getMetadata.getName == first && readyOf(p)),
+      s"the first pod was replaced: ${podSummary()}"
+    )
+    val (code, body) = goHttp("/carts/g1")
+    assertEquals(code, 200, body)
+    assert(body.contains("\"productId\":\"p1\""), body)
+  }
+
+  test(
+    "a service written in another language is restarted one instance at a time and refuses no request (Go)"
+  ) {
+    startGo()
+    applyAs(GoService, goSpec(instances = 3))
+    waitFor(300.seconds)(readyReplicasOf(GoService) == 3)
+    val before = podsOf(GoService).map(_.getMetadata.getName).toSet
+    followLogs(GoService)
+    applyAs(GoService, goSpec(instances = 3, restarts = 1))
+    var refused  = Vector.empty[String]
+    var requests = 0
+    // Pods not being deleted, at most, at any one look: three and the one being started.
+    var most     = 0
+    val deadline = System.nanoTime() + 300.seconds.toNanos
+    while podsOf(GoService).exists(p => before.contains(p.getMetadata.getName)) &&
+      System.nanoTime() < deadline
+    do
+      val (code, body) = goHttp("/carts/g1", diagnose = true)
+      requests += 1
+      if code != 200 then refused :+= s"$code $body"
+      most = most.max(podsOf(GoService).count(_.getMetadata.getDeletionTimestamp == null))
+    waitFor(120.seconds)(readyReplicasOf(GoService) == 3 && podsOf(GoService).forall(readyOf))
+    val after = podsOf(GoService).map(_.getMetadata.getName).toSet
+    assert(after.intersect(before).isEmpty, s"an instance was not replaced: $before then $after")
+    assert(most <= 4, s"$most instances were running at once; they are replaced one at a time")
+    assert(
+      requests > 5,
+      s"the rollout finished before the loop measured anything ($requests requests)"
+    )
+    assert(
+      refused.isEmpty,
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused
+          .mkString(" | ")}${if refused.isEmpty then "" else rolloutReport(GoService, before)}"
+    )
+  }
+
+  test("a process that stops is started again while its instance stays in the cluster (Go)") {
+    startGo()
+    applyAs(GoService, goSpec(instances = 2, restarts = 1))
+    waitFor(300.seconds)(
+      readyReplicasOf(GoService) == 2 && podsOf(GoService).size == 2 &&
+        podsOf(GoService).forall(readyOf)
+    )
+    val names           = podsOf(GoService).map(_.getMetadata.getName).toSet
+    val name            = names.head
+    def app             = containerStatus(name, s"$GoService-app")
+    def side            = containerStatus(name, GoService)
+    val appRestarts     = app.map(_.getRestartCount.intValue).getOrElse(-1)
+    val sidecarId       = side.map(_.getContainerID).getOrElse("")
+    val sidecarRestarts = side.map(_.getRestartCount.intValue).getOrElse(-1)
+    assert(sidecarId.nonEmpty, s"no sidecar container in $name")
+    signal(hostPidIn(name, s"$GoService-app"), "KILL")
+    waitFor(120.seconds)(
+      app.exists(_.getRestartCount.intValue > appRestarts) && goPod(name).exists(readyOf)
+    )
+    // The platform's own program is the same container, never restarted, in the same pod: it did
+    // not leave the cluster.
+    assertEquals(side.map(_.getContainerID), Some(sidecarId))
+    assertEquals(side.map(_.getRestartCount.intValue), Some(sidecarRestarts))
+    assertEquals(podsOf(GoService).map(_.getMetadata.getName).toSet, names)
+    // A client retries: the readiness probe cannot see a restart this quick.
+    var answer = goHttp("/carts/g1")
+    waitFor(60.seconds) {
+      answer = goHttp("/carts/g1")
+      answer._1 == 200
+    }
+    assert(answer._2.contains("\"productId\":\"p1\""), answer._2)
+  }
+
+  test(
+    "a service written in another language is exposed, paused and resumed like any other service (Go, pauses)"
+  ) {
+    startGo()
+    applyAs(GoService, goSpec(instances = 1, restarts = 1))
+    waitFor(300.seconds)(readyReplicasOf(GoService) == 1 && podsOf(GoService).size == 1)
+    applyAs(GoService, goSpec(instances = 1, restarts = 1, paused = true))
+    waitFor(180.seconds)(
+      statusOf(GoService).exists(_.lifecycle == "Paused") && podsOf(GoService).isEmpty
+    )
+  }
+
+  test(
+    "a service written in another language is exposed, paused and resumed like any other service (Go, resumes)"
+  ) {
+    startGo()
+    // Paused by the case before; alone, it pauses first.
+    if !statusOf(GoService).exists(_.lifecycle == "Paused") then
+      applyAs(GoService, goSpec(instances = 1, restarts = 1, paused = true))
+      waitFor(180.seconds)(podsOf(GoService).isEmpty)
+    applyAs(GoService, goSpec(instances = 1, restarts = 1))
+    waitFor(300.seconds)(
+      statusOf(GoService).exists(s => s.lifecycle == "Ready" && s.readyInstances == 1) &&
+        podsOf(GoService).size == 1
+    )
+    val (code, body) = goHttp("/carts/g1")
+    assertEquals(code, 200, body)
+    assert(body.contains("\"productId\":\"p1\""), body)
   }

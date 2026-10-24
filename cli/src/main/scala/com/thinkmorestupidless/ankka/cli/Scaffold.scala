@@ -7,7 +7,7 @@ import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.{Files, Path}
 
 /**
- * The Python, TypeScript and Rust templates, carried by the CLI and rendered by it.
+ * The Python, TypeScript, Rust and Go templates, carried by the CLI and rendered by it.
  *
  * Scala's template is expanded by `sbt new`, because every Scala developer has sbt and Giter8 is
  * how Scala templates are expanded. Neither Python nor Node has a standard template tool, and a
@@ -34,10 +34,11 @@ object Scaffold:
   /**
    * The module a service is written in: for Python the package, the name with `-` as `_` unless one
    * is given; for Rust the crate, which keeps the name's `-` (cargo turns it into `_` itself, in
-   * the module's file name, which is `{{module_snake}}`).
+   * the module's file name, which is `{{module_snake}}`); for Go the module path, which is the name
+   * as it is.
    */
   def module(request: Init.Request): String =
-    if request.language == Language.Rust then request.name
+    if request.language == Language.Rust || request.language == Language.Go then request.name
     else request.pkg.getOrElse(request.name.replace('-', '_'))
 
   /** A crate's name: lowercase letters, digits and `-`, starting with a letter. */

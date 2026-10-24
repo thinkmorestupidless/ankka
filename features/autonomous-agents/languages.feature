@@ -26,6 +26,7 @@ Feature: Autonomous agents in a service written in another language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario: a test of a process's autonomous agent scripts its model as a test of an embedded one does
     Given a service written in "Python" with an autonomous agent "answerer"

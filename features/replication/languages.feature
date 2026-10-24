@@ -1,5 +1,5 @@
 Feature: Replicated entities in every language
-  An entity in Scala, Python, TypeScript or Rust is told the installation that wrote each event
+  An entity in Scala, Python, TypeScript, Rust or Go is told the installation that wrote each event
   and whether this installation is the home; a consumer is told whether a change is local or
   mirrored. A process declaring replication beside a runtime from before replication is refused,
   naming the protocol version replication needs.
@@ -19,6 +19,7 @@ Feature: Replicated entities in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario: a process declaring replication beside an older runtime is refused naming the protocol version
     Given a service "fleet" written in "Python" whose entity "vehicle" declares replication

@@ -14,6 +14,7 @@ Feature: The documentation of each language
       | language   | tools                           |
       | TypeScript | Node and Docker                 |
       | Rust       | the Rust toolchain and Docker   |
+      | Go         | the Go toolchain and Docker     |
 
   Scenario Outline: the documentation of a language states every kind of component with a tested sample
     Given the published documentation
@@ -30,6 +31,10 @@ Feature: The documentation of each language
       | Java       | the component test kit and the test kit |
       | Kotlin     | each kind of component          |
       | Kotlin     | the component test kit and the test kit |
+      | Go         | each kind of component          |
+      | Go         | calling a component             |
+      | Go         | the component test kit and the test kit |
+      | Go         | how a service runs              |
 
   Scenario Outline: a coding agent writing a component in a language is told how the language differs
     Given a coding agent holding the platform's skills
@@ -43,6 +48,7 @@ Feature: The documentation of each language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the documentation does not build when a page is out of step with what it is taken from or listed in
     Given <problem>

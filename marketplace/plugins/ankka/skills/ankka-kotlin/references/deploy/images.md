@@ -1,10 +1,10 @@
 # Build an image
 
-> Package a Scala, Java, Kotlin, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+> Package a Scala, Java, Kotlin, Python, TypeScript, Go or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 
 Source: https://docs.ankka.cloud/deploy/images/
 A service is deployed as a container image, and the descriptor names that image. A Scala, Java or Kotlin service's image
-holds the service and the ankka runtime in one JVM. A Python or TypeScript service's image holds only your
+holds the service and the ankka runtime in one JVM. A Python, TypeScript or Go service's image holds only your
 process and the SDK; the platform supplies the runtime as a sidecar container beside it. A Rust service's
 image holds only its WebAssembly module; the platform copies the module out of it and runs its own runtime
 with the module loaded.
@@ -125,6 +125,41 @@ listens on port 9010 for the sidecar and declares no HTTP port. Build it with pl
 docker build -t my-cart:1.0.0 .
 ```
 
+## A Go service
+
+A Go service's image holds one static executable and nothing else: no language runtime, no SDK sources
+and no shell. The template `ankka init --language go` writes a two-stage `Dockerfile`. The first stage,
+`golang:1.27-alpine`, downloads the module's dependencies and builds the service with `CGO_ENABLED=0`, so
+the executable links no C library. The second, `gcr.io/distroless/static-debian12:nonroot`, copies that
+executable in and runs it as an unprivileged user:
+
+```text
+# Your process, nothing else: the platform runs the sidecar beside it in the same pod.
+# Go builds one static executable, so the image that runs it holds no language runtime and no shell.
+FROM golang:1.27-alpine AS build
+ENV CGO_ENABLED=0
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -trimpath -ldflags='-s -w' -o /service .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /service /service
+# The port the sidecar dials, on loopback inside the pod.
+ENV ANKKA_PROCESS_PORT=9010
+USER nonroot
+ENTRYPOINT ["/service"]
+```
+
+The image has no shell, so there is no shell to `docker exec` into and an `ENTRYPOINT` in shell form
+cannot work; the service's logs and the platform's traces are how it is observed. The process listens on
+port 9010 for the sidecar and declares no HTTP port. Build it with plain Docker:
+
+```bash
+docker build -t my-cart:1.0.0 .
+```
+
 ## A Rust service
 
 A Rust service's image carries its WebAssembly module and one command that copies it. The platform runs
@@ -179,13 +214,14 @@ service's image is yours to build, and an image built on an amd64 laptop runs on
 |---|---|
 | Scala | `ANKKA_IMAGE_PLATFORMS=linux/amd64,linux/arm64 sbt Docker/publish`. The template's build reads the variable; unset, the image is this machine's architecture, which is what `kind load` wants. A multi-platform build pushes and cannot be loaded, so it needs `Docker / dockerRepository` set. |
 | Java | `./mvnw package jib:build -Dimage=…`; Jib builds for the platforms its `<from><platforms>` lists, `linux/amd64` unless set. |
-| Kotlin, Python, TypeScript, web | `docker buildx build --platform linux/amd64,linux/arm64 --push -t registry.example.com/acme/orders:1.4.2 .` |
+| Kotlin, Python, TypeScript, Go, web | `docker buildx build --platform linux/amd64,linux/arm64 --push -t registry.example.com/acme/orders:1.4.2 .` |
 | Rust | nothing: a WebAssembly module has no architecture, and the runtime that loads it is the platform's. |
 
 Building for the architecture your machine is not needs buildx with a `docker-container` builder
 (`docker buildx create --use`) and QEMU, which Docker Desktop and OrbStack provide; a JVM or Node image
-copies files and compiles nothing under emulation. The deploy workflow a generated project carries
-builds for both.
+copies files and compiles nothing under emulation. A Go image's build stage does compile under emulation
+for the other architecture, which is slower than a native build and needs nothing more. The deploy
+workflow a generated project carries builds for both.
 
 An image with no build for the node it lands on cannot start, and the service's report says so rather
 than reporting a crash loop:

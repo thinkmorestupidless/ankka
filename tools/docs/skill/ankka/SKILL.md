@@ -1,6 +1,6 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python, TypeScript and Go via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript, Go and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-go, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 pages:
   - index.md
   - get-started/install.md
@@ -9,6 +9,7 @@ pages:
   - get-started/first-service-kotlin.md
   - get-started/first-service-python.md
   - get-started/first-service-typescript.md
+  - get-started/first-service-go.md
   - get-started/first-service-rust.md
   - get-started/deploy-locally.md
   - get-started/coding-agents.md
@@ -20,6 +21,7 @@ pages:
   - reference/kotlin-sdk.md
   - reference/python-sdk.md
   - reference/typescript-sdk.md
+  - reference/go-sdk.md
   - reference/rust-sdk.md
   - reference/akka-divergences.md
   - reference/limitations.md
@@ -30,7 +32,7 @@ pages:
 
 ankka hosts services built from a fixed set of components. The developer writes the components; the
 runtime supplies sharding, persistence, replay, projections, durable orchestration, timers, HTTP and the
-agent loop. A service is written in Scala, Java or Kotlin (compiled into one JVM with the runtime), in Python or TypeScript (a
+agent loop. A service is written in Scala, Java or Kotlin (compiled into one JVM with the runtime), in Python, TypeScript or Go (a
 process beside a runtime sidecar), or in Rust (a WebAssembly module the runtime loads), and is deployed to a Kubernetes-based platform with the `ankka` CLI.
 
 ## Rules that hold everywhere
@@ -40,7 +42,7 @@ process beside a runtime sidecar), or in Rust (a WebAssembly module the runtime 
    read a database or call a model inside an entity handler. Calls to other components go through the
    component client, from endpoints, workflow steps, consumers, timed actions and agent tools.
 2. **Wire names are protocol.** `command("add-item")(_.addItem)` in Scala, `@Command("add-item")` on a Java or
-   Kotlin method, `@command("add-item")` in Python and `command("add-item", ...)` in TypeScript declare the name the platform stores and routes by. Rename the method freely; never change a
+   Kotlin method, `@command("add-item")` in Python, `command("add-item", ...)` in TypeScript and `ankka.Command("add-item", ...)` in Go declare the name the platform stores and routes by. Rename the method freely; never change a
    wire name of a deployed service without treating it as a breaking change, because persisted timers
    and in-flight calls address it.
 3. **A query cannot persist.** Declare read-only handlers with `query`/`@query`; they must return a
@@ -77,6 +79,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | A service in Kotlin, built with Gradle, over the Java SDK | `ankka-kotlin` |
 | A service in Python beside the sidecar | `ankka-python` |
 | A service in TypeScript on Node.js beside the sidecar | `ankka-typescript` |
+| A service in Go beside the sidecar | `ankka-go` |
 | A service in Rust, built to a WebAssembly module the runtime loads | `ankka-rust` |
 | A service descriptor, the `ankka` CLI, images, deploying, exposing, logs, troubleshooting | `ankka-deploy` |
 | Installing or operating the platform itself, organizations, identity, databases, networking | `ankka-platform` |
@@ -89,6 +92,6 @@ from the template with `ankka init` (`references/get-started/first-service-scala
 empty build. For the shape of every component's base class, companion and effect builders in one place,
 `references/reference/scala-sdk.md`, `references/reference/java-sdk.md`,
 `references/reference/kotlin-sdk.md`, `references/reference/python-sdk.md`,
-`references/reference/typescript-sdk.md` or `references/reference/rust-sdk.md`. When a capability seems
+`references/reference/typescript-sdk.md`, `references/reference/go-sdk.md` or `references/reference/rust-sdk.md`. When a capability seems
 missing, check `references/reference/limitations.md` before building around it, and when a habit from
 Akka does not fit, `references/reference/akka-divergences.md` says what ankka does instead.

@@ -2,7 +2,7 @@
 title: Adding a language SDK
 description: What an SDK for a new language must do to host services on ankka, and how the encoding fixtures and the conformance suite prove it compatible without the platform knowing the language exists.
 kind: contributing
-related: [reference/sidecar-protocol.md, reference/wasm-abi.md, reference/java-sdk.md, reference/kotlin-sdk.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/rust-sdk.md, concepts/polyglot.md]
+related: [reference/sidecar-protocol.md, reference/wasm-abi.md, reference/java-sdk.md, reference/kotlin-sdk.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/go-sdk.md, reference/rust-sdk.md, concepts/polyglot.md]
 ---
 
 # Adding a language SDK
@@ -11,9 +11,11 @@ ankka hosts a service in a language off the JVM through the sidecar: the ankka r
 service's process and speaks a gRPC protocol to it. The platform never learns which language is on the other
 end. A new language therefore needs no change to the platform, only an SDK, and an SDK is compatible when it
 passes two things: the encoding fixtures and the conformance suite. The Python SDK in
-[`sdks/python`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python) and the TypeScript SDK in
-[`sdks/typescript`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript) are the working
-examples.
+[`sdks/python`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python), the TypeScript SDK in
+[`sdks/typescript`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript) and the Go SDK in
+[`sdks/go`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/go) are the working examples; the Go
+SDK, a compiled language with no code generation at build time, is described in
+[The Go SDK as an example](#the-go-sdk-as-an-example).
 
 There is a second route for a language that compiles to WebAssembly: a **guest library**, which builds a
 service to a module the runtime loads into its own process instead of running a process beside it. It
@@ -53,8 +55,8 @@ working examples; see [An embedded SDK](#an-embedded-sdk).
 
 [`protocol/`](https://github.com/thinkmorestupidless/ankka/blob/main/protocol) is what an SDK consumes: the
 `.proto` files under `src/main/protobuf`, `ENCODING.md`, and `fixtures/`. Copy the whole directory into the
-SDK so it builds on its own, and generate stubs from the copy; the Python SDK's `scripts/proto.py` and the
-TypeScript SDK's `npm run proto` do both.
+SDK so it builds on its own, and generate stubs from the copy; the Python SDK's `scripts/proto.py`, the
+TypeScript SDK's `npm run proto` and the Go SDK's `scripts/proto.sh` do both.
 Continuous integration checks that the copy is identical to the original, so a protocol change reaches every
 SDK deliberately.
 
@@ -67,8 +69,8 @@ would change a committed file, so they always describe what the Scala SDK actual
 
 The SDK's own test runner reads every fixture, decodes the bytes with the codec the manifest and content type
 select, compares the result with the value, re-encodes it and compares the bytes. A fixture with no matching
-codec is a failure, never a skip. The Python SDK's `tests/test_encoding_fixtures.py` and the TypeScript SDK's
-`test/encoding-fixtures.test.ts` are the models.
+codec is a failure, never a skip. The Python SDK's `tests/test_encoding_fixtures.py`, the TypeScript SDK's
+`test/encoding-fixtures.test.ts` and the Go SDK's `fixtures_test.go` are the models.
 
 ## The conformance suite
 
@@ -112,8 +114,40 @@ The Python reference service is the SDK's shopping cart example plus a conforman
 `uv run conformance` in `sdks/python` serves it and runs the suite against it, and exits with the suite's
 status. The TypeScript reference is the same shape, in
 [`examples/shopping-cart`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript/examples/shopping-cart),
-served by `npm run conformance` in `sdks/typescript`. `ANKKA_CONFORMANCE_ONLY` narrows either run to matching
-behaviours, as a glob over the full case name (`'*es.*'`).
+served by `npm run conformance` in `sdks/typescript`, and so is the Go reference, in
+[`examples/shopping-cart`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/go/examples/shopping-cart),
+served by `go run ./cmd/conformance` in that directory. `ANKKA_CONFORMANCE_ONLY` narrows any of these runs to
+matching behaviours, as a glob over the full case name (`'*es.*'`).
+
+## The Go SDK as an example
+
+The Go SDK is a process beside the sidecar, as the Python and TypeScript SDKs are, in a language that is
+compiled, statically typed and fetched as source. The choices it makes are the ones a similar language faces:
+
+- **The generated stubs are committed.** `go get` fetches a module's source and runs no generator, so the
+  module carries its stubs in `internal/pb`, generated from its copy of the protocol by `scripts/proto.sh`
+  with generators pinned in a nested `tools` module. `scripts/proto.sh --check` regenerates into a
+  temporary directory and fails when the committed stubs differ, and continuous integration runs it beside
+  the diff of the copy.
+- **Components are values, built by generic constructors.** `ankka.EventSourced[State, Event](id, ...)` takes
+  the component id, the event cases and the handlers, each declared with its wire name
+  (`ankka.Command("add-item", addItem)`), and `ankka.NewService(...)` takes every component and endpoint
+  explicitly. Nothing is found by reflection over a package.
+- **The read-only rule is a type.** A handler declared with `ankka.Query` must return an
+  `ankka.ReadOnlyEffect`, so a query that persists does not compile, and an endpoint with no access control
+  does not either. The SDK's tests prove both by type-checking files that must fail
+  (`testdata/compilefail`), with a control file that must pass, so the check cannot succeed by failing to run.
+- **A refusal is an error.** A handler returns its effect and an `error`; `ankka.Refuse(code, message)` is an
+  error the runtime answers with that code, and any other error is a failure.
+- **The codec is planned once, from the type.** The default codec reads a type's fields by reflection when
+  the component is declared, names each field by its `json` tag or else by its name with the leading capitals
+  lowered, and refuses what the encoding cannot describe — an embedded field, an `any`, a tag option, an
+  interface with no registered cases — as a problem at start rather than a failure at the first message.
+  Sum types are interfaces whose cases are registered with `ankka.Cases`, each under its discriminator.
+- **Every problem at once.** `Service.Problems` lists every problem with the declarations together, and
+  `Start` refuses with all of them, before the process answers discovery.
+- **Slow tests are opt in.** The unit test kits run in `go test ./...` with no Docker; the integration kit,
+  which starts Postgres and the sidecar image, runs only under `ANKKA_SLOW=1`.
 
 ## A guest library
 

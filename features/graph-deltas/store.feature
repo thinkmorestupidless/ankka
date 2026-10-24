@@ -45,3 +45,4 @@ Feature: A store filled from a service
       | python     |
       | typescript |
       | rust       |
+      | go         |

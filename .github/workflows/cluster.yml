@@ -12,8 +12,9 @@
 # platform's images are published for both and an image published for a platform nobody runs it on
 # is a promise nobody checked. Each runner runs one suite through `testOnly`, which builds the
 # images that suite's module deploys (the build hooks both `test` and `testOnly`) — natively, on the
-# leg's own architecture, so nothing here is emulated; the sidecar suite builds its Python and
-# module images itself, and needs cargo or its module cases skip.
+# leg's own architecture, so nothing here is emulated; the sidecar suite builds its Python, Go and
+# module images itself (the Go image entirely inside Docker, so the runner needs no Go), and needs
+# cargo or its module cases skip.
 name: cluster
 on:
   schedule:

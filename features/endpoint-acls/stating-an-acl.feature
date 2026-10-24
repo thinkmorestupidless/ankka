@@ -13,6 +13,7 @@ Feature: An endpoint states its ACL
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: an endpoint that states it allows all serves everyone
     Given a service "cart" written in "<language>" with an HTTP endpoint whose ACL allows all
@@ -23,3 +24,4 @@ Feature: An endpoint states its ACL
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |

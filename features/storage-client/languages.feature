@@ -1,6 +1,6 @@
 Feature: The storage client in every language
   A service keeps and reads objects through the storage client the same way whether it is written
-  in Scala, Python, TypeScript or Rust. Each SDK's client speaks to the object store itself, from
+  in Scala, Python, TypeScript, Rust or Go. Each SDK's client speaks to the object store itself, from
   the same variables, so no object passes through the platform's own program. A module reaches the object store
   through the platform's own program and holds a whole object in its memory while it keeps or
   reads it.
@@ -18,6 +18,7 @@ Feature: The storage client in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the storage client lists, tells what an object is and deletes in every language
     Given a deployed service "listings" written in "<language>" with a bucket
@@ -33,6 +34,7 @@ Feature: The storage client in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: no object passes through the platform's own program
     Given a deployed service "listings" written in "<language>" with a bucket
@@ -43,6 +45,7 @@ Feature: The storage client in every language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: every SDK refuses the same object names for the same reasons
     Given a deployed service "listings" written in "<language>" with a bucket
@@ -59,6 +62,7 @@ Feature: The storage client in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the storage client in every language keeps its objects in a directory on a developer's machine
     Given a service "listings" written in "<language>" running on a developer's machine with no variable of an object store
@@ -73,3 +77,4 @@ Feature: The storage client in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

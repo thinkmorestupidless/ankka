@@ -1,6 +1,6 @@
 ---
 name: ankka-workflows
-description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Java, Kotlin, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
+description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Java, Kotlin, Python, TypeScript, Go or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
 pages:
   - build/calling-services.md
   - build/workflows.md
@@ -138,6 +138,24 @@ The Java classes, with `effects { }` and `stepEffects { }` blocks and the infix 
 named through the Kotlin overloads (`stepRef(Checkout::charge)`, or the DSL's `transitionTo` and
 `thenTransitionTo`), which hand the SDK what a Java method reference would. Stay on the step's own thread:
 switching dispatcher loses the call's context. Test with `workflowTestKit(Checkout::class)`.
+
+## Go differences
+
+A workflow is `ankka.Workflow[S](id, empty, parts...)` with `ankka.WorkflowCommand(wire, f)` (`f` answers
+`ankka.WorkflowEffect[S, R]`: `ankka.WorkflowUpdate[S, R](s).ThenTransitionTo("reserve",
+input).ThenReplyValue(r)`), `ankka.Query`, and `ankka.Step(name, f)`, each `func(ctx, S, I)
+(ankka.StepEffect[S], error)`: `ankka.StepUpdate(s).ThenTransitionTo(..)`,
+`.ThenPause(ankka.PauseOptions{After: d, OnTimeout: "step"})`, `.ThenEnd()`, `.ThenFail(code, msg)`.
+Settings are parts too: `ankka.StepTimeout(d)`, `ankka.StepRecovery(ankka.Recovery{MaxRetries: 1,
+FailoverTo: "compensate"})`, `ankka.ForStep("charge", …)`, `ankka.WorkflowTimeout(d)`. A step that returns
+an error or panics is retried and failed over; `ThenFail` ends the workflow. A step runs on a goroutine of
+its own, and secrets and other services are a step's, never a command's. Wait for an end with
+`ankka.AwaitEnd[R](ctx, workflowID, id, within)` or `ankka.SendAndAwait[R]`. A timed action is
+`ankka.TimedAction(id, ankka.Action(wire, f))` answering `ankka.ActionDone()` or `ActionFail`; timers are
+`ankka.Schedule(ctx, timerID, delay, ankka.TimerTarget{ComponentID, EntityID, Handler}, input)`,
+`ankka.ScheduleRecurring` and `ankka.Cancel(ctx, timerID)`, and `ankka.TimerFrom(ctx)` says which timer
+fired. `testkit.Workflow` (`Command`, `RunStep`, `RunUntilPause`, `Resume`) and `testkit.TimedAction` run
+them in process.
 
 ## Testing
 

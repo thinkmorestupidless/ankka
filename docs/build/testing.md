@@ -2,7 +2,7 @@
 title: Testing
 description: Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 kind: guide
-languages: [scala, java, kotlin, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/effects.md, build/agents.md, get-started/first-service-scala.md, get-started/first-service-python.md]
 ---
@@ -132,8 +132,37 @@ fun `an item added is in the cart`() {
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/cart_test.go#unit-test -->
+```go
+func TestAddingAndRemovingItems(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.EventSourced(cart.Entity, testkit.EntityID("c1"))
+	if r := kit.Command(ctx, "add-item", pen); r.Refusal() != nil || len(r.Events()) != 1 || r.Events()[0] != (cart.ItemAdded{Item: pen}) {
+		t.Fatalf("add-item answered %+v", r)
+	}
+	kit.Command(ctx, "add-item", ink)
+	if q := kit.Query(ctx, "total-quantity", ankka.Unit{}); q.Reply() != 3 {
+		t.Fatalf("the total is %v", q.Reply())
+	}
+	// Items are kept sorted by product, as the Scala sample keeps them.
+	if got := kit.State().Items; len(got) != 2 || got[0] != ink || got[1] != pen {
+		t.Fatalf("the items are %+v", got)
+	}
+	if r := kit.Command(ctx, "remove-item", "pen"); r.Refusal() != nil || r.Events()[0] != (cart.ItemRemoved{ProductID: "pen"}) {
+		t.Fatalf("remove-item answered %+v", r)
+	}
+	if got := kit.State(); got.CartID != "c1" || len(got.Items) != 1 || got.Items[0] != ink {
+		t.Fatalf("after removing, the cart is %+v", got)
+	}
+}
+```
+
+///
+
 Scala names the handler with the typed value its companion declared; Java and Kotlin name it by a method
-reference (`ShoppingCart::addItem`); Python, TypeScript and Rust name it by its wire name or its handler
+reference (`ShoppingCart::addItem`); Python, TypeScript, Rust and Go name it by its wire name or its handler
 reference. What each kit hands back differs a little by language.
 
 ### What a Scala kit gives you
@@ -281,6 +310,30 @@ dispatch the module's exports use:
 A kit built `.with_service(build())` answers its component's calls to the service's event sourced
 entities in memory; without it those calls are refused.
 
+### What a Go kit gives you
+
+The package `github.com/thinkmorestupidless/ankka-go/testkit` holds a kit for each kind. They run under
+`go test` with no sidecar, database or network, and every call takes the test's `context.Context`:
+
+| Kit | Drives |
+|---|---|
+| `testkit.EventSourced(entity, opts...)` | `Command(ctx, wire, input)` and `Query`; the result has `Events()`, `State()`, `Reply()`, `Refusal()`, `Failure()`, `Deleted()`, `ExpireAfter()`; `testkit.EntityID(id)` names the entity |
+| `testkit.KeyValue(entity, opts...)` | the same, without events |
+| `testkit.Workflow(workflow, opts...)` | `Command` a command, `RunStep` a step, `RunUntilPause` and `Resume` to follow transitions, `Progress()` |
+| `testkit.View(view, opts...)` | `OnChange(ctx, subject, value, opts...)`, `OnDelete(ctx, subject)`, then `Row(subject)` or `Rows()`; `testkit.FromWorkflow(standing)` hands the change a workflow's standing |
+| `testkit.KeyedView(view, opts...)` | `Change(ctx, sourceID, subject, value)`, `Deleted(ctx, sourceID, subject)`, `Answering(name, fn)`, then `Row(key)` or `Rows()` |
+| `testkit.Consumer(consumer, opts...)` | `OnMessage(ctx, subject, message, opts...)`, `OnDelete(ctx, subject)`, each returning what it published with the record key each message named |
+| `testkit.GraphConsumer(consumer, opts...)` | `OnMessage` and `OnDelete`, each returning the deltas published, read back from their bytes |
+| `testkit.TimedAction(action, opts...)` | `Invoke(ctx, wire, input, metadata...)` |
+| `testkit.Agent(agent, session, model, opts...)` | `Ask`, `Stream` and `Decide`: a handler plus the loop the sidecar would run, against a `testkit.NewScriptedModel()` |
+| `testkit.Endpoint(endpoint, components...)` | `Get`, `Post`, `Put`, `Patch`, `Delete` against the routes, answering a `Response`; the components named answer the routes' calls in memory |
+| `testkit.Mcp(endpoint, components...)` | `Call(ctx, tool, arguments, principal)` on an MCP endpoint's tools |
+
+`testkit.Calling(components...)` gives an entity, workflow, view, consumer or timed action kit the components its handlers call. `ScriptedModel` scripts
+turns with `ExpectText`, `ExpectToolCall` and `ExpectRefusal`, and fails loudly when the script runs out.
+Every input, event, state, row and reply is round-tripped through the component's codecs, so a type the
+encoding cannot carry fails in the kit rather than on the first deployment.
+
 ## Testing a consumer
 
 A consumer's unit test hands it one change, with a subject and a sequence number, and reads back the
@@ -408,7 +461,8 @@ A [graph consumer](graph.md#testing-a-graph-consumer) has a kit of its own in ev
 returns elements rather than messages.
 
 A consumer that calls other components is given a client that answers: a `TestTransport` with stubs in
-Scala, a client double in Python and TypeScript, and a kit built `.with_service(build())` in Rust. With
+Scala, a client double in Python and TypeScript, a kit built `.with_service(build())` in Rust, and `testkit.Calling(...)` with the
+components it calls in Go. With
 none, the call is refused, the handler fails, and in a running service the change would be delivered
 again.
 
@@ -628,6 +682,58 @@ fun `an item added over HTTP is read back after a restart, and reaches the view`
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/cart_slow_test.go#integration-test -->
+```go
+func TestEveryRouteAgainstARealSidecar(t *testing.T) {
+	kit := testkit.StartT(t, cart.Service())
+	ctx := t.Context()
+	h := kit.HTTP()
+
+	r, err := h.Post(ctx, "/carts/s1/items", pen)
+	status(t, "POST items", r, err, 204)
+	r, err = h.Post(ctx, "/carts/s1/items", ink)
+	status(t, "POST items", r, err, 204)
+	r, err = h.Get(ctx, "/carts/s1/total")
+	status(t, "GET total", r, err, 200)
+	if r.Text() != "3" {
+		t.Fatalf("the total is %q", r.Text())
+	}
+	r, err = h.Delete(ctx, "/carts/s1/items/ink")
+	status(t, "DELETE an item", r, err, 204)
+	r, err = h.Delete(ctx, "/carts/s1/items/ink")
+	status(t, "DELETE an item not there", r, err, 404)
+	r, err = h.Post(ctx, "/carts/s1/items", cart.LineItem{ProductID: "pen", Name: "Pen", Quantity: 0})
+	status(t, "POST a zero quantity", r, err, 400)
+
+	if err := kit.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The new sidecar answers on a new port.
+	h = kit.HTTP()
+	got, err := testkit.GetJSON[cart.Cart](ctx, h, "/carts/s1")
+	if err != nil || !reflect.DeepEqual(got, cart.Cart{CartID: "s1", Items: []cart.LineItem{pen}}) {
+		t.Fatalf("after a restart the cart is %+v (%v)", got, err)
+	}
+
+	r, err = h.Post(ctx, "/carts/s1/checkout", nil)
+	status(t, "checkout", r, err, 200)
+	r, err = h.Post(ctx, "/carts/s1/items", ink)
+	status(t, "POST to a checked out cart", r, err, 409)
+
+	r, err = h.Post(ctx, "/carts/s2/items", ink)
+	status(t, "POST items", r, err, 204)
+	r, err = h.Do(ctx, http.MethodDelete, "/carts/s2", nil, nil)
+	status(t, "discard", r, err, 204)
+	if got, err := testkit.GetJSON[cart.Cart](ctx, h, "/carts/s2"); err != nil || len(got.Items) != 0 {
+		t.Fatalf("after a discard the cart is %+v (%v)", got, err)
+	}
+}
+```
+
+///
+
 `restartService()` stops the service and starts a new one against the same database, so every entity
 must rebuild itself from the journal. A test that passes across a restart has proved durability. One
 that does not restart has only proved that something was in memory.
@@ -675,7 +781,9 @@ In Python and TypeScript the kit starts the real sidecar image beside Postgres, 
 components from the test process, and drives the routes through the sidecar. `restart()` replaces the
 sidecar against the same database. Mark the Python tests `@pytest.mark.slow` and run them with
 `uv run pytest -m slow`; the TypeScript ones are skipped unless `ANKKA_SLOW=1` is set, so that neither
-suite needs Docker by default.
+suite needs Docker by default. The Go kit does the same: `testkit.StartT(t, service)` starts the sidecar
+and Postgres and stops them when the test ends, `Restart(ctx)` replaces the sidecar, and the test is
+skipped unless `ANKKA_SLOW=1` is set, as one that calls `testkit.Slow(t)` is.
 
 Mark such tests `@pytest.mark.slow` and run them with `uv run pytest -m slow`; `uv run pytest` runs the
 unit tests alone.

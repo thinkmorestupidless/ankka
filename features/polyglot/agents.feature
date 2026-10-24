@@ -22,6 +22,7 @@ Feature: Agents in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a guardrail is consulted in the developer's code
     Given a service "trips" written in "<language>" with the agent "planner"
@@ -38,6 +39,7 @@ Feature: Agents in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an agent's reply reaches its caller as a stream while the model produces it
     Given a service "trips" written in "<language>" with the agent "planner"
@@ -52,6 +54,7 @@ Feature: Agents in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a session survives a restart of the developer's code
     Given a service "trips" written in "<language>" with the agent "planner"
@@ -67,6 +70,7 @@ Feature: Agents in every language
       | Rust       | the platform's own program      |
       | Java       | the platform's own program      |
       | Kotlin     | the platform's own program      |
+      | Go         | the process                     |
 
   Scenario Outline: a tool that fails is told to the model and the loop goes on
     Given a service "trips" written in "<language>" with the agent "planner"
@@ -83,3 +87,4 @@ Feature: Agents in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

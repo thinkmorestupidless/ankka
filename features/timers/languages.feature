@@ -1,6 +1,6 @@
 Feature: Recurring timers in every language
   A service sets a recurring timer the same way whether it is written in Scala, Python,
-  TypeScript or Rust, because the platform's own program keeps the timer and gives it each next
+  TypeScript, Rust or Go, because the platform's own program keeps the timer and gives it each next
   due time, and the developer's program only sets it.
 
   Scenario Outline: a recurring timer fires once for each period in every language
@@ -18,6 +18,7 @@ Feature: Recurring timers in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a recurring timer set again keeps its next due time in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -34,6 +35,7 @@ Feature: Recurring timers in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a cancelled recurring timer does not fire again in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -51,6 +53,7 @@ Feature: Recurring timers in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a handler is told the due time of the timer that ran it in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -68,3 +71,4 @@ Feature: Recurring timers in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

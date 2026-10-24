@@ -34,9 +34,11 @@ class ServiceCallsDocumentationSuite extends munit.FunSuite:
         "sdks/typescript/examples/shopping-cart/calling.ts#call-another-service",
         "samples/shopping-cart-java/src/test/java/shoppingcart/javasdk/Neighbour.java#call-another-service",
         "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#call-another-service",
+        "sdks/go/examples/shopping-cart/conformance/endpoints.go#call-another-service",
         "modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ServiceCallComponents.scala#step-calls-service",
         "sdks/python/tests/test_services.py#step-calls-service",
-        "sdks/typescript/test/services.test.ts#step-calls-service"
+        "sdks/typescript/test/services.test.ts#step-calls-service",
+        "sdks/go/services_step_test.go#step-calls-service"
       )
     do says(Page, s"<!-- include: $include -->")
     for error <- Seq(

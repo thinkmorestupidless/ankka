@@ -295,6 +295,55 @@ class Forecaster : Agent() {
 Kotlin uses the Java agent library: a handler and a tool may be a `suspend fun`, `effects { ... }` builds
 the interaction, and `thenReply<R>()` reads a data class.
 
+**Go**
+
+```go
+// LookupArguments are the lookup tool's.
+type LookupArguments struct {
+	ID string `json:"id"`
+}
+
+// lookup records under the id and answers how many things are recorded there.
+func lookup(mark, label string) func(context.Context, LookupArguments) (string, error) {
+	return func(ctx context.Context, in LookupArguments) (string, error) {
+		if in.ID == "" {
+			return "", errors.New("an id is needed")
+		}
+		if _, err := ankka.Invoke[string](ctx, "conformance", in.ID, "record", mark); err != nil {
+			return "", err
+		}
+		n, err := ankka.Invoke[int](ctx, "conformance", in.ID, "count", ankka.Unit{})
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s for %s is %d", label, in.ID, n), nil
+	}
+}
+
+var noSecrets = ankka.Guardrail("no-secrets", func(_ context.Context, stage ankka.GuardrailStage, text string) (string, error) {
+	if strings.Contains(text, "sk-") {
+		return string(stage) + " rejected by no-secrets", nil
+	}
+	return "", nil
+})
+
+func describe(_ context.Context, question string) (ankka.AgentEffect, error) {
+	return ankka.SystemMessage("You are helpful.").UserMessage(question).Tools("lookup").Guardrails("no-secrets").ThenReply(), nil
+}
+
+// Assistant is an agent whose tool acts through the client.
+var Assistant = ankka.Agent("assistant",
+	ankka.Tools(ankka.Tool("lookup", "Looks up how many things were recorded under an id.", lookup("looked-up", "count"))),
+	ankka.Guardrails(noSecrets),
+	ankka.Ask("ask", describe),
+	ankka.AskStream("stream", describe),
+	// Answered by the model the sidecar has under the name second, not its default.
+	ankka.Ask("ask-second", func(_ context.Context, question string) (ankka.AgentEffect, error) {
+		return ankka.AgentModel("second").SystemMessage("You are helpful.").UserMessage(question).ThenReply(), nil
+	}),
+)
+```
+
 In Scala the class extends `Agent`, the companion registers the handlers under their wire names, and the
 agent's component id identifies it. Python declares its tools and guardrails as class attributes;
 TypeScript declares them as statics. **In Python and TypeScript the loop runs in the sidecar**, which
@@ -802,6 +851,14 @@ val reply = runBlocking {
 }
 ```
 
+**Go**
+
+```go
+ankka.Post("/ask/{session}", func(ctx context.Context, req *ankka.Request, question string) (string, error) {
+	return ankka.Invoke[string](ctx, "assistant", req.Param("session"), "ask", question)
+}),
+```
+
 Choose session ids to match conversations: one per chat, or one per workflow instance when several
 agents collaborate on one task. The [multi-agent orchestration](multi-agent-orchestration.md) guide uses
 the workflow's id.
@@ -827,7 +884,8 @@ The effect has the same shape as the Scala one, with each SDK's spelling:
 
 A tool that waits for a person is declared with `approval`: `Tool(..., approval=True)` or
 `Tool(..., approval=Approval(within=timedelta(minutes=30)))` in Python, `tool(..., run, { approval: true })`
-or `{ approval: { withinMs: 1_800_000 } }` in TypeScript. A caller asks for the outcome and decides
+or `{ approval: { withinMs: 1_800_000 } }` in TypeScript, and `ankka.ApprovedTool(name, description, within, run)` in Go, where a
+`within` of zero sets no limit. A caller asks for the outcome and decides
 through the same invocation:
 
 **Python**
@@ -857,7 +915,25 @@ decideApproval: post("/approver/{session}/decide/{id}", s.string, s.string, asyn
 ),
 ```
 
-`invoke` and `stream` raise (or reject with) `ApprovalAwaited` when the turn waits, and `stream_parts`
+**Go**
+
+```go
+// A turn that may wait: the model's answer, or the approval requests it waits on.
+ankka.Post("/approver/{session}", func(ctx context.Context, req *ankka.Request, question string) (string, error) {
+	return outcomeOf(ankka.Invoke[string](ctx, "approver", req.Param("session"), "ask", question))
+}),
+// A person's decision, answered as the turn's caller would have been once the turn goes on.
+ankka.Post("/approver/{session}/decide/{id}", func(ctx context.Context, req *ankka.Request, body string) (string, error) {
+	d, err := decisionOf(body)
+	if err != nil {
+		return "", err
+	}
+	return outcomeOf(ankka.DecideApproval[string](ctx, "approver", req.Param("session"), "ask", req.Param("id"), d))
+}),
+```
+
+`invoke` and `stream` raise (or reject with) `ApprovalAwaited` when the turn waits (in Go, `ankka.Invoke`
+returns an `*ankka.ApprovalAwaitedError` carrying the requests, and `ankka.DecideApproval` goes on), and `stream_parts`
 (`streamParts`) yields the text and then the awaited requests. An `@sse` (`sse`) route can pass those on
 as a server-sent event of its own name by yielding `SseEvent("approval", requests)` in Python or
 `sseEvent("approval", requests)` in TypeScript after the text: the value is sent as JSON, as the Scala

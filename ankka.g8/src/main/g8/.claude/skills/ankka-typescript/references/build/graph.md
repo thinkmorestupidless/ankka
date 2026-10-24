@@ -278,6 +278,35 @@ class CartGraph : GraphConsumer<CartEvent>() {
 }
 ```
 
+**Go**
+
+```go
+func cartNode(id string, checkedOut bool) ankka.Element {
+	return ankka.Node("cart:"+id, ankka.Labels("Cart"), ankka.WithProperties(ankka.Properties{"cartId": id, "checkedOut": checkedOut}))
+}
+
+// CartGraph is the cart graph every reference publishes, where the conformance suite reads it.
+var CartGraph = ankka.GraphConsumer[cart.Event]("cart-graph", ankka.Changes(cart.Entity), "conformance-graph",
+	func(ctx context.Context, e cart.Event) (ankka.GraphEffect, error) {
+		id := subject(ctx)
+		switch e.(type) {
+		case cart.ItemAdded, cart.ItemRemoved:
+			return ankka.Publish(cartNode(id, false)), nil
+		case cart.CheckedOut:
+			return ankka.Publish(
+				cartNode(id, true),
+				ankka.Node("checkout:"+id, ankka.Labels("Checkout"), ankka.WithProperties(ankka.Properties{"cartId": id})),
+				ankka.Edge("checked-out:"+id, "CHECKED_OUT", "cart:"+id, "checkout:"+id),
+			), nil
+		}
+		return ankka.GraphIgnore(), nil
+	},
+	ankka.WhenDeleted(func(ctx context.Context) (ankka.GraphEffect, error) {
+		return ankka.Publish(ankka.NodeTombstone("cart:" + subject(ctx))), nil
+	}),
+)
+```
+
 The parts are the same in every language:
 
 | | Scala | Python | TypeScript | Rust |
@@ -299,7 +328,7 @@ letters, digits and underscores, not starting with a digit.
 
 A graph consumer is registered like any consumer — `.register(CartGraph.descriptor)` in Scala,
 `.register(CartGraph)` in Python, TypeScript and Rust, `.register(CartGraph.class)` in Java and
-Kotlin (`CartGraph::class.java`) — and, because it publishes to a topic, the service
+Kotlin (`CartGraph::class.java`), `ankka.NewService(..., CartGraph)` in Go — and, because it publishes to a topic, the service
 needs a broker: `ProjectionRuntime.withKafka(…)` or `ProjectionRuntime.fromEnv()` in Scala, and
 `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in the service descriptor's `env` for the others. A service with a graph
 consumer and no broker is refused at startup, naming the consumer. See [Broker topics](topics.md#connecting-to-kafka).
@@ -559,7 +588,7 @@ the event, and reads the state when it needs it.
 ## When the source is deleted
 
 Publish tombstones from the deletion handler: `onDelete` in Scala, Java, Kotlin and TypeScript, `on_delete` in Python,
-`on_deleted` in Rust. It runs when the source entity is deleted, at a sequence number above every earlier
+`on_deleted` in Rust, `ankka.WhenDeleted(...)` in Go. It runs when the source entity is deleted, at a sequence number above every earlier
 change to that entity, so a tombstone built there outranks every delta published before it. The cart graph
 marks the cart's node there.
 

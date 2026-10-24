@@ -49,6 +49,7 @@ Feature: More than one model provider in one service
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario: a service written in another language with two model providers and no default model refuses only an agent that names none
     Given a service "support" written in "Python" whose descriptor gives the keys of the model providers "anthropic" and "openai" and names no default model

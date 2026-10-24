@@ -18,6 +18,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a view's rows follow its source's events and are removed with its source
     Given a service "shop" written in "<language>" with a view "carts-by-owner" of the events of the entity "cart"
@@ -34,6 +35,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a consumer is given each event at least once and in the order its entity recorded them
     Given a service "shop" written in "<language>" with a consumer "checkout-recorder" of the events of the entity "cart"
@@ -49,6 +51,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a consumer publishes the messages its handler produces
     Given a service "shop" written in "<language>" with a consumer that publishes to the topic "checkouts" for each event it is given
@@ -63,6 +66,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a timer set by a handler runs its timed action, and again after a failure
     Given a service "shop" written in "<language>" whose handler sets a timer for the timed action "remind"
@@ -79,6 +83,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a timer due while the process is not running runs once it is
     Given a service "shop" written in "<language>" with a timer for the timed action "remind"
@@ -90,6 +95,7 @@ Feature: Every kind of component in every language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario Outline: a workflow's steps run in the developer's code and each step is recorded
     Given a service "shop" written in "<language>" with a workflow "checkout" of the steps "reserve" and "charge"
@@ -105,6 +111,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a step that fails is retried and then failed over as the workflow declared
     Given a service "shop" written in "<language>" with a workflow "checkout" whose step "charge" is retried twice and then fails over to "refund"
@@ -120,6 +127,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a command to a workflow during a step is answered from the state before the step
     Given a service "shop" written in "<language>" with a workflow "checkout" whose step "reserve" is running
@@ -135,6 +143,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a call through the SDK's client reaches its component wherever it runs
     Given a service "shop" written in "<language>" running as 3 instances
@@ -150,6 +159,7 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a call made by a handler is nested under that handler in the trace
     Given a service "shop" written in "<language>" whose consumer "checkout-recorder" calls the entity "ledger"
@@ -164,3 +174,4 @@ Feature: Every kind of component in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

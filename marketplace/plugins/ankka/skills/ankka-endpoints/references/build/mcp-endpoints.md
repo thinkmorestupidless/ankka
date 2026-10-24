@@ -260,6 +260,30 @@ class CartMcp : McpEndpoint() {
 }
 ```
 
+**Go**
+
+```go
+// CartMcp is the cart's MCP endpoint at /mcp. get_cart answers the principal beside the cart, so a
+// case can see who a client key or a token made the caller, and that nothing in it reads as the key.
+var CartMcp = ankka.NewMcpEndpoint("/mcp", ankka.AnyOf(ankka.AllowClientKeys(), ankka.Authenticate()),
+	ankka.McpTool("get_cart", "Reads one cart", func(ctx context.Context, in CartArguments) (ToolCart, error) {
+		c, err := ankka.Invoke[cart.Cart](ctx, cart.ComponentID, in.CartID, "get-cart", ankka.Unit{})
+		out := ToolCart{Cart: c, Claims: map[string]string{}}
+		if p := ankka.RequestFrom(ctx).Principal; p != nil {
+			out.Subject = &p.Subject
+			for k, v := range p.Claims {
+				out.Claims[k] = v
+			}
+		}
+		return out, err
+	}),
+	ankka.McpTool("add_item", "Adds an item to a cart", func(ctx context.Context, in AddItemArguments) (ankka.Done, error) {
+		return ankka.Invoke[ankka.Done](ctx, cart.ComponentID, in.CartID, "add-item", cart.LineItem{ProductID: in.ProductID, Name: in.ProductID, Quantity: in.Quantity})
+	}),
+	ankka.McpCommandRef("checkout", "Checks a cart out", cart.ComponentID, "checkout", "cartId"),
+)
+```
+
 A tool's name is what a client calls it by and is part of the endpoint's contract, as a route's path is:
 letters, digits, `_` and `-`, at most 64 characters, unique within the endpoint. Its arguments are
 described to the client as a JSON Schema built from their types, every argument required; a call whose
@@ -329,7 +353,8 @@ val acl: Acl = ClientKeys.authenticate()
 
 The references in the other languages admit a client key or a token, either one:
 `Acl.any_of(Acl.CLIENT_KEYS, Acl.AUTHENTICATED)` in Python, `Acl.anyOf(Acl.clientKeys,
-Acl.authenticated)` in TypeScript and `Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])` in Rust.
+Acl.authenticated)` in TypeScript, `Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])` in Rust and
+`ankka.AnyOf(ankka.AllowClientKeys(), ankka.Authenticate())` in Go.
 In Java and Kotlin, `Acl.clientKeys()` admits a client key and `Acl.anyOf(Acl.clientKeys(), Acl.oidc())`
 either one.
 
@@ -538,6 +563,52 @@ class McpKeysEndpoint : HttpEndpoint() {
         return "revoked"
     }
 }
+```
+
+**Go**
+
+```go
+// KeyRequest is what POST /mcp-keys is asked to issue: a key that never expires, for the cases.
+type KeyRequest struct {
+	Subject    string            `json:"subject"`
+	Scope      []string          `json:"scope"`
+	Attributes map[string]string `json:"attributes"`
+}
+
+// ListedKey is a key as the listing answers it: never the key.
+type ListedKey struct {
+	ID         string            `json:"id"`
+	Subject    string            `json:"subject"`
+	Attributes map[string]string `json:"attributes"`
+	Label      *string           `json:"label"`
+	Endpoint   string            `json:"endpoint"`
+	Scope      []string          `json:"scope"`
+}
+
+// McpKeys is the reference's own routes over its client keys, as a product would write them.
+var McpKeys = ankka.NewEndpoint("/mcp-keys", ankka.AllowAll(),
+	ankka.Post("/", func(ctx context.Context, _ *ankka.Request, asked KeyRequest) (map[string]string, error) {
+		issued, err := ankka.ClientKeys(ctx).Issue(ankka.ClientKeyRequest{
+			Subject: asked.Subject, Never: true, Scope: asked.Scope, Attributes: asked.Attributes,
+		})
+		return map[string]string{"id": issued.ID, "clientKey": issued.ClientKey}, err
+	}),
+	ankka.Get("/", func(ctx context.Context, _ *ankka.Request) ([]ListedKey, error) {
+		keys, err := ankka.ClientKeys(ctx).List()
+		out := make([]ListedKey, 0, len(keys))
+		for _, k := range keys {
+			attrs := k.Attributes
+			if attrs == nil {
+				attrs = map[string]string{}
+			}
+			out = append(out, ListedKey{ID: k.ID, Subject: k.Subject, Attributes: attrs, Label: orNull(k.Label), Endpoint: k.Endpoint, Scope: append([]string{}, k.Scope...)})
+		}
+		return out, err
+	}),
+	ankka.Delete("/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
+		return "revoked", ankka.ClientKeys(ctx).Revoke(req.Param("id"))
+	}),
+)
 ```
 
 - **Issuing** takes the subject the key acts as, an expiry (a time, or never), and optionally the tools

@@ -65,7 +65,7 @@ class McpEndpointsDocumentationSuite extends munit.FunSuite:
       )
     }
     val fences =
-      "(?m)^```(scala|java|kotlin|python|typescript|rust)$".r.findAllMatchIn(page(Guide)).size
+      "(?m)^```(scala|java|kotlin|python|typescript|rust|go)$".r.findAllMatchIn(page(Guide)).size
     assertEquals(fences, includes.size, "a code sample on the page is not taken from a file")
   }
 

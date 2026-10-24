@@ -3,7 +3,7 @@
 # Markdown per page, docs-index.json and the agent skill — is rendered from the same tree by
 # tools/docs (`uv run --project tools/docs docs build`). See docs/contributing/documentation.md.
 site_name: ankka
-site_description: A serverless application platform for agentic AI on the actor model — Akka's component model in Scala 3 on Apache Pekko, with services in Scala, Python or TypeScript.
+site_description: A serverless application platform for agentic AI on the actor model — Akka's component model in Scala 3 on Apache Pekko, with services in Scala, Python, TypeScript, Rust or Go.
 site_url: https://docs.ankka.cloud/
 repo_url: https://github.com/thinkmorestupidless/ankka
 repo_name: thinkmorestupidless/ankka
@@ -82,7 +82,7 @@ extra:
   docs:
     # Frontmatter keys beyond title, description, kind and related, with the values a page may use.
     facets:
-      languages: [scala, java, kotlin, python, typescript, rust]
+      languages: [scala, java, kotlin, python, typescript, rust, go]
       components:
         - event-sourced-entity
         - key-value-entity
@@ -143,6 +143,7 @@ extra:
         - sdks/python/pyproject.toml
         - sdks/typescript/README.md
         - sdks/typescript/package.json
+        - sdks/go/README.md
         - marketplace/plugins/ankka/.claude-plugin/plugin.json
         - marketplace/.claude-plugin/marketplace.json
         - marketplace/README.md
@@ -157,6 +158,7 @@ nav:
       - Your first service in Python: get-started/first-service-python.md
       - Your first service in TypeScript: get-started/first-service-typescript.md
       - Your first service in Rust: get-started/first-service-rust.md
+      - Your first service in Go: get-started/first-service-go.md
       - Deploy to a local platform: get-started/deploy-locally.md
       - Your first interface: get-started/first-interface.md
       - Work with a coding agent: get-started/coding-agents.md
@@ -253,6 +255,7 @@ nav:
       - Python SDK: reference/python-sdk.md
       - TypeScript SDK: reference/typescript-sdk.md
       - Rust SDK: reference/rust-sdk.md
+      - Go SDK: reference/go-sdk.md
       - Console package: reference/console-package.md
       - Sidecar protocol: reference/sidecar-protocol.md
       - WebAssembly ABI: reference/wasm-abi.md

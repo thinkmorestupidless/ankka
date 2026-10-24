@@ -29,7 +29,7 @@ question during the work is settled by an experiment against the original, or re
 - **The scope.** The whole system, or named parts of it (a set of routes, one bounded context). Anything
   out of scope is named as out of scope, not silently absent.
 - **The target language.** Prefer the original's language where an ankka SDK exists for it (Scala,
-  Java, Kotlin, Python, TypeScript, Rust): the domain logic can then move with little change, and most parity failures
+  Java, Kotlin, Python, TypeScript, Go, Rust): the domain logic can then move with little change, and most parity failures
   come from logic rewritten in a new language rather than from the platform.
 - **Permission to run it.** The original runs on this machine and is driven with writes. Say so, and
   get agreement.
@@ -185,7 +185,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/concepts/designing-services.md` — The concepts that shape an ankka system — consistency boundaries, events, read models, reactions, processes, time, agents, the edge and service boundaries — with a worked example mapping a checkout onto components.
 - `references/concepts/consistency.md` — The guarantees ankka gives — strong consistency per entity, eventually consistent views, exactly-once and at-least-once delivery, ordering, timeouts and timers — and what each means for the code you write.
-- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
+- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript, Go or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
 
 ### Build
 

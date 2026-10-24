@@ -10,7 +10,7 @@ ankka version
 
 The formula installs the CLI as a native executable for macOS or Linux, x64 or ARM64, with no JVM.
 `ankka init`, which creates a Scala service from the template by running `sbt new`, also needs
-`brew install sbt`; a Python or TypeScript service, and every other command, does not.
+`brew install sbt`; a Python, TypeScript or Go service, and every other command, does not.
 
 This repository is generated. The formula is rendered from
 [thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`homebrew/` there) by the

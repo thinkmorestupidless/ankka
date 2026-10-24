@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Java, Kotlin, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, model providers, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM, Claude or OpenAI, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
+description: Design, write, change or test an ankka agent in Scala, Java, Kotlin, Python, TypeScript, Go or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, model providers, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM, Claude or OpenAI, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
 pages:
   - concepts/agents.md
   - concepts/designing-agents.md
@@ -186,6 +186,25 @@ Kotlin uses the Java agent library, with `ankka-kotlin-agent`'s extensions:
   `agentRef(Agent::handler)` and `streamRef(...)` name a handler wherever the Java API takes a reference;
   `streamFlow` and `AutonomousRef.notificationsFlow()` are `Flow`s.
 - Tests use the Java SDK's `AgentTestKit` and `TestModelProvider`.
+
+## Go differences
+
+An agent is `ankka.Agent(id, parts...)`: `ankka.Ask(wire, f)` and `ankka.AskStream`, each `func(ctx, I)
+(ankka.AgentEffect, error)` returning `ankka.SystemMessage(..).UserMessage(q).Tools("lookup")
+.Guardrails("no-secrets").ThenReply()` (`.ThenReplyJSON(hint)`, `.Memory(false)`, `.WithModel(name)`,
+`.WithContext(text)`); `ankka.Tools(ankka.Tool(name, description, f))`, `f` being `func(ctx, I) (R, error)`,
+its input struct the JSON Schema the model sees with a `desc` tag per field, an error told to the model and
+never thrown, and `ankka.ApprovedTool` for one a person must approve; `ankka.Guardrails(ankka.Guardrail(name,
+func(ctx, stage, text) (string, error)))`, where `""` passes; `ankka.McpServers`, `ankka.MaxToolCallSteps`.
+A tool reads its session with `ankka.AgentFrom(ctx)` and calls components with that `ctx`. An autonomous
+agent is `ankka.Autonomous(id, description, ankka.Accepts(taskType, maxIterations), ankka.Instructions(…),
+ankka.Tools(…))` over `ankka.NewTaskType[R](name, description, ankka.Rule(name, check))`; the client is
+`ankka.CreateTask`, `GetTask`, `WaitForTask`, `CancelTask`, `RunSingleTask` and `ankka.Instance(id,
+instanceID)` (`Assign`, `Suspend`, `Resume`, `Terminate`, `State`, `Notifications`). The model is
+configured on the sidecar as for Python; the process never holds the key. `testkit.Agent(Assistant,
+session, testkit.NewScriptedModel().ExpectToolCall(tool, args).ExpectText(text))` runs the loop in process
+(`kit.Ask(ctx, wire, input)`) and fails when the script runs out; an autonomous agent has no unit kit in
+Go, so test it through `testkit.StartT`.
 
 ## Testing
 

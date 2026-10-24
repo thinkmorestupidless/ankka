@@ -1,0 +1,6 @@
+{
+  "manifest": "task-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiQ29tcGxldGVkIiwicmVzdWx0Ijoie1wiYW5zd2VyXCI6XCIzXCIsXCJzb3VyY2VzXCI6W1wiY291bnRfaXRlbXNcIl19IiwiaXRlcmF0aW9ucyI6MiwidXNhZ2UiOnsiaW5wdXRUb2tlbnMiOjEyMCwib3V0cHV0VG9rZW5zIjozMH0sImF0IjoyfQ==",
+  "value": {"type":"Completed","result":"{\"answer\":\"3\",\"sources\":[\"count_items\"]}","iterations":2,"usage":{"inputTokens":120,"outputTokens":30},"at":2}
+}

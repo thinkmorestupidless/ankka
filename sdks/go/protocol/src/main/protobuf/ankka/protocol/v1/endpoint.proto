@@ -1,0 +1,112 @@
+// HTTP endpoints the process declared in discovery, served by the sidecar. The service is `Http`
+// because `Endpoint` is the discovery entry that declares one. The sidecar's router
+// matches the route, applies the ACL and opens the span before forwarding; the process only runs
+// the handler.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Http {
+  rpc Handle       (HttpRequest) returns (HttpReply);
+  rpc HandleStream (HttpRequest) returns (stream StreamFrame);
+  // A socket route's open socket, for as long as it is open (protocol 1.9). The sidecar holds the
+  // socket, decides its ACL when it is opened and relays frames both ways.
+  rpc HandleSocket (stream SocketIn) returns (stream SocketOut);
+}
+
+message HttpRequest {
+  string endpoint_id = 1;
+  string route_id = 2;                               // from discovery
+  repeated string path_args = 3;                     // in template order
+  repeated Pair query = 4;                           // repeatable, in request order
+  repeated Pair headers = 5;
+  string content_type = 6;
+  bytes body = 7;                                    // empty when the route has no body
+  optional Principal principal = 8;                  // when the ACL is AUTHENTICATED
+  Metadata metadata = 9;                             // trace and span ids for this request's span
+  // Which workload sent the request, as the platform established it from the client certificate
+  // (protocol 1.1). Absent from a sidecar that predates it, which a process reads as local.
+  optional Caller caller = 10;
+  message Pair { string name = 1; string value = 2; }
+}
+
+// The gateway (the internet), a named service of this installation, or — outside a cluster — the
+// local machine. Never taken from anything the request says about itself.
+message Caller {
+  oneof kind {
+    Empty gateway = 1;
+    ServiceCaller service = 2;
+    Empty local = 3;
+    // 1.15: a machine registered on an organization, proven by a token the control plane issued.
+    MachineCaller machine = 4;
+  }
+}
+
+message ServiceCaller { string project = 1; string name = 2; }
+
+message MachineCaller { string organization = 1; string name = 2; }
+
+message Principal {
+  string subject = 1;
+  optional string name = 2;
+  optional string email = 3;
+  bool email_verified = 4;
+  repeated string roles = 5;
+  // Every other claim of the verified token, as text. Since 1.4.
+  map<string, string> claims = 6;
+  // The service's own name for the issuer that verified the token, from ANKKA_AUTH_ISSUERS. Since 1.4.
+  optional string issuer = 7;
+}
+
+message HttpReply { oneof message { HttpResponse response = 1; Failure failure = 2; } }
+
+message HttpResponse {
+  int32 status = 1;
+  string content_type = 2;
+  bytes body = 3;
+  repeated HttpRequest.Pair headers = 4;
+}
+
+message StreamFrame {
+  oneof frame {
+    string text = 1;
+    Empty completed = 2;
+    Error failed = 3;
+    SseEvent event = 4;   // 1.11: a server-sent event with a name, its data JSON text on one line
+  }
+}
+
+// 1.11: an event a stream route sends under a name of its own — an agent turn that stops for approval
+// ends its stream with one named `approval` — rather than as text. `data` is JSON text on one line.
+message SseEvent { string name = 1; string data = 2; }
+
+// What the sidecar sends on a socket's stream: `open` once and first, then a `frame` for each
+// frame the client sent, in order, then `closed` last, after which it half-closes. A message with
+// no case set is a protocol violation, never skipped: it closes the socket as failed.
+message SocketIn {
+  oneof message {
+    HttpRequest  open   = 1;  // the request that opened the socket; no body
+    SocketFrame  frame  = 2;  // a frame the client sent
+    SocketClosed closed = 3;  // the socket is closed; frames sent after this are discarded
+  }
+}
+
+// What the process sends: a `frame` for each frame for the client, in order, and then `completed`
+// when its handler returned or `failed` when it threw. Ending the stream without either is
+// `completed`; ending it in an error is `failed`.
+message SocketOut {
+  oneof message {
+    SocketFrame frame     = 1;
+    Empty       completed = 2;  // closes the socket "finished" (1000)
+    Error       failed    = 3;  // closes the socket "failed" (1011)
+  }
+}
+
+// One frame. Text only: a later kind is a case added here, under a minor version of its own.
+message SocketFrame { oneof kind { string text = 1; } }
+
+// Why the socket was closed: a close reason's word ("going away", "too large", "unread", "not
+// text", "failed", "finished"), or "client" for the client's own close.
+message SocketClosed { string reason = 1; }

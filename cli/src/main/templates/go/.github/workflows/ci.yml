@@ -1,0 +1,23 @@
+# Vet and test on every push and pull request. Needs no secrets, so it is green from the first push,
+# before anything about a control plane has been configured.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # `go mod verify` checks the downloaded modules against go.sum: commit the go.sum `go mod tidy` wrote.
+      - run: go mod verify
+      - run: go vet ./...
+      # ANKKA_SLOW=1 runs the integration test too: it starts Postgres and the published sidecar through
+      # testcontainers, which a GitHub-hosted runner can do, since Docker is already there.
+      - run: go test ./...
+        env:
+          ANKKA_SLOW: "1"

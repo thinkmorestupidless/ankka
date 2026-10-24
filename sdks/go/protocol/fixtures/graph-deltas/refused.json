@@ -1,0 +1,52 @@
+[
+  {"name": "a node with an empty id", "element": {"kind": "node", "id": ""}, "why": "id"},
+  {"name": "an edge with an empty id", "element": {"kind": "edge", "id": "", "type": "KNOWS", "from": "a", "to": "b"}, "why": "id"},
+  {"name": "a node tombstone with an empty id", "element": {"kind": "tombstone", "element": "node", "id": ""}, "why": "id"},
+
+  {"name": "an edge with an empty type", "element": {"kind": "edge", "id": "e", "type": "", "from": "a", "to": "b"}, "why": "endpoints"},
+  {"name": "an edge with an empty from", "element": {"kind": "edge", "id": "e", "type": "KNOWS", "from": "", "to": "b"}, "why": "endpoints"},
+  {"name": "an edge with an empty to", "element": {"kind": "edge", "id": "e", "type": "KNOWS", "from": "a", "to": ""}, "why": "endpoints"},
+  {"name": "an edge tombstone with an empty from", "element": {"kind": "tombstone", "element": "edge", "id": "e", "type": "KNOWS", "from": "", "to": "b"}, "why": "endpoints"},
+  {"name": "an edge tombstone with an empty type", "element": {"kind": "tombstone", "element": "edge", "id": "e", "type": "", "from": "a", "to": "b"}, "why": "endpoints"},
+
+  {"name": "a label with a space", "element": {"kind": "node", "id": "n", "labels": ["Has Space"]}, "why": "identifier"},
+  {"name": "a label that starts with a digit", "element": {"kind": "node", "id": "n", "labels": ["1st"]}, "why": "identifier"},
+  {"name": "an empty label", "element": {"kind": "node", "id": "n", "labels": ["Good", ""]}, "why": "identifier"},
+  {"name": "a label with a dash", "element": {"kind": "node", "id": "n", "labels": ["dash-ed"]}, "why": "identifier"},
+  {"name": "a label outside ASCII", "element": {"kind": "node", "id": "n", "labels": ["Café"]}, "why": "identifier"},
+  {"name": "an edge type with a dash", "element": {"kind": "edge", "id": "e", "type": "KNOWS-WELL", "from": "a", "to": "b"}, "why": "identifier"},
+  {"name": "an edge tombstone's type with a space", "element": {"kind": "tombstone", "element": "edge", "id": "e", "type": "KNOWS WELL", "from": "a", "to": "b"}, "why": "identifier"},
+
+  {"name": "a node property named id", "element": {"kind": "node", "id": "n", "properties": {"id": "x"}}, "why": "reserved"},
+  {"name": "a node property named _version", "element": {"kind": "node", "id": "n", "properties": {"_version": 1}}, "why": "reserved"},
+  {"name": "a node property named _deleted", "element": {"kind": "node", "id": "n", "properties": {"_deleted": false}}, "why": "reserved"},
+  {"name": "an edge property named id", "element": {"kind": "edge", "id": "e", "type": "KNOWS", "from": "a", "to": "b", "properties": {"id": "x"}}, "why": "reserved"},
+
+  {"name": "a null property", "element": {"kind": "node", "id": "n", "properties": {"p": null}}, "why": "property-value"},
+  {"name": "an object property", "element": {"kind": "node", "id": "n", "properties": {"p": {"nested": 1}}}, "why": "property-value"},
+  {"name": "an empty list", "element": {"kind": "node", "id": "n", "properties": {"p": []}}, "why": "property-value"},
+  {"name": "a list of an integer and a string", "element": {"kind": "node", "id": "n", "properties": {"p": [1, "a"]}}, "why": "property-value"},
+  {"name": "a list of an integer and a float", "element": {"kind": "node", "id": "n", "properties": {"p": [1, 1.5]}}, "why": "property-value"},
+  {"name": "a list of a float and a whole-number float, which is an integer", "element": {"kind": "node", "id": "n", "properties": {"p": [1.5, 2.0]}}, "why": "property-value"},
+  {"name": "a list of a boolean and an integer", "element": {"kind": "node", "id": "n", "properties": {"p": [true, 1]}}, "why": "property-value"},
+  {"name": "a list in a list", "element": {"kind": "node", "id": "n", "properties": {"p": [[1]]}}, "why": "property-value"},
+  {"name": "a null in a list", "element": {"kind": "node", "id": "n", "properties": {"p": ["a", null]}}, "why": "property-value"},
+  {"name": "an object in a list", "element": {"kind": "edge", "id": "e", "type": "KNOWS", "from": "a", "to": "b", "properties": {"p": [{"k": 1}]}}, "why": "property-value"},
+
+  {"name": "an integer one past 64 bits", "element": {"kind": "node", "id": "n", "properties": {"p": 9223372036854775808}}, "why": "integer-range"},
+  {"name": "an integer one below 64 bits", "element": {"kind": "node", "id": "n", "properties": {"p": -9223372036854775809}}, "why": "integer-range"},
+  {"name": "a whole number far past 64 bits", "element": {"kind": "node", "id": "n", "properties": {"p": 1.0E30}}, "why": "integer-range"},
+  {"name": "an integer past 64 bits in a list", "element": {"kind": "node", "id": "n", "properties": {"p": [1, 9223372036854775808]}}, "why": "integer-range"},
+
+  {"name": "a stated version of zero", "element": {"kind": "node", "id": "n", "version": 0}, "why": "version"},
+  {"name": "a stated version below zero", "element": {"kind": "node", "id": "n", "version": -1}, "why": "version"},
+  {"name": "a stated version that is not whole", "element": {"kind": "node", "id": "n", "version": 1.5}, "why": "version"},
+  {"name": "a stated version past 64 bits", "element": {"kind": "tombstone", "element": "node", "id": "n", "version": 9223372036854775808}, "why": "version"},
+
+  {"name": "the same node twice", "elements": [{"kind": "node", "id": "n"}, {"kind": "node", "id": "n", "labels": ["Other"]}], "why": "duplicate"},
+  {"name": "a node and its tombstone", "elements": [{"kind": "node", "id": "n"}, {"kind": "tombstone", "element": "node", "id": "n"}], "why": "duplicate"},
+  {"name": "an edge and its tombstone", "elements": [{"kind": "edge", "id": "e", "type": "KNOWS", "from": "a", "to": "b"}, {"kind": "tombstone", "element": "edge", "id": "e", "type": "KNOWS", "from": "a", "to": "b"}], "why": "duplicate"},
+
+  {"name": "no stated version and a change with no sequence number", "element": {"kind": "node", "id": "n"}, "sequence": 0, "why": "no-sequence"},
+  {"name": "no stated version on a tombstone and no sequence number", "element": {"kind": "tombstone", "element": "node", "id": "n"}, "sequence": 0, "why": "no-sequence"}
+]

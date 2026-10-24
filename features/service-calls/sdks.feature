@@ -15,6 +15,7 @@ Feature: Every SDK calls another service the same way
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an SDK's type checks accept a call to another service
     Given the "<sdk>" SDK built from the protocol that has calls to other services
@@ -25,3 +26,4 @@ Feature: Every SDK calls another service the same way
       | sdk        |
       | Python     |
       | TypeScript |
+      | Go         |

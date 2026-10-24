@@ -2,7 +2,7 @@
 title: Views
 description: Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
 kind: guide
-languages: [scala, java, kotlin, python, typescript]
+languages: [scala, java, kotlin, python, typescript, go]
 components: [view]
 related: [build/event-sourced-entities.md, build/topics.md, concepts/consistency.md, build/consumers.md]
 ---
@@ -313,6 +313,54 @@ class CartRows : View<CartEvent, CartRows.CartRow>() {
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/cart/rows.go#view -->
+```go
+// Row is one cart as the view keeps it: what it holds by product, and whether it was checked out.
+type Row struct {
+	CartID     string         `json:"cartId"`
+	Quantities map[string]int `json:"quantities"`
+	CheckedOut bool           `json:"checkedOut"`
+}
+
+// RowsID is the view's id.
+const RowsID = "cart-rows"
+
+// Rows is a queryable projection of every cart: the entity answers by cart id, this answers the
+// rest.
+var Rows = ankka.View[Row](RowsID,
+	ankka.OnChange(ankka.Changes(Entity), func(ctx context.Context, e Event, row *Row) (ankka.ViewEffect[Row], error) {
+		current := Row{Quantities: map[string]int{}}
+		if row != nil {
+			current = *row
+			current.Quantities = maps.Clone(row.Quantities)
+			if current.Quantities == nil {
+				current.Quantities = map[string]int{}
+			}
+		}
+		if c, ok := ankka.ChangeFrom(ctx); ok && current.CartID == "" {
+			current.CartID = c.Subject
+		}
+		switch e := e.(type) {
+		case ItemAdded:
+			current.Quantities[e.Item.ProductID] += e.Item.Quantity
+		case ItemRemoved:
+			delete(current.Quantities, e.ProductID)
+		case CheckedOut:
+			current.CheckedOut = true
+		default:
+			// Discarded: the deletion that follows removes the row.
+			return ankka.IgnoreChange[Row](), nil
+		}
+		return ankka.UpdateRow(current), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[Row](ankka.Manifest("cart-row"))),
+)
+```
+
+///
+
 | | Scala | Python | TypeScript |
 |---|---|---|---|
 | The current row, or none | `rowState: Option[Row]` | `self.row`, `None` when there is none | `this.row`, `undefined` when there is none |
@@ -348,8 +396,8 @@ An entity whose state has expired is not deleted: no deletion is delivered, and 
 ## Reading a workflow
 
 A view can read a workflow as it reads a key value entity: in Scala with `ChangeSource.stateOf` of the
-workflow's companion, in Java and Kotlin with `ChangeSource.ofWorkflow` of the workflow's class, and in
-Python, TypeScript and Rust by naming the workflow where an entity would be
+workflow's companion, in Java and Kotlin with `ChangeSource.ofWorkflow` of the workflow's class, in Go
+with `ankka.WorkflowSource(workflow)`, and in Python, TypeScript and Rust by naming the workflow where an entity would be
 named. The view is handed each state the workflow records, decoded with the workflow's own codec, in the
 order the workflow recorded them. A row and the record of how far the view has read are written in one
 transaction, so each state is applied exactly once.
@@ -357,7 +405,8 @@ transaction, so each state is applied exactly once.
 With each state comes the workflow's **standing**: where the workflow stood once the whole effect that
 recorded the state was applied. A step that records a state and ends is one change whose standing is
 completed, not a running state followed by an end. The handler reads it from its context: `updateContext.standing`
-in Scala, `updateContext().standing()` in Java and Kotlin, `self.standing` in Python, `this.standing` in TypeScript and `ctx.standing()` in Rust. A change
+in Scala, `updateContext().standing()` in Java and Kotlin, `self.standing` in Python, `this.standing` in TypeScript, `ctx.standing()` in Rust and
+`ankka.ChangeFrom(ctx)`'s `Standing` in Go. A change
 from an entity or a topic has no standing.
 
 | Standing | When a change carries it |
@@ -643,6 +692,46 @@ class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/views.go#workflow-view -->
+```go
+// CheckoutRow is a checkout's row: its state's status, and where the workflow stood when it
+// recorded it.
+type CheckoutRow struct {
+	ID       string  `json:"id"`
+	Status   string  `json:"status"`
+	Standing string  `json:"standing"`
+	Step     *string `json:"step"`
+	Failure  *string `json:"failure"`
+}
+
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// CheckoutRows is a checkout's row, by its id.
+var CheckoutRows = ankka.View[CheckoutRow]("checkout-rows",
+	ankka.OnChange(ankka.WorkflowSource(CheckoutFlow), func(ctx context.Context, s Checkout, _ *CheckoutRow) (ankka.ViewEffect[CheckoutRow], error) {
+		c, _ := ankka.ChangeFrom(ctx)
+		row := CheckoutRow{ID: c.Subject, Status: s.Status, Standing: "Unknown"}
+		// A change from a workflow carries its standing: where it stood once the effect that
+		// recorded s was applied.
+		if st := c.Standing; st != nil {
+			row.Standing, row.Step, row.Failure = st.Status, optional(st.Step), optional(st.Failure)
+		}
+		return ankka.UpdateRow(row), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[CheckoutRow](ankka.Manifest("checkout-row"))),
+	ankka.Queries(ankka.Declared("by-standing", "SELECT payload FROM "+ankka.TableOf("checkout-rows")+" WHERE payload::jsonb->>'standing' = :standing")),
+)
+```
+
+///
+
 A view over a workflow declares a version and is rebuilt by raising it, as a view over an entity is: the
 rebuild reads every state every workflow recorded, from the first. A state recorded before the platform
 stamped standings is delivered with the standing `Unknown`. When a workflow is deleted, the view's deletion
@@ -654,7 +743,8 @@ change at a time; a topic and a workflow may not be sources of one view.
 A view runs only in a service that has the projection runtime. In Scala, register the view's descriptor and
 add `ProjectionRuntime()` as an extension; without it, every command still succeeds and every view stays
 empty. In Java and Kotlin, register the view's class; the runtime in the same JVM runs the projection. In
-Python and TypeScript, register the class; the sidecar runs the projection.
+Python and TypeScript, register the class, and in Go pass the declaration to `ankka.NewService`; the sidecar
+runs the projection.
 
 /// tab | Scala
 
@@ -729,6 +819,29 @@ fun service(): ServiceBuilder =
 
 fun main() {
     service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/conformance.go#reference-service -->
+```go
+// Service is the reference: the cart and every conformance component and endpoint, registered
+// explicitly.
+func Service() *ankka.Service {
+	s := ankka.NewService(
+		cart.Entity, cart.Rows, cart.API,
+		Entity, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
+		CheckoutRows, TopicRows, TreeRows, JoinedRows,
+		CheckoutEnds, CheckoutRecorder, CheckoutFanout, TopicRelay, ContractRelay, PartnerRelay, VehicleFeed,
+		CartGraph, ProfileGraph,
+		Reminder, Assistant, Approver, Answerer,
+		Tree, Vehicles, Joined, API, Private, Callers, AutonomousAPI, McpKeys, CartMcp,
+	)
+	reference.Store(s)
+	return s
 }
 ```
 
@@ -969,6 +1082,32 @@ fun below(nodeId: String): List<String> =
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/views.go#declared-query -->
+```go
+// TreeRows is one row per node, and every row under a row, to any depth, by key: the same
+// statement in every language.
+var TreeRows = ankka.View[TreeRow]("tree-rows",
+	ankka.OnChange(ankka.Changes(TreeNode), func(ctx context.Context, e TreePlaced, _ *TreeRow) (ankka.ViewEffect[TreeRow], error) {
+		c, _ := ankka.ChangeFrom(ctx)
+		return ankka.UpdateRow(TreeRow{Key: c.Subject, Under: e.Under}), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[TreeRow](ankka.Manifest("tree-row"))),
+	ankka.Queries(
+		ankka.Declared("under", `WITH RECURSIVE below AS (
+  SELECT row_key, payload FROM `+ankka.TableOf("tree-rows")+` WHERE payload::jsonb->>'under' = :row
+  UNION
+  SELECT n.row_key, n.payload FROM `+ankka.TableOf("tree-rows")+` n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+)
+SELECT payload FROM below ORDER BY row_key`),
+		ankka.WatchedQuery("all-rows", "SELECT row_key, payload FROM "+ankka.TableOf("tree-rows")+" ORDER BY row_key"),
+	),
+)
+```
+
+///
+
 The statement must select the rows' `payload` column: the answer is rows of the view's own row type. A
 value is text; a statement that needs a number casts it, as `(:depth)::int`. A query answers with at most
 1000 rows unless the caller gives another limit, in the order the statement gives them; asked as a
@@ -1082,6 +1221,24 @@ fun streamed(): Flow.Publisher<SseEvent> =
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/endpoints.go#stream -->
+```go
+// Every row's key, as the database yields the rows: one event each, then the end.
+ankka.SSE("/streamed", func(ctx context.Context, _ *ankka.Request) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for row, err := range ankka.QueryStream[TreeRow](ctx, "tree-rows", ankka.Named("all-rows", nil)) {
+			if !yield(row.Key, err) || err != nil {
+				return
+			}
+		}
+	}
+}),
+```
+
+///
+
 | Method | Streams |
 |---|---|
 | `allStream(limit = None)` | Every row. |
@@ -1165,6 +1322,15 @@ val ALL_ROWS: ViewQuery = ViewQuery.declare("all-rows", "SELECT row_key, payload
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/views.go#watched-query -->
+```go
+ankka.WatchedQuery("all-rows", "SELECT row_key, payload FROM "+ankka.TableOf("tree-rows")+" ORDER BY row_key"),
+```
+
+///
+
 `watch(query, values*)` watches a declared query; `watchRow(key)` watches one row by its key and needs no
 declaration. Each answers a `Source[WatchEvent[Row], NotUsed]`:
 
@@ -1241,6 +1407,18 @@ The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
 // The rows now, `caught-up`, then each row as it is written, as named events.
 @Sse("/tree/watched")
 fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/endpoints.go#watch -->
+```go
+// The rows now, caught-up, then each row as it is written, as named events.
+ankka.SSEEvents("/watched", func(ctx context.Context, _ *ankka.Request) iter.Seq2[ankka.SSEEvent, error] {
+	return ankka.WatchEvents(ankka.Watch[TreeRow](ctx, "tree-rows", ankka.WatchQuery("all-rows", nil)))
+}),
 ```
 
 ///
@@ -1350,8 +1528,43 @@ A handler is handed the change and a handle on the view's own rows: `change.rows
 `change.rows.ask(query, values*)`, with `change.subject`, the id of the entity the change came from. It
 reads no other view. It returns row changes: `effects.updateRow(key, row)`, `effects.deleteRow(key)`, their
 plural forms, and `++` to say several things at once. In Python a keyed view's handlers are methods marked
-`@on(Entity, codec)`, in TypeScript `static sources = [on(Entity, Events, handler)]`, and in Rust
-`Sources::new().on(...)`; each reads its rows through `rows` and answers the same row changes.
+`@on(Entity, codec)`, in TypeScript `static sources = [on(Entity, Events, handler)]`, in Rust
+`Sources::new().on(...)`, and in Go one `ankka.On(source, handler)` each given to `ankka.KeyedView`; each reads its rows through `rows` and answers the same row changes.
+
+The same view in Go, whose handlers are given the rows as an `ankka.ViewRows` and answer
+`ankka.UpdateRowAt`, `ankka.DeleteRowAt` and `ankka.AllRows`:
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/views.go#keyed-view -->
+```go
+// JoinedRows: the left names a row key|holding and writes it from what it held, noting itself;
+// the right finds every row holding it by asking the view's own query, and notes itself on each.
+var JoinedRows = ankka.KeyedView[JoinedRow]("joined-rows",
+	ankka.On(ankka.Changes(JoinedLeft), func(_ context.Context, e Noted, rows ankka.ViewRows[JoinedRow]) (ankka.KeyedViewEffect[JoinedRow], error) {
+		key, holding, _ := strings.Cut(e.Text, "|")
+		held, _, err := rows.Get(key)
+		if err != nil {
+			return ankka.KeyedViewEffect[JoinedRow]{}, err
+		}
+		notes := append(slices.Clone(held.Notes), "left")
+		return ankka.UpdateRowAt(key, JoinedRow{Key: key, Holding: holding, Notes: notes}), nil
+	}),
+	ankka.On(ankka.Changes(JoinedRight), func(ctx context.Context, _ Noted, rows ankka.ViewRows[JoinedRow]) (ankka.KeyedViewEffect[JoinedRow], error) {
+		c, _ := ankka.ChangeFrom(ctx)
+		theirs, err := rows.Ask("of-right", map[string]string{"holding": c.Subject})
+		if err != nil {
+			return ankka.KeyedViewEffect[JoinedRow]{}, err
+		}
+		var each []ankka.KeyedViewEffect[JoinedRow]
+		for _, r := range theirs {
+			r.Notes = append(slices.Clone(r.Notes), "right")
+			each = append(each, ankka.UpdateRowAt(r.Key, r))
+		}
+		return ankka.AllRows(each...), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[JoinedRow](ankka.Manifest("joined-row"))),
+	ankka.Queries(ankka.Declared("of-right", "SELECT payload FROM "+ankka.TableOf("joined-rows")+" WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key")),
+)
+```
 
 The rules a keyed view keeps:
 
@@ -1474,7 +1687,7 @@ test("the right's change notes every row holding it, found by the view's own que
 }
 ```
 
-Java, Kotlin, Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape.
+Java, Kotlin, Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape, and Go has `testkit.KeyedView`.
 
 In Scala, a plain view is tested with the integration testkit, which runs the real projection against a
 real database:

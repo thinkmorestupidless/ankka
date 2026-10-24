@@ -17,6 +17,7 @@ Feature: A socket route in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the handler of an authenticated socket route is told the principal in every language
     Given an issuer "customers" that signs tokens for the audience "shop"
@@ -33,6 +34,7 @@ Feature: A socket route in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a request to open a socket with no token is challenged in every language
     Given an issuer "customers" that signs tokens for the audience "shop"
@@ -50,6 +52,7 @@ Feature: A socket route in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a socket is closed when its handler finishes in every language
     Given a service "notices" written in "<language>" that declares the socket route "/stream"
@@ -64,6 +67,7 @@ Feature: A socket route in every language
       | TypeScript |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario: the sockets of a process that stops are closed as failed
     Given a service "notices" hosted as a process that declares the socket route "/stream"
@@ -88,6 +92,7 @@ Feature: A socket route in every language
       | language   |
       | Python     |
       | TypeScript |
+      | Go         |
 
   Scenario: a service made for a protocol version older than socket routes is hosted as it was
     Given a service "notices" hosted as a process for a protocol version older than socket routes

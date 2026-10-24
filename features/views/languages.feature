@@ -1,6 +1,6 @@
 Feature: Views of several sources and declared queries in every language
   A view of several sources is declared, and a query is declared and asked, the same way whether
-  the service is written in Scala, Python, TypeScript or Rust, because the platform's own program
+  the service is written in Scala, Python, TypeScript, Rust or Go, because the platform's own program
   reads the sources, keeps the table and checks every statement, and the developer's program says
   only which rows to write and what to ask.
 
@@ -19,6 +19,7 @@ Feature: Views of several sources and declared queries in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a service whose view declares a statement that reads another table does not start in every language
     Given a service "org" written in "<language>" with a view "nodes" and a view "accounts"
@@ -35,6 +36,7 @@ Feature: Views of several sources and declared queries in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a view of several sources reads every one of them in every language
     Given a service "shipping" written in "<language>" with a view "shipments" that reads the events of "shipment" and the events of "customer"
@@ -50,6 +52,7 @@ Feature: Views of several sources and declared queries in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a view finds the rows an event is about by asking a query of its own in every language
     Given a service "shipping" written in "<language>" with a view "shipments" that reads the events of "shipment" and the events of "customer"
@@ -67,6 +70,7 @@ Feature: Views of several sources and declared queries in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: the topology shows a view connected to each of its sources in every language
     Given a service "shipping" written in "<language>" with a view "shipments" that reads the events of "shipment" and the events of "customer"
@@ -82,3 +86,4 @@ Feature: Views of several sources and declared queries in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |

@@ -1,6 +1,6 @@
 ---
 name: ankka-entities
-description: Write, change or test an ankka entity in Scala, Java, Kotlin, Python, TypeScript or Rust — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
+description: Write, change or test an ankka entity in Scala, Java, Kotlin, Python, TypeScript, Go or Rust — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
 pages:
   - build/event-sourced-entities.md
   - build/key-value-entities.md
@@ -159,6 +159,24 @@ effects { reply(currentState()) }`. Callers name handlers by function reference
 (`.call(ShoppingCart::addItem).invokeSuspending(item)`); a `suspend fun` handler is named through the
 Kotlin `call` overload. An `internal` handler is no handler: its JVM name carries a `$`. Test with
 `eventSourcedTestKit(ShoppingCart::class, "c1")` and `keyValueEntityTestKit`.
+
+## Go differences
+
+An entity is a value: `ankka.EventSourced[S, E](id, events, empty, apply, parts...)`, where `events` is the
+sum type (`ankka.Cases[Event](ankka.Case[Event, ItemAdded]("ItemAdded"), …)` over a sealed interface),
+`empty` is `func(entityID string) S` and `apply` is `func(S, E) S`; or `ankka.KeyValue[S](id, empty,
+parts...)`. The parts are `ankka.Command(wire, f)` (`ankka.Update` for a key value entity), whose `f` is
+`func(ctx, S, I) (ankka.Effect[S, E, R], error)` built from `ankka.Persist[S, E, R](e).ThenReply(..)`,
+`.ThenReplyState()`, `.DeleteEntity()`, `.ExpireAfter(d)` (key value: `ankka.UpdateState[S, R](s)`,
+`DeleteState`), and `ankka.Query(wire, f)` returning `ankka.ReadOnlyEffect[R]` (`ankka.Reply(v)`), so a
+persisting query does not compile. A refusal is the returned error, `ankka.Refuse(code, msg)`; any other
+error or a panic fails the command with nothing persisted. Struct `json` tags are the stored field names;
+manifests are `ankka.StateCodec(ankka.CodecFor[S](ankka.Manifest("…")))` and `ankka.EventCodec`;
+`ankka.SnapshotEvery(n)`, never by default. A replicated entity adds `ankka.Replicated()` and reads
+`ankka.CommandFrom(ctx).AtHome`; `ankka.ApplyWithContext` gives the fold a context for `ankka.EventFrom`.
+Register with `ankka.NewService(Entity, …)`; test with `testkit.EventSourced(Entity,
+testkit.EntityID("c1")).Command(ctx, wire, input)` (`Events()`, `Reply()`, `State()`, `Refusal()`) and
+`testkit.KeyValue`. No `ankka.Personal` envelope for erasable values exists in Go yet.
 
 ## Testing
 

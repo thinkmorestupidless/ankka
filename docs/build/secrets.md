@@ -2,7 +2,7 @@
 title: Secrets a service keeps
 description: Keep a credential a person gives your service in its secret store — its own database, encrypted, or Google Secret Manager; never a journal or a view — read it back by name, and find every read afterwards.
 kind: guide
-languages: [scala, java, kotlin, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [http-endpoint, workflow, consumer, timed-action, agent]
 related: [platform/secrets.md, build/testing.md, concepts/consistency.md, reference/configuration.md]
 ---
@@ -30,7 +30,8 @@ is a different thing — a project secret, described in
 
 The store is offered to endpoints, workflow steps, consumers, timed actions and agents. It is **not**
 offered to an entity or a view: their contexts have no secret store at all, so in Scala reaching for one
-does not compile, and in the other SDKs the attribute does not exist. A read from the store is a blocking
+does not compile, in Python, TypeScript and Rust the attribute does not exist, and in Go
+`ankka.Secrets(ctx)` refuses every call made with an entity's or a view's context. A read from the store is a blocking
 database call, which an entity's single-writer path must not make, and a value read inside an entity's
 handler is one line away from being put into an event or a state — the leak the store exists to prevent.
 
@@ -46,7 +47,7 @@ Three operations, by name:
 - **delete(name)** removes the value. Removing nothing is not an error.
 
 Each blocks the handler until the database has answered. The components that have a store run on
-virtual threads (Scala, Java, Kotlin) or call through the runtime beside them (Python, TypeScript, Rust), so the wait
+virtual threads (Scala, Java, Kotlin) or call through the runtime beside them (Python, TypeScript, Rust, Go), so the wait
 holds nothing else up.
 
 An endpoint through which an operator enters a provider's credential, in Scala:
@@ -189,6 +190,29 @@ fn remove_secret(request: &Request) -> Result<Done, HttpProblem> {
 }
 ```
 
+In Go, `ankka.Secrets(ctx)` is the store of the handler whose context it is given. An entity, a view or
+a workflow's command handler has a context too, so the call compiles there; the store refuses every call
+from one, naming which:
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/endpoints.go#secrets -->
+```go
+// The secret store. The name is a query parameter because it may hold a slash.
+ankka.Post("/secrets", func(ctx context.Context, req *ankka.Request, value string) (ankka.Done, error) {
+	return ankka.Done{}, ankka.Secrets(ctx).Put(req.Query.Get("name"), value)
+}),
+ankka.Get("/secrets", func(ctx context.Context, req *ankka.Request) (string, error) {
+	name := req.Query.Get("name")
+	value, found, err := ankka.Secrets(ctx).Get(name)
+	if err == nil && !found {
+		err = notFound("no secret '%s'", name)
+	}
+	return value, err
+}),
+ankka.Delete("/secrets", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
+	return ankka.Done{}, ankka.Secrets(ctx).Delete(req.Query.Get("name"))
+}),
+```
+
 ## Every read is recorded
 
 Each read, keep and removal leaves a record — the secret's name, the service, the time, the trace, and the
@@ -266,7 +290,9 @@ assertEquals(kit.secrets.get("warehouse/w9"), Some("token-w9"))
 ```
 
 The Python, TypeScript and Rust SDKs have the same double (`InMemorySecrets`, and in Rust the native host
-a unit test runs against), and their integration test kits put a generated key on the runtime they start.
+a unit test runs against), and their integration test kits put a generated key on the runtime they start. The Go SDK
+has no such double, so a Go component that keeps a secret is tested with its integration test kit, which
+also puts a generated key on the runtime it starts.
 
 ## What it is not
 

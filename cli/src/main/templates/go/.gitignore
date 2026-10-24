@@ -1,0 +1,6 @@
+# What `go build` and `go test -c` leave behind.
+/{{name}}
+*.test
+*.out
+# The directory store a service keeps its objects in on this machine (ankka local).
+.ankka/

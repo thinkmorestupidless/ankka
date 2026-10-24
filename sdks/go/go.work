@@ -1,0 +1,10 @@
+// The SDK and the modules developed beside it. A service never sees this file: `go get` reads only
+// the SDK's go.mod.
+go 1.26.7
+
+use (
+	.
+	./examples/first-service
+	./examples/shopping-cart
+	./tools
+)

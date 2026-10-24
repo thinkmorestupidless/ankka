@@ -2,7 +2,7 @@
 title: Run a model on your own machine
 description: Point an ankka agent at a model server on your own machine — Ollama, LM Studio, llama.cpp, Docker Model Runner — with no key, from a Scala service or a sidecar, and which models call tools.
 kind: guide
-languages: [scala, python, typescript, rust]
+languages: [scala, python, typescript, rust, go]
 components: [agent]
 related: [reference/model-providers.md, deploy/run-locally.md, build/agents.md, reference/limitations.md]
 ---
@@ -43,7 +43,7 @@ val onTheLaptop = AgentRuntime.withDefaultModel(laptop)
 provider exists because it was built, and a server that is not running fails the first call
 `Unavailable`, naming `local`.
 
-## In a Python, TypeScript or Rust service
+## In a Python, TypeScript, Rust or Go service
 
 The agent loop runs in the sidecar, so the provider is configured on the sidecar's container, by two
 variables:
@@ -59,8 +59,8 @@ the compose files map on Linux with `host-gateway`. Docker Model Runner is reach
 `http://model-runner.docker.internal/engines/v1`.
 
 With one provider it is the default, and every agent is answered by it. Beside a vendor's key, name it on
-the agents that should use it with `with_model("local")` in Python, `withModel("local")` in TypeScript or
-`.model("local")` in Rust, and set `ANKKA_MODEL_DEFAULT` to say which answers the rest.
+the agents that should use it with `with_model("local")` in Python, `withModel("local")` in TypeScript,
+`.model("local")` in Rust or `WithModel("local")` in Go, and set `ANKKA_MODEL_DEFAULT` to say which answers the rest.
 
 ## Anthropic's protocol instead
 

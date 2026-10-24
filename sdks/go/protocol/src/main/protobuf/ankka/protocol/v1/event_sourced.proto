@@ -1,0 +1,67 @@
+// One bidirectional stream per loaded event sourced entity instance. The sidecar sends Init, the
+// events after the snapshot, then commands one at a time; the process answers each command.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service EventSourced { rpc Handle (stream EventSourcedIn) returns (stream EventSourcedOut); }
+
+message EventSourcedIn {
+  oneof message { Init init = 1; Event event = 2; Command command = 3; }
+  message Init {
+    string component_id = 1;
+    string entity_id = 2;
+    optional Snapshot snapshot = 3;             // absent: fresh, or deleted, or expired
+    string installation = 4;                    // 1.19: this installation; empty when none is named
+  }
+  message Snapshot { int64 sequence = 1; Payload payload = 2; }
+  message Event    {
+    int64 sequence = 1;
+    Payload payload = 2;
+    // 1.19: the installation that wrote the event; empty on a service that names no installations.
+    // A record from before replication reads as written at the entity's home.
+    string installation = 3;
+    string attribution = 4;                     // 1.22: who acted, as recorded; empty when none
+    string forwarded_from = 5;                  // 1.22: where it was forwarded from, as recorded
+  }
+  message Command  {
+    int64 id = 1;                               // per stream, from 1, monotonic
+    string name = 2;                            // the handler's wire name
+    Payload payload = 3;
+    Metadata metadata = 4;
+    bool snapshot_requested = 5;                // include `snapshot` in the reply
+    string installation = 6;                    // 1.19: this installation; empty when none is named
+    // 1.19: whether this installation is the entity's home (true when none is named). A persisting
+    // command reaches a process only at the home; a read-only one may arrive at a follower.
+    bool at_home = 7;
+    // 1.22: the subject of the principal who made the original call; empty when none named one.
+    string attribution = 8;
+    // 1.22: the installation this command was forwarded from to its home; empty when it was not.
+    string forwarded_from = 9;
+  }
+}
+
+message EventSourcedOut {
+  oneof message { Reply reply = 1; Failure failure = 2; }
+  message Reply {
+    int64 command_id = 1;
+    repeated Payload events = 2;
+    optional Retention retention = 3;
+    Outcome outcome = 4;
+    optional Payload snapshot = 5;              // the state after `events`, when requested
+    // 1.19: a handover or a change to the replication set, written after `events`. Only from an
+    // entity discovered as replicated; the runtime refuses it from any other.
+    optional ReplicationChange replication = 6;
+  }
+}
+
+// 1.19: what a replicated entity's handler asks of its home, beside the events it persists.
+message ReplicationChange {
+  oneof change {
+    string hand_over_to = 1;                    // hand the home to this installation
+    SetChange set = 2;                          // add to and remove from the replication set
+  }
+  message SetChange { repeated string add = 1; repeated string remove = 2; }
+}

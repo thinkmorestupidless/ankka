@@ -15,6 +15,7 @@ Feature: Testing what a consumer publishes
       | python     |
       | typescript |
       | rust       |
+      | go         |
 
   Scenario Outline: a test reads back every message a consumer published and the key each named
     Given a consumer written in "<language>" whose handler publishes several messages for a change
@@ -27,6 +28,7 @@ Feature: Testing what a consumer publishes
       | python     |
       | typescript |
       | rust       |
+      | go         |
 
   Scenario: a test of a whole service reads each published delta with its key
     Given a service with a consumer that publishes deltas

@@ -289,6 +289,22 @@ Then on crates.io, the crate's settings → Trusted Publishing → GitHub: owner
 repository `ankka`, workflow `release.yml`, environment `crates-io`. From the next tag the job publishes,
 and its guard, which asks crates.io's API (`cargo info` inside the workspace answers from the local package, so it reported every version as published and v0.9.0 uploaded nothing), makes a re-run of a tag finish what a cancelled run left.
 
+**The Go SDK ships as its own repository**, `thinkmorestupidless/ankka-go`, which is the module's path,
+from the release workflow's `sdk-go` job. Go has no registry to upload to: a release is a tag on that
+repository, and the module proxy fetches it the first time anyone asks. The job builds the module alone,
+asks the mirror whether the tag is there (`git ls-remote --tags`; a re-run of a tag then finishes with
+nothing pushed), `git subtree split --prefix sdks/go`s, force-pushes the split to the mirror's `main`
+exactly as `ankka.g8` is pushed, and then pushes the tag **without `-f` and without `--force`**. It ends
+by asking the proxy for the version from an empty module, six attempts a minute apart, and running a
+program that must print the version from `Version()`. The module holds no placeholder: `Version()` reads
+the version from the build's record of its dependencies, `0.0.0` in a development build. **A Go tag is
+never moved and never deleted.** The checksum database records what the proxy first served for a version,
+for ever, so a moved tag fails every later download with a checksum mismatch. A broken version is withdrawn
+by a `retract` directive in a later release's `go.mod`. **Before the first tag that carries the SDK**,
+create `thinkmorestupidless/ankka-go` (public, empty, default branch `main`) and give
+`TEMPLATE_REPO_TOKEN` push access to it, as for `ankka.g8`, `ankka-action` and `homebrew-tap`. Until then
+the job fails at its push and every other job of the release is unaffected.
+
 **The console ships twice**: as the `ankka-console` image, beside the other images from the `images` job, and
 as the `ankka-console` npm package from the `console-package` job, which a product builds its own host on. The
 package's version is `0.0.0` in `console/package/package.json`, written from the tag like the SDK's, and its

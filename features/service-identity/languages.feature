@@ -1,6 +1,6 @@
 Feature: An authenticated route in every language
   A route declared authenticated works the same whether the service is written in Scala, Python,
-  TypeScript or Rust, because the platform verifies the token and tells the handler the principal.
+  TypeScript, Rust or Go, because the platform verifies the token and tells the handler the principal.
   A service that declares one and lists no issuer does not start.
 
   Background:
@@ -21,6 +21,7 @@ Feature: An authenticated route in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: an authenticated route challenges a token that does not verify in every language
     Given a service "orders" written in "<language>" that lists the issuer "customers" with the audience "shop"
@@ -37,6 +38,7 @@ Feature: An authenticated route in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a claim reaches the handler by name in every language
     Given a service "orders" written in "<language>" that lists the issuer "customers" with the audience "shop"
@@ -52,6 +54,7 @@ Feature: An authenticated route in every language
       | Rust       |
       | Java       |
       | Kotlin     |
+      | Go         |
 
   Scenario Outline: a service with an authenticated route and no issuer listed does not start
     Given a service "orders" written in "<language>" that lists no issuer
@@ -65,6 +68,7 @@ Feature: An authenticated route in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Go         |
 
   Scenario: a service written in Scala with an authenticated route and no issuer listed does not start
     Given a service "orders" written in "Scala" that lists no issuer

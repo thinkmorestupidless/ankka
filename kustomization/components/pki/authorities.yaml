@@ -10,6 +10,11 @@ spec:
 # looks for its secret — the opposite of the gateway's local CA, whose Issuer is namespaced for the
 # same reason (see kustomization/overlays/local/local-ca.yaml). Ten years; rotating a root is not
 # something this installation does, and saying so is better than implying it is automatic.
+#
+# `rotationPolicy: Never` is said, not left to the default: since cert-manager 1.18 the default is
+# `Always`, under which any reissue of a root (a changed field, `cmctl renew`, a Secret written again)
+# mints a new key, and every certificate the root signed stops verifying until it renews — for the
+# workloads, a day of refused handshakes. A root's key is the one thing a reissue must keep.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -24,6 +29,7 @@ spec:
     algorithm: RSA
     size: 4096
     encoding: PKCS8
+    rotationPolicy: Never
   issuerRef:
     name: ankka-selfsigned
     kind: ClusterIssuer
@@ -43,6 +49,7 @@ spec:
     algorithm: RSA
     size: 4096
     encoding: PKCS8
+    rotationPolicy: Never
   issuerRef:
     name: ankka-selfsigned
     kind: ClusterIssuer

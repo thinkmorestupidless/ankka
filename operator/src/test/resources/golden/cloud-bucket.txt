@@ -22,7 +22,8 @@
     "privateKey" : {
       "algorithm" : "RSA",
       "size" : 2048,
-      "encoding" : "PKCS8"
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Never"
     },
     "isCA" : true,
     "secretName" : "ankka-db-client-ca"

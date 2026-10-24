@@ -399,6 +399,16 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
       )
       val names = a.collect { case Action.EnsureCertificate(c) => c.getMetadata.getName }.toSet
       assert(Set("ankka-db-client-ca", "ankka-db-replication").subsetOf(names), names.toString)
+      // The authority keeps its key through a reissue; the replication certificate rotates its own.
+      def rotationPolicy(name: String) =
+        a.collectFirst {
+          case Action.EnsureCertificate(c) if c.getMetadata.getName == name =>
+            val spec = c.getAdditionalProperties.get("spec").asInstanceOf[java.util.Map[?, ?]]
+            Option(spec.get("privateKey").asInstanceOf[java.util.Map[?, ?]].get("rotationPolicy"))
+              .map(_.toString)
+        }.flatten
+      assertEquals(rotationPolicy("ankka-db-client-ca"), Some("Never"))
+      assertEquals(rotationPolicy("ankka-db-replication"), None)
       val cluster = a
         .collectFirst { case Action.EnsureCluster(c) => c.getSpec }
         .getOrElse(fail(s"no cluster for $plan"))

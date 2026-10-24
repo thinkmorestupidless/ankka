@@ -130,3 +130,13 @@ delete, wait for no pods, apply.
   k3s container), and a partition test is `iptables` — `MultiNodeClusterSuite` does both.
 - **Several actor systems serving TLS in one test JVM collide on remoting** unless they are
   `pekko.actor.provider = local`; `TlsServing` (http's test sources) says so for the callees it starts.
+- **Every authority says `rotationPolicy: Never`; a leaf certificate never does.** cert-manager 1.18
+  made `Always` the default, and the component runs 1.21: a root reissued for any reason (a changed
+  spec field, `cmctl renew`, its Secret written again) then has a new key, and everything it signed
+  stops verifying until it renews — a day of refused handshakes for the installation's two roots, and
+  for a project's database authority CNPG's `generating streaming replication client certificate: …
+  certificate signed by unknown authority` (issue #169, seen on a cold k3s cluster). The four roots
+  (`ankka-cluster-ca`, `ankka-service-ca`, the local gateway's `ankka-root-ca`, each project's
+  `ankka-db-client-ca`) say `Never`; `RemoteOverlaySuite` and `ZeroTrustRenderingSuite` hold it. Adding
+  the field reissues nothing: cert-manager reissues on the subject, names, usages, duration, `isCA` and
+  `issuerRef`, not on the key policy. (2026-10-24)

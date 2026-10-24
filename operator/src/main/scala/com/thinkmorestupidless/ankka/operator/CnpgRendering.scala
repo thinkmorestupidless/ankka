@@ -249,7 +249,14 @@ object CnpgRendering:
       "algorithm" -> "RSA",
       "size"      -> Integer.valueOf(2048),
       "encoding"  -> "PKCS8"
-    ).asJava
+    )
+    // A root keeps its key through a reissue. cert-manager's default since 1.18 is `Always`, under
+    // which a reissued authority has a new key and every certificate it signed — each service's
+    // database certificate, and CNPG's own replication certificate — stops verifying until it renews;
+    // CNPG then reports `generating streaming replication client certificate: ... certificate signed
+    // by unknown authority` (issue #169). Leaf certificates keep the default: a new key each day is
+    // the point of rotating them.
+    val rootKey = (rsa + ("rotationPolicy" -> "Never")).asJava
     Vector(
       resource(
         "Certificate",
@@ -259,7 +266,7 @@ object CnpgRendering:
           "commonName" -> s"ankka database authority ($namespace)",
           "secretName" -> clientCaName,
           "duration"   -> "87600h",
-          "privateKey" -> rsa,
+          "privateKey" -> rootKey,
           "issuerRef"  -> issuerRef("ankka-selfsigned", "ClusterIssuer")
         )
       ),
@@ -278,7 +285,7 @@ object CnpgRendering:
           "usages"      -> List("client auth").asJava,
           "duration"    -> ZeroTrust.Duration,
           "renewBefore" -> ZeroTrust.RenewBefore,
-          "privateKey"  -> rsa,
+          "privateKey"  -> rsa.asJava,
           "issuerRef"   -> issuerRef(ZeroTrust.Database.Issuer, "Issuer")
         )
       )

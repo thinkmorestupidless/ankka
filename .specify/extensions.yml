@@ -1,8 +1,18 @@
 installed:
 - bdd
+- review
 settings:
   auto_execute_hooks: true
 hooks:
+  after_implement:
+  - extension: review
+    command: speckit.review
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.review?
+    description: Review the branch before the pull request, with a fresh context; fix or answer the findings
+    condition: null
   after_specify:
   - extension: bdd
     command: speckit.bdd.features

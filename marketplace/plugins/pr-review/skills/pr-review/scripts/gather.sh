@@ -144,6 +144,25 @@ if [ -d .claude/rules ]; then while IFS= read -r r; do rules+=("$r"); done < <(l
 instructions=()
 for f in CLAUDE.md AGENTS.md CONTRIBUTING.md ../CLAUDE.md ../CLAUDE.local.md; do [ -e "$f" ] && instructions+=("$f"); done
 
+# The repository's own review checklist: REVIEW.md at the root and in any directory above a changed
+# file. Its optional "## pr-review" section names bundled checklists to skip and skills to load.
+: > "$out/review-files.txt"
+[ -e REVIEW.md ] && echo REVIEW.md >> "$out/review-files.txt"
+while IFS=$'\t' read -r _ _ path; do
+  [ -z "${path:-}" ] && continue
+  d="$(dirname "$path")"
+  while [ "$d" != . ] && [ "$d" != / ]; do
+    if [ -e "$d/REVIEW.md" ] && ! grep -qxF "$d/REVIEW.md" "$out/review-files.txt"; then echo "$d/REVIEW.md" >> "$out/review-files.txt"; fi
+    d="$(dirname "$d")"
+  done
+done < "$out/numstat.txt"
+
+# A project or personal skill named like a bundled language skill replaces it.
+own_skills=()
+for d in .claude/skills/pr-review-*/ "${HOME:-/nonexistent}"/.claude/skills/pr-review-*/; do
+  [ -e "${d}SKILL.md" ] && own_skills+=("${d%/}")
+done
+
 {
   echo "# Review input: ${target:-working tree}"
   echo
@@ -183,6 +202,14 @@ for f in CLAUDE.md AGENTS.md CONTRIBUTING.md ../CLAUDE.md ../CLAUDE.local.md; do
     done
     echo "Read the sections about the diff's subject and grep each matching file for the identifiers the diff touches; skim the rest."
   fi
+  if [ -s "$out/review-files.txt" ]; then
+    echo "Review checklist of the repository's own (apply its items; its '## pr-review' lines below say what to skip or load):"
+    while IFS= read -r r; do
+      echo "- $r ($(wc -l < "$r" | tr -d ' ') lines)"
+      awk '/^## pr-review/{f=1;next} /^## /{f=0} f && /^- *(skip|load):/' "$r" | sed 's/^/  /'
+    done < "$out/review-files.txt"
+  fi
+  [ "${#own_skills[@]}" -gt 0 ] && { echo "Skills of the repository's or the user's own that replace the bundled language skill of the same name:"; printf -- '- %s\n' "${own_skills[@]}"; }
   [ "${#tooling[@]}" -gt 0 ] && { echo "Tooling configuration (what it enforces is not reviewed by hand):"; printf -- '- %s\n' "${tooling[@]}"; }
   echo
   echo "## Files"

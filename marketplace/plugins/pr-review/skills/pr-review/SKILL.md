@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Review a pull request, a branch, a commit range or the working tree the way a careful senior engineer would — read the description, judge whether the change should exist, read every line with the general checklist (correctness, design and scope, error handling, concurrency, security, data and migrations, performance, tests, observability, API compatibility, dependencies, docs, commit hygiene), then detect the languages in the diff and apply each language's own checklist (pr-review-scala, pr-review-java, pr-review-kotlin, pr-review-go, pr-review-python, pr-review-rust, pr-review-typescript), and report findings labelled by severity with a verdict. Use this whenever asked to review, check, critique, audit or give feedback on a PR, a diff, a branch, "my changes", a merge request or someone's commit, even when the word "review" is not used, and before approving or merging anything. Do not use it to fix code or to review a design document with no diff.
+description: Review a pull request, a branch, a commit range or the working tree the way a careful senior engineer would — read the description, judge whether the change should exist, read every line with the general checklist (correctness, design and scope, error handling, concurrency, security, data and migrations, performance, tests, observability, API compatibility, dependencies, docs, commit hygiene), then detect the languages in the diff and apply each language's own checklist (pr-review-scala, pr-review-java, pr-review-kotlin, pr-review-go, pr-review-python, pr-review-rust, pr-review-typescript), and report findings labelled by severity with a verdict. The repository's own rules come first: its CLAUDE.md and rule files, a REVIEW.md as its review checklist, and a pr-review-<language> skill of its own in place of the bundled one. Use this whenever asked to review, check, critique, audit or give feedback on a PR, a diff, a branch, "my changes", a merge request or someone's commit, even when the word "review" is not used, and before approving or merging anything. Do not use it to fix code or to review a design document with no diff.
 ---
 
 # Reviewing a pull request
@@ -59,6 +59,13 @@ keep a short list of what applies to the files in the diff:
   sections whose headings concern what the diff changes, and grep the file for the identifiers,
   settings and component names in the diff; skim the rest. If the project asks that new traps be
   written down (many do), ask whether this change learned one and whether it was recorded.
+- `REVIEW.md` at the root and in any directory above a changed file (the summary lists them).
+  This is the repository's own review checklist, written for whoever reviews: a person, this
+  skill, or a hosted review service that reads the same file. Apply its items as you apply the
+  groups below, and cite it as the source of a finding it predicts. A `## pr-review` section in
+  it, when present, controls this skill: `- skip: pr-review-<language>` drops a bundled language
+  skill, `- skip: general/<Group>` drops one group of step 5, `- load: <skill>` loads a skill of the
+  project's or the user's own as well. See "Customising the review" below.
 - Formatter and linter configuration (`.scalafmt.conf`, `.editorconfig`, `ruff`/`mypy` sections of
   `pyproject.toml`, `.golangci.yml`, `eslint.config.*`, `tsconfig.json`, `clippy.toml`, Gradle or
   Maven plugin blocks). Note what is enforced mechanically so the review never comments on it.
@@ -87,8 +94,16 @@ build files it found.
 
 If the user names a language, use that skill whether or not the extensions agree, and say so in
 the report. A diff in several languages gets every matching skill; the general checklist runs once.
-Load a language skill with the Skill tool (`pr-review-scala` and so on) before reading that
+Load a language skill with the Skill tool (`pr-review-scala` and so on; installed from a
+marketplace the bundled skills are listed as `pr-review:pr-review-scala`) before reading that
 language's files, so its rules are in front of you while you read, not recalled afterwards.
+
+**A skill of the repository's own replaces a bundled one.** Before loading `pr-review-<language>`
+from this plugin, look for `.claude/skills/pr-review-<language>/SKILL.md` in the repository, then in
+`~/.claude/skills/`; the summary from step 1 lists any it found. When one exists, load that instead
+(the Skill tool lists it under its plain name, the bundled one under the plugin's) and say so in the
+report's Checks applied. A `- skip:` line in `REVIEW.md` drops a bundled skill with no replacement;
+a `- load:` line adds a skill beside the bundled ones.
 
 ### 4. Understand the change before judging it
 
@@ -335,6 +350,34 @@ Post to GitHub only when asked. Then:
 
 Whether or not anything was posted, remove the ref the gather script created
 (`git update-ref -d refs/pr-review/N`; the summary prints the exact command).
+
+## Customising the review
+
+A repository shapes this review without forking it, in three layers, each of which beats the one
+below and all of which beat this skill:
+
+1. **Its instruction and rule files.** `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md` and the rest
+   of step 2 are always read, and a rule they state overrules any item here. Nothing to configure.
+2. **`REVIEW.md`.** The repository's own review checklist, in prose or as a list, at the root and
+   in any directory that wants more (a `migrations/REVIEW.md` for its schema rules). Its items are
+   applied beside the general checklist. An optional `## pr-review` section says what of this
+   plugin not to use:
+
+   ```markdown
+   ## pr-review
+   - skip: pr-review-typescript        # the repository has its own TypeScript rules below
+   - skip: general/Commit and PR hygiene
+   - load: acme-review-rules           # a project or personal skill, loaded as well
+   ```
+
+   A hosted review service that reads `REVIEW.md` sees the same checklist and ignores the section.
+3. **Same-named skills.** A project or personal skill named `pr-review-<language>` replaces the
+   bundled one for that language, for a team whose rules for one language are its own. Keep the
+   bundled skill's shape (detect the dialect, what tooling enforces, the checklist by harm,
+   severity hints) so the orchestrator's steps still apply.
+
+A repository that wants a different procedure altogether writes its own orchestrator skill and does
+not install this one; the language skills can still be loaded from it by name.
 
 ## How a reviewer goes wrong
 

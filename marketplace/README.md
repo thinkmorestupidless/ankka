@@ -29,7 +29,10 @@ touches (`pr-review-scala`, `pr-review-java`, `pr-review-kotlin`, `pr-review-go`
 `pr-review-rust`, `pr-review-typescript`) and reports findings labelled by severity with a verdict. Each
 language skill says how to detect the dialect or version, what the language's tooling already enforces
 so the review never repeats the compiler or linter, and carries its full sourced checklist under
-`references/`.
+`references/`. A repository customises the review without forking it: its `CLAUDE.md` and rule files
+are read first and overrule the skills; a `REVIEW.md` is its own review checklist, whose `## pr-review`
+section can skip a bundled checklist or load a further skill; and a project or personal skill named
+`pr-review-<language>` replaces the bundled one.
 
 The `satisfactory` plugin carries the documentation of
 [satisfactory](https://satisfactory.ankka.cloud/), constraint solving as a service built on ankka, as

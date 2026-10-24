@@ -1,0 +1,32 @@
+schema_version: "1.0"
+
+extension:
+  id: review
+  name: "Review before the pull request"
+  version: "0.1.0"
+  description: "After implement, a reviewer with a fresh context reads the branch against the repository's rules and the pr-review checklists; every finding is fixed or answered, and the outcome is recorded for the pull request."
+  author: thinkmorestupidless
+  repository: https://github.com/thinkmorestupidless/ankka
+  license: Apache-2.0
+
+requires:
+  speckit_version: ">=0.14.0"
+  tools:
+    - name: claude
+      required: true
+
+provides:
+  commands:
+    - name: speckit.review
+      file: commands/speckit.review.md
+      description: "Review the implemented branch before its pull request, with a fresh context, and act on the findings"
+
+hooks:
+  after_implement:
+    command: speckit.review
+    optional: false
+    description: "Review the branch before the pull request, with a fresh context; fix or answer the findings"
+
+tags:
+  - "review"
+  - "code-review"

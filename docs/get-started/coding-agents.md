@@ -62,7 +62,9 @@ The same marketplace carries `pr-review`, code review as skills, which needs not
 `/plugin install pr-review@ankka`. It reviews a pull request, branch or working tree against a general
 checklist and then against the checklist of each language the change touches (Scala, Java, Kotlin, Go,
 Python, Rust, TypeScript), reading the repository's own instructions and rule files first, and reports
-findings labelled by severity with a verdict.
+findings labelled by severity with a verdict. A repository customises it without forking it: a
+`REVIEW.md` is its own review checklist, and a project or personal skill named `pr-review-<language>`
+replaces the bundled one for that language.
 
 ## The MCP server
 

@@ -24,6 +24,7 @@ ankka-shop
     "privateKey" : {
       "algorithm" : "RSA",
       "encoding" : "PKCS8",
+      "rotationPolicy" : "Never",
       "size" : 2048
     },
     "secretName" : "ankka-db-client-ca"

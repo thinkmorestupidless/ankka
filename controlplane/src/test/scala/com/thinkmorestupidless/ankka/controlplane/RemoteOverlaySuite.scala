@@ -445,6 +445,13 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
           roots.exists(d => d.contains(s"name: $root") && d.contains("namespace: cert-manager")),
           s"$name: no root $root in cert-manager's namespace, where a ClusterIssuer looks"
         )
+      // Every root keeps its key through a reissue: cert-manager's default since 1.18 is `Always`,
+      // under which a reissued root orphans every certificate it signed until each renews.
+      for root <- roots do
+        assert(
+          root.contains("rotationPolicy: Never"),
+          s"$name: a root without rotationPolicy: Never:\n$root"
+        )
       val bundle = documentsOfKind(render, "Bundle").find(_.contains("name: ankka-service-ca"))
       assert(bundle.exists(_.contains("app.kubernetes.io/managed-by: ankka")), s"$name: $bundle")
       assert(

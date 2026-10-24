@@ -32,6 +32,7 @@ spec:
   privateKey:
     algorithm: ECDSA
     size: 256
+    rotationPolicy: Never # a root keeps its key through a reissue (see pki/authorities.yaml)
   issuerRef:
     name: selfsigned
     kind: Issuer

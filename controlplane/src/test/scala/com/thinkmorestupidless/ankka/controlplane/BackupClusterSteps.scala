@@ -539,29 +539,29 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
       line(project).exists(l => l.phase == "backing up" && l.lastBaseBackup.isDefined)
     }
 
-  /** Asks the store's administration API to refuse or allow a key on a bucket. */
+  /**
+   * Asks the store to refuse or allow writes to a bucket: a size quota of one byte, through the
+   * administration API. Not by denying the backup key: the operator's credential pass re-allows its
+   * own key on every pass (`StorageCredential.ensure`), so a denial was undone within this suite's
+   * five-second resync, and three nights in nine the archive never saw it (`ContinuousArchiving`
+   * stayed `True` through the five-minute wait).
+   */
   protected def permit(bucket: String, allowed: Boolean): Unit =
-    val info = admin.bucket(bucket).getOrElse(fail(s"no bucket $bucket"))
-    val keys = admin.keysNamed(bucket)
-    assert(keys.nonEmpty, s"no key named $bucket")
-    val http = HttpClient.newHttpClient()
-    for key <- keys do
-      val body =
-        s"""{"bucketId":"${info.id}","accessKeyId":"$key","permissions":{"read":true,"write":true,"owner":false}}"""
-      val response = http.send(
-        HttpRequest
-          .newBuilder(
-            URI.create(
-              s"${store.settings.adminUrl}/v2/${if allowed then "Allow" else "Deny"}BucketKey"
-            )
-          )
-          .header("Authorization", s"Bearer ${store.settings.adminToken}")
-          .header("Content-Type", "application/json")
-          .POST(HttpRequest.BodyPublishers.ofString(body))
-          .build(),
-        HttpResponse.BodyHandlers.ofString()
-      )
-      assertEquals(response.statusCode(), 200, response.body())
+    val info   = admin.bucket(bucket).getOrElse(fail(s"no bucket $bucket"))
+    val http   = HttpClient.newHttpClient()
+    val quotas =
+      if allowed then """{"maxSize":null,"maxObjects":null}"""
+      else """{"maxSize":1,"maxObjects":null}"""
+    val response = http.send(
+      HttpRequest
+        .newBuilder(URI.create(s"${store.settings.adminUrl}/v2/UpdateBucket?id=${info.id}"))
+        .header("Authorization", s"Bearer ${store.settings.adminToken}")
+        .header("Content-Type", "application/json")
+        .POST(HttpRequest.BodyPublishers.ofString(s"""{"quotas":$quotas}"""))
+        .build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    assertEquals(response.statusCode(), 200, response.body())
 
   protected def gauge(name: String, project: String): Option[Double] =
     Gauges.global.snapshot(name).collectFirst {

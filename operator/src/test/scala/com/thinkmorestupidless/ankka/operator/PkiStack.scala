@@ -53,18 +53,28 @@ object PkiStack:
 
   /** Runs `kubectl` on the node; fails loudly with its stderr. */
   def kubectl(k3s: K3sContainer, args: String*): String =
-    val result = k3s.execInContainer(("kubectl" +: args)*)
+    val result = exec(k3s, 5.minutes, ("kubectl" +: args)*)
     if result.getExitCode != 0 then
       throw new AssertionError(s"kubectl ${args.mkString(" ")} failed: ${result.getStderr}")
     result.getStdout
 
   def jsonPath(k3s: K3sContainer, args: String*): String =
-    k3s
-      .execInContainer(
-        (Vector("kubectl", "get") ++ args.dropRight(1) ++ Vector("-o", s"jsonpath=${args.last}"))*
-      )
-      .getStdout
-      .trim
+    exec(
+      k3s,
+      1.minute,
+      (Vector("kubectl", "get") ++ args.dropRight(1) ++ Vector("-o", s"jsonpath=${args.last}"))*
+    ).getStdout.trim
+
+  /**
+   * A command in the node container that cannot run for longer than `bound`. `execInContainer`
+   * itself has no deadline, and a `kubectl exec` whose stream into a pod stalls blocks the test
+   * thread for good: `SidecarClusterSuite`'s rollout loop once sat eighteen minutes in one `curl`
+   * whose own `-m 10` had long passed, since curl's bound is the request's and not the exec's
+   * (issue #82). The node's `timeout` (coreutils, in the k3s image) ends it: exit 124, and a `kill`
+   * five seconds later if it ignores the TERM. Every helper that enters the node goes through here.
+   */
+  def exec(k3s: K3sContainer, bound: FiniteDuration, args: String*) =
+    k3s.execInContainer((Vector("timeout", "-k", "5", bound.toSeconds.toString) ++ args)*)
 
   private def applyFile(k3s: K3sContainer, file: Path): Unit =
     if !applyFileOnce(k3s, file) then throw new AssertionError(s"applying $file failed")
@@ -169,6 +179,10 @@ object InPod:
    *
    * `timings` adds curl's connect, TLS, first-byte and total times to the body, so a failure says
    * where the time went: a stalled connection, or a server that accepted and never answered.
+   *
+   * Bounded twice: curl gives up on the request after `maxSeconds`, and the exec that carries it is
+   * ended twenty seconds later if the stream into the pod has stalled, as status 0 with the node's
+   * message ([[PkiStack.exec]]). A case that loops over requests therefore meets its own deadline.
    */
   def curl(
       k3s: K3sContainer,
@@ -206,7 +220,7 @@ object InPod:
         "-w",
         if timings then s"\n%{http_code} $Timings" else "\n%{http_code}"
       ) ++ tls ++ payload :+ url
-    val result = k3s.execInContainer(args*)
+    val result = PkiStack.exec(k3s, (maxSeconds + 20).seconds, args*)
     val out    = result.getStdout
     val lines  = out.split("\n", -1).toVector
     val last   = lines.lastOption.map(_.trim).getOrElse("")
